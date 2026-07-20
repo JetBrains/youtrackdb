@@ -45,7 +45,7 @@ import org.junit.rules.Timeout;
 public class SchemaDeguardTest extends DbTestBase {
 
   /**
-   * OBS-12a: the index-membership fold on a class rejects an unresolvable collection id loudly.
+   * The index-membership fold on a class rejects an unresolvable collection id loudly.
    * {@code resolveCollectionNameById} is nullable by contract (an unknown committed id answers
    * null), and folding that null onward would persist a null placeholder into every class
    * index's covered set at commit — the silent-corruption family every other resolver consumer
@@ -442,7 +442,8 @@ public class SchemaDeguardTest extends DbTestBase {
    * Creating an index inside a transaction whose name already exists in the shared registry is
    * rejected loudly, matching the legacy top-level contract. The earlier deferred shape (pinned by
    * this test's previous incarnation as an explicitly provisional contract) silently last-wins
-   * overwrote the pending definition in the overlay's create category — the OBS-8 gap — so the
+   * overwrote the pending definition in the overlay's create category — the silent last-wins
+   * gap — so the
    * in-tx branch now carries the same duplicate-name guard as the committed branch. Both halves
    * stay pinned: the legacy path throws, and the in-transaction path throws the same
    * IndexException while leaving the shared registry untouched, seeding no tx-local schema state
@@ -1323,7 +1324,7 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
-   * The SQL CREATE INDEX statement's existence precheck is overlay-aware (BG104): a repeated
+   * The SQL CREATE INDEX statement's existence precheck is overlay-aware: a repeated
    * same-tx {@code CREATE INDEX … IF NOT EXISTS} must be a silent no-op, because the tx-created
    * name reads as existing in the transaction's view. A committed-only precheck missed the
    * tx-created name and fell through to the manager's duplicate-name guard, turning the
@@ -1351,7 +1352,7 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
-   * The statement-layer half of the drop-then-recreate replace flow (BG104): after an in-tx DROP
+   * The statement-layer half of the drop-then-recreate replace flow: after an in-tx DROP
    * INDEX, a SQL {@code CREATE INDEX} of the same name must pass the statement's existence
    * precheck (the tx-dropped name reads as absent in the transaction's view) and reach the
    * manager's replace flow. A committed-only precheck still saw the registry entry (it survives
@@ -1384,13 +1385,15 @@ public class SchemaDeguardTest extends DbTestBase {
 
   /**
    * The committed-only involved-index lookups hide an index dropped inside the open transaction
-   * (the OBS-7 gap): a tx-dropped index keeps its live engine and committed-registry entry until
+   * (the stale-accelerator gap): a tx-dropped index keeps its live engine and committed-registry
+   * entry until
    * commit, but ClassIndexManager stops maintaining it at drop time, so any consumer that still
    * resolves it through {@code getClassInvolvedIndexes}/{@code areIndexed} (the MATCH planner and
    * the out()/in() supernode shortcut) would read a stale engine and miss the transaction's own
    * post-drop writes. Mid-tx after DROP INDEX all three lookup shapes must hide the dropped index;
    * after rollback the committed view is restored. Tx-created indexes stay invisible in these
-   * lookups per the adjudicated D13 design — this fix is hide-only.
+   * lookups per the adjudicated design (a tx-created index is not query-usable until commit) —
+   * this fix is hide-only.
    */
   @Test
   public void involvedIndexLookupsHideTxDroppedIndex() {
@@ -1426,7 +1429,7 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
-   * A same-transaction duplicate CREATE INDEX must fail loudly (the OBS-8 silent last-wins gap):
+   * A same-transaction duplicate CREATE INDEX must fail loudly (the silent last-wins gap):
    * the overlay's create category is a plain map put, so without a guard the second create
    * silently discarded the first definition — no error at execute or commit time. The guard
    * mirrors the committed branch's duplicate-name rejection.

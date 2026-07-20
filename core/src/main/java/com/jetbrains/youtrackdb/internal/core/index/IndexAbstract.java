@@ -88,7 +88,7 @@ public abstract class IndexAbstract implements Index {
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
-  // Volatile: the D17 class-rename re-association swaps this reference on a LIVE, already
+  // Volatile: the class-rename re-association swaps this reference on a LIVE, already
   // published index (installReassociatedMetadataAtCommit), and getName()/getDefinition()/
   // getMetadata() read it lock-free — without volatile those readers have no happens-before edge
   // to the write-locked swap and could observe IndexMetadata's non-final fields (version,
@@ -264,7 +264,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   /**
-   * Builds the replacement {@link IndexMetadata} of the D17 class-rename re-association: a private
+   * Builds the replacement {@link IndexMetadata} of the commit-only class-rename re-association: a private
    * copy of this index's metadata whose definition (recursing composites) carries
    * {@code newClassName}. The copy's definition is rebuilt through the same reflective
    * {@code toMap}/{@code fromMap} round trip the loader uses, so no reader-visible object is
@@ -306,7 +306,7 @@ public abstract class IndexAbstract implements Index {
 
   /**
    * Writes this committed index's metadata record from the given replacement metadata into the
-   * commit transaction (the durable half of the D17 class-rename re-association, run in the enroll
+   * commit transaction (the durable half of the class-rename re-association, run in the enroll
    * phase so the record joins the working set). The in-memory metadata is NOT touched here — a
    * failed commit's record write reverts with the rolled-back atomic operation and there is then
    * nothing in memory to undo; the in-memory swap happens in the publish phase
@@ -324,7 +324,7 @@ public abstract class IndexAbstract implements Index {
 
   /**
    * Installs the replacement metadata built by {@link #buildClassReassociatedMetadata} — the
-   * in-memory half of the D17 re-association, run in the publish phase after the records are
+   * in-memory half of the rename re-association, run in the publish phase after the records are
    * durable. A single reference swap of a never-shared, fully-built object: readers observe
    * either the old metadata (old class name, fully consistent) or the new one, never a torn mix.
    */
@@ -1065,7 +1065,7 @@ public abstract class IndexAbstract implements Index {
 
   /**
    * The record-serialization body of {@link #save}, parameterized on the metadata to serialize so
-   * the D17 class-rename re-association can write the record from a replacement metadata object
+   * the class-rename re-association can write the record from a replacement metadata object
    * WITHOUT installing it in memory first (the record write must revert with a failed commit
    * while the in-memory install is deferred to the publish phase).
    *

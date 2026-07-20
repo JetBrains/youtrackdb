@@ -64,7 +64,7 @@ public interface IndexDefinition extends IndexCallback {
   String getClassName();
 
   /**
-   * Re-associates this definition with a renamed class (the D17 commit-only class-rename
+   * Re-associates this definition with a renamed class (the commit-only class-rename
    * re-association), recursing into composed sub-definitions. Must only be called on objects no
    * concurrent reader can observe — a freshly built replacement copy about to be published, or a
    * transaction-private deferred handle's definition — never on a definition already reachable

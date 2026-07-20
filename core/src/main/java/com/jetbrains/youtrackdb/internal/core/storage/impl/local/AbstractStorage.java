@@ -2809,7 +2809,8 @@ public abstract class AbstractStorage
           // either arm (a missing bag on decrement, or a linkset entry the enroll already
           // removed). Empirically forced, not preemptive: deleting a dropped class's per-class
           // record during toStream tripped LinksConsistencyException on the root's classes
-          // linkset (Track 4). The window is minimal — user-record link checks complete at commit
+          // linkset when the commit-time schema promotion first landed. The window is minimal —
+          // user-record link checks complete at commit
           // entry, before this window opens.
           //
           // Capture and restore the prior flag rather than forcing it back on: a schema-carry
@@ -8481,7 +8482,7 @@ public abstract class AbstractStorage
   /**
    * Resolves the null-key sub-{@link IndexesSnapshot} for an index engine by its name.
    * Currently used only by test infrastructure for snapshot cleanup; reserved for
-   * future null-key tree GC support (Track 2).
+   * future null-key tree GC support.
    *
    * <p><b>Warning:</b> This method acquires {@code stateLock.readLock()}. It must
    * not be called while holding a BTree component lock, as this would create a

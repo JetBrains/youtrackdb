@@ -20,7 +20,8 @@ import org.junit.Test;
  * classPropertyIndex} key, storage-configuration engine entry, engine files, and the per-index
  * entity record — exactly as the non-transactional path does eagerly through {@code
  * dropClassIndexes}. Before this reconciliation the tx-local drop branch recorded no index drops
- * into the overlay (the Track 5 seam), so the dropped class's indexes survived the commit fully
+ * into the overlay (a commit-reconciliation seam predating the recording), so the dropped
+ * class's indexes survived the commit fully
  * registered but orphaned: unreachable through any class, their engines referencing the dropped
  * class's deleted collections.
  */
@@ -173,7 +174,7 @@ public class TxDropClassIndexReconciliationTest extends DbTestBase {
   }
 
   /**
-   * TQ110: the recording loop enumerates ALL of the dropped class's indexes, not just the first
+   * The recording loop enumerates ALL of the dropped class's indexes, not just the first
    * — a class carrying three indexes (two single-property, one composite UNIQUE) loses every one
    * of them at commit, with every engine unregistered.
    */
@@ -208,7 +209,7 @@ public class TxDropClassIndexReconciliationTest extends DbTestBase {
   }
 
   /**
-   * TQ111: the expressible in-transaction class-plus-index-then-drop composition — a tx-created
+   * The expressible in-transaction class-plus-index-then-drop composition — a tx-created
    * SUBCLASS can be indexed on a property inherited from its committed superclass (own property
    * creation is blocked in-tx, inherited ones resolve through the superclass walk). Dropping the
    * subclass in the same transaction cancels the pending create: the commit is clean and nothing
@@ -244,7 +245,7 @@ public class TxDropClassIndexReconciliationTest extends DbTestBase {
   }
 
   /**
-   * TQ112: an explicit {@code DROP INDEX} followed by {@code dropClass} of the owning class in
+   * An explicit {@code DROP INDEX} followed by {@code dropClass} of the owning class in
    * the same transaction is idempotent — the drop-time enumeration excludes already-tx-dropped
    * names, so the index is dropped exactly once and the commit is clean.
    */
@@ -271,7 +272,7 @@ public class TxDropClassIndexReconciliationTest extends DbTestBase {
   }
 
   /**
-   * TQ112: an index NAME freed by a same-transaction class drop can be reused by an index on a
+   * An index NAME freed by a same-transaction class drop can be reused by an index on a
    * DIFFERENT class in the same transaction — the commit's drop-then-create ordering deletes the
    * old engine before the new build registers under the recycled name, and the surviving index
    * belongs to the other class.

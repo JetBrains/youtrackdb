@@ -311,7 +311,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       // A class rename is metadata-only: collection names are generated from a counter alone
       // (c_<counter>, no class-name component) and engine files are keyed by ie_<fileBaseId>
       // stems, so no storage file is touched. What DOES follow the rename is the index
-      // re-association (D17): the class's indexes must re-key from the old to the new class name
+      // re-association: the class's indexes must re-key from the old to the new class name
       // (classPropertyIndex + each definition's className) or they stop accelerating and stop
       // being maintained. On the transactional path the re-association is recorded on the
       // overlay and applied commit-only; on the legacy top-level path it applies eagerly, like

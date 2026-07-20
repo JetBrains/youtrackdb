@@ -27,7 +27,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Pins the D16 wave-A substrate: the persisted, never-reused index-engine file base id
+ * Pins the stable-engine-file-key substrate: the persisted, never-reused index-engine file
+ * base id
  * ({@code IndexEngineData.fileBaseId}), its high-water-mark allocator with the persisted floor,
  * the open-time seeding inputs, and the storage-format version gate (v24 reject-and-redirect).
  *
@@ -182,7 +183,7 @@ public class IndexEngineFileBaseIdTest {
    * pushing the mark past the persistable ceiling and bricking index creation; a file with a
    * non-engine extension is ignored even with a plausible stem; and a user collection legally
    * named {@code ie_<digits>} (whose files carry collection extensions) does not pollute the
-   * seed. CS-104/CN-108/BG-105.
+   * seed.
    */
   @Test
   public void sweepIgnoresForeignAndOutOfRangeStems() throws Exception {
@@ -236,7 +237,7 @@ public class IndexEngineFileBaseIdTest {
   /**
    * The failed-commit file-presence check matches only engine-family extensions: a user artifact
    * that shares the {@code ie_<n>} stem but carries a foreign extension must not false-positive
-   * the cleanup arm into a spurious delete attempt (BG-105).
+   * the cleanup arm into a spurious delete attempt.
    */
   @Test
   public void engineFilesPresentMatchesOnlyEngineFamilyExtensions() throws Exception {
@@ -279,9 +280,10 @@ public class IndexEngineFileBaseIdTest {
    * Direct pins for the two failure-path arms of the create-side engine revert that production
    * reaches only through an injected commit fault: (1) a non-B-tree engine (carrying no file
    * base id) is skipped with a warning instead of an assert — an {@code -ea} AssertionError on
-   * this path would mask the primary commit exception (CQ-106); (2) when the config entry under
+   * this path would mask the primary commit exception; (2) when the config entry under
    * the reverted engine's name provably belongs to it (matching fileBaseId), the guarded delete
-   * removes it — the ownership-checked counterpart of the CS-101 mismatch case.
+   * removes it — the ownership-checked counterpart of the name-mismatch (restored-old-engine)
+   * case the drop-and-recreate revert pin covers.
    */
   @Test
   public void revertArmSkipsForeignEnginesAndDeletesOwnedConfigEntry() throws Exception {
@@ -326,7 +328,7 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * CQ-107: the too-big-key rejection is user-facing and must name the index's LOGICAL name, not
+   * The too-big-key rejection is user-facing and must name the index's LOGICAL name, not
    * the internal {@code ie_<fileBaseId>} component stem the engine files are keyed by.
    */
   @Test
@@ -364,7 +366,8 @@ public class IndexEngineFileBaseIdTest {
   /**
    * A rolled-back allocation reverts the persisted floor (it rides the allocating atomic
    * operation) but burns the in-process high-water-mark value, so the next allocation is still
-   * unique — the AD-1 invariant that keeps the in-memory profile's surviving orphan files from
+   * unique — the burn-on-rollback invariant that keeps the in-memory profile's surviving orphan
+   * files from
    * ever colliding with a re-issued id.
    */
   @Test
@@ -378,7 +381,7 @@ public class IndexEngineFileBaseIdTest {
       final var hwmBefore = storage.indexEngineFileBaseIdHwmForTesting();
       assertEquals("precondition: floor and mark agree at rest", floorBefore, hwmBefore);
 
-      // The allocator asserts the exclusive-lock window (AD-9), so the test takes it the same
+      // The allocator asserts the exclusive-lock window, so the test takes it the same
       // way the engine-create paths do.
       storage.stateLock.writeLock().lock();
       try {
@@ -497,7 +500,8 @@ public class IndexEngineFileBaseIdTest {
   /**
    * Dropping and recreating a same-named index allocates a fresh file base id, so the recreated
    * engine's file family lives under a different {@code ie_<n>} stem and can never collide with
-   * any residue of the dropped one — the core D16 regression the stable key exists to prevent.
+   * any residue of the dropped one — the core file-collision regression the stable key exists
+   * to prevent.
    */
   @Test
   public void dropAndRecreateSameNamedIndexGetsFreshFileStems() throws Exception {
@@ -540,7 +544,7 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * AD-10: a schema-carrying commit that fails AFTER the commit window built the engine (all
+   * A schema-carrying commit that fails AFTER the commit window built the engine (all
    * family files booked as WAL-reverted intent in the commit's atomic operation) must revert
    * cleanly: no engine file survives on the disk profile, the burned file base id is never
    * reissued, and a retry of the same-named create succeeds under a fresh stem.
@@ -558,7 +562,7 @@ public class IndexEngineFileBaseIdTest {
 
       // The class and property are committed up front (property creation is not yet
       // transactional); only the index create runs inside the transaction, which is exactly the
-      // commit-window engine build AD-10 targets.
+      // commit-window engine build this pin targets.
       final var cls = session.getMetadata().getSchema().createClass("FbiCrash");
       cls.createProperty("val", PropertyType.STRING);
 
@@ -607,7 +611,7 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * CS-101 regression: a failed schema commit that DROPS and RE-CREATES the same-named index in
+   * A failed schema commit that DROPS and RE-CREATES the same-named index in
    * one transaction, on the IN-MEMORY profile, must leave the old (committed) engine intact in
    * BOTH identity domains — the storage-configuration entry and the in-memory registry. The
    * hazard: the create-side revert's file cleanup runs in a fresh committed atomic operation and
@@ -679,10 +683,10 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * D16 end-goal pin: a class rename touches no engine storage file. The engine's whole file
+   * End-goal pin: a class rename touches no engine storage file. The engine's whole file
    * family is keyed by the stable file base id — not by the index or class name — so the
    * rename leaves the write cache's engine-file set and the engine entry byte-identical.
-   * Complements the collection-side rename pin (D11) in {@code ClassTest.testRename}.
+   * Complements the collection-side rename pin in {@code ClassTest.testRename}.
    */
   @Test
   public void classRenameLeavesEngineFilesUntouched() throws Exception {
@@ -715,7 +719,7 @@ public class IndexEngineFileBaseIdTest {
           storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
               op -> config.getIndexEngine("FbiRenameIdx", -1, op)).getFileBaseId());
 
-      // The transactional rename path (D17's commit-only re-association) is equally file-inert:
+      // The transactional rename path (the commit-only re-association) is equally file-inert:
       // the commit rewrites index METADATA records and re-keys the lookup map, but the engine
       // family stays byte-identical, and the re-associated index still resolves under the final
       // class name.
@@ -734,7 +738,7 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * AD-6: dropping the database removes the engine's whole five-file family from disk —
+   * Dropping the database removes the engine's whole five-file family from disk —
    * {@code .cbt}+{@code .nbt} for the main tree, the {@code $null} variants of both for the
    * multi-value null tree, and the {@code .ixs} histogram. The {@code .nbt} extension was
    * missing from {@code DiskStorage.ALL_FILE_EXTENSIONS}, so null-bucket files used to leak and

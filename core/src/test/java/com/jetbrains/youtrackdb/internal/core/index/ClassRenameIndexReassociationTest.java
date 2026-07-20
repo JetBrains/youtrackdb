@@ -12,17 +12,17 @@ import java.util.List;
 import org.junit.Test;
 
 /**
- * D17 pins: a class rename re-associates the class's indexes as commit-only metadata — the
+ * Pins the commit-only class-rename re-association: a class rename re-keys its indexes — the
  * {@code classPropertyIndex} lookup map re-keys from the old to the new class name and every
  * affected {@code IndexDefinition.className} (recursing composites) is rewritten — so the indexes
  * keep accelerating queries under the new class name. The index's own NAME does not change (the
  * inert index-name rename and {@code ALTER INDEX … RENAME} are deferred to YTDB-1066), and no
- * engine storage file is touched (D16 keys them by {@code ie_<fileBaseId>} stems).
+ * engine storage file is touched (engine files are keyed by {@code ie_<fileBaseId>} stems).
  */
 public class ClassRenameIndexReassociationTest extends DbTestBase {
 
   /**
-   * The load-bearing D17 flow: a committed class with a single-property index and a composite
+   * The load-bearing rename flow: a committed class with a single-property index and a composite
    * index is renamed inside a transaction. Mid-transaction the tx-local view already serves the
    * indexes under the NEW class name and no longer under the old one. After commit the shared
    * {@code classPropertyIndex} serves the new name, every definition (including the composite's
@@ -68,7 +68,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
         indexManager.getClassIndexes(session, "RenIdxOld").isEmpty());
 
     // Every affected definition carries the new class name — including the composite's
-    // sub-definitions (the D17 "recursing composites" clause).
+    // sub-definitions (the re-association recurses into composites).
     var simple = indexManager.getIndex("RenIdxOld.val");
     assertNotNull(simple);
     assertEquals("the definition must carry the new class name",
@@ -173,7 +173,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * BG107 pin: an index created while the class temporarily held a MID-CHAIN name follows the
+   * An index created while the class temporarily held a MID-CHAIN name follows the
    * class to its final name. The deferred handle's definition names the class as it was at
    * creation time ("RenChainMid"), which is neither the pre-tx name nor the final name — only
    * event-time re-association (fixing the handle at each rename) keeps it attached.
@@ -203,7 +203,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * BG108 pin (renamed-away name reused): after renaming committed class A away, a NEW class
+   * Renamed-away name reused: after renaming committed class A away, a NEW class
    * created under the vacated name "A" and renamed again must NOT clobber the committed class's
    * rename entry — committed A's index follows A's class (now B), never the impostor's final
    * name (D).
@@ -232,7 +232,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * BG108 pin (swap-shaped rename): {X→Y, Z→X} in one transaction, plus an index created on the
+   * Swap-shaped rename: {X→Y, Z→X} in one transaction, plus an index created on the
    * post-swap "X" (which is committed Z's class). Every association must land exactly: X's
    * committed index under Y, Z's committed index under X, and the tx-created index under X —
    * with no iteration-order-dependent double-fixup shuffling them.
@@ -270,7 +270,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * BG108 pin (drop purges the rename entry): rename A→B, drop the class (now named B), then
+   * Drop purges the rename entry: rename A→B, drop the class (now named B), then
    * rename committed C→B in the same transaction. The drop must purge A's rename entry, so B
    * ends up owning exactly C's index — not a nondeterministic mix that re-associates the dropped
    * class's index to B.
@@ -301,7 +301,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * BG109 pin: a rename composed with a same-transaction membership ripple (a subclass created
+   * A rename composed with a same-transaction membership ripple (a subclass created
    * under the renamed parent) must keep BOTH durable: the re-associated class name AND the
    * membership addition. The membership persistence rewrites the parent index's record in the
    * same enroll phase, so ordered wrongly it would clobber the re-associated record with the
@@ -343,7 +343,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * TQ107 pin (chained rename): A→B→C in one transaction lands the committed index under the
+   * Chained rename: A→B→C in one transaction lands the committed index under the
    * FINAL name with nothing under the intermediate one.
    */
   @Test
@@ -367,7 +367,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * TQ107 pin (rename-back nets out): A→B→A in one transaction is a no-op for index metadata —
+   * Rename-back nets out: A→B→A in one transaction is a no-op for index metadata —
    * the collapsed rename map drops the entry, and after commit everything still keys under A.
    */
   @Test
@@ -391,7 +391,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * TQ107 pin (multi-class rename in one transaction): two committed classes renamed in the same
+   * Multi-class rename in one transaction: two committed classes renamed in the same
    * transaction each carry their own indexes to their own new names.
    */
   @Test
@@ -418,7 +418,7 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
   }
 
   /**
-   * TQ107 pin (case-only rename): the schema is case-sensitive, so "RenCase" → "RENCASE" is a
+   * Case-only rename: the schema is case-sensitive, so "RenCase" → "RENCASE" is a
    * real rename and the re-association must follow it exactly like any other.
    */
   @Test

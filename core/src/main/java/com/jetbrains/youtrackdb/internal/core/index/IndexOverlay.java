@@ -33,7 +33,7 @@ import javax.annotation.Nullable;
  * carries the deltas a transaction applies to the shared index manager's two lookup maps
  * ({@code indexes} and {@code classPropertyIndex}) without copying either map or the engine-backed
  * {@code Index} objects. An index is a thin handle over a storage-backed engine, so there is no
- * in-memory content to deep-copy the way the schema view (D8) copies {@code SchemaShared}; the
+ * in-memory content to deep-copy the way the tx-local schema view copies {@code SchemaShared}; the
  * overlay holds only the definition-level deltas and the shared manager keeps every committed
  * {@code Index} untouched until commit.
  *
@@ -49,7 +49,7 @@ import javax.annotation.Nullable;
  *   <li><b>tx-dropped</b> — an index dropped inside the transaction. The shared {@code Index} stays
  *       registered (the commit removes it), so the overlay hides the name from the effective set.
  *   <li><b>class rename</b> — a class renamed inside the transaction (old class name &rarr; new
- *       class name). The re-association is commit-only metadata (D17): the commit rewrites every
+ *       class name). The re-association is commit-only metadata: the commit rewrites every
  *       affected definition's {@code className} through replacement objects and re-keys
  *       {@code classPropertyIndex}; no shared {@code Index} is mutated mid-transaction. The
  *       index's own NAME does not change — the inert index-name rename is deferred to YTDB-1066
@@ -162,7 +162,7 @@ public final class IndexOverlay {
   }
 
   /**
-   * Records a class renamed inside the transaction (the D17 commit-only re-association of the
+   * Records a class renamed inside the transaction (the commit-only re-association of the
    * class's indexes). Two things happen here, both at EVENT time because a rename identifies its
    * class unambiguously only at the moment it runs (exactly one tx-local class holds
    * {@code oldName} then):

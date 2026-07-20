@@ -38,7 +38,7 @@ public class DiskStorageFileExtensionsTest {
    * Verifies that the B-tree null-bucket extension (.nbt) is registered in
    * DiskStorage's ALL_FILE_EXTENSIONS array. It was historically missing, so a
    * database drop leaked every engine's null-bucket files on disk and left the
-   * database directory undeletable (AD-6).
+   * database directory undeletable.
    */
   @Test
   public void allFileExtensions_containsNullBucketExtension() {

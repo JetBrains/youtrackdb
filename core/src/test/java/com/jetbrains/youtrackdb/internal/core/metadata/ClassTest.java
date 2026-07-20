@@ -19,7 +19,7 @@ public class ClassTest extends BaseMemoryInternalDatabase {
    * Verifies that renaming a class is metadata-only at the storage-file level: collection names
    * are counter-only ({@code c_<counter>}, no class-name component), so the class's collection
    * file keeps its exact name across renames — no file is renamed, created, or dropped. The
-   * pre-D11 behavior renamed the collection file through the non-WAL-safe
+   * previous class-derived-name behavior renamed the collection file through the non-WAL-safe
    * {@code writeCache.renameFile} path, which a crash could leave half-renamed; this pins its
    * removal. Data written before the rename must stay reachable through the renamed class.
    */
