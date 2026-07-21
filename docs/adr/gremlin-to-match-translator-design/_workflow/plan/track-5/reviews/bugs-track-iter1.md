@@ -18,7 +18,7 @@ flags: [CONTRACT_OK, MCP_STEROID_UNAVAILABLE]
 
 GATE VERDICT: PASS
 
-Track-level bugs review (76e42c957a..HEAD). Main-agent review (Auto); diff read + source inspection.
+Track-level bugs review (46be89e5b0..HEAD). Main-agent review (Auto); diff read + source inspection.
 
 ## Findings
 
