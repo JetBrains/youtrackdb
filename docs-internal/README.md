@@ -1,7 +1,8 @@
 # YouTrackDB Internal Documentation
 
 Project-internal documentation for contributors and agents: the development
-workflow, role guidelines, and the architecture-decision archive. User-facing
+workflow, role guidelines, the architecture-decision archive, and backlog notes
+for proposed follow-up changes. User-facing
 product documentation lives in the [user documentation index](../docs/README.md).
 
 ## Table of Contents

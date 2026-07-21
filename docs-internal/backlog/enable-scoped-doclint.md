@@ -30,8 +30,9 @@ profile. The `reference` doclint category would automate exactly this validation
 
 ## Proposed plan
 
-1. Fix the ~43 `syntax,reference` errors in `core` (triage by file;
-   `CronExpression.java` first).
+1. Triage the 43 `syntax,reference` errors in `core` by file first, then fix them
+   (`CronExpression.java` carried about half of the all-category errors in the probe,
+   but its share of the `syntax,reference` subset was not measured).
 2. Set `<doclint>syntax,reference</doclint>` in the root pom pluginManagement.
 3. Wire a PR-CI step running per-module `compile javadoc:javadoc` so violations gate
    PRs, not only the weekly release.
