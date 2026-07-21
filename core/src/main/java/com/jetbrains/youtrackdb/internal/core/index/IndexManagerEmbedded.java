@@ -248,6 +248,19 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // return true so the caller skips the eager shared apply too.
       return true;
     }
+    if (session.isReloadingSchema()) {
+      // SchemaShared.reload is re-parsing the COMMITTED schema in place under the schema write
+      // lock, inside its own executeInTx: its fromStream inheritance rebuild ripples a subclass's
+      // collection into every indexed superclass and lands here, exactly like the copyForTx seed
+      // above. The ripple reconstructs already-committed membership — durably persisted on the
+      // index-manager records by the commit that created the subclass — so it is not a schema
+      // write and there is no user tx-local view to maintain. Seeding the tx-local state here
+      // would engage the metadata-write mutex UNDER SchemaShared.lock, tripping the engage-order
+      // guard (and, were the order guard absent, parking the reload on the mutex behind a
+      // concurrent schema transaction while it holds the schema write lock). A handled no-op is
+      // correct: return true so the caller skips the eager shared apply too.
+      return true;
+    }
     // A ripple can target an index created in this same transaction — including the recreate half
     // of a drop-then-recreate replace. That handle lives only in the overlay: the committed
     // registry either misses the name entirely (pure tx-created target) or, in the replace case,

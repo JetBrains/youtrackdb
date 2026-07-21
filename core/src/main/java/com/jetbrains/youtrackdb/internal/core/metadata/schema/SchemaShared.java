@@ -708,6 +708,20 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   /**
    * Reloads the schema inside a storage's shared lock.
+   *
+   * <p>The {@link #fromStream} re-parse runs inside the session's schema-reload guard scope
+   * ({@link DatabaseSessionEmbedded#runReloadingCommittedSchema}): the inheritance rebuild ripples
+   * a subclass's collection into every indexed superclass's membership
+   * ({@code addCollectionIdToIndexes} → {@code IndexManagerEmbedded.addCollectionToIndex}), and
+   * that ripple lands in the index-manager's tx-local seam because the reload body runs inside
+   * {@code executeInTx}. Without the guard the seam would treat the ripple as this transaction's
+   * first schema write and seed the tx-local schema state, engaging the metadata-write mutex while
+   * this method holds the schema write lock — the engage-order guard rejects exactly that
+   * (mutex-under-{@code SchemaShared.lock} parks readers behind a concurrent schema transaction).
+   * Suppressing the recording is correct here because the reload only reconstructs the committed
+   * view: the rippled memberships are already durable on the index-manager records (the commit that
+   * created each subclass persisted them), so there is no user schema change to defer and no
+   * tx-local view to maintain.
    */
   public void reload(DatabaseSessionEmbedded session) {
     lock.writeLock().lock();
@@ -718,7 +732,7 @@ public abstract class SchemaShared implements CloseableInStorage {
                 session.getStorage().getSchemaRecordId(), false);
 
             EntityImpl entity = session.load(identity);
-            fromStream(session, entity);
+            session.runReloadingCommittedSchema(() -> fromStream(session, entity));
             forceSnapshot();
           });
     } finally {
