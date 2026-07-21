@@ -97,7 +97,8 @@ final class GremlinStepWalker {
    * and {@link VertexStepPlaceholder} (the latter appears on combinator child sub-traversals after
    * {@code AdjacentToIncidentStrategy} runs recursively during {@code applyStrategies()}) and routes
    * on {@code returnsEdge()} — a folded bare hop to {@link VertexHopRecogniser}, an edge-returning
-   * {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}. {@link HasStepRecogniser}
+   * {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}, a combinator sub-walk singleton
+   * edge-returning hop to {@link CombinatorFoldedHopRecogniser}. {@link HasStepRecogniser}
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
       Map.of(

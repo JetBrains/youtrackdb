@@ -20,8 +20,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
  * <h2>Reached by delegation, not registered directly</h2>
  *
  * The edge step is a {@link VertexStep}, the same registry class as a bare hop. {@link
- * VertexStepRecogniser} owns {@code VertexStep.class} and delegates here on its {@code returnsEdge() ==
- * true} branch. This recogniser is never in the walker registry.
+ * VertexStepRecogniser} owns {@code VertexStep.class} and delegates here when the head is
+ * edge-returning and followed by one or more {@link HasStep}s. This recogniser is never in the walker
+ * registry.
  *
  * <h2>Edge-as-node — the only IR form that can filter an edge</h2>
  *

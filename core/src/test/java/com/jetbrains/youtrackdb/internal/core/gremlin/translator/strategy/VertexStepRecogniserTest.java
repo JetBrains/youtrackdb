@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
@@ -16,11 +18,10 @@ import org.junit.Test;
  * {@link VertexStep} registry key. TinkerPop models both a bare vertex hop ({@code out(L)}, {@code
  * returnsEdge() == false}) and an edge-returning step ({@code outE(L)}, {@code returnsEdge() == true})
  * as a {@code VertexStep}, so this recogniser owns {@code VertexStep.class} and does no recognition
- * itself — it peeks the head, routes on {@link VertexStep#returnsEdge()} to the bare-hop {@link
- * VertexHopRecogniser} or the edge-filter {@link EdgeHopRecogniser}, and forwards the handler's {@link
- * Outcome} verbatim. The per-handler behaviour is pinned by {@link VertexHopRecogniserTest} and {@link
- * EdgeHopRecogniserTest}; these tests pin only that the router dispatches to the right handler on each
- * {@code returnsEdge()} arm (and guards a non-{@code VertexStep}).
+ * itself — it peeks the head, routes on {@link VertexStepContract#returnsEdge()} to {@link
+ * VertexHopRecogniser}, {@link EdgeHopRecogniser}, or {@link CombinatorFoldedHopRecogniser}, and
+ * forwards the handler's {@link Outcome} verbatim. The per-handler behaviour is pinned by {@link
+ * VertexHopRecogniserTest}, {@link EdgeHopRecogniserTest}, and {@link CombinatorFoldedHopRecogniserTest}.
  *
  * <p>Each routing test drives the router and the target handler on two independently-seeded contexts
  * and two cursors built from the same raw DSL step list, then asserts the router's outcome, boundary
@@ -112,29 +113,59 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A bare edge-returning terminal {@code outE("knows")} (no closing vertex hop) routes to {@link
-   * EdgeHopRecogniser}, which declines because an edge result is out of scope. The router forwards that
-   * decline verbatim and the walk contributes nothing, proving the {@code returnsEdge() == true} arm
-   * also forwards a decline — not only an accept.
+   * A top-level bare edge-returning terminal {@code outE("knows")} (no closing vertex hop) declines at
+   * the router without consuming the head — it is not a combinator sub-walk fold artifact and not an
+   * {@code outE.has.inV} chain.
    */
   @Test
-  public void bareEdgeTerminal_routesToEdgeHopRecogniserAndDeclines() {
+  public void bareEdgeTerminal_declinesAtRouterWithoutConsuming() {
     var admin = graph.traversal().V().outE("knows").asAdmin();
     assertThat(((VertexStep<?>) admin.getSteps().get(1)).returnsEdge())
         .as("precondition: outE(...) is an edge-returning VertexStep")
         .isTrue();
 
-    var routerCtx = contextWithStartBoundary();
-    var directCtx = contextWithStartBoundary();
-    var routerResult =
-        VertexStepRecogniser.INSTANCE.recognize(cursorAfterStart(admin), routerCtx);
-    var directResult = EdgeHopRecogniser.INSTANCE.recognize(cursorAfterStart(admin), directCtx);
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+    var before = cursor.position();
+
+    var outcome = VertexStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome)
+        .as("a top-level singleton outE must decline at the router")
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(cursor.position())
+        .as("the router only peeks on decline, so nothing is consumed")
+        .isEqualTo(before);
+    assertContributedNothing(ctx);
+  }
+
+  /**
+   * A singleton edge-returning hop inside a combinator sub-walk routes to {@link
+   * CombinatorFoldedHopRecogniser} and forwards its outcome verbatim.
+   */
+  @Test
+  public void combinatorFoldedHop_routesToCombinatorFoldedHopRecogniser() {
+    var admin = graph.traversal().V().outE("knows").asAdmin();
+    var parent = contextWithStartBoundary();
+    var routerCtx = new SubTraversalPredicateAdapter(parent, Map.of());
+    var directCtx = new SubTraversalPredicateAdapter(contextWithStartBoundary(), Map.of());
+    var routerCursor = cursorAfterStart(admin);
+    var directCursor = cursorAfterStart(admin);
+
+    var routerBefore = routerCursor.position();
+    var routerResult = VertexStepRecogniser.INSTANCE.recognize(routerCursor, routerCtx);
+    var directBefore = directCursor.position();
+    var directResult = CombinatorFoldedHopRecogniser.INSTANCE.recognize(directCursor, directCtx);
 
     assertThat(routerResult)
-        .as("the router forwards EdgeHopRecogniser's decline verbatim")
         .isEqualTo(directResult)
-        .isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(routerCtx);
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(routerCursor.position() - routerBefore)
+        .isEqualTo(directCursor.position() - directBefore)
+        .isEqualTo(1);
+    assertThat(routerCtx.boundaryAlias())
+        .isEqualTo(directCtx.boundaryAlias())
+        .isEqualTo(FIRST_ANON_ALIAS);
   }
 
   /**

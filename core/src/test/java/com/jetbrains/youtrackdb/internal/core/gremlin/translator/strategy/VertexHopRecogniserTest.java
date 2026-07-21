@@ -176,10 +176,9 @@ public class VertexHopRecogniserTest extends GraphBaseTest {
 
   /**
    * An edge-returning {@link VertexStep} ({@code returnsEdge() == true}, e.g. {@code outE("knows")})
-   * declines: that step belongs to {@link EdgeHopRecogniser}, so a direct mis-call here must not
-   * mis-translate it as a bare hop. The router never sends an edge-returning step here, so this
-   * exercises the defensive {@code returnsEdge()} half of the precondition; the recogniser contributes
-   * nothing.
+   * declines here: that step belongs to {@link EdgeHopRecogniser} (when followed by {@code has}) or
+   * {@link CombinatorFoldedHopRecogniser} (singleton in a combinator sub-walk). The router never sends
+   * an edge-returning step here, so this exercises the strict {@code returnsEdge()} precondition.
    */
   @Test
   public void edgeReturningVertexStep_declines() {

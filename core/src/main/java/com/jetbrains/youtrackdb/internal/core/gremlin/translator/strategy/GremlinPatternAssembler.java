@@ -41,7 +41,8 @@ final class GremlinPatternAssembler {
   /**
    * Appends a folded bare hop {@code fromAlias --dir(edgeLabel)--> targetAlias} (no edge filter — the
    * folded case cannot carry one), registers the target under the generic {@code V} class, and re-pins
-   * the boundary / RETURN to the target. Used by {@link VertexHopRecogniser}.
+   * the boundary / RETURN to the target. Used by {@link VertexHopRecogniser} and {@link
+   * CombinatorFoldedHopRecogniser}.
    */
   static void appendFoldedHop(
       RecognitionContext ctx,
@@ -52,6 +53,26 @@ final class GremlinPatternAssembler {
     ctx.addEdge(fromAlias, targetAlias, dir, edgeLabel);
     ctx.addNode(targetAlias, WalkerContext.VERTEX_ROOT_CLASS);
     rePinBoundaryToTarget(ctx, targetAlias);
+  }
+
+  /**
+   * Validates boundary + edge-label arity and appends one folded bare hop for {@code hop}. Shared by
+   * {@link VertexHopRecogniser} and {@link CombinatorFoldedHopRecogniser} after each handler has
+   * asserted its own step preconditions.
+   */
+  static Outcome claimFoldedHop(VertexStepContract<?> hop, RecognitionContext ctx) {
+    if (ctx.boundaryAlias() == null) {
+      return Outcome.DECLINE;
+    }
+    var arity = resolveEdgeLabel(hop, ctx);
+    if (!arity.translatable()) {
+      return Outcome.DECLINE;
+    }
+    var fromAlias = ctx.boundaryAlias();
+    var targetAlias = ctx.nextAnonVertexAlias();
+    appendFoldedHop(
+        ctx, fromAlias, targetAlias, toBuilderDirection(hop.getDirection()), arity.label());
+    return Outcome.ACCEPTED;
   }
 
   /**
@@ -95,8 +116,9 @@ final class GremlinPatternAssembler {
 
   /**
    * Resolves the Phase 1 edge-label arity of a hop's {@link VertexStepContract}, applying one rule
-   * shared by the bare hop ({@link VertexHopRecogniser}) and the edge-filter chain ({@link
-   * EdgeHopRecogniser}): a single named label translates; a multi-label hop or a blank single label
+   * shared by the bare hop ({@link VertexHopRecogniser}), the combinator fold artifact ({@link
+   * CombinatorFoldedHopRecogniser}), and the edge-filter chain ({@link EdgeHopRecogniser}): a single
+   * named label translates; a multi-label hop or a blank single label
    * declines; a label-less hop (all edge types) translates unless the traversal opts into {@code
    * EdgeLabelVerificationStrategy} (read from {@link RecognitionContext#edgeLabelVerificationEnabled()},
    * resolved once by the walker). Centralising the rule keeps the two hop kinds from drifting. A
