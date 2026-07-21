@@ -101,3 +101,4 @@ dispatch a build there while another build or test run is in progress.
 
 1. **When modifying source code**: Review docs in `docs/` and module `README.md` files to see if any cover the area you changed. Update them if needed.
 2. **When adding new features**: If the feature affects public API, configuration, build process, or CI/CD, update the relevant docs.
+3. **When changing code covered by design-decision JavaDoc**: the covering entries (method/class/package-info level, per `docs-internal/dev-workflow/design-decisions.md`) must be updated in the same change.

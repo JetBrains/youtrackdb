@@ -54,6 +54,7 @@ verification-scope, and PR rules live in `docs-internal/agents/orchestrator-guid
 - **Comment non-obvious code**: Add comments to any logic that is not immediately self-evident, so reviewers can easily verify intent without reverse-engineering the code.
 - **Test descriptions**: Every test must have a detailed description (in a comment or descriptive method name) explaining what scenario is being tested and what the expected outcome is, so a reviewer can quickly grasp the purpose.
 - **Keep comments in sync**: When modifying code, always update the surrounding comments to match the new behavior. Stale or contradictory comments are worse than no comments.
+- **Design decisions**: design rationale lives in JavaDoc at the scope it governs. Before writing or editing a design-decision section, read `docs-internal/dev-workflow/design-decisions.md` (scoping ladder, entry structure, staleness rule).
 
 ### Formatting (Spotless)
 
