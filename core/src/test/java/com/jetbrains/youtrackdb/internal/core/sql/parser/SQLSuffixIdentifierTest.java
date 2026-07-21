@@ -42,13 +42,14 @@ import org.junit.Test;
  *       properties, otherwise null.
  *   <li><b>{@code out_}/{@code in_} edge accessors and other names that base
  *       {@code validatePropertyName} would reject</b> — routed through hasProperty-first, which
- *       never validates and therefore never throws (BG1 guard).
+ *       never validates and therefore never throws (hasProperty-first guard).
  *   <li><b>Regular property names</b> — resolved through the getProperty-first hot path, with a
  *       hasProperty fall-back that disambiguates "present-but-null" from "absent".
  * </ul>
  *
  * <p>Most tests use a content-backed {@link ResultInternal} so present/absent/present-but-null can
- * be controlled exactly. One test uses an entity-backed result to prove the BG1 guard actually
+ * be controlled exactly. One test uses an entity-backed result to prove the hasProperty-first
+ * guard actually
  * prevents the throw that {@code EntityImpl.getProperty} would raise on an invalid name.
  */
 public class SQLSuffixIdentifierTest extends DbTestBase {
@@ -231,11 +232,11 @@ public class SQLSuffixIdentifierTest extends DbTestBase {
   }
 
   // =========================================================================
-  // BG1 guard on a real entity: invalid names must not throw
+  // hasProperty-first guard on a real entity: invalid names must not throw
   // =========================================================================
 
   /**
-   * BG1 regression at the resolver level: on an entity-backed result, resolving a name that base
+   * On an entity-backed result, resolving a name that base
    * {@code EntityImpl.validatePropertyName} would reject (digit-first, or containing ':', ' ',
    * '=') must NOT throw and must resolve to null when the property is absent. Without the guard the
    * getProperty-first hot path would call {@code EntityImpl.getProperty}, which throws

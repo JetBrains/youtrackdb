@@ -611,8 +611,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * This eliminates the
    * {@code loadEntity() -> executeReadRecord() -> fillFromPage()} chain that
    * the previous entity-based implementation triggered — the dominant cost
-   * in MATCH patterns where every hop has a {@code class:} constraint (e.g.
-   * LDBC ic12). Falls back to loading only when the cluster is unknown to
+   * in MATCH patterns where every hop has a {@code class:} constraint.
+   * Falls back to loading only when the cluster is unknown to
    * the schema (e.g. system clusters not owned by a class).
    */
   static boolean matchesClass(
