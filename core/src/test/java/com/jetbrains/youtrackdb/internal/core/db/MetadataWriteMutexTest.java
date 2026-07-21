@@ -7,6 +7,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -185,6 +187,74 @@ public class MetadataWriteMutexTest extends DbTestBase {
         committedSchema.existsClass("FirstSchemaTx"));
     assertTrue("the second tx's class must be committed",
         committedSchema.existsClass("SecondSchemaTx"));
+  }
+
+  /**
+   * A committed-schema reload never engages the metadata-write mutex and never trips the
+   * engage-order guard, even though its {@code fromStream} inheritance rebuild ripples a subclass's
+   * collection into an indexed superclass's membership inside the reload's own transaction — the
+   * shape that, unguarded, made the index-manager seam treat the ripple as the transaction's first
+   * schema write and engage the mutex under the schema write lock (the
+   * {@code IllegalStateException} "must engage above SchemaShared.lock" red). The test pins both
+   * halves: the reload runs while ANOTHER session is parked holding the mutex mid-schema-tx, so a
+   * spurious engage attempt could not return (it would park on the held permit and wedge the reload
+   * under the schema write lock) — completing promptly proves no engage happened — and afterwards
+   * the committed view is intact, the reloading session holds no permit, and a follow-up schema
+   * transaction on the same session works (no leaked guard state).
+   */
+  @Test
+  public void schemaReloadWithIndexedSuperclassDoesNotEngageMutex() throws InterruptedException {
+    // Committed class graph whose reload ripples: an indexed superclass and a subclass. Built on
+    // the legacy top-level DDL path like the sibling tests' setup classes.
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("ReloadRippleParent");
+    parent.createProperty("name", PropertyType.STRING);
+    parent.createIndex("ReloadRippleParent.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    schema.createClass("ReloadRippleChild", parent);
+
+    // Another session engages the mutex via a schema tx and parks holding it, so an engage attempt
+    // from the reload below cannot succeed silently — it would park and wedge the reload.
+    var mutexHeld = new CountDownLatch(1);
+    var holderMayFinish = new CountDownLatch(1);
+    var holderError = new AtomicReference<Throwable>();
+    spawn(() -> {
+      try (var holder = openDatabase()) {
+        holder.activateOnCurrentThread();
+        holder.begin();
+        holder.getMetadata().getSchema().createClass("ReloadRippleMutexHolder");
+        mutexHeld.countDown();
+        holderMayFinish.await();
+        holder.rollback();
+      } catch (Throwable t) {
+        holderError.compareAndSet(null, t);
+        mutexHeld.countDown();
+      }
+    }, "reload-ripple-mutex-holder");
+    assertTrue("the holder session must engage the mutex", mutexHeld.await(5, TimeUnit.SECONDS));
+
+    try {
+      // The reload must complete while the mutex is held: the committed-view rebuild is not a
+      // schema write, so its inheritance-rebuild ripples are suppressed by the reload guard
+      // instead of seeding a tx-local schema state (which would either throw the engage-order
+      // IllegalStateException or park on the held permit).
+      session.getMetadata().reload();
+    } finally {
+      holderMayFinish.countDown();
+    }
+
+    assertFalse("the reloading session must not hold the mutex after the reload",
+        session.getSharedContext().getMetadataWriteMutex().isEngagedBy(session));
+    if (holderError.get() != null) {
+      throw new AssertionError("the mutex-holder session must not error", holderError.get());
+    }
+    // The reload rebuilt the committed view intact.
+    assertTrue(session.getMetadata().getSchema().existsClass("ReloadRippleParent"));
+    assertTrue(session.getMetadata().getSchema().existsClass("ReloadRippleChild"));
+    // A follow-up schema transaction on the reloading session works: the reload guard cleared and
+    // the mutex is free again once the holder rolled back.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("ReloadRippleAfter"));
+    assertTrue(session.getMetadata().getSchema().existsClass("ReloadRippleAfter"));
   }
 
   /**

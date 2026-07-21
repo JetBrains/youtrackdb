@@ -310,6 +310,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private boolean seedingTxSchemaState = false;
 
   /**
+   * True only while {@link SchemaShared#reload} is re-parsing the committed schema on this session
+   * (the {@code runReloadingCommittedSchema} scope). The index-manager tx-local seam reads this to
+   * treat the membership ripples the reload's {@code fromStream} inheritance rebuild raises as
+   * handled no-ops, exactly as it does for the {@code copyForTx} seed via
+   * {@link #isSeedingTxSchemaState()}: a reload reconstructs already-committed state, so the
+   * ripples are not schema writes and must not seed a tx-local schema state (whose mutex engage
+   * would run under the schema write lock the reload holds, tripping the engage-order guard).
+   * Thread-confined to the reloading thread.
+   */
+  private boolean reloadingSchema = false;
+
+  /**
    * Non-null only while a {@link #computeWithFreshCommittedReads} scope is running on this
    * session's thread. While set, {@link #executeReadRecord} bypasses the session's local record
    * cache and reads through this dedicated read-only atomic operation instead of the active
@@ -3553,6 +3565,36 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   public boolean isSeedingTxSchemaState() {
     return seedingTxSchemaState;
+  }
+
+  /**
+   * Whether this session is mid-reload of the committed schema (the {@link SchemaShared#reload}
+   * re-parse running inside {@link #runReloadingCommittedSchema}). The index-manager tx-local seam
+   * reads this to skip the membership-ripple recording the reload's inheritance rebuild raises
+   * against the already-committed shared index — the reload holds the schema write lock, so seeding
+   * the tx-local state from that ripple would engage the metadata-write mutex under
+   * {@code SchemaShared.lock} and trip the engage-order guard.
+   */
+  public boolean isReloadingSchema() {
+    return reloadingSchema;
+  }
+
+  /**
+   * Runs {@code reloadBody} (the {@link SchemaShared#reload} re-parse) with the schema-reload guard
+   * set, so the index-manager membership seam treats the inheritance-rebuild ripples raised inside
+   * as reconstructions of committed state rather than schema writes (see {@link
+   * #isReloadingSchema()}). Exception-safe: the guard clears even when the reload body throws. Not
+   * reentrant — a reload never runs inside another reload, and the assert pins that so a future
+   * nesting cannot silently clear the guard early.
+   */
+  public void runReloadingCommittedSchema(Runnable reloadBody) {
+    assert !reloadingSchema : "schema-reload guard scopes must not nest";
+    reloadingSchema = true;
+    try {
+      reloadBody.run();
+    } finally {
+      reloadingSchema = false;
+    }
   }
 
   /**
