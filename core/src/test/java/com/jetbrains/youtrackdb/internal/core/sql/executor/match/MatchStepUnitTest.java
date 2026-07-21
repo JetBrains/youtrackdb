@@ -2581,6 +2581,36 @@ public class MatchStepUnitTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Verifies {@code matchesClassCached} repopulates {@code cachedSchema} after a
+   * transient miss instead of permanently falling back to the static path. Simulates
+   * the pre-fix failure mode by clearing the traverser-level snapshot cache before
+   * the first call; the session is live, so the next resolution must succeed.
+   */
+  @Test
+  public void testMatchesClassCachedRepairsAfterTransientSchemaMiss() throws Exception {
+    session.createVertexClass("Person");
+    session.begin();
+    var vertex = session.newVertex("Person");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var traverser = createBaseTraverser();
+
+    var schemaField = MatchEdgeTraverser.class.getDeclaredField("cachedSchema");
+    schemaField.setAccessible(true);
+    schemaField.set(traverser, null);
+
+    var result = new ResultInternal(session, rid);
+    assertTrue(traverser.matchesClassCached(ctx, "Person", result));
+    assertNotNull(schemaField.get(traverser));
+    assertFalse("schema snapshot path must not load the entity",
+        result.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
   // -- matchesClass fallback tests (RID cluster not owned by a schema class) --
 
   /**
