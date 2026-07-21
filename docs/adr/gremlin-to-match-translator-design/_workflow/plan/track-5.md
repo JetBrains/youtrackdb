@@ -16,7 +16,7 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 
 - [x] 2026-07-20T16:15Z [ctx=info] Step 1 complete (commits 73afe2559a + 5d3bf3d6b7; dim-review bugs iter1→iter2 PASS after BG1 fix; 12 adapter tests green)
 - [x] 2026-07-20T16:45Z [ctx=info] Step 2 complete (tip 38604b38f9; dim-review bugs iter1 FAIL BG1+BG2 → Review fix → iter2 PASS)
-- [x] 2026-07-21T10:16Z [ctx=unknown] Step 3 complete (commit 1d0e346011; dim-review bugs-step3 iter1 PASS)
+- [x] 2026-07-21T10:16Z [ctx=unknown] Step 3 complete (tip 1d0e346011; dim-review bugs-step3 iter1 FAIL BG1 → Review fix → iter2 PASS)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
