@@ -48,6 +48,24 @@ final class ConnectiveStepSupport {
   }
 
   /**
+   * Commits a single accepted child sub-walk from a positive filter ({@code where(traversal)} /
+   * {@link org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep}): pure-filter
+   * children merge into the boundary {@code WHERE}; edge-bearing children append hop fragments.
+   */
+  static Outcome commitPositiveFilterChild(
+      RecognitionContext ctx, SubTraversalPredicateAdapter adapter) {
+    if (adapter.outcome() != Outcome.ACCEPTED) {
+      return Outcome.DECLINE;
+    }
+    if (!adapter.hasEdges()) {
+      commitPureFilterChild(ctx, adapter);
+    } else {
+      commitEdgeBearingChild(ctx, adapter);
+    }
+    return Outcome.ACCEPTED;
+  }
+
+  /**
    * Collects one composable {@link SQLBooleanExpression} per accepted pure-filter child from the
    * child's captured boundary filters. Returns {@code null} when any child is edge-bearing, when a
    * child contributed no filter, or when {@code boundary} is {@code null}.

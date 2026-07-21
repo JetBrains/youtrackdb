@@ -407,6 +407,75 @@ final class GremlinPredicateAdapter {
   }
 
   /**
+   * Translates a {@code where(P)} label-reference predicate into a {@code WHERE} boolean that compares
+   * {@code $matched.<label>} accessors. {@code startLabel} is the optional Gremlin scope label from
+   * {@code where(startLabel, P)}; when {@code null}, the left-hand side is the boundary alias's
+   * {@code @rid}. Returns {@code null} to decline (propagated as a whole-traversal decline).
+   */
+  @Nullable SQLBooleanExpression toMatchedLabelFilter(
+      @Nullable String startLabel, P<?> predicate, PropertyTypeGate typeGate) {
+    if (predicate == null) {
+      return null;
+    }
+    var left = leftMatchedOperand(startLabel);
+    if (left == null) {
+      return null;
+    }
+    return translateMatchedLabelPredicate(left, predicate, typeGate);
+  }
+
+  private @Nullable SQLExpression leftMatchedOperand(@Nullable String startLabel) {
+    if (startLabel == null) {
+      return WHERE.boundaryRidExpression();
+    }
+    if (startLabel.isBlank() || startLabel.startsWith("$")) {
+      return null;
+    }
+    return WHERE.matchedAccess(startLabel, "@rid");
+  }
+
+  private @Nullable SQLBooleanExpression translateMatchedLabelPredicate(
+      SQLExpression left, P<?> predicate, PropertyTypeGate typeGate) {
+    if (predicate instanceof NotP<?> notP) {
+      var inner = translateMatchedLabelPredicate(left, notP.negate(), typeGate);
+      return inner == null ? null : WHERE.not(inner);
+    }
+    if (predicate instanceof AndP<?> andP) {
+      return combineMatchedLabelOperands(left, andP.getPredicates(), /* and= */ true, typeGate);
+    }
+    if (predicate instanceof OrP<?> orP) {
+      return combineMatchedLabelOperands(left, orP.getPredicates(), /* and= */ false, typeGate);
+    }
+    var biPredicate = predicate.getBiPredicate();
+    var value = predicate.getValue();
+    if (biPredicate instanceof Compare compare && value instanceof String refLabel) {
+      if (refLabel.isBlank() || refLabel.startsWith("$")) {
+        return null;
+      }
+      var right = WHERE.matchedAccess(refLabel, "@rid");
+      return WHERE.compareExpressions(left, toOperator(compare), right);
+    }
+    return null;
+  }
+
+  private @Nullable SQLBooleanExpression combineMatchedLabelOperands(
+      SQLExpression left, List<? extends P<?>> children, boolean and, PropertyTypeGate typeGate) {
+    if (children == null || children.isEmpty()) {
+      return null;
+    }
+    var translated = new ArrayList<SQLBooleanExpression>(children.size());
+    for (var child : children) {
+      var expr = translateMatchedLabelPredicate(left, child, typeGate);
+      if (expr == null) {
+        return null;
+      }
+      translated.add(expr);
+    }
+    var operands = translated.toArray(new SQLBooleanExpression[0]);
+    return and ? WHERE.and(operands) : WHERE.or(operands);
+  }
+
+  /**
    * Maps a TinkerPop {@link Compare} onto the matching SQL comparison operator. The {@code switch}
    * is exhaustive over the six scalar comparisons; a bi-predicate that is not one of them was
    * already ruled out by the {@code instanceof Compare} gate in {@link #translate}.

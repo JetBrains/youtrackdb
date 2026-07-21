@@ -4,11 +4,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
@@ -62,20 +74,32 @@ public class TraversalFilterStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A general {@code filter(sub-traversal)} declines: its filter traversal is not the single {@code
-   * values(key)} step the presence form desugars to, so the recogniser contributes nothing. General
-   * filter translation is a later track's concern.
+   * An unrecognised {@code filter(sub-traversal)} declines even with a production registry — e.g.
+   * {@code count()} has no recogniser on the sub-walk path.
    */
   @Test
-  public void generalFilterTraversal_declines() {
-    var admin = graph.traversal().V().filter(__.out("knows")).asAdmin();
-    var ctx = contextWithStartBoundary();
+  public void unrecognisedFilterTraversal_declines() {
+    var admin = graph.traversal().V().filter(__.count()).asAdmin();
+    var ctx = contextWithRegistry(null);
     var cursor = cursorAfterStart(admin);
 
     var outcome = TraversalFilterStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("a general filter(...) must decline").isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).as("an unrecognised filter(...) must decline").isEqualTo(Outcome.DECLINE);
     assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
+  }
+
+  /** {@code where(out(knows))} (also {@code filter(out(knows))}) appends a hop via the sub-walker. */
+  @Test
+  public void whereTraversal_outKnows_appendsHop() {
+    var admin = graph.traversal().V().where(__.out("knows")).asAdmin();
+    var ctx = contextWithRegistry(null);
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = TraversalFilterStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isEqualTo(1);
   }
 
   /**
@@ -86,7 +110,7 @@ public class TraversalFilterStepRecogniserTest extends GraphBaseTest {
   @Test
   public void reservedKeyPresence_declines() {
     var admin = graph.traversal().V().has("@class").asAdmin();
-    var ctx = contextWithStartBoundary();
+    var ctx = contextWithRegistry(null);
     var cursor = cursorAfterStart(admin);
 
     var outcome = TraversalFilterStepRecogniser.INSTANCE.recognize(cursor, ctx);
@@ -128,11 +152,29 @@ public class TraversalFilterStepRecogniserTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   private static WalkerContext contextWithStartBoundary() {
-    var ctx = new WalkerContext(true, false, null);
+    return contextWithRegistry(null);
+  }
+
+  private static WalkerContext contextWithRegistry(Schema schema) {
+    var ctx = new WalkerContext(true, false, schema, productionRegistry());
     ctx.addNode(BOUNDARY_ALIAS, "V");
     ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
     ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
     return ctx;
+  }
+
+  private static Map<Class<?>, StepRecogniser> productionRegistry() {
+    return Map.of(
+        GraphStep.class, StartStepRecogniser.INSTANCE,
+        VertexStep.class, VertexStepRecogniser.INSTANCE,
+        VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
+        HasStep.class, HasStepRecogniser.INSTANCE,
+        TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE,
+        AndStep.class, AndStepRecogniser.INSTANCE,
+        OrStep.class, OrStepRecogniser.INSTANCE,
+        NotStep.class, NotStepRecogniser.INSTANCE,
+        WhereTraversalStep.class, WhereTraversalStepRecogniser.INSTANCE,
+        WherePredicateStep.class, WherePredicateStepRecogniser.INSTANCE);
   }
 
   private static StepStreamCursor cursorAfterStart(Traversal.Admin<?, ?> admin) {

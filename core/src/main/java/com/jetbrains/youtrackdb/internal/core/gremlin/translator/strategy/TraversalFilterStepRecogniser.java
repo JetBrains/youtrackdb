@@ -14,13 +14,18 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
  * mirroring TinkerPop's {@code Property.isPresent()} (native {@code values(key)} yields the stored
  * null and the filter passes).
  *
- * <h2>Only the has(key) desugar — every other TraversalFilterStep declines</h2>
+ * <h2>Two load-bearing shapes</h2>
  *
- * The recogniser claims the step only when its filter traversal is exactly a single {@code
- * values(key)} {@link PropertiesStep} over one property key. A general {@code filter(sub-traversal)},
- * a {@code valueMap} / {@code propertyMap} filter, a multi-key {@code values}, or a reserved / blank
- * key all decline the whole traversal to native. {@code hasNot(key)} is a distinct shape — it
- * desugars to a {@code NotStep(__.values(key))}, a different class this recogniser never sees.
+ * <ul>
+ *   <li><b>{@code has(key)} presence</b> — TinkerPop desugars to {@code TraversalFilterStep(__.values(key))};
+ *       maps to {@code key IS DEFINED}.
+ *   <li><b>{@code where(traversal)}</b> — in this fork also arrives as {@code TraversalFilterStep} over a
+ *       general child sub-traversal (the positive counterpart of {@link NotStepRecogniser}'s logical
+ *       {@code not(traversal)}). Pure-filter children merge into the boundary {@code WHERE};
+ *       edge-bearing children append hop fragments to the positive pattern.
+ * </ul>
+ *
+ * <p>Every other {@code TraversalFilterStep} declines.
  */
 final class TraversalFilterStepRecogniser implements StepRecogniser {
 
@@ -49,14 +54,25 @@ final class TraversalFilterStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     var key = presenceKey(filterStep);
-    if (key == null) {
-      // Not the has(key) desugar (a general filter, a multi-key or non-value properties step, or a
-      // reserved / blank key) — decline the whole traversal to native.
+    if (key != null) {
+      // key IS DEFINED, AND-composed with any filter an earlier step contributed to the same alias.
+      ctx.putAliasFilter(boundary, WHERE.wrap(WHERE.isDefined(key)));
+      return Outcome.ACCEPTED;
+    }
+    return recognizeWhereTraversal(filterStep, ctx);
+  }
+
+  /**
+   * Recognises {@code where(traversal)} — a general {@code TraversalFilterStep} child sub-walk. Declines
+   * when the filter traversal is absent or the sub-walk does not fully recognise.
+   */
+  private static Outcome recognizeWhereTraversal(
+      TraversalFilterStep<?> filterStep, RecognitionContext ctx) {
+    var filterTraversal = filterStep.getFilterTraversal();
+    if (filterTraversal == null) {
       return Outcome.DECLINE;
     }
-    // key IS DEFINED, AND-composed with any filter an earlier step contributed to the same alias.
-    ctx.putAliasFilter(boundary, WHERE.wrap(WHERE.isDefined(key)));
-    return Outcome.ACCEPTED;
+    return ConnectiveStepSupport.commitPositiveFilterChild(ctx, ctx.walkChild(filterTraversal));
   }
 
   /**

@@ -174,6 +174,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return effectiveBoundaryAlias != null ? effectiveBoundaryAlias : parent.boundaryAlias();
   }
 
+  @Nullable @Override
+  public String boundaryClassName() {
+    return parent.boundaryClassName();
+  }
+
   @Override
   public boolean isDeclaredStringProperty(@Nullable String className, String propertyKey) {
     return parent.isDeclaredStringProperty(className, propertyKey);
