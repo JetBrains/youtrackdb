@@ -3,10 +3,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -143,29 +141,6 @@ public class SQLArrayNumberSelector extends SimpleNode {
 
   public boolean refersToParent() {
     return expressionValue != null && expressionValue.refersToParent();
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (inputValue != null) {
-      result.setProperty("inputValue", inputValue.serialize(session));
-    }
-    if (expressionValue != null) {
-      result.setProperty("expressionValue", expressionValue.serialize(session));
-    }
-    result.setProperty("integer", integer);
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("inputValue") != null) {
-      inputValue = SQLInputParameter.deserializeFromOResult(fromResult.getProperty("inputValue"));
-    }
-    if (fromResult.getProperty("toSelector") != null) {
-      expressionValue = new SQLMathExpression(-1);
-      expressionValue.deserialize(fromResult.getProperty("expressionValue"));
-    }
-    integer = fromResult.getProperty("integer");
   }
 }
 /* JavaCC - OriginalChecksum=5b2e495391ede3ccdc6c25aa63c8e591 (do not edit this line) */

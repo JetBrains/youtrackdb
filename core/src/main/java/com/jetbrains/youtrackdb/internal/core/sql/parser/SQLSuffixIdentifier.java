@@ -462,29 +462,6 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    if (identifier != null) {
-      result.setProperty("identifier", identifier.serialize(db));
-    }
-    if (recordAttribute != null) {
-      result.setProperty("recordAttribute", recordAttribute.serialize(db));
-    }
-    result.setProperty("star", star);
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("identifier") != null) {
-      identifier = SQLIdentifier.deserialize(fromResult.getProperty("identifier"));
-    }
-    if (fromResult.getProperty("recordAttribute") != null) {
-      recordAttribute = new SQLRecordAttribute(-1);
-      recordAttribute.deserialize(fromResult.getProperty("recordAttribute"));
-    }
-    star = fromResult.getProperty("star");
-  }
-
   public boolean isDefinedFor(Result currentRecord) {
     if (identifier != null) {
       return currentRecord.hasProperty(identifier.getStringValue());

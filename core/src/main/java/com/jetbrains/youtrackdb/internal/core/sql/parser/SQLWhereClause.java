@@ -17,7 +17,6 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
 import java.util.ArrayList;
@@ -554,37 +553,6 @@ public class SQLWhereClause extends SimpleNode {
     this.flattened = flattened;
   }
 
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (baseExpression != null) {
-      result.setProperty("baseExpression", baseExpression.serialize(session));
-    }
-    if (flattened != null) {
-      try (var stream = flattened.stream()) {
-        result.setProperty(
-            "flattened",
-            stream.map(oAndBlock -> oAndBlock.serialize(session)).collect(Collectors.toList()));
-      }
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("baseExpression") != null) {
-      baseExpression =
-          SQLBooleanExpression.deserializeFromOResult(fromResult.getProperty("baseExpression"));
-    }
-    if (fromResult.getProperty("flattened") != null) {
-      List<Result> ser = fromResult.getProperty("flattened");
-      flattened = new ArrayList<>();
-      for (var r : ser) {
-        var block = new SQLAndBlock(-1);
-        block.deserialize(r);
-        flattened.add(block);
-      }
-    }
-  }
-
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     return baseExpression.isCacheable(session);
   }
@@ -607,7 +575,6 @@ public class SQLWhereClause extends SimpleNode {
     var result = extractClassEquality();
     return result != null ? result.className() : null;
   }
-
 
   /**
    * Result of extracting a {@code @class = 'X'} condition from a WHERE clause.

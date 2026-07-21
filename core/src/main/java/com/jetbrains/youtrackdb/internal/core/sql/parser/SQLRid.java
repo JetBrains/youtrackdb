@@ -4,12 +4,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import org.jspecify.annotations.NonNull;
 
 import java.util.Map;
@@ -186,39 +184,6 @@ public class SQLRid extends SimpleNode {
       }
     }
     return position;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-
-    if (collection != null) {
-      result.setProperty("collection", collection.serialize(session));
-    }
-    if (position != null) {
-      result.setProperty("position", position.serialize(session));
-    }
-    if (expression != null) {
-      result.setProperty("expression", expression.serialize(session));
-    }
-    result.setProperty("legacy", legacy);
-
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("collection") != null) {
-      collection = new SQLInteger(-1);
-      collection.deserialize(fromResult.getProperty("collection"));
-    }
-    if (fromResult.getProperty("position") != null) {
-      position = new SQLInteger(-1);
-      position.deserialize(fromResult.getProperty("position"));
-    }
-    if (fromResult.getProperty("expression") != null) {
-      expression = new SQLExpression(-1);
-      expression.deserialize(fromResult.getProperty("expression"));
-    }
-    legacy = fromResult.getProperty("legacy");
   }
 }
 /* JavaCC - OriginalChecksum=c2c6d67d7722e29212e438574698d7cd (do not edit this line) */

@@ -2,9 +2,6 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -103,20 +100,6 @@ public class SQLNamedParameter extends SQLInputParameter {
     var result = paramNumber;
     result = 31 * result + (paramName != null ? paramName.hashCode() : 0);
     return result;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = (ResultInternal) super.serialize(db);
-    result.setProperty("paramNumber", paramNumber);
-    result.setProperty("paramName", paramName);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    paramNumber = fromResult.getProperty("paramNumber");
-    paramName = fromResult.getProperty("paramName");
   }
 }
 /* JavaCC - OriginalChecksum=8a00a9cf51a15dd75202f6372257fc1c (do not edit this line) */

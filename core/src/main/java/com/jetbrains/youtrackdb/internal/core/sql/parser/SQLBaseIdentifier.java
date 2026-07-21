@@ -336,28 +336,6 @@ public class SQLBaseIdentifier extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (levelZero != null) {
-      result.setProperty("levelZero", levelZero.serialize(session));
-    }
-    if (suffix != null) {
-      result.setProperty("suffix", suffix.serialize(session));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("levelZero") != null) {
-      levelZero = new SQLLevelZeroIdentifier(-1);
-      levelZero.deserialize(fromResult.getProperty("levelZero"));
-    }
-    if (fromResult.getProperty("suffix") != null) {
-      suffix = new SQLSuffixIdentifier(-1);
-      suffix.deserialize(fromResult.getProperty("suffix"));
-    }
-  }
-
   public boolean isDefinedFor(Result currentRecord) {
     if (suffix != null) {
       return suffix.isDefinedFor(currentRecord);

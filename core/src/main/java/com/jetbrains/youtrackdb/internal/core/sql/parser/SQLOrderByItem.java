@@ -233,41 +233,6 @@ public class SQLOrderByItem {
     this.modifier = modifier;
   }
 
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("alias", alias);
-    if (modifier != null) {
-      result.setProperty("modifier", modifier.serialize(session));
-    }
-    result.setProperty("recordAttr", recordAttr);
-    if (rid != null) {
-      result.setProperty("rid", rid.serialize(session));
-    }
-    result.setProperty("type", type);
-    if (collate != null) {
-      result.setProperty("collate", collate.serialize(session));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    alias = fromResult.getProperty("alias");
-    if (fromResult.getProperty("modifier") != null) {
-      modifier = new SQLModifier(-1);
-      modifier.deserialize(fromResult.getProperty("modifier"));
-    }
-    recordAttr = fromResult.getProperty("recordAttr");
-    if (fromResult.getProperty("rid") != null) {
-      rid = new SQLRid(-1);
-      rid.deserialize(fromResult.getProperty("rid"));
-    }
-    type = DESC.equals(fromResult.getProperty("type")) ? DESC : ASC;
-    if (fromResult.getProperty("collate") != null) {
-      collate = new SQLExpression(-1);
-      collate.deserialize(fromResult.getProperty("collate"));
-    }
-  }
-
   @Override
   public boolean equals(Object o) {
     if (this == o) {

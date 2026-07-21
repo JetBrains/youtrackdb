@@ -3,10 +3,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.lang.reflect.Array;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -222,41 +220,6 @@ public class SQLArraySelector extends SimpleNode {
   private static void setArrayValue(Object target, int idx, Object value) {
     if (idx >= 0 && idx < Array.getLength(target)) {
       Array.set(target, idx, value);
-    }
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (rid != null) {
-      result.setProperty("rid", rid.serialize(session));
-    }
-    if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(session));
-    }
-    if (expression != null) {
-      result.setProperty("expression", expression.serialize(session));
-    }
-    if (integer != null) {
-      result.setProperty("integer", integer.serialize(session));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("rid") != null) {
-      rid = new SQLRid(-1);
-      rid.deserialize(fromResult.getProperty("rid"));
-    }
-    if (fromResult.getProperty("inputParam") != null) {
-      inputParam = SQLInputParameter.deserializeFromOResult(fromResult.getProperty("inputParam"));
-    }
-    if (fromResult.getProperty("expression") != null) {
-      expression = new SQLExpression(-1);
-      expression.deserialize(fromResult.getProperty("expression"));
-    }
-    if (fromResult.getProperty("integer") != null) {
-      integer = new SQLInteger(-1);
-      integer.deserialize(fromResult.getProperty("integer"));
     }
   }
 }

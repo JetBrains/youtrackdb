@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFiltered;
 import com.jetbrains.youtrackdb.internal.core.sql.method.SQLMethod;
@@ -349,34 +348,6 @@ public class SQLMethodCall extends SimpleNode {
       }
     }
     return false;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (methodName != null) {
-      result.setProperty("methodName", methodName.serialize(session));
-    }
-    if (params != null) {
-      result.setProperty(
-          "items", params.stream().map(oExpression -> oExpression.serialize(session))
-              .collect(Collectors.toList()));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("methodName") != null) {
-      methodName = SQLIdentifier.deserialize(fromResult.getProperty("methodName"));
-    }
-    if (fromResult.getProperty("params") != null) {
-      List<Result> ser = fromResult.getProperty("params");
-      params = new ArrayList<>();
-      for (var r : ser) {
-        var exp = new SQLExpression(-1);
-        exp.deserialize(r);
-        params.add(exp);
-      }
-    }
   }
 
   public boolean isCacheable(DatabaseSessionEmbedded session) {

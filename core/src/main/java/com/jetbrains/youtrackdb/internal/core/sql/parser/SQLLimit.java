@@ -3,10 +3,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -96,27 +93,6 @@ public class SQLLimit extends SimpleNode {
     var result = num != null ? num.hashCode() : 0;
     result = 31 * result + (inputParam != null ? inputParam.hashCode() : 0);
     return result;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    if (num != null) {
-      result.setProperty("num", num.serialize(db));
-    }
-    if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(db));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("num") != null) {
-      num = new SQLInteger(-1);
-      num.deserialize(fromResult.getProperty("num"));
-    }
-    if (fromResult.getProperty("inputParam") != null) {
-      inputParam = SQLInputParameter.deserializeFromOResult(fromResult.getProperty("inputParam"));
-    }
   }
 }
 /* JavaCC - OriginalChecksum=1063b9489290bb08de6048ba55013171 (do not edit this line) */
