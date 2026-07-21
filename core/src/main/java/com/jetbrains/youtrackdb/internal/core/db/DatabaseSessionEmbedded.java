@@ -2195,7 +2195,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         // transaction's own working copy and is never refreshed.
         if (!refreshRecordFromFreshCommittedRead(record)) {
           // The record no longer exists in the latest committed state: evict the stale instance
-          // and report not-found, exactly as a fresh-scope storage-read miss below would.
+          // and report not-found, exactly as a fresh-scope storage-read miss below would. The
+          // eviction removes the cache entry without unloading the instance, so a caller still
+          // holding the stale reference keeps a usable (if outdated) record while a later load
+          // materializes a fresh instance — a deliberate, bounded relaxation of the
+          // one-instance-per-rid invariant for a record the committed state no longer contains.
           localCache.deleteRecord(rid);
           return createRecordNotFoundResult(rid, throwExceptionIfRecordNotFound);
         }
@@ -3605,15 +3609,30 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * Loaded records still bind to this session and refresh the local cache, so later reads of the
    * same records — including the commit-time schema serialization — serve the fresh state.
    *
-   * <p>The consumer is the tx-local schema seed ({@link SchemaShared#copyForTx}): the
-   * metadata-write mutex serializes schema-changing transactions, so a transaction that parked on
-   * the mutex behind a concurrent schema commit resumes with a begin-time snapshot that predates
-   * that commit. Seeding through the transaction's snapshot would re-parse the pre-commit schema
-   * and misclassify the just-committed changes as this transaction's own edits (for example a
-   * phantom collection drop in the commit-time set-diff). The scope is not reentrant.
+   * <p>The consumers are the tx-local schema seed ({@link SchemaShared#copyForTx}) and the
+   * schema-carry commit's serialization, enrollment, and promotion loads: the metadata-write mutex
+   * serializes schema-changing transactions, so a transaction that parked on the mutex behind a
+   * concurrent schema commit resumes with a begin-time snapshot that predates that commit. Reading
+   * through the transaction's snapshot would re-parse or rewrite the pre-commit schema state (for
+   * example a phantom collection drop in the commit-time set-diff, or a root write at a stale
+   * record version). The scope is not reentrant and throws on nesting — always-on rather than an
+   * assert, because a silently nested scope would strand the outer scope on the stale snapshot in
+   * production where asserts are disabled.
+   *
+   * <p>Vacuum-safety premise: the dedicated read-only operation registers no {@code tsMin} of its
+   * own. Its snapshot is taken while the calling thread's transaction is active, so it is strictly
+   * newer than the transaction's begin-time snapshot, whose {@code tsMin} pin (held from
+   * {@code begin()} to the transaction's close) is what keeps every snapshot-index entry the fresh
+   * snapshot could need from being vacuumed. The scope must therefore only ever run inside an
+   * active transaction on this session — which its consumers guarantee.
    */
   public <T> T computeWithFreshCommittedReads(Supplier<T> reads) {
-    assert freshCommittedReadOperation == null : "fresh-committed-read scopes must not nest";
+    if (freshCommittedReadOperation != null) {
+      // Always-on (not an assert): a nested scope's finally would clear the field and deactivate
+      // its operation mid-outer-scope, silently reverting the outer scope's remaining reads to the
+      // transaction's stale begin-time snapshot — the exact corruption the scope exists to prevent.
+      throw new IllegalStateException("fresh-committed-read scopes must not nest");
+    }
     // A lightweight read-only atomic operation: startAtomicOperation only captures a snapshot of
     // the operations table (nothing registers thread- or table-side until an apply starts, which
     // never happens here), so deactivating it after the reads is the complete teardown. Mirrors
@@ -3650,6 +3669,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * dirty instance (a dirty record is this transaction's own working copy; {@code fill()} rejects
    * dirty records). Returns {@code false} when the record no longer exists in the latest committed
    * state, so the caller can evict the stale instance and report not-found.
+   *
+   * <p>The retry loop below deliberately does not repeat the initial read's
+   * {@link RecordNotFoundException} handling: a retry re-read happens only after the initial read
+   * already answered (the record existed in the fresh snapshot), and the snapshot is immutable, so
+   * a not-found on the re-read of the SAME snapshot is impossible by construction — were it ever
+   * thrown, it would signal a snapshot-stability bug and should escape loudly rather than be
+   * silently converted to an eviction.
    */
   private boolean refreshRecordFromFreshCommittedRead(RecordAbstract record) {
     assert freshCommittedReadOperation != null

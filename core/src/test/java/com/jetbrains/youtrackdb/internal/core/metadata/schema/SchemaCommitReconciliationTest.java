@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -29,8 +30,10 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -59,6 +62,42 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
 
   private SchemaShared schemaShared() {
     return session.getSharedContext().getSchema();
+  }
+
+  /**
+   * Whether the id-named link-bag B-tree component ({@code global_collection_<id>.grb}) of the
+   * given collection is present in the storage. A durable-structure probe for the failed-commit
+   * undo tests: the registry-level assertions alone cannot see a cleanup arm that durably deletes
+   * a restored collection's component while re-registering the collection in memory. The probe
+   * rides a lightweight read-only atomic operation (created and deactivated here, never applied),
+   * the same pattern the production fresh-committed-read scope uses.
+   */
+  private boolean linkBagComponentPresent(int collectionId) {
+    var storage = (AbstractStorage) session.getStorage();
+    var operation = storage.getAtomicOperationsManager().startAtomicOperation();
+    try {
+      return LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId);
+    } finally {
+      operation.deactivate();
+    }
+  }
+
+  /**
+   * Inserts one row into {@code className} in its own transaction and asserts it reads back — the
+   * usability half of the failed-commit restore guarantee: a restored collection must not merely
+   * be re-registered in memory but remain writable and readable.
+   */
+  private void assertClassWritableAndReadable(String className) {
+    var rid = session.computeInTx(tx -> {
+      var row = (EntityImpl) session.newEntity(className);
+      row.setProperty("probe", "alive");
+      return row.getIdentity();
+    });
+    session.executeInTx(tx -> {
+      EntityImpl loaded = session.load(rid);
+      assertEquals("the restored class must serve its rows back", "alive",
+          loaded.getProperty("probe"));
+    });
   }
 
   /**
@@ -431,21 +470,44 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
         schemaShared().existsClass("DropForSlotReuse"));
     assertFalse("the failed create must not reach the committed schema",
         schemaShared().existsClass("CreateIntoFreedSlot"));
+
+    // Durable-structure arm: the restored collection's id-named link-bag component must have
+    // survived the create-undo. The undo's structural cleanup runs in a fresh COMMITTING atomic
+    // operation, so a cleanup arm that misclassified the restored component as the failed create's
+    // orphan would delete it durably — invisible to every registry assertion above, permanent
+    // damage on reopen. Same for writability: the restored collection must stay usable, not just
+    // named.
+    assertTrue(
+        "the restored collection's link-bag component must survive the slot-reuse create-undo",
+        linkBagComponentPresent(droppedCollectionId));
+    assertClassWritableAndReadable("DropForSlotReuse");
   }
 
   /**
-   * A failure thrown by {@code endTxCommit} — after every reconcile phase and the record apply, when
-   * the commit's atomic operation ends with an error (the lifecycle persist-hook / commitChanges
-   * failure shape) — must route through the same in-memory registry undo/restore arms as a
-   * pre-endTxCommit failure. Before the routing fix the no-error branch of the commit finally called
-   * endTxCommit bare, so such a failure propagated uncaught: the phantom created collection stayed
-   * registered and the dropped collection stayed missing while the WAL had rolled the files back.
-   * The drop+create shape exercises both undo arms (create-undo and drop-restore) in one commit.
+   * A failure thrown by {@code endTxCommit} whose {@code endAtomicOperation} converted it to an
+   * internal rollback (the lifecycle persist-hook failure shape — nothing durable,
+   * {@code isRollbackInProgress()} true) must route through the same in-memory registry
+   * undo/restore arms as a pre-endTxCommit failure. Before the routing fix the no-error branch of
+   * the commit finally called endTxCommit bare, so such a failure propagated uncaught: the phantom
+   * created collection stayed registered and the dropped collection stayed missing while the WAL
+   * had rolled the files back. The transaction here carries all four arm families in one commit —
+   * a collection drop, a collection create, an index-engine drop, and an index-engine create — so
+   * the collection undo/restore arms AND the engine undo/restore/membership arms all run through
+   * the new catch. Durability and usability of the restored structures are asserted, not just
+   * registry names.
    */
   @Test
   public void endTxCommitFailureAfterReconcileRunsRegistryUndo() {
     var storage = (AbstractStorage) session.getStorage();
+    var indexManager = session.getSharedContext().getIndexManager();
+    // An indexless class whose drop exercises the collection drop-restore arm, and an indexed
+    // class whose committed index is dropped (engine drop-restore arm) while a second index is
+    // created on it (engine create-undo arm) in the failing transaction. Setup DDL runs on the
+    // legacy top-level path, like the sibling tests.
     session.executeInTx(tx -> session.getMetadata().getSchema().createClass("EndFailDropped"));
+    var indexed = session.getMetadata().getSchema().createClass("EndFailIndexed");
+    indexed.createProperty("name", PropertyType.STRING);
+    indexed.createIndex("EndFailIndexed.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     var droppedClass = schemaShared().getClass("EndFailDropped");
     var droppedCollectionId = droppedClass.getCollectionIds()[0];
@@ -456,7 +518,7 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
 
     // Inject the endTxCommit failure (a retry-family fault so the storage stays OPEN). The hook
     // seam ends the atomic operation with the injected error first, reproducing the rolled-back
-    // state a real endTxCommit failure leaves, then rethrows into the commit finally's catch.
+    // state a real persist-hook failure leaves, then rethrows into the commit finally's catch.
     storage.setEndTxCommitFailureTestHook(
         () -> {
           throw new CommandInterruptedException(
@@ -467,6 +529,9 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
       var schema = session.getMetadata().getSchema();
       schema.dropClass("EndFailDropped");
       schema.createClass("EndFailCreated");
+      indexManager.dropIndex(session, "EndFailIndexed.name");
+      schema.getClass("EndFailIndexed")
+          .createIndex("EndFailIndexed.name2", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
       try {
         session.commit();
         fail("the schema commit must fail when endTxCommit fails");
@@ -477,8 +542,8 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
       storage.setEndTxCommitFailureTestHook(null);
     }
 
-    // Both undo arms ran: the phantom create is gone and the dropped registration is restored, so
-    // the registry equals its pre-commit state and the committed schema is untouched.
+    // Collection arms: the phantom create is gone and the dropped registration is restored, so the
+    // registry equals its pre-commit state and the committed schema is untouched.
     assertEquals(
         "an endTxCommit failure must leave the registry exactly as before the commit",
         namesBefore, new HashSet<>(session.getCollectionNames()));
@@ -489,11 +554,94 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     assertFalse("the failed create must not reach the committed schema",
         schemaShared().existsClass("EndFailCreated"));
 
+    // Engine arms: the dropped committed index is restored (engine reconstructed, still resolvable
+    // and queryable) and the tx-created index's engine publication is undone.
+    assertNotNull("the dropped committed index must be restored after the failed commit",
+        indexManager.getIndex("EndFailIndexed.name"));
+    assertNull("the failed tx-created index must not survive the failed commit",
+        indexManager.getIndex("EndFailIndexed.name2"));
+
+    // Durability/usability arms: the restored collection's link-bag component survived the undo,
+    // its rows read back, and the restored index serves lookups for a fresh row.
+    assertTrue("the restored collection's link-bag component must survive the undo",
+        linkBagComponentPresent(droppedCollectionId));
+    assertClassWritableAndReadable("EndFailDropped");
+    session.executeInTx(tx -> {
+      var row = (EntityImpl) session.newEntity("EndFailIndexed");
+      row.setProperty("name", "afterUndo");
+    });
+    var restoredIndex = indexManager.getIndex("EndFailIndexed.name");
+    var rids = session.computeInTx(tx -> restoredIndex.getRids(session, "afterUndo").toList());
+    assertEquals("the restored index must serve lookups after the failed commit", 1, rids.size());
+
     // The storage stays usable after the routed failure: a follow-up schema commit succeeds and
     // is promoted, proving no lock, mutex, or freezer state leaked through the failure path.
     session.executeInTx(tx -> session.getMetadata().getSchema().createClass("EndFailAfter"));
     assertNotNull("a follow-up schema commit must succeed after the routed endTxCommit failure",
         schemaShared().getClass("EndFailAfter"));
+  }
+
+  /**
+   * The other endTxCommit failure shape: the failure escapes with NO internal rollback
+   * ({@code isRollbackInProgress()} false — the commitChanges-throw family), so durability is
+   * in-doubt (here, certainly durable: the test hook fires after a successful
+   * {@code endAtomicOperation}). Undoing the in-memory registry publication would de-register a
+   * durably committed collection — and the undo's structural cleanup could then durably delete its
+   * files — so the commit finally must instead leave the publication standing and move the storage
+   * to error state, forcing a reopen that rebuilds the registries from the durable truth. The test
+   * pins exactly that split: publication stands (created collection registered, dropped one gone),
+   * the storage is in error state, and the commit still failed loudly to the caller.
+   */
+  @Test
+  public void endTxCommitFailureWithoutRollbackKeepsPublicationAndPoisonsStorage() {
+    var storage = (AbstractStorage) session.getStorage();
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("PdDropped"));
+
+    var droppedCollectionId = schemaShared().getClass("PdDropped").getCollectionIds()[0];
+    var droppedCollectionName = session.getCollectionNameById(droppedCollectionId);
+    var namesBefore = new HashSet<>(session.getCollectionNames());
+
+    storage.setEndTxCommitPostDurabilityFailureTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected post-durability endTxCommit failure");
+        });
+    try {
+      session.begin();
+      var schema = session.getMetadata().getSchema();
+      schema.dropClass("PdDropped");
+      schema.createClass("PdCreated");
+      try {
+        session.commit();
+        fail("the schema commit must fail when endTxCommit fails after durability");
+      } catch (final RuntimeException expected) {
+        // The failure surfaces to the caller even though the commit is durable (in-doubt from the
+        // production shape's perspective).
+      }
+    } finally {
+      storage.setEndTxCommitPostDurabilityFailureTestHook(null);
+    }
+
+    // The registry publication STANDS — no undo ran: the dropped collection is de-registered and
+    // the created collection's registration survives (the durable state contains both changes).
+    var namesAfter = new HashSet<>(session.getCollectionNames());
+    assertFalse("the dropped collection must stay de-registered (the drop is durable)",
+        namesAfter.contains(droppedCollectionName));
+    var added = new HashSet<>(namesAfter);
+    added.removeAll(namesBefore);
+    assertFalse("the created collection's registration must stand (the create is durable)",
+        added.isEmpty());
+
+    // The storage is in error state: every later component operation fails fast until a reopen
+    // rebuilds the registries from the durable truth.
+    var errorState = false;
+    try {
+      storage.checkErrorState();
+    } catch (final RuntimeException expected) {
+      errorState = true;
+    }
+    assertTrue("the storage must be moved to error state on a no-rollback endTxCommit failure",
+        errorState);
   }
 
   /**
