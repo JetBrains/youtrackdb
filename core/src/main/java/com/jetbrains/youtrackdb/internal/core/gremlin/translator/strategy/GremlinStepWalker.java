@@ -14,6 +14,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
@@ -100,7 +101,8 @@ final class GremlinStepWalker {
           HasStep.class, HasStepRecogniser.INSTANCE,
           TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE,
           AndStep.class, AndStepRecogniser.INSTANCE,
-          OrStep.class, OrStepRecogniser.INSTANCE);
+          OrStep.class, OrStepRecogniser.INSTANCE,
+          NotStep.class, NotStepRecogniser.INSTANCE);
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
@@ -321,6 +323,8 @@ final class GremlinStepWalker {
         MatchPlanInputs.builder(ir.pattern())
             .aliasClasses(ir.aliasClasses())
             .aliasFilters(finalAliasFilters)
+            .notMatchExpressions(
+                ctx.notMatchExpressions.isEmpty() ? null : List.copyOf(ctx.notMatchExpressions))
             .returnItems(ctx.returnItems)
             .returnAliases(ctx.returnAliases)
             .returnNestedProjections(ctx.returnNestedProjections)

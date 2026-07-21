@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -131,6 +132,20 @@ interface RecognitionContext {
    *  observable on the walk state. The filter also travels on the edge path item via
    *  {@link #addEdgeAsNode}. */
   void putEdgeFilter(String edgeAlias, SQLWhereClause where);
+
+  /**
+   * Whether {@code alias} is already registered in the positive pattern under construction. Edge-bearing
+   * {@code NotStep} recognisers use this to pre-validate the planner's NOT-origin constraint before
+   * emitting a detached {@link SQLMatchExpression}.
+   */
+  boolean positivePatternHasAlias(String alias);
+
+  /**
+   * Appends a detached NOT {@link SQLMatchExpression} to the walk's {@code notMatchExpressions} sink.
+   * Edge-bearing {@code NotStep} recognisers reach this after a successful sub-walk; pure-filter NOT
+   * shapes merge into {@link #putAliasFilter} instead.
+   */
+  void addNotMatchExpression(SQLMatchExpression expression);
 
   /**
    * Appends a captured sub-walk pattern fragment into this context's positive pattern accumulator.

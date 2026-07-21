@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -105,6 +106,14 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  which is pure-filter. */
   private boolean hasEdges;
 
+  /**
+   * The boundary alias subsequent filter steps in this child sub-traversal should key on. A hop's
+   * {@link #pinBoundary} is swallowed (it must not move the outer traversal's result column) but the
+   * alias is recorded here so a chained {@code out().has(...)} inside one child applies its filter to
+   * the hop target, not the parent's boundary.
+   */
+  @Nullable private String effectiveBoundaryAlias;
+
   /** The sub-walk outcome, {@code null} until {@link GremlinStepWalker#subWalk} finishes driving this
    *  adapter. A caller reads it only after {@link RecognitionContext#walkChild} returns. */
   @Nullable private Outcome outcome;
@@ -162,7 +171,7 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Nullable @Override
   public String boundaryAlias() {
-    return parent.boundaryAlias();
+    return effectiveBoundaryAlias != null ? effectiveBoundaryAlias : parent.boundaryAlias();
   }
 
   @Override
@@ -243,6 +252,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public boolean positivePatternHasAlias(String alias) {
+    return parent.positivePatternHasAlias(alias);
+  }
+
+  @Override
+  public void addNotMatchExpression(SQLMatchExpression expression) {
+    parent.addNotMatchExpression(expression);
+  }
+
+  @Override
   public void appendPattern(MatchPatternBuilder captured) {
     // Nested combinators (e.g. and(and(out(a), out(b)), has(...))) merge grandchild hops through
     // appendPattern rather than addEdge. Flip hasEdges when the source contributed any hop so the
@@ -261,7 +280,9 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void pinBoundary(String alias, BoundaryOutputType type,
       Class<? extends Element> returnClass) {
-    // Intentionally no-op — see the class Javadoc "Why a delegating capture context".
+    // Record the hop target for subsequent filter steps in this child, but do not re-pin the outer
+    // traversal's boundary or RETURN column — see the class Javadoc "Why a delegating capture context".
+    effectiveBoundaryAlias = alias;
   }
 
   /** Swallowed for the same reason as {@link #pinBoundary}: the child never replaces the result

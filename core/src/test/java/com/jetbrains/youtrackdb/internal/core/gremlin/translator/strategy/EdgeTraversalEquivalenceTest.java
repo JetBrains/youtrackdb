@@ -777,6 +777,29 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
             .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30))));
   }
 
+  // ---------------------------------------------------------------------------
+  // NOT over edge-bearing sub-traversals.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V().has("age", 30).not(__.out("knows"))} translates and matches native: the positive
+   * alias WHERE and the detached NOT anti-join compose the same multiset as native Gremlin.
+   */
+  @Test
+  public void hasAge_notOutKnows_matchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob", "age", 30);
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol", "age", 30);
+    alice.addEdge("knows", bob);
+    carol.addEdge("likes", graph.addVertex(T.label, "Person", "name", "Dave", "age", 30));
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().has(age,30).not(out(knows))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("age", 30).not(__.out("knows")));
+  }
+
   /**
    * A foreign step between the edge and its close declines the whole chain to native:
    * {@code g.V().outE("knows").dedup().inV()}. {@code dedup()} is neither a {@code HasStep} nor a

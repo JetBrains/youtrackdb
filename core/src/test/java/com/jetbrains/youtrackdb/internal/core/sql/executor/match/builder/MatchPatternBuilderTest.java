@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -475,6 +476,65 @@ public class MatchPatternBuilderTest {
     assertThrows(
         IllegalStateException.class,
         () -> b.addEdgeAsNode("a", "e", "b", Direction.OUT, "E", Direction.IN, null));
+  }
+
+  // ── buildNotExpression ──
+
+  /**
+   * {@link MatchPatternBuilder#buildNotExpression} emits a bare NOT origin and a single hop item
+   * with the captured target alias filter attached to the path item, not the origin.
+   */
+  @Test
+  public void buildNotExpression_singleHop_attachesLeafFilterNotOrigin() {
+    var b = new MatchWhereBuilder();
+    var targetWhere = b.wrap(b.eq("city", MatchLiteralBuilder.toLiteral("NYC")));
+    var captured =
+        new MatchPatternBuilder()
+            .addEdge("p", "t", Direction.OUT, "knows", targetWhere, null, null);
+
+    var notExpr = captured.buildNotExpression("p", Map.of());
+
+    assertNull(notExpr.getOrigin().getFilter());
+    assertEquals("p", notExpr.getOrigin().getAlias());
+    assertEquals(1, notExpr.getItems().size());
+    assertEquals("t", notExpr.getItems().getFirst().getFilter().getAlias());
+    var sb = new StringBuilder();
+    notExpr.getItems().getFirst().getFilter().getFilter().getBaseExpression()
+        .toGenericStatement(sb);
+    assertTrue(sb.toString().contains("city"));
+  }
+
+  /**
+   * Supplemental alias filters from the sub-walk capture are merged onto the leaf path item when the
+   * builder itself carried no filter for that alias.
+   */
+  @Test
+  public void buildNotExpression_mergesSupplementalAliasFilters() {
+    var wb = new MatchWhereBuilder();
+    var supplemental = wb.wrap(wb.eq("age", MatchLiteralBuilder.toLiteral(30L)));
+    var captured =
+        new MatchPatternBuilder().addEdge("p", "t", Direction.OUT, "knows", null, null, null);
+
+    var notExpr = captured.buildNotExpression("p", Map.of("t", supplemental));
+
+    var sb = new StringBuilder();
+    notExpr.getItems().getFirst().getFilter().getFilter().getBaseExpression()
+        .toGenericStatement(sb);
+    assertTrue(sb.toString().contains("age"));
+  }
+
+  /**
+   * A branching captured fragment cannot become a NOT expression — the builder throws so the
+   * recogniser can decline.
+   */
+  @Test
+  public void buildNotExpression_branchingFragment_throws() {
+    var captured =
+        new MatchPatternBuilder()
+            .addEdge("p", "t1", Direction.OUT, "a", null, null, null)
+            .addEdge("p", "t2", Direction.OUT, "b", null, null, null);
+
+    assertThrows(IllegalArgumentException.class, () -> captured.buildNotExpression("p", Map.of()));
   }
 
   // ── hasAlias ──
