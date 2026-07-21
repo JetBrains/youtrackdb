@@ -14,3 +14,4 @@ product documentation lives in the [user documentation index](../docs/README.md)
 | [Orchestrator Guidelines](agents/orchestrator-guidelines.md) | Planning and delivery rules for the orchestrator role — track workflow, test policy, pre-commit verification scope, git/PR conventions, documentation sync |
 | [Worker Thread Guidelines](agents/thread-guidelines.md) | Hands-on engineering rules for worker threads — build commands, code style, Spotless, testing, committing, codebase tips |
 | [Architecture Decision Records](adr/) | Frozen archive of Architecture Decision Records from the previous workflow generation, plus historical/sunset workflow research logs — no new entries; new design rationale lives in scoped JavaDoc per [design-decisions.md](dev-workflow/design-decisions.md) |
+| [Enable Scoped doclint](backlog/enable-scoped-doclint.md) | Proposed follow-up to enable syntax/reference doclint validation of JavaDoc cross-references; probe data and rollout plan |
