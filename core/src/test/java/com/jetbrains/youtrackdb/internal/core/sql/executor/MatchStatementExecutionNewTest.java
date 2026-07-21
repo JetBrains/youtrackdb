@@ -3604,6 +3604,53 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  // NULL creationDate values appear last in DESC order, matching B-tree index NULL ordering.
+  @Test
+  public void testIndexOrderedMatchNullOrderingDesc() throws Exception {
+    initIndexOrderedMatchData(false);
+    session.begin();
+    session.execute(
+        "CREATE VERTEX TestMessage SET creationDate = null, msgId = 500").close();
+    session.execute(
+        "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = 500)"
+            + " TO (SELECT FROM TestPerson WHERE name = 'person1')")
+        .close();
+    session.execute(
+        "CREATE VERTEX TestMessage SET creationDate = null, msgId = 501").close();
+    session.execute(
+        "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = 501)"
+            + " TO (SELECT FROM TestPerson WHERE name = 'person1')")
+        .close();
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var queryDesc =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd DESC LIMIT 4";
+      try (var result = session.query(queryDesc)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        // DESC order: highest non-null dates first, NULLs last
+        var r1 = result.next();
+        Assert.assertNotNull("First result should have non-NULL cd", r1.getProperty("cd"));
+        Assert.assertEquals("Top result should be day 10", 10, dayOfMonth(r1.getProperty("cd")));
+        var r2 = result.next();
+        Assert.assertNotNull("Second result should have non-NULL cd", r2.getProperty("cd"));
+        var r3 = result.next();
+        Assert.assertNotNull("Third result should have non-NULL cd", r3.getProperty("cd"));
+        var r4 = result.next();
+        Assert.assertNotNull("Fourth result should have non-NULL cd", r4.getProperty("cd"));
+        Assert.assertFalse(result.hasNext());
+      }
+      session.commit();
+    }
+  }
+
   // Cardinality mis-estimation with LIKE filter still produces globally sorted results via multi-source mode.
   @Test
   public void testIndexOrderedMatchCardinalityMisEstimation() throws Exception {
@@ -7053,9 +7100,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             Assert.assertNotNull("Reply content should be bound", content);
           }
 
-          // Verify non-null dates are in DESC order (nulls may appear in
-          // any consistent position — the sort comparator's null handling
-          // determines placement, and we're exercising those branches).
+          // DESC LIMIT 4: top four are the dated messages (days 4..1); nulls excluded.
+          for (var cd : cds) {
+            Assert.assertNotNull("LIMIT 4 DESC should return only non-null dates", cd);
+          }
+
           java.util.Date prevDate = null;
           for (var cd : cds) {
             if (cd instanceof java.util.Date d) {
@@ -7066,6 +7115,87 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
               prevDate = d;
             }
           }
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
+  /**
+   * loadSortFromLinkBag path with DESC: null creationDate values must appear last
+   * when the LIMIT includes them (LIMIT 6 over 4 dated + 2 null messages).
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortNullOrderingDesc() throws Exception {
+    initLoadSortTestData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        var query =
+            "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m}"
+                + ".in('TEST_REPLY_OF'){class: TestReply, as: r} "
+                + "RETURN m.creationDate as cd, r.content as rc"
+                + " ORDER BY cd DESC LIMIT 6";
+        try (var result = session.query(query)) {
+          var cds = new java.util.ArrayList<Object>();
+          while (result.hasNext()) {
+            cds.add(result.next().getProperty("cd"));
+          }
+          Assert.assertEquals("Should have 6 results: " + cds, 6, cds.size());
+          Assert.assertNotNull("First result should have non-NULL cd", cds.get(0));
+          Assert.assertNotNull("Second result should have non-NULL cd", cds.get(1));
+          Assert.assertNotNull("Third result should have non-NULL cd", cds.get(2));
+          Assert.assertNotNull("Fourth result should have non-NULL cd", cds.get(3));
+          Assert.assertNull("Fifth result should have NULL cd (nulls last in DESC)", cds.get(4));
+          Assert.assertNull("Sixth result should have NULL cd (nulls last in DESC)", cds.get(5));
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
+  /**
+   * loadSortFromLinkBag path with ASC: null creationDate values must appear first,
+   * matching SQLOrderByItem semantics (same as index scan and OrderByStep).
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortNullOrderingAsc() throws Exception {
+    initLoadSortTestData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        var query =
+            "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m}"
+                + ".in('TEST_REPLY_OF'){class: TestReply, as: r} "
+                + "RETURN m.creationDate as cd, r.content as rc"
+                + " ORDER BY cd ASC LIMIT 4";
+        try (var result = session.query(query)) {
+          var plan = getPlan(result);
+          Assert.assertTrue(
+              "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+              plan.contains("INDEX ORDERED MATCH"));
+
+          var cds = new java.util.ArrayList<Object>();
+          while (result.hasNext()) {
+            cds.add(result.next().getProperty("cd"));
+          }
+          Assert.assertEquals("Should have 4 results: " + cds, 4, cds.size());
+          Assert.assertNull("First result should have NULL cd (nulls first in ASC)", cds.get(0));
+          Assert.assertNull("Second result should have NULL cd (nulls first in ASC)", cds.get(1));
+          Assert.assertNotNull("Third result should have non-NULL cd", cds.get(2));
+          Assert.assertNotNull("Fourth result should have non-NULL cd", cds.get(3));
         }
         session.commit();
       } finally {

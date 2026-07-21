@@ -333,6 +333,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * Sorts records by the ORDER BY property (from the index definition).
    * Used by loadSortFromLinkBag to produce pre-sorted output that enables
    * LIMIT-based early termination through downstream MATCH edges.
+   *
+   * <p>Null placement matches {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem}:
+   * null is the smallest value — nulls first for ASC, nulls last for DESC.
    */
   @SuppressWarnings("unchecked")
   private void sortByOrderProperty(List<Result> records) {
@@ -341,16 +344,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     records.sort((a, b) -> {
       var va = (Comparable<Object>) a.getProperty(propertyName);
       var vb = (Comparable<Object>) b.getProperty(propertyName);
-      if (va == null && vb == null) {
-        return 0;
-      }
+      int cmp;
       if (va == null) {
-        return orderAsc ? 1 : -1;
+        cmp = vb == null ? 0 : -1;
+      } else if (vb == null) {
+        cmp = 1;
+      } else {
+        cmp = va.compareTo(vb);
       }
-      if (vb == null) {
-        return orderAsc ? -1 : 1;
-      }
-      int cmp = va.compareTo(vb);
       return orderAsc ? cmp : -cmp;
     });
   }
