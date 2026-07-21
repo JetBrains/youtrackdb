@@ -79,6 +79,13 @@ final class NotStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
+    // manageNotPatterns requires a bare NOT origin item — filters on the origin alias cannot be
+    // attached to the detached expression. A sub-walk like not(has(city).out(knows)) captures the
+    // has on the boundary alias; accepting would emit a filterless NOT anti-join (wrong multiset).
+    if (edgeBearingNotCapturesUnsupportedOriginConstraints(adapter, boundary)) {
+      return Outcome.DECLINE;
+    }
+
     try {
       var notExpr =
           adapter
@@ -122,5 +129,18 @@ final class NotStepRecogniser implements StepRecogniser {
       return null;
     }
     return key;
+  }
+
+  /**
+   * Returns {@code true} when the edge-bearing sub-walk captured constraints on the NOT origin alias
+   * that {@link com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder#buildNotExpression}
+   * cannot express (bare origin only; supplemental filters merge onto hop targets, not the origin).
+   */
+  private static boolean edgeBearingNotCapturesUnsupportedOriginConstraints(
+      SubTraversalPredicateAdapter adapter, String boundary) {
+    if (adapter.capturedAliasFilters().containsKey(boundary)) {
+      return true;
+    }
+    return adapter.capturedPattern().registeredAliasClasses().containsKey(boundary);
   }
 }
