@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -26,7 +25,7 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * recogniser's — makes {@link GremlinStepWalker} discard the whole walk, so a partial contribution
  * can never leak into a translated plan. "Validate before you mutate" is unnecessary here.
  */
-interface RecognitionContext {
+interface RecognitionContext extends ParamSink {
 
   // --- Resolved flags, each resolved once by the walker -----------------------------------------
 
@@ -155,13 +154,6 @@ interface RecognitionContext {
    * shapes merge into {@link #putAliasFilter} instead.
    */
   void addNotMatchExpression(SQLMatchExpression expression);
-
-  /**
-   * Binds a predicate comparison value to the next positional parameter slot ({@code ?}) for this
-   * walk. Slot numbering is a pure function of bind order (shape-pure), independent of the bound
-   * value. Structural tokens (class names, {@code ~label}, RIDs) stay inline and must not call this.
-   */
-  SQLPositionalParameter bindParam(Object value);
 
   /**
    * Marks this walk as RID-bearing ({@code g.V(ids)} start ids or a {@code hasId(...)} filter).

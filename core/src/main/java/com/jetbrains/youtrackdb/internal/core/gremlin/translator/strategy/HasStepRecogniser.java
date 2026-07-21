@@ -128,6 +128,7 @@ final class HasStepRecogniser implements StepRecogniser {
     var typeClass = labelClass;
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
         key -> ctx.isDeclaredStringProperty(typeClass, key);
+    ParamSink paramSink = ctx::bindParam;
 
     // Second pass: translate every id / property container into a WHERE expression BEFORE any
     // contribution (so an untranslatable container declines with zero context mutation).
@@ -146,7 +147,7 @@ final class HasStepRecogniser implements StepRecogniser {
         whereExprs.add(ridExpr);
         continue;
       }
-      var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, ctx);
+      var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, paramSink);
       if (filter == null) {
         return Outcome.DECLINE;
       }
