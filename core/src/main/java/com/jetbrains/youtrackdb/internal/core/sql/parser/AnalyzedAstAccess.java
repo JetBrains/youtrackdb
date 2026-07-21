@@ -21,10 +21,10 @@ import javax.annotation.Nullable;
 ///
 /// `SQLExpression.literalValue` is intentionally NOT exposed. It is `private` (unreadable even from
 /// this same-package accessor) and is never assigned on the SQL `Expression()` parse path — only
-/// the GQL lowering, deserialize, and copy paths write it. The lowering pass dispatches on the
-/// recognized typed fields and throws on everything else as its default, so a hypothetically-set
-/// `literalValue` (deserialized / GQL-originated) is covered by that throw-default. Exposing it
-/// here is deferred to the GQL-lowering slice.
+/// the GQL lowering and copy paths write it. The lowering pass dispatches on the recognized typed
+/// fields and throws on everything else as its default, so a hypothetically-set `literalValue`
+/// (GQL-originated) is covered by that throw-default. Exposing it here is deferred to the
+/// GQL-lowering slice.
 public final class AnalyzedAstAccess {
 
   private AnalyzedAstAccess() {
