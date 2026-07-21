@@ -2830,8 +2830,20 @@ public abstract class AbstractStorage
             final var writeRootPayload =
                 schemaContext.txLocalSchema()
                     .rootPayloadDiffersFrom(schemaContext.committedSchema());
+            // The serialization loads the root and per-class records through a fresh-committed-read
+            // scope. The seed refreshed the session's local record cache, but that cache is
+            // weak-referenced: a GC between the seed and this point can evict the fresh instances,
+            // and a plain cache-miss reload here would ride the transaction's begin-time snapshot —
+            // resurrecting exactly the stale-seed version conflict the seed isolation exists to
+            // prevent. The scope makes any such miss (and any page-frame fallback re-read raised by
+            // property access inside toStream) read the latest committed state instead; a cache hit
+            // is refreshed in place, which no-ops on the version equality the held metadata-write
+            // mutex guarantees since the seed.
             try {
-              schemaContext.txLocalSchema().toStream(session, changedClasses, writeRootPayload);
+              session.computeWithFreshCommittedReads(() -> {
+                schemaContext.txLocalSchema().toStream(session, changedClasses, writeRootPayload);
+                return null;
+              });
             } finally {
               // Release without the save side effect: the records are enrolled in the user
               // transaction and persist through the apply below, not through saveInternal.
@@ -2851,9 +2863,19 @@ public abstract class AbstractStorage
             final var indexOverlay = schemaContext.txSchemaState().getIndexOverlay();
             indexPlan = schemaContext.indexManager().newReconciledIndexPlan(indexOverlay);
             if (indexPlan != null) {
-              schemaContext.indexManager()
-                  .enrollReconciledIndexRecords(
-                      session, frontendTransaction, indexOverlay, atomicOperation, indexPlan);
+              // Same fresh-committed-read reasoning as the toStream scope above: enrollment loads
+              // the changed per-index records and the index-manager record, whose cached instances
+              // the weak local cache may have dropped since they were last read; a miss must not
+              // fall back to the begin-time snapshot. The plan capture keeps indexPlan itself
+              // assigned BEFORE enrollment runs, so a throw mid-enrollment still leaves the
+              // failure path a non-null plan whose recorded eager membership mutations it reverts.
+              final var plan = indexPlan;
+              session.computeWithFreshCommittedReads(() -> {
+                schemaContext.indexManager()
+                    .enrollReconciledIndexRecords(
+                        session, frontendTransaction, indexOverlay, atomicOperation, plan);
+                return null;
+              });
             }
           } finally {
             if (priorLinkConsistency) {
@@ -3041,20 +3063,53 @@ public abstract class AbstractStorage
           // inner-finally releaseLocks). The pre-endTxCommit catch above
           // still owns commitIndexes failures; the lifecycle apply hook
           // logs-and-swallows its own failures. endTxCommit itself can
-          // still fail (a lifecycle persist-hook failure is converted to a
-          // rollback and rethrown; commitChanges can throw), and such a
-          // failure is a FAILED commit, so it must route through the same
-          // in-memory registry undo/restore arms as the pre-endTxCommit
-          // failures — propagating it uncaught would leave phantom created
-          // collections/engines registered and dropped ones missing.
-          // endAtomicOperation's own finally already ended the operation
-          // (freezer/lock teardown, rollback bookkeeping), so no second
-          // rollback(...) call is made here — only the registry undo.
+          // still fail, in two distinct shapes that must be told apart by
+          // the operation's rollback flag:
+          //
+          // (1) A lifecycle persist-hook failure: endAtomicOperation
+          //     converts it to a rollback internally (rollbackInProgress
+          //     set, commitChanges skipped, table entry rolled back) and
+          //     rethrows after its freezer/lock teardown. Nothing is
+          //     durable, so the failure routes through the same in-memory
+          //     registry undo/restore arms as the pre-endTxCommit failures
+          //     — propagating it uncaught would leave phantom created
+          //     collections/engines registered and dropped ones missing.
+          //     No second rollback(...) call is made here — the operation
+          //     is already ended — only the registry undo.
+          //
+          // (2) A commitChanges throw: no rollback happened
+          //     (rollbackInProgress stays false) and durability is
+          //     IN-DOUBT — the WAL atomic-unit end record may or may not
+          //     have been flushed before the throw (e.g. a failure mid
+          //     shared-cache apply happens after durability). Undoing the
+          //     registry here could de-register a durably committed
+          //     collection (and the undo's structural cleanup could then
+          //     durably delete its files); keeping the storage live could
+          //     advertise a reverted commit. Neither is safe, so the
+          //     registry publication is left standing and the storage is
+          //     moved to error state: every later operation fails fast and
+          //     the reopen rebuilds the registries from the durable truth,
+          //     whichever way the WAL landed. setInError deliberately
+          //     skips AssertionError (its dev/test-only guard), which is
+          //     acceptable: asserts never fire in production, and the
+          //     rethrow below still fails the commit loudly.
           try {
             endTxCommit(atomicOperation);
           } catch (final IOException | RuntimeException | AssertionError e) {
             if (schemaContext != null && structurePublished) {
-              undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
+              if (atomicOperation.isRollbackInProgress()) {
+                undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
+              } else {
+                setInError(e);
+                LogManager.instance()
+                    .error(this,
+                        "endTxCommit failed after the schema-carry reconcile without an internal"
+                            + " rollback; durability is in-doubt, so the in-memory registry"
+                            + " publication is left standing and the storage is moved to error"
+                            + " state. Re-open the storage to restore consistency from the durable"
+                            + " state.",
+                        e);
+              }
             }
             throw e;
           }
@@ -3099,9 +3154,21 @@ public abstract class AbstractStorage
             // which re-parses the schema from the durable records. The durable commit still
             // succeeds; the failure is logged rather than rethrown.
             try {
-              final EntityImpl committedRoot =
-                  session.load(schemaContext.committedSchema().getIdentity());
-              schemaContext.committedSchema().fromStream(session, committedRoot);
+              // The promotion re-parse loads the just-committed root and per-class records through
+              // a fresh-committed-read scope. The tx-written records resolve through the
+              // transaction's own record set, but an unchanged per-class record's cached instance
+              // may have been evicted (weak local cache) since toStream warmed it; a bare
+              // cache-miss load here would ride the transaction's begin-time atomic operation —
+              // stale under contention, and already ENDED by endTxCommit on the disk profile
+              // ("atomic operation is not active"). The scope's dedicated read-only operation is
+              // active and its snapshot post-dates the just-applied commit, so the promotion reads
+              // exactly the durable state it must re-parse.
+              session.computeWithFreshCommittedReads(() -> {
+                final EntityImpl committedRoot =
+                    session.load(schemaContext.committedSchema().getIdentity());
+                schemaContext.committedSchema().fromStream(session, committedRoot);
+                return null;
+              });
               schemaContext.committedSchema().forceSnapshot();
             } catch (final RuntimeException | AssertionError e) {
               LogManager.instance()
@@ -3389,8 +3456,12 @@ public abstract class AbstractStorage
         collections.set(realId, null);
         // Drop the created collection's surviving structure (in-memory engine only — see the method
         // Javadoc). The collection was just removed from the registry above, so pass the captured
-        // object to the structural cleanup rather than re-reading the now-null slot.
-        revertCreatedCollectionStructure(realId, collection);
+        // object to the structural cleanup rather than re-reading the now-null slot. The cleanup
+        // must know whether this create reused a slot this same reconciliation dropped: on that
+        // path the slot-keyed structures (config entry, link-bag component) present after the
+        // rollback belong to the restored dropped collection, and deleting them would durably
+        // destroy the survivor's registration — see the slot-reuse branch inside.
+        revertCreatedCollectionStructure(realId, collection, droppedIds.contains((int) realId));
       }
     }
     // Re-register each dropped collection: rollback restored its files, so the captured object is
@@ -3441,21 +3512,49 @@ public abstract class AbstractStorage
    * thrown, exactly as the success-path snapshot cleanup is. A leaked orphan is a bounded
    * single-collection leak, not a correctness break; masking the real commit failure would be worse.
    *
+   * <p><b>Slot-reuse path ({@code slotReused}).</b> When the create reused a slot this same
+   * reconciliation dropped, the id-keyed discriminator and the id-keyed deletes below are all
+   * WRONG: after the rollback the {@code global_collection_<id>.grb} component present under this
+   * id is the restored dropped collection's own file (the failed operation's component "create"
+   * merely resurrected the buffered-deleted file id — {@code addFile} un-deletes rather than
+   * eagerly installing — so it reverted with the rollback on both engines), and the slot's config
+   * entry is the restored collection's registration. Deleting them here would durably destroy the
+   * surviving collection's config entry and link-bag B-tree while the drop-restore arm re-registers
+   * it in memory — permanent damage, not cleanup. On this path only the created collection's own
+   * name-keyed data files can survive the rollback (the in-memory engine's eager install), so the
+   * cleanup reduces to deleting those, guarded by their presence ({@code exists} is name-keyed, so
+   * it answers false on the disk engine where the rollback reverted the create).
+   *
    * @param realId     the created collection's resolved real id (its slot, already nulled by the
    *                   caller).
    * @param collection the captured collection object removed from the registry, used to delete its
    *                   data file.
+   * @param slotReused whether {@code realId} is a slot this same reconciliation dropped (the
+   *                   created collection reused the freed slot).
    */
   private void revertCreatedCollectionStructure(final int realId,
-      final StorageCollection collection) {
+      final StorageCollection collection, final boolean slotReused) {
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
+            if (slotReused) {
+              // Slot-reuse: every id-keyed structure at this slot now belongs to the restored
+              // dropped collection (see Javadoc). Only the created collection's own name-keyed
+              // data files can be orphaned, and only on the in-memory engine; the name-keyed
+              // exists() probe is false on the disk engine, where the rollback reverted the
+              // create entirely.
+              if (collection.exists(atomicOperation)) {
+                collection.delete(atomicOperation);
+              }
+              return;
+            }
             // The component file (global_collection_<id>.grb) is the only structure keyed by id and
             // the one that blocks an id-reusing create, so its presence is the in-memory-vs-disk
             // discriminator: present means the rollback did not revert the eager cache install, so
             // this collection's structure is orphaned and must be dropped; absent means the disk
-            // engine already reverted everything and there is nothing to do.
+            // engine already reverted everything and there is nothing to do. (This discriminator is
+            // sound only for a fresh slot: the slot-reuse path above never reaches it, because there
+            // the id-named component present after rollback is the restored dropped collection's.)
             if (!LinkCollectionsBTreeManagerShared.isComponentPresent(atomicOperation, realId)) {
               return;
             }
@@ -3928,6 +4027,28 @@ public abstract class AbstractStorage
    */
   public void setEndTxCommitFailureTestHook(final Runnable hook) {
     this.endTxCommitFailureTestHook = hook;
+  }
+
+  /**
+   * A test-only hook fired inside {@code endTxCommit} <em>after</em> a successful
+   * {@code endAtomicOperation}. A hook that throws simulates the commitChanges-throw failure
+   * shape: the failure escapes {@code endTxCommit} with the operation fully ended and
+   * {@code isRollbackInProgress()} {@code false} — the no-internal-rollback state whose durability
+   * the commit finally's catch must treat as in-doubt (registry publication left standing, storage
+   * moved to error state) instead of undoing. The only delta from the real shape is that here the
+   * commit is certainly durable, which is the conservative half of in-doubt. Null in production.
+   * {@code volatile} because the installing and committing threads may differ in a concurrent
+   * test.
+   */
+  private volatile Runnable endTxCommitPostDurabilityFailureTestHook;
+
+  /**
+   * Installs (or clears, with {@code null}) the test-only post-durability endTxCommit failure
+   * hook. Test-only seam — no production code sets a hook. See {@link
+   * #endTxCommitPostDurabilityFailureTestHook}.
+   */
+  public void setEndTxCommitPostDurabilityFailureTestHook(final Runnable hook) {
+    this.endTxCommitPostDurabilityFailureTestHook = hook;
   }
 
   /**
@@ -6311,14 +6432,24 @@ public abstract class AbstractStorage
       } catch (final RuntimeException injected) {
         // Mirror the production endTxCommit failure shape (a lifecycle persist-hook failure
         // inside endAtomicOperation): end the operation with the injected error so it is rolled
-        // back and the freezer/lock teardown runs, then rethrow. The commit finally's endTxCommit
-        // catch then routes the failure through the registry undo/restore arms exactly as it
-        // would for the real failure.
+        // back (rollbackInProgress set, nothing durable) and the freezer/lock teardown runs, then
+        // rethrow. The commit finally's endTxCommit catch then routes the failure through the
+        // registry undo/restore arms exactly as it would for the real failure.
         atomicOperationsManager.endAtomicOperation(atomicOperation, injected);
         throw injected;
       }
     }
     atomicOperationsManager.endAtomicOperation(atomicOperation, null);
+    final var postDurabilityHook = endTxCommitPostDurabilityFailureTestHook;
+    if (postDurabilityHook != null) {
+      // A throwing hook simulates the commitChanges-throw failure shape: the operation is fully
+      // ended (freezer/lock teardown done) with rollbackInProgress FALSE, exactly what the real
+      // shape leaves behind — except that here durability is certain (endAtomicOperation
+      // succeeded) where the real shape leaves it in-doubt. The commit finally's endTxCommit
+      // catch must then leave the registry publication standing and move the storage to error
+      // state instead of undoing.
+      postDurabilityHook.run();
+    }
   }
 
   public AtomicOperation startStorageTx() {

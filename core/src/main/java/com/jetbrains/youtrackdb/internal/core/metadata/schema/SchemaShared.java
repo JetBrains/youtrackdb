@@ -267,8 +267,9 @@ public abstract class SchemaShared implements CloseableInStorage {
    * predates that commit; seeding through that stale snapshot would re-parse the pre-commit schema,
    * making the commit-time set-diff phantom-drop the just-committed collections and the commit-time
    * root write conflict on the stale record version. The fresh reads also refresh the session's
-   * local record cache, so the commit-time serialization ({@link #toStream}) later loads the same
-   * fresh records.
+   * local record cache, but that cache is weak-referenced and may drop the instances before the
+   * commit; the commit-time serialization and promotion therefore run their own
+   * fresh-committed-read scopes rather than relying on cache residency.
    *
    * @param session the session whose fresh-committed-read scope the read-only record loads ride; a
    *                transaction must already be open
