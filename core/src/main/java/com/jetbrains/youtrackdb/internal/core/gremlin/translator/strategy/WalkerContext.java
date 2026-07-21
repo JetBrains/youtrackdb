@@ -234,6 +234,12 @@ final class WalkerContext implements RecognitionContext {
     return boundaryAlias;
   }
 
+  @Nullable @Override
+  public String boundaryClassName() {
+    return boundaryAlias == null ? null
+        : patternBuilder.registeredAliasClasses().get(boundaryAlias);
+  }
+
   // --- RecognitionContext: schema-aware type gating ---------------------------------------------
 
   @Override

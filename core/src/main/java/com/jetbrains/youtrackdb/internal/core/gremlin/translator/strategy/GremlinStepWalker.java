@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep.WhereEndStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep.WhereStartStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
@@ -83,7 +88,8 @@ final class GremlinStepWalker {
    * Today only {@link NoOpBarrierStep}, the barrier {@code LazyBarrierStrategy} wedges between chained
    * hops. Adding a transparent type is a one-line change here that touches no recogniser.
    */
-  private static final Set<Class<?>> TRANSPARENT_STEPS = Set.of(NoOpBarrierStep.class);
+  private static final Set<Class<?>> TRANSPARENT_STEPS =
+      Set.of(NoOpBarrierStep.class, WhereStartStep.class, WhereEndStep.class);
 
   /**
    * Production recogniser registry, keyed on the exact step class. {@link StartStepRecogniser} claims
@@ -102,7 +108,9 @@ final class GremlinStepWalker {
           TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE,
           AndStep.class, AndStepRecogniser.INSTANCE,
           OrStep.class, OrStepRecogniser.INSTANCE,
-          NotStep.class, NotStepRecogniser.INSTANCE);
+          NotStep.class, NotStepRecogniser.INSTANCE,
+          WhereTraversalStep.class, WhereTraversalStepRecogniser.INSTANCE,
+          WherePredicateStep.class, WherePredicateStepRecogniser.INSTANCE);
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
@@ -258,7 +266,12 @@ final class GremlinStepWalker {
       RecognitionContext parent,
       Map<Class<?>, StepRecogniser> recognisers) {
     var adapter = new SubTraversalPredicateAdapter(parent, recognisers);
-    var steps = child.getSteps();
+    var steps = new ArrayList<>(child.getSteps());
+    // Anonymous child traversals inside where/and/or/not sometimes carry a leading GraphStep
+    // placeholder; the sub-walk's meaningful steps start after it.
+    while (!steps.isEmpty() && steps.getFirst() instanceof GraphStep) {
+      steps.removeFirst();
+    }
     if (steps.isEmpty()) {
       adapter.markOutcome(Outcome.DECLINE);
       return adapter;

@@ -801,6 +801,25 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * {@code g.V().where(__.out("knows"))} translates and matches native: a positive edge-bearing
+   * sub-traversal appends the hop to the positive pattern (the NOT counterpart uses detached NOT).
+   */
+  @Test
+  public void whereOutKnows_matchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    bob.addEdge("knows", carol);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().where(out(knows))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().where(__.out("knows")));
+  }
+
+  /**
    * A foreign step between the edge and its close declines the whole chain to native:
    * {@code g.V().outE("knows").dedup().inV()}. {@code dedup()} is neither a {@code HasStep} nor a
    * {@code NoOpBarrierStep}, so {@code EdgeHopRecogniser} declines (its peek-ahead window spans only

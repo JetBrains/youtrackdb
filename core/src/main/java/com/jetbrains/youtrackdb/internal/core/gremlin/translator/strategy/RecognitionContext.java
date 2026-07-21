@@ -59,6 +59,14 @@ interface RecognitionContext {
    */
   @Nullable String boundaryAlias();
 
+  /**
+   * The schema class registered for {@link #boundaryAlias()} in the positive pattern, or {@code null}
+   * when the boundary is still the generic {@code V} root. {@code WherePredicateStep} uses this for
+   * {@link GremlinPredicateAdapter.PropertyTypeGate} routing when a label comparison also names a
+   * property key.
+   */
+  @Nullable String boundaryClassName();
+
   // --- Schema-aware type gating -----------------------------------------------------------------
 
   /**

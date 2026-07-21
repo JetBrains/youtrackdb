@@ -317,6 +317,22 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     assertThat(absent.id()).isNotEqualTo(presentNull.id());
   }
 
+  /**
+   * {@code g.V().where(__.has("age", 30))} is equivalent to {@code g.V().has("age", 30)} for the
+   * pure-filter sub-traversal shape.
+   */
+  @Test
+  public void wherePureFilterHasAge_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().where(has(age,30))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().where(__.has("age", P.eq(30))));
+  }
+
   // ---------------------------------------------------------------------------
   // NULL semantics (A1) and negated absent-property exclusion (A2).
   // ---------------------------------------------------------------------------
