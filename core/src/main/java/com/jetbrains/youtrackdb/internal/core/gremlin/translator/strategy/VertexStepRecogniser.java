@@ -13,13 +13,17 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceho
  * edge of the {@code outE(L).has(...).inV()} shape) under {@link VertexStepContract}, distinguished
  * by {@link VertexStepContract#returnsEdge()}. When {@code AdjacentToIncidentStrategy} runs
  * recursively on combinator child traversals during {@code applyStrategies()}, bare hops may remain as
- * a {@link VertexStepPlaceholder} until a later GValue reducer fires. The registry keys one
- * recogniser per exact class, so this recogniser owns both {@code VertexStep.class} and {@code
- * VertexStepPlaceholder.class} and routes to the handler for the step's kind:
+ * a {@link VertexStepPlaceholder} or a singleton edge-returning {@link VertexStep} until a later
+ * GValue reducer fires. The registry keys one recogniser per exact class, so this recogniser owns both
+ * {@code VertexStep.class} and {@code VertexStepPlaceholder.class} and routes to the handler for the
+ * step's kind:
  *
  * <ul>
- *   <li>{@code returnsEdge() == false} → the bare-hop {@link VertexHopRecogniser};
- *   <li>{@code returnsEdge() == true} → the edge-filter {@link EdgeHopRecogniser}.
+ *   <li>{@code returnsEdge() == false} → {@link VertexHopRecogniser};
+ *   <li>{@code returnsEdge() == true} with a following {@link HasStep} → {@link EdgeHopRecogniser};
+ *   <li>{@code returnsEdge() == true} singleton inside a combinator sub-walk → {@link
+ *       CombinatorFoldedHopRecogniser};
+ *   <li>any other edge-returning head (e.g. top-level {@code outE(L)}) → {@link Outcome#DECLINE}.
  * </ul>
  *
  * <p>The router <em>peeks</em> the head to read {@code returnsEdge()} and delegates without consuming
@@ -39,19 +43,18 @@ final class VertexStepRecogniser implements StepRecogniser {
 
   @Override
   public Outcome recognize(StepCursor cursor, RecognitionContext ctx) {
-    // Peek, do not take: the delegate consumes the head. Defence in depth — the registry keys this
-    // recogniser on VertexStep / VertexStepPlaceholder, but re-assert the contract so a future registry
-    // mistake declines cleanly rather than mis-routing.
     if (!(cursor.peek() instanceof VertexStepContract<?> hop)) {
       return Outcome.DECLINE;
     }
-    // Route on the vertex/edge split. A non-adjacent {@code outE.has.inV} chain is an
-    // edge-returning head followed by {@link HasStep}; a singleton edge-returning hop (common in
-    // combinator child sub-traversals after {@code AdjacentToIncidentStrategy} runs recursively
-    // during {@code applyStrategies()}) translates as a bare hop.
-    if (hop.returnsEdge() && cursor.peek(1) instanceof HasStep<?>) {
+    if (!hop.returnsEdge()) {
+      return VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
+    }
+    if (cursor.peek(1) instanceof HasStep<?>) {
       return EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
     }
-    return VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
+    if (cursor.peek(1) == null && ctx instanceof SubTraversalPredicateAdapter) {
+      return CombinatorFoldedHopRecogniser.INSTANCE.recognize(cursor, ctx);
+    }
+    return Outcome.DECLINE;
   }
 }

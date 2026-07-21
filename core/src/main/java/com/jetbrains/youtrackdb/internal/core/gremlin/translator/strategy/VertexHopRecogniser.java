@@ -1,14 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 
 /**
  * Recogniser for a single folded vertex hop — the bare {@code out(L)} / {@code in(L)} / {@code
  * both(L)} shape, and the adjacent {@code outE(L).inV()} / {@code bothE(L).otherV()} chains that
- * {@code IncidentToAdjacentStrategy} folds down to the same {@link VertexStep} before this walker runs
- * (see {@code FoldedEdgeStepDispatchClassTest}). Each such hop appends one edge and one target node to
- * the pattern and re-pins the boundary to the new target, so a multi-hop chain ({@code
+ * {@code IncidentToAdjacentStrategy} folds down to a vertex-returning {@link VertexStep} before this
+ * walker runs (see {@code FoldedEdgeStepDispatchClassTest}). Each such hop appends one edge and one
+ * target node to the pattern and re-pins the boundary to the new target, so a multi-hop chain ({@code
  * g.V().out(L).out(L)}) is a sequence of single-hop claims and the last hop's target becomes the
  * traversal's result.
  *
@@ -19,8 +18,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContrac
  * on the {@code returnsEdge() == false} branch. This recogniser is never in the walker registry. It
  * takes the head from the cursor and re-asserts its full precondition — the step is a {@link
  * VertexStep} <em>and</em> is <em>not</em> edge-returning — so a direct mis-call (a non-{@code
- * VertexStep}, or an edge-returning {@code outE(L)} step that belongs to {@link EdgeHopRecogniser})
- * declines cleanly rather than mis-translating an edge step as a bare hop.
+ * VertexStep}, or an edge-returning step) declines cleanly rather than mis-translating an edge step as
+ * a bare hop. Combinator child sub-walk fold artifacts ({@code returnsEdge() == true} singletons) are
+ * handled by {@link CombinatorFoldedHopRecogniser}, not here.
  *
  * <h2>Bare hop targets root at {@code V} polymorphically — no {@code @class} narrowing</h2>
  *
@@ -52,49 +52,10 @@ final class VertexHopRecogniser implements StepRecogniser {
 
   @Override
   public Outcome recognize(StepCursor cursor, RecognitionContext ctx) {
-    // Take the head the router dispatched. Defence in depth: re-assert a vertex-hop contract that is NOT
-    // edge-returning, so a direct mis-call declines cleanly rather than mis-translating an
-    // edge-returning outE(L) step as a bare hop.
     var step = cursor.take();
-    if (!(step instanceof VertexStepContract<?> hop)) {
+    if (!(step instanceof VertexStep<?> hop) || hop.returnsEdge()) {
       return Outcome.DECLINE;
     }
-    // Mis-routed non-adjacent edge-filter chain: EdgeHopRecogniser owns {@code outE.has.inV}. A
-    // singleton edge-returning hop at the top level ({@code outE(L)} with no closing {@code inV})
-    // declines; the same shape inside a combinator child sub-walk ({@link SubTraversalPredicateAdapter})
-    // is an {@code AdjacentToIncidentStrategy} fold artifact and translates as a bare hop.
-    if (hop.returnsEdge()) {
-      if (cursor.peek() != null) {
-        return Outcome.DECLINE;
-      }
-      if (!(ctx instanceof SubTraversalPredicateAdapter)) {
-        return Outcome.DECLINE;
-      }
-    }
-    // A hop with no boundary to hang off cannot be translated: the "from" endpoint is the current
-    // terminator's alias, pinned by the start step (or a prior hop). A null here would mean a
-    // VertexStep reached the walker before any node was pinned — decline rather than build a dangling
-    // edge.
-    if (ctx.boundaryAlias() == null) {
-      return Outcome.DECLINE;
-    }
-    // Resolve the edge-label arity — one rule shared with EdgeHopRecogniser (see
-    // GremlinPatternAssembler.resolveEdgeLabel): a single named label or a label-less all-types hop
-    // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows to
-    // appendFoldedHop, which the builder renders as the all-edges out('E') form.
-    var arity = GremlinPatternAssembler.resolveEdgeLabel(hop, ctx);
-    if (!arity.translatable()) {
-      return Outcome.DECLINE;
-    }
-    var edgeLabel = arity.label();
-    var direction = GremlinPatternAssembler.toBuilderDirection(hop.getDirection());
-
-    // Contribute. The target is a fresh anonymous alias so a multi-hop chain gets distinct
-    // intermediate-node names. The assembler appends the folded hop (edge + target node under the
-    // generic V class, no @class filter) and re-pins the boundary / single RETURN column to the target.
-    var fromAlias = ctx.boundaryAlias();
-    var targetAlias = ctx.nextAnonVertexAlias();
-    GremlinPatternAssembler.appendFoldedHop(ctx, fromAlias, targetAlias, direction, edgeLabel);
-    return Outcome.ACCEPTED;
+    return GremlinPatternAssembler.claimFoldedHop(hop, ctx);
   }
 }
