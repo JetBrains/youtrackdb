@@ -11,7 +11,7 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 ## Progress
 - [x] Review + decomposition (2 iterations: iter1 adversarial FAIL/A1 blocker → fixed; iter2 PASS)
 - [x] Step implementation (5/5 steps complete; +2 post-step refactors)
-- [~] Track-level code review
+- [x] Track-level code review (iter1 PASS — main-agent Auto review; 0 blockers, 0 should-fix, 4 suggestions deferred)
 - [ ] Track completion
 
 - [x] 2026-07-20T16:15Z [ctx=info] Step 1 complete (commits 73afe2559a + 5d3bf3d6b7; dim-review bugs iter1→iter2 PASS after BG1 fix; 12 adapter tests green)
@@ -47,8 +47,12 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
+- [x] 2026-07-21T14:20Z [ctx=unknown] Track-level code review iteration 1 complete (main-agent Auto; all 5 dimensions PASS)
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
+**Phase C track review (2026-07-21, iter1).** Sub-agent fan-out blocked by API usage limits; completed as main-agent Auto review across bugs / code-quality / test-quality / performance / concurrency. **Gate: PASS** — 0 blockers, 0 should-fix. Deferred suggestions: BG1 latent `matchExpressions` fingerprint gap (same as Step 5), BG2 sub-walk reserved-prefix guard (Track 6), CQ1 optional Javadoc on `VertexStepContract` widening, TQ1 optional combinator+cache integration test. Step 1 BG1 (`addNode` → `hasEdges`) verified fixed on cumulative diff.
+
 **Narrowed-scope Phase A (2026-07-20).** Strategic trio against the logical-filters + D5 track (predicted tag `high` → Technical + Risk + Adversarial). mcp-steroid was not probed this session; symbol audits used codebase reads with reference-accuracy caveats in each review file. All three review files are the sub-agents' own output.
 
 Iteration 1 (findings in `reviews/{technical,risk,adversarial}-iter1.md`):
