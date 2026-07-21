@@ -2956,6 +2956,21 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     initIndexOrderedMatchData(true);
   }
 
+  /** Adds messages with NULL creationDate linked to the given person. */
+  private void addNullMessagesForPerson(String personName, int firstMsgId, int count) {
+    session.begin();
+    for (var i = 0; i < count; i++) {
+      var msgId = firstMsgId + i;
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = null, msgId = " + msgId).close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+              + msgId + ") TO (SELECT FROM TestPerson WHERE name = '" + personName + "')")
+          .close();
+    }
+    session.commit();
+  }
+
   /**
    * Multi-source setup: 5 persons, 10 messages each. Ensures estimated cardinality > 1
    * so the planner selects a multi-source mode. Each person's messages span a different
@@ -3646,6 +3661,172 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         var r4 = result.next();
         Assert.assertNotNull("Fourth result should have non-NULL cd", r4.getProperty("cd"));
         Assert.assertFalse(result.hasNext());
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Index scan DESC with LIMIT large enough to include null keys: nulls must appear last
+   * (FetchFromIndexStep / YTDB-1197 ordering). Uses {rid:} single-source pin so plan-time
+   * cost check does not reject a high LIMIT.
+   */
+  @Test
+  public void testIndexOrderedMatchNullOrderingDescIncludesNulls() throws Exception {
+    initIndexOrderedMatchLargeData();
+    addNullMessagesForPerson("person1", 901, 2);
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      String rid;
+      try (var ridResult = session.query(
+          "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
+        Assert.assertTrue(ridResult.hasNext());
+        rid = ridResult.next().getProperty("r").toString();
+      }
+      var query =
+          "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 202";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var cds = new java.util.ArrayList<Object>();
+        while (result.hasNext()) {
+          cds.add(result.next().getProperty("cd"));
+        }
+        Assert.assertEquals("Should have 202 results: " + cds, 202, cds.size());
+        Assert.assertNull("Second-to-last result should have NULL cd (nulls last in DESC)",
+            cds.get(200));
+        Assert.assertNull("Last result should have NULL cd (nulls last in DESC)", cds.get(201));
+
+        java.util.Date prevDate = null;
+        for (var i = 0; i < 200; i++) {
+          var cd = cds.get(i);
+          Assert.assertNotNull("Top 200 results should have non-NULL cd", cd);
+          if (cd instanceof java.util.Date d) {
+            if (prevDate != null) {
+              Assert.assertFalse("Non-null dates should be in DESC order", d.after(prevDate));
+            }
+            prevDate = d;
+          }
+        }
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * loadFromLinkBag → OrderByStep path (no downstream edges, runtime cost model rejects
+   * index scan): null placement must match SQLOrderByItem for both ASC and DESC.
+   */
+  @Test
+  public void testIndexOrderedMatchOrderByStepNullOrdering() throws Exception {
+    initIndexOrderedMatchLargeData();
+    addNullMessagesForPerson("person1", 901, 2);
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        String rid;
+        try (var ridResult = session.query(
+            "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
+          Assert.assertTrue(ridResult.hasNext());
+          rid = ridResult.next().getProperty("r").toString();
+        }
+        var queryAsc =
+            "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+                + "RETURN m.creationDate as cd ORDER BY cd ASC LIMIT 4";
+        try (var resultAsc = session.query(queryAsc)) {
+          var plan = getPlan(resultAsc);
+          Assert.assertTrue(
+              "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+              plan.contains("INDEX ORDERED MATCH"));
+
+          var cds = new java.util.ArrayList<Object>();
+          while (resultAsc.hasNext()) {
+            cds.add(resultAsc.next().getProperty("cd"));
+          }
+          Assert.assertEquals("ASC should have 4 results: " + cds, 4, cds.size());
+          Assert.assertNull("First ASC result should have NULL cd", cds.get(0));
+          Assert.assertNull("Second ASC result should have NULL cd", cds.get(1));
+          Assert.assertNotNull("Third ASC result should have non-NULL cd", cds.get(2));
+          Assert.assertNotNull("Fourth ASC result should have non-NULL cd", cds.get(3));
+        }
+
+        var queryDesc =
+            "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+                + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 202";
+        try (var resultDesc = session.query(queryDesc)) {
+          var cds = new java.util.ArrayList<Object>();
+          while (resultDesc.hasNext()) {
+            cds.add(resultDesc.next().getProperty("cd"));
+          }
+          Assert.assertEquals("DESC should have 202 results: " + cds, 202, cds.size());
+          Assert.assertNull("Second-to-last DESC result should have NULL cd", cds.get(200));
+          Assert.assertNull("Last DESC result should have NULL cd", cds.get(201));
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
+  /**
+   * Multi-source UNFILTERED_BOUND global index scan: DESC with LIMIT including null keys
+   * must place nulls last across all sources.
+   */
+  @Test
+  public void testIndexOrderedMatchMultiSourceNullOrderingDesc() throws Exception {
+    initIndexOrderedMatchMultiSourceData();
+    addNullMessagesForPerson("person5", 901, 2);
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // No WHERE on p, pname in RETURN → UNFILTERED_BOUND (no plan-time cost rejection).
+      var query =
+          "MATCH {class: TestPerson, as: p}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.creationDate as cd ORDER BY cd DESC LIMIT 52";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "Plan should use UNFILTERED_BOUND mode, but was:\n" + plan,
+            plan.contains("UNFILTERED_BOUND"));
+
+        var cds = new java.util.ArrayList<Object>();
+        while (result.hasNext()) {
+          cds.add(result.next().getProperty("cd"));
+        }
+        Assert.assertEquals("Should have 52 results: " + cds, 52, cds.size());
+        Assert.assertNull("Fifty-first result should have NULL cd (nulls last in DESC)",
+            cds.get(50));
+        Assert.assertNull("Fifty-second result should have NULL cd (nulls last in DESC)",
+            cds.get(51));
+
+        java.util.Date prevDate = null;
+        for (var i = 0; i < 50; i++) {
+          var cd = cds.get(i);
+          Assert.assertNotNull("Top 50 results should have non-NULL cd", cd);
+          if (cd instanceof java.util.Date d) {
+            if (prevDate != null) {
+              Assert.assertFalse("Non-null dates should be in global DESC order",
+                  d.after(prevDate));
+            }
+            prevDate = d;
+          }
+        }
       }
       session.commit();
     }
