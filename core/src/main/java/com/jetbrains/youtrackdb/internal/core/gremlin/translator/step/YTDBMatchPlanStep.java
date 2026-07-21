@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.Map;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -86,6 +87,8 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   private final Class<E> returnClass;
   private final String boundaryAlias;
   private final BoundaryOutputType outputType;
+  /** Positional-parameter values for this walk ({@code ?} slots), or empty when none. */
+  private final Map<Object, Object> inputParameters;
 
   // The current arming's open stream, or null before the first open / after close. Single source of
   // truth — there is no inherited iterator to shadow.
@@ -145,11 +148,34 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       @Nonnull InternalExecutionPlan plan,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType) {
+    this(traversal, returnClass, plan, boundaryAlias, outputType, Map.of());
+  }
+
+  /**
+   * Constructs a boundary step backed by the given execution plan and per-walk input parameters.
+   *
+   * @param traversal     the host traversal (must not be null)
+   * @param returnClass   the TinkerPop element class the step emits (currently {@link
+   *                      Vertex}{@code .class})
+   * @param plan          the compiled MATCH plan (must not be null)
+   * @param boundaryAlias the alias under which the matched element appears in each {@link Result}
+   *                      row (must not be null)
+   * @param outputType    how each row projects onto a traverser payload (must not be null)
+   * @param inputParameters positional-parameter values keyed by slot; empty when the walk bound none
+   */
+  public YTDBMatchPlanStep(
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull InternalExecutionPlan plan,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType,
+      @Nonnull Map<Object, Object> inputParameters) {
     super(traversal);
     this.returnClass = returnClass;
     this.plan = plan;
     this.boundaryAlias = boundaryAlias;
     this.outputType = outputType;
+    this.inputParameters = Map.copyOf(inputParameters);
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -284,6 +310,9 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
     var tx = armingGraph.tx();
     tx.readWrite();
     ctx.setDatabaseSession(tx.getDatabaseSession());
+    if (!inputParameters.isEmpty()) {
+      ctx.setInputParameters(inputParameters);
+    }
     // Rewind before re-running: REARMED means the plan already ran in a prior pass and its step
     // chain must be reset before it can execute again. A first open (NEW) has nothing to rewind.
     if (state == State.REARMED) {

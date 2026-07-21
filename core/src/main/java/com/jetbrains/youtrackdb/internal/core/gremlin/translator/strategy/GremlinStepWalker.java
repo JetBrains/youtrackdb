@@ -343,8 +343,15 @@ final class GremlinStepWalker {
             .returnNestedProjections(ctx.returnNestedProjections)
             .build();
 
+    Map<Object, Object> inputParameters = new LinkedHashMap<>(ctx.inputParameters.size());
+    ctx.inputParameters.forEach(inputParameters::put);
     return new GremlinToMatchTranslator.TranslationResult(
-        inputs, ctx.boundaryAlias, ctx.outputType, ctx.returnClass);
+        inputs,
+        ctx.boundaryAlias,
+        ctx.outputType,
+        ctx.returnClass,
+        Map.copyOf(inputParameters),
+        !ctx.ridBearing());
   }
 
   /** AND-composes two same-alias {@code WHERE} clauses into one — the merge function used when both

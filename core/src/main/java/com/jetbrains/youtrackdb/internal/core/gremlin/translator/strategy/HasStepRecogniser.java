@@ -138,6 +138,7 @@ final class HasStepRecogniser implements StepRecogniser {
         continue; // handled by the re-typing contribution below
       }
       if (ID_KEY.equals(key)) {
+        ctx.markRidBearing();
         var ridExpr = translateHasId(container);
         if (ridExpr == null) {
           return Outcome.DECLINE;
@@ -145,7 +146,7 @@ final class HasStepRecogniser implements StepRecogniser {
         whereExprs.add(ridExpr);
         continue;
       }
-      var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate);
+      var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, ctx);
       if (filter == null) {
         return Outcome.DECLINE;
       }

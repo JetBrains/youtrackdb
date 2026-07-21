@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -264,6 +265,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void addNotMatchExpression(SQLMatchExpression expression) {
     parent.addNotMatchExpression(expression);
+  }
+
+  @Override
+  public SQLPositionalParameter bindParam(Object value) {
+    return parent.bindParam(value);
+  }
+
+  @Override
+  public void markRidBearing() {
+    parent.markRidBearing();
   }
 
   @Override

@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -70,7 +71,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   private static GremlinToMatchTranslator.TranslationResult fixtureTranslation() {
     var inputs = MatchPlanInputs.builder(new Pattern()).build();
     return new GremlinToMatchTranslator.TranslationResult(
-        inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class);
+        inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true);
   }
 
   /** Reads/writes the kill-switch on the graph's live session. */
@@ -218,7 +219,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
                 consulted[0]++;
                 return fixtureTranslation();
               },
-              (s, i) -> {
+              (s, tr) -> {
                 neverBuilt[0]++;
                 return mock(InternalExecutionPlan.class);
               });
@@ -423,7 +424,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var strategy =
         new GremlinToMatchStrategy(
             t -> fixtureTranslation(),
-            (s, i) -> {
+            (s, tr) -> {
               throw new IllegalStateException("simulated planner failure");
             });
 
@@ -464,7 +465,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var translation = fixtureTranslation();
 
     var strategy =
-        new GremlinToMatchStrategy(t -> translation, (s, i) -> stubPlan);
+        new GremlinToMatchStrategy(t -> translation, (s, tr) -> stubPlan);
 
     strategy.apply(admin);
 
@@ -623,7 +624,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .build();
     var translation =
         new GremlinToMatchTranslator.TranslationResult(
-            inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class);
+            inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true);
 
     // Single-arg constructor → production plan builder (real MatchExecutionPlanner).
     var strategy = new GremlinToMatchStrategy(t -> translation);

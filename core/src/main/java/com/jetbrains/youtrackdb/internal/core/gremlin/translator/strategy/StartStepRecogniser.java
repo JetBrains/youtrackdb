@@ -129,6 +129,7 @@ final class StartStepRecogniser implements StepRecogniser {
     // full polymorphic set regardless of the polymorphic flag, so @class = 'V' would wrongly exclude
     // subclass instances.
     if (!rids.isEmpty()) {
+      ctx.markRidBearing();
       ctx.putAliasFilter(BOUNDARY_ALIAS, wrapWhere(buildRidInExpression(rids)));
     }
 
