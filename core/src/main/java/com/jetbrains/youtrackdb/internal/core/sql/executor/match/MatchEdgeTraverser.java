@@ -129,12 +129,11 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * Per-traverser cached {@link ImmutableSchema} snapshot. The snapshot is stable
    * for the lifetime of a query, so resolving it once per traverser (instead of
    * per-hop via {@code getMetadata().getImmutableSchemaSnapshot()}) trims the
-   * hot-path call chain in {@link #matchesClassCached}. Lazy — only populated
-   * when a zero-I/O class check is actually needed.
+   * hot-path call chain in {@link #matchesClassCached}. Populated lazily on the
+   * first hop that needs a zero-I/O class check; retried on later hops while
+   * still {@code null} so a transient miss does not permanently bypass the cache.
    */
   private ImmutableSchema cachedSchema;
-
-  private boolean schemaResolved;
 
   /**
    * Single-slot memo of the most recent {@code (className, collectionId) ->
@@ -494,10 +493,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * <p>Two optimisations on top of the static path:
    *
    * <ul>
-   *   <li><b>Schema snapshot cache</b> — {@link #cachedSchema} is resolved on
-   *       first invocation and reused, so subsequent hops skip the
-   *       {@code context.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()}
-   *       call chain.</li>
+   *   <li><b>Schema snapshot cache</b> — {@link #cachedSchema} is resolved when
+   *       first needed and reused on later hops. While it is still {@code null}
+   *       (session not yet available, or a transient snapshot miss), resolution
+   *       is retried instead of giving up for the traverser's lifetime.</li>
    *   <li><b>Single-slot (className, collectionId) memo</b> — results from one
    *       edge typically share a cluster (e.g. every {@code Comment} neighbour
    *       of {@code .in('HAS_CREATOR'){class: Comment}} lives in the Comment
@@ -528,12 +527,11 @@ public class MatchEdgeTraverser implements ExecutionStream {
       return memoResult;
     }
 
-    // Resolve schema snapshot once per traverser.
-    if (!schemaResolved) {
-      cachedSchema = session == null
-          ? null
-          : session.getMetadata().getImmutableSchemaSnapshot();
-      schemaResolved = true;
+    // Lazily cache the schema snapshot for this traverser. Retry while null so a
+    // transient miss (or a hop that ran before the session was wired) does not
+    // permanently force the static fallback on every subsequent class check.
+    if (cachedSchema == null && session != null) {
+      cachedSchema = session.getMetadata().getImmutableSchemaSnapshot();
     }
 
     boolean result;
