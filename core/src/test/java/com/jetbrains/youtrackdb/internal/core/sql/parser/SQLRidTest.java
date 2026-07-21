@@ -18,7 +18,7 @@ import org.junit.Test;
  *
  * <p>{@link SQLRid#toRecordId} already honours the expression guard; these tests
  * cover the observers named in the {@code setExpression} comment — {@code
- * toString}, {@code equals}, {@code copy}, and expression-branch serialization.
+ * toString}, {@code equals}, and {@code copy}.
  */
 public class SQLRidTest {
 
