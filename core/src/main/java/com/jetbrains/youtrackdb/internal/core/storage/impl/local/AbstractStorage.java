@@ -3032,49 +3032,32 @@ public abstract class AbstractStorage
         if (error != null) {
           rollback(error, atomicOperation);
           if (schemaContext != null && structurePublished) {
-            // A failed commit must leave the in-memory registry exactly as it was before the
-            // commit. The created collections' and dropped collections' files are WAL-reverted by the
-            // rolled-back atomic operation, but reconcileCollections mutated the in-memory registries
-            // synchronously (created collections published, dropped collections removed), so undo both
-            // sides here: drop the phantom creates and restore the dropped registrations.
-            undoReconciledCollections(schemaContext.committedSchema(),
-                schemaContext.txSchemaState(), droppedCollections);
-            if (indexPlan != null) {
-              // Mirror for engines, create side: the build phase published each created engine into
-              // the engine registries eagerly (like a created collection), so a failed commit must
-              // remove those phantom registrations. The engine files revert with the rolled-back
-              // atomic operation on the disk profile; the in-memory profile leaves them, so the undo
-              // also drops the surviving files. The engine ids the failed commit created are freed for
-              // reuse on the next commit.
-              undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
-              // Mirror for engines, drop side: deleteIndexEngineInCommitWindow tore each dropped
-              // engine out of the in-memory registry synchronously, so a failed commit must
-              // reconstruct it — otherwise the surviving committed index points at a nulled engine
-              // slot and throws on the next read. The rolled-back atomic operation restored the engine
-              // files on the disk profile, so the reconstruction rebuilds a fresh engine from the
-              // captured durable data. Runs after the create-undo so a freed slot the create-undo
-              // nulled cannot collide with a restore.
-              restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
-              // Revert the eager in-memory membership mutations the enroll phase applied (the record
-              // writes revert with the atomic operation, but the in-memory collectionsToIndex sets
-              // were mutated synchronously).
-              schemaContext.indexManager().undoAppliedMembership(indexPlan);
-            }
+            undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
           }
         } else {
           // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
           // the single lifecycle gate that now owns persist (before
           // commitChanges) and apply (after commitChanges, before the
           // inner-finally releaseLocks). The pre-endTxCommit catch above
-          // still owns commitIndexes failures plus any failure that
-          // escapes the lifecycle persist hook; the lifecycle apply hook
-          // logs-and-swallows its own failures, so no catch is needed
-          // around endTxCommit here. Removing the prior post-endTxCommit
-          // applyIndexCountDeltas / applyHistogramDeltas calls and their
-          // log-and-swallow catches closes the lock-window race the old
-          // apply path had: today's apply runs while the per-index lock
-          // acquired at lockIndexes is still held.
-          endTxCommit(atomicOperation);
+          // still owns commitIndexes failures; the lifecycle apply hook
+          // logs-and-swallows its own failures. endTxCommit itself can
+          // still fail (a lifecycle persist-hook failure is converted to a
+          // rollback and rethrown; commitChanges can throw), and such a
+          // failure is a FAILED commit, so it must route through the same
+          // in-memory registry undo/restore arms as the pre-endTxCommit
+          // failures — propagating it uncaught would leave phantom created
+          // collections/engines registered and dropped ones missing.
+          // endAtomicOperation's own finally already ended the operation
+          // (freezer/lock teardown, rollback bookkeeping), so no second
+          // rollback(...) call is made here — only the registry undo.
+          try {
+            endTxCommit(atomicOperation);
+          } catch (final IOException | RuntimeException | AssertionError e) {
+            if (schemaContext != null && structurePublished) {
+              undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
+            }
+            throw e;
+          }
           try {
             cleanupSnapshotIndex();
           } catch (final RuntimeException | AssertionError e) {
@@ -3320,12 +3303,48 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Restores the in-memory registry to its pre-commit state on a failed schema-carry commit. The
-   * rolled-back atomic operation already reverts every structural file (created and dropped), but
-   * {@link #reconcileCollections} mutated the in-memory registries synchronously, so this undoes both
-   * sides: it removes the phantom registration of the collections the commit created, and
-   * re-registers the collections the commit dropped. Runs under the held write lock. Idempotent
-   * against a never-published id (the map lookup misses).
+   * Runs every in-memory registry undo/restore arm for a failed schema-carry commit, in the pinned
+   * order. A failed commit must leave the in-memory registries exactly as they were before the
+   * commit: the created and dropped structural files are WAL-reverted by the rolled-back atomic
+   * operation, but {@link #reconcileCollections} and the index build/drop phases mutated the
+   * in-memory registries synchronously, so both sides are undone here. Called from the commit
+   * finally's failure branch (after {@code rollback}) and from the {@code endTxCommit} failure
+   * catch (where the failed {@code endAtomicOperation} already performed its own rollback
+   * bookkeeping, so no second rollback call precedes this undo).
+   *
+   * <p>Arm order: the collection undo runs first (phantom creates dropped, then dropped
+   * registrations restored — see {@link #undoReconciledCollections}); then, when an index plan
+   * exists, the engine create-undo removes the phantom engine registrations (the engine files
+   * revert with the rolled-back atomic operation on the disk profile; the in-memory profile leaves
+   * them, so the undo also drops the surviving files, freeing the failed commit's engine ids for
+   * reuse), the engine drop-restore reconstructs each dropped engine from its captured durable data
+   * (deleteIndexEngineInCommitWindow tore it out of the registry synchronously; without the
+   * reconstruction the surviving committed index would point at a nulled engine slot and throw on
+   * the next read — running after the create-undo so a freed slot cannot collide with a restore),
+   * and finally the eager in-memory membership mutations the enroll phase applied are reverted (the
+   * record writes revert with the atomic operation, but the in-memory collectionsToIndex sets were
+   * mutated synchronously).
+   */
+  private void undoSchemaCarryRegistryPublication(
+      final SchemaCommitContext schemaContext,
+      @Nullable final IndexManagerEmbedded.ReconciledIndexPlan indexPlan,
+      final List<DroppedCollection> droppedCollections) {
+    undoReconciledCollections(schemaContext.committedSchema(),
+        schemaContext.txSchemaState(), droppedCollections);
+    if (indexPlan != null) {
+      undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
+      restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
+      schemaContext.indexManager().undoAppliedMembership(indexPlan);
+    }
+  }
+
+  /**
+   * Restores the in-memory collection registry to its pre-commit state on a failed schema-carry
+   * commit. The rolled-back atomic operation already reverts every structural file (created and
+   * dropped), but {@link #reconcileCollections} mutated the in-memory registries synchronously, so
+   * this undoes both sides: it removes the phantom registration of the collections the commit
+   * created, and re-registers the collections the commit dropped. Runs under the held write lock.
+   * Idempotent against a never-published id (the map lookup misses).
    *
    * <p>The create side also reverts the created collection's <em>structure</em>, not just its
    * in-memory registry entry. The disk engine's {@code readCache.addFile} buffers the file create as
@@ -3347,11 +3366,21 @@ public abstract class AbstractStorage
       final SchemaShared committedSchema, final TxSchemaState txSchemaState,
       final List<DroppedCollection> dropped) {
     final var committedIds = committedSchema.getRealCollectionIds();
+    // The slots this same reconciliation dropped. A commit that drops a committed collection frees
+    // its slot for the commit-local allocator, so a created collection's resolved real id CAN
+    // coincide with a committed id — exactly when that id is in this set (the committed schema is
+    // promoted only on the success path, so on this failure path it still lists the dropped id as
+    // committed).
+    final var droppedIds = new IntOpenHashSet(dropped.size());
+    for (final var entry : dropped) {
+      droppedIds.add(entry.id());
+    }
     for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
       // Only drop ids the commit created (resolved from a provisional), never a pre-existing
-      // committed id. A resolved real id that coincides with a committed id cannot happen: the
-      // commit-local allocator draws from free slots, and a committed id's slot is occupied.
-      if (committedIds.contains(realId)) {
+      // committed id. A resolved id that reads as committed but sits in droppedIds reused a slot
+      // this same reconciliation freed: it is commit-created and must be undone here, so the
+      // drop-restore loop below finds the slot null again for the original occupant.
+      if (committedIds.contains(realId) && !droppedIds.contains((int) realId)) {
         continue;
       }
       final var collection = realId < collections.size() ? collections.get(realId) : null;
@@ -3878,6 +3907,27 @@ public abstract class AbstractStorage
    */
   public void setPostEngineBuildTestHook(final Runnable hook) {
     this.postEngineBuildTestHook = hook;
+  }
+
+  /**
+   * A test-only hook fired at the top of {@code endTxCommit}, i.e. after every reconcile phase and
+   * the record apply, at the point where the commit's {@code endAtomicOperation} lifecycle call can
+   * still fail (a lifecycle persist-hook failure, a {@code commitChanges} throw). A hook that
+   * throws a {@link RuntimeException} is routed through {@code endAtomicOperation(operation,
+   * error)} first — rolling the operation back with the normal freezer/lock teardown — and then
+   * rethrown, reproducing exactly the state a real endTxCommit failure leaves behind. Tests use it
+   * to verify the commit finally's endTxCommit catch runs the in-memory registry undo/restore arms
+   * instead of propagating the failure uncaught. Null in production. {@code volatile} because the
+   * installing and committing threads may differ in a concurrent test.
+   */
+  private volatile Runnable endTxCommitFailureTestHook;
+
+  /**
+   * Installs (or clears, with {@code null}) the test-only endTxCommit failure hook. Test-only seam
+   * — no production code sets a hook. See {@link #endTxCommitFailureTestHook}.
+   */
+  public void setEndTxCommitFailureTestHook(final Runnable hook) {
+    this.endTxCommitFailureTestHook = hook;
   }
 
   /**
@@ -6254,6 +6304,20 @@ public abstract class AbstractStorage
   }
 
   private void endTxCommit(AtomicOperation atomicOperation) throws IOException {
+    final var failureHook = endTxCommitFailureTestHook;
+    if (failureHook != null) {
+      try {
+        failureHook.run();
+      } catch (final RuntimeException injected) {
+        // Mirror the production endTxCommit failure shape (a lifecycle persist-hook failure
+        // inside endAtomicOperation): end the operation with the injected error so it is rolled
+        // back and the freezer/lock teardown runs, then rethrow. The commit finally's endTxCommit
+        // catch then routes the failure through the registry undo/restore arms exactly as it
+        // would for the real failure.
+        atomicOperationsManager.endAtomicOperation(atomicOperation, injected);
+        throw injected;
+      }
+    }
     atomicOperationsManager.endAtomicOperation(atomicOperation, null);
   }
 

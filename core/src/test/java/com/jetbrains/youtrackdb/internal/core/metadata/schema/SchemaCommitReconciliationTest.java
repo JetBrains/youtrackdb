@@ -373,6 +373,130 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
   }
 
   /**
+   * Regression for the failed-commit undo when a create reused a slot the SAME commit's drop freed.
+   * A transaction drops a committed class and creates a new one; reconciliation processes the drop
+   * first (freeing the dropped collection's registry slot), and the commit-local first-null-slot
+   * allocator then hands the created class's collection that just-freed slot. When the commit fails
+   * inside the window, the failure-path undo must classify the reused slot as commit-created — not
+   * as a pre-existing committed id, even though the not-yet-promoted committed schema still lists it
+   * — so the create-undo frees the slot and the drop-restore re-registers the original collection.
+   * The old committed-id guard skipped the create-undo for the reused slot, and the drop-restore arm
+   * then hit its "drop-restore slot N is out of range or occupied" assert from the failure-path
+   * finally (an {@link AssertionError} escaping instead of the injected failure).
+   */
+  @Test
+  public void failedCommitWithDropAndSlotReusingCreateRestoresRegistry() {
+    var storage = (AbstractStorage) session.getStorage();
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("DropForSlotReuse"));
+
+    var droppedClass = schemaShared().getClass("DropForSlotReuse");
+    var droppedCollectionId = droppedClass.getCollectionIds()[0];
+    var droppedCollectionName = session.getCollectionNameById(droppedCollectionId);
+    assertNotNull("the class's real collection must exist before the failed drop+create",
+        droppedCollectionName);
+    var namesBefore = new HashSet<>(session.getCollectionNames());
+
+    // Fault after reconcileCollections ran (the drop freed the slot and the create reused it) — a
+    // retry-family fault so the storage stays OPEN and the in-memory registry stays observable (see
+    // failedSchemaCommitLeavesNoPhantomRegistration for the rationale).
+    storage.setCommitWindowTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected slot-reuse commit fault");
+        });
+    try {
+      session.begin();
+      var schema = session.getMetadata().getSchema();
+      schema.dropClass("DropForSlotReuse");
+      schema.createClass("CreateIntoFreedSlot");
+      try {
+        session.commit();
+        fail("the drop+create commit must fail when the in-window fault hook throws");
+      } catch (final RuntimeException expected) {
+        // Routed through the failure-path undo. An AssertionError escaping here instead would be
+        // the old committed-id-guard misclassification this test pins against.
+      }
+    } finally {
+      storage.setCommitWindowTestHook(null);
+    }
+
+    // The registry is exactly the pre-commit state: the phantom create is gone and the dropped
+    // collection's registration is back in its original slot.
+    assertEquals(
+        "a failed drop+create commit must restore the registry to its pre-commit state",
+        namesBefore, new HashSet<>(session.getCollectionNames()));
+    assertEquals("the dropped collection must be re-registered on its original slot",
+        droppedCollectionName, session.getCollectionNameById(droppedCollectionId));
+    assertTrue("the dropped class must still be in the committed schema",
+        schemaShared().existsClass("DropForSlotReuse"));
+    assertFalse("the failed create must not reach the committed schema",
+        schemaShared().existsClass("CreateIntoFreedSlot"));
+  }
+
+  /**
+   * A failure thrown by {@code endTxCommit} — after every reconcile phase and the record apply, when
+   * the commit's atomic operation ends with an error (the lifecycle persist-hook / commitChanges
+   * failure shape) — must route through the same in-memory registry undo/restore arms as a
+   * pre-endTxCommit failure. Before the routing fix the no-error branch of the commit finally called
+   * endTxCommit bare, so such a failure propagated uncaught: the phantom created collection stayed
+   * registered and the dropped collection stayed missing while the WAL had rolled the files back.
+   * The drop+create shape exercises both undo arms (create-undo and drop-restore) in one commit.
+   */
+  @Test
+  public void endTxCommitFailureAfterReconcileRunsRegistryUndo() {
+    var storage = (AbstractStorage) session.getStorage();
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("EndFailDropped"));
+
+    var droppedClass = schemaShared().getClass("EndFailDropped");
+    var droppedCollectionId = droppedClass.getCollectionIds()[0];
+    var droppedCollectionName = session.getCollectionNameById(droppedCollectionId);
+    assertNotNull("the class's real collection must exist before the failed commit",
+        droppedCollectionName);
+    var namesBefore = new HashSet<>(session.getCollectionNames());
+
+    // Inject the endTxCommit failure (a retry-family fault so the storage stays OPEN). The hook
+    // seam ends the atomic operation with the injected error first, reproducing the rolled-back
+    // state a real endTxCommit failure leaves, then rethrows into the commit finally's catch.
+    storage.setEndTxCommitFailureTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected endTxCommit failure");
+        });
+    try {
+      session.begin();
+      var schema = session.getMetadata().getSchema();
+      schema.dropClass("EndFailDropped");
+      schema.createClass("EndFailCreated");
+      try {
+        session.commit();
+        fail("the schema commit must fail when endTxCommit fails");
+      } catch (final RuntimeException expected) {
+        // Routed through the endTxCommit catch and the registry undo/restore arms.
+      }
+    } finally {
+      storage.setEndTxCommitFailureTestHook(null);
+    }
+
+    // Both undo arms ran: the phantom create is gone and the dropped registration is restored, so
+    // the registry equals its pre-commit state and the committed schema is untouched.
+    assertEquals(
+        "an endTxCommit failure must leave the registry exactly as before the commit",
+        namesBefore, new HashSet<>(session.getCollectionNames()));
+    assertEquals("the dropped collection must be re-registered on its original slot",
+        droppedCollectionName, session.getCollectionNameById(droppedCollectionId));
+    assertTrue("the dropped class must still be in the committed schema",
+        schemaShared().existsClass("EndFailDropped"));
+    assertFalse("the failed create must not reach the committed schema",
+        schemaShared().existsClass("EndFailCreated"));
+
+    // The storage stays usable after the routed failure: a follow-up schema commit succeeds and
+    // is promoted, proving no lock, mutex, or freezer state leaked through the failure path.
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("EndFailAfter"));
+    assertNotNull("a follow-up schema commit must succeed after the routed endTxCommit failure",
+        schemaShared().getClass("EndFailAfter"));
+  }
+
+  /**
    * Breadcrumb for the crash-before-commit recovery of an in-transaction schema create. The rollback
    * half (a programmatic {@code session.rollback()} leaves no collection) is covered by
    * {@link #rolledBackInTransactionCreateLeavesNoCollection}. The crash half — stop the storage hard

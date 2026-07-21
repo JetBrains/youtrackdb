@@ -3778,7 +3778,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   private void rePopulateSourceBytes() {
     var storage = session.getStorage();
-    var atomicOp = session.getActiveTransaction().getAtomicOperation();
+    // Resolve through the session's effective-read seam so a re-read inside a
+    // fresh-committed-read scope (the tx-local schema seed) does not fall back to the
+    // transaction's begin-time snapshot and resurrect the stale record state the scope
+    // exists to bypass. Outside a scope this is exactly the active transaction's operation.
+    var atomicOp = session.getEffectiveReadAtomicOperation();
 
     while (true) {
       var readResult = storage.readRecord(getIdentity(), atomicOp);

@@ -174,6 +174,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
@@ -307,6 +308,15 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * the committed schema write lock). Thread-confined to the seeding thread.
    */
   private boolean seedingTxSchemaState = false;
+
+  /**
+   * Non-null only while a {@link #computeWithFreshCommittedReads} scope is running on this
+   * session's thread. While set, {@link #executeReadRecord} bypasses the session's local record
+   * cache and reads through this dedicated read-only atomic operation instead of the active
+   * transaction's, so the reads observe the latest committed state rather than the transaction's
+   * begin-time snapshot. Session state is thread-confined, so the field needs no volatile.
+   */
+  private AtomicOperation freshCommittedReadOperation;
 
   private boolean prefetchRecords;
 
@@ -2155,12 +2165,28 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
       var record = getTransactionInternal().getRecord(rid);
+      var localCacheHit = false;
       if (record == null) {
         record = localCache.findRecord(rid);
+        localCacheHit = record != null;
       }
       if (record != null && record.isUnloaded()) {
         throw new IllegalStateException(
             "Unloaded record with rid " + rid + " was found in local cache");
+      }
+      if (localCacheHit && freshCommittedReadOperation != null) {
+        // Inside a fresh-committed-read scope a cached instance may be stale: it was read at the
+        // transaction's begin-time snapshot, which can predate the committed state the scope must
+        // observe. The session's one-instance-per-rid invariant (assertIfAlreadyLoaded) forbids
+        // materializing a second instance for the same rid, so the cached instance is refreshed in
+        // place from a fresh committed read. A tx-enrolled record (the branch above) is the
+        // transaction's own working copy and is never refreshed.
+        if (!refreshRecordFromFreshCommittedRead(record)) {
+          // The record no longer exists in the latest committed state: evict the stale instance
+          // and report not-found, exactly as a fresh-scope storage-read miss below would.
+          localCache.deleteRecord(rid);
+          return createRecordNotFoundResult(rid, throwExceptionIfRecordNotFound);
+        }
       }
 
       if (record != null) {
@@ -2192,8 +2218,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         readResult = prefetchedBuffer;
       } else {
         try {
-          var tx = getActiveTransaction();
-          readResult = storage.readRecord(rid, tx.getAtomicOperation());
+          readResult = storage.readRecord(rid, getEffectiveReadAtomicOperation());
         } catch (RecordNotFoundException e) {
           if (throwExceptionIfRecordNotFound) {
             throw e;
@@ -2252,7 +2277,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           // toRawBuffer() validates the stamp after byte extraction and throws
           // OptimisticReadFailedException if the page was modified. Retry until
           // we get a consistent byte[] copy.
-          var tx = getActiveTransaction();
           var currentResult = (StorageReadResult) pageBuffer;
           while (true) {
             try {
@@ -2261,7 +2285,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               record.fromStream(rawBuffer.buffer());
               break;
             } catch (OptimisticReadFailedException e) {
-              currentResult = storage.readRecord(rid, tx.getAtomicOperation());
+              currentResult = storage.readRecord(rid, getEffectiveReadAtomicOperation());
             }
           }
         }
@@ -3529,6 +3553,90 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   public boolean isSeedingTxSchemaState() {
     return seedingTxSchemaState;
+  }
+
+  /**
+   * Runs {@code reads} in a fresh-committed-read scope: every record load inside the scope reads
+   * the latest committed state through a dedicated read-only atomic operation (whose snapshot is
+   * taken now) instead of the active transaction's begin-time snapshot, and bypasses this session's
+   * local record cache (whose entries were read at that begin-time snapshot and may be stale).
+   * Loaded records still bind to this session and refresh the local cache, so later reads of the
+   * same records — including the commit-time schema serialization — serve the fresh state.
+   *
+   * <p>The consumer is the tx-local schema seed ({@link SchemaShared#copyForTx}): the
+   * metadata-write mutex serializes schema-changing transactions, so a transaction that parked on
+   * the mutex behind a concurrent schema commit resumes with a begin-time snapshot that predates
+   * that commit. Seeding through the transaction's snapshot would re-parse the pre-commit schema
+   * and misclassify the just-committed changes as this transaction's own edits (for example a
+   * phantom collection drop in the commit-time set-diff). The scope is not reentrant.
+   */
+  public <T> T computeWithFreshCommittedReads(Supplier<T> reads) {
+    assert freshCommittedReadOperation == null : "fresh-committed-read scopes must not nest";
+    // A lightweight read-only atomic operation: startAtomicOperation only captures a snapshot of
+    // the operations table (nothing registers thread- or table-side until an apply starts, which
+    // never happens here), so deactivating it after the reads is the complete teardown. Mirrors
+    // the read-only-operation pattern IndexHistogramManager uses for its rebalance scan.
+    final var freshReadOperation = storage.getAtomicOperationsManager().startAtomicOperation();
+    freshCommittedReadOperation = freshReadOperation;
+    try {
+      return reads.get();
+    } finally {
+      freshCommittedReadOperation = null;
+      freshReadOperation.deactivate();
+    }
+  }
+
+  /**
+   * The atomic operation record reads ride: the fresh-committed-read operation while a
+   * {@link #computeWithFreshCommittedReads} scope is active on this session, otherwise the active
+   * transaction's operation. Public because the {@code EntityImpl} page-frame fallback re-read
+   * resolves its read operation through this seam too — a stamp-invalidated re-read inside the
+   * scope must not silently fall back to the transaction's stale begin-time snapshot.
+   */
+  public AtomicOperation getEffectiveReadAtomicOperation() {
+    if (freshCommittedReadOperation != null) {
+      return freshCommittedReadOperation;
+    }
+    return getActiveTransaction().getAtomicOperation();
+  }
+
+  /**
+   * Re-fills a locally cached record instance in place from a fresh committed read, so a
+   * fresh-committed-read scope observes the latest committed record state through the SAME instance
+   * (the session's one-instance-per-rid invariant forbids materializing a second instance for a
+   * cached rid). No-op when the fresh read carries the version the instance already has, and for a
+   * dirty instance (a dirty record is this transaction's own working copy; {@code fill()} rejects
+   * dirty records). Returns {@code false} when the record no longer exists in the latest committed
+   * state, so the caller can evict the stale instance and report not-found.
+   */
+  private boolean refreshRecordFromFreshCommittedRead(RecordAbstract record) {
+    assert freshCommittedReadOperation != null
+        : "refreshRecordFromFreshCommittedRead requires an active fresh-committed-read scope";
+    if (record.isDirty()) {
+      return true;
+    }
+    var rid = record.getIdentity();
+    StorageReadResult readResult;
+    try {
+      readResult = storage.readRecord(rid, freshCommittedReadOperation);
+    } catch (RecordNotFoundException e) {
+      return false;
+    }
+    // toRawBuffer() validates the optimistic-read stamp after byte extraction; retry on
+    // invalidation until a consistent copy is read, mirroring the blob re-read loop in
+    // executeReadRecord.
+    while (true) {
+      try {
+        var rawBuffer = readResult.toRawBuffer();
+        if (rawBuffer.version() != record.getVersion()) {
+          record.fill(rawBuffer.version(), rawBuffer.buffer(), false);
+          record.fromStream(rawBuffer.buffer());
+        }
+        return true;
+      } catch (OptimisticReadFailedException e) {
+        readResult = storage.readRecord(rid, freshCommittedReadOperation);
+      }
+    }
   }
 
   /**
