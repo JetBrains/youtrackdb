@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadStats;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -635,6 +636,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // caught — they propagate to the caller (and the finally below still closes
       // the attempt).
 
+      // Diagnostic-only counter (see OptimisticReadStats) — increments exclusively on
+      // this failure path, which already pays for a throw plus a shared-lock fallback.
+      OptimisticReadStats.onFallback();
+
       // Close the attempt before the pinned fallback runs: the fallback may itself
       // legitimately start fresh optimistic reads (e.g., via helper methods), which
       // must not trip a stale nesting flag. If a nested reset was detected during the
@@ -682,6 +687,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       recordOptimisticAccesses(scope);
     } catch (final RuntimeException | AssertionError e) {
       // See comment in the T-returning overload above.
+      OptimisticReadStats.onFallback();
       attemptClosedByFallback = true;
       assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
 

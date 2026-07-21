@@ -96,6 +96,7 @@ public final class OptimisticReadScope {
   public void validateOrThrow() {
     for (int i = 0; i < count; i++) {
       if (!frames[i].validate(stamps[i])) {
+        OptimisticReadStats.onStampAbort();
         throw OptimisticReadFailedException.INSTANCE;
       }
     }
@@ -110,6 +111,7 @@ public final class OptimisticReadScope {
     // (enter == exit at capture) and that none entered since (live enterSeq unchanged).
     if (enterSeqAtCapture != exitSeqAtCapture
         || applyPhaseEpoch.enterSeq() != enterSeqAtCapture) {
+      OptimisticReadStats.onEpochAbort();
       throw OptimisticReadFailedException.INSTANCE;
     }
   }
@@ -125,6 +127,7 @@ public final class OptimisticReadScope {
     assert count > 0 : "No stamps recorded — cannot validate last";
 
     if (!frames[count - 1].validate(stamps[count - 1])) {
+      OptimisticReadStats.onStampAbort();
       throw OptimisticReadFailedException.INSTANCE;
     }
   }

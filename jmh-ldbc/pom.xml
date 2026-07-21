@@ -173,12 +173,13 @@
               <execution>
                 <id>jacoco-report</id>
                 <configuration>
-                  <!-- Exclude entire benchmark package — all classes here are
+                  <!-- Exclude entire benchmark packages — all classes here are
                        JMH benchmark infrastructure or CLI tools, not library code.
                        LdbcQuerySql (SQL constants) gets coverage from
                        LdbcQueryCorrectnessTest; the rest is untestable JMH harness. -->
                   <excludes>
                     <exclude>**/benchmarks/ldbc/*.class</exclude>
+                    <exclude>**/benchmarks/epoch/*.class</exclude>
                   </excludes>
                 </configuration>
               </execution>
