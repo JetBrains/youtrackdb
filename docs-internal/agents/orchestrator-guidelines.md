@@ -92,7 +92,7 @@ dispatch a build there while another build or test run is in progress.
 - **Satellite review PRs** are draft-only review vehicles for individual tracks (multi-track changes only): they are never merged and never marked ready for review — see `docs-internal/dev-workflow/satellite-pr.md`.
 
 ### Rebase Conflict Resolution
-- When a rebase produces conflicts in prose-heavy files (e.g., `AGENTS.md` or `docs-internal/adr/**`), re-read every resolved file end-to-end before continuing — three-way prose merges can splice text that parses but contradicts itself.
+- When a rebase produces conflicts in prose-heavy files (e.g., `AGENTS.md` or other `docs-internal/` documents), re-read every resolved file end-to-end before continuing — three-way prose merges can splice text that parses but contradicts itself.
 - The recheck covers the whole document, not just the conflict hunks — a clean hunk-level resolution can still leave unchanged paragraphs referencing rules that were renamed or removed on the other side.
 
 ## Documentation Sync
@@ -101,4 +101,4 @@ dispatch a build there while another build or test run is in progress.
 
 1. **When modifying source code**: Review docs in `docs/` and module `README.md` files to see if any cover the area you changed. Update them if needed.
 2. **When adding new features**: If the feature affects public API, configuration, build process, or CI/CD, update the relevant docs.
-3. **When changing code covered by design-decision JavaDoc**: the covering entries (method/class/package-info level, per `docs-internal/dev-workflow/design-decisions.md`) must be updated in the same change.
+3. **When changing code covered by design-decision JavaDoc**: The covering entries (method/class/package-info level, per `docs-internal/dev-workflow/design-decisions.md`) must be updated in the same change.

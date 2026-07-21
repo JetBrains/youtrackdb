@@ -11,12 +11,16 @@ The narrowest correct level wins:
 
 - **Decision local to one method** (algorithm choice, tricky invariant) → method JavaDoc.
 - **Decision shaping one class** (data structure, concurrency policy) → class JavaDoc,
-  with an own `<h2>Design decisions</h2>` section when substantial.
+  with a dedicated `<h2>Design decisions</h2>` section when substantial.
 - **Decision spanning classes within one package** → a "Design decisions" section in that
   package's `package-info.java`.
 - **Decision spanning packages or modules** → exactly ONE owning `package-info.java`
   carries the full rationale; every other affected package or class carries only a
-  `{@link}`/`@see` reference to it — rationale text is NEVER duplicated.
+  `{@link}`/`@see` reference to it — rationale text is NEVER duplicated. The owning
+  package is the one whose code enforces the decision's central mechanism or invariant —
+  the package a maintainer would edit first to change the decision; when still ambiguous,
+  pick the lowest-level (most fundamental) of the candidate packages and keep the choice
+  stable once made.
 - **Decision with no Java home** (build system, CI, code-generation/parser pipeline,
   tooling) → the nearest prose document (module `README.md` or a `docs-internal/` doc) —
   never a new ADR.
@@ -25,8 +29,12 @@ The narrowest correct level wins:
 
 Entries are numbered (D1, D2, …) per documentation site. Each entry states the decision,
 the rationale, and the rejected alternatives; cite the YTDB issue where one exists,
-otherwise the PR number, for provenance. Process artifacts (review verdicts, telemetry,
-workflow notes) never go into JavaDoc — they belong to the PR description.
+otherwise the PR number, for provenance. Entry numbers are stable identifiers within a
+documentation site and are never reused: when a decision evolves but keeps its scope, the
+entry is rewritten in place under the same number (JavaDoc describes the design as it
+stands); when an entry is deleted, its number is retired. Process artifacts (review
+verdicts, telemetry, workflow notes) never go into JavaDoc — they belong to the PR
+description.
 
 ## Depth exemplar
 
