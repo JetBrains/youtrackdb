@@ -862,15 +862,14 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
     session.commit();
   }
 
-  // ----- Regression tests for lazy-MATCH path (YTDB-604) -----
+  // ----- Lazy MATCH path: WHERE guard must not force-load bare RIDs -----
 
   @Test
   public void testEvaluateResult_bareRidDoesNotForceLoadInGuard() {
-    // Regression test for the YTDB-604 IC1/IC4 regression: when evaluate(Result, ctx)
-    // is called with a bare-RID ResultInternal (the shape produced by the lazy-MATCH
-    // ridIterator path), the fast-path guard must NOT call asEntityOrNull(), which
-    // would trigger loadEntity for every WHERE predicate on an intermediate MATCH hop.
-    // That force-load cost -16%/-17% throughput on ic1/ic4 in PR #863 profiling.
+    // When evaluate(Result, ctx) is called with a bare-RID ResultInternal (the shape
+    // produced by the lazy-MATCH ridIterator path), the fast-path guard must NOT call
+    // asEntityOrNull(), which would trigger loadEntity for every WHERE predicate on
+    // an intermediate MATCH hop.
     //
     // The guard must use a non-loading check (asIdentifiableOrNull)
     // so bare-RID Results fail the instanceof EntityImpl test and fall through to
@@ -899,7 +898,7 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
     // Behavioral correctness: the comparison still produces the right boolean.
     assertThat(outcome).isTrue();
 
-    // Perf invariant: the guard did not force-load the entity. Note the fallback
+    // The guard must not force-load the entity. Note the fallback
     // path (left.execute → getProperty) may have materialised the entity via the
     // non-force-loading lazy path — that is acceptable. The invariant here is
     // specifically that the GUARD did not invoke asEntityOrNull().
@@ -911,7 +910,7 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
   public void testEvaluateResult_bareRidNoForceLoadEvenWhenComparisonFalse() {
     // Same invariant as testEvaluateResult_bareRidDoesNotForceLoadInGuard, but for
     // the comparison-is-false case: a force-load in the guard is wasteful whether
-    // the row is accepted or rejected. The regression was per-predicate, so the
+    // the row is accepted or rejected. The guard runs per predicate, so the
     // rejecting branch matters equally.
     var schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("LazyRidNoForceLoadFalse");

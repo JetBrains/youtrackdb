@@ -2366,8 +2366,8 @@ public class MatchStepUnitTest extends DbTestBase {
    * Verifies matchesClass resolves the class from the RID's cluster ID via the
    * immutable schema snapshot, without forcing entity materialization.
    * This is the zero-I/O path that prevents the {@code loadEntity()} chain
-   * triggered by the previous implementation — the dominant cost in LDBC ic12
-   * where every MATCH hop has a {@code class:} constraint. Also asserts that
+   * triggered by the previous implementation — the dominant cost in MATCH
+   * patterns where every hop has a {@code class:} constraint. Also asserts that
    * the underlying identifiable remains a bare RID after the call, proving no
    * load occurred.
    */

@@ -1103,7 +1103,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   /**
-   * BG1 regression (SQLSuffixIdentifier property-name dispatch): projecting a backtick-quoted
+   * SQLSuffixIdentifier property-name dispatch: projecting a backtick-quoted
    * identifier that (a) does NOT exist on the record and (b) would be rejected by
    * {@code EntityImpl.validatePropertyName} (first char is a digit, or the name contains ':',
    * ' ' or '=') must resolve to null rather than throwing. The previous getProperty-first hot
