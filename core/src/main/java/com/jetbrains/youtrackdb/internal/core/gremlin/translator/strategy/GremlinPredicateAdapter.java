@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
@@ -142,16 +143,28 @@ final class GremlinPredicateAdapter {
    * range.
    */
   @Nullable SQLBooleanExpression toFilter(HasContainer container) {
-    return toFilter(container, NO_TYPE_INFO);
+    return toFilter(container, NO_TYPE_INFO, null);
   }
 
   /**
    * Translates one {@link HasContainer} into a {@code WHERE} boolean expression, or returns {@code
    * null} to decline (see the class Javadoc for the decline cases). Never throws. The {@code
    * typeGate} routes {@code startingWith} between the index-aware prefix range (declared String)
-   * and the strict full-scan {@code STARTSWITH} node (everything else).
+   * and the strict full-scan {@code STARTSWITH} node (everything else). When {@code ctx} is
+   * non-null, comparison values bind as {@link SQLPositionalParameter} slots; when {@code null}
+   * (unit tests), values render as inline literals.
    */
   @Nullable SQLBooleanExpression toFilter(HasContainer container, PropertyTypeGate typeGate) {
+    return toFilter(container, typeGate, null);
+  }
+
+  /**
+   * Translates one {@link HasContainer} with optional positional-parameter binding through {@code
+   * ctx}. Production recognisers pass a non-null {@link RecognitionContext}; unit tests pass {@code
+   * null} to keep inline literals.
+   */
+  @Nullable SQLBooleanExpression toFilter(
+      HasContainer container, PropertyTypeGate typeGate, @Nullable RecognitionContext ctx) {
     if (container == null) {
       return null;
     }
@@ -168,7 +181,7 @@ final class GremlinPredicateAdapter {
     if (predicate == null) {
       return null;
     }
-    return translate(key, predicate, typeGate);
+    return translate(key, predicate, typeGate, ctx);
   }
 
   /**
@@ -177,42 +190,42 @@ final class GremlinPredicateAdapter {
    * one of the leaf types, so checking it first would misroute the whole predicate to a decline.
    * Returns {@code null} to decline (propagated to a whole-traversal decline by the caller).
    */
-  private @Nullable SQLBooleanExpression translate(String key, P<?> predicate,
-      PropertyTypeGate typeGate) {
+  private @Nullable SQLBooleanExpression translate(
+      String key, P<?> predicate, PropertyTypeGate typeGate, @Nullable RecognitionContext ctx) {
     if (predicate instanceof NotP<?> notP) {
       // NotP has no public getter for its wrapped predicate, but negate() returns it (a NotP is
       // built by P.negate(), and negating it back yields the original). Translate the inner
       // predicate positively, negate the SQL, and guard for absent: native NotP excludes an absent
       // property (HasContainer.test's empty iterator is false whatever the inner predicate), so
       // without IS DEFINED the NOT of a false-on-absent inner would wrongly include absent rows.
-      var inner = translate(key, notP.negate(), typeGate);
+      var inner = translate(key, notP.negate(), typeGate, ctx);
       if (inner == null) {
         return null;
       }
       return guarded(key, WHERE.not(inner));
     }
     if (predicate instanceof AndP<?> andP) {
-      return combine(key, andP.getPredicates(), /* and= */ true, typeGate);
+      return combine(key, andP.getPredicates(), /* and= */ true, typeGate, ctx);
     }
     if (predicate instanceof OrP<?> orP) {
-      return combine(key, orP.getPredicates(), /* and= */ false, typeGate);
+      return combine(key, orP.getPredicates(), /* and= */ false, typeGate, ctx);
     }
     // Leaf predicate — dispatch on the concrete bi-predicate type.
     var biPredicate = predicate.getBiPredicate();
     var value = predicate.getValue();
     if (biPredicate instanceof Compare compare) {
-      return translateCompare(key, compare, value);
+      return translateCompare(key, compare, value, ctx);
     }
     if (biPredicate instanceof Contains contains) {
-      return translateContains(key, contains, value);
+      return translateContains(key, contains, value, ctx);
     }
     if (biPredicate instanceof Text text) {
-      return translateText(key, text, value, typeGate);
+      return translateText(key, text, value, typeGate, ctx);
     }
     if (biPredicate instanceof Text.RegexPredicate regex) {
       // Text.regex / Text.notRegex do not use a Text enum constant; their bi-predicate is a
       // RegexPredicate carrying the pattern and a negate flag.
-      return translateRegex(key, regex);
+      return translateRegex(key, regex, ctx);
     }
     // Custom BiPredicate (a user lambda or a predicate type the translator does not model) —
     // decline rather than guess at its semantics.
@@ -225,15 +238,19 @@ final class GremlinPredicateAdapter {
    * carries its own absent-property guard where needed, so the combined block reproduces native
    * membership without a connective-level guard.
    */
-  private @Nullable SQLBooleanExpression combine(String key, List<? extends P<?>> children,
-      boolean and, PropertyTypeGate typeGate) {
+  private @Nullable SQLBooleanExpression combine(
+      String key,
+      List<? extends P<?>> children,
+      boolean and,
+      PropertyTypeGate typeGate,
+      @Nullable RecognitionContext ctx) {
     if (children == null || children.isEmpty()) {
       // A connective with no children is degenerate; decline rather than emit an empty block.
       return null;
     }
     var translated = new ArrayList<SQLBooleanExpression>(children.size());
     for (var child : children) {
-      var expr = translate(key, child, typeGate);
+      var expr = translate(key, child, typeGate, ctx);
       if (expr == null) {
         return null;
       }
@@ -247,8 +264,8 @@ final class GremlinPredicateAdapter {
    * Translates a scalar {@link Compare}. Handles the {@code eq(null)} / {@code neq(null)} rewrites
    *, the singleton-collection decline, and the {@code neq} absent-property guard.
    */
-  private @Nullable SQLBooleanExpression translateCompare(String key, Compare compare,
-      @Nullable Object value) {
+  private @Nullable SQLBooleanExpression translateCompare(
+      String key, Compare compare, @Nullable Object value, @Nullable RecognitionContext ctx) {
     if (value == null) {
       // Only eq/neq have a defined absent-safe null rewrite; a range comparison against null has no
       // membership meaning and declines.
@@ -267,7 +284,7 @@ final class GremlinPredicateAdapter {
     }
     SQLExpression literal;
     try {
-      literal = MatchLiteralBuilder.toLiteral(value);
+      literal = valueExpression(value, ctx);
     } catch (IllegalArgumentException unsupportedType) {
       return null;
     }
@@ -283,8 +300,8 @@ final class GremlinPredicateAdapter {
    * {@code key IS DEFINED AND NOT(key IN [..])} — {@code NOT IN} is true on an absent property, so
    * it takes the absent-property guard.
    */
-  private @Nullable SQLBooleanExpression translateContains(String key, Contains contains,
-      @Nullable Object value) {
+  private @Nullable SQLBooleanExpression translateContains(
+      String key, Contains contains, @Nullable Object value, @Nullable RecognitionContext ctx) {
     if (!(value instanceof Collection<?> elements)) {
       return null;
     }
@@ -295,7 +312,7 @@ final class GremlinPredicateAdapter {
         return null;
       }
       try {
-        literals.add(MatchLiteralBuilder.toLiteral(element));
+        literals.add(valueExpression(element, ctx));
       } catch (IllegalArgumentException unsupportedType) {
         return null;
       }
@@ -316,20 +333,27 @@ final class GremlinPredicateAdapter {
    * full-scan {@code STARTSWITH} node otherwise; neither declines, so no pathological prefix falls
    * back to native.
    */
-  private @Nullable SQLBooleanExpression translateText(String key, Text text,
-      @Nullable Object value, PropertyTypeGate typeGate) {
+  private @Nullable SQLBooleanExpression translateText(
+      String key,
+      Text text,
+      @Nullable Object value,
+      PropertyTypeGate typeGate,
+      @Nullable RecognitionContext ctx) {
     if (!(value instanceof String string)) {
       // The predicate's comparand (the search string) is not a String — not a translatable Text
       // predicate. This is the argument, not the property value, so it is a decline, not a throw.
       return null;
     }
     return switch (text) {
-      case containing -> WHERE.containsText(key, string, true);
-      case notContaining -> guarded(key, WHERE.not(WHERE.containsText(key, string, true)));
-      case startingWith -> startsWithFilter(key, string, typeGate);
-      case notStartingWith -> guarded(key, WHERE.not(startsWithFilter(key, string, typeGate)));
-      case endingWith -> WHERE.endsWith(key, string, true);
-      case notEndingWith -> guarded(key, WHERE.not(WHERE.endsWith(key, string, true)));
+      case containing -> WHERE.containsText(key, valueExpression(string, ctx), true);
+      case notContaining ->
+          guarded(key, WHERE.not(WHERE.containsText(key, valueExpression(string, ctx), true)));
+      case startingWith -> startsWithFilter(key, string, typeGate, ctx);
+      case notStartingWith ->
+          guarded(key, WHERE.not(startsWithFilter(key, string, typeGate, ctx)));
+      case endingWith -> WHERE.endsWith(key, valueExpression(string, ctx), true);
+      case notEndingWith ->
+          guarded(key, WHERE.not(WHERE.endsWith(key, valueExpression(string, ctx), true)));
     };
   }
 
@@ -344,15 +368,15 @@ final class GremlinPredicateAdapter {
    * {@code startsWith("")}, which matches every present value — native {@code startingWith("")}
    * parity — so nothing declines.
    */
-  private SQLBooleanExpression startsWithFilter(String key, String prefix,
-      PropertyTypeGate typeGate) {
+  private SQLBooleanExpression startsWithFilter(
+      String key, String prefix, PropertyTypeGate typeGate, @Nullable RecognitionContext ctx) {
     if (typeGate.isDeclaredString(key)) {
-      var range = startsWithRange(key, prefix);
+      var range = startsWithRange(key, prefix, ctx);
       if (range != null) {
         return range;
       }
     }
-    return WHERE.startsWithStrict(key, prefix);
+    return WHERE.startsWithStrict(key, valueExpression(prefix, ctx));
   }
 
   /**
@@ -370,12 +394,19 @@ final class GremlinPredicateAdapter {
    * <p>The empty case is guarded before the call; the max-code-point case is caught, mirroring the
    * {@code toLiteral} exception handling in {@link #translateCompare} / {@link #translateContains}.
    */
-  private @Nullable SQLBooleanExpression startsWithRange(String key, String prefix) {
+  private @Nullable SQLBooleanExpression startsWithRange(
+      String key, String prefix, @Nullable RecognitionContext ctx) {
     if (prefix.isEmpty()) {
       return null;
     }
     try {
-      return WHERE.startsWith(key, prefix);
+      if (ctx == null) {
+        return WHERE.startsWith(key, prefix);
+      }
+      var lower = WHERE.op(key, new SQLGeOperator(-1), valueExpression(prefix, ctx));
+      var upperBound = MatchWhereBuilder.incrementLastCodePoint(prefix);
+      var upper = WHERE.op(key, SQLLtOperator.INSTANCE, valueExpression(upperBound, ctx));
+      return WHERE.and(lower, upper);
     } catch (IllegalArgumentException noFiniteUpperBound) {
       return null;
     }
@@ -388,13 +419,29 @@ final class GremlinPredicateAdapter {
    * true on an absent property, so it takes the absent-property guard. Regex stays case-sensitive
    * regardless of collation (collate-transforming a pattern would change its meaning).
    */
-  private @Nullable SQLBooleanExpression translateRegex(String key, Text.RegexPredicate regex) {
+  private @Nullable SQLBooleanExpression translateRegex(
+      String key, Text.RegexPredicate regex, @Nullable RecognitionContext ctx) {
     var pattern = regex.getPattern();
     if (pattern == null) {
       return null;
     }
-    var matches = WHERE.matchesRegex(key, pattern, true);
+    var matches = WHERE.matchesRegex(key, valueExpression(pattern, ctx), true);
     return regex.isNegate() ? guarded(key, WHERE.not(matches)) : matches;
+  }
+
+  /**
+   * Renders a comparison value as an inline literal (unit tests) or binds it to the next positional
+   * slot (production walks).
+   */
+  private static SQLExpression valueExpression(Object value, @Nullable RecognitionContext ctx) {
+    if (ctx != null) {
+      var base = new SQLBaseExpression(-1);
+      base.setInputParam(ctx.bindParam(value));
+      var expr = new SQLExpression(-1);
+      expr.setMathExpression(base);
+      return expr;
+    }
+    return MatchLiteralBuilder.toLiteral(value);
   }
 
   /**

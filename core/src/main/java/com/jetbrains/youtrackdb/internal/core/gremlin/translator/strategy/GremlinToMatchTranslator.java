@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -62,11 +63,16 @@ final class GremlinToMatchTranslator {
    * @param returnClass the TinkerPop element class the boundary step emits, mirroring the
    *     {@link Element} subclass the original terminal step produced (e.g. {@code
    *     Vertex.class} for a {@code g.V()} traversal)
+   * @param inputParameters positional-parameter values keyed by slot ({@code 0}, {@code 1}, …) for
+   *     this walk; installed on the boundary step before each execution
+   * @param cacheEligible {@code false} when the walk is RID-bearing and must bypass the plan cache
    */
   record TranslationResult(
       @Nonnull MatchPlanInputs inputs,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
-      @Nonnull Class<? extends Element> returnClass) {
+      @Nonnull Class<? extends Element> returnClass,
+      @Nonnull Map<Object, Object> inputParameters,
+      boolean cacheEligible) {
   }
 }

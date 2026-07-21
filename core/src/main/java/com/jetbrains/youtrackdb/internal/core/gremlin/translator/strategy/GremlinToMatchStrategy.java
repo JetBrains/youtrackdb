@@ -129,12 +129,10 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Plan caching</h2>
  *
- * Plans are built via {@code createExecutionPlan(ctx, profiling=false, useCache=false)}.
- * Caching is disabled because the {@link MatchExecutionPlanner#MatchExecutionPlanner(
- * com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs) additive
- * constructor} leaves the inherited {@code statement} field null, which the planner accepts
- * only on the {@code useCache=false} path — a traversal-shape-keyed cache is a later-phase
- * concern.
+ * Cache-eligible walks build through {@link GremlinPlanCache}, keyed by {@link
+ * GremlinPlanFingerprint} on the post-walk {@link MatchPlanInputs}. RID-bearing shapes ({@code
+ * g.V(ids)}, {@code hasId(...)}) bypass the cache. Per-walk predicate values bind as positional
+ * parameters and are installed on the boundary step at execution time.
  *
  * <h2>Testability</h2>
  *
@@ -373,18 +371,33 @@ public final class GremlinToMatchStrategy
       Traversal.Admin<?, ?> traversal,
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation) {
-    InternalExecutionPlan plan = planBuilder.buildPlan(session, translation.inputs());
+    InternalExecutionPlan plan = planBuilder.buildPlan(session, translation);
     replaceAllStepsWithBoundary(traversal, plan, translation);
   }
 
   /**
    * Production plan builder: routes the translated {@link MatchPlanInputs} through the additive
    * {@link MatchExecutionPlanner#MatchExecutionPlanner(MatchPlanInputs) constructor} and builds
-   * the plan eagerly. Caching is disabled — the inherited {@code statement} field on the
-   * planner stays {@code null}, which the planner accepts only when {@code useCache=false} (see
-   * class Javadoc "Plan caching").
+   * the plan eagerly. Cache-eligible shapes get/put through {@link GremlinPlanCache}; RID-bearing
+   * shapes always build uncached.
    */
   private static InternalExecutionPlan buildPlan(
+      DatabaseSessionEmbedded session, GremlinToMatchTranslator.TranslationResult translation) {
+    if (!translation.cacheEligible()) {
+      return buildPlanUncached(session, translation.inputs());
+    }
+    var fingerprint = GremlinPlanFingerprint.fingerprint(translation.inputs());
+    var ctx = new BasicCommandContext(session);
+    var cached = GremlinPlanCache.get(fingerprint, ctx, session);
+    if (cached != null) {
+      return cached;
+    }
+    var plan = buildPlanUncached(session, translation.inputs());
+    GremlinPlanCache.put(fingerprint, plan, session);
+    return plan.copy(ctx);
+  }
+
+  private static InternalExecutionPlan buildPlanUncached(
       DatabaseSessionEmbedded session, MatchPlanInputs inputs) {
     var ctx = new BasicCommandContext(session);
     return new MatchExecutionPlanner(inputs)
@@ -410,7 +423,8 @@ public final class GremlinToMatchStrategy
             translation.returnClass(),
             plan,
             translation.boundaryAlias(),
-            translation.outputType());
+            translation.outputType(),
+            translation.inputParameters());
     TraversalHelper.removeAllSteps(traversalRaw);
     traversalRaw.addStep(boundary);
   }
@@ -446,6 +460,7 @@ public final class GremlinToMatchStrategy
    */
   @FunctionalInterface
   interface MatchPlanBuilder {
-    InternalExecutionPlan buildPlan(DatabaseSessionEmbedded session, MatchPlanInputs inputs);
+    InternalExecutionPlan buildPlan(
+        DatabaseSessionEmbedded session, GremlinToMatchTranslator.TranslationResult translation);
   }
 }

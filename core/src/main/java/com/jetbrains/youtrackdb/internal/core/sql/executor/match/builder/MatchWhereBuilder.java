@@ -160,6 +160,19 @@ public final class MatchWhereBuilder {
   }
 
   /**
+   * Builds {@code field CONTAINSTEXT operand} with a pre-built right operand (e.g. a positional
+   * parameter). Used by the Gremlin adapter when comparison values bind as {@code ?} slots.
+   */
+  public SQLBooleanExpression containsText(
+      String field, SQLExpression substring, boolean strict) {
+    var condition = new SQLContainsTextCondition(-1);
+    condition.setLeft(fieldExpression(field));
+    condition.setRight(substring);
+    condition.setStrict(strict);
+    return condition;
+  }
+
+  /**
    * Builds a prefix match {@code field >= prefix AND field < prefix⁺} as two range conditions (no
    * dedicated prefix AST node). A {@code startingWith(p)} match selects exactly the strings in the
    * half-open range {@code [p, p⁺)}, where {@code p⁺} is {@code p} with its last code point
@@ -205,6 +218,15 @@ public final class MatchWhereBuilder {
     return condition;
   }
 
+  /** {@link #endsWith(String, String, boolean)} with a pre-built suffix operand. */
+  public SQLBooleanExpression endsWith(String field, SQLExpression suffix, boolean strict) {
+    var condition = new SQLEndsWithCondition(-1);
+    condition.setLeft(fieldExpression(field));
+    condition.setRight(suffix);
+    condition.setStrict(strict);
+    return condition;
+  }
+
   /**
    * Builds a strict prefix match {@code field STARTSWITH prefix} via the hand-written full-scan
    * {@link SQLStartsWithCondition} node, for the Gremlin adapter's {@code Text.startingWith}
@@ -220,6 +242,15 @@ public final class MatchWhereBuilder {
     var condition = new SQLStartsWithCondition(-1);
     condition.setLeft(fieldExpression(field));
     condition.setRight(stringExpression(prefix));
+    condition.setStrict(true);
+    return condition;
+  }
+
+  /** {@link #startsWithStrict(String, String)} with a pre-built prefix operand. */
+  public SQLBooleanExpression startsWithStrict(String field, SQLExpression prefix) {
+    var condition = new SQLStartsWithCondition(-1);
+    condition.setLeft(fieldExpression(field));
+    condition.setRight(prefix);
     condition.setStrict(true);
     return condition;
   }
@@ -251,6 +282,16 @@ public final class MatchWhereBuilder {
    */
   public SQLBooleanExpression matchesRegex(String field, String pattern, boolean strict) {
     var condition = (SQLMatchesCondition) matchesRegex(field, pattern);
+    condition.setStrict(strict);
+    return condition;
+  }
+
+  /** {@link #matchesRegex(String, String, boolean)} with a pre-built pattern operand. */
+  public SQLBooleanExpression matchesRegex(String field, SQLExpression pattern, boolean strict) {
+    var condition = new SQLMatchesCondition(-1);
+    condition.setExpression(fieldExpression(field));
+    condition.setRightExpression(pattern);
+    condition.setFindMode(true);
     condition.setStrict(strict);
     return condition;
   }
@@ -520,7 +561,7 @@ public final class MatchWhereBuilder {
    * caller declines. This is a pathological input that cannot occur from a realistic prefix
    * string.
    */
-  private static String incrementLastCodePoint(String prefix) {
+  public static String incrementLastCodePoint(String prefix) {
     var cp = prefix.codePointBefore(prefix.length());
     // Number of UTF-16 chars the trailing code point occupies (2 for a surrogate
     // pair, 1 otherwise) — the slice length to strip before re-appending.

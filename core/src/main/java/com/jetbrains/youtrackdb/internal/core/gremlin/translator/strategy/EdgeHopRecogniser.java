@@ -113,7 +113,7 @@ final class EdgeHopRecogniser implements StepRecogniser {
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
     for (HasStep<?> has : hasSteps) {
       for (HasContainer container : has.getHasContainers()) {
-        var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate);
+        var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, ctx);
         if (filter == null) {
           return Outcome.DECLINE;
         }

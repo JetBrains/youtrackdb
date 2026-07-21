@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -49,6 +50,18 @@ final class WalkerContext implements RecognitionContext {
   /** Detached NOT pattern chains produced by edge-bearing {@code NotStep} recognisers. Wired into
    *  {@link GremlinStepWalker}'s {@code buildResult} as {@code MatchPlanInputs.notMatchExpressions}. */
   final List<SQLMatchExpression> notMatchExpressions = new ArrayList<>();
+
+  /** Positional-parameter values collected during the walk, keyed by slot ({@code 0}, {@code 1}, …).
+   *  Insertion order matches slot allocation order for deterministic rebinding on cache hit. */
+  final LinkedHashMap<Integer, Object> inputParameters = new LinkedHashMap<>();
+
+  /** Next positional-parameter slot to allocate. Shape-pure: incremented once per {@link #bindParam}
+   *  call regardless of value. */
+  private int nextParamSlot;
+
+  /** When {@code true}, this walk carries inline RIDs ({@code g.V(ids)} or {@code hasId(...)}) and
+   *  must bypass the plan cache. */
+  private boolean ridBearing;
 
   /** RETURN-clause projection items. One entry per output column. */
   final List<SQLExpression> returnItems = new ArrayList<>();
@@ -349,6 +362,23 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void addNotMatchExpression(SQLMatchExpression expression) {
     notMatchExpressions.add(expression);
+  }
+
+  @Override
+  public SQLPositionalParameter bindParam(Object value) {
+    var slot = nextParamSlot++;
+    inputParameters.put(slot, value);
+    return SQLPositionalParameter.forSlot(slot);
+  }
+
+  @Override
+  public void markRidBearing() {
+    ridBearing = true;
+  }
+
+  /** Whether this walk is RID-bearing and must bypass the plan cache. */
+  boolean ridBearing() {
+    return ridBearing;
   }
 
   @Override
