@@ -24,6 +24,8 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [x] 2026-07-21T13:00Z [ctx=safe] Review + decomposition complete (5-step roster approved)
 - [x] 2026-07-21T17:30Z [ctx=safe] Step 1 complete (commit cb2d4d3b79)
 - [x] 2026-07-21T18:15Z [ctx=safe] Step 2 complete (commit fafac7e8b3)
+- [x] 2026-07-21T21:20Z [ctx=safe] Step 1 review-fix complete (commit 1063e1d987; 2 blockers, 2
+  should-fixes, 5 suggestions — all applied)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -46,6 +48,21 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
   `StorageBackupMTRestoreIT` 1: "No .pcl/.cpm file found for class prefix …") — Track 6
   base-keyed-engine-files fallout, pre-existing at the Track 6 completion commit. Neither set is
   Step 1 scope; both need an owner before merge.
+- 2026-07-21T21:20Z The Step 1 review-fix's promotion fresh-read scope incidentally turned the
+  ci/disk-profile racer red (`schemaCommitReloadAndIndexLoadRaceWithoutDeadlock`, the YTDB-1101
+  promotion cache-miss shape) GREEN (3/3 under `-Dyoutrackdb.test.env=ci`, previously 5/5 red at
+  HEAD): the promotion's cache-miss load now rides an active dedicated read-only operation instead
+  of the ended begin-time transaction operation. The broader YTDB-1101 boundary (committer
+  promotion reads racing concurrent readers) is not claimed closed — only this standing red. The
+  remaining pre-merge red set is the four Track 6 rename ITs (unchanged, 21 failures, identical to
+  the HEAD baseline).
+- 2026-07-21T21:20Z Review-fix discovery: the failed-commit undo's in-memory config-cache slot
+  (`CollectionBasedStorageConfiguration`'s COLLECTIONS cache) is NOT restored for a dropped
+  collection whose drop rolled back — the drop nulls the cache slot eagerly and only the durable
+  property-record delete reverts with the WAL. Pre-existing (predates Track 7; the drop-restore arm
+  never restored it), self-heals on reopen (preload re-reads durable state), benign for
+  registry/row operations. Left unfixed and recorded here so the eventual owner knows it is not a
+  Step 1 regression.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -277,6 +294,69 @@ only the registry undo runs. Verification: full core unit suite green (17405/0);
 PASSED (90.1% line / 82.2% branch on changed-vs-develop); failsafe IT failures and the ci-profile
 racer failure are pre-existing at HEAD (verified by stash), and `EmbeddedTestSuite.testQueryCount`
 remains the known Step 2 red.
+
+### Step 1 review-fix — commit 1063e1d987, 2026-07-21T21:20Z [ctx=safe]
+**What was done:** Applied the Step 1 step-level review findings (code-baseline + concurrency
+perspectives; 2 blockers, 2 should-fixes, 5 suggestions — all applied). (1) Blocker: the
+failure-path create-undo's structural cleanup (`revertCreatedCollectionStructure`) is now
+slot-reuse-aware — on a slot the same reconciliation dropped, the id-named link-bag-component
+discriminator and the id-keyed deletes (config entry, grb component) target the RESTORED dropped
+collection's structure after the rollback, so the cleanup durably destroyed the survivor inside a
+fresh committing atomic operation; the reuse branch now deletes only the created collection's own
+name-keyed data files, guarded by a name-keyed `exists` probe (true only on the in-memory engine's
+surviving eager install). Red-first proven: the new durable-structure assertion fails without the
+fix. (2) Blocker: the `endTxCommit` failure catch is gated on
+`atomicOperation.isRollbackInProgress()` — the registry undo runs only for the internal-rollback
+shape (persist-hook failure; nothing durable); the no-rollback shape (commitChanges-throw family,
+in-doubt durability) leaves the publication standing, moves the storage to error state
+(`setInError`), and rethrows, with a second test hook
+(`endTxCommitPostDurabilityFailureTestHook`) simulating that shape. (3) Should-fix: the
+commit-time schema serialization, index-record enrollment, and promotion re-parse each run inside
+their own `computeWithFreshCommittedReads` scope, because the weak-referenced local record cache
+can drop the seed-loaded instances before the commit and a bare cache-miss reload rode the
+begin-time snapshot (GC- or page-stamp-triggered, nondeterministic). (4) Should-fix: the
+failed-commit tests assert durable structure and usability (link-bag component probe, row
+round-trips, restored-index lookups), not registry names alone; the endTxCommit-failure test now
+carries all four arm families (collection drop/create + engine drop/create). Suggestions: the
+scope's non-reentrancy guard is an always-on `IllegalStateException`; the vacuum-safety premise,
+retry-loop not-found asymmetry, and eviction-path invariant relaxation are documented; the
+endTxCommit catch comment describes both failure shapes.
+
+**What was discovered:** BG1 reproduces on the in-memory profile too (the grb probe fails without
+the fix — the fresh committing cleanup op deletes the restored component there as well), so the
+regression is pinned by a default-profile unit test. The promotion fresh-read scope incidentally
+healed the standing ci/disk-profile racer red (see Surprises). The config-cache slot of a
+rolled-back drop is not restored — a pre-existing, self-healing-on-reopen gap, recorded in
+Surprises, not fixed here. In the no-rollback endTxCommit shape, `setInError` deliberately skips
+`AssertionError` (its dev/test guard); acceptable because asserts never fire in production and the
+rethrow still fails the commit loudly.
+
+**What changed from the plan:** The reviewers' alternative fix for the freshness anchoring
+(strong-pinning seed-loaded records on `TxSchemaState`) was rejected in favor of commit-side
+fresh-read scopes: pinning keeps instances alive but not fresh (a page-frame-backed instance can
+still regress to begin-time bytes via the stamp-invalidation fallback), while the scopes make
+every commit-time miss and fallback read the latest committed state through an ACTIVE operation.
+The enroll-phase wrap preserves the assign-plan-before-enroll contract (a mid-enroll throw still
+leaves the failure path a non-null plan) by capturing the plan before the lambda.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java`
+  (slot-reuse-aware cleanup; rollback-gated endTxCommit catch + error-state arm; three commit-side
+  fresh-read scopes; post-durability test hook)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java`
+  (always-on nesting throw; vacuum/retry/eviction documentation)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java`
+  (copyForTx javadoc: freshness re-anchored at commit time, weak cache acknowledged)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaCommitReconciliationTest.java`
+  (durable-structure/usability probes; four-arm endTxCommit test; new no-rollback-shape test)
+
+**Critical context:** Verification: SchemaCommitReconciliationTest 23/23, MetadataWriteMutexTest
+9/9, CommitTimeIndexBuildTest 35/35; full core unit suite green (default profile); whole-project
+coverage build green with zero test failures, gate PASSED (87.9% line / 81.1% branch);
+ci-integration verify: surefire ci/disk profile 17407/0 (the racer red is gone), failsafe 513 run
+with only the four known Track 6 rename classes failing (21 failures, identical to the HEAD
+baseline — no new IT failures). The storage stays usable after teardown of the poisoned-storage
+test (checkErrorState gates only component operations, not close/drop).
 
 ### Step 2 — commit fafac7e8b3, 2026-07-21T18:15Z [ctx=safe]
 **What was done:** Turned the second standing red merge-blocker
