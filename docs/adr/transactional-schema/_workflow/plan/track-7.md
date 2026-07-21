@@ -23,6 +23,7 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [ ] Track completion
 - [x] 2026-07-21T13:00Z [ctx=safe] Review + decomposition complete (5-step roster approved)
 - [x] 2026-07-21T17:30Z [ctx=safe] Step 1 complete (commit cb2d4d3b79)
+- [x] 2026-07-21T18:15Z [ctx=safe] Step 2 complete (commit fafac7e8b3)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -146,7 +147,7 @@ HEAD `e2605c8ba3` and is **Step 1's** acceptance test; `EmbeddedTestSuite.testQu
    - **Verification:** `./mvnw -pl core clean test -Dtest=MetadataWriteMutexTest,CommitTimeIndexBuildTest`; storage/tx path touched → `./mvnw -pl core clean verify -P ci-integration-tests`.
    - **Red-first / acceptance:** `MetadataWriteMutexTest.twoConcurrentSchemaTransactionsSerializeWithoutAbort` is RED at HEAD `e2605c8ba3`; it is the Step 1 acceptance test and must go green.
 
-2. **testQueryCount reload-guard** (recon defect hypotheses (b)). `SchemaShared.reload` takes the schema write lock and then, inside its `executeInTx`, its `fromStream` inheritance rebuild ripples committed index membership through `IndexManagerEmbedded.recordMembershipChangeIntoTxLocalView`; with a transaction active and no reload-scoped guard, that seam calls `ensureTxSchemaState` → `engageMetadataWriteMutex`, whose engage-order guard throws `IllegalStateException("the metadata-write mutex must engage above SchemaShared.lock")`. Add a reload-scoped guard analog to `seedingTxSchemaState` (e.g. `reloadingSchema`) that the membership seam reads and treats as a handled no-op — exactly as it already no-ops during the `copyForTx` seed — so reconstructing committed state during a reload is not mistaken for a schema write. — risk: medium (Concurrency / Architecture / cross-component coordination)  [ ]  commit: _pending_
+2. **testQueryCount reload-guard** (recon defect hypotheses (b)). `SchemaShared.reload` takes the schema write lock and then, inside its `executeInTx`, its `fromStream` inheritance rebuild ripples committed index membership through `IndexManagerEmbedded.recordMembershipChangeIntoTxLocalView`; with a transaction active and no reload-scoped guard, that seam calls `ensureTxSchemaState` → `engageMetadataWriteMutex`, whose engage-order guard throws `IllegalStateException("the metadata-write mutex must engage above SchemaShared.lock")`. Add a reload-scoped guard analog to `seedingTxSchemaState` (e.g. `reloadingSchema`) that the membership seam reads and treats as a handled no-op — exactly as it already no-ops during the `copyForTx` seed — so reconstructing committed state during a reload is not mistaken for a schema write. — risk: medium (Concurrency / Architecture / cross-component coordination)  [x]  commit: fafac7e8b3
    - **Goal:** stop `SchemaShared.reload`'s inheritance rebuild from tripping the engage-order guard, turning the second standing red test green.
    - **In-scope files:** `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (`reload`); `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (new `reloadingSchema` volatile-or-field + accessor, mirroring `isSeedingTxSchemaState`); `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexManagerEmbedded.java` (`recordMembershipChangeIntoTxLocalView` reads the guard); acceptance in `tests/src/test/java/com/jetbrains/youtrackdb/junit/SQLSelectTest.java` (`testQueryCount`) + a core regression.
    - **Discharges:** the second standing merge-blocker (recon brief failure (b)); no Draft A/B finding — a pre-existing reload/ripple defect.
@@ -276,6 +277,61 @@ only the registry undo runs. Verification: full core unit suite green (17405/0);
 PASSED (90.1% line / 82.2% branch on changed-vs-develop); failsafe IT failures and the ci-profile
 racer failure are pre-existing at HEAD (verified by stash), and `EmbeddedTestSuite.testQueryCount`
 remains the known Step 2 red.
+
+### Step 2 — commit fafac7e8b3, 2026-07-21T18:15Z [ctx=safe]
+**What was done:** Turned the second standing red merge-blocker
+(`EmbeddedTestSuite.testQueryCount`) green with the reload-scoped guard the plan hypothesized.
+`DatabaseSessionEmbedded` gained a thread-confined `reloadingSchema` flag with accessor
+`isReloadingSchema()` and an exception-safe, non-reentrant scoped runner
+`runReloadingCommittedSchema(Runnable)` (mirroring the `seedingTxSchemaState` guard's shape);
+`SchemaShared.reload` wraps its `fromStream` re-parse in that scope (tightest window — the
+identity re-bind, root load, and `forceSnapshot` stay outside);
+`IndexManagerEmbedded.recordMembershipChangeIntoTxLocalView` treats a ripple raised inside the
+scope as a handled no-op (returns true so the caller also skips the eager shared apply), placed
+directly after the existing seeding-guard branch. A regression in `MetadataWriteMutexTest`
+(`schemaReloadWithIndexedSuperclassDoesNotEngageMutex`) reloads a committed graph with an indexed
+superclass while a second session parks holding the mutex mid-schema-tx: completing promptly
+proves no spurious engage (an engage would park on the held permit and wedge the reload under the
+schema write lock), and the committed view plus a follow-up schema tx stay intact. Red-first
+verified twice: the suite test red at HEAD and the new regression red with the production fix
+stashed, both with the exact engage-order `IllegalStateException`.
+
+**What was discovered:** The red signature matched the recon hypothesis exactly; the ripple path
+runs `fromStream:1022 → setSuperClassesInternal → addBaseClass →
+addPolymorphicCollectionIdsWithInheritance → addCollectionIdToIndexes → addCollectionToIndex →
+recordMembershipChangeIntoTxLocalView → ensureTxSchemaState → engage guard`. The mechanism:
+`SchemaClassImpl.fromStream` resets each class's `polymorphicCollectionIds` to its own collection
+ids, so the inheritance rebuild re-adds every subclass id up the superclass chain and fires the
+membership ripple on every indexed superclass — inside reload's own `executeInTx`, which makes the
+seam's `isActive()` gate pass. Suppression is correct because the rippled memberships are already
+durable on the index-manager records (persisted by the commit that created each subclass); the
+reload merely reconstructs the committed in-memory view, so there is no user change to defer.
+
+**What changed from the plan:** Nothing material — the plan's hypothesis and file list held. The
+guard scope landed as a scoped runner rather than a bare setter (exception-safety and
+non-reentrancy pinned by an assert), and the regression test landed in `MetadataWriteMutexTest`
+(the mutex-engage property owner) rather than a schema test class. Step 1's
+`computeWithFreshCommittedReads` seam was left untouched (separate, non-reentrant seam; reload
+does not use it).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java`
+  (`reloadingSchema` flag, `isReloadingSchema()`, `runReloadingCommittedSchema`)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java`
+  (`reload` wraps `fromStream` in the guard scope)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexManagerEmbedded.java`
+  (reload-guard branch in `recordMembershipChangeIntoTxLocalView`)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/MetadataWriteMutexTest.java`
+  (regression)
+
+**Critical context:** The guard suppresses recording only for ripples raised by the reload's own
+re-parse; it does not (and must not) suppress a genuine schema write — nothing else runs inside
+the scope. No storage/commit machinery, mutex internals, or freezer seams were touched (reserved
+for Steps 3/5). Verification: full `EmbeddedTestSuite` green (1300 run, 0 errors — previously 1
+error), full core unit suite green, whole-project coverage build green with zero test failures
+anywhere, coverage gate PASSED (91.3% line / 82.1% branch on changed-vs-develop). The known
+pre-existing reds (ci/disk-profile YTDB-1101 racer; the four Track 6 file-rename ITs) were not
+re-run and remain open, unowned by this step.
 
 ## Validation and Acceptance
 - `pool.close()` of a borrowed session holding an open schema transaction releases the
