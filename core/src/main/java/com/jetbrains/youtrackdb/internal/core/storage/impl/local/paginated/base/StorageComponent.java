@@ -565,11 +565,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
     // Verify coordinates match to detect frame reuse (frame may have been
     // recycled for a different page between the CHM lookup and stamp acquisition).
-    // Coordinates are only ever written inside a frame write-lock cycle (the
-    // CachePointer constructor / PageFramePool.release), so if this check passes AND
-    // the stamp later validates, the frame's buffer content for (fileId, pageIndex)
-    // was fully published before the stamp was taken — a reader can never validate
-    // a half-filled reload of a recycled frame.
+    // Coordinate match + validating stamp together prove the page content was fully
+    // published before the stamp (see CachePointer#publishCoordinatesToFrame).
     if (frame.getFileId() != fileId || frame.getPageIndex() != (int) pageIndex) {
       throw OptimisticReadFailedException.INSTANCE;
     }

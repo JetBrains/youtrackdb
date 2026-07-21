@@ -50,7 +50,7 @@ public class LockFreeReadCacheConcurrentTestIT {
   private static CacheFixture createCacheFixture() {
     var allocator = new DirectMemoryAllocator();
     var byteBufferPool = new ByteBufferPool(PAGE_SIZE, allocator, 256);
-    var readCache = new LockFreeReadCache(byteBufferPool, MAX_MEMORY, PAGE_SIZE);
+    var readCache = new LockFreeReadCache(MAX_MEMORY, PAGE_SIZE);
     var writeCache = new MockedWriteCache(byteBufferPool);
     return new CacheFixture(readCache, writeCache, byteBufferPool);
   }

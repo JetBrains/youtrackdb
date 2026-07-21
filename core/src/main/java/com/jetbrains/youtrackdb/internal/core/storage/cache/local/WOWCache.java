@@ -1713,10 +1713,8 @@ public final class WOWCache extends AbstractWriteCache
         pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
     DurablePage.setLogSequenceNumberForPage(
         pageFrame.getBuffer(), new LogSequenceNumber(-1, -1));
-    // The CachePointer constructor is the publication barrier: it re-locks the frame
-    // exclusively while publishing the coordinates, so the LSN stamp above is covered by
-    // the same happens-before edge and a stale optimistic reader that raced it cannot
-    // validate. Do not add buffer writes after this constructor call.
+    // The CachePointer constructor is the publication barrier for the LSN stamp above —
+    // no buffer writes after this call (see CachePointer#publishCoordinatesToFrame).
     final var cachePointer = new CachePointer(pageFrame, pageFramePool, fileId, (int) pageIndex);
     cachePointer.incrementReadersReferrer();
     return cachePointer;
@@ -3508,11 +3506,9 @@ public final class WOWCache extends AbstractWriteCache
           }
 
           buffer.position(0);
-          // The CachePointer constructor is the publication barrier: it locks the frame
-          // exclusively while publishing the coordinates, which (a) invalidates any
-          // optimistic stamp a stale reader took while the fill above was in flight and
-          // (b) makes the fill visible to readers whose stamps validate. Every buffer
-          // write for the freshly loaded page must stay above this line.
+          // The CachePointer constructor is the publication barrier for the fill above —
+          // every buffer write for the freshly loaded page must stay above this line
+          // (see CachePointer#publishCoordinatesToFrame).
           return new CachePointer(pageFrame, pageFramePool, fileId, (int) pageIndex);
         } else {
           final var pointer =

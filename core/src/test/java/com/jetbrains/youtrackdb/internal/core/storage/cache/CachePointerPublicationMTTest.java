@@ -1,13 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.vmlens.api.AllInterleavings;
 import com.vmlens.api.AllInterleavingsBuilder;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -51,10 +55,24 @@ public class CachePointerPublicationMTTest {
   // acquire/release cycle, which multiplies the interleaving space.
   private static final int MAX_ITERATIONS = 200;
 
+  // Generous bound — normal iterations finish in microseconds; only a genuine deadlock
+  // (e.g., a regression making the constructor's lock cycle self-deadlock) exceeds it.
+  private static final long JOIN_TIMEOUT_MS = 30_000;
+
   private static final int PAGE_SIZE = 4096;
   private static final long FILE_ID = 1;
   private static final int PAGE_INDEX = 7;
   private static final long FILL_PATTERN = 0x1234_5678_9ABC_DEF0L;
+
+  /**
+   * Snapshot the reader takes of the stale frame under its shared lock. Published to the
+   * main thread via an {@link AtomicReference}: the volatile write/read pair is a
+   * happens-before edge that VMLens tracks — a plain array handoff relying on the timed
+   * {@code Thread.join(long)} would be reported as a data race, because VMLens does not
+   * credit timed joins with a happens-before edge.
+   */
+  private record Observed(long fileId, int pageIndex, long word) {
+  }
 
   /**
    * Loader (pool-acquire, fill, publish via CachePointer constructor) vs a reader holding
@@ -102,40 +120,57 @@ public class CachePointerPublicationMTTest {
         // Reader: reads the stale frame's coordinates and buffer under the frame's
         // shared lock. Results are captured and asserted on the main thread after join
         // (assertions thrown inside a child thread would not fail the JUnit test).
-        var observedFileId = new long[1];
-        var observedPageIndex = new int[1];
-        var observedWord = new long[1];
+        var observed = new AtomicReference<Observed>();
         var reader = new Thread(() -> {
           long lockStamp = frame.acquireSharedLock();
           try {
-            observedFileId[0] = frame.getFileId();
-            observedPageIndex[0] = frame.getPageIndex();
-            observedWord[0] = frame.getBuffer().getLong(0);
+            observed.set(new Observed(
+                frame.getFileId(), frame.getPageIndex(), frame.getBuffer().getLong(0)));
           } finally {
             frame.releaseSharedLock(lockStamp);
           }
         });
 
+        // Capture any child-thread failure (exception or assertion error) so it fails
+        // the test on the main thread instead of being silently swallowed, and bound the
+        // joins so a regression that deadlocks inside the constructor's lock cycle fails
+        // the build instead of hanging it.
+        var childFailure = new AtomicReference<Throwable>();
+        loader.setUncaughtExceptionHandler((t, e) -> childFailure.compareAndSet(null, e));
+        reader.setUncaughtExceptionHandler((t, e) -> childFailure.compareAndSet(null, e));
+
         loader.start();
         reader.start();
-        loader.join();
-        reader.join();
+        loader.join(JOIN_TIMEOUT_MS);
+        reader.join(JOIN_TIMEOUT_MS);
+        assertFalse(loader.isAlive(),
+            "loader thread did not finish within " + JOIN_TIMEOUT_MS + " ms — possible "
+                + "deadlock in the publication lock cycle");
+        assertFalse(reader.isAlive(),
+            "reader thread did not finish within " + JOIN_TIMEOUT_MS + " ms — possible "
+                + "deadlock in the publication lock cycle");
+        if (childFailure.get() != null) {
+          fail("child thread failed", childFailure.get());
+        }
+
+        var snapshot = observed.get();
+        assertNotNull(snapshot, "reader terminated without publishing its observation");
 
         // Pair consistency: pooled state or fully published page — never a mix. An
         // unlocked publication (the pre-fix bug) can expose fileId already set while
         // pageIndex still holds the pooled -1, or vice versa.
-        var pooledPair = observedFileId[0] == -1 && observedPageIndex[0] == -1;
+        var pooledPair = snapshot.fileId() == -1 && snapshot.pageIndex() == -1;
         var publishedPair =
-            observedFileId[0] == FILE_ID && observedPageIndex[0] == PAGE_INDEX;
+            snapshot.fileId() == FILE_ID && snapshot.pageIndex() == PAGE_INDEX;
         assertTrue(pooledPair || publishedPair,
             "reader observed a torn coordinate pair: ("
-                + observedFileId[0] + ", " + observedPageIndex[0] + ")");
+                + snapshot.fileId() + ", " + snapshot.pageIndex() + ")");
 
         // If the published pair is visible, the constructor's lock cycle has completed,
         // and the buffer fill (sequenced before the constructor in the loader) must be
         // fully visible with it.
         if (publishedPair) {
-          assertEquals(FILL_PATTERN, observedWord[0],
+          assertEquals(FILL_PATTERN, snapshot.word(),
               "published coordinates visible but the buffer fill is not — publication "
                   + "barrier broken");
         }

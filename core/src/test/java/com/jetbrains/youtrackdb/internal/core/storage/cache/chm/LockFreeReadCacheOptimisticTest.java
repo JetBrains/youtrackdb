@@ -48,7 +48,7 @@ public class LockFreeReadCacheOptimisticTest {
     bufferPool = new ByteBufferPool(PAGE_SIZE, allocator, 256);
     pageFramePool = bufferPool.pageFramePool();
     long maxMemory = 1024L * PAGE_SIZE;
-    readCache = new LockFreeReadCache(bufferPool, maxMemory, PAGE_SIZE);
+    readCache = new LockFreeReadCache(maxMemory, PAGE_SIZE);
     writeCache = new PageFrameWriteCache(pageFramePool);
   }
 

@@ -87,6 +87,20 @@ public final class CachePointer {
 
   private int hash;
 
+  /**
+   * Creates a CachePointer over a raw {@link Pointer} released through the
+   * {@link ByteBufferPool} when referrers reach 0. A standalone {@link PageFrame} is created
+   * internally for lock delegation (or {@code null} for the null-pointer sentinel shape).
+   *
+   * <p><b>Warning — no release-side stamp invalidation.</b> Unlike pool-backed frames,
+   * the standalone frame created here never cycles through {@link PageFramePool#release},
+   * so nothing invalidates outstanding optimistic stamps or resets the coordinates when
+   * the underlying memory is recycled via the ByteBufferPool. A CachePointer from this
+   * constructor must therefore never be installed into the shared read cache (or any
+   * structure reachable by {@code getPageFrameOptimistic}-style readers) — a stale stamp
+   * on its frame would validate forever over recycled memory. Current usage is limited to
+   * tests and null-pointer sentinels (e.g., AtomicOperationBinaryTracking).
+   */
   public CachePointer(
       final Pointer pointer,
       final ByteBufferPool bufferPool,
@@ -111,9 +125,6 @@ public final class CachePointer {
     this.pageIndex = pageIndex;
 
     publishCoordinatesToFrame();
-    assert pageFrame == null
-        || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
-        : "PageFrame coordinates diverge from CachePointer";
   }
 
   /**
@@ -163,9 +174,6 @@ public final class CachePointer {
     this.pageIndex = pageIndex;
 
     publishCoordinatesToFrame();
-    assert pageFrame == null
-        || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
-        : "PageFrame coordinates diverge from CachePointer";
   }
 
   public void setWritersListener(WritersListener writersListener) {
@@ -456,6 +464,10 @@ public final class CachePointer {
       final var lockStamp = this.pageFrame.acquireExclusiveLock();
       try {
         this.pageFrame.setPageCoordinates(fileId, pageIndex);
+        // Divergence guard runs INSIDE the locked section so the coordinate read-back
+        // respects PageFrame's read contract (reads only under stamp or lock).
+        assert this.pageFrame.getFileId() == fileId && this.pageFrame.getPageIndex() == pageIndex
+            : "PageFrame coordinates diverge from CachePointer";
       } finally {
         this.pageFrame.releaseExclusiveLock(lockStamp);
       }

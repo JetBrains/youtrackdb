@@ -39,7 +39,7 @@ public class AsyncReadCacheTestIT {
     final var byteBufferPool = new ByteBufferPool(pageSize, allocator, 256);
     final long maxMemory = 1024 * 1024 * 1024;
 
-    final var readCache = new LockFreeReadCache(byteBufferPool, maxMemory, pageSize);
+    final var readCache = new LockFreeReadCache(maxMemory, pageSize);
     final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
 
     final var executor = Executors.newCachedThreadPool();
@@ -120,7 +120,7 @@ public class AsyncReadCacheTestIT {
     final var byteBufferPool = new ByteBufferPool(pageSize, allocator, 2048);
     final long maxMemory = 1024 * 1024 * 1024;
 
-    final var readCache = new LockFreeReadCache(byteBufferPool, maxMemory, pageSize);
+    final var readCache = new LockFreeReadCache(maxMemory, pageSize);
     final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
 
     final var executor = Executors.newCachedThreadPool();

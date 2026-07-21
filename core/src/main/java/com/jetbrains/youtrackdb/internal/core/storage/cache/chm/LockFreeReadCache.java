@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
-import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
@@ -81,10 +80,7 @@ public final class LockFreeReadCache implements ReadCache {
 
   private final Ratio cacheHitRatio;
 
-  public LockFreeReadCache(
-      final ByteBufferPool bufferPool,
-      final long maxCacheSizeInBytes,
-      final int pageSize) {
+  public LockFreeReadCache(final long maxCacheSizeInBytes, final int pageSize) {
     evictionLock.lock();
     try {
       this.pageSize = pageSize;

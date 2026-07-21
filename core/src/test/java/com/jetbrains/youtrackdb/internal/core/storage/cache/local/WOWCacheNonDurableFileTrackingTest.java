@@ -1050,7 +1050,7 @@ public class WOWCacheNonDurableFileTrackingTest {
    */
   private LockFreeReadCache createReadCache() {
     final long maxMemory = 64L * 1024 * 1024; // 64 MB
-    return new LockFreeReadCache(bufferPool, maxMemory, PAGE_SIZE);
+    return new LockFreeReadCache(maxMemory, PAGE_SIZE);
   }
 
   /**
