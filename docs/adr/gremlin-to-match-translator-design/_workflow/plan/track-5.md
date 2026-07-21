@@ -10,8 +10,8 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 
 ## Progress
 - [x] Review + decomposition (2 iterations: iter1 adversarial FAIL/A1 blocker → fixed; iter2 PASS)
-- [~] Step implementation (5/5 steps complete)
-- [ ] Track-level code review
+- [x] Step implementation (5/5 steps complete; +2 post-step refactors)
+- [~] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-07-20T16:15Z [ctx=info] Step 1 complete (commits 73afe2559a + 5d3bf3d6b7; dim-review bugs iter1→iter2 PASS after BG1 fix; 12 adapter tests green)
@@ -19,13 +19,16 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 - [x] 2026-07-21T10:16Z [ctx=unknown] Step 3 complete (tip 1d0e346011; dim-review bugs-step3 iter1 FAIL BG1 → Review fix → iter2 PASS)
 - [x] 2026-07-21T11:16Z [ctx=info] Step 4 complete (tip 62182d15eb; dim-review bugs-step4 iter1 PASS; BG1 dotted-label latent deferred)
 - [x] 2026-07-21T13:34Z [ctx=info] Step 5 complete (tip 74408e1002; dim-review bugs-step5 iter1 PASS; BG1 matchExpressions latent deferred)
+- [x] 2026-07-21T14:30Z [ctx=info] Post-step: ParamSink narrows GremlinPredicateAdapter binding (commit 33d258e356)
+- [x] 2026-07-21T15:00Z [ctx=info] Post-step: CombinatorFoldedHopRecogniser extracted from VertexHopRecogniser router (commit c90f66edb5)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 - 2026-07-15 (inline replan, from Track 4 adversarial A7): HEAD's `RecognitionContext` / `WalkerContext` contract (RecognitionContext.java:20-24, WalkerContext.java:22-26) disavows the plan's per-recogniser "no-mutation-on-decline" invariant — a DECLINE discards the whole context, so per-recogniser purity is neither enforced nor needed. Step 1's sub-walk test pins the *capture boundary* (a declined child leaves the parent's committed state untouched), not a general no-mutation rule. Flag the plan-level invariant for Phase 4 reconciliation.
 - 2026-07-15 (inline replan, from Track 4 adversarial A3): D5's cache key must be the post-walk generic-statement fingerprint, not a pre-walk traversal-shape fingerprint — translation is value-dependent (`eq(null)` → bare `IS NULL`, `eq(v)` → `field = ?`, size-1 collection equality declines), so a value-blind key serves a wrong cached plan silently. The RID-inline decision itself lives in Track 4; its cache-bypass consequence (R3) lands here.
 - 2026-07-20 (Track 4 completion, cross-track): Phase C pin reversed adversarial A1 — native `eq(null)` matches absent + present-null (bare `IS NULL`). R6 cache tests must treat `eq(null)` and scalar `eq(v)` as distinct fingerprint classes even after positional binding lands for scalars.
-- 2026-07-20 (Step 2): `applyStrategies()` recursively runs `AdjacentToIncidentStrategy` on combinator children, leaving `VertexStepPlaceholder` and/or singleton `returnsEdge=true` `VertexStep` where the raw DSL had a bare hop — registry must key both classes; sub-walk singleton edge-returning hops translate as bare hops, top-level `outE` still declines.
+- 2026-07-20 (Step 2): `applyStrategies()` recursively runs `AdjacentToIncidentStrategy` on combinator children, leaving `VertexStepPlaceholder` and/or singleton `returnsEdge=true` `VertexStep` where the raw DSL had a bare hop — registry must key both classes. **Superseded (post-Step 5):** the sub-walk singleton edge-returning hop is no longer a loosened `VertexHopRecogniser` branch; `VertexStepRecogniser` routes it to dedicated `CombinatorFoldedHopRecogniser` (shared `claimFoldedHop` tail). Top-level bare `outE` still declines at the router.
+- 2026-07-21 (post-Step 5, architecture review): `GremlinPredicateAdapter` must not accept full `RecognitionContext` — only the `bindParam` slice is needed for positional parameters. `ParamSink` functional interface extracted; recognisers pass `ctx::bindParam` like `PropertyTypeGate` lambdas.
 - 2026-07-20 (Step 2 review fix BG2): polymorphic OR folds child `hasLabel` re-types into each OR operand as leaf-exact `classEquals` (`@class = L`), not hierarchy-aware `SELECT FROM L` re-type — fine for sibling Person/Company; subclass membership under an OR arm would diverge from native polymorphic `hasLabel`.
 
 ## Decision Log
@@ -39,6 +42,8 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 - 2026-07-20 (Phase A adversarial A3, pinned): **Edge-bearing NOT uses a `MatchPatternBuilder` extension, not a direct-AST recogniser exemption.** Add a `buildNotExpression(...)`-style sibling that emits a detached `SQLMatchExpression` chain while keeping D6 shared-builder discipline. The one-shot positive `build()` (`MatchPatternBuilder.java:255-262`) is untouched; the NOT builder is a separate entry point. Direct-AST assembly inside the recogniser is the fallback only if review finds a NOT shape the builder cannot express — pinned with file/method scope if taken.
 - 2026-07-20 (Phase A risk R1/R2, fingerprint construction): **The fingerprint is synthesised from the pre-plan translated IR, with structural tokens rendered verbatim.** Two mechanics the naive "generic-statement" phrasing got wrong: (1) `SQLBaseExpression.toGenericStatement` collapses *string* literals to `?` (`:112-113`), so a class name carried as a string operand (`classEquals("Person")`, non-polymorphic `hasLabel`) would erase from the key and collide `hasLabel("Person")` with `hasLabel("Company")` onto one entry — a silent wrong-class serve (R1). Structural tokens (class names, `~label`, RIDs) must therefore be emitted **verbatim** into the fingerprint (e.g. via `SQLIdentifier`-style inline rendering, `SQLIdentifier.java:141-142`), never through the string-placeholder path; confirm the polymorphic pattern-node path also renders its class inline. (2) There is no `SQLMatchStatement` on the additive path (`statement==null`, `useCache=false`; `MatchExecutionPlanner.java:488-495`), so the fingerprint is computed from the translated `MatchPlanInputs` (pattern + `notMatchExpressions` + alias filters) **before** the planner copies `aliasFilters` into a plain `HashMap` (`:505`) — off the insertion-ordered `LinkedHashMap` (`WalkerContext.java:40`) so two walks of one shape fingerprint identically (R2). A post-plan fingerprint would read a nondeterministically-ordered map and never hit.
 - 2026-07-20 (Phase A risk R3, total parameterization + shape-pure slots): **The `SQLPositionalParameter` switch covers every comparison-value form, and slot numbering is a pure function of walk order.** Value-independence has two requirements the plan collapsed into one: the key must be value-blind (already true — `toGenericStatement` collapses number and string literals to `?`) *and* the cached plan must rebind the value per execution. An inline literal fails the second: it both key-collapses (colliding same-shape/different-value queries) and bakes the first value into the shared plan — silent wrong results, no decline. So the switch must be **total** over every value form the adapter emits (scalar `Compare`, `Contains` list elements, `Text`/`TextP` operands, the `between`/`inside`/`outside` decompositions); any missed form is a landmine. Structural tokens are the explicit exception (they are the R1 discriminators, kept inline). Execution correctness also requires `bindParam` to allocate identical `paramNumber`s for identical shapes — slot numbering must be a pure function of walk order, independent of values, or a reusing walk's value map misaligns against the cached plan's `?` slots and binds value A into value B's slot.
+- 2026-07-21 (post-Step 5): **`GremlinPredicateAdapter` binds parameters through `ParamSink`, not `RecognitionContext`.** `RecognitionContext` extends `ParamSink`; recognisers pass `ctx::bindParam` at call sites. The adapter cannot reach boundary state, pattern contributions, or sub-walk seams — same narrowing discipline as `PropertyTypeGate`.
+- 2026-07-21 (post-Step 5): **Combinator sub-walk singleton `returnsEdge` hops get a dedicated recogniser, not a loosened `VertexHopRecogniser`.** `CombinatorFoldedHopRecogniser` handles the `AdjacentToIncidentStrategy` artefact (singleton edge-returning `VertexStepContract` inside `SubTraversalPredicateAdapter`); `VertexHopRecogniser` stays strict (`returnsEdge() == false` only). `VertexStepRecogniser` routes: vertex-returning → `VertexHopRecogniser`, edge + `HasStep` follow → `EdgeHopRecogniser`, edge singleton in sub-walk → `CombinatorFoldedHopRecogniser`, else DECLINE. Shared tail: `GremlinPatternAssembler.claimFoldedHop`.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -172,6 +177,24 @@ The `GremlinPlanCache` (D5) closes the seam Track 4 leaves open. Track 4's predi
 - `GremlinPlanCacheTest.java` (new)
 
 **Critical context:** Cache hits rebind per-walk values only — plan structure is shared. Extend `GremlinPlanFingerprint` with a `matchExpressions` section before any recogniser writes positive detached MATCH expressions (BG1).
+
+### Step 5 addendum — commit 33d258e356, 2026-07-21T14:30Z [ctx=info]
+**What was done:** Extracted `ParamSink` functional interface; `RecognitionContext` extends it. `GremlinPredicateAdapter.toFilter` / internal `translate` now accept `@Nullable ParamSink` instead of `RecognitionContext`. Recogniser call sites (`HasStepRecogniser`, `EdgeHopRecogniser`, etc.) pass `ctx::bindParam`.
+
+**What was discovered:** The Step 5 implementation passed full `RecognitionContext` into the predicate adapter even though only `bindParam()` was used — violated the narrow-context design from Track 3.
+
+**What changed from plan:** Post-step architecture refinement; no behavioural change.
+
+**Key files:** `ParamSink.java` (new), `RecognitionContext.java`, `GremlinPredicateAdapter.java`, `HasStepRecogniser.java`, `EdgeHopRecogniser.java`
+
+### Step 5 addendum — commit c90f66edb5, 2026-07-21T15:00Z [ctx=info]
+**What was done:** Restored strict `VertexHopRecogniser` (`returnsEdge() == false` only). Added `CombinatorFoldedHopRecogniser` for sub-walk singleton edge-returning hops after `AdjacentToIncidentStrategy`. Reworked `VertexStepRecogniser` as a clear router to three hop recognisers. Extracted shared `GremlinPatternAssembler.claimFoldedHop`. Tests: `CombinatorFoldedHopRecogniserTest`, updated `VertexHopRecogniserTest` / `VertexStepRecogniserTest`.
+
+**What was discovered:** Folding the combinator artefact into `VertexHopRecogniser` made the rotating `VertexStepRecogniser` unreadable — a dedicated recogniser matches the Step 2 surprise better than a "loosened" vertex hop.
+
+**What changed from plan:** Post-step refactor of Step 2 routing landed after Step 5; behaviour preserved, structure clarified.
+
+**Key files:** `CombinatorFoldedHopRecogniser.java` (new), `VertexHopRecogniser.java`, `VertexStepRecogniser.java`, `GremlinPatternAssembler.java`
 
 ## Validation and Acceptance
 - `and` (pure / edge-bearing / mixed children), `or` (pure-filter children; an edge-bearing child declines), `not` (both shapes), `where(traversal)`, and `where(P)` translate or decline per design; every declined walk leaves the parent context unmutated via whole-context discard.
