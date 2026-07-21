@@ -32,8 +32,9 @@ public final class OptimisticReadStats {
 
   // Total optimistic read attempts that fell back to the CAS-pinned path, whatever the
   // reason (stamp abort, epoch abort, cache miss, exclusive lock held, in-tx changes,
-  // speculative-read exception, ...). Incremented from
-  // StorageComponent.executeOptimisticStorageRead's fallback catch.
+  // speculative-read exception, ...). Incremented from the fallback catch of every
+  // optimistic read wrapper in StorageComponent (both executeOptimisticStorageRead
+  // overloads and executeOptimisticStorageReadWithNullRecheck).
   private static final LongAdder FALLBACKS = new LongAdder();
 
   private OptimisticReadStats() {
@@ -70,9 +71,11 @@ public final class OptimisticReadStats {
   }
 
   /**
-   * Resets all counters to zero. Intended for benchmark iteration boundaries; racing
-   * increments from concurrent readers may survive the reset (LongAdder.reset is not
-   * atomic with respect to concurrent adds) — acceptable for diagnostic use.
+   * Resets all counters to zero. Intended for tests and ad-hoc diagnostics only —
+   * measurement code running concurrently with readers should snapshot the getters and
+   * diff instead (as the jmh-ldbc epoch benchmark does), because {@link LongAdder#reset()}
+   * is not atomic with respect to concurrent adds and racing increments may survive the
+   * reset.
    */
   public static void reset() {
     STAMP_ABORTS.reset();

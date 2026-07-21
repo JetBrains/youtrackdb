@@ -764,6 +764,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     } catch (final RuntimeException | AssertionError e) {
       // Same fallback semantics as executeOptimisticStorageRead — and deliberately NO
       // re-check on this path: the pinned result below is already authoritative.
+      OptimisticReadStats.onFallback();
       attemptClosedByFallback = true;
       assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
 

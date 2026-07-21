@@ -57,7 +57,8 @@ import org.openjdk.jmh.annotations.Warmup;
  * </pre>
  *
  * <p>Evidence: reader methods report swallowed read anomalies via {@link ReaderCounters}
- * (JMH secondary metric, throughput/avgtime modes), writers report commit conflicts via
+ * (JMH secondary metrics; {@code AuxCounters.Type.EVENTS} counters are emitted in all
+ * benchmark modes, including sample mode), writers report commit conflicts via
  * {@link WriterCounters}, and {@link EpochReadWriteState} prints per-iteration deltas of
  * the optimistic-read abort counters ({@code fallbacks} / {@code stampAborts} /
  * {@code epochAborts}) from {@code OptimisticReadStats}.

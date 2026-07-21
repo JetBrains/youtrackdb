@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadStats;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -791,6 +792,30 @@ public class StorageComponentOptimisticReadTest {
     assertNull(result);
     assertEquals(1, pinnedRuns[0]);
     assertEquals(0, component.nullRecheckErrorCount);
+  }
+
+  @Test
+  public void testNullRecheckFallbackCountsInOptimisticReadStats() throws IOException {
+    // The null-recheck wrapper's fallback must bump the global FALLBACKS diagnostic
+    // counter exactly like the plain wrappers do (review finding BG-3), so the
+    // counter's "every optimistic attempt that fell back" contract also holds for the
+    // LinkBag/edge read path that uses this wrapper. The assertion is delta-based with
+    // >= because the counter is JVM-global and other test classes running concurrently
+    // (parallel=classes) may legitimately increment it as well.
+    long fallbacksBefore = OptimisticReadStats.fallbacks();
+
+    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> {
+          throw OptimisticReadFailedException.INSTANCE;
+        },
+        () -> "pinned",
+        Objects::isNull,
+        () -> "key=42");
+
+    assertEquals("pinned", result);
+    assertTrue("null-recheck fallback must increment the global fallback counter",
+        OptimisticReadStats.fallbacks() >= fallbacksBefore + 1);
   }
 
   @Test

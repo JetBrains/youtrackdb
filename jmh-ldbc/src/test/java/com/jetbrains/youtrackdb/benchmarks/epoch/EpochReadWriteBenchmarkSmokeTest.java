@@ -2,12 +2,15 @@ package com.jetbrains.youtrackdb.benchmarks.epoch;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -103,6 +106,26 @@ public class EpochReadWriteBenchmarkSmokeTest {
     assertEquals(0, writerCounters.writeConflicts);
     assertEquals("state-level anomaly counter must stay zero on a sound build",
         0, state.swallowedReadAnomalies.sum());
+  }
+
+  @Test
+  public void testReadByIndexQueryUsesUniqueKeyIndex() {
+    // Pins what readOnlyByIndex/mixedIndex actually measure: the benchmark's index
+    // point-lookup query must be planned as a fetch from the EpochDoc.key UNIQUE index.
+    // If a planner regression turned it into a class scan, the benchmark would silently
+    // measure a 100k-record scan per op instead of the B-tree get optimistic path.
+    var results = state.traversal.computeInTx(
+        g -> g.yql("EXPLAIN SELECT FROM EpochDoc WHERE key = :k", "k", 1L).toList());
+    assertEquals("EXPLAIN should return exactly 1 result", 1, results.size());
+    @SuppressWarnings("unchecked")
+    var plan = (String) ((Map<String, Object>) results.get(0)).get("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("index point lookup must be planned via the EpochDoc.key index,"
+        + " got plan:\n" + plan,
+        plan.contains("EpochDoc.key"));
+    assertTrue("index point lookup must fetch from an index, not scan the class,"
+        + " got plan:\n" + plan,
+        plan.toUpperCase(Locale.ROOT).contains("INDEX"));
   }
 
   @Test
