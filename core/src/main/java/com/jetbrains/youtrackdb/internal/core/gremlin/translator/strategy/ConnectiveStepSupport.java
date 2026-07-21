@@ -89,7 +89,7 @@ final class ConnectiveStepSupport {
    * entries, a missing filter, or a re-type on a non-boundary alias means the child is not a single
    * composable OR operand — decline.
    */
-  private static SQLBooleanExpression singleCapturedFilter(
+  static SQLBooleanExpression singleCapturedFilter(
       SubTraversalPredicateAdapter adapter, String boundary) {
     List<SQLWhereClause> onBoundary = new ArrayList<>();
     for (var entry : adapter.capturedAliasFilters().entrySet()) {

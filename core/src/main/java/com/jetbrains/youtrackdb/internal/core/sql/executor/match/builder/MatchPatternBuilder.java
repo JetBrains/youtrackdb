@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Stateful accumulator for the unified MATCH IR that {@link
@@ -294,6 +295,88 @@ public final class MatchPatternBuilder {
    */
   public boolean hasAlias(String alias) {
     return alias != null && pattern.get(alias) != null;
+  }
+
+  /**
+   * Builds a detached NOT {@link SQLMatchExpression} from this builder's accumulated hop chain,
+   * anchored at {@code originAlias}. The origin is emitted as a bare alias reference with no inline
+   * {@code WHERE} on the NOT origin item — a filter there makes {@code manageNotPatterns} throw.
+   *
+   * <p>{@code supplementalAliasFilters} are AND-merged with this builder's {@code aliasFilters} and
+   * attached to each path item's target alias. The chain must be a single linear path from
+   * {@code originAlias}; branching or a missing origin node yields {@link IllegalArgumentException}
+   * so the caller can decline.
+   *
+   * <p>Does not call {@link #build()} — the positive one-shot contract stays untouched.
+   *
+   * @param originAlias the NOT origin, which must already exist in the caller's positive pattern
+   * @param supplementalAliasFilters extra per-alias filters captured by a sub-walk (may be empty)
+   * @return the detached NOT expression ready for {@code MatchPlanInputs.notMatchExpressions}
+   */
+  public SQLMatchExpression buildNotExpression(
+      @Nonnull String originAlias, Map<String, SQLWhereClause> supplementalAliasFilters) {
+    checkNotBuilt();
+    var originNode = pattern.get(originAlias);
+    if (originNode == null) {
+      throw new IllegalArgumentException(
+          "NOT origin alias '" + originAlias + "' is absent from the captured fragment");
+    }
+
+    var exp = new SQLMatchExpression(-1);
+    exp.setOrigin(SQLMatchFilter.fromAliasAndClass(originAlias, null));
+
+    var current = originNode;
+    while (!current.out.isEmpty()) {
+      if (current.out.size() > 1) {
+        throw new IllegalArgumentException(
+            "NOT sub-traversal captured a branching pattern — only linear hops are supported");
+      }
+      var edge = current.out.iterator().next();
+      var item = edge.item.copy();
+      var targetAlias = edge.in.alias;
+      item.setFilter(mergedTargetFilter(item.getFilter(), targetAlias, supplementalAliasFilters));
+      exp.addItem(item);
+      current = edge.in;
+    }
+
+    if (exp.getItems().isEmpty()) {
+      throw new IllegalArgumentException(
+          "NOT sub-traversal captured no hop items from origin '" + originAlias + "'");
+    }
+    return exp;
+  }
+
+  private SQLMatchFilter mergedTargetFilter(
+      @Nullable SQLMatchFilter existingItemFilter,
+      String alias,
+      Map<String, SQLWhereClause> supplementalAliasFilters) {
+    var className = aliasClasses.get(alias);
+    SQLMatchFilter filter;
+    if (existingItemFilter != null) {
+      filter = existingItemFilter.copy();
+    } else {
+      filter = SQLMatchFilter.fromAliasAndClass(alias, className);
+    }
+    var where = filter.getFilter();
+    var fromBuilder = aliasFilters.get(alias);
+    if (fromBuilder != null) {
+      where = where == null ? fromBuilder : mergeWhere(where, fromBuilder);
+    }
+    if (supplementalAliasFilters != null) {
+      var extra = supplementalAliasFilters.get(alias);
+      if (extra != null) {
+        where = where == null ? extra : mergeWhere(where, extra);
+      }
+    }
+    if (where != null) {
+      filter.setFilter(where);
+    }
+    return filter;
+  }
+
+  private static SQLWhereClause mergeWhere(SQLWhereClause a, SQLWhereClause b) {
+    var merged = new MatchWhereBuilder().and(a.getBaseExpression(), b.getBaseExpression());
+    return new MatchWhereBuilder().wrap(merged);
   }
 
   /**

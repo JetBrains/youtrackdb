@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPa
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
@@ -44,6 +45,10 @@ final class WalkerContext implements RecognitionContext {
    *  shape). Populated by {@link #putEdgeFilter} for observability; the same clause also travels on
    *  the edge path item via {@link #addEdgeAsNode}, so it is not re-read at result-build time. */
   final Map<String, SQLWhereClause> edgeFilters = new LinkedHashMap<>();
+
+  /** Detached NOT pattern chains produced by edge-bearing {@code NotStep} recognisers. Wired into
+   *  {@link GremlinStepWalker}'s {@code buildResult} as {@code MatchPlanInputs.notMatchExpressions}. */
+  final List<SQLMatchExpression> notMatchExpressions = new ArrayList<>();
 
   /** RETURN-clause projection items. One entry per output column. */
   final List<SQLExpression> returnItems = new ArrayList<>();
@@ -328,6 +333,16 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void putEdgeFilter(String edgeAlias, SQLWhereClause where) {
     edgeFilters.put(edgeAlias, where);
+  }
+
+  @Override
+  public boolean positivePatternHasAlias(String alias) {
+    return patternBuilder.hasAlias(alias);
+  }
+
+  @Override
+  public void addNotMatchExpression(SQLMatchExpression expression) {
+    notMatchExpressions.add(expression);
   }
 
   @Override

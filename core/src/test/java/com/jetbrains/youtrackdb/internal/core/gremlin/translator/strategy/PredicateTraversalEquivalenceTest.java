@@ -297,6 +297,26 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     assertThat(alice.id()).isNotEqualTo(carol.id());
   }
 
+  /**
+   * {@code g.V().hasNot("nickname")} translates to {@code nickname IS NOT DEFINED} and matches
+   * native: vertices that lack the property entirely, excluding present-null and present-value rows.
+   */
+  @Test
+  public void hasNotKeyPresence_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "nickname", "Al");
+    graph.addVertex(T.label, "Person", "name", "Bob", "nickname", "Bobby");
+    var absent = graph.addVertex(T.label, "Person", "name", "Carol");
+    var presentNull = graph.addVertex(T.label, "Person", "name", "Dave");
+    presentNull.property("nickname", null);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().hasNot(nickname) presence",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasNot("nickname"));
+    assertThat(absent.id()).isNotEqualTo(presentNull.id());
+  }
+
   // ---------------------------------------------------------------------------
   // NULL semantics (A1) and negated absent-property exclusion (A2).
   // ---------------------------------------------------------------------------
