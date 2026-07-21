@@ -175,8 +175,16 @@ public class MetadataWriteMutexTest extends DbTestBase {
         secondCreatedClass.get());
     // Both transactions committed without a contention abort: the first held the mutex to its
     // commit, the second blocked and then ran, and neither threw. Single-writer is enforced by
-    // blocking, not by aborting. Committed-schema visibility of the two classes is the commit-time
-    // promotion, which is a later track, so it is intentionally not asserted here.
+    // blocking, not by aborting. Both classes are visible in the committed schema afterwards: the
+    // second transaction seeded its tx-local schema from a fresh committed read after unparking,
+    // so it built on the first transaction's just-committed class instead of re-parsing its own
+    // stale begin-time snapshot — whose set-diff would have phantom-dropped the first class's
+    // collection and made the second commit fail (the stale-seed regression this pins).
+    var committedSchema = session.getMetadata().getSchema();
+    assertTrue("the first tx's class must survive the second tx's commit",
+        committedSchema.existsClass("FirstSchemaTx"));
+    assertTrue("the second tx's class must be committed",
+        committedSchema.existsClass("SecondSchemaTx"));
   }
 
   /**

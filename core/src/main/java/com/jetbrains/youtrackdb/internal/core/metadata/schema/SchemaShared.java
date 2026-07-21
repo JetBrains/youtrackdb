@@ -258,11 +258,19 @@ public abstract class SchemaShared implements CloseableInStorage {
    * <p>The read of the committed root record and per-class records runs under this instance's schema
    * write lock, which makes the read of the committed class graph exclusive against concurrent
    * committed-schema mutation. The copy's own {@code fromStream} takes the copy's (separate) write
-   * lock internally. The read-only record loads during the re-parse ride the caller's already-open
-   * user transaction; this method does not open or commit a transaction of its own, because the
+   * lock internally. This method does not open or commit a transaction of its own, because the
    * whole point of the tx-local view is that the change defers to the user transaction's commit.
+   * The loads do <em>not</em> read through the caller's transaction snapshot: the whole seed runs
+   * inside {@link DatabaseSessionEmbedded#computeWithFreshCommittedReads}, so the root and
+   * per-class records are read at the latest committed state. A transaction that parked on the
+   * metadata-write mutex behind a concurrent schema commit resumes with a begin-time snapshot that
+   * predates that commit; seeding through that stale snapshot would re-parse the pre-commit schema,
+   * making the commit-time set-diff phantom-drop the just-committed collections and the commit-time
+   * root write conflict on the stale record version. The fresh reads also refresh the session's
+   * local record cache, so the commit-time serialization ({@link #toStream}) later loads the same
+   * fresh records.
    *
-   * @param session the session whose open transaction the read-only record loads ride; a
+   * @param session the session whose fresh-committed-read scope the read-only record loads ride; a
    *                transaction must already be open
    * @return a fresh {@link SchemaShared} of this instance's concrete type, private to the caller
    */
@@ -273,29 +281,36 @@ public abstract class SchemaShared implements CloseableInStorage {
         : "copyForTx must run inside the caller's open user transaction";
     lock.writeLock().lock();
     try {
-      // Read the committed root record read-only: loading it and reading its properties does not
-      // enrol it (or the per-class records fromStream loads) as dirty in the caller's transaction,
-      // and nothing rebinds a committed class's record id. Under the write lock this persisted
-      // record equals the live committed state (saveInternal persists synchronously under the same
-      // lock on every committed schema change).
-      final EntityImpl committedRoot = session.load(identity);
-      // A bootstrapped committed schema always carries global properties in its root record; the
-      // fromStream re-parse only triggers a self-save (which throws inside the active user
-      // transaction) when global properties are absent, so a missing list means an unseedable
-      // schema.
-      assert committedRoot.getProperty("globalProperties") != null
-          : "copyForTx requires a bootstrapped committed schema carrying global properties";
-      final var copy = newInstanceForCopy();
-      // Mark the copy tx-local before re-parsing so the de-guarded mutation entry points reached
-      // during fromStream (and every later mutation against the copy) take the transaction-local
-      // path instead of the legacy eager-persist path.
-      copy.txLocal = true;
-      // Copy the committed root identity by value before the re-parse: the copy must serialize back
-      // to the same root record at commit, and value-copying avoids sharing a mutable record-id
-      // reference whose in-place promotion would otherwise be observed by both instances.
-      copy.identity = this.identity.copy();
-      copy.fromStream(session, committedRoot);
-      return copy;
+      // The whole seed reads inside a fresh-committed-read scope: the caller's transaction snapshot
+      // was taken at begin() and predates any schema commit this transaction parked behind on the
+      // metadata-write mutex, so reading through it would seed a stale schema (see the method
+      // Javadoc for the phantom-drop consequence).
+      return session.computeWithFreshCommittedReads(() -> {
+        // Read the committed root record read-only: loading it and reading its properties does not
+        // enrol it (or the per-class records fromStream loads) as dirty in the caller's transaction,
+        // and nothing rebinds a committed class's record id. Under the write lock this persisted
+        // record equals the live committed state (saveInternal persists synchronously under the same
+        // lock on every committed schema change).
+        final EntityImpl committedRoot = session.load(identity);
+        // A bootstrapped committed schema always carries global properties in its root record; the
+        // fromStream re-parse only triggers a self-save (which throws inside the active user
+        // transaction) when global properties are absent, so a missing list means an unseedable
+        // schema.
+        assert committedRoot.getProperty("globalProperties") != null
+            : "copyForTx requires a bootstrapped committed schema carrying global properties";
+        final var copy = newInstanceForCopy();
+        // Mark the copy tx-local before re-parsing so the de-guarded mutation entry points reached
+        // during fromStream (and every later mutation against the copy) take the transaction-local
+        // path instead of the legacy eager-persist path.
+        copy.txLocal = true;
+        // Copy the committed root identity by value before the re-parse: the copy must serialize
+        // back to the same root record at commit, and value-copying avoids sharing a mutable
+        // record-id reference whose in-place promotion would otherwise be observed by both
+        // instances.
+        copy.identity = this.identity.copy();
+        copy.fromStream(session, committedRoot);
+        return copy;
+      });
     } finally {
       lock.writeLock().unlock();
     }
