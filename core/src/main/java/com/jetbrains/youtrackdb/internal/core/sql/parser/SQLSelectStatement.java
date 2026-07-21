@@ -2,7 +2,6 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 /*
 
-
  */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
@@ -10,10 +9,8 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import java.util.HashMap;
 import java.util.Map;
@@ -498,98 +495,6 @@ public class SQLSelectStatement extends SQLStatement {
 
   public Boolean getNoCache() {
     return noCache;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = (ResultInternal) super.serialize(session);
-    if (target != null) {
-      result.setProperty("target", target.serialize(session));
-    }
-    if (projection != null) {
-      result.setProperty("projection", projection.serialize(session));
-    }
-    if (whereClause != null) {
-      result.setProperty("whereClause", whereClause.serialize(session));
-    }
-    if (groupBy != null) {
-      result.setProperty("groupBy", groupBy.serialize(session));
-    }
-    if (orderBy != null) {
-      result.setProperty("orderBy", orderBy.serialize(session));
-    }
-    if (unwind != null) {
-      result.setProperty("unwind", unwind.serialize(session));
-    }
-    if (skip != null) {
-      result.setProperty("skip", skip.serialize(session));
-    }
-    if (limit != null) {
-      result.setProperty("limit", limit.serialize(session));
-    }
-    if (fetchPlan != null) {
-      result.setProperty("fetchPlan", fetchPlan.serialize(session));
-    }
-    if (letClause != null) {
-      result.setProperty("letClause", letClause.serialize(session));
-    }
-    if (timeout != null) {
-      result.setProperty("timeout", timeout.serialize(session));
-    }
-    result.setProperty("parallel", parallel);
-    result.setProperty("noCache", noCache);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("target") != null) {
-      target = new SQLFromClause(-1);
-      target.deserialize(fromResult.getProperty("target"));
-    }
-    if (fromResult.getProperty("projection") != null) {
-      projection = new SQLProjection(-1);
-      projection.deserialize(fromResult.getProperty("projection"));
-    }
-    if (fromResult.getProperty("whereClause") != null) {
-      whereClause = new SQLWhereClause(-1);
-      whereClause.deserialize(fromResult.getProperty("whereClause"));
-    }
-    if (fromResult.getProperty("groupBy") != null) {
-      groupBy = new SQLGroupBy(-1);
-      groupBy.deserialize(fromResult.getProperty("groupBy"));
-    }
-    if (fromResult.getProperty("orderBy") != null) {
-      orderBy = new SQLOrderBy(-1);
-      orderBy.deserialize(fromResult.getProperty("orderBy"));
-    }
-    if (fromResult.getProperty("unwind") != null) {
-      unwind = new SQLUnwind(-1);
-      unwind.deserialize(fromResult.getProperty("unwind"));
-    }
-    if (fromResult.getProperty("skip") != null) {
-      skip = new SQLSkip(-1);
-      skip.deserialize(fromResult.getProperty("skip"));
-    }
-    if (fromResult.getProperty("limit") != null) {
-      limit = new SQLLimit(-1);
-      limit.deserialize(fromResult.getProperty("limit"));
-    }
-    if (fromResult.getProperty("fetchPlan") != null) {
-      fetchPlan = new SQLFetchPlan(-1);
-      fetchPlan.deserialize(fromResult.getProperty("fetchPlan"));
-    }
-    if (fromResult.getProperty("letClause") != null) {
-      letClause = new SQLLetClause(-1);
-      letClause.deserialize(fromResult.getProperty("letClause"));
-    }
-    if (fromResult.getProperty("timeout") != null) {
-      timeout = new SQLTimeout(-1);
-      timeout.deserialize(fromResult.getProperty("timeout"));
-    }
-
-    parallel = fromResult.getProperty("parallel");
-    noCache = fromResult.getProperty("noCache");
   }
 }
 /* JavaCC - OriginalChecksum=b26959b9726a8cf35d6283eca931da6b (do not edit this line) */

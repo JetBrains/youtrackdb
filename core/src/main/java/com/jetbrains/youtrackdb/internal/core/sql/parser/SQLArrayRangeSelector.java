@@ -4,7 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -399,40 +398,6 @@ public class SQLArrayRangeSelector extends SimpleNode {
               + " ("
               + currentValue.getClass().getSimpleName()
               + ")");
-    }
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("from", from);
-    result.setProperty("to", to);
-    result.setProperty("newRange", newRange);
-    result.setProperty("included", included);
-
-    if (fromSelector != null) {
-      result.setProperty("fromSelector", fromSelector.serialize(session));
-    }
-
-    if (toSelector != null) {
-      result.setProperty("toSelector", toSelector.serialize(session));
-    }
-
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    from = fromResult.getProperty("from");
-    to = fromResult.getProperty("to");
-    newRange = fromResult.getProperty("newRange");
-    included = fromResult.getProperty("included");
-
-    if (fromResult.getProperty("fromSelector") != null) {
-      fromSelector = new SQLArrayNumberSelector(-1);
-      fromSelector.deserialize(fromResult.getProperty("fromSelector"));
-    }
-    if (fromResult.getProperty("toSelector") != null) {
-      toSelector = new SQLArrayNumberSelector(-1);
-      toSelector.deserialize(fromResult.getProperty("toSelector"));
     }
   }
 

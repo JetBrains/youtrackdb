@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -173,28 +172,6 @@ public class SQLCollection extends SimpleNode {
       }
     }
     return false;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (expressions != null) {
-      result.setProperty(
-          "expressions",
-          expressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("expressions") != null) {
-      expressions = new ArrayList<>();
-      List<Result> ser = fromResult.getProperty("expressions");
-      for (var item : ser) {
-        var exp = new SQLExpression(-1);
-        exp.deserialize(item);
-        expressions.add(exp);
-      }
-    }
   }
 
   public boolean isCacheable(DatabaseSessionEmbedded session) {

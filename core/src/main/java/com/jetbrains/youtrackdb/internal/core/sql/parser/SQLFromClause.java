@@ -4,8 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nullable;
@@ -77,17 +75,6 @@ public class SQLFromClause extends SimpleNode {
   @Override
   public int hashCode() {
     return item != null ? item.hashCode() : 0;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("item", item.serialize(session));
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    item = new SQLFromItem(-1);
-    item.deserialize(fromResult.getProperty("item"));
   }
 
   public boolean isCacheable(DatabaseSessionEmbedded session) {

@@ -244,30 +244,6 @@ public class SQLParenthesisExpression extends SQLMathExpression {
   }
 
   @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = (ResultInternal) super.serialize(session);
-    if (expression != null) {
-      result.setProperty("expression", expression.serialize(session));
-    }
-    if (statement != null) {
-      result.setProperty("statement", statement.serialize(session));
-    }
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    super.deserialize(fromResult);
-    if (fromResult.getProperty("expression") != null) {
-      expression = new SQLExpression(-1);
-      expression.deserialize(fromResult.getProperty("expression"));
-    }
-    if (fromResult.getProperty("statement") != null) {
-      statement = SQLStatement.deserializeFromOResult(fromResult.getProperty("statement"));
-    }
-  }
-
-  @Override
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isCacheable(session);

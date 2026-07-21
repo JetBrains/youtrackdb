@@ -2,8 +2,6 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -38,14 +36,6 @@ public class SQLNumber extends SimpleNode {
     var result = new SQLNumber(-1);
     result.value = value;
     return result;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    throw new UnsupportedOperationException();
-  }
-
-  public void deserialize(Result fromResult) {
-    throw new UnsupportedOperationException();
   }
 }
 /* JavaCC - OriginalChecksum=ebedbca280f59eb8ba8f21dc6132ba10 (do not edit this line) */

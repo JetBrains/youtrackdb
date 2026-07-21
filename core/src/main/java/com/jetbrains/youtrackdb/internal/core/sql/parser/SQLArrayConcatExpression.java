@@ -11,14 +11,12 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class SQLArrayConcatExpression extends SimpleNode {
@@ -195,7 +193,6 @@ public class SQLArrayConcatExpression extends SimpleNode {
     }
   }
 
-
   @Override
   public SQLArrayConcatExpression copy() {
     var result = new SQLArrayConcatExpression(-1);
@@ -270,29 +267,6 @@ public class SQLArrayConcatExpression extends SimpleNode {
   @Override
   public int hashCode() {
     return childExpressions != null ? childExpressions.hashCode() : 0;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (childExpressions != null) {
-      result.setProperty(
-          "childExpressions",
-          childExpressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-
-    if (fromResult.getProperty("childExpressions") != null) {
-      List<Result> ser = fromResult.getProperty("childExpressions");
-      childExpressions = new ArrayList<>();
-      for (var r : ser) {
-        var exp = new SQLArrayConcatExpressionElement(-1);
-        exp.deserialize(r);
-        childExpressions.add(exp);
-      }
-    }
   }
 
   public boolean isCacheable(DatabaseSessionEmbedded session) {

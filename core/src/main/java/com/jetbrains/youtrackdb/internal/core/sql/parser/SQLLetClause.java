@@ -3,8 +3,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -95,30 +93,6 @@ public class SQLLetClause extends SimpleNode {
   public void extractSubQueries(SubQueryCollector collector) {
     for (var item : items) {
       item.extractSubQueries(collector);
-    }
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-
-    if (items != null) {
-      result.setProperty(
-          "items",
-          items.stream().map(oLetItem -> oLetItem.serialize(session)).collect(Collectors.toList()));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-
-    if (fromResult.getProperty("items") != null) {
-      List<Result> ser = fromResult.getProperty("items");
-      items = new ArrayList<>();
-      for (var r : ser) {
-        var exp = new SQLLetItem(-1);
-        exp.deserialize(r);
-        items.add(exp);
-      }
     }
   }
 

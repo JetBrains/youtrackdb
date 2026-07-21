@@ -4,7 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -12,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nullable;
@@ -71,16 +69,6 @@ public class SQLRecordAttribute extends SimpleNode {
 
   public void setName(String name) {
     this.name = name;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    result.setProperty("name", name);
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    name = fromResult.getProperty("name");
   }
 
   @Nullable

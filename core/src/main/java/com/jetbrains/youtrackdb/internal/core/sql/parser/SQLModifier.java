@@ -450,67 +450,6 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("squareBrackets", squareBrackets);
-    if (arrayRange != null) {
-      result.setProperty("arrayRange", arrayRange.serialize(session));
-    }
-    if (condition != null) {
-      result.setProperty("condition", condition.serialize(session));
-    }
-    if (arraySingleValues != null) {
-      result.setProperty("arraySingleValues", arraySingleValues.serialize(session));
-    }
-    if (rightBinaryCondition != null) {
-      result.setProperty("rightBinaryCondition", rightBinaryCondition.serialize(session));
-    }
-    if (methodCall != null) {
-      result.setProperty("methodCall", methodCall.serialize(session));
-    }
-    if (suffix != null) {
-      result.setProperty("suffix", suffix.serialize(session));
-    }
-    if (next != null) {
-      result.setProperty("next", next.serialize(session));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    squareBrackets = fromResult.getProperty("squareBrackets");
-
-    if (fromResult.getProperty("arrayRange") != null) {
-      arrayRange = new SQLArrayRangeSelector(-1);
-      arrayRange.deserialize(fromResult.getProperty("arrayRange"));
-    }
-    if (fromResult.getProperty("condition") != null) {
-      condition = new SQLOrBlock(-1);
-      condition.deserialize(fromResult.getProperty("condition"));
-    }
-    if (fromResult.getProperty("arraySingleValues") != null) {
-      arraySingleValues = new SQLArraySingleValuesSelector(-1);
-      arraySingleValues.deserialize(fromResult.getProperty("arraySingleValues"));
-    }
-    if (fromResult.getProperty("rightBinaryCondition") != null) {
-      rightBinaryCondition = new SQLRightBinaryCondition(-1);
-      rightBinaryCondition.deserialize(fromResult.getProperty("arraySingleValues"));
-    }
-    if (fromResult.getProperty("methodCall") != null) {
-      methodCall = new SQLMethodCall(-1);
-      methodCall.deserialize(fromResult.getProperty("methodCall"));
-    }
-    if (fromResult.getProperty("suffix") != null) {
-      suffix = new SQLSuffixIdentifier(-1);
-      suffix.deserialize(fromResult.getProperty("suffix"));
-    }
-
-    if (fromResult.getProperty("next") != null) {
-      next = new SQLModifier(-1);
-      next.deserialize(fromResult.getProperty("next"));
-    }
-  }
-
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (arrayRange != null || arraySingleValues != null || rightBinaryCondition != null) {
       return false; // TODO enhance a bit

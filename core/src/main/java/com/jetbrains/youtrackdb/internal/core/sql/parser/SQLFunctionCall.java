@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FuncitonAggregationContext;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.graph.SQLFunctionMove;
@@ -513,37 +512,6 @@ public final class SQLFunctionCall extends SimpleNode {
     result.methodName = name.copy();
     result.params = params.stream().map(SQLExpression::copy).collect(Collectors.toList());
     return result;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-
-    if (name != null) {
-      result.setProperty("name", name.serialize(session));
-    }
-
-    if (params != null) {
-      result.setProperty(
-          "collection", params.stream().map(oExpression -> oExpression.serialize(session))
-              .collect(Collectors.toList()));
-    }
-
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("name") != null) {
-      name = SQLIdentifier.deserialize(fromResult.getProperty("name"));
-    }
-    if (fromResult.getProperty("params") != null) {
-      params = new ArrayList<>();
-      List<Result> ser = fromResult.getProperty("params");
-      for (var item : ser) {
-        var exp = new SQLExpression(-1);
-        exp.deserialize(item);
-        params.add(exp);
-      }
-    }
   }
 
   public void extractSubQueries(SQLIdentifier letAlias, SubQueryCollector collector) {

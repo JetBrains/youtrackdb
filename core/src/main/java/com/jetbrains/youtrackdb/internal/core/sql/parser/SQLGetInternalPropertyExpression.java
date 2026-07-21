@@ -181,18 +181,6 @@ public class SQLGetInternalPropertyExpression extends SQLExpression {
   }
 
   @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("propertyName", propertyName);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    propertyName = fromResult.getString("propertyName");
-  }
-
-  @Override
   public boolean isDefinedFor(Result currentRecord) {
     return true;
   }

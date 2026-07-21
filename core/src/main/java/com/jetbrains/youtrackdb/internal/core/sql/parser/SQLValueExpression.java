@@ -179,18 +179,6 @@ public class SQLValueExpression extends SQLExpression {
   }
 
   @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    throw new UnsupportedOperationException(
-        "Cannot serialize value expression (not supported yet)");
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    throw new UnsupportedOperationException(
-        "Cannot deserialize value expression (not supported yet)");
-  }
-
-  @Override
   public boolean isDefinedFor(Result currentRecord) {
     return true;
   }

@@ -3,8 +3,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -121,34 +119,6 @@ public class SQLLetItem extends SimpleNode {
     // so the direct query is ignored
     if (expression != null) {
       expression.extractSubQueries(varName, collector);
-    }
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (varName != null) {
-      result.setProperty("varName", varName.serialize(session));
-    }
-    if (expression != null) {
-      result.setProperty("expression", expression.serialize(session));
-    }
-    if (query != null) {
-      result.setProperty("query", query.serialize(session));
-    }
-
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("varName") != null) {
-      varName = SQLIdentifier.deserialize(fromResult.getProperty("varName"));
-    }
-    if (fromResult.getProperty("expression") != null) {
-      expression = new SQLExpression(-1);
-      expression.deserialize(fromResult.getProperty("expression"));
-    }
-    if (fromResult.getProperty("query") != null) {
-      query = SQLStatement.deserializeFromOResult(fromResult.getProperty("expression"));
     }
   }
 

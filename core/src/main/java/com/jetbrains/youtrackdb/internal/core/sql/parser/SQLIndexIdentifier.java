@@ -2,9 +2,6 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -128,27 +125,6 @@ public class SQLIndexIdentifier extends SimpleNode {
     result = 31 * result + (indexNameString != null ? indexNameString.hashCode() : 0);
     result = 31 * result + (indexName != null ? indexName.hashCode() : 0);
     return result;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    result.setProperty("type", type.toString());
-    result.setProperty("indexNameString", indexNameString);
-
-    if (indexName != null) {
-      result.setProperty("indexName", indexName.serialize(db));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    type = Type.valueOf(fromResult.getProperty("type"));
-    indexNameString = fromResult.getProperty("indexNameString");
-
-    if (fromResult.getProperty("indexName") != null) {
-      indexName = new SQLIndexName(-1);
-      indexName.deserialize(fromResult.getProperty("indexName"));
-    }
   }
 
   public void setType(Type type) {
