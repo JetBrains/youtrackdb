@@ -347,6 +347,97 @@ public class CachePointerPageFrameTest {
     allocator.checkMemoryLeaks();
   }
 
+  /**
+   * Regression test for the validated-torn-read race on page reload into a recycled frame
+   * (YTDB-1203). It deterministically replays the confirmed interleaving from
+   * {@code StorageComponent.loadPageOptimistic}:
+   *
+   * <ol>
+   *   <li>Page (1, 7) lives in a frame; a reader obtains the frame reference (as
+   *       {@code getPageFrameOptimistic} would) and is "preempted" before taking its
+   *       optimistic stamp.</li>
+   *   <li>The page is evicted: the last referrer releases, the frame returns to the pool
+   *       (coordinates reset to (-1, -1) under lock).</li>
+   *   <li>A loader re-acquires the SAME frame from the pool for the SAME page (1, 7).
+   *       The reader resumes and takes its stamp exactly here — after the pool-acquire
+   *       lock cycle but before the loader has filled the buffer or published the
+   *       coordinates. This is the dangerous window: the stamp is non-zero and, without
+   *       the fix, nothing invalidates it later.</li>
+   *   <li>The loader fills the buffer from "disk" and constructs the CachePointer.</li>
+   *   <li>The reader performs the loadPageOptimistic sequence: coordinate check (passes —
+   *       coordinates are published by now), buffer read (could have been torn had it
+   *       overlapped the fill), then stamp validation.</li>
+   * </ol>
+   *
+   * <p>Expected outcome: validation MUST fail, because the CachePointer constructor
+   * publishes the coordinates inside an exclusive-lock cycle which invalidates every stamp
+   * taken before the fill + coordinates were complete. Before the fix the constructor wrote
+   * the coordinates with plain unlocked stores, the stamp stayed valid, and the reader
+   * could validate a half-filled buffer (silent torn read).
+   */
+  @Test
+  public void testStampFromReloadWindowMustFailValidation() {
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+
+    // Initial assignment: page (1, 7) lives in this frame.
+    var frame = pool.acquire(true, Intention.TEST);
+    var c0 = new CachePointer(frame, pool, 1, 7);
+    c0.incrementReadersReferrer();
+
+    // Reader captures the frame reference (getPageFrameOptimistic equivalent) and is
+    // preempted before tryOptimisticRead. In this test the "reader" is the main thread;
+    // preemption is modeled by simply running the evict/reload steps before it stamps.
+    var staleFrameRef = frame;
+
+    // Eviction: last referrer releases — the frame goes back to the pool. The release
+    // resets the coordinates to (-1, -1) under an exclusive-lock cycle.
+    c0.decrementReadersReferrer();
+
+    // Loader: re-acquires a frame from the pool — must be the same recycled instance for
+    // the scenario to be meaningful.
+    var reacquired = pool.acquire(true, Intention.TEST);
+    assertSame("pool must recycle the same frame for this scenario", staleFrameRef,
+        reacquired);
+
+    // Reader resumes: takes its stamp in the dangerous window — after the pool-acquire
+    // lock cycle, before the fill and coordinate publication.
+    long staleStamp = staleFrameRef.tryOptimisticRead();
+    assertNotEquals("no lock is held in the window — stamp must be non-zero", 0L,
+        staleStamp);
+
+    // Loader: fills the buffer from "disk" and publishes via the CachePointer constructor
+    // (mirrors WOWCache.loadFileContent: fill first, then construct).
+    reacquired.getBuffer().putLong(0, 0x1234_5678_9ABC_DEF0L);
+    var c1 = new CachePointer(reacquired, pool, 1, 7);
+    c1.incrementReadersReferrer();
+
+    // Reader: loadPageOptimistic sequence. The coordinate check passes — the loader has
+    // already published (1, 7) — so only stamp validation stands between the reader and
+    // a potentially torn buffer read.
+    assertEquals(1L, staleFrameRef.getFileId());
+    assertEquals(7, staleFrameRef.getPageIndex());
+    staleFrameRef.getBuffer().getLong(0); // speculative buffer read (could have been torn)
+
+    // THE regression assertion: the stamp predates the fill + coordinate publication, so
+    // it must NOT validate. Before the fix the constructor published the coordinates with
+    // plain unlocked stores and this returned true — a validated torn read.
+    assertFalse(
+        "stamp taken before the reload's fill/publication must fail validation",
+        staleFrameRef.validate(staleStamp));
+
+    // Sanity: a stamp taken after publication validates and observes the complete fill.
+    long freshStamp = staleFrameRef.tryOptimisticRead();
+    assertEquals(1L, staleFrameRef.getFileId());
+    assertEquals(7, staleFrameRef.getPageIndex());
+    assertEquals(0x1234_5678_9ABC_DEF0L, staleFrameRef.getBuffer().getLong(0));
+    assertTrue("post-publication stamp must validate", staleFrameRef.validate(freshStamp));
+
+    c1.decrementReadersReferrer();
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
   @Test(timeout = 10_000)
   public void testOptimisticReadDetectsCoordinateChangeAcrossThreads() throws Exception {
     // Verifies that tryOptimisticRead()/validate() on a PageFrame correctly detects

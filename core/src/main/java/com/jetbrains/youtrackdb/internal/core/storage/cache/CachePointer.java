@@ -110,7 +110,7 @@ public final class CachePointer {
     this.fileId = fileId;
     this.pageIndex = pageIndex;
 
-    propagateCoordinatesToFrame();
+    publishCoordinatesToFrame();
     assert pageFrame == null
         || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
         : "PageFrame coordinates diverge from CachePointer";
@@ -120,6 +120,13 @@ public final class CachePointer {
    * Creates a CachePointer backed by a {@link PageFrame}. The pointer is derived from the
    * PageFrame's underlying Pointer. When {@code referrersCount} reaches 0, the frame is
    * released back to the {@link PageFramePool} instead of the ByteBufferPool.
+   *
+   * <p><b>Publication barrier.</b> The constructor publishes the page coordinates to the
+   * frame inside an exclusive-lock cycle (see {@link #publishCoordinatesToFrame()}). Callers
+   * must therefore complete all initial buffer content writes (disk fill, LSN stamping,
+   * checksum recovery) <em>before</em> invoking this constructor — the lock cycle makes
+   * those writes visible to any optimistic reader whose stamp validates, and invalidates
+   * the stamps of readers that raced the fill.
    *
    * <p>The {@code pageFrame} and {@code framePool} parameters may both be {@code null} for
    * sentinel CachePointers (e.g., in AtomicOperationBinaryTracking for metadata-only entries).
@@ -155,7 +162,7 @@ public final class CachePointer {
     this.fileId = fileId;
     this.pageIndex = pageIndex;
 
-    propagateCoordinatesToFrame();
+    publishCoordinatesToFrame();
     assert pageFrame == null
         || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
         : "PageFrame coordinates diverge from CachePointer";
@@ -421,14 +428,37 @@ public final class CachePointer {
   }
 
   /**
-   * Propagates this CachePointer's (fileId, pageIndex) coordinates to the underlying PageFrame.
-   * Called at construction time — the frame is thread-local at this point (not yet published
-   * to any shared data structure), so no lock is needed. The subsequent publication of this
-   * CachePointer via a volatile write or CAS provides the necessary happens-before edge.
+   * Publishes this CachePointer's (fileId, pageIndex) coordinates to the underlying PageFrame
+   * inside an exclusive-lock cycle. Called at construction time.
+   *
+   * <p>The write-lock cycle is mandatory even though the CachePointer itself is not yet
+   * published to any shared data structure: pooled PageFrames are recycled, so a stale
+   * optimistic reader may still hold a reference to this frame from a previous page
+   * assignment (captured before the frame cycled through {@link PageFramePool}) and may take
+   * a stamp at any moment — in particular between the pool-acquire lock cycle and this
+   * constructor. The lock cycle here guarantees that:
+   * <ul>
+   *   <li>any stamp taken before the cycle completes fails
+   *       {@link PageFrame#validate(long)}, so a reader that raced the initial buffer fill
+   *       or the coordinate writes can never validate a torn read;</li>
+   *   <li>a stamp taken after the cycle observes the coordinates <em>and</em> every buffer
+   *       write the constructing thread performed before this constructor (the unlock's
+   *       release semantics paired with the stamp acquisition's acquire semantics form the
+   *       happens-before edge covering both the off-heap fill and the on-heap coordinate
+   *       fields).</li>
+   * </ul>
+   *
+   * <p>The lock is uncontended in practice (the frame is not yet reachable through any cache
+   * map for the new page), so the cost is a CAS pair — negligible next to page-load I/O.
    */
-  private void propagateCoordinatesToFrame() {
+  private void publishCoordinatesToFrame() {
     if (this.pageFrame != null) {
-      this.pageFrame.initPageCoordinates(fileId, pageIndex);
+      final var lockStamp = this.pageFrame.acquireExclusiveLock();
+      try {
+        this.pageFrame.setPageCoordinates(fileId, pageIndex);
+      } finally {
+        this.pageFrame.releaseExclusiveLock(lockStamp);
+      }
     }
   }
 

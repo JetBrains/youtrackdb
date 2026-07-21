@@ -119,21 +119,20 @@ public final class PageFrame {
 
   /**
    * Sets the page coordinates for this frame. Must be called under exclusive lock.
+   *
+   * <p>The exclusive-lock requirement is a correctness invariant, not just a convention:
+   * frames are recycled through {@link PageFramePool}, so a stale reader may hold a
+   * reference to this frame from a previous page assignment and take an optimistic stamp
+   * at any moment. Writing the coordinates inside a write-lock cycle guarantees that
+   * such a reader either fails {@link #validate(long)} (stamp taken before the cycle
+   * completed) or observes the coordinates together with everything the assigning thread
+   * wrote before releasing the lock (stamp taken after the cycle — the unlock's release
+   * and the stamp acquisition's acquire form the happens-before edge). An unlocked plain
+   * store here would let a stamp taken between pool re-acquisition and the store validate
+   * against half-initialized frame state (a validated torn read).
    */
   public void setPageCoordinates(long fileId, int pageIndex) {
     assert stampedLock.isWriteLocked() : "Must hold exclusive lock";
-    this.fileId = fileId;
-    this.pageIndex = pageIndex;
-  }
-
-  /**
-   * Sets the page coordinates during initial frame assignment, before the frame is
-   * visible to other threads. Skips the exclusive lock because the caller guarantees
-   * single-threaded access (e.g., CachePointer constructor). The subsequent
-   * publication of the CachePointer via a volatile write or CAS provides the
-   * necessary happens-before edge for visibility.
-   */
-  public void initPageCoordinates(long fileId, int pageIndex) {
     this.fileId = fileId;
     this.pageIndex = pageIndex;
   }

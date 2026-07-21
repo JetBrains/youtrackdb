@@ -383,40 +383,29 @@ public class PageFrameTest {
   }
 
   /**
-   * Verifies that initPageCoordinates sets file ID and page index without
-   * requiring an exclusive lock (single-threaded initialization path).
+   * Verifies that setPageCoordinates can overwrite previously set coordinates when the
+   * pooled frame is re-assigned to a new page, and that each overwrite happens inside its
+   * own exclusive-lock cycle. A fresh optimistic stamp taken after the last cycle must
+   * observe the final coordinates and validate. (The unlocked initPageCoordinates variant
+   * was removed: every coordinate write must go through the locked path so stale readers
+   * can never validate a torn re-assignment.)
    */
   @Test
-  public void testInitPageCoordinates_setsCoordinatesWithoutLock() {
+  public void testSetPageCoordinates_overwritesPreviousCoordinates() {
     var frame = new PageFrame(pointer);
-    // initPageCoordinates is used during initial frame assignment before
-    // the frame is visible to other threads.
-    frame.initPageCoordinates(42L, 99);
 
-    // Read under optimistic read to verify values were set.
-    long stamp = frame.tryOptimisticRead();
-    long fileId = frame.getFileId();
-    int pageIndex = frame.getPageIndex();
-    assertTrue("stamp should still be valid", stamp != 0 && frame.validate(stamp));
-    assertEquals(42L, fileId);
-    assertEquals(99, pageIndex);
-  }
+    long stamp1 = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(10L, 20);
+    frame.releaseExclusiveLock(stamp1);
 
-  /**
-   * Verifies that initPageCoordinates can overwrite previously set coordinates
-   * (used when re-assigning a pooled frame to a new page).
-   */
-  @Test
-  public void testInitPageCoordinates_overwritesPreviousCoordinates() {
-    var frame = new PageFrame(pointer);
-    frame.initPageCoordinates(10L, 20);
-
-    // Verify first write took effect
+    // Verify first write took effect.
     assertEquals(10L, frame.getFileId());
     assertEquals(20, frame.getPageIndex());
 
-    // Overwrite with new coordinates
-    frame.initPageCoordinates(30L, 40);
+    // Overwrite with new coordinates under a second lock cycle.
+    long stamp2 = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(30L, 40);
+    frame.releaseExclusiveLock(stamp2);
 
     long stamp = frame.tryOptimisticRead();
     assertEquals(30L, frame.getFileId());

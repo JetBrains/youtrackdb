@@ -1705,14 +1705,18 @@ public final class WOWCache extends AbstractWriteCache
    * caller's release path balances correctly.
    */
   private CachePointer newEmptyCachePointer(final long fileId, final long pageIndex) {
-    // Use ADD_NEW_PAGE_IN_DISK_CACHE to match the legacy read-cache install pattern in
-    // LockFreeReadCache.addNewPagePointerToTheCache; the disk-stamp executor path uses
-    // ADD_NEW_PAGE_IN_FILE separately, and mixing the two would collapse memory-accounting
-    // buckets in profiling.
+    // Use ADD_NEW_PAGE_IN_DISK_CACHE to match the legacy read-cache install pattern (the
+    // removed LockFreeReadCache.addNewPagePointerToTheCache fallback used it); the
+    // disk-stamp executor path uses ADD_NEW_PAGE_IN_FILE separately, and mixing the two
+    // would collapse memory-accounting buckets in profiling.
     final var pageFrame =
         pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
     DurablePage.setLogSequenceNumberForPage(
         pageFrame.getBuffer(), new LogSequenceNumber(-1, -1));
+    // The CachePointer constructor is the publication barrier: it re-locks the frame
+    // exclusively while publishing the coordinates, so the LSN stamp above is covered by
+    // the same happens-before edge and a stale optimistic reader that raced it cannot
+    // validate. Do not add buffer writes after this constructor call.
     final var cachePointer = new CachePointer(pageFrame, pageFramePool, fileId, (int) pageIndex);
     cachePointer.incrementReadersReferrer();
     return cachePointer;
@@ -3504,6 +3508,11 @@ public final class WOWCache extends AbstractWriteCache
           }
 
           buffer.position(0);
+          // The CachePointer constructor is the publication barrier: it locks the frame
+          // exclusively while publishing the coordinates, which (a) invalidates any
+          // optimistic stamp a stale reader took while the fill above was in flight and
+          // (b) makes the fill visible to readers whose stamps validate. Every buffer
+          // write for the freshly loaded page must stay above this line.
           return new CachePointer(pageFrame, pageFramePool, fileId, (int) pageIndex);
         } else {
           final var pointer =
