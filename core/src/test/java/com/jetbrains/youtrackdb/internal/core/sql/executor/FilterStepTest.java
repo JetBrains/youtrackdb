@@ -20,7 +20,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -289,99 +288,6 @@ public class FilterStepTest extends TestUtilsFixture {
 
     assertThat(out).startsWith("    +").doesNotStartWith("     +");
     assertThat(out).contains("+ FILTER ITEMS WHERE");
-  }
-
-  // =========================================================================
-  // serialize / deserialize
-  // =========================================================================
-
-  /**
-   * A {@code serialize → deserialize} round-trip currently fails because {@code
-   * SQLBooleanExpression.deserializeFromOResult} looks up the concrete AST constructor with {@code
-   * getConstructor(Integer.class)} instead of {@code int.class} — every concrete subclass (e.g.
-   * {@code SQLOrBlock}) declares only the primitive-int ctor, so lookup always throws {@code
-   * NoSuchMethodException}. The wrapper {@code CommandExecutionException} has that as its root
-   * cause. Pinned as a falsifiable regression identical to Track 8 Step 4's {@code
-   * FetchFromIndexStep} pin — a second pin through {@code FilterStep} demonstrates the bug's
-   * generality to every step that serializes a {@code SQLBooleanExpression}.
-   *
-   * <p>WHEN-FIXED: YTDB-754 — change {@code deserializeFromOResult} to use {@code int.class}
-   * (primitive). Then delete this test and replace with a positive round-trip assertion.
-   */
-  @Test
-  public void serializeDeserializeHitsIntegerConstructorBug() {
-    var original = parseWhere("SELECT FROM OUser WHERE name = 'admin'");
-    var ctx = newContext();
-    var source = new FilterStep(original, ctx, -1L, false);
-
-    var serialized = source.serialize(session);
-    var restored = new FilterStep(new SQLWhereClause(-1), ctx, -1L, false);
-
-    assertThatThrownBy(() -> restored.deserialize(serialized, session))
-        .isInstanceOf(CommandExecutionException.class)
-        .hasRootCauseInstanceOf(NoSuchMethodException.class)
-        // Pin the <init>(java.lang.Integer) signature fragment so an unrelated NSME regression
-        // (a different missing ctor surfaced during a refactor) cannot silently pass this
-        // WHEN-FIXED marker. The leading AST class varies with the serialized expression
-        // shape, so we match only the signature fragment that uniquely identifies this
-        // Integer-vs-int ctor bug.
-        .rootCause()
-        .hasMessageEndingWith("<init>(java.lang.Integer)");
-  }
-
-  /**
-   * {@code serialize} stores the {@code whereClause} property when it is non-null. The null
-   * branch of the {@code whereClause != null} guard in {@link FilterStep#serialize} is only
-   * reachable when a subclass nulls out the private field post-construction, so it is
-   * intentionally not covered here.
-   *
-   * <p>The assertion pins both (a) the stored property's type (a {@code ResultInternal}
-   * fragment encoding the clause's AST, matching the shape {@code FilterStep#deserialize}
-   * reads back) and (b) that the serialized fragment records the expected AST class tag
-   * ({@code SQLOrBlock}, the root of a typical WHERE clause AST). A mutation that serialized
-   * a stub value or a different property would not carry the {@code __class} tag, so a
-   * non-null-only assertion is too weak.
-   */
-  @Test
-  public void serializeStoresWhereClauseProperty() {
-    var where = parseWhere("SELECT FROM OUser WHERE name = 'admin'");
-    var ctx = newContext();
-    var step = new FilterStep(where, ctx, -1L, false);
-
-    var serialized = step.serialize(session);
-
-    Object whereProp = serialized.getProperty("whereClause");
-    assertThat(whereProp).isNotNull();
-    assertThat(whereProp)
-        .as("FilterStep.serialize must store the whereClause as a ResultInternal AST fragment")
-        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal.class);
-    // The serialized WHERE clause stores the AST-class tag under "__class". The WHERE root
-    // for a comparison clause is SQLOrBlock (which wraps the AND chain containing the
-    // equality) — pinning that token catches a mutation that serialized a stub value or
-    // dropped the clause's AST in favor of a primitive string/field reference.
-    assertThat(whereProp.toString())
-        .as("serialized whereClause must carry the SQLOrBlock AST-class tag")
-        .contains("SQLOrBlock");
-  }
-
-  /**
-   * Malformed deserialize input (a substep pointing at a non-existent class) is wrapped in {@link
-   * CommandExecutionException} — pins the catch-all at line 108.
-   */
-  @Test
-  public void deserializeFailureWrapsInCommandExecutionException() {
-    var where = parseWhere("SELECT FROM OUser WHERE name = 'admin'");
-    var ctx = newContext();
-    var step = new FilterStep(where, ctx, -1L, false);
-
-    var bad = new ResultInternal(session);
-    var badSub = new ResultInternal(session);
-    badSub.setProperty("javaType", "com.nonexistent.Step");
-    bad.setProperty("subSteps", List.of(badSub));
-
-    assertThatThrownBy(() -> step.deserialize(bad, session))
-        .isInstanceOf(CommandExecutionException.class)
-        .hasRootCauseInstanceOf(ClassNotFoundException.class);
   }
 
   // =========================================================================

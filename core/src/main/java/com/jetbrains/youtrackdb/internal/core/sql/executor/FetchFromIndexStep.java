@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.ExecutionThreadLocal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -852,51 +851,13 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return result;
   }
 
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    result.setProperty("indexName", desc.getIndex().getName());
-    if (desc.getKeyCondition() != null) {
-      result.setProperty("condition", desc.getKeyCondition().serialize(session));
-    }
-    if (desc.getAdditionalRangeCondition() != null) {
-      result.setProperty(
-          "additionalRangeCondition", desc.getAdditionalRangeCondition().serialize(session));
-    }
-    result.setProperty("orderAsc", orderAsc);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      String indexName = fromResult.getProperty("indexName");
-      SQLBooleanExpression condition = null;
-      if (fromResult.getProperty("condition") != null) {
-        condition = SQLBooleanExpression.deserializeFromOResult(
-            fromResult.getProperty("condition"));
-      }
-      SQLBinaryCondition additionalRangeCondition = null;
-      if (fromResult.getProperty("additionalRangeCondition") != null) {
-        additionalRangeCondition = new SQLBinaryCondition(-1);
-        additionalRangeCondition.deserialize(fromResult.getProperty("additionalRangeCondition"));
-      }
-      var index = session.getSharedContext().getIndexManager().getIndex(indexName);
-      desc = new IndexSearchDescriptor(index, condition, additionalRangeCondition, null);
-      orderAsc = fromResult.getProperty("orderAsc");
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
-  }
-
   /**
-   * Resets this step for re-initialization (typically via deserialization).
+   * Resets this step's mutable state by clearing the index descriptor to {@code null}.
    *
-   * <p><b>Warning:</b> after calling this method, {@link #desc} is {@code null}.
-   * Calling {@link #internalStart} before re-initializing the descriptor (e.g. via
-   * {@link #deserialize}) will result in a {@link NullPointerException}. This method
-   * should only be called as part of a deserialization lifecycle.
+   * <p>Called by {@link SelectExecutionPlan#reset(CommandContext)} as part of plan
+   * re-execution. After this call, {@link #desc} is {@code null}; calling
+   * {@link #internalStart} without first re-initializing the descriptor (e.g. by
+   * reconstructing the step) will throw a {@link NullPointerException}.
    */
   @Override
   public void reset() {

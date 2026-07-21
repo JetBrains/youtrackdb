@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -73,7 +72,7 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
         }
         source =
             ExecutionStream.resultIterator(
-                    resultSet.stream().map(result -> loadEntity(session, result)).iterator())
+                resultSet.stream().map(result -> loadEntity(session, result)).iterator())
                 .onClose((context) -> ((ResultSet) src).close());
       }
       case Identifiable identifiable -> {
@@ -82,7 +81,7 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
         source =
             ExecutionStream.resultIterator(
                 Collections.singleton(
-                        (Result) new ResultInternal(ctx.getDatabaseSession(), identifiable))
+                    (Result) new ResultInternal(ctx.getDatabaseSession(), identifiable))
                     .iterator());
       }
       case Result result -> {
@@ -148,26 +147,6 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    result.setProperty("variableName", variableName);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      if (fromResult.getProperty("variableName") != null) {
-        this.variableName = fromResult.getProperty("variableName");
-      }
-      reset();
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /**

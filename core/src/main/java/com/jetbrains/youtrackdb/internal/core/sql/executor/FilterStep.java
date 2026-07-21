@@ -2,9 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -67,8 +64,7 @@ public class FilterStep extends AbstractExecutionStep {
     return resultSet;
   }
 
-  @Nullable
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable private Result filterMap(Result result, CommandContext ctx) {
     if (whereClause.matchesFilters(result, ctx)) {
       return result;
     }
@@ -87,27 +83,6 @@ public class FilterStep extends AbstractExecutionStep {
     result.append("  ");
     result.append(whereClause.toString());
     return result.toString();
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    if (whereClause != null) {
-      result.setProperty("whereClause", whereClause.serialize(session));
-    }
-
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      whereClause = new SQLWhereClause(-1);
-      whereClause.deserialize(fromResult.getProperty("whereClause"));
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /** Cacheable: the WHERE clause is a structural AST node that is deep-copied per execution. */
