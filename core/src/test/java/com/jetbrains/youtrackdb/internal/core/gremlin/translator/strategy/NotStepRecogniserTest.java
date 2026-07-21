@@ -151,6 +151,23 @@ public class NotStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * {@code not(has(city).out(knows))} captures a boundary-alias filter the bare-origin NOT contract
+   * cannot express — decline rather than emit a filterless anti-join (BG1).
+   */
+  @Test
+  public void edgeBearingChild_withOriginAliasFilter_declines() {
+    var admin =
+        graph.traversal().V().not(__.has("city", P.eq("NYC")).out("knows")).asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = NotStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.notMatchExpressions).isEmpty();
+  }
+
+  /**
    * A child sub-walk that declines ({@code count()} is unregistered) declines the whole {@code
    * NotStep} without mutating the outer context.
    */
