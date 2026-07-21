@@ -1,10 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -25,20 +23,18 @@ import org.junit.Test;
  * <p>Covers:
  *
  * <ul>
- *   <li>{@code internalStart} emits one Result per RID — iterating the stored RID collection
- *       via {@link ExecutionStream#loadIterator}.
- *   <li>Empty RID collection yields an empty stream.
+ *   <li>{@code internalStart} emits one Result per RID, preserving insertion order; an empty
+ *       RID collection yields an empty stream.
+ *   <li>Non-existent RIDs silently terminate iteration when {@code skipMissing=false} (the
+ *       default); null entries within the list are skipped without terminating.
+ *   <li>Duplicate RIDs are not deduplicated — cardinality is preserved.
  *   <li>Predecessor step is drained for side effects before iterating.
  *   <li>{@code prettyPrint} renders "+ FETCH FROM RIDs" followed by the RID list on a second
  *       line, with indentation applied on both lines.
- *   <li>{@code serialize} captures the RIDs as a list of strings; {@code deserialize} restores
- *       them so a round-tripped step emits the same RIDs.
- *   <li>{@code serialize} with null RIDs omits the "rids" property; {@code deserialize} with
- *       a missing "rids" property leaves the step's RID reference unchanged.
- *   <li>{@code deserialize} wraps underlying exceptions in {@link CommandExecutionException}.
  *   <li>{@code canBeCached} always returns {@code false} because RIDs typically come from
  *       runtime parameters.
- *   <li>{@code copy} shares the RID reference so the copied step iterates the same RIDs.
+ *   <li>{@code copy} shares the RID reference so the copied step iterates the same RIDs;
+ *       the {@code skipMissing} flag is preserved through the copy.
  * </ul>
  */
 public class FetchFromRidsStepTest extends TestUtilsFixture {
@@ -318,124 +314,6 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
   }
 
   // =========================================================================
-  // serialize / deserialize
-  // =========================================================================
-
-  /**
-   * {@code serialize} stores the RIDs as a {@code List<String>} under the "rids" property. A
-   * round-trip through {@code deserialize} restores the same RIDs.
-   *
-   * <p>TB4/CQ4 tightening: assert the exact serialized string list (not just size) so a
-   * mutation like {@code rids.stream().map(r -> "BROKEN").collect(...)} would be caught.
-   */
-  @Test
-  public void serializeDeserializeRoundTripPreservesRids() {
-    var ctx = newContext();
-    var rids = List.of(
-        (RecordIdInternal) new RecordId(5, 1),
-        new RecordId(5, 2),
-        new RecordId(5, 3));
-    var original = new FetchFromRidsStep(rids, ctx, false);
-
-    var serialized = original.serialize(session);
-    List<String> serializedList = serialized.getProperty("rids");
-    assertThat(serializedList).containsExactly("#5:1", "#5:2", "#5:3");
-
-    var restored = new FetchFromRidsStep(Collections.emptyList(), ctx, false);
-    restored.deserialize(serialized, session);
-
-    // Re-serialize the restored step to verify deserialize reconstructs the same RID set.
-    var restoredSerialized = restored.serialize(session);
-    List<String> restoredList = restoredSerialized.getProperty("rids");
-    assertThat(restoredList).containsExactly("#5:1", "#5:2", "#5:3");
-  }
-
-  /**
-   * The {@code skipMissing} flag survives a serialize/deserialize round-trip and a copy. Plan
-   * serialization is the distributed-transport path: if the flag were dropped, a remote node would
-   * default to terminate-on-first-missing and truncate an {@code @rid IN} list at a dangling RID.
-   */
-  @Test
-  public void serializeAndCopyPreserveSkipMissing() {
-    var ctx = newContext();
-    var rids = List.of((RecordIdInternal) new RecordId(5, 1));
-    var original = new FetchFromRidsStep(rids, ctx, false, /* skipMissing= */ true);
-
-    var serialized = original.serialize(session);
-    assertThat((Boolean) serialized.getProperty("skipMissing")).isTrue();
-
-    var restored = new FetchFromRidsStep(Collections.emptyList(), ctx, false, false);
-    restored.deserialize(serialized, session);
-    assertThat((Boolean) restored.serialize(session).getProperty("skipMissing")).isTrue();
-
-    var copy = (FetchFromRidsStep) original.copy(ctx);
-    assertThat((Boolean) copy.serialize(session).getProperty("skipMissing")).isTrue();
-  }
-
-  /**
-   * When a step was constructed with {@code null} RIDs, {@code serialize} skips the "rids"
-   * property (the {@code rids != null} guard).
-   */
-  @Test
-  public void serializeWithNullRidsOmitsProperty() {
-    var ctx = newContext();
-    var step = new FetchFromRidsStep(null, ctx, false);
-
-    var serialized = step.serialize(session);
-    assertThat((Object) serialized.getProperty("rids")).isNull();
-  }
-
-  /**
-   * {@code deserialize} when the serialized result carries no "rids" property leaves the step's
-   * internal RID reference untouched. The step can then still run against its original RID list
-   * (exercising the {@code fromResult.getProperty("rids") != null} guard).
-   */
-  @Test
-  public void deserializeWithMissingRidsPropertyKeepsCurrentRids() {
-    var className = createClassInstance().getName();
-
-    session.begin();
-    var rid = session.newEntity(className).getIdentity();
-    session.commit();
-
-    var ctx = newContext();
-    var step = new FetchFromRidsStep(
-        List.of((RecordIdInternal) rid), ctx, false);
-
-    var badResult = new ResultInternal(session);
-    // "rids" property absent — exercises the missing-property branch in deserialize.
-    step.deserialize(badResult, session);
-
-    session.begin();
-    try {
-      var results = drain(step.start(ctx), ctx);
-      assertThat(results.stream().map(Result::getIdentity).toList()).containsExactly(rid);
-    } finally {
-      session.rollback();
-    }
-  }
-
-  /**
-   * {@code deserialize} wraps underlying exceptions in {@link CommandExecutionException} — here
-   * triggered by a subStep pointing at a non-existent class.
-   */
-  @Test
-  public void deserializeFailureWrapsInCommandExecutionException() {
-    var ctx = newContext();
-    var step = new FetchFromRidsStep(Collections.emptyList(), ctx, false);
-
-    var badResult = new ResultInternal(session);
-    var badSubStep = new ResultInternal(session);
-    badSubStep.setProperty("javaType", "com.nonexistent.Step");
-    badResult.setProperty("subSteps", List.of(badSubStep));
-
-    assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class)
-        // TB10 cause-chain pin: the wrapped exception identifies the real failure.
-        .hasRootCauseInstanceOf(ClassNotFoundException.class);
-  }
-
-  // =========================================================================
   // canBeCached
   // =========================================================================
 
@@ -492,6 +370,49 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
       // Exact match pins order, content, and size — rejects mutations that drop/reorder RIDs.
       assertThat(results.stream().map(Result::getIdentity).toList())
           .containsExactly(rid1, rid2, rid3);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@code copy()} must preserve the {@code skipMissing} flag. When {@code skipMissing=true},
+   * a non-existent RID mid-list is skipped rather than terminating iteration (contrast with
+   * {@link #nonExistentRidTerminatesIterationSilently} which pins the {@code skipMissing=false}
+   * behavior). A mutation dropping the {@code skipMissing} argument from the copy constructor
+   * call would revert to the default (false), causing iteration to terminate at the missing
+   * RID — the second real RID would be lost.
+   */
+  @Test
+  public void copyPreservesSkipMissing() {
+    var className = createClassInstance().getName();
+
+    session.begin();
+    var rid1 = session.newEntity(className).getIdentity();
+    var rid2 = session.newEntity(className).getIdentity();
+    session.commit();
+
+    // Fabricate a RID at a never-allocated position in the same collection.
+    var missingRid =
+        new RecordId(rid1.getCollectionId(), rid1.getCollectionPosition() + 9999);
+
+    var ctx = newContext();
+    var original = new FetchFromRidsStep(
+        List.of((RecordIdInternal) rid1, missingRid, (RecordIdInternal) rid2),
+        ctx, false, /* skipMissing= */ true);
+
+    var copied = (FetchFromRidsStep) original.copy(ctx);
+
+    // Execute the COPY (not the original) against the list containing a missing RID.
+    // With skipMissing=true the missing RID is skipped and both real RIDs are emitted.
+    // If copy() failed to preserve skipMissing, the stream would terminate at the missing
+    // RID (the default skipMissing=false behavior) and rid2 would be lost.
+    session.begin();
+    try {
+      var results = drain(copied.start(ctx), ctx);
+      assertThat(results.stream().map(Result::getIdentity).toList())
+          .as("copy must preserve skipMissing=true so missing RIDs are skipped, not terminal")
+          .containsExactly(rid1, rid2);
     } finally {
       session.rollback();
     }

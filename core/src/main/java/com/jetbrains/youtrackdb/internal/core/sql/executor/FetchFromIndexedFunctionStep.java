@@ -2,12 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
@@ -76,30 +72,6 @@ public class FetchFromIndexedFunctionStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    result.setProperty("functionCondition", this.functionCondition.serialize(session));
-    result.setProperty("queryTarget", this.queryTarget.serialize(session));
-
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      functionCondition = new SQLBinaryCondition(-1);
-      functionCondition.deserialize(fromResult.getProperty("functionCondition"));
-
-      queryTarget = new SQLFromClause(-1);
-      queryTarget.deserialize(fromResult.getProperty("queryTarget"));
-
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /**

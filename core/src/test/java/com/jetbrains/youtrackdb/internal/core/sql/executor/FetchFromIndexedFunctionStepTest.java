@@ -1,11 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -219,58 +217,6 @@ public class FetchFromIndexedFunctionStepTest extends TestUtilsFixture {
   }
 
   // =========================================================================
-  // serialize / deserialize
-  // =========================================================================
-
-  /**
-   * Serialization round-trip: serialize a step, then deserialize a fresh
-   * instance from the serialized form. The deserialized step should produce
-   * a valid prettyPrint output containing the function condition.
-   */
-  @Test
-  public void serializeDeserializeRoundTrip() {
-    var ctx = newContext();
-    var condition = createSerializableCondition();
-    var target = createFromClause("City");
-    var step = new FetchFromIndexedFunctionStep(condition, target, ctx, false);
-
-    var serialized = step.serialize(session);
-
-    assertThat(serialized).isNotNull();
-    assertThat((Object) serialized.getProperty("functionCondition")).isNotNull();
-    assertThat((Object) serialized.getProperty("queryTarget")).isNotNull();
-
-    // Deserialize into a fresh step and verify its toString includes
-    // the condition (confirming fields were reconstructed).
-    var restored = new FetchFromIndexedFunctionStep(
-        new SQLBinaryCondition(-1), new SQLFromClause(-1), ctx, false);
-    restored.deserialize(serialized, session);
-
-    var output = restored.prettyPrint(0, 2);
-    assertThat(output).contains("FETCH FROM INDEXED FUNCTION");
-  }
-
-  /**
-   * When deserialization encounters invalid serialized data, the exception
-   * is wrapped in a {@link CommandExecutionException}.
-   */
-  @Test
-  public void deserializeWithInvalidDataWrapsException() {
-    var ctx = newContext();
-    var step = new FetchFromIndexedFunctionStep(
-        new SQLBinaryCondition(-1), new SQLFromClause(-1), ctx, false);
-
-    // Create an invalid serialized result that will cause deserialization to fail.
-    // Setting functionCondition to a non-Result value will trigger NPE/ClassCastException
-    // inside SQLBinaryCondition.deserialize, which is caught and wrapped.
-    var badResult = new ResultInternal(session);
-    badResult.setProperty("functionCondition", "not-a-result");
-
-    assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class);
-  }
-
-  // =========================================================================
   // canBeCached
   // =========================================================================
 
@@ -383,24 +329,6 @@ public class FetchFromIndexedFunctionStepTest extends TestUtilsFixture {
         builder.append("true");
       }
     });
-    return condition;
-  }
-
-  /**
-   * Creates a fully serializable SQLBinaryCondition using minimal parser
-   * objects that round-trip through serialize/deserialize correctly.
-   * Uses bare SQLExpressions without mathExpression to avoid reflection
-   * issues in SQLMathExpression.deserializeFromResult.
-   */
-  private static SQLBinaryCondition createSerializableCondition() {
-    var condition = new SQLBinaryCondition(-1);
-
-    // Left and right: bare expressions (no mathExpression) that serialize
-    // to minimal JSON and deserialize without reflection-based constructor lookup
-    condition.setLeft(new SQLExpression(-1));
-    condition.setOperator(new SQLEqualsOperator(-1));
-    condition.setRight(new SQLExpression(-1));
-
     return condition;
   }
 

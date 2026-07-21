@@ -2,13 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollections;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntComparators;
@@ -152,8 +149,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     final var iter = new RecordIteratorCollections<>(
         ctx.getDatabaseSession(),
         collectionIds,
-        !orderByRidDesc
-    );
+        !orderByRidDesc);
 
     var set = ExecutionStream.loadIterator(iter);
 
@@ -172,27 +168,6 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     }
     builder.append("\n");
     return builder.toString();
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    result.setProperty("className", className);
-    result.setProperty("orderByRidAsc", orderByRidAsc);
-    result.setProperty("orderByRidDesc", orderByRidDesc);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      this.className = fromResult.getProperty("className");
-      this.orderByRidAsc = fromResult.getProperty("orderByRidAsc");
-      this.orderByRidDesc = fromResult.getProperty("orderByRidDesc");
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /** Cacheable: collection IDs are resolved from the immutable schema snapshot at construction. */

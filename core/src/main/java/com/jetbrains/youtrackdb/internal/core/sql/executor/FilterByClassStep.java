@@ -2,9 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -59,8 +56,7 @@ public class FilterByClassStep extends AbstractExecutionStep {
     return resultSet.filter(this::filterMap);
   }
 
-  @Nullable
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable private Result filterMap(Result result, CommandContext ctx) {
     if (result.isEntity()) {
       var session = ctx.getDatabaseSession();
       // Use getImmutableSchemaClass for a thread-safe schema snapshot.
@@ -86,24 +82,6 @@ public class FilterByClassStep extends AbstractExecutionStep {
     result.append("  ");
     result.append(identifier.getStringValue());
     return result.toString();
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    result.setProperty("identifier", identifier.serialize(session));
-
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      identifier = SQLIdentifier.deserialize(fromResult.getProperty("identifier"));
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /** Cacheable: the target class name is a stable string. */
