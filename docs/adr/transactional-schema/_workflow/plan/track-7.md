@@ -48,6 +48,18 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
   `StorageBackupMTRestoreIT` 1: "No .pcl/.cpm file found for class prefix …") — Track 6
   base-keyed-engine-files fallout, pre-existing at the Track 6 completion commit. Neither set is
   Step 1 scope; both need an owner before merge.
+  **RESOLVED 2026-07-21T23:40Z** (user-approved on-branch fix, separate from Track 7 step work):
+  all four were stale TEST expectations — the ITs located a class's `.pcl`/`.cpm` files by
+  class-name prefix, but Track 6's counter-only collection naming (`c_<n>`,
+  `SchemaShared.nextCollectionName`) removed the class-name component from collection files
+  entirely (the point of D16's rename-inertness). No product defect: every production
+  recovery/backup/restore path resolves files through the write-cache registry or the name-id
+  map, name-agnostically, and the extension-keyed sibling tests in the same ITs were green
+  throughout. The lookups now resolve each class's exact collection file through its collection
+  id via the open session (assertion strength preserved: presence in the write cache is still
+  asserted loudly, and the BackupMTRestore largest-file selector still keys on the class's own
+  collections). All four ITs green targeted (5/5, 34/34, 1/1, 3/3). With the ci-profile racer
+  healed by the Step 1 review-fix, NO known pre-merge reds remain.
 - 2026-07-21T21:20Z The Step 1 review-fix's promotion fresh-read scope incidentally turned the
   ci/disk-profile racer red (`schemaCommitReloadAndIndexLoadRaceWithoutDeadlock`, the YTDB-1101
   promotion cache-miss shape) GREEN (3/3 under `-Dyoutrackdb.test.env=ci`, previously 5/5 red at
