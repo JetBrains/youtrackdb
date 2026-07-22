@@ -663,6 +663,17 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    *
    * <p>All other methods of this class are byte-for-byte unaffected; readers pay nothing new.
    *
+   * <p>Fairness note: a phase-1 timeout re-enters the stamped writer queue at its tail, so under
+   * sustained contention from plain {@link #exclusiveLock()} writers this waiter can lose its
+   * queue position once per {@code pollNanos} — phase 1 is unbounded in theory under a permanent
+   * writer storm. Acceptable for the intended consumer (storage state locks have rare, short
+   * writers); a fairness-sensitive consumer would need a different phase-1 shape.
+   *
+   * <p>A predicate that THROWS is propagated — but never with the write bit held: a phase-1 throw
+   * happens with nothing acquired, and the phase-2 evaluation sites are guarded so the bit is
+   * released before the failure escapes (an ownerless write bit would wedge every reader and
+   * writer of this lock forever).
+   *
    * @param abort     polled condition; when it returns {@code true} the acquisition is abandoned
    *                  and this method returns {@code false} with no lock state held. Must be cheap
    *                  (it is polled per drain iteration) and must not itself touch this lock.
@@ -672,6 +683,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * {@link #exclusiveUnlock()}); {@code false} when the abort predicate turned true first.
    */
   public boolean exclusiveLockWithAbort(final BooleanSupplier abort, final long pollNanos) {
+    java.util.Objects.requireNonNull(abort, "abort predicate must not be null");
     if (pollNanos <= 0) {
       throw new IllegalArgumentException("pollNanos must be positive, got " + pollNanos);
     }
@@ -686,14 +698,20 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       try {
         stamp = stampedLock.tryWriteLock(pollNanos, TimeUnit.NANOSECONDS);
       } catch (final InterruptedException e) {
-        // Restore the flag and fail loudly naming the state: the caller sits on a commit path
-        // where a swallowed interrupt would turn into an unbounded uninterruptible wait.
+        // Restore the flag and fail loudly naming the state: a swallowed interrupt would turn
+        // into an unbounded uninterruptible wait. The message stays generic (this is a shared
+        // primitive, not a storage-only one) and reports only what is certain: the write bit was
+        // not acquired by this call. The holder snapshot is best-effort — it can name a free lock
+        // when a pre-interrupted thread never actually parked (StampedLock checks the interrupt
+        // flag before attempting) or when the holder released concurrently.
         Thread.currentThread().interrupt();
         throw BaseException.wrapException(
             new DatabaseException(
-                "interrupted while acquiring the storage write lock with an abort predicate"
-                    + " (write bit not acquired; queued against "
-                    + (stampedLock.isWriteLocked() ? "a holding writer" : "contending writers")
+                "interrupted while acquiring the write lock with an abort predicate (write bit"
+                    + " not acquired by this call; "
+                    + (stampedLock.isWriteLocked()
+                        ? "another writer currently holds the write bit"
+                        : "no writer currently holds the write bit")
                     + ")"),
             e, (String) null);
       }
@@ -701,37 +719,48 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
 
     // Phase 2: the write bit is HELD from here on — writer preference engaged exactly like
     // exclusiveLock (new readers observe isWriteLocked() and back off). Drain the residual
-    // readers, polling the abort predicate on every yield iteration.
-    var localReadersStateArray = readersStateArrayRef.get();
-    if (localReadersStateArray == null) {
-      // Set to dummyArray before scanning the readersStateList to impose
-      // a linearizability condition
-      readersStateArrayRef.set(dummyArray);
-      // Copy readersStateList to an array
-      localReadersStateArray = readersStateList.toArray(new AtomicInteger[readersStateList.size()]);
-      readersStateArrayRef.compareAndSet(dummyArray, localReadersStateArray);
-    }
-
-    for (var readerState : localReadersStateArray) {
-      while (readerState != null && readerState.get() == SRWL_STATE_READING) {
-        if (abort.getAsBoolean()) {
-          // Full release: the bit drops, backed-off readers spinning on isWriteLocked() proceed
-          // (no lost wakeup possible — there is no parking channel, only the polled bit), and
-          // the primitive is immediately reusable.
-          stampedLock.asWriteLock().unlock();
-          return false;
-        }
-        Thread.yield();
+    // readers, polling the abort predicate on every yield iteration. The whole phase is guarded:
+    // a THROW from the predicate (or any phase-2 failure) must release the bit before
+    // propagating — an ownerless write bit would wedge every reader (spinning on isWriteLocked)
+    // and writer of this lock forever. No double-unlock is possible: the two abort branches
+    // below unlock and RETURN immediately, so any throw reaching the catch arrives with the bit
+    // still held.
+    try {
+      var localReadersStateArray = readersStateArrayRef.get();
+      if (localReadersStateArray == null) {
+        // Set to dummyArray before scanning the readersStateList to impose
+        // a linearizability condition
+        readersStateArrayRef.set(dummyArray);
+        // Copy readersStateList to an array
+        localReadersStateArray =
+            readersStateList.toArray(new AtomicInteger[readersStateList.size()]);
+        readersStateArrayRef.compareAndSet(dummyArray, localReadersStateArray);
       }
-    }
 
-    // Predicate re-check at the acquisition-success edge, before returning true. This closes the
-    // window where the condition arrives exactly as the drain completes — including the
-    // zero-residual-readers case, where the drain loop body never ran and so never polled.
-    if (abort.getAsBoolean()) {
+      for (var readerState : localReadersStateArray) {
+        while (readerState != null && readerState.get() == SRWL_STATE_READING) {
+          if (abort.getAsBoolean()) {
+            // Full release: the bit drops, backed-off readers spinning on isWriteLocked() proceed
+            // (no lost wakeup possible — there is no parking channel, only the polled bit), and
+            // the primitive is immediately reusable.
+            stampedLock.asWriteLock().unlock();
+            return false;
+          }
+          Thread.yield();
+        }
+      }
+
+      // Predicate re-check at the acquisition-success edge, before returning true. This closes
+      // the window where the condition arrives exactly as the drain completes — including the
+      // zero-residual-readers case, where the drain loop body never ran and so never polled.
+      if (abort.getAsBoolean()) {
+        stampedLock.asWriteLock().unlock();
+        return false;
+      }
+      return true;
+    } catch (final Throwable phaseTwoFailure) {
       stampedLock.asWriteLock().unlock();
-      return false;
+      throw phaseTwoFailure;
     }
-    return true;
   }
 }
