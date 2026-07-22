@@ -197,13 +197,13 @@ using a keyed map.
 
 ### Step 3 — Populate per-alias metadata
 
-After the graph is built, `buildPatterns()` calls `addAliases(expr, ...)` for each positive expression to populate three auxiliary maps:
+After the graph is built, `buildPatterns()` calls `addAliases(expr, ...)` for each positive expression to populate its per-alias metadata maps. Three of them are retained on the planner for the later phases:
 
 - `aliasFilters` — the merged `WHERE` predicate for each alias
 - `aliasClasses` — the schema class name for each alias
 - `aliasPinnedRids` — the pinned RIDs for aliases declared with `{rid: #N:M}` (a list per alias: one RID for a single `= #N:M` pin, several for a multi-RID `IN [...]` pin)
 
-These maps live on `MatchExecutionPlanner`, not inside `Pattern`. They hold information derived from `SQLMatchFilter` content rather than from graph topology, and phases 3, 4, and 5 need them in O(1) form.
+These maps live on `MatchExecutionPlanner`, not inside `Pattern`. They hold information derived from `SQLMatchFilter` content rather than from graph topology, and phases 3, 4, and 5 need them in O(1) form. `addAliases()` fills one more alias-keyed map, `aliasCollections`, at the same time, but the planner uses it only to reject an alias constrained to two different collections and then discards it — no later phase reads it, which is why it does not appear in the state snapshot below.
 
 When the same alias appears with a `WHERE` clause in multiple expressions, the predicates are AND-combined into a single `SQLAndBlock`. When the same alias appears with different `class:` declarations, the more specific subclass is kept; if neither class is a subclass of the other, a `CommandExecutionException` is thrown at planning time.
 

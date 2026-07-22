@@ -20,12 +20,13 @@ the pattern graph is waiting. The eight phases transform it, in order, into a
 ## 7.1 Phase 1 — Building the Pattern Graph
 
 The planner opens by calling `buildPatterns()`, which walks each `SQLMatchExpression` in
-the parsed statement and populates five alias-keyed metadata maps: the unified pattern
-graph itself, `aliasClasses` (the declared `class:` constraint per alias),
-`aliasCollections` (the declared collection-name constraint per alias),
-`aliasPinnedRids` (the pinned RIDs per alias — a list holding one RID for a single `@rid`
-pin and several for a multi-RID `IN [...]` pin), and `aliasFilters` (the merged WHERE clause
-per alias). Unnamed pattern nodes receive a synthetic `$YOUTRACKDB_DEFAULT_ALIAS_` prefix so
+the parsed statement and produces the unified pattern graph together with three alias-keyed
+metadata maps that it retains for the later phases: `aliasClasses` (the declared `class:`
+constraint per alias), `aliasPinnedRids` (the pinned RIDs per alias — a list holding one RID
+for a single `@rid` pin and several for a multi-RID `IN [...]` pin), and `aliasFilters` (the
+merged WHERE clause per alias). A fourth alias-keyed map, `aliasCollections` (the declared
+collection-name constraint per alias), is built at the same time but used only to validate
+collection consistency, then discarded. Unnamed pattern nodes receive a synthetic `$YOUTRACKDB_DEFAULT_ALIAS_` prefix so
 they can participate in scheduling and traversal without appearing in the final output.
 The artifact produced is the pattern graph paired with its metadata maps — the structural
 raw material that every subsequent phase reads. Chapter 6 already covered this phase in
