@@ -43,17 +43,18 @@ import org.junit.Test;
  *   <li>{@code internalStart} registers the WHERE expression on the context so upstream LET steps
  *       can detect variable references (mutation-kill: omitting the register call loses the side
  *       effect that decides subquery materialization).
- *   <li>Records for which {@code whereClause.matchesFilters(result, ctx)} returns {@code true} pass
- *       through; non-matching records are discarded.
+ *   <li>Records for which the predicate evaluates to {@code true} pass through; non-matching
+ *       records are discarded (via dual-carry IR or AST fallback).
  *   <li>When {@code timeoutMillis > 0} the step wraps the filtered stream in an {@code
  *       ExpireResultSet}; when {@code timeoutMillis <= 0} no wrapping occurs.
  *   <li>{@code prettyPrint} renders {@code "+ FILTER ITEMS WHERE"} plus the WHERE body, with the
  *       profiling cost suffix appended only when {@code profilingEnabled=true}.
- *   <li>{@code serialize} captures the WHERE clause; {@code deserialize} restores it. Corrupt input
- *       is wrapped in {@link CommandExecutionException}.
  *   <li>{@code canBeCached} returns {@code true} (AST is deep-copied per execution).
  *   <li>{@code copy} produces an independent step with an independently-copied WHERE clause.
  * </ul>
+ *
+ * <p>Dual-carry N1 mitigation and IR/AST parity tests are in
+ * {@link FilterStepAnalyzedExprParityTest}.
  */
 public class FilterStepTest extends TestUtilsFixture {
 

@@ -317,11 +317,11 @@ public final class AnalyzedExprLowerer {
   /// IS NULL / IS NOT NULL are out of subset and throw. `IN`, `BETWEEN`, `LIKE`, and the other
   /// boolean subtypes are out of subset and throw.
   ///
-  /// Package-visible: a [SQLBooleanExpression] reaches the [#lower] field walk only through a
-  /// [SQLExpression] whose `booleanExpression` field is set, and the AST exposes no public setter
-  /// for that field. A same-package caller (such as the lowering test) that has parsed a comparison
-  /// or `NOT` block directly enters the boolean path here.
-  static AnalyzedExpr lowerBoolean(SQLBooleanExpression booleanExpression) {
+  /// Public entry point for boolean expressions. A [SQLBooleanExpression] reaches the [#lower]
+  /// field walk only through a [SQLExpression] whose `booleanExpression` field is set, but callers
+  /// outside this package (e.g. [FilterStep]) hold a [SQLBooleanExpression] directly from
+  /// [SQLWhereClause#getBaseExpression] and need this entry without wrapping.
+  public static AnalyzedExpr lowerBoolean(SQLBooleanExpression booleanExpression) {
     if (booleanExpression instanceof SQLBinaryCondition condition) {
       return lowerComparison(condition);
     }
