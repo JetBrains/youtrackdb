@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -89,47 +90,50 @@ public class InvalidRemovedFileIdsIT {
     storage = db.getStorage();
     writeCache = ((AbstractStorage) storage).getWriteCache();
 
-    // Collection names now include a numeric suffix (e.g., "c1_0") after YTDB-615,
-    // so we locate each class's files by prefix match rather than hardcoding exact names.
+    // Collection names are counter-generated (c_<n>) with no class-name component since the
+    // base-keyed-engine-files rename, so each class's files are resolved through its collection
+    // id rather than located by class-name prefix. (The poisoned name_id_map entries above use
+    // free-standing fabricated names on purpose — the point is that invalid negative-id entries
+    // are discarded on open regardless of what they are named.)
     files = writeCache.files();
     final Set<Long> ids = new HashSet<>();
 
-    final var c1_cpm_id = findFileId(files, "c1", ".cpm");
+    final var c1_cpm_id = findFileId(db, files, "c1", ".cpm");
     Assert.assertNotNull("c1 .cpm file must exist", c1_cpm_id);
     Assert.assertTrue(c1_cpm_id > 0);
     Assert.assertTrue(ids.add(c1_cpm_id));
 
-    final var c1_pcl_id = findFileId(files, "c1", ".pcl");
+    final var c1_pcl_id = findFileId(db, files, "c1", ".pcl");
     Assert.assertNotNull("c1 .pcl file must exist", c1_pcl_id);
     Assert.assertTrue(c1_pcl_id > 0);
     Assert.assertTrue(ids.add(c1_pcl_id));
 
-    final var c2_cpm_id = findFileId(files, "c2", ".cpm");
+    final var c2_cpm_id = findFileId(db, files, "c2", ".cpm");
     Assert.assertNotNull("c2 .cpm file must exist", c2_cpm_id);
     Assert.assertTrue(c2_cpm_id > 0);
     Assert.assertTrue(ids.add(c2_cpm_id));
 
-    final var c2_pcl_id = findFileId(files, "c2", ".pcl");
+    final var c2_pcl_id = findFileId(db, files, "c2", ".pcl");
     Assert.assertNotNull("c2 .pcl file must exist", c2_pcl_id);
     Assert.assertTrue(c2_pcl_id > 0);
     Assert.assertTrue(ids.add(c2_pcl_id));
 
-    final var c3_cpm_id = findFileId(files, "c3", ".cpm");
+    final var c3_cpm_id = findFileId(db, files, "c3", ".cpm");
     Assert.assertNotNull("c3 .cpm file must exist", c3_cpm_id);
     Assert.assertTrue(c3_cpm_id > 0);
     Assert.assertTrue(ids.add(c3_cpm_id));
 
-    final var c3_pcl_id = findFileId(files, "c3", ".pcl");
+    final var c3_pcl_id = findFileId(db, files, "c3", ".pcl");
     Assert.assertNotNull("c3 .pcl file must exist", c3_pcl_id);
     Assert.assertTrue(c3_pcl_id > 0);
     Assert.assertTrue(ids.add(c3_pcl_id));
 
-    final var c4_cpm_id = findFileId(files, "c4", ".cpm");
+    final var c4_cpm_id = findFileId(db, files, "c4", ".cpm");
     Assert.assertNotNull("c4 .cpm file must exist", c4_cpm_id);
     Assert.assertTrue(c4_cpm_id > 0);
     Assert.assertTrue(ids.add(c4_cpm_id));
 
-    final var c4_pcl_id = findFileId(files, "c4", ".pcl");
+    final var c4_pcl_id = findFileId(db, files, "c4", ".pcl");
     Assert.assertNotNull("c4 .pcl file must exist", c4_pcl_id);
     Assert.assertTrue(c4_pcl_id > 0);
     Assert.assertTrue(ids.add(c4_pcl_id));
@@ -139,18 +143,20 @@ public class InvalidRemovedFileIdsIT {
   }
 
   /**
-   * Finds the file ID for a class's data or position-map file by prefix match.
-   * Collection names now include a numeric suffix (e.g., "c1_0.pcl"),
-   * so exact lookup by bare class name no longer works.
+   * Finds the file ID for a class's data or position-map file. Collection names are
+   * counter-generated ({@code c_<n>}) with no class-name component since the
+   * base-keyed-engine-files rename, so the file is resolved through the class's collection id
+   * (deterministic under CLASS_COLLECTIONS_COUNT=1) instead of matched by class-name prefix.
+   * Returns {@code null} when the file is absent from the cache, preserving the old helper's
+   * loud-assert-at-the-call-site behavior.
    */
-  private static Long findFileId(Map<String, Long> files, String classPrefix, String extension) {
-    // Match "classPrefix_" to avoid false positives (e.g., "c1_" won't match "c10_")
-    return files.entrySet().stream()
-        .filter(
-            e -> e.getKey().startsWith(classPrefix + "_") && e.getKey().endsWith(extension))
-        .map(Map.Entry::getValue)
-        .findFirst()
-        .orElse(null);
+  private static Long findFileId(
+      DatabaseSessionEmbedded db, Map<String, Long> files, String className, String extension) {
+    var clazz = db.getMetadata().getSchema().getClass(className);
+    Assert.assertNotNull("class '" + className + "' must exist to resolve its collection file",
+        clazz);
+    var fileName = db.getCollectionNameById(clazz.getCollectionIds()[0]) + extension;
+    return files.get(fileName);
   }
 
   private static void writeNameIdEntry(RandomAccessFile file, String name, int fileId)

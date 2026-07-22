@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
@@ -296,7 +297,7 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var pclFileName = findFileName(wowCache, "orphans", ".pcl");
+      var pclFileName = collectionFileName(session, wowCache, "Orphans", ".pcl");
       var fileId = wowCache.fileIdByName(pclFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       pageSize = wowCache.pageSize();
@@ -400,7 +401,7 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var cpmFileName = findFileName(wowCache, "cpmorphans", ".cpm");
+      var cpmFileName = collectionFileName(session, wowCache, "CpmOrphans", ".cpm");
       var fileId = wowCache.fileIdByName(cpmFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       pageSize = wowCache.pageSize();
@@ -447,8 +448,12 @@ public class TruncateOrphansAfterRecoveryIT {
    */
   @FunctionalInterface
   private interface CleanShutdownFileSelector {
-    /** Returns the cache-layer file name (NOT the native file name) of the file to assert. */
-    String select(WOWCache cache);
+    /**
+     * Returns the cache-layer file name (NOT the native file name) of the file to assert. The
+     * session is supplied so a selector can resolve a class's counter-generated collection file
+     * through the schema; extension-keyed selectors ignore it.
+     */
+    String select(DatabaseSessionEmbedded session, WOWCache cache);
   }
 
   /** See {@link #runCleanShutdownScenario}. */
@@ -557,7 +562,7 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var selectedFileName = fileSelector.select(wowCache);
+      var selectedFileName = fileSelector.select(session, wowCache);
       var fileId = wowCache.fileIdByName(selectedFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       storagePath = storage.getStoragePath();
@@ -590,7 +595,7 @@ public class TruncateOrphansAfterRecoveryIT {
 
   /** Selector: the {@code CleanShutdown} class's primary {@code .pcl} cluster. */
   private static CleanShutdownFileSelector selectClusterPcl() {
-    return cache -> findFileName(cache, "cleanshutdown", ".pcl");
+    return (session, cache) -> collectionFileName(session, cache, "CleanShutdown", ".pcl");
   }
 
   /**
@@ -598,7 +603,7 @@ public class TruncateOrphansAfterRecoveryIT {
    * (the NOTUNIQUE index produces both this and the {@code $null.cbt} nullTree).
    */
   private static CleanShutdownFileSelector selectIndexCbt() {
-    return cache -> cache.files().keySet().stream()
+    return (session, cache) -> cache.files().keySet().stream()
         .filter(name -> name.endsWith(".cbt") && !name.endsWith("$null.cbt"))
         .findFirst()
         .orElseThrow(() -> new AssertionError(
@@ -608,7 +613,7 @@ public class TruncateOrphansAfterRecoveryIT {
 
   /** Selector: any per-cluster {@code SharedLinkBagBTree} ({@code .grb}) file. */
   private static CleanShutdownFileSelector selectAnyGrb() {
-    return cache -> cache.files().keySet().stream()
+    return (session, cache) -> cache.files().keySet().stream()
         .filter(name -> name.startsWith("global_collection_") && name.endsWith(".grb"))
         .findFirst()
         .orElseThrow(() -> new AssertionError(
@@ -621,7 +626,7 @@ public class TruncateOrphansAfterRecoveryIT {
    * two so this file exists reliably).
    */
   private static CleanShutdownFileSelector selectAnyNullCbt() {
-    return cache -> cache.files().keySet().stream()
+    return (session, cache) -> cache.files().keySet().stream()
         .filter(name -> name.endsWith("$null.cbt"))
         .findFirst()
         .orElseThrow(() -> new AssertionError(
@@ -1098,16 +1103,27 @@ public class TruncateOrphansAfterRecoveryIT {
   }
 
   /**
-   * Looks up a file name by class-name prefix and extension. Mirrors the helper pattern
-   * already used in {@code StorageTestIT}.
+   * Resolves the exact write-cache file name of {@code className}'s primary collection with the
+   * given extension. Collection names are counter-generated ({@code c_<n>}) with no class-name
+   * component since the base-keyed-engine-files rename made a class rename file-inert, so the file
+   * must be resolved through the class's collection id rather than matched by class-name prefix
+   * (the old helper's shape). Asserts the file is present in the write cache so a missing file
+   * still fails as loudly as the old prefix scan did. These scenarios run with
+   * CLASS_COLLECTIONS_COUNT=1 ({@code makeConfig}), so the class's single collection id is
+   * deterministic. Mirrors the helper in {@code StorageTestIT}.
    */
-  private static String findFileName(
-      WriteCache cache, String prefix, String extension) {
-    return cache.files().keySet().stream()
-        .filter(name -> name.startsWith(prefix + "_") && name.endsWith(extension))
-        .findFirst()
-        .orElseThrow(() -> new AssertionError(
-            "No " + extension + " file found for class prefix '" + prefix + "'"));
+  private static String collectionFileName(
+      DatabaseSessionEmbedded session, WriteCache cache, String className, String extension) {
+    var clazz = session.getMetadata().getSchema().getClass(className);
+    assertThat(clazz)
+        .as("class '%s' must exist to resolve its collection file", className)
+        .isNotNull();
+    var fileName = session.getCollectionNameById(clazz.getCollectionIds()[0]) + extension;
+    assertThat(cache.files().keySet())
+        .as("the %s file of class '%s' must be present in the write cache under its"
+            + " counter-generated collection name", extension, className)
+        .contains(fileName);
+    return fileName;
   }
 
   /**
@@ -1180,7 +1196,7 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var pclFileName = findFileName(wowCache, "dirtyreopen", ".pcl");
+      var pclFileName = collectionFileName(session, wowCache, "DirtyReopen", ".pcl");
       var fileId = wowCache.fileIdByName(pclFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       pageSize = wowCache.pageSize();
@@ -1252,7 +1268,7 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var pclFileName = findFileName(wowCache, "emptywaldirty", ".pcl");
+      var pclFileName = collectionFileName(session, wowCache, "EmptyWalDirty", ".pcl");
       var fileId = wowCache.fileIdByName(pclFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       storagePath = storage.getStoragePath();
@@ -1319,7 +1335,7 @@ public class TruncateOrphansAfterRecoveryIT {
       session.getMetadata().getSchema().createClass("RolledBack");
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var pclFileName = findFileName(wowCache, "rolledback", ".pcl");
+      var pclFileName = collectionFileName(session, wowCache, "RolledBack", ".pcl");
       var fileId = wowCache.fileIdByName(pclFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       storagePath = storage.getStoragePath();
@@ -1434,7 +1450,7 @@ public class TruncateOrphansAfterRecoveryIT {
       session.getMetadata().getSchema().createClass("Committed");
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var pclFileName = findFileName(wowCache, "committed", ".pcl");
+      var pclFileName = collectionFileName(session, wowCache, "Committed", ".pcl");
       var fileId = wowCache.fileIdByName(pclFileName);
       var nativeFileName = wowCache.nativeFileNameById(fileId);
       var pclPath = storage.getStoragePath().resolve(nativeFileName).toFile();
@@ -1514,7 +1530,7 @@ public class TruncateOrphansAfterRecoveryIT {
       });
       var storage = (DiskStorage) session.getStorage();
       var wowCache = (WOWCache) storage.getWriteCache();
-      var pclFileName = findFileName(wowCache, "survivingorphan", ".pcl");
+      var pclFileName = collectionFileName(session, wowCache, "SurvivingOrphan", ".pcl");
       var fileId = wowCache.fileIdByName(pclFileName);
       nativeFileName = wowCache.nativeFileNameById(fileId);
       pageSize = wowCache.pageSize();
