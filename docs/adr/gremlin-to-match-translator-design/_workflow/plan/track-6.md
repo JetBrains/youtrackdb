@@ -10,7 +10,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 
 ## Progress
 - [x] Review + decomposition (1 iteration: iter1 PASS — Technical + Risk + Adversarial; 0 blockers)
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
