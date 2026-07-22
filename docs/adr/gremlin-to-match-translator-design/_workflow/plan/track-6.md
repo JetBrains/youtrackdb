@@ -22,7 +22,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T13:20Z [ctx=info] Step 5 complete (tip 6ea1e4fb7d; OrderRangeStepRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T13:51Z [ctx=info] Step 6 complete (tip b660e7527e; GremlinAggregateRecogniserTest + GremlinStepWalkerTest + smoke green)
 - [x] 2026-07-22T14:50Z [ctx=info] Step 7 complete (tip 985a14e1e8; boundary MAP/SINGLE_VALUE/SCALAR + ProjectionEquivalenceTest green)
-- [x] 2026-07-22T15:55Z [ctx=info] Phase C code review complete (tip pending Workflow update; main-session iter1 PASS — Task subagents blocked by usage limit)
+- [x] 2026-07-22T15:55Z [ctx=info] Phase C code review complete (tip 1d17dc04eb; main-session iter1 PASS — Task subagents blocked by usage limit)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
