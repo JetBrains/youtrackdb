@@ -9,21 +9,40 @@ After this track, the four result-producing step families translate: step labels
 Merges the four result-producing step families. Adds `as(label)` propagation and `DedupStep` recognition; `GremlinProjectionAssembler` using `EntityImpl.hasProperty(key)` to distinguish absent from null-valued (the load-bearing "Track 5 commitment"); `OrderGlobalStep` + `RangeGlobalStep`; and aggregation recognition mapped to `SQLProjection` aggregates + `SQLGroupBy`, with the count short-circuit factored out of `SelectExecutionPlanner` and the `dropNullRows` / `dropOnAbsent` flags for empty-input and absent-vs-null semantics. Shares one `ByModulatorTranslator` across order/select/dedup/group/project.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition (1 iteration: iter1 PASS — Technical + Risk + Adversarial; 0 blockers)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
+- [x] 2026-07-22T10:30Z [ctx=info] Review + decomposition complete (strategic trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter1; 7 steps, reconciled tag `high`)
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-07-22 (Phase A, T2): `GremlinStepWalker.buildResult` does not yet wire `returnDistinct` / `groupBy` / `orderBy` / `limit` / `skip` into `MatchPlanInputs` even though the record supports them — foundation step must extend `WalkerContext` and `buildResult` together.
+- 2026-07-22 (Phase A, R2): `handleHardwiredCountOnClass*` lives only on `SelectExecutionPlanner` (private static); `MatchExecutionPlanner` has no count short-circuit hook yet — extraction is a real new seam, not a re-export.
+- 2026-07-22 (Phase A, T4): Frozen `design.md` §empty-input still tags projection work as "Track 5" and conflates `values` with `dropNullRows`; track plan's `dropOnAbsent` is correct — Phase-4 reconciliation only.
 
 ## Decision Log
 <!-- Continuous-log. -->
+- 2026-07-22 (Phase A, A1): **Aggregate-over-`values` re-pointing uses walker state, not cursor rewind.** `PropertiesStepRecogniser` records the last single-key field-access `SQLExpression` on `WalkerContext`; aggregate recognisers consume it for `mean`/`sum`/etc. Decline when the prefix is not exactly one property key. Avoids a second pass over the step list.
+- 2026-07-22 (Phase A, T1/R1): **`as(label)` + absent-vs-null are independent load-bearing seams.** Alias propagation must surface user labels for `select`/`dedup`/`where(P)`; `GremlinProjectionAssembler` must use `EntityImpl.hasProperty` at boundary iteration for `valueMap`/`values` — `Result.getProperty` alone is insufficient.
+- 2026-07-22 (Phase A, R2): **Count short-circuit: extract `handleHardwiredCountOnClass*` to a package-visible helper invoked from `MatchExecutionPlanner` after pattern build; decline shapes fall through to `YTDBGraphCountStrategy` (already ordered after `GremlinToMatchStrategy`).**
+- 2026-07-22 (Phase A, R3): **Value-side `by(__.count())` / `by(__.fold())` routes through the Track 5 sub-walker (`walkChild` + capture adapter), not a fresh `WalkerContext`.**
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
+**Phase A (2026-07-22, iter1).** Strategic trio against the result-shaping track (predicted tag `high` → Technical + Risk + Adversarial). mcp-steroid was not reachable this session; symbol audits used codebase reads with reference-accuracy caveats in each review file.
+
+Iteration 1 (findings in `reviews/{technical,risk,adversarial}-iter1.md`):
+- Technical: **PASS** — 4 findings (2 should-fix + 2 suggestions, no blockers). T1/T2 pin `as(label)` API and `buildResult`/`MatchPlanInputs` wiring gaps.
+- Risk: **PASS** — 5 findings (3 should-fix + 2 suggestions, no blockers). R1 entity-layer presence; R2 count short-circuit extraction; R3 sub-walker reuse for `by` value-side.
+- Adversarial: **PASS** — 3 findings (2 should-fix + 1 suggestion, no blockers). A1 aggregate/values re-point via walker state; A2 named dedup depends on Step 2 alias propagation.
+
+**Track Pre-Flight (look-back Track 5 → Track 6): ADJUST / CONTINUE.** Track 5 delivered the sub-walker and D5 cache; Track 6 inherits: (1) `walkChild` for `ByModulatorTranslator` value-side accumulators; (2) `PropertiesStep` recogniser unblocks no new `hasNot` concern; (3) extend `GremlinPlanFingerprint` before any positive `matchExpressions` writer (Track 5 BG1); (4) reserved-`$` `as(...)` guard when child labels become aliases (Track 5 BG2). No ESCALATE — scope and dependencies unchanged.
+
+**Gate verdict iteration 1: PASS.** Reconciled track tag: `high`. Seven steps, strictly ordered 1→7.
 
 ## Context and Orientation
 By Track 6 the boundary step emits `ELEMENT` (vertex hops). This track adds the remaining four output types: `MAP` (`select` multi / `valueMap` / `elementMap` / `project` / `group` / `groupCount`), `SINGLE_VALUE` (`values` single-key), and `SCALAR` (`count` / `sum` / `min` / `max` / `mean`). Each terminal-step recogniser pins the type on the boundary at translation time.
@@ -44,7 +63,15 @@ Two semantic hazards dominate this track:
 7. **Tests:** parity / projection / absent-vs-null (map with `foo:null` vs map without `foo`) / aggregate-equivalence (incl. empty-input `count`=0 vs `mean`=nothing) / order / pagination, extending `EdgeTraversalEquivalenceTest`.
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+1. **Walker foundation + `BoundaryOutputType` expansion** — add `MAP` / `SINGLE_VALUE` / `SCALAR` to `BoundaryOutputType`; extend `WalkerContext` / `RecognitionContext` with `returnDistinct`, `groupBy`, `orderBy`, `limit`, `skip`, `dropNullRows`, `dropOnAbsent`, and `lastPropertyProjection` (A1); wire all fields through `GremlinStepWalker.buildResult` → `MatchPlanInputs` and `TranslationResult` → `YTDBMatchPlanStep` constructor (T2). Extend `YTDBMatchPlanStep` skeleton to branch on output type (element path unchanged). Detail: Plan of Work items 5–6 (flags), Decision Log A1. — `risk: high`
+2. **`as(label)` propagation + `DedupGlobalStep`** — propagate `as(label)` to the most recent pattern node's alias metadata (`MatchPatternBuilder` extension — T1); `DedupGlobalStep` → `returnDistinct` (no labels) or projection-over-labels + DISTINCT (named labels; decline when a label is not surfaced — A2). Detail: Plan of Work item 1. — `risk: medium` *(depends on Step 1)*
+3. **`GremlinProjectionAssembler` + projection recognisers** — `PropertiesStep` (`values`), `PropertyMapStep` (`valueMap`/`elementMap`), `SelectStep`, `ProjectStep`; `EntityImpl.hasProperty(key)` absent-vs-null classification (R1); `dropOnAbsent` for single-key `values`; pin boundary output type per terminal (`MAP` / `SINGLE_VALUE`). Accept `PropertyType.VALUE` and `PropertyType.PROPERTY` on `PropertiesStep` (T3). Detail: Plan of Work item 2, Decision Log T1/R1. — `risk: high` *(depends on Steps 1–2)*
+4. **`ByModulatorTranslator`** (shared `match/builder/`) — key-side (`by("k")`, `by(T.id)`, `by(T.label)`, `__.values/id/label` unwraps, `Order.asc/desc`) and value-side (`by(__.count())`, `by(__.fold())`, …) via sub-walker capture (R3); declines edges/aggregates/lambdas/`Order.shuffle`/per-label-count-mismatch. Detail: Plan of Work item 3. — `risk: high` *(depends on Step 1)*
+5. **`OrderGlobalStep` + `RangeGlobalStep`** — `SQLOrderBy` (`Order.shuffle` declines); `SQLSkip` + `SQLLimit` (`range` → `limit = high - low`, unbounded high → skip-only). Detail: Plan of Work item 4. — `risk: medium` *(depends on Steps 1, 4)*
+6. **Aggregate recognisers + count short-circuit** — `count`/`sum`/`min`/`max`/`mean`/`group`/`groupCount` → `SQLProjection` + `SQLGroupBy`; `dropNullRows` per output type; consume `lastPropertyProjection` for `values("age").mean()` (A1); extract `handleHardwiredCountOnClass*` to shared helper, invoke from `MatchExecutionPlanner` (R2). Multi-label / non-polymorphic counts decline to `YTDBGraphCountStrategy`. Detail: Plan of Work items 5–6. — `risk: high` *(depends on Steps 1, 3, 4)*
+7. **Boundary projection + parity tests** — complete `YTDBMatchPlanStep` `MAP` / `SINGLE_VALUE` / `SCALAR` payload emission; `dropNullRows` row loop + `dropOnAbsent` entity check (R5); `group`/`groupCount` MAP accumulation; extend `EdgeTraversalEquivalenceTest` / new projection-equivalence tests for absent-vs-null, empty-input aggregates, order, pagination, dedup. Detail: Validation and Acceptance. — `risk: high` *(depends on Steps 1–6)*
+
+**Step sequencing.** Strictly ordered 1→7 — Step 1 is the shared foundation; projection recognisers (3) before boundary completion (7); `ByModulatorTranslator` (4) before order/group `by` shapes (5–6). Reconciled track tag: `high`.
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
