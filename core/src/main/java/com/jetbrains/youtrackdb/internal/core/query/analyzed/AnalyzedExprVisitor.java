@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.query.analyzed;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.BinaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Const;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.FuncCall;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Param;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.UnaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Var;
 
@@ -10,7 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Var;
 ///
 /// The visitor carries no default methods: a direct implementer (the evaluator, or any future
 /// pass that returns something other than `AnalyzedExpr`) must enumerate every variant. Adding
-/// a sixth variant therefore breaks every direct implementer at compile time — the strictness
+/// a seventh variant therefore breaks every direct implementer at compile time — the strictness
 /// that backs the IR's exhaustive-dispatch guarantee. The relaxation for rewrite passes
 /// (recurse-into-children defaults)
 /// lives only on [AnalyzedExprTransform] and never touches this base visitor.
@@ -24,6 +25,8 @@ public interface AnalyzedExprVisitor<T> {
   T visitVar(Var var);
 
   T visitConst(Const constant);
+
+  T visitParam(Param param);
 
   T visitBinaryOp(BinaryOp binaryOp);
 

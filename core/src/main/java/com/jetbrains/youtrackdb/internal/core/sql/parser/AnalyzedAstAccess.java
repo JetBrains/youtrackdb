@@ -76,4 +76,28 @@ public final class AnalyzedAstAccess {
   public static SQLStatement parenStatement(SQLParenthesisExpression parenthesis) {
     return parenthesis.statement;
   }
+
+  /// The positional index of a positional bind parameter (`?`). The parser assigns sequential
+  /// indices starting from 0.
+  public static int positionalParamNumber(SQLPositionalParameter param) {
+    return param.paramNumber;
+  }
+
+  /// The positional index of a named bind parameter (`:name`). Named parameters also carry a
+  /// positional index assigned by the parser.
+  public static int namedParamNumber(SQLNamedParameter param) {
+    return param.paramNumber;
+  }
+
+  /// The textual name of a named bind parameter (`:name`).
+  @Nullable
+  public static String namedParamName(SQLNamedParameter param) {
+    return param.paramName;
+  }
+
+  /// The expression of an `IS NOT NULL` condition. `SQLIsNotNullCondition.expression` is
+  /// `protected` with no public getter (unlike `SQLIsNullCondition` which does have one).
+  public static SQLExpression isNotNullExpression(SQLIsNotNullCondition condition) {
+    return condition.expression;
+  }
 }

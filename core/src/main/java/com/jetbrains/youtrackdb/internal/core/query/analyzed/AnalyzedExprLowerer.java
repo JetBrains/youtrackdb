@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.query.analyzed;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AnalyzedAstAccess;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -10,17 +11,23 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotNullCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression.Operator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNamedParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNumber;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLParenthesisExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSuffixIdentifier;
 import java.util.List;
 
@@ -34,6 +41,11 @@ import java.util.List;
 /// throws [UnsupportedAnalyzedNodeException] rather than returning a partial tree — a successful
 /// `lower(...)` therefore means the whole input was covered. That no-silent-fallback contract is
 /// what later slices that consume the IR rely on.
+///
+/// The covered subset includes arithmetic over four operators (`+ - * /`), the six comparisons
+/// (`= != < <= > >=`), boolean `AND`, `OR`, `NOT`, `IS NULL`, `IS NOT NULL`, parenthesized
+/// grouping, single-segment column references (rejecting `$`-prefixed context variables), numeric
+/// / string literals, bind parameters (positional and named), and method-call coercions.
 ///
 /// The pass owns three mechanisms a naive field-by-field copy would get wrong:
 ///
@@ -214,10 +226,9 @@ public final class AnalyzedExprLowerer {
       // SQLNumber.getValue() returns null; the value is read through the polymorphic override.
       return new AnalyzedExpr.Const(number.getValue());
     }
-    if (AnalyzedAstAccess.inputParam(baseExpression) != null) {
-      // Bind parameters are not lowered in this subset; their IR representation is settled in a
-      // later slice and no current consumer depends on it.
-      throw new UnsupportedAnalyzedNodeException(baseExpression.getClass());
+    SQLInputParameter inputParam = AnalyzedAstAccess.inputParam(baseExpression);
+    if (inputParam != null) {
+      return lowerInputParam(inputParam);
     }
     String stringLiteral = baseExpression.getStringLiteralValue();
     if (stringLiteral != null) {
@@ -249,6 +260,12 @@ public final class AnalyzedExprLowerer {
       throw new UnsupportedAnalyzedNodeException(baseExpression.getClass());
     }
     String columnName = suffix.getIdentifier().getStringValue();
+    // Reject $-prefixed identifiers: these are LET / context variables whose resolution
+    // semantics the IR does not model (deferred to a later slice). Throwing here causes the
+    // AST carrier to evaluate the predicate via its own path, so correctness is preserved.
+    if (columnName.startsWith("$")) {
+      throw new UnsupportedAnalyzedNodeException(baseExpression.getClass());
+    }
     AnalyzedExpr base = new AnalyzedExpr.Var(List.of(columnName));
     return lowerWithOptionalModifier(baseExpression, base);
   }
@@ -294,10 +311,11 @@ public final class AnalyzedExprLowerer {
   /// [AnalyzedExpr.BinaryOp], a [SQLNotBlock] becomes a [AnalyzedExpr.UnaryOp] (or a pass-through
   /// when not negated), and every other boolean shape throws.
   ///
-  /// `AND` / `OR` blocks, `IN`, `BETWEEN`, `LIKE`, `IS NULL`, and the other boolean subtypes are
-  /// out of subset: the IR models no boolean connective, so these throw. The pass builds comparison
-  /// structure only — collation and the equality session-threading the AST applies at evaluate
-  /// time are the evaluator's job, not this pass's.
+  /// `AND` / `OR` blocks are left-folded into nested binary `BinaryOp(AND/OR, ...)` nodes.
+  /// `IS NULL` lowers to `UnaryOp(IS_NULL, expr)` and `IS NOT NULL` to
+  /// `UnaryOp(NOT, UnaryOp(IS_NULL, expr))`. The `any()` / `all()` modifier variants of
+  /// IS NULL / IS NOT NULL are out of subset and throw. `IN`, `BETWEEN`, `LIKE`, and the other
+  /// boolean subtypes are out of subset and throw.
   ///
   /// Package-visible: a [SQLBooleanExpression] reaches the [#lower] field walk only through a
   /// [SQLExpression] whose `booleanExpression` field is set, and the AST exposes no public setter
@@ -325,6 +343,18 @@ public final class AnalyzedExprLowerer {
       // A non-negated NOT block is a transparent wrapper: pass through to the lowered
       // sub-expression.
       return sub;
+    }
+    if (booleanExpression instanceof SQLAndBlock andBlock) {
+      return lowerConnective(andBlock.getSubBlocks(), BinaryOperator.AND);
+    }
+    if (booleanExpression instanceof SQLOrBlock orBlock) {
+      return lowerConnective(orBlock.getSubBlocks(), BinaryOperator.OR);
+    }
+    if (booleanExpression instanceof SQLIsNullCondition isNull) {
+      return lowerIsNull(isNull);
+    }
+    if (booleanExpression instanceof SQLIsNotNullCondition isNotNull) {
+      return lowerIsNotNull(isNotNull);
     }
     throw new UnsupportedAnalyzedNodeException(booleanExpression.getClass());
   }
@@ -361,5 +391,64 @@ public final class AnalyzedExprLowerer {
       // for exhaustiveness and keeps every out-of-subset operator on the throw path.
       default -> throw new UnsupportedAnalyzedNodeException(operator.getClass());
     };
+  }
+
+  /// Left-folds an n-ary list of boolean sub-blocks into nested binary [AnalyzedExpr.BinaryOp]
+  /// nodes under the given connective operator (AND or OR).
+  ///
+  /// A single sub-block lowers to just that block (no wrapping `BinaryOp`). An empty sub-block
+  /// list is structurally invalid in a parsed AST (the parser always produces at least one
+  /// sub-block), so it throws.
+  private static AnalyzedExpr lowerConnective(
+      List<SQLBooleanExpression> subBlocks, BinaryOperator op) {
+    if (subBlocks == null || subBlocks.isEmpty()) {
+      // Pass the op-appropriate class so the exception names the actual block type.
+      throw new UnsupportedAnalyzedNodeException(
+          op == BinaryOperator.AND ? SQLAndBlock.class : SQLOrBlock.class);
+    }
+    AnalyzedExpr result = lowerBoolean(subBlocks.get(0));
+    for (int i = 1; i < subBlocks.size(); i++) {
+      result = new AnalyzedExpr.BinaryOp(op, result, lowerBoolean(subBlocks.get(i)));
+    }
+    return result;
+  }
+
+  /// Lowers `expr IS NULL` to `UnaryOp(IS_NULL, lower(expr))`. The `any()` / `all()` modifier
+  /// variants are out of subset — the IR does not model property-iteration semantics — so they
+  /// throw.
+  private static AnalyzedExpr lowerIsNull(SQLIsNullCondition isNull) {
+    SQLExpression expr = isNull.getExpression();
+    if (expr.isFunctionAny() || expr.isFunctionAll()) {
+      throw new UnsupportedAnalyzedNodeException(isNull.getClass());
+    }
+    return new AnalyzedExpr.UnaryOp(UnaryOperator.IS_NULL, lower(expr));
+  }
+
+  /// Lowers `expr IS NOT NULL` to `UnaryOp(NOT, UnaryOp(IS_NULL, lower(expr)))`. The `any()` /
+  /// `all()` modifier variants are out of subset and throw.
+  private static AnalyzedExpr lowerIsNotNull(SQLIsNotNullCondition isNotNull) {
+    SQLExpression expr = AnalyzedAstAccess.isNotNullExpression(isNotNull);
+    if (expr.isFunctionAny() || expr.isFunctionAll()) {
+      throw new UnsupportedAnalyzedNodeException(isNotNull.getClass());
+    }
+    return new AnalyzedExpr.UnaryOp(
+        UnaryOperator.NOT,
+        new AnalyzedExpr.UnaryOp(UnaryOperator.IS_NULL, lower(expr)));
+  }
+
+  /// Lowers a bind parameter to a [AnalyzedExpr.Param] carrying the parameter's identity
+  /// (number and optional name) but never a resolved value.
+  private static AnalyzedExpr lowerInputParam(SQLInputParameter inputParam) {
+    if (inputParam instanceof SQLPositionalParameter positional) {
+      return new AnalyzedExpr.Param(
+          AnalyzedAstAccess.positionalParamNumber(positional), null);
+    }
+    if (inputParam instanceof SQLNamedParameter named) {
+      return new AnalyzedExpr.Param(
+          AnalyzedAstAccess.namedParamNumber(named),
+          AnalyzedAstAccess.namedParamName(named));
+    }
+    // Unknown SQLInputParameter subclass — out of subset.
+    throw new UnsupportedAnalyzedNodeException(inputParam.getClass());
   }
 }

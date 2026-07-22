@@ -3,21 +3,22 @@ package com.jetbrains.youtrackdb.internal.core.query.analyzed;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /// The analyzed-expression intermediate representation (IR): a data-only expression tree the
 /// optimizer and evaluator read instead of the SQL parse tree (AST).
 ///
-/// `AnalyzedExpr` is a sealed interface permitting exactly five immutable record variants
-/// ([Var], [Const], [BinaryOp], [UnaryOp], [FuncCall]). The variants carry data only —
-/// equality, hashing, and accessors come from record defaults; no node carries behavior.
-/// Sealing lets the compiler enforce an exhaustive `switch` over the variant set, so the
-/// nodes need no `accept(visitor)` method: dispatch is a single static `switch` in
+/// `AnalyzedExpr` is a sealed interface permitting exactly six immutable record variants
+/// ([Var], [Const], [Param], [BinaryOp], [UnaryOp], [FuncCall]). The variants carry data
+/// only — equality, hashing, and accessors come from record defaults; no node carries
+/// behavior. Sealing lets the compiler enforce an exhaustive `switch` over the variant set,
+/// so the nodes need no `accept(visitor)` method: dispatch is a single static `switch` in
 /// [#dispatch], and each downstream `visitX` call is a direct (monomorphic) call.
 ///
 /// This follows the established sealed-interface-permitting-record idiom already used in the
 /// codebase by `StorageReadResult` and `SqlCommandExecutionResult`.
 ///
-/// VARIANT-ADDITION: adding a sixth variant is an intended compile-time break, not a
+/// VARIANT-ADDITION: adding a seventh variant is an intended compile-time break, not a
 /// regression. A new variant breaks [#dispatch]'s `switch` (no `default` clause) and every
 /// [AnalyzedExprVisitor] implementer (no default methods), forcing an audit of every dispatch
 /// site. [AnalyzedExprTransform] is the one exception: its recurse-into-children defaults make
@@ -26,6 +27,7 @@ import java.util.List;
 public sealed interface AnalyzedExpr
     permits AnalyzedExpr.Var,
     AnalyzedExpr.Const,
+    AnalyzedExpr.Param,
     AnalyzedExpr.BinaryOp,
     AnalyzedExpr.UnaryOp,
     AnalyzedExpr.FuncCall {
@@ -44,13 +46,24 @@ public sealed interface AnalyzedExpr
   record Const(Object value) implements AnalyzedExpr {
   }
 
-  /// A binary operation: the four arithmetic operators (`+ - * /`) and the six comparisons
-  /// (`= != < <= > >=`), tagged by the IR's own [BinaryOperator].
+  /// A bind parameter reference — identity only, never a resolved value.
+  ///
+  /// Positional parameters (`?`) carry a `paramNumber` and a null `paramName`; named
+  /// parameters (`:name`) carry both `paramNumber` and `paramName`. The value is resolved
+  /// at evaluation time from the command context's input-parameter map, re-resolving on every
+  /// execution — no value is baked into the IR, so a copied/reused plan picks up fresh
+  /// parameter bindings.
+  record Param(int paramNumber, @Nullable String paramName) implements AnalyzedExpr {
+  }
+
+  /// A binary operation: the four arithmetic operators (`+ - * /`), the six comparisons
+  /// (`= != < <= > >=`), and the two boolean connectives (`AND`, `OR`), tagged by the IR's
+  /// own [BinaryOperator].
   record BinaryOp(BinaryOperator op, AnalyzedExpr left, AnalyzedExpr right)
       implements AnalyzedExpr {
   }
 
-  /// A unary operation: boolean `NOT` only, tagged by the IR's own [UnaryOperator].
+  /// A unary operation: boolean `NOT` and `IS_NULL`, tagged by the IR's own [UnaryOperator].
   record UnaryOp(UnaryOperator op, AnalyzedExpr operand) implements AnalyzedExpr {
   }
 
@@ -63,11 +76,12 @@ public sealed interface AnalyzedExpr
   ///
   /// This is the one `switch` over the sealed variant set. It has no `default` clause: the
   /// sealed permits-list is a closed, known set, so the compiler enforces exhaustiveness, and
-  /// adding a sixth variant fails to compile here until a new `case` is added.
+  /// adding a seventh variant fails to compile here until a new `case` is added.
   static <T> T dispatch(AnalyzedExpr expr, AnalyzedExprVisitor<T> visitor) {
     return switch (expr) {
       case Var v -> visitor.visitVar(v);
       case Const c -> visitor.visitConst(c);
+      case Param p -> visitor.visitParam(p);
       case BinaryOp b -> visitor.visitBinaryOp(b);
       case UnaryOp u -> visitor.visitUnaryOp(u);
       case FuncCall f -> visitor.visitFuncCall(f);
@@ -79,7 +93,7 @@ public sealed interface AnalyzedExpr
   ///
   /// Per-variant behavior:
   ///
-  /// - Leaf variants ([Var], [Const]) have no children and return `expr` itself.
+  /// - Leaf variants ([Var], [Const], [Param]) have no children and return `expr` itself.
   /// - Compound variants ([BinaryOp], [UnaryOp]) transform each child; when every child
   ///   returns the same instance it received (`==`), the input node is returned unchanged;
   ///   a new parent record is built only when at least one child changed.
@@ -94,6 +108,7 @@ public sealed interface AnalyzedExpr
     return switch (expr) {
       case Var v -> v;
       case Const c -> c;
+      case Param p -> p;
       case BinaryOp b -> {
         AnalyzedExpr left = dispatch(b.left(), t);
         AnalyzedExpr right = dispatch(b.right(), t);
