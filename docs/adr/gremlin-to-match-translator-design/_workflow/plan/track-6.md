@@ -17,6 +17,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T10:30Z [ctx=info] Review + decomposition complete (strategic trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter1; 7 steps, reconciled tag `high`)
 - [x] 2026-07-22T12:12Z [ctx=info] Step 1 complete (tip cf4698732d; WalkerContextResultShapingTest + GremlinToMatchStrategyTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T12:24Z [ctx=info] Step 2 complete (tip 0597b30ef6; DedupGlobalStepRecogniserTest + GremlinStepWalkerTest green)
+- [x] 2026-07-22T12:38Z [ctx=info] Step 3 complete (tip d56953c3d1; GremlinProjectionRecogniserTest + GremlinStepWalkerTest green)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -67,7 +68,7 @@ Two semantic hazards dominate this track:
 ## Concrete Steps
 1. **Walker foundation + `BoundaryOutputType` expansion** — add `MAP` / `SINGLE_VALUE` / `SCALAR` to `BoundaryOutputType`; extend `WalkerContext` / `RecognitionContext` with `returnDistinct`, `groupBy`, `orderBy`, `limit`, `skip`, `dropNullRows`, `dropOnAbsent`, and `lastPropertyProjection` (A1); wire all fields through `GremlinStepWalker.buildResult` → `MatchPlanInputs` and `TranslationResult` → `YTDBMatchPlanStep` constructor (T2). Extend `YTDBMatchPlanStep` skeleton to branch on output type (element path unchanged). Detail: Plan of Work items 5–6 (flags), Decision Log A1. — `risk: high`  [x] commit: cf4698732d
 2. **`as(label)` propagation + `DedupGlobalStep`** — propagate `as(label)` to the most recent pattern node's alias metadata (`MatchPatternBuilder` extension — T1); `DedupGlobalStep` → `returnDistinct` (no labels) or projection-over-labels + DISTINCT (named labels; decline when a label is not surfaced — A2). Detail: Plan of Work item 1. — `risk: medium` *(depends on Step 1)*  [x] commit: 0597b30ef6
-3. **`GremlinProjectionAssembler` + projection recognisers** — `PropertiesStep` (`values`), `PropertyMapStep` (`valueMap`/`elementMap`), `SelectStep`, `ProjectStep`; `EntityImpl.hasProperty(key)` absent-vs-null classification (R1); `dropOnAbsent` for single-key `values`; pin boundary output type per terminal (`MAP` / `SINGLE_VALUE`). Accept `PropertyType.VALUE` and `PropertyType.PROPERTY` on `PropertiesStep` (T3). Detail: Plan of Work item 2, Decision Log T1/R1. — `risk: high` *(depends on Steps 1–2)*
+3. **`GremlinProjectionAssembler` + projection recognisers** — `PropertiesStep` (`values`), `PropertyMapStep` (`valueMap`/`elementMap`), `SelectStep`, `ProjectStep`; `EntityImpl.hasProperty(key)` absent-vs-null classification (R1); `dropOnAbsent` for single-key `values`; pin boundary output type per terminal (`MAP` / `SINGLE_VALUE`). Accept `PropertyType.VALUE` and `PropertyType.PROPERTY` on `PropertiesStep` (T3). Detail: Plan of Work item 2, Decision Log T1/R1. — `risk: high` *(depends on Steps 1–2)*  [x] commit: d56953c3d1
 4. **`ByModulatorTranslator`** (shared `match/builder/`) — key-side (`by("k")`, `by(T.id)`, `by(T.label)`, `__.values/id/label` unwraps, `Order.asc/desc`) and value-side (`by(__.count())`, `by(__.fold())`, …) via sub-walker capture (R3); declines edges/aggregates/lambdas/`Order.shuffle`/per-label-count-mismatch. Detail: Plan of Work item 3. — `risk: high` *(depends on Step 1)*
 5. **`OrderGlobalStep` + `RangeGlobalStep`** — `SQLOrderBy` (`Order.shuffle` declines); `SQLSkip` + `SQLLimit` (`range` → `limit = high - low`, unbounded high → skip-only). Detail: Plan of Work item 4. — `risk: medium` *(depends on Steps 1, 4)*
 6. **Aggregate recognisers + count short-circuit** — `count`/`sum`/`min`/`max`/`mean`/`group`/`groupCount` → `SQLProjection` + `SQLGroupBy`; `dropNullRows` per output type; consume `lastPropertyProjection` for `values("age").mean()` (A1); extract `handleHardwiredCountOnClass*` to shared helper, invoke from `MatchExecutionPlanner` (R2). Multi-label / non-polymorphic counts decline to `YTDBGraphCountStrategy`. Detail: Plan of Work items 5–6. — `risk: high` *(depends on Steps 1, 3, 4)*
@@ -105,6 +106,19 @@ Two semantic hazards dominate this track:
 - `DedupGlobalStepRecogniserTest.java`, `GremlinStepWalkerTest.java`
 
 **Critical context:** Step 3 projection recognisers read `resolveUserLabel`; named dedup already exercises multi-column RETURN. `dedup().by(...)` declines until Step 4 `ByModulatorTranslator`.
+
+### Step 3 — commit d56953c3d1, 2026-07-22T12:38Z [ctx=info]
+**What was done:** Added `GremlinProjectionAssembler` and recognisers for terminal `PropertiesStep` (`SINGLE_VALUE` + `dropOnAbsent` + `lastPropertyProjection`), `SelectOneStep` / `SelectStep` (`MAP` over bound labels), `PropertyMapStep` (`valueMap`), and `ElementMapStep` (`elementMap` with id/label tokens). `ProjectStepRecogniser` declines until Step 4. Extended `RecognitionContext` with `clearReturnProjection` / `appendReturnColumn`.
+
+**What was discovered:** TinkerPop splits `select("a")` → `SelectOneStep` vs `select("a","b")` → `SelectStep`, and `elementMap()` → `ElementMapStep` (not `PropertyMapStep` with tokens). Registry now has 17 entries.
+
+**What changed from plan:** Entity-layer `hasProperty` absent-vs-null classification is recogniser-flag + RETURN wiring only here; `YTDBMatchPlanStep` MAP/SINGLE_VALUE payload emission remains Step 7.
+
+**Key files:**
+- `GremlinProjectionAssembler.java`, `PropertiesStepRecogniser.java`, `SelectOneStepRecogniser.java`, `SelectStepRecogniser.java`, `PropertyMapStepRecogniser.java`, `ElementMapStepRecogniser.java`, `ProjectStepRecogniser.java`
+- `GremlinProjectionRecogniserTest.java`, extended `GremlinStepWalkerTest.java`
+
+**Critical context:** Step 4 `ByModulatorTranslator` unblocks `project().by(...)`, `select().by(...)`, and `dedup().by(...)`. Step 6 aggregates consume `lastPropertyProjection` from single-key `values`.
 
 ## Validation and Acceptance
 - `select` / `values` / `valueMap` / `elementMap` / `project` translate and match native multisets, with the correct boundary output type per terminal step.
