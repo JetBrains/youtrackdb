@@ -30,6 +30,9 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
   crash-safety review CS20–CS25: 2 should-fixes + 4 suggestions — all applied or dispositioned,
   0 blockers)
 - [x] 2026-07-22T12:30Z [ctx=safe] Step 3 complete (commit 11bf0eda26)
+- [x] 2026-07-22T15:10Z [ctx=safe] Step 4 complete (commit 449d1745c0; resumed after an
+  auth-failure interruption mid-implementation — the uncommitted primitive was re-verified
+  against the spec before tests were written)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -196,7 +199,7 @@ HEAD `e2605c8ba3` and is **Step 1's** acceptance test; `EmbeddedTestSuite.testQu
    - **Verification:** `./mvnw -pl core clean test -Dtest=MetadataWriteMutexTest`; session/tx teardown + pool close + storage close paths touched → `./mvnw -pl core clean verify -P ci-integration-tests`.
    - **Depends on / seam ownership:** depends on Step 1 (must keep `MetadataWriteMutexTest` green). **CS16 (completer placement) and CN22 (completer Dekker handshake) land HERE** (owner-side completer in the frontend-tx/session layer). The shared Q-B3/Q-B5 `ModificationOperationProhibitedException` gate factory is **Step 5's** and is not needed here. Shares `AbstractStorage.commit()` with Step 5 only indirectly — Step 3's commit-path change is the owner completer finally after `tx.close()` (session/frontend-tx layer), disjoint from Step 5's `AbstractStorage.commitSchemaCarry`/probe seams.
 
-4. **`ScalableRWLock.exclusiveLockWithAbort` primitive** (§Amendments round 2 CN19; pass-16 CN25; Q-A3 pin (3) interrupt semantics). Add one new `ScalableRWLock` primitive — `boolean exclusiveLockWithAbort(BooleanSupplier abort, long pollNanos)` (or equivalent) — that acquires the write bit ONCE (queued against writers only, writer-preference, blocking new readers exactly like `exclusiveLock`), polls `abort` between phase-1 tryLock attempts and inside the phase-2 reader-drain spin, and on abort fully releases the bit (no residual writer-intent state, reusable) and returns false; on success it does a CN25 predicate re-check immediately after bit acquisition / drain completion, before returning true, then returns true. Interrupt from the stamped timed acquire restores the interrupt flag and throws `DatabaseException` naming the state. This is a net-new primitive kept in its own step/commit with isolated unit tests before any gate wiring consumes it. — risk: high (Concurrency)  [ ]  commit: _pending_
+4. **`ScalableRWLock.exclusiveLockWithAbort` primitive** (§Amendments round 2 CN19; pass-16 CN25; Q-A3 pin (3) interrupt semantics). Add one new `ScalableRWLock` primitive — `boolean exclusiveLockWithAbort(BooleanSupplier abort, long pollNanos)` (or equivalent) — that acquires the write bit ONCE (queued against writers only, writer-preference, blocking new readers exactly like `exclusiveLock`), polls `abort` between phase-1 tryLock attempts and inside the phase-2 reader-drain spin, and on abort fully releases the bit (no residual writer-intent state, reusable) and returns false; on success it does a CN25 predicate re-check immediately after bit acquisition / drain completion, before returning true, then returns true. Interrupt from the stamped timed acquire restores the interrupt flag and throws `DatabaseException` naming the state. This is a net-new primitive kept in its own step/commit with isolated unit tests before any gate wiring consumes it. — risk: high (Concurrency)  [x]  commit: 449d1745c0
    - **Goal:** a write-lock acquisition that stays bounded under sustained readers (single bit-acquisition, writer preference — no inter-attempt release storm, no unbounded retry, CN19) while aborting within one poll granularity when a predicate turns true (CN25 closes the acquisition-success-edge miss).
    - **In-scope files:** `core/src/main/java/com/jetbrains/youtrackdb/internal/common/concur/lock/ScalableRWLock.java`; `core/src/test/java/com/jetbrains/youtrackdb/internal/common/concur/lock/ScalableRWLockTest.java` (new or extended).
    - **Discharges:** §Amendments round 2 CN19 (abort-predicate single-acquisition replacing the pass-14 `exclusiveTryLockNanos` retry loop); pass-16 CN25 (post-acquisition re-check); the interrupt-handling pin.
@@ -373,6 +376,52 @@ ci-integration verify: surefire ci/disk profile 17407/0 (the racer red is gone),
 with only the four known Track 6 rename classes failing (21 failures, identical to the HEAD
 baseline — no new IT failures). The storage stays usable after teardown of the poisoned-storage
 test (checkErrorState gates only component operations, not close/drop).
+
+### Step 4 — commit 449d1745c0, 2026-07-22T15:10Z [ctx=safe]
+**What was done:** Landed the `ScalableRWLock.exclusiveLockWithAbort(BooleanSupplier abort, long
+pollNanos)` primitive exactly per the CN19 re-amendment and the pass-16 CN25 pin. Phase 1 loops
+`stampedLock.tryWriteLock(pollNanos)` with the predicate checked between attempts (a queued
+stamped candidate blocks no readers; a phase-1 abort leaves no trace); phase 2 acquires the write
+bit ONCE and holds it — writer preference identical to `exclusiveLock` — polling the predicate on
+every yield iteration of the reader-drain spin (cadence rationale documented: per-iteration is
+the tightest granularity and the intended predicate is one atomic read); the CN25 success-edge
+re-check runs after drain completion / bit acquisition, before returning true (covers the
+empty-drain zero-poll case); abort releases the bit fully (no residual writer-intent state, no
+stranded reader — poll-based readers have no wakeup channel to lose — primitive reusable);
+interrupt in the phase-1 timed acquire restores the flag and throws `DatabaseException` naming
+the state (Q-A3 pin 3). The CN19 guarantee pair and the V-15.5 no-new-deadlock-edge argument are
+cited in the javadoc/inline comments. All existing methods and the reader paths are byte-for-byte
+unchanged; no storage wiring, no `commitSchemaCarry` change, no gate/exception-factory work
+(Step 5 owns those). Seven isolated unit tests in `ScalableRWLockTest` pin the matrix, including
+a DETERMINISTIC success-edge shape: on a fresh lock with no registered readers the predicate is
+polled exactly twice (phase-1 entry + success-edge re-check), so a count-based predicate turning
+true on the second call lands precisely on the edge — asserted with the poll count.
+
+**What was discovered:** In the bounded stress, an "aborting" attempt legitimately SUCCEEDS when
+the acquisition completes before its predicate reaches the flip threshold — the first stress
+assertion (all odd attempts abort) was wrong about the primitive's contract, not the primitive;
+the corrected assertions pin what the contract actually guarantees (every attempt terminates in
+exactly one outcome; every non-aborting attempt acquires). Session note: implementation was
+interrupted by an authentication failure between the compile-verified primitive and the tests;
+resumed from the uncommitted worktree state after a spec re-verification pass found no gaps.
+
+**What changed from the plan:** Nothing — signature, mechanism, interrupt semantics, and test
+matrix follow the step text. The poll cadence deferred to decomposition was fixed at
+per-drain-iteration polling with the rationale in the javadoc.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/concur/lock/ScalableRWLock.java`
+  (the new primitive; nothing else touched)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/common/concur/lock/ScalableRWLockTest.java`
+  (seven new tests + two bounded-wait helpers)
+
+**Critical context:** Step 5 wires this as checkpoint (2) in `commitSchemaCarry` with
+`operatorFreezeRequests > 0` as the abort predicate; the caller throws the shared
+Q-B3/Q-B5 `ModificationOperationProhibitedException` factory exception on a false return — the
+primitive itself stays exception-neutral on the abort path by design. Verification: lock package
+114/0, full core unit suite 17425/0, coverage gate PASSED (90.2% line / 82.0% branch on
+changed-vs-develop). Per the step's own verification note, no integration run is required for
+this pure-concurrency primitive (none consumes it yet).
 
 ### Step 3 — commit 11bf0eda26, 2026-07-22T12:30Z [ctx=safe]
 **What was done:** Landed Draft A — the mutex permit handshake and the Q-A2 skip protocol — per
