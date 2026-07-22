@@ -28,7 +28,7 @@ When the book is refreshed against a newer tree, bump this table and re-run the 
 ## Contents
 
 - [`TOC.md`](TOC.md) — table of contents, symptoms index, and per-chapter briefs.
-- [`chapters/`](chapters/) — the 17 chapters (01–17).
+- [`chapters/`](chapters/) — the 18 chapters (01–18).
 - [`maintenance/`](maintenance/) — per-refresh drift reports written by the maintenance pipeline.
 
 The production artifacts live under [`../../yql-internals-book-builder/`](../../yql-internals-book-builder/):
@@ -45,7 +45,7 @@ The production artifacts live under [`../../yql-internals-book-builder/`](../../
 
 ## Production record
 
-Two full cycles of the pipeline have been completed. Final body: 17 chapters, ~6 900 lines.
+Two full cycles of the pipeline have been completed. Final body: 18 chapters, ~7 500 lines.
 
 ### Cycle 1 — initial draft
 
@@ -75,6 +75,7 @@ Two full cycles of the pipeline have been completed. Final body: 17 chapters, ~6
 4. **Semantic fix** — the sweep surfaced a Ch 9 §9.1 error (root-entry RID-pin is a list, not a single RID), now corrected.
 5. **Full citation re-sync sweep** across Chapters 3–13 and 15–17 to realign every `file:line` reference to the new tree.
 6. **Three fresh-thread reviewers** (citation-accuracy, voice, consistency) plus a verification gate signed off; the first drift report landed in [`maintenance/`](maintenance/).
+7. **New chapter** — added Chapter 18, “Open Problems: A Contributor's Map” (new Part VIII): a contributor onboarding map built from the engine's optimisation backlog, pairing design directions in prose with pointers to the YTDB tracker and the `jmh-ldbc` LDBC harness. Verified by the same fresh-thread citation-accuracy / voice / consistency reviewers plus a gate.
 
 ## Where to go from here
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Seventeen chapters across seven parts. The book takes a Java developer from "I have never opened the YouTrackDB source" to "I can extend the MATCH planner, diagnose a slow query from an EXPLAIN, and recognise the three optimisation layers the engine applies". Concepts build one at a time; each chapter depends only on the ones before it; optimisations appear only after the basic nested-loop pipeline is complete in the reader's head.
+Eighteen chapters across eight parts. The book takes a Java developer from "I have never opened the YouTrackDB source" to "I can extend the MATCH planner, diagnose a slow query from an EXPLAIN, and recognise the three optimisation layers the engine applies". Concepts build one at a time; each chapter depends only on the ones before it; optimisations appear only after the basic nested-loop pipeline is complete in the reader's head.
 
 The source match-book contains all the facts the new book needs. The new book contains *none* of the source's section structure — it rearranges the material into a teaching narrative with on-ramps where the source makes leaps, and it introduces MATCH only after the reader has walked through a plain SELECT end-to-end.
 
@@ -22,6 +22,7 @@ If you arrived at this book to solve a specific problem, start here.
 | Disjoint-component Cartesian explosion | 10 (components), 15 (walkthrough) |
 | WHILE / recursive query slow | 12 (traverser strategies), 13 (inverted-while hash join) |
 | Need a class/method not in the book | 17 (reference) |
+| Want to contribute an optimisation / where to start | 18 |
 
 ---
 
@@ -135,6 +136,16 @@ Draws from: 15-reference.md.
 
 ---
 
+## Part VIII — Where the Engine Goes Next
+
+The engine you now understand works and ships — but it is generation one. This closing part turns from how the engine behaves to where it is headed, mapping the second-generation gap in each optimisation layer so a new contributor knows exactly which file to open first.
+
+**Chapter 18 — Open Problems: A Contributor's Map**
+Turns the finished engine into a set of on-ramps. Walks the next-generation gap in each optimisation layer — an enumerative (IDP) join-order search to replace the greedy DFS (§18.1), skew-aware cardinality estimation (§18.2), a single nanosecond cost currency to unify two incompatible cost models (§18.3), statistics-drift invalidation for the plan cache (§18.4), spill-to-disk for oversized hash joins (§18.5), and estimate-versus-actual observability in EXPLAIN (§18.6) — then lists a handful of afternoon-sized starter tasks (§18.7) and points at the issue tracker and the LDBC benchmark harness that gate the larger work (§18.8). The reader leaves knowing that every layer they studied is generation one, and that each gap comes with the exact file and line to open first.
+Draws from: the engine's optimisation backlog and live-tree code inspection (no match-book source).
+
+---
+
 ## Cross-reference matrix
 
 | New chapter | Primary sources | Secondary sources |
@@ -156,3 +167,4 @@ Draws from: 15-reference.md.
 | 15 | 11-walkthrough.md | all |
 | 16 | 11-walkthrough.md; 12-cost-model.md; 13-hash-joins.md; 14-index-assisted-traversal.md | all |
 | 17 | 15-reference.md | all |
+| 18 | New — the engine's optimisation backlog (YTDB issue tracker) | 8, 10, 13, 16, 7 |
