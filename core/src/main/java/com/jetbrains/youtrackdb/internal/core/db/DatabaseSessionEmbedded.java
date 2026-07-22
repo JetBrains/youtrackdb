@@ -208,6 +208,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -276,7 +277,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private final LocalRecordCache localCache = new LocalRecordCache();
   private final CurrentStorageComponentsFactory componentsFactory;
   private boolean initialized = false;
-  private FrontendTransaction currentTx;
+  // Volatile for the Q-A2 pool-teardown skip detection: hasInFlightForeignCommit() reads the
+  // CURRENT transaction object from a foreign thread before consulting its volatile
+  // status/storageTxThreadId fields. With a plain field the foreign read could return a stale
+  // pre-begin placeholder (or a prior borrow's transaction object) with no happens-before edge to
+  // the owner's begin(), false-no-skipping a genuinely in-flight commit and tearing its live
+  // transaction object down — the exact hazard the skip protocol exists to prevent. The volatile
+  // read pairs with the owner's volatile write here at every tx-boundary assignment, and the
+  // subsequent volatile status read then observes that same transaction's current state. Owner-
+  // thread reads are unaffected (program order); the write is tx-boundary-rare, so the cost is nil.
+  private volatile FrontendTransaction currentTx;
 
   private SharedContext sharedContext;
 
@@ -324,10 +334,26 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * its teardown and the owner must complete it) from a tx-close reached from inside
    * {@code internalClose}'s own rollback (where re-entering {@code internalClose} would recurse).
    * Deliberately a plain field: the guard only needs same-stack reentrance detection (program
-   * order); a cross-thread overlap between an owner completer and a pool teardown is the benign
-   * both-act case, contained by the one-shot status guard and the atomic release claim.
+   * order); a cross-thread overlap between an owner completer and a pool teardown is contained by
+   * the atomic {@link #teardownClaim} (exactly one full teardown proceeds) and the atomic release
+   * claim (exactly one permit release).
    */
   private boolean internalCloseInProgress;
+
+  /**
+   * The atomic one-shot teardown claim: exactly one {@code internalClose} teardown may proceed
+   * per open cycle of this session. The plain {@code status != OPEN} guard alone is a
+   * check-then-act — two racing teardowns (the pool close's fall-through and the owner's deferred
+   * completer, or a pool close racing the borrower's own close) could BOTH pass it while the
+   * status is still OPEN and both run the full body, double-firing the close listeners and
+   * double-decrementing the storage session count (risking a premature storage auto-close under a
+   * live session, or a permanently skewed count). The CAS makes the overlap race-free: the loser
+   * no-ops. A teardown that THROWS before reaching {@code status = CLOSED} releases the claim on
+   * unwind, preserving the pre-existing retry semantics for a broken session's cleanup close; a
+   * completed teardown keeps it (the status guard blocks re-entry anyway). Reset on pooled
+   * {@code reuse()} alongside the status flip back to OPEN.
+   */
+  private final AtomicBoolean teardownClaim = new AtomicBoolean();
 
   /**
    * True only while {@code ensureTxSchemaState} is building the tx-local schema copy (the
@@ -3337,20 +3363,30 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
-      // One-shot guard. A guard-returning no-op close must NOT plant the teardown-intent mark: a
+      // Fast-path guard. A guard-returning no-op close must NOT plant the teardown-intent mark: a
       // stale mark surviving into a later pooled borrow would make that borrower's first engage
       // self-abort ("session was closed while engaging") on a healthy session.
       return;
     }
+    // The assert sits BEFORE the claim and the flag writes: a misuse detected under -ea must not
+    // consume the teardown claim nor strand internalCloseInProgress/teardownIntent on a session
+    // whose teardown never actually started.
+    assert assertIfNotActive();
+    if (!teardownClaim.compareAndSet(false, true)) {
+      // Another teardown of this open cycle is running (or completed): the pool fall-through
+      // racing the owner's completer, or a pool close racing the borrower's own close. Exactly
+      // one full teardown may proceed — the loser no-ops here, leaving the winner's listener
+      // firing and session-count decrement single.
+      return;
+    }
     // Every teardown that actually tears marks first (both the recycle and the full arm), set
-    // strictly AFTER the one-shot guard passed. The mark is the teardown side of the Dekker pair
-    // with the mutex engage: mark-write before the release pass in the outer finally below, so a
+    // strictly AFTER the guards passed. The mark is the teardown side of the Dekker pair with the
+    // mutex engage: mark-write before the release pass in the outer finally below, so a
     // mid-flight engage this teardown's release pass cannot see will see the mark in its own
     // post-acquire re-check and self-release.
     teardownIntent = true;
     internalCloseInProgress = true;
 
-    assert assertIfNotActive();
     try {
       closeActiveQueries();
       localCache.shutdown();
@@ -3375,6 +3411,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
     } finally {
+      if (status != STATUS.CLOSED) {
+        // The teardown unwound before completing (a throw escaped the body — e.g. an Error from
+        // a close listener — or a pre-rollback failure): release the teardown claim so a later
+        // cleanup close can retry this broken session's teardown, preserving the pre-claim retry
+        // semantics. A completed teardown keeps the claim; re-entry is then blocked by the
+        // status guard anyway.
+        teardownClaim.set(false);
+      }
       // Widened release pass: the belt that keeps the mutex permit from stranding when this
       // teardown throws BEFORE the transaction's own close() finally could release it — including
       // the pre-rollback throw points (closeActiveQueries/localCache.shutdown), a rollback that
@@ -3895,12 +3939,32 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * Clears the Dekker teardown-intent mark on a pooled session's re-open ({@code reuse()}): the
-   * second belt against a stale mark surviving into a fresh borrow, whose first engage would
-   * otherwise self-abort forever.
+   * Clears the Dekker teardown-intent mark on a pooled session's re-open ({@code reuse()}). For a
+   * recycled borrow this clear is the ONLY belt: the recycle teardown legitimately marks (it
+   * tears), so every returned session arrives at {@code reuse()} marked, and without the clear the
+   * borrower's first engage would self-abort forever.
    */
   protected void clearTeardownIntent() {
     teardownIntent = false;
+  }
+
+  /**
+   * Resets the atomic one-shot teardown claim on a pooled session's re-open ({@code reuse()}): the
+   * recycle teardown consumed it, and the next close of the fresh borrow must be able to claim its
+   * own teardown.
+   */
+  protected void resetTeardownClaim() {
+    teardownClaim.set(false);
+  }
+
+  /**
+   * The current transaction's status for diagnostics, readable lock-free from any thread (both
+   * {@code currentTx} and the transaction status are volatile). Never throws; answers
+   * {@code "<none>"} when no transaction object exists.
+   */
+  protected String getTransactionStatusForDiagnostics() {
+    final var tx = currentTx;
+    return tx == null ? "<none>" : String.valueOf(tx.getStatus());
   }
 
   /**
@@ -3916,7 +3980,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * teardown failure is logged and never masks the commit outcome (a durable commit must never be
    * reported failed because a close listener threw — the client would retry a durably applied
    * commit). The {@code internalCloseInProgress} guard keeps the tx-close reached from inside
-   * {@code internalClose}'s own rollback from re-entering {@code internalClose} recursively.
+   * {@code internalClose}'s own rollback from re-entering {@code internalClose} recursively; a
+   * cross-thread overlap with a pool teardown is contained by the atomic teardown claim inside
+   * {@code internalClose} (exactly one full teardown proceeds).
    */
   public void completeDeferredTeardownAfterTxClose() {
     if (!teardownIntent || internalCloseInProgress || status != STATUS.OPEN) {
@@ -3927,8 +3993,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     } catch (final Throwable deferredTeardownFailure) {
       LogManager.instance()
           .warn(this,
-              "Deferred session teardown after a pool-close skip failed; the session may leak"
-                  + " resources until the storage closes",
+              String.format(
+                  "Deferred teardown of session %08X of database '%s' after a pool-close skip"
+                      + " failed; the session may leak resources until the storage closes",
+                  System.identityHashCode(this), getDatabaseName()),
               deferredTeardownFailure);
     }
   }
@@ -3941,6 +4009,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * already finished and the owner completes; late-rollback = today's behavior).
    */
   protected boolean hasInFlightForeignCommit() {
+    // Happens-before chain: currentTx is volatile, so this foreign read observes the owner's
+    // tx-boundary assignment (never a stale prior borrow's object), and the subsequent volatile
+    // status/storageTxThreadId reads inside isCommittingOnForeignThread observe that same
+    // transaction's current state. The residual is only the accepted TOCTOU: late-skip = the
+    // commit already finished (owner completer / pool re-validation handles teardown);
+    // late-rollback = today's behavior.
     final var tx = currentTx;
     return tx instanceof FrontendTransactionImpl impl && impl.isCommittingOnForeignThread();
   }
