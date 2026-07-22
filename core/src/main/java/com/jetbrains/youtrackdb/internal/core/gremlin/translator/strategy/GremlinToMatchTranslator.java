@@ -73,6 +73,8 @@ final class GremlinToMatchTranslator {
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Class<? extends Element> returnClass,
       @Nonnull Map<Object, Object> inputParameters,
-      boolean cacheEligible) {
+      boolean cacheEligible,
+      boolean dropNullRows,
+      boolean dropOnAbsent) {
   }
 }

@@ -90,6 +90,12 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   /** Positional-parameter values for this walk ({@code ?} slots), or empty when none. */
   private final Map<Object, Object> inputParameters;
 
+  /** When {@code true}, skip entire rows whose primary projected value is {@code null}. */
+  private final boolean dropNullRows;
+
+  /** When {@code true}, skip rows where the projected property is absent on the entity. */
+  private final boolean dropOnAbsent;
+
   // The current arming's open stream, or null before the first open / after close. Single source of
   // truth — there is no inherited iterator to shadow.
   private ExecutionStream openStream;
@@ -148,7 +154,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       @Nonnull InternalExecutionPlan plan,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType) {
-    this(traversal, returnClass, plan, boundaryAlias, outputType, Map.of());
+    this(traversal, returnClass, plan, boundaryAlias, outputType, Map.of(), false, false);
   }
 
   /**
@@ -170,12 +176,42 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Map<Object, Object> inputParameters) {
+    this(
+        traversal,
+        returnClass,
+        plan,
+        boundaryAlias,
+        outputType,
+        inputParameters,
+        false,
+        false);
+  }
+
+  /**
+   * Full constructor including boundary post-processor flags for result-shaping terminators.
+   *
+   * @param dropNullRows when {@code true}, skip entire rows whose primary projected value is
+   *     {@code null}
+   * @param dropOnAbsent when {@code true}, skip rows where the projected property is absent on the
+   *     entity
+   */
+  public YTDBMatchPlanStep(
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull InternalExecutionPlan plan,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType,
+      @Nonnull Map<Object, Object> inputParameters,
+      boolean dropNullRows,
+      boolean dropOnAbsent) {
     super(traversal);
     this.returnClass = returnClass;
     this.plan = plan;
     this.boundaryAlias = boundaryAlias;
     this.outputType = outputType;
     this.inputParameters = Map.copyOf(inputParameters);
+    this.dropNullRows = dropNullRows;
+    this.dropOnAbsent = dropOnAbsent;
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -196,6 +232,16 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   /** The TinkerPop element class the step emits. */
   public Class<E> getReturnClass() {
     return returnClass;
+  }
+
+  /** Whether the boundary skips rows whose primary projected value is {@code null}. */
+  public boolean isDropNullRows() {
+    return dropNullRows;
+  }
+
+  /** Whether the boundary skips rows where the projected property is absent on the entity. */
+  public boolean isDropOnAbsent() {
+    return dropOnAbsent;
   }
 
   /**
@@ -465,6 +511,12 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   private Object project(Result row) {
     return switch (outputType) {
       case ELEMENT -> projectElement(row, armingGraph);
+      case MAP, SINGLE_VALUE, SCALAR ->
+          throw new UnsupportedOperationException(
+              "Gremlin-to-MATCH "
+                  + outputType
+                  + " projection is not implemented yet; Track 6 Step 7 lands boundary"
+                  + " payload shaping.");
     };
   }
 

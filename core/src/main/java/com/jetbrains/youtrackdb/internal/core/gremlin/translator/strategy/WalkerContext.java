@@ -6,10 +6,14 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -85,6 +89,33 @@ final class WalkerContext implements RecognitionContext {
   /** TinkerPop element class the boundary step emits (e.g. {@code Vertex.class}). Pinned alongside
    *  {@link #boundaryAlias}. Required for a successful walk. */
   Class<? extends Element> returnClass;
+
+  /** When {@code true}, the assembled plan carries {@code RETURN DISTINCT} ({@code dedup()}). */
+  boolean returnDistinct;
+
+  /** {@code GROUP BY} clause for {@code group()} / {@code groupCount()} terminators. */
+  @Nullable SQLGroupBy groupBy;
+
+  /** {@code ORDER BY} clause for {@code order()} terminators. */
+  @Nullable SQLOrderBy orderBy;
+
+  /** {@code LIMIT} for {@code limit()} / {@code range()} terminators. */
+  @Nullable SQLLimit limit;
+
+  /** {@code SKIP} for {@code skip()} / {@code range()} terminators. */
+  @Nullable SQLSkip skip;
+
+  /** Boundary post-processor: skip rows whose primary value is {@code null}. */
+  boolean dropNullRows;
+
+  /** Boundary post-processor: skip rows where the projected property is absent on the entity. */
+  boolean dropOnAbsent;
+
+  /**
+   * Field-access expression from the immediately preceding single-key property extraction, consumed
+   * by aggregate recognisers ({@code values("age").mean()}).
+   */
+  @Nullable SQLExpression lastPropertyProjection;
 
   /** Whether the traversal runs as a polymorphic query, resolved once from the traversal's YTDB
    *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}) by {@link GremlinStepWalker}.
@@ -404,6 +435,51 @@ final class WalkerContext implements RecognitionContext {
     returnItems.add(new SQLExpression(new SQLIdentifier(alias)));
     returnAliases.add(new SQLIdentifier(alias));
     returnNestedProjections.add(null);
+  }
+
+  @Override
+  public void setReturnDistinct(boolean distinct) {
+    this.returnDistinct = distinct;
+  }
+
+  @Override
+  public void setGroupBy(@Nullable SQLGroupBy groupBy) {
+    this.groupBy = groupBy;
+  }
+
+  @Override
+  public void setOrderBy(@Nullable SQLOrderBy orderBy) {
+    this.orderBy = orderBy;
+  }
+
+  @Override
+  public void setLimit(@Nullable SQLLimit limit) {
+    this.limit = limit;
+  }
+
+  @Override
+  public void setSkip(@Nullable SQLSkip skip) {
+    this.skip = skip;
+  }
+
+  @Override
+  public void setDropNullRows(boolean dropNullRows) {
+    this.dropNullRows = dropNullRows;
+  }
+
+  @Override
+  public void setDropOnAbsent(boolean dropOnAbsent) {
+    this.dropOnAbsent = dropOnAbsent;
+  }
+
+  @Override
+  public void setLastPropertyProjection(@Nullable SQLExpression expression) {
+    this.lastPropertyProjection = expression;
+  }
+
+  @Nullable @Override
+  public SQLExpression lastPropertyProjection() {
+    return lastPropertyProjection;
   }
 
   @Override

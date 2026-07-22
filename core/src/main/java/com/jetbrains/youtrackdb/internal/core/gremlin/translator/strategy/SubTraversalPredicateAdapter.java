@@ -3,8 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -306,6 +311,51 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void setSingleReturnColumn(String alias) {
     // Intentionally no-op — see the class Javadoc "Why a delegating capture context".
+  }
+
+  @Override
+  public void setReturnDistinct(boolean distinct) {
+    // Swallowed: sub-walk filter children do not shape the parent's RETURN clause.
+  }
+
+  @Override
+  public void setGroupBy(@Nullable SQLGroupBy groupBy) {
+    // Swallowed — see setReturnDistinct.
+  }
+
+  @Override
+  public void setOrderBy(@Nullable SQLOrderBy orderBy) {
+    // Swallowed — see setReturnDistinct.
+  }
+
+  @Override
+  public void setLimit(@Nullable SQLLimit limit) {
+    // Swallowed — see setReturnDistinct.
+  }
+
+  @Override
+  public void setSkip(@Nullable SQLSkip skip) {
+    // Swallowed — see setReturnDistinct.
+  }
+
+  @Override
+  public void setDropNullRows(boolean dropNullRows) {
+    // Swallowed — boundary flags are set by terminal recognisers on the outer context only.
+  }
+
+  @Override
+  public void setDropOnAbsent(boolean dropOnAbsent) {
+    // Swallowed — see setDropNullRows.
+  }
+
+  @Override
+  public void setLastPropertyProjection(@Nullable SQLExpression expression) {
+    // Swallowed for combinator filter sub-walks; value-side by() sub-walks land in Track 6 Step 4.
+  }
+
+  @Nullable @Override
+  public SQLExpression lastPropertyProjection() {
+    return null;
   }
 
   @Override

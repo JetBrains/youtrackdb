@@ -424,7 +424,9 @@ public final class GremlinToMatchStrategy
             plan,
             translation.boundaryAlias(),
             translation.outputType(),
-            translation.inputParameters());
+            translation.inputParameters(),
+            translation.dropNullRows(),
+            translation.dropOnAbsent());
     TraversalHelper.removeAllSteps(traversalRaw);
     traversalRaw.addStep(boundary);
   }

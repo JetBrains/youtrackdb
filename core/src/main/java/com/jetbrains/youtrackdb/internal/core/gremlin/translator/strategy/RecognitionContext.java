@@ -2,7 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -180,6 +185,44 @@ interface RecognitionContext extends ParamSink {
    * on the source vertex.
    */
   void setSingleReturnColumn(String alias);
+
+  // --- Result shaping (Track 6) -----------------------------------------------------------------
+
+  /** Sets {@code RETURN DISTINCT} on the assembled MATCH plan. */
+  void setReturnDistinct(boolean distinct);
+
+  /** Sets the {@code GROUP BY} clause for aggregate terminators. */
+  void setGroupBy(@Nullable SQLGroupBy groupBy);
+
+  /** Sets the {@code ORDER BY} clause for {@code order()} terminators. */
+  void setOrderBy(@Nullable SQLOrderBy orderBy);
+
+  /** Sets the {@code LIMIT} clause for {@code limit()} / {@code range()} terminators. */
+  void setLimit(@Nullable SQLLimit limit);
+
+  /** Sets the {@code SKIP} clause for {@code skip()} / {@code range()} terminators. */
+  void setSkip(@Nullable SQLSkip skip);
+
+  /**
+   * When {@code true}, the boundary step skips entire {@code Result} rows whose primary projected
+   * value is {@code null} (empty-input aggregates like {@code mean()} on an empty stream).
+   */
+  void setDropNullRows(boolean dropNullRows);
+
+  /**
+   * When {@code true}, the boundary step skips rows where the projected property is absent on the
+   * entity (distinct from present-with-null — see design §"Track 5 commitment").
+   */
+  void setDropOnAbsent(boolean dropOnAbsent);
+
+  /**
+   * Records the field-access expression from the most recent single-key {@code values(key)} /
+   * {@code properties(key)} step for a following aggregate to re-point ({@code values("age").mean()}).
+   */
+  void setLastPropertyProjection(@Nullable SQLExpression expression);
+
+  /** The expression recorded by {@link #setLastPropertyProjection}, or {@code null} when unset. */
+  @Nullable SQLExpression lastPropertyProjection();
 
   // --- Sub-walk seam ----------------------------------------------------------------------------
 

@@ -10,19 +10,14 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
  * <ul>
  *   <li>{@link #ELEMENT} — emit the matched vertex/edge bound to the boundary alias. Used
  *       when the prefix ends in a vertex/edge step (e.g. {@code g.V()}, {@code .out("knows")},
- *       {@code .has(...)}). This is the only mode supported in the initial translation
- *       scope; richer modes are introduced as later tracks add support for projection,
- *       aggregation, and label-set propagation.
- * </ul>
- *
- * <p>Planned future modes (documented here only; not yet implemented):
- * <ul>
- *   <li>{@code MAP} — emit a {@code Map<String, Object>} carrying multiple bound aliases
- *       (when the prefix ends in {@code select(l1, l2, ...)} or {@code project(...)}).
- *   <li>{@code SINGLE_VALUE} — emit a single property value (when the prefix ends in
+ *       {@code .has(...)}).
+ *   <li>{@link #MAP} — emit a {@code Map<String, Object>} (when the prefix ends in
+ *       {@code select(...)}, {@code valueMap(...)}, {@code elementMap()}, {@code project(...)},
+ *       {@code group()}, or {@code groupCount()}).
+ *   <li>{@link #SINGLE_VALUE} — emit a single property value (when the prefix ends in
  *       {@code values(key)}).
- *   <li>{@code SCALAR} — emit a scalar (when the prefix ends in an aggregate like
- *       {@code count()} or {@code sum(...)}).
+ *   <li>{@link #SCALAR} — emit a scalar aggregate (when the prefix ends in {@code count()},
+ *       {@code sum(...)}, {@code min(...)}, {@code max(...)}, or {@code mean(...)}).
  * </ul>
  */
 public enum BoundaryOutputType {
@@ -31,5 +26,22 @@ public enum BoundaryOutputType {
    * one {@code Result} row per {@code next}, looks up the property under the boundary alias,
    * and emits it as a TinkerPop element.
    */
-  ELEMENT
+  ELEMENT,
+
+  /**
+   * Emit a {@code Map<String, Object>} built from the RETURN projection (multi-alias {@code select},
+   * {@code valueMap}, {@code elementMap}, {@code project}, {@code group}, {@code groupCount}).
+   */
+  MAP,
+
+  /**
+   * Emit a single property value from the RETURN projection ({@code values(key)} terminators).
+   */
+  SINGLE_VALUE,
+
+  /**
+   * Emit a scalar aggregate from the RETURN projection ({@code count}, {@code sum}, {@code min},
+   * {@code max}, {@code mean} terminators).
+   */
+  SCALAR
 }

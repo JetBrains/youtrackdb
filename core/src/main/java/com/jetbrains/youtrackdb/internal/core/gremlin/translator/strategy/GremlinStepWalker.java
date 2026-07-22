@@ -342,6 +342,11 @@ final class GremlinStepWalker {
             .returnItems(ctx.returnItems)
             .returnAliases(ctx.returnAliases)
             .returnNestedProjections(ctx.returnNestedProjections)
+            .returnDistinct(ctx.returnDistinct)
+            .groupBy(ctx.groupBy)
+            .orderBy(ctx.orderBy)
+            .limit(ctx.limit)
+            .skip(ctx.skip)
             .build();
 
     Map<Object, Object> inputParameters = new LinkedHashMap<>(ctx.inputParameters.size());
@@ -352,7 +357,9 @@ final class GremlinStepWalker {
         ctx.outputType,
         ctx.returnClass,
         Map.copyOf(inputParameters),
-        !ctx.ridBearing());
+        !ctx.ridBearing(),
+        ctx.dropNullRows,
+        ctx.dropOnAbsent);
   }
 
   /** AND-composes two same-alias {@code WHERE} clauses into one — the merge function used when both
