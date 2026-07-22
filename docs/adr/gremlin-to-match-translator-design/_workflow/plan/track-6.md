@@ -11,7 +11,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 ## Progress
 - [x] Review + decomposition (1 iteration: iter1 PASS — Technical + Risk + Adversarial; 0 blockers)
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review (1 iteration: iter1 PASS — main-session remediation; 0 blockers / 0 should-fix)
 - [ ] Track completion
 
 - [x] 2026-07-22T10:30Z [ctx=info] Review + decomposition complete (strategic trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter1; 7 steps, reconciled tag `high`)
@@ -22,6 +22,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T13:20Z [ctx=info] Step 5 complete (tip 6ea1e4fb7d; OrderRangeStepRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T13:51Z [ctx=info] Step 6 complete (tip b660e7527e; GremlinAggregateRecogniserTest + GremlinStepWalkerTest + smoke green)
 - [x] 2026-07-22T14:50Z [ctx=info] Step 7 complete (tip 985a14e1e8; boundary MAP/SINGLE_VALUE/SCALAR + ProjectionEquivalenceTest green)
+- [x] 2026-07-22T15:55Z [ctx=info] Phase C code review complete (tip pending Workflow update; main-session iter1 PASS — Task subagents blocked by usage limit)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -56,6 +57,8 @@ Iteration 1 (findings in `reviews/{technical,risk,adversarial}-iter1.md`):
 **Track Pre-Flight (look-back Track 5 → Track 6): ADJUST / CONTINUE.** Track 5 delivered the sub-walker and D5 cache; Track 6 inherits: (1) `walkChild` for `ByModulatorTranslator` value-side accumulators; (2) `PropertiesStep` recogniser unblocks no new `hasNot` concern; (3) extend `GremlinPlanFingerprint` before any positive `matchExpressions` writer (Track 5 BG1); (4) reserved-`$` `as(...)` guard when child labels become aliases (Track 5 BG2). No ESCALATE — scope and dependencies unchanged.
 
 **Gate verdict iteration 1: PASS.** Reconciled track tag: `high`. Seven steps, strictly ordered 1→7.
+
+**Phase C (2026-07-22, iter1 — main-session remediation).** Task subagent fan-out failed (account usage limit). Main session reviewed cumulative `d7dd3f8171..HEAD` covering retroactive high-step bugs focus (1/3/4/6/7) plus track-level bugs / code-quality / test-quality / concurrency. Findings in `reviews/phase-c-iter1.md`: **PASS** — 0 blockers, 0 should-fix, 2 suggestions (dead dual-flag path documentation; YQL/GQL counter wiring without CoreMetrics). No fix iteration.
 
 ## Context and Orientation
 By Track 6 the boundary step emits `ELEMENT` (vertex hops). This track adds the remaining four output types: `MAP` (`select` multi / `valueMap` / `elementMap` / `project` / `group` / `groupCount`), `SINGLE_VALUE` (`values` single-key), and `SCALAR` (`count` / `sum` / `min` / `max` / `mean`). Each terminal-step recogniser pins the type on the boundary at translation time.
