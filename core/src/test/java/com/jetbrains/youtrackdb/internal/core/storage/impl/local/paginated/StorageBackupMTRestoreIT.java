@@ -561,8 +561,20 @@ public class StorageBackupMTRestoreIT {
       var wowCache = (WOWCache) storage.getWriteCache();
       pageSize = wowCache.pageSize();
       storagePath = storage.getStoragePath();
+      // Collection names are counter-generated (c_<n>) with no class-name component since the
+      // base-keyed-engine-files rename, so BackupClass's .pcl files are resolved through its
+      // collection ids rather than matched by class-name prefix.
+      var backupClass = targetSession.getMetadata().getSchema().getClass("BackupClass");
+      assertThat(backupClass)
+          .as("restored target must contain the BackupClass schema class; its absence indicates"
+              + " a fundamental restore failure")
+          .isNotNull();
+      var classPclNames = new java.util.HashSet<String>();
+      for (var collectionId : backupClass.getCollectionIds()) {
+        classPclNames.add(targetSession.getCollectionNameById(collectionId) + ".pcl");
+      }
       var largestPcl = wowCache.files().keySet().stream()
-          .filter(name -> name.startsWith("backupclass_") && name.endsWith(".pcl"))
+          .filter(classPclNames::contains)
           .max((a, b) -> Long.compare(
               wowCache.physicalSizeForBackupSnapshot(wowCache.fileIdByName(a)),
               wowCache.physicalSizeForBackupSnapshot(wowCache.fileIdByName(b))))

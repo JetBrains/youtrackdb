@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -62,11 +63,14 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) session.getStorage();
     var wowCache = storage.getWriteCache();
+    // Resolve the class's collection file while the session is open: collection names are
+    // counter-generated (c_<n>) with no class-name component, so the file cannot be found by
+    // class-name prefix in the cache.
+    var pclFileName = collectionFileName(session, wowCache, "PageBreak", ".pcl");
     session.close();
 
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
     var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
     youTrackDB.close();
@@ -131,10 +135,11 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
+    // Counter-generated collection names: resolve the file through the class before close.
+    var pclFileName = collectionFileName(db, wowCache, "PageBreak", ".pcl");
     db.close();
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
     var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
     youTrackDB.close();
@@ -198,11 +203,12 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
+    // Counter-generated collection names: resolve the file through the class before close.
+    var pclFileName = collectionFileName(db, wowCache, "PageBreak", ".pcl");
     db.close();
 
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
     var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
 
@@ -262,11 +268,12 @@ public class StorageTestIT {
     var storage =
         (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
+    // Counter-generated collection names: resolve the file through the class before close.
+    var pclFileName = collectionFileName(db, wowCache, "PageBreak", ".pcl");
     db.close();
 
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
     var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
 
@@ -320,17 +327,26 @@ public class StorageTestIT {
   }
 
   /**
-   * Finds a file name in the write cache by class-name prefix and extension.
-   * Collection names include a numeric suffix (e.g., "pagebreak_0.pcl"),
-   * so we match "{prefix}_" to avoid false positives on longer class names.
+   * Resolves the exact write-cache file name of {@code className}'s single collection with the
+   * given extension. Collection names are counter-generated ({@code c_<n>}) with no class-name
+   * component since the base-keyed-engine-files rename made a class rename file-inert, so the
+   * file must be resolved through the class's collection id rather than matched by class-name
+   * prefix. Must run while the session is open; asserts the file is actually present in the
+   * write cache so a missing file still fails as loudly as the old prefix scan did. Uses the
+   * class's first collection id — deterministic under CLASS_COLLECTIONS_COUNT=1 and otherwise
+   * an arbitrary-but-stable pick, matching the old prefix scan's findFirst behavior.
    */
-  private static String findFileName(
-      WriteCache cache, String prefix, String extension) {
-    return cache.files().keySet().stream()
-        .filter(name -> name.startsWith(prefix + "_") && name.endsWith(extension))
-        .findFirst()
-        .orElseThrow(() -> new AssertionError(
-            "No " + extension + " file found for class prefix '" + prefix + "'"));
+  private static String collectionFileName(
+      DatabaseSessionEmbedded session, WriteCache cache, String className, String extension) {
+    var clazz = session.getMetadata().getSchema().getClass(className);
+    Assert.assertNotNull("class '" + className + "' must exist to resolve its collection file",
+        clazz);
+    var fileName = session.getCollectionNameById(clazz.getCollectionIds()[0]) + extension;
+    Assert.assertTrue(
+        "No " + extension + " file named '" + fileName + "' for class '" + className
+            + "' in the write cache",
+        cache.files().containsKey(fileName));
+    return fileName;
   }
 
   @After
