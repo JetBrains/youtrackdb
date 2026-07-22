@@ -33,6 +33,15 @@ targets it, and track 01's base is the merge-base with it.
   which instantiates the generic description rules owned by pr-publishing.md (Motivation,
   Planned changes with its subsections and hard guards, Tracks).
 
+## Peer review
+
+YTDB layers an optional peer-review step on the baseline via the slate doctrine
+extension (`doctrineExtraPath` → `docs-internal/agents/slate-doctrine-extra.md`). Peer
+review is optional and, when the user wants it, runs directly on the ready umbrella PR at
+the ready-for-review flip — there are no separate review branches or PRs. The rule that
+layered peer review supplements, never replaces, the mandatory per-track user review is
+owned by track-workflow.md § Peer review.
+
 ## Verification integration
 
 Per-track implementation (step 1 of the generic track loop) follows YTDB's test policy and
