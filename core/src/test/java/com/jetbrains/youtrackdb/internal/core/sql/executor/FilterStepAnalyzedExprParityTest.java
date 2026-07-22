@@ -16,6 +16,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -33,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 /**
  * Differential parity harness for FilterStep's dual-carry mechanism.
@@ -55,10 +60,15 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
 
   /**
    * A lowerable predicate (simple comparison, within IR subset) produces a non-null IR tree.
-   * The FilterStep uses the IR path for evaluation and produces correct results.
+   * The FilterStep uses the IR path for evaluation, the AST's {@code matchesFilters} is NEVER
+   * called, and the filter produces correct results.
+   *
+   * <p>N1 regression guard: a Mockito spy on the SQLWhereClause verifies that
+   * {@code matchesFilters} is never invoked. If {@code filterMap} were reverted to always
+   * use the AST fallback, this test would fail because the spy would detect the invocation.
    */
   @Test
-  public void lowerablePredicateUsesIrPath() {
+  public void lowerablePredicateUsesIrPathNotAstFallback() {
     var className = createClassInstance().getName();
     session.begin();
     try {
@@ -71,7 +81,7 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
       throw e;
     }
 
-    var where = parseWhere("SELECT FROM " + className + " WHERE age > 30");
+    var where = spy(parseWhere("SELECT FROM " + className + " WHERE age > 30"));
     var ctx = newContext();
     var step = new FilterStep(where, ctx, -1L, false);
     step.setPrevious(new FetchFromClassExecutionStep(className, null, ctx, null, false));
@@ -86,6 +96,10 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
       var results = drain(step.start(ctx), ctx);
       var ages = results.stream().map(r -> (Integer) r.getProperty("age")).toList();
       assertThat(ages).containsExactlyInAnyOrder(40, 60);
+
+      // N1 mitigation: matchesFilters must NEVER be called when the IR path is active.
+      // If filterMap were reverted to always use matchesFilters, this verify() would fail.
+      verify(where, never()).matchesFilters(any(Result.class), any(CommandContext.class));
     } finally {
       session.rollback();
     }
@@ -93,10 +107,15 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
 
   /**
    * An un-lowerable predicate (IN operator, outside IR subset) produces a null IR tree.
-   * The FilterStep falls back to the AST path and still produces correct results.
+   * The FilterStep falls back to the AST's {@code matchesFilters} path and produces correct
+   * results.
+   *
+   * <p>N1 mirror: a Mockito spy on the SQLWhereClause verifies that {@code matchesFilters}
+   * IS invoked at least once, proving the AST fallback branch is actually taken. Combined
+   * with {@link #lowerablePredicateUsesIrPathNotAstFallback()}, this covers both branches.
    */
   @Test
-  public void unlowerablePredicateFallsBackToAst() {
+  public void unlowerablePredicateUsesAstFallbackPath() {
     var className = createClassInstance().getName();
     session.begin();
     try {
@@ -109,7 +128,7 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
       throw e;
     }
 
-    var where = parseWhere("SELECT FROM " + className + " WHERE age IN [20, 60]");
+    var where = spy(parseWhere("SELECT FROM " + className + " WHERE age IN [20, 60]"));
     var ctx = newContext();
     var step = new FilterStep(where, ctx, -1L, false);
     step.setPrevious(new FetchFromClassExecutionStep(className, null, ctx, null, false));
@@ -124,6 +143,11 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
       var results = drain(step.start(ctx), ctx);
       var ages = results.stream().map(r -> (Integer) r.getProperty("age")).toList();
       assertThat(ages).containsExactlyInAnyOrder(20, 60);
+
+      // N1 mirror: matchesFilters MUST be called when the IR is absent (AST fallback).
+      // 3 records pass through filterMap → 3 invocations of matchesFilters.
+      verify(where, Mockito.atLeastOnce())
+          .matchesFilters(any(Result.class), any(CommandContext.class));
     } finally {
       session.rollback();
     }
@@ -131,16 +155,45 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
 
   /**
    * A $-variable predicate (outside IR subset due to $-guard) falls back to AST.
+   * Evaluates the fallback filtering path (not just lowering) to confirm the AST path
+   * works correctly for $-variable predicates.
    */
   @Test
   public void dollarVarPredicateFallsBackToAst() {
-    var where = parseWhere("SELECT FROM OUser WHERE name = $current.name");
+    var className = createClassInstance().getName();
+    session.begin();
+    try {
+      session.newEntity(className).setProperty("name", "Alice");
+      session.newEntity(className).setProperty("name", "Bob");
+      session.commit();
+    } catch (RuntimeException e) {
+      session.rollback();
+      throw e;
+    }
+
+    // $current.name is a $-prefixed context variable — outside IR subset
+    var where = parseWhere("SELECT FROM " + className + " WHERE name = $current.name");
     var ctx = newContext();
     var step = new FilterStep(where, ctx, -1L, false);
+    step.setPrevious(new FetchFromClassExecutionStep(className, null, ctx, null, false));
 
     assertThat(step.getAnalyzed())
         .as("$-variable predicate is outside IR subset")
         .isNull();
+
+    // Behaviorally exercise the AST fallback path by draining the stream.
+    // $current resolves to the current row during evaluation, so `name = $current.name`
+    // is a tautology that matches all records. The assertion here verifies the fallback
+    // path runs without errors and produces the expected self-matching results.
+    session.begin();
+    try {
+      var results = drain(step.start(ctx), ctx);
+      assertThat(results)
+          .as("$-var fallback must evaluate without errors (tautology matches all)")
+          .hasSize(2);
+    } finally {
+      session.rollback();
+    }
   }
 
   /**
@@ -260,7 +313,8 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
         "age < 10 OR age > 40",
         "age IS NULL",
         "age IS NOT NULL",
-        "name = 'Bob'");
+        "name = 'Bob'",
+        "name.asString() = 'Bob'");
 
     for (String predicate : corpus) {
       assertParityProjectionRows(className, predicate, rows);
@@ -421,9 +475,17 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
     }
     allStream.close(ctx2);
 
-    assertThat(irResults)
+    // Value-level comparison: extract user property maps (excluding metadata like @rid)
+    // so a same-cardinality wrong-row selection cannot pass.
+    var irProps = irResults.stream()
+        .map(this::userProperties)
+        .collect(Collectors.toList());
+    var astProps = astResults.stream()
+        .map(this::userProperties)
+        .collect(Collectors.toList());
+    assertThat(irProps)
         .as("entity rows: IR and AST must agree on predicate '%s'", predicate)
-        .hasSameSizeAs(astResults);
+        .containsExactlyInAnyOrderElementsOf(astProps);
   }
 
   /**
@@ -453,9 +515,28 @@ public class FilterStepAnalyzedExprParityTest extends TestUtilsFixture {
       }
     }
 
-    assertThat(irResults)
+    var irProps = irResults.stream()
+        .map(this::userProperties)
+        .collect(Collectors.toList());
+    var astProps = astResults.stream()
+        .map(this::userProperties)
+        .collect(Collectors.toList());
+    assertThat(irProps)
         .as("projection rows: IR and AST must agree on predicate '%s'", predicate)
-        .hasSameSizeAs(astResults);
+        .containsExactlyInAnyOrderElementsOf(astProps);
+  }
+
+  /**
+   * Extracts user-defined properties from a Result into a Map for value-level comparison.
+   * Excludes metadata (@rid, @class, @version) so entity-backed and projection results
+   * can be compared uniformly.
+   */
+  private Map<String, Object> userProperties(Result r) {
+    var map = new HashMap<String, Object>();
+    for (String name : r.getPropertyNames()) {
+      map.put(name, r.getProperty(name));
+    }
+    return map;
   }
 
   private ResultInternal projectionRow(Map<String, Object> properties) {
