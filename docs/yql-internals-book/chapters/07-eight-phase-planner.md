@@ -23,8 +23,9 @@ The planner opens by calling `buildPatterns()`, which walks each `SQLMatchExpres
 the parsed statement and populates five alias-keyed metadata maps: the unified pattern
 graph itself, `aliasClasses` (the declared `class:` constraint per alias),
 `aliasCollections` (the declared collection-name constraint per alias),
-`aliasRids` (the `@rid:` pin per alias), and `aliasFilters` (the merged WHERE clause per
-alias). Unnamed pattern nodes receive a synthetic `$YOUTRACKDB_DEFAULT_ALIAS_` prefix so
+`aliasPinnedRids` (the pinned RIDs per alias — a list holding one RID for a single `@rid`
+pin and several for a multi-RID `IN [...]` pin), and `aliasFilters` (the merged WHERE clause
+per alias). Unnamed pattern nodes receive a synthetic `$YOUTRACKDB_DEFAULT_ALIAS_` prefix so
 they can participate in scheduling and traversal without appearing in the final output.
 The artifact produced is the pattern graph paired with its metadata maps — the structural
 raw material that every subsequent phase reads. Chapter 6 already covered this phase in
@@ -47,7 +48,8 @@ first keeps every downstream decision — root selection, edge scheduling, step 
 Before the planner can decide where to start a traversal, it needs a rough count for
 each alias: how many records are likely to match? `estimateRootEntries()` answers this by
 inspecting each alias's constraints and returning a `Map<String, Long>` from alias name
-to estimated record count. A pinned `@rid` returns `1`; a class with a WHERE clause
+to estimated record count. A pinned `@rid` returns the number of pinned RIDs (`1` for a
+single-RID pin, more for a multi-RID `IN [...]` pin); a class with a WHERE clause
 returns the lesser of the filter's selectivity estimate and the class count; a bare class
 returns `classCount + 1`; an alias with no constraint at all is absent from the map. The
 planner also inflates cardinalities for aliases in `inferredWhileExprAliases` to

@@ -216,7 +216,7 @@ In a less-detectable variant the plan builds silently and the query returns zero
 ### 9.3.3 The inflation
 
 The fix is applied immediately after `estimateRootEntries()` returns
-(`MatchExecutionPlanner.java:511–514`):
+(`MatchExecutionPlanner.java:511–515`):
 
 ```java
 for (var alias : inferredWhileExprAliases) {
@@ -403,7 +403,7 @@ assembler consumes.
 *Further reading*
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java`
-  — `estimateRootEntries()` (line 5192); inflation loop (lines 511–514);
+  — `estimateRootEntries()` (line 5192); inflation loop (lines 511–515);
   `getTopologicalSortedSchedule()` (line 1976); zero-cardinality short-circuit (lines 527–531);
   `inferClassFromEdgeSchema()` (line 4974); `collectAliasesFromWhilePatterns()` (line 4854).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLWhereClause.java`

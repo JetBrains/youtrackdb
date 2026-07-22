@@ -200,17 +200,17 @@ semantic entries need author attention; numeric-only entries are a citation swee
 | `TraversalPreFilterHelper.java` | 14, 16, 17 | semantic | Pre-filter admission logic changed alongside the descriptor split. |
 | `IndexSearchDescriptor.java` | 14 | semantic | Feeds the `IndexLookup` pre-filter path. |
 | `SelectExecutionPlanner.java` | 07, 14 | numeric | Select-side rewrites (RID-equality fetch, predicate push-down, ORDER-BY-null); book cites it only lightly. |
-| `SQLWhereClause.java` | 03, 04, 05, 09, 12, 15 | numeric | RID-from-WHERE extraction; cited line numbers shifted. |
+| `SQLWhereClause.java` | 03, 04, 05, 09, 12, 15 | numeric | RID-from-WHERE extraction; line numbers shifted where the class is cited by `file:line` (Chapter 09). Chapter 03 mentions it by name only (no `file:line`) — nothing to sweep there. |
 | `BackRefHashJoinStep.java` | 10, 14, 16, 17 | numeric | Hash-join guard constant lines moved. |
 | `MatchStep.java` | 05, 07, 10, 11, 12, 13, 15, 16, 17 | numeric | Line numbers shifted. |
 | `MatchEdgeTraverser.java` | 10, 11, 12, 14, 16, 17 | numeric | Line numbers shifted. |
 | `OptionalMatchStep.java` | 07, 10, 11, 12, 15, 16, 17 | numeric | One-line addition; citations essentially stable. |
 | `SQLRid.java` | 04, 09 | semantic | RID handling ties into the pinned-RID-list refactor in Chapter 9. |
 | `SQLExpression.java` | 04, 05, 14 | numeric | Line numbers shifted. |
-| `SQLBinaryCondition.java` | 03 | numeric | Contradictory-equality short-circuit added; cited line shifted. |
+| `SQLBinaryCondition.java` | 03 | none (name-only) | Contradictory-equality short-circuit added, but Chapter 03 cites the class by name only (no `file:line`) — nothing to sweep. |
 | `SQLIdentifier.java` | 04 | numeric | Line numbers shifted. |
-| `SQLSelectStatement.java` | 03 | numeric | Line numbers shifted. |
-| `ExecutionStream.java` | 03, 11, 12, 17 | numeric | Line numbers shifted. |
+| `SQLSelectStatement.java` | 03 | none (name-only) | Chapter 03 cites the class by name only (no `file:line`) — nothing to sweep. |
+| `ExecutionStream.java` | 03, 11, 12, 17 | none (name-only) | Cited by name only (no `file:line`) in every citing chapter, including Chapter 03 — nothing to sweep. |
 
 **Changed but *not* cited** (no book action): the entire `sql/executor/cache/` subsystem (12
 files — see the deferred-content note), `FetchFromIndexStep.java`, `FetchFromRidsStep.java`,

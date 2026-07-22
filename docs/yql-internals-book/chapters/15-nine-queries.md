@@ -311,9 +311,9 @@ if they are the same person — that is, it filters out `n1` itself from the fri
 result. The filter evaluation happens inside `MatchStep` at traversal time, not as a separate
 step in the pipeline, so there is no extra row allocation for the dropped rows.
 
-Note the implication for query authoring: any alias whose filter text contains `$matched.x` or
-`$currentMatch` is automatically excluded from the root competition, regardless of how selective
-it might appear. If you write a query where the most selective alias also carries a `$matched`
+Note the implication for query authoring: any alias whose filter text contains a `$matched.x`
+reference to another alias is automatically excluded from the root competition, regardless of how
+selective it might appear. If you write a query where the most selective alias also carries a `$matched`
 reference, the planner cannot use it as root. In that case, add an explicit `class:` declaration
 on the alias it references to ensure that alias is scheduled — and therefore bound — before the
 dependent one.
