@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.Collection;
 import java.util.List;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -250,6 +251,36 @@ interface RecognitionContext extends ParamSink {
    * entity (distinct from present-with-null — see design §"Track 5 commitment").
    */
   void setDropOnAbsent(boolean dropOnAbsent);
+
+  /**
+   * Property keys the boundary checks with {@code EntityImpl.hasProperty} when projecting {@code
+   * valueMap} / {@code elementMap} / {@code values} (omit or drop when absent). Empty when unused.
+   */
+  void setPresencePropertyKeys(@Nonnull List<String> keys);
+
+  /**
+   * When {@code true}, {@code valueMap} property entries are wrapped in a singleton list to match
+   * native TinkerPop {@code valueMap} shape ({@code elementMap} leaves values unwrapped).
+   */
+  void setWrapMapValuesInLists(boolean wrap);
+
+  /**
+   * When {@code true}, the boundary drains every GROUP BY row into one accumulated {@code Map}
+   * ({@code group} / {@code groupCount}) and emits a single traverser.
+   */
+  void setAccumulateMap(boolean accumulate);
+
+  /**
+   * When {@code true}, a single-column {@code select(label)} / {@code select(label).by(…)} emits the
+   * column value directly (native {@code SelectOneStep} shape) rather than a one-entry map.
+   */
+  void setUnwrapSingletonMap(boolean unwrap);
+
+  /**
+   * When {@code true}, {@code elementMap} token columns ({@code id}/{@code label}) are emitted under
+   * TinkerPop {@code T.id} / {@code T.label} keys rather than plain strings.
+   */
+  void setElementMapTokens(boolean elementMapTokens);
 
   /**
    * Records the field-access expression from the most recent single-key {@code values(key)} /

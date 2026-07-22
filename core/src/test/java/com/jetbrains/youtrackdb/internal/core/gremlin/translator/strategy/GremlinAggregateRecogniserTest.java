@@ -101,6 +101,7 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
             GremlinAggregateAssembler.GROUP_KEY_ALIAS,
             GremlinAggregateAssembler.GROUP_VALUE_ALIAS);
     assertThat(ctx.returnItems.get(1).toString()).containsIgnoringCase("count(*)");
+    assertThat(ctx.accumulateMap).isTrue();
   }
 
   /** {@code groupCount().by("name")} is GROUP BY + count(*). */
@@ -116,6 +117,7 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
     assertThat(ctx.groupBy).isNotNull();
     assertThat(ctx.returnItems.get(1).toString()).containsIgnoringCase("count(*)");
+    assertThat(ctx.accumulateMap).isTrue();
   }
 
   private static WalkerContext seededContext() {

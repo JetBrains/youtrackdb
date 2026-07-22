@@ -393,7 +393,12 @@ final class GremlinStepWalker {
         Map.copyOf(inputParameters),
         !ctx.ridBearing(),
         ctx.dropNullRows,
-        ctx.dropOnAbsent);
+        ctx.dropOnAbsent,
+        ctx.presencePropertyKeys,
+        ctx.wrapMapValuesInLists,
+        ctx.accumulateMap,
+        ctx.unwrapSingletonMap,
+        ctx.elementMapTokens);
   }
 
   /** AND-composes two same-alias {@code WHERE} clauses into one — the merge function used when both

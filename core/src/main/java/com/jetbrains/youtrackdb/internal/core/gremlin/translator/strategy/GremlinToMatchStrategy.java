@@ -426,7 +426,12 @@ public final class GremlinToMatchStrategy
             translation.outputType(),
             translation.inputParameters(),
             translation.dropNullRows(),
-            translation.dropOnAbsent());
+            translation.dropOnAbsent(),
+            translation.presencePropertyKeys(),
+            translation.wrapMapValuesInLists(),
+            translation.accumulateMap(),
+            translation.unwrapSingletonMap(),
+            translation.elementMapTokens());
     TraversalHelper.removeAllSteps(traversalRaw);
     traversalRaw.addStep(boundary);
   }

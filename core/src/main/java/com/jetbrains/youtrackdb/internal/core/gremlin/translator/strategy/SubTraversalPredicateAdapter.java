@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -378,6 +379,31 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Override
   public void setDropOnAbsent(boolean dropOnAbsent) {
+    // Swallowed — see setDropNullRows.
+  }
+
+  @Override
+  public void setPresencePropertyKeys(@Nonnull List<String> keys) {
+    // Swallowed — see setDropNullRows.
+  }
+
+  @Override
+  public void setWrapMapValuesInLists(boolean wrap) {
+    // Swallowed — see setDropNullRows.
+  }
+
+  @Override
+  public void setAccumulateMap(boolean accumulate) {
+    // Swallowed — see setDropNullRows.
+  }
+
+  @Override
+  public void setUnwrapSingletonMap(boolean unwrap) {
+    // Swallowed — see setDropNullRows.
+  }
+
+  @Override
+  public void setElementMapTokens(boolean elementMapTokens) {
     // Swallowed — see setDropNullRows.
   }
 

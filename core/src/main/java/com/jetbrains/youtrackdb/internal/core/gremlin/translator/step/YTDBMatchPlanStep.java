@@ -1,13 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -73,11 +81,23 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
  * </ul>
  *
  * @param <S> upstream traverser type (always {@code Object} for a start step)
- * @param <E> emitted element type (a TinkerPop {@link Vertex} under the single supported output
- *            type; later tracks parameterise this)
+ * @param <E> emitted payload type ({@link Vertex} for {@link BoundaryOutputType#ELEMENT}; Map /
+ *            scalar / value for the other output types — the Element bound is historical for the
+ *            ELEMENT path and is unchecked-cast for non-element payloads)
  */
 public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<S, E>
     implements AutoCloseable {
+
+  /**
+   * RETURN aliases for {@code group} / {@code groupCount} key and value columns — must match
+   * {@code GremlinAggregateAssembler.GROUP_KEY_ALIAS} / {@code GROUP_VALUE_ALIAS}.
+   */
+  private static final String GROUP_KEY_ALIAS = "key";
+
+  private static final String GROUP_VALUE_ALIAS = "value";
+
+  /** Sentinel from {@link #projectOrSkip} when the row must not emit a traverser. */
+  private static final Object SKIP = new Object();
 
   // Non-final so clone() installs the clone's own plan copy with a plain field write. A final field
   // would force a reflective write after super.clone() froze it, voiding the JMM final-field
@@ -95,6 +115,23 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
 
   /** When {@code true}, skip rows where the projected property is absent on the entity. */
   private final boolean dropOnAbsent;
+
+  /** Property keys classified via {@link EntityImpl#hasProperty} (valueMap / values / elementMap). */
+  private final List<String> presencePropertyKeys;
+
+  /** When {@code true}, wrap valueMap property values in a singleton list. */
+  private final boolean wrapMapValuesInLists;
+
+  /** When {@code true}, drain GROUP BY rows into one accumulated map. */
+  private final boolean accumulateMap;
+
+  /** When {@code true}, single-key select emits the column value instead of a one-entry map. */
+  private final boolean unwrapSingletonMap;
+
+  /** When {@code true}, elementMap id/label columns use {@code T.id}/{@code T.label} keys. */
+  private final boolean elementMapTokens;
+
+  private final Set<String> presenceKeySet;
 
   // The current arming's open stream, or null before the first open / after close. Single source of
   // truth — there is no inherited iterator to shadow.
@@ -184,6 +221,11 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
         outputType,
         inputParameters,
         false,
+        false,
+        List.of(),
+        false,
+        false,
+        false,
         false);
   }
 
@@ -194,6 +236,44 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
    *     {@code null}
    * @param dropOnAbsent when {@code true}, skip rows where the projected property is absent on the
    *     entity
+   * @param presencePropertyKeys property keys checked with {@link EntityImpl#hasProperty}
+   * @param wrapMapValuesInLists wrap {@code valueMap} property values in singleton lists
+   * @param accumulateMap drain GROUP BY rows into one map ({@code group} / {@code groupCount})
+   * @param unwrapSingletonMap emit a single select column value instead of a one-entry map
+   * @param elementMapTokens emit elementMap id/label under {@code T.id}/{@code T.label}
+   */
+  public YTDBMatchPlanStep(
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull InternalExecutionPlan plan,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType,
+      @Nonnull Map<Object, Object> inputParameters,
+      boolean dropNullRows,
+      boolean dropOnAbsent,
+      @Nonnull List<String> presencePropertyKeys,
+      boolean wrapMapValuesInLists,
+      boolean accumulateMap,
+      boolean unwrapSingletonMap,
+      boolean elementMapTokens) {
+    super(traversal);
+    this.returnClass = returnClass;
+    this.plan = plan;
+    this.boundaryAlias = boundaryAlias;
+    this.outputType = outputType;
+    this.inputParameters = Map.copyOf(inputParameters);
+    this.dropNullRows = dropNullRows;
+    this.dropOnAbsent = dropOnAbsent;
+    this.presencePropertyKeys = List.copyOf(presencePropertyKeys);
+    this.wrapMapValuesInLists = wrapMapValuesInLists;
+    this.accumulateMap = accumulateMap;
+    this.unwrapSingletonMap = unwrapSingletonMap;
+    this.elementMapTokens = elementMapTokens;
+    this.presenceKeySet = Set.copyOf(this.presencePropertyKeys);
+  }
+
+  /**
+   * Compatibility ctor used by older call sites / tests that only pass the two drop flags.
    */
   public YTDBMatchPlanStep(
       @Nonnull Traversal.Admin<S, E> traversal,
@@ -204,14 +284,20 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       @Nonnull Map<Object, Object> inputParameters,
       boolean dropNullRows,
       boolean dropOnAbsent) {
-    super(traversal);
-    this.returnClass = returnClass;
-    this.plan = plan;
-    this.boundaryAlias = boundaryAlias;
-    this.outputType = outputType;
-    this.inputParameters = Map.copyOf(inputParameters);
-    this.dropNullRows = dropNullRows;
-    this.dropOnAbsent = dropOnAbsent;
+    this(
+        traversal,
+        returnClass,
+        plan,
+        boundaryAlias,
+        outputType,
+        inputParameters,
+        dropNullRows,
+        dropOnAbsent,
+        List.of(),
+        false,
+        false,
+        false,
+        false);
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -242,6 +328,21 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   /** Whether the boundary skips rows where the projected property is absent on the entity. */
   public boolean isDropOnAbsent() {
     return dropOnAbsent;
+  }
+
+  /** Property keys classified via entity-layer presence checks. */
+  public List<String> getPresencePropertyKeys() {
+    return presencePropertyKeys;
+  }
+
+  /** Whether {@code valueMap} property values are wrapped in singleton lists. */
+  public boolean isWrapMapValuesInLists() {
+    return wrapMapValuesInLists;
+  }
+
+  /** Whether GROUP BY rows are accumulated into one map. */
+  public boolean isAccumulateMap() {
+    return accumulateMap;
   }
 
   /**
@@ -277,13 +378,24 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       state = State.OPEN;
     }
     var ctx = plan.getContext();
-    boolean hasRow;
-    E element = null;
     try {
-      hasRow = openStream.hasNext(ctx);
-      if (hasRow) {
-        element = (E) project(openStream.next(ctx));
+      if (accumulateMap) {
+        return emitAccumulatedGroupMap(ctx);
       }
+      while (true) {
+        if (!openStream.hasNext(ctx)) {
+          state = State.DRAINED;
+          releaseStream();
+          throw FastNoSuchElementException.instance();
+        }
+        var payload = projectOrSkip(openStream.next(ctx));
+        if (payload == SKIP) {
+          continue;
+        }
+        return getTraversal().getTraverserGenerator().generate(payload, (Step) this, 1L);
+      }
+    } catch (FastNoSuchElementException e) {
+      throw e;
     } catch (RuntimeException | Error e) {
       // A failure while iterating the open stream (hasNext / next / projection) is terminal: release
       // the stream AND the plan before propagating. TinkerPop auto-closes the traversal only on
@@ -300,21 +412,25 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       }
       throw e;
     }
-    if (hasRow) {
-      // Start-step traverser generation, as AddVertexStartStep does it. The raw Step cast is
-      // needed because generate() expects Step<E, ?> but this is Step<S, E> (S != E for an element
-      // source), so the generic self-reference cannot be expressed without erasure.
-      return getTraversal().getTraverserGenerator().generate(element, (Step) this, 1L);
+  }
+
+  /**
+   * Drains every GROUP BY row into one {@link LinkedHashMap} and emits a single traverser — native
+   * {@code group} / {@code groupCount} are barrier steps.
+   */
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private Traverser.Admin<E> emitAccumulatedGroupMap(
+      com.jetbrains.youtrackdb.internal.core.command.CommandContext ctx) {
+    var map = new LinkedHashMap<Object, Object>();
+    while (openStream.hasNext(ctx)) {
+      var row = openStream.next(ctx);
+      map.put(
+          convertValue(row.getProperty(GROUP_KEY_ALIAS)),
+          convertValue(row.getProperty(GROUP_VALUE_ALIAS)));
     }
-    // Stream drained: close only this arming's STREAM and keep the plan open, so a reset() + reopen
-    // can rewind and re-run it — a closed SelectExecutionPlan cannot be cleanly restarted (its
-    // steps' close guard is sticky, so a re-run's cursors would leak). The plan is closed by the
-    // close() TinkerPop fires right after this signals no more rows (DefaultTraversal.hasNext ->
-    // CloseableIterator.closeIterator), and on early termination. Moving to DRAINED stops further
-    // iteration until a reset re-arms.
     state = State.DRAINED;
     releaseStream();
-    throw FastNoSuchElementException.instance();
+    return getTraversal().getTraverserGenerator().generate(map, (Step) this, 1L);
   }
 
   /**
@@ -507,17 +623,161 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
     return cloned;
   }
 
-  /** Projects one result row onto the configured output payload. */
-  private Object project(Result row) {
+  /**
+   * Projects one result row onto the configured output payload, or returns {@link #SKIP} when the
+   * row must not emit a traverser ({@code dropOnAbsent} / {@code dropNullRows}).
+   */
+  private Object projectOrSkip(Result row) {
     return switch (outputType) {
       case ELEMENT -> projectElement(row, armingGraph);
-      case MAP, SINGLE_VALUE, SCALAR ->
-          throw new UnsupportedOperationException(
-              "Gremlin-to-MATCH "
-                  + outputType
-                  + " projection is not implemented yet; Track 6 Step 7 lands boundary"
-                  + " payload shaping.");
+      case MAP -> projectMap(row);
+      case SINGLE_VALUE -> projectSingleValue(row);
+      case SCALAR -> projectScalar(row);
     };
+  }
+
+  /**
+   * Builds a {@link Map} from RETURN columns. The boundary-entity column (when present) is stripped
+   * from the emitted map and used only for {@link EntityImpl#hasProperty} classification of
+   * presence-checked keys. Absent keys are omitted; present-with-null keys are included.
+   */
+  private Object projectMap(Result row) {
+    var entity = resolveEntity(row);
+    var map = new LinkedHashMap<Object, Object>();
+    for (String name : row.getPropertyNames()) {
+      if (name.equals(boundaryAlias)) {
+        continue;
+      }
+      Object mapKey = mapKeyForColumn(name);
+      if (presenceKeySet.contains(name)) {
+        if (entity == null || !entity.hasProperty(name)) {
+          continue;
+        }
+        var value = convertValue(entity.getProperty(name));
+        map.put(mapKey, wrapMapValuesInLists ? Collections.singletonList(value) : value);
+        continue;
+      }
+      map.put(mapKey, convertMapColumn(name, row.getProperty(name)));
+    }
+    if (unwrapSingletonMap && map.size() == 1) {
+      return map.values().iterator().next();
+    }
+    return map;
+  }
+
+  /**
+   * Converts a non-presence MAP column. Select labels often arrive as bare {@link RID}s and must
+   * become TinkerPop vertices; {@code elementMap}'s {@code id} column must stay a RID (native uses
+   * {@code T.id}).
+   */
+  private Object convertMapColumn(String columnName, Object raw) {
+    if (raw instanceof RID rid) {
+      if (elementMapTokens && "id".equals(columnName)) {
+        return rid;
+      }
+      return new YTDBVertexImpl(armingGraph, rid);
+    }
+    return convertValue(raw);
+  }
+
+  private Object mapKeyForColumn(String name) {
+    if (elementMapTokens) {
+      // Aliases wired by GremlinProjectionAssembler.ELEMENT_MAP_KEY_ID / _LABEL.
+      if ("id".equals(name)) {
+        return org.apache.tinkerpop.gremlin.structure.T.id;
+      }
+      if ("label".equals(name)) {
+        return org.apache.tinkerpop.gremlin.structure.T.label;
+      }
+    }
+    return name;
+  }
+
+  /**
+   * Emits a single property value. With {@code dropOnAbsent}, rows whose property is absent on the
+   * entity are skipped; present-with-null still emits a {@code null} traverser.
+   */
+  private Object projectSingleValue(Result row) {
+    if (dropOnAbsent && !presencePropertyKeys.isEmpty()) {
+      var key = presencePropertyKeys.getFirst();
+      var entity = resolveEntity(row);
+      if (entity == null || !entity.hasProperty(key)) {
+        return SKIP;
+      }
+      var value = convertValue(entity.getProperty(key));
+      if (dropNullRows && value == null) {
+        return SKIP;
+      }
+      return value;
+    }
+    var value = primaryProjectedValue(row);
+    if (dropNullRows && value == null) {
+      return SKIP;
+    }
+    return value;
+  }
+
+  /**
+   * Emits a scalar aggregate cell. {@code dropNullRows} drops the empty-input null cell for {@code
+   * sum}/{@code min}/{@code max}/{@code mean}; {@code count} keeps its {@code 0}.
+   */
+  private Object projectScalar(Result row) {
+    var value = primaryProjectedValue(row);
+    if (dropNullRows && value == null) {
+      return SKIP;
+    }
+    return convertValue(value);
+  }
+
+  /**
+   * First non-boundary RETURN column value — used for {@code SINGLE_VALUE} / {@code SCALAR} when the
+   * assembler did not pin presence keys (or as a fallback).
+   */
+  private Object primaryProjectedValue(Result row) {
+    for (String name : row.getPropertyNames()) {
+      if (!name.equals(boundaryAlias)) {
+        return convertValue(row.getProperty(name));
+      }
+    }
+    return null;
+  }
+
+  private EntityImpl resolveEntity(Result row) {
+    var entity = row.getEntity(boundaryAlias);
+    if (entity instanceof EntityImpl entityImpl) {
+      return entityImpl;
+    }
+    return null;
+  }
+
+  /**
+   * Converts MATCH cell values into TinkerPop-facing payloads: entities become {@link
+   * YTDBVertexImpl}, nested lists are mapped recursively, RIDs stay as id objects.
+   */
+  private Object convertValue(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Vertex) {
+      return value;
+    }
+    if (value instanceof com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex ytdbVertex) {
+      return new YTDBVertexImpl(armingGraph, ytdbVertex);
+    }
+    if (value instanceof Entity entity) {
+      if (entity.isVertex()) {
+        return new YTDBVertexImpl(armingGraph, entity.asVertex());
+      }
+      return entity;
+    }
+    if (value instanceof List<?> list) {
+      var out = new ArrayList<>(list.size());
+      for (Object item : list) {
+        out.add(convertValue(item));
+      }
+      return out;
+    }
+    return value;
   }
 
   /**

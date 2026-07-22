@@ -756,8 +756,21 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result).isNotNull();
     assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
     assertThat(result.dropOnAbsent()).isTrue();
-    assertThat(result.inputs().returnItems()).hasSize(1);
-    assertThat(result.inputs().returnItems().getFirst().toString()).contains("name");
+    assertThat(result.presencePropertyKeys()).containsExactly("name");
+    assertThat(result.inputs().returnItems()).hasSize(2);
+    assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
+  }
+
+  /** {@code g.V().values("age").mean()} translates end-to-end with {@code SCALAR} + dropNullRows. */
+  @Test
+  public void walk_valuesMean_pinsScalarDropNullRows() {
+    var admin = graph.traversal().V().values("age").mean().asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SCALAR);
+    assertThat(result.dropNullRows()).isTrue();
   }
 
   /** {@code g.V().as("v").select("v")} translates with {@code MAP} output and labelled RETURN. */
@@ -781,7 +794,10 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result).isNotNull();
     assertThat(result.outputType()).isEqualTo(BoundaryOutputType.MAP);
-    assertThat(result.inputs().returnAliases().getFirst().getStringValue()).isEqualTo("name");
+    assertThat(result.wrapMapValuesInLists()).isTrue();
+    assertThat(result.presencePropertyKeys()).containsExactly("name");
+    assertThat(result.inputs().returnAliases().getFirst().getStringValue())
+        .isEqualTo("$g2m_v0");
   }
 
   /** {@code g.V().order().by("name", Order.desc)} translates with an ORDER BY clause. */

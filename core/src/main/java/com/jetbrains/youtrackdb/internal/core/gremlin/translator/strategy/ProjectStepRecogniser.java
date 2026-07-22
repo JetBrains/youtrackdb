@@ -43,6 +43,11 @@ final class ProjectStepRecogniser implements StepRecogniser {
       ctx.appendReturnColumn(field.get(), keys.get(i));
     }
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
+    ctx.setUnwrapSingletonMap(false);
+    ctx.setElementMapTokens(false);
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(false);
+    ctx.setPresencePropertyKeys(java.util.List.of());
     return Outcome.ACCEPTED;
   }
 }

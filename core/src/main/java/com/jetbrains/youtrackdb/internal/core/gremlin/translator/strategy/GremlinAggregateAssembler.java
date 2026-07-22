@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Locale;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
@@ -49,6 +50,11 @@ final class GremlinAggregateAssembler {
     ctx.setDropNullRows(false);
     ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
+    ctx.setPresencePropertyKeys(List.of());
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(false);
+    ctx.setUnwrapSingletonMap(false);
+    ctx.setElementMapTokens(false);
     ctx.pinBoundary(boundary, BoundaryOutputType.SCALAR, Vertex.class);
     return Outcome.ACCEPTED;
   }
@@ -70,6 +76,11 @@ final class GremlinAggregateAssembler {
     ctx.setDropNullRows(true);
     ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
+    ctx.setPresencePropertyKeys(List.of());
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(false);
+    ctx.setUnwrapSingletonMap(false);
+    ctx.setElementMapTokens(false);
     ctx.pinBoundary(boundary, BoundaryOutputType.SCALAR, Vertex.class);
     return Outcome.ACCEPTED;
   }
@@ -103,6 +114,11 @@ final class GremlinAggregateAssembler {
     ctx.setDropNullRows(false);
     ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
+    ctx.setPresencePropertyKeys(List.of());
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(true);
+    ctx.setUnwrapSingletonMap(false);
+    ctx.setElementMapTokens(false);
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
     return Outcome.ACCEPTED;
   }
@@ -128,6 +144,11 @@ final class GremlinAggregateAssembler {
     ctx.setDropNullRows(false);
     ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
+    ctx.setPresencePropertyKeys(List.of());
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(true);
+    ctx.setUnwrapSingletonMap(false);
+    ctx.setElementMapTokens(false);
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
     return Outcome.ACCEPTED;
   }

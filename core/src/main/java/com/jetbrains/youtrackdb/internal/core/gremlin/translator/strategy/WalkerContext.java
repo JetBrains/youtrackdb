@@ -20,6 +20,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -119,6 +120,35 @@ final class WalkerContext implements RecognitionContext {
 
   /** Boundary post-processor: skip rows where the projected property is absent on the entity. */
   boolean dropOnAbsent;
+
+  /**
+   * Property keys checked with {@code EntityImpl.hasProperty} at the boundary for {@code values} /
+   * {@code valueMap} / {@code elementMap}. Empty when unused.
+   */
+  List<String> presencePropertyKeys = List.of();
+
+  /**
+   * When {@code true}, wrap {@code valueMap} property values in a singleton list (native TinkerPop
+   * shape).
+   */
+  boolean wrapMapValuesInLists;
+
+  /**
+   * When {@code true}, drain GROUP BY rows into one accumulated map ({@code group} /
+   * {@code groupCount}).
+   */
+  boolean accumulateMap;
+
+  /**
+   * When {@code true}, single-key {@code select} emits the column value (native SelectOne shape).
+   */
+  boolean unwrapSingletonMap;
+
+  /**
+   * When {@code true}, elementMap {@code id}/{@code label} columns use {@code T.id}/{@code T.label}
+   * keys.
+   */
+  boolean elementMapTokens;
 
   /**
    * Field-access expression from the immediately preceding single-key property extraction, consumed
@@ -539,6 +569,31 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void setDropOnAbsent(boolean dropOnAbsent) {
     this.dropOnAbsent = dropOnAbsent;
+  }
+
+  @Override
+  public void setPresencePropertyKeys(@Nonnull List<String> keys) {
+    this.presencePropertyKeys = List.copyOf(keys);
+  }
+
+  @Override
+  public void setWrapMapValuesInLists(boolean wrap) {
+    this.wrapMapValuesInLists = wrap;
+  }
+
+  @Override
+  public void setAccumulateMap(boolean accumulate) {
+    this.accumulateMap = accumulate;
+  }
+
+  @Override
+  public void setUnwrapSingletonMap(boolean unwrap) {
+    this.unwrapSingletonMap = unwrap;
+  }
+
+  @Override
+  public void setElementMapTokens(boolean elementMapTokens) {
+    this.elementMapTokens = elementMapTokens;
   }
 
   @Override

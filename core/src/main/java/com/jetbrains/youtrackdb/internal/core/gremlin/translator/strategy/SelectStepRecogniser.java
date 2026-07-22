@@ -58,6 +58,11 @@ final class SelectStepRecogniser implements StepRecogniser {
       ctx.appendReturnColumn(field.get(), userLabel);
     }
     ctx.pinBoundary(ctx.boundaryAlias(), BoundaryOutputType.MAP, Vertex.class);
+    ctx.setUnwrapSingletonMap(labels.size() == 1);
+    ctx.setElementMapTokens(false);
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(false);
+    ctx.setPresencePropertyKeys(java.util.List.of());
     return Outcome.ACCEPTED;
   }
 }

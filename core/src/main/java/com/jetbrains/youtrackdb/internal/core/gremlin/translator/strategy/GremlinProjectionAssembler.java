@@ -4,7 +4,9 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
@@ -12,8 +14,8 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * {@code values}, {@code valueMap}, {@code elementMap}) and pins {@link BoundaryOutputType} on the
  * walk. Entity-layer absent-vs-null classification ({@code EntityImpl.hasProperty}) lands in
  * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep} (Track 6
- * Step 7); this assembler only wires MATCH RETURN items and recogniser-side flags ({@code
- * dropOnAbsent}).
+ * Step 7); this assembler wires MATCH RETURN items (including the boundary entity for presence
+ * checks) and recogniser-side flags ({@code dropOnAbsent}, presence keys, valueMap list wrapping).
  */
 final class GremlinProjectionAssembler {
 
@@ -50,14 +52,19 @@ final class GremlinProjectionAssembler {
       }
       ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(internalAlias)), userLabel);
     }
+    ctx.setUnwrapSingletonMap(userLabels.size() == 1);
+    ctx.setElementMapTokens(false);
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(false);
+    ctx.setPresencePropertyKeys(List.of());
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
   }
 
   /**
-   * Configures single-key {@code values(key)}: one field-access RETURN column, {@link
-   * BoundaryOutputType#SINGLE_VALUE}, {@code dropOnAbsent}, and {@code lastPropertyProjection} for a
-   * following aggregate ({@code values("age").mean()}).
+   * Configures single-key {@code values(key)}: boundary entity column (for {@code hasProperty}) plus
+   * one field-access RETURN column, {@link BoundaryOutputType#SINGLE_VALUE}, {@code dropOnAbsent},
+   * and {@code lastPropertyProjection} for a following aggregate ({@code values("age").mean()}).
    */
   static Outcome configureSingleKeyValues(RecognitionContext ctx, String propertyKey) {
     var boundary = ctx.boundaryAlias();
@@ -70,16 +77,25 @@ final class GremlinProjectionAssembler {
     }
     var expr = aliasProperty(boundary, propertyKey);
     ctx.clearReturnProjection();
+    // Entity column first — Step 7 dropOnAbsent reads EntityImpl.hasProperty from this alias.
+    ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
     ctx.appendReturnColumn(expr, null);
     ctx.setLastPropertyProjection(expr);
     ctx.setDropOnAbsent(true);
+    ctx.setPresencePropertyKeys(List.of(propertyKey));
+    ctx.setWrapMapValuesInLists(false);
+    ctx.setAccumulateMap(false);
+    ctx.setUnwrapSingletonMap(false);
+    ctx.setElementMapTokens(false);
     ctx.pinBoundary(boundary, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
     return Outcome.ACCEPTED;
   }
 
   /**
-   * Configures {@code valueMap(keys…)} / {@code elementMap(…)}: one RETURN column per map entry
-   * ({@code id}, {@code label}, then property keys) and {@link BoundaryOutputType#MAP}.
+   * Configures {@code valueMap(keys…)} / {@code elementMap(…)}: boundary entity for presence checks,
+   * one RETURN column per map entry ({@code id}, {@code label}, then property keys), and {@link
+   * BoundaryOutputType#MAP}. {@code valueMap} wraps property values in singleton lists; {@code
+   * elementMap} leaves them unwrapped.
    */
   static Outcome configurePropertyMap(
       RecognitionContext ctx, String[] propertyKeys, int elementMapTokens) {
@@ -89,11 +105,13 @@ final class GremlinProjectionAssembler {
     }
     var isElementMap = elementMapTokens != 0;
     if (!isElementMap && (propertyKeys == null || propertyKeys.length == 0)) {
-      // Bare valueMap() enumerates every property at iteration time — decline until Step 7 lands
-      // schema-driven all-property projection.
+      // Bare valueMap() enumerates every property at iteration time — decline until schema-driven
+      // all-property projection lands.
       return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
+    // Entity column — omitted from the emitted MAP; used only for hasProperty classification.
+    ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
     if (isElementMap) {
       if ((elementMapTokens & ELEMENT_MAP_TOKEN_ID) != 0) {
         ctx.appendReturnColumn(aliasRecordAttribute(boundary, "@rid"), ELEMENT_MAP_KEY_ID);
@@ -102,17 +120,26 @@ final class GremlinProjectionAssembler {
         ctx.appendReturnColumn(aliasRecordAttribute(boundary, "@class"), ELEMENT_MAP_KEY_LABEL);
       }
     }
+    var presenceKeys = new ArrayList<String>();
     if (propertyKeys != null) {
       for (String key : propertyKeys) {
         if (key == null || key.isBlank() || WalkerContext.isReservedHasKey(key)) {
           return Outcome.DECLINE;
         }
         ctx.appendReturnColumn(aliasProperty(boundary, key), key);
+        presenceKeys.add(key);
       }
     }
-    if (ctx.returnItems().isEmpty()) {
+    if (ctx.returnItems().size() <= 1) {
+      // Only the entity column — nothing to project.
       return Outcome.DECLINE;
     }
+    ctx.setPresencePropertyKeys(presenceKeys);
+    ctx.setWrapMapValuesInLists(!isElementMap);
+    ctx.setAccumulateMap(false);
+    ctx.setDropOnAbsent(false);
+    ctx.setUnwrapSingletonMap(false);
+    ctx.setElementMapTokens(isElementMap);
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
   }

@@ -35,7 +35,8 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.dropOnAbsent).isTrue();
     assertThat(ctx.lastPropertyProjection).isNotNull();
     assertThat(ctx.lastPropertyProjection.toString()).contains("name");
-    assertThat(ctx.returnItems).hasSize(1);
+    assertThat(ctx.returnItems).hasSize(2);
+    assertThat(ctx.presencePropertyKeys).containsExactly("name");
   }
 
   /** Optimised {@code properties("name")} terminal step is accepted like {@code values}. */
@@ -101,8 +102,11 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
-    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo("name");
-    assertThat(ctx.returnItems.getFirst().toString()).contains("name");
+    assertThat(ctx.wrapMapValuesInLists).isTrue();
+    assertThat(ctx.presencePropertyKeys).containsExactly("name");
+    assertThat(ctx.returnAliases.stream().map(a -> a == null ? null : a.getStringValue()))
+        .contains(BOUNDARY_ALIAS, "name");
+    assertThat(ctx.returnItems.get(1).toString()).contains("name");
   }
 
   /** Bare {@code valueMap()} declines — all-property enumeration is deferred. */
@@ -128,8 +132,10 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
-    assertThat(ctx.returnAliases).extracting(a -> a.getStringValue())
+    assertThat(ctx.wrapMapValuesInLists).isFalse();
+    assertThat(ctx.returnAliases.stream().map(a -> a.getStringValue()))
         .containsExactly(
+            BOUNDARY_ALIAS,
             GremlinProjectionAssembler.ELEMENT_MAP_KEY_ID,
             GremlinProjectionAssembler.ELEMENT_MAP_KEY_LABEL,
             "name");

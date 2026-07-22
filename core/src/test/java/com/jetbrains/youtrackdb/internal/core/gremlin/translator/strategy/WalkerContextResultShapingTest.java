@@ -21,6 +21,9 @@ public class WalkerContextResultShapingTest {
     assertThat(ctx.skip).isNull();
     assertThat(ctx.dropNullRows).isFalse();
     assertThat(ctx.dropOnAbsent).isFalse();
+    assertThat(ctx.presencePropertyKeys).isEmpty();
+    assertThat(ctx.wrapMapValuesInLists).isFalse();
+    assertThat(ctx.accumulateMap).isFalse();
     assertThat(ctx.lastPropertyProjection).isNull();
   }
 
