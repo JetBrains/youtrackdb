@@ -26,6 +26,9 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [x] 2026-07-21T18:15Z [ctx=safe] Step 2 complete (commit fafac7e8b3)
 - [x] 2026-07-21T21:20Z [ctx=safe] Step 1 review-fix complete (commit 1063e1d987; 2 blockers, 2
   should-fixes, 5 suggestions — all applied)
+- [x] 2026-07-22T06:40Z [ctx=safe] Step 1 review-fix iteration 2 complete (commit 7d2369cda0;
+  crash-safety review CS20–CS25: 2 should-fixes + 4 suggestions — all applied or dispositioned,
+  0 blockers)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -369,6 +372,62 @@ ci-integration verify: surefire ci/disk profile 17407/0 (the racer red is gone),
 with only the four known Track 6 rename classes failing (21 failures, identical to the HEAD
 baseline — no new IT failures). The storage stays usable after teardown of the poisoned-storage
 test (checkErrorState gates only component operations, not close/drop).
+
+### Step 1 review-fix iteration 2 — commit 7d2369cda0, 2026-07-22T06:40Z [ctx=safe]
+**What was done:** Applied the crash-safety/durability review findings (report:
+`track-7/reviews/crash-safety-step1-iter1.md`; CS20–CS25, 0 blockers, 8 SAFE certificates on the
+headline mechanisms). (1) CS20 (should-fix): the failed-commit drop-restore arm now restores the
+collection's link-bag registration — `LinkCollectionsBTreeManagerShared` gained
+`restoreComponentByCollectionId` (the rollback-aware mirror of the eager
+`deleteComponentByCollectionId`; no-op without a component file, idempotent over a slot-reuse
+replacement), called best-effort from `undoReconciledCollections` on a lightweight read-only
+operation so it works on an already-poisoned storage. Red-first proven with an in-memory
+manager-map probe on the pure-drop shape (`getComponentByCollectionId` null pre-fix while the
+rolled-back file is intact). (2) CS21 (should-fix): comment-only — the no-rollback endTxCommit
+arm's containment claim now states honestly that the error state gates component-WRITE operations
+only; reads keep serving (durably-committed sub-shape: new durable rows under the stale
+unpromoted schema) until reopen. Read-gating was NOT implemented (a new design decision, out of
+review-fix scope per the work order). (3) CS22: the arm wraps AssertionError into
+StorageException before `setInError`, making the load-bearing poison unconditional under `-ea`
+while leaving the setter's global stray-assert guard intact. (4) CS24: the engine drop-restore
+arm's assert-in-catch and the no-captured-data assert are now loud error logs (poisoned-storage
+case annotated as expected degradation with reopen as healer) — no throw from the undo can mask
+the primary commit failure or skip the membership undo. (5) CS25: new
+`poisonedEndTxCommitFailureRecoversOnReopen` — a self-contained DISK-typed database is poisoned
+via the post-durability hook, the context is closed and reopened, and the recovered state is
+asserted (error cleared, dropped class gone, created class present and row-round-trip writable).
+(6) CS23: no action required (positive verification note — durable behavior strictly improved by
+iteration 1; config-cache residue stays in the accepted gap's class).
+
+**What was discovered:** The CS20 gap reproduces exactly as predicted on the pure-drop shape and
+is masked on slot-reuse (the replacement `SharedLinkBagBTree` is stateless and serves the
+resurrected file id). `SharedLinkBagBTree.load` takes no component-operation lock, so the restore
+works on a poisoned storage (the error gate covers component-write lock acquisition only). The
+DISK reopen test confirms the recovery contract end to end: the error state preserves the dirty
+flag through the context close and the next open replays the WAL — both the drop and the create
+of the in-doubt (certainly-durable in the hook shape) commit are visible after recovery.
+
+**What changed from the plan:** Nothing — all dispositions followed the work order. The
+addSuppressed half of the CS24 suggestion was not implemented (the primary exception is not in
+scope inside the restore arms; threading it through the undo signatures for a diagnostics-only
+gain was judged not worth the churn — the loud error logs are the surfacing).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/LinkCollectionsBTreeManagerShared.java`
+  (`restoreComponentByCollectionId`)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java`
+  (drop-restore arm link-bag restore; shape-2 comment + AssertionError wrap; engine-restore
+  assert removal + poisoned-case annotation)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaCommitReconciliationTest.java`
+  (manager-map probe on three failed-commit tests; DISK reopen-recovery test)
+
+**Critical context:** Verification: SchemaCommitReconciliationTest 24/24 (incl. the new DISK
+reopen test on the default profile run), link-bag test classes + MetadataWriteMutexTest +
+CommitTimeIndexBuildTest green (119 tests), full core unit suite green, whole-project coverage
+build green with zero test failures, gate PASSED (88.3% line / 81.8% branch on
+changed-vs-develop). The review's SAFE certificates (C1–C8) and the read-path error-state gap
+(CS21) remain recorded in `track-7/reviews/crash-safety-step1-iter1.md`; if read-gating of a
+poisoned storage is ever wanted, it is a new design decision, not a review-fix.
 
 ### Step 2 — commit fafac7e8b3, 2026-07-21T18:15Z [ctx=safe]
 **What was done:** Turned the second standing red merge-blocker
