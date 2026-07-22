@@ -208,6 +208,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -280,20 +281,53 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private SharedContext sharedContext;
 
   /**
-   * Whether this session has engaged the storage's metadata-write mutex for the currently open
-   * transaction. Set when the tx-local schema state is first seeded (the transaction's first schema
-   * or index write) and read in the transaction's outermost teardown to release the permit exactly
-   * once. It is a session field rather than transaction custom data on purpose: the custom-data map
-   * is wiped by the transaction's {@code clear()} before the outermost teardown runs the release, so
-   * a marker living there would be gone by release time. This session-side marker survives that wipe
-   * and is the record the normal release reads, mirroring the design's surviving session-side record
-   * (the later track adds the acquire ordinal alongside it). It is {@code volatile} because the
-   * release runs from the transaction's outermost teardown, which a pool-reaper thread can drive
-   * cross-thread on pool shutdown (the engaging owner thread may be gone); the volatile read gives
-   * the reaper a happens-before edge to the owner's engage-time write so a needed release is never
-   * skipped on a stale {@code false}.
+   * The acquire ordinal of this session's currently engaged metadata-write-mutex permit, 0 when
+   * none is engaged. It is a session field rather than transaction custom data on purpose: the
+   * custom-data map is wiped by the transaction's {@code clear()} before the outermost teardown
+   * runs the release, so a record living there would be gone by release time; this session-side
+   * record survives that wipe. It is an {@link AtomicLong} because the release gate is an atomic
+   * claim: every releaser — the owner's tx-close finally, a foreign teardown's release pass (pool
+   * shutdown), and the engage-path Dekker self-release — funnels through one
+   * {@code getAndSet(0)} in {@link #releaseMetadataWriteMutexForTx()}, so exactly one of any
+   * number of racing teardowns harvests the ordinal and presents it to the mutex; the mutex's
+   * {@code (session, ordinal)}-keyed CAS is the independent second belt.
    */
-  private volatile boolean metadataMutexEngaged = false;
+  private final AtomicLong engagedMutexOrdinal = new AtomicLong();
+
+  /**
+   * The mutex instance the current (or last) engage acquired, captured at engage time so the
+   * release funnel never needs {@link #sharedContext} — which {@code internalClose} nulls before
+   * its outer finally runs the widened release pass. Never cleared: a session binds to one storage
+   * for its lifetime, so the reference stays valid and a stale read is impossible. Volatile so a
+   * foreign teardown that harvests the ordinal (whose {@code AtomicLong} read gives the
+   * happens-before edge from the engage) also reads the mutex reference the engage published.
+   */
+  @Nullable private volatile MetadataWriteMutex engagedMutex;
+
+  /**
+   * The Dekker teardown-intent mark: volatile, set by every teardown that actually tears (after
+   * {@code internalClose}'s one-shot guard passes — a guard-returning no-op close must not plant a
+   * stale mark) and by the pool-teardown entry ({@code realClose}) before it re-validates the
+   * Q-A2 skip condition. The engage path stores its acquire ordinal FIRST and then re-reads this
+   * mark (ordinal-store-before-mark-read): with the teardown writing the mark before its release
+   * pass, at least one side always sees the other — a teardown that missed a mid-flight engage is
+   * seen by the engage's re-check (which self-releases and throws), and an engage the teardown
+   * did see is harvested by the teardown's release pass. Cleared on every pooled {@code reuse()}
+   * (the second belt against a stale mark surviving into a fresh borrow).
+   */
+  private volatile boolean teardownIntent;
+
+  /**
+   * True while an {@code internalClose} body is running on this session. Read by the
+   * owner-as-completer seam ({@link #completeDeferredTeardownAfterTxClose()}) to distinguish a
+   * tx-close reached from a user commit/rollback (where a marked session means the pool skipped
+   * its teardown and the owner must complete it) from a tx-close reached from inside
+   * {@code internalClose}'s own rollback (where re-entering {@code internalClose} would recurse).
+   * Deliberately a plain field: the guard only needs same-stack reentrance detection (program
+   * order); a cross-thread overlap between an owner completer and a pool teardown is the benign
+   * both-act case, contained by the one-shot status guard and the atomic release claim.
+   */
+  private boolean internalCloseInProgress;
 
   /**
    * True only while {@code ensureTxSchemaState} is building the tx-local schema copy (the
@@ -3303,8 +3337,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
+      // One-shot guard. A guard-returning no-op close must NOT plant the teardown-intent mark: a
+      // stale mark surviving into a later pooled borrow would make that borrower's first engage
+      // self-abort ("session was closed while engaging") on a healthy session.
       return;
     }
+    // Every teardown that actually tears marks first (both the recycle and the full arm), set
+    // strictly AFTER the one-shot guard passed. The mark is the teardown side of the Dekker pair
+    // with the mutex engage: mark-write before the release pass in the outer finally below, so a
+    // mid-flight engage this teardown's release pass cannot see will see the mark in its own
+    // post-acquire re-check and self-release.
+    teardownIntent = true;
+    internalCloseInProgress = true;
 
     assert assertIfNotActive();
     try {
@@ -3331,6 +3375,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
     } finally {
+      // Widened release pass: the belt that keeps the mutex permit from stranding when this
+      // teardown throws BEFORE the transaction's own close() finally could release it — including
+      // the pre-rollback throw points (closeActiveQueries/localCache.shutdown), a rollback that
+      // threw before reaching tx.close(), and the storage-already-closed early return above. A
+      // no-op when nothing is engaged (the atomic claim returns 0) and idempotent against the
+      // normal tx-close release (the claim makes exactly one releaser proceed). The Q-A2 skip path
+      // returns from realClose() before ever entering this method, so this pass can never release
+      // a live foreign commit's permit. releaseMetadataWriteMutexForTx never throws by contract.
+      releaseMetadataWriteMutexForTx();
+      internalCloseInProgress = false;
       // ALWAYS RESET TL
       activeSession.remove();
     }
@@ -3551,8 +3605,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // per-class record, a non-persistent linked id). The custom-data marker that records "the seed
       // exists" has not been written yet, so undo the engage before rethrowing: otherwise the permit
       // would be stranded if the transaction is later abandoned, and a same-tx retry of the schema
-      // write would re-enter here with no seed recorded and call engage() again on the same thread
-      // that already holds the single permit, parking forever. releaseMetadataWriteMutexForTx clears
+      // write would re-enter here with no seed recorded and trip the engage's same-session
+      // stranded-holder throw. releaseMetadataWriteMutexForTx clears
       // the marker and the permit and is idempotent, so the normal teardown release that still fires
       // on close() is a no-op.
       releaseMetadataWriteMutexForTx();
@@ -3771,31 +3825,124 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           "the metadata-write mutex must engage above the index-manager lock, but the current thread"
               + " already holds the index-manager write lock");
     }
-    sharedCtx.getMetadataWriteMutex().engage(this);
-    metadataMutexEngaged = true;
+    final var mutex = sharedCtx.getMetadataWriteMutex();
+    final long ordinal = mutex.engage(this);
+    engagedMutex = mutex;
+    // V2 mandatory ordering (the Dekker pair's formal soundness depends on it): store the acquire
+    // ordinal STRICTLY BEFORE reading the teardown-intent mark. The teardown side writes the mark
+    // and then runs its release pass; with these orders, either the teardown's getAndSet harvests
+    // the ordinal we just stored (the teardown releases), or its claim returned 0 — in which case
+    // its mark-write precedes our ordinal-store in synchronization order, so the mark-read below
+    // sees the mark and this engage self-releases. No interleaving leaves the permit without a
+    // releaser.
+    engagedMutexOrdinal.set(ordinal);
+    if (teardownIntent) {
+      // Dekker post-acquire re-check: the session was marked for teardown while this engage was
+      // mid-flight (permit acquired, ordinal not yet visible to the teardown's release pass).
+      // Self-release through the same atomic claim every releaser uses, then fail loudly — the
+      // session is being torn down, so the transaction cannot proceed.
+      releaseMetadataWriteMutexForTx();
+      throw new DatabaseException(getDatabaseName(),
+          "the session was closed while engaging the metadata-write mutex");
+    }
   }
 
   /**
-   * Releases the metadata-write mutex permit this session engaged for the just-closed transaction,
-   * if any. Called from the transaction's outermost teardown ({@code close()}), which is the single
-   * point reached by both the explicit {@code commit()}/{@code rollback()} paths and the
-   * {@code executeInTx*} wrappers once the outermost frame closes. The release is gated on the
-   * session-side {@code metadataMutexEngaged} marker (which survives the transaction's custom-data
-   * wipe): the marker is cleared before the release runs, so the permit is released at most once per
-   * transaction. In this track that gate is sufficient because the only releaser is the owning thread
-   * in this outermost teardown; there is no concurrent foreign releaser, so the mutex's session-keyed
-   * check in {@code releaseFor} needs no atomic compare-and-set. The later track that adds the
-   * concurrent foreign-releaser path (a pool shutdown reaping a still-checked-out session while the
-   * owner races its own teardown) must convert the mutex {@code holder} to an
-   * {@code AtomicReference<Holder>} with a {@code compareAndSet}-gated release so this normal release
-   * and that abnormal-termination release can never both clear-and-release the single permit.
+   * Releases the metadata-write mutex permit this session engaged for the current transaction, if
+   * any — the SINGLE release funnel all three release sites go through: the owner's tx-close
+   * finally ({@code FrontendTransactionImpl.close()}), the teardown release pass in
+   * {@code internalClose}'s outer finally (which a pool shutdown can drive cross-thread), and the
+   * engage-path Dekker self-release. The gate is an atomic claim: {@code getAndSet(0)} on the
+   * session-side ordinal record makes exactly one of any number of racing releasers harvest the
+   * ordinal; the harvester presents {@code (session, ordinal)} to the mutex, whose keyed CAS is
+   * the independent second belt (it also warn-noops a stale ordinal from a recycled session's
+   * earlier acquisition). Never throws: it runs inside teardown finallys where a throw would mask
+   * the real exception, and {@code releaseFor} is warn-noop by contract. Uses the engage-captured
+   * mutex reference rather than {@link #getSharedContext()}, because {@code internalClose} nulls
+   * {@code sharedContext} before its outer finally runs this pass.
    */
   public void releaseMetadataWriteMutexForTx() {
-    if (!metadataMutexEngaged) {
+    final long ordinal = engagedMutexOrdinal.getAndSet(0);
+    if (ordinal == 0) {
       return;
     }
-    metadataMutexEngaged = false;
-    getSharedContext().getMetadataWriteMutex().releaseFor(this);
+    final var mutex = engagedMutex;
+    if (mutex == null) {
+      // Unreachable by construction (the engage publishes the mutex reference before the ordinal);
+      // log rather than throw — this runs in teardown finallys.
+      LogManager.instance()
+          .error(this,
+              "metadata-write mutex release claimed ordinal %d but no mutex reference was"
+                  + " recorded; the permit may be stranded",
+              null, ordinal);
+      return;
+    }
+    mutex.releaseFor(this, ordinal);
+  }
+
+  /**
+   * Whether this session has been marked for teardown (the Dekker teardown-intent mark). Read by
+   * the mutex engage path: the wait loop aborts a waiter whose session is being torn down, and the
+   * post-acquire re-check self-releases an engage the teardown's release pass could not see.
+   */
+  public boolean isTeardownIntentMarked() {
+    return teardownIntent;
+  }
+
+  /** Sets the Dekker teardown-intent mark; see {@link #isTeardownIntentMarked()}. */
+  protected void markTeardownIntent() {
+    teardownIntent = true;
+  }
+
+  /**
+   * Clears the Dekker teardown-intent mark on a pooled session's re-open ({@code reuse()}): the
+   * second belt against a stale mark surviving into a fresh borrow, whose first engage would
+   * otherwise self-abort forever.
+   */
+  protected void clearTeardownIntent() {
+    teardownIntent = false;
+  }
+
+  /**
+   * Owner-as-completer for the Q-A2 pool-teardown skip: called at the transaction-close boundary
+   * (the tail finally of {@code FrontendTransactionImpl.close()}, after the mutex release), on
+   * both the commit and rollback outcomes. If a pool teardown skipped this session because our
+   * commit was in flight (it set the teardown-intent mark and deferred), the owner — the sole
+   * legitimate completer — now runs the full {@code internalClose} on the owning thread. The
+   * Dekker completer handshake makes at least one side act: the pool writes the mark FIRST and
+   * then re-validates the skip condition (falling through to a full teardown itself when the
+   * commit already finished); the owner publishes its commit-completion state (the volatile tx
+   * status write inside {@code close()}) FIRST and then reads the mark here. Throw-isolated: a
+   * teardown failure is logged and never masks the commit outcome (a durable commit must never be
+   * reported failed because a close listener threw — the client would retry a durably applied
+   * commit). The {@code internalCloseInProgress} guard keeps the tx-close reached from inside
+   * {@code internalClose}'s own rollback from re-entering {@code internalClose} recursively.
+   */
+  public void completeDeferredTeardownAfterTxClose() {
+    if (!teardownIntent || internalCloseInProgress || status != STATUS.OPEN) {
+      return;
+    }
+    try {
+      internalClose(false);
+    } catch (final Throwable deferredTeardownFailure) {
+      LogManager.instance()
+          .warn(this,
+              "Deferred session teardown after a pool-close skip failed; the session may leak"
+                  + " resources until the storage closes",
+              deferredTeardownFailure);
+    }
+  }
+
+  /**
+   * Whether this session's current transaction is COMMITTING on a thread other than the caller's
+   * — the Q-A2 skip-protocol detection a pool teardown runs before tearing down a checked-out
+   * session. Reads only the transaction's volatile {@code status}/{@code storageTxThreadId}, so it
+   * is safe from a foreign thread; the residual TOCTOU is the accepted one (late-skip = the commit
+   * already finished and the owner completes; late-rollback = today's behavior).
+   */
+  protected boolean hasInFlightForeignCommit() {
+    final var tx = currentTx;
+    return tx instanceof FrontendTransactionImpl impl && impl.isCommittingOnForeignThread();
   }
 
   public boolean isRetainRecords() {

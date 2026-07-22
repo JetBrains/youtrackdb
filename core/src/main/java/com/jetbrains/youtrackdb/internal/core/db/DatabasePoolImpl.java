@@ -25,6 +25,7 @@ import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DB_POOL_MI
 
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePoolListener;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -126,7 +127,19 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
     var p = pool.getAndSet(null);
     if (p != null) {
       for (var res : p.getAllResources()) {
-        ((PooledSession) res).realClose();
+        // Per-session throw isolation: pool close is one-shot (no retry), so one throwing
+        // realClose must not abort the loop and strand every remaining checked-out session's
+        // resources (including a held metadata-write-mutex permit, which would wedge all later
+        // schema transactions until restart). Log and continue to the next session.
+        try {
+          ((PooledSession) res).realClose();
+        } catch (final Throwable perSessionCloseFailure) {
+          LogManager.instance()
+              .error(this,
+                  "Failed to close a pooled session during pool shutdown; continuing with the"
+                      + " remaining sessions",
+                  perSessionCloseFailure);
+        }
       }
       p.close();
       factory.removePool(this);
