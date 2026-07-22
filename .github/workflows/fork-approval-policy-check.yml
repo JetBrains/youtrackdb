@@ -1,0 +1,92 @@
+# ------------------------------------------------------------------
+# WORKFLOW: Fork Approval Policy Drift Check
+#
+# Guards the repository's fork-PR approval policy. External-contributor
+# fork PRs must require an explicit maintainer "Approve and run" before
+# any workflow executes — this is what stops a malicious fork PR from
+# running arbitrary code in CI on first push. GitHub exposes that
+# setting via the Actions API:
+#
+#   gh api repos/<owner>/<repo>/actions/permissions/fork-pr-contributor-approval
+#     --jq '.approval_policy'
+#
+# We assert the value stays exactly `all_external_contributors`. If it
+# drifts (e.g. someone relaxes it to first-time contributors only), or
+# if the policy cannot be read at all, this workflow fails and alerts
+# Zulip — a failure to verify is treated as alert-worthy, not ignored.
+#
+# Requires the `FORK_POLICY_AUDIT_TOKEN` secret: a PAT/token with
+# repository Administration:read, provisioned by a maintainer. The
+# workflow-level GITHUB_TOKEN is deliberately given no permissions
+# (permissions: {}); the audit uses the dedicated token instead.
+#
+# Scheduled + manual dispatch only — it never runs on pull_request or
+# push events, so it cannot be triggered (or observed) by fork PRs.
+# ------------------------------------------------------------------
+name: Fork Approval Policy Drift Check
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  check-policy:
+    name: Check Fork Approval Policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read and verify fork-approval policy
+        env:
+          # Dedicated PAT with repository Administration:read; the
+          # workflow-level GITHUB_TOKEN has no permissions here.
+          GH_TOKEN: ${{ secrets.FORK_POLICY_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          EXPECTED="all_external_contributors"
+
+          # Read the current fork-PR contributor approval policy. A failure
+          # here (missing/insufficient token, API error) is itself
+          # alert-worthy — we must not pass silently when we cannot verify.
+          if ! POLICY=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/permissions/fork-pr-contributor-approval" \
+            --jq '.approval_policy'); then
+            echo "::error::Could not read the fork-PR contributor approval policy" \
+              "for ${GITHUB_REPOSITORY}. The FORK_POLICY_AUDIT_TOKEN secret may be" \
+              "missing or lack repository Administration:read, or the GitHub API" \
+              "call failed. A failure to verify is treated as a drift alert."
+            exit 1
+          fi
+
+          if [[ "$POLICY" != "$EXPECTED" ]]; then
+            echo "::error::Fork-PR approval policy has drifted:" \
+              "expected '$EXPECTED' but found '$POLICY'." \
+              "External-contributor PRs may no longer require maintainer" \
+              "approval before workflows run. Restore the setting in" \
+              "Settings > Actions > General > Fork pull request workflows" \
+              "from outside collaborators."
+            exit 1
+          fi
+
+          echo "OK: fork-PR approval policy is '$POLICY' (expected '$EXPECTED')."
+
+      - name: Send Zulip notification on failure
+        if: failure()
+        uses: zulip/github-actions-zulip/send-message@v2
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **FORK APPROVAL POLICY DRIFT** :warning:
+            The fork-approval policy drift check failed for ${{ github.repository }} — the policy either drifted away from `all_external_contributors` or could not be verified. External-contributor PRs may no longer require maintainer approval before workflows run; check the repository Actions settings.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
