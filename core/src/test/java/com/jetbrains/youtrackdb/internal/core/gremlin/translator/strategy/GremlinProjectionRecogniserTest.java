@@ -135,6 +135,37 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
             "name");
   }
 
+  /** {@code select("v").by("name")} applies the modulator to the bound label's internal alias. */
+  @Test
+  public void selectWithBy_appliesModulatorToBoundLabel() {
+    var admin = graph.traversal().V().as("v").select("v").by("name").asAdmin();
+    var ctx = contextAfterStart(admin);
+    var cursor = cursorAt(admin, SelectOneStep.class);
+
+    var outcome = SelectOneStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo("v");
+    assertThat(ctx.returnItems.getFirst().toString()).contains("name");
+  }
+
+  /** {@code project("n").by("name")} builds one modulated RETURN column per project key. */
+  @Test
+  public void projectWithBy_pinsMapProjection() {
+    var admin = graph.traversal().V().project("n").by("name").asAdmin();
+    var ctx = contextAfterStart(admin);
+    var cursor =
+        cursorAt(admin, org.apache.tinkerpop.gremlin.process.traversal.step.map.ProjectStep.class);
+
+    var outcome = ProjectStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo("n");
+    assertThat(ctx.returnItems.getFirst().toString()).contains("name");
+  }
+
   private static WalkerContext contextAfterStart(
       org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> admin) {
     var ctx = new WalkerContext(true, false);

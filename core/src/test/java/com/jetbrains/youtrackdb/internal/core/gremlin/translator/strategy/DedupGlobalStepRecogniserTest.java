@@ -68,17 +68,19 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnDistinct).isFalse();
   }
 
-  /** {@code dedup().by(...)} carries a modulator child and declines until ByModulatorTranslator. */
+  /** {@code dedup().by("name")} projects the modulated dedup key and sets distinct. */
   @Test
-  public void dedupWithByChild_declines() {
+  public void dedupWithByChild_accepted() {
     var admin = graph.traversal().V().dedup().by("name").asAdmin();
     var ctx = seededContext();
     var cursor = cursorAtDedup(admin);
 
     var outcome = DedupGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
-    assertThat(ctx.returnDistinct).isFalse();
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.returnDistinct).isTrue();
+    assertThat(ctx.returnItems).hasSize(1);
+    assertThat(ctx.returnItems.getFirst().toString()).contains("name");
   }
 
   /** {@code g.V().as("v")} binds the start label through {@link StartStepRecogniser}. */

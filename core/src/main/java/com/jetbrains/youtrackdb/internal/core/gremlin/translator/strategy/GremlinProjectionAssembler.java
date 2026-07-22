@@ -1,13 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -123,35 +119,15 @@ final class GremlinProjectionAssembler {
 
   /** {@code alias.propertyKey} parsed through the SQL parser so the AST matches hand-written RETURN. */
   static SQLExpression aliasProperty(String alias, String propertyKey) {
-    return parseReturnItem(alias + "." + propertyKey);
+    return ByModulatorTranslator.aliasProperty(alias, propertyKey);
   }
 
   /** {@code alias.@rid} / {@code alias.@class} for {@code elementMap} token columns. */
   static SQLExpression aliasRecordAttribute(String alias, String attribute) {
-    return parseReturnItem(alias + "." + attribute);
+    return ByModulatorTranslator.aliasRecordAttribute(alias, attribute);
   }
 
   private static void repinMap(RecognitionContext ctx, String boundary) {
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
-  }
-
-  private static SQLExpression parseReturnItem(String itemSql) {
-    try {
-      var sql = "SELECT " + itemSql + " FROM V";
-      var parser =
-          new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8)));
-      var stmt = (SQLSelectStatement) parser.parse();
-      var projection = stmt.getProjection();
-      if (projection == null || projection.getItems() == null || projection.getItems().isEmpty()) {
-        throw new IllegalArgumentException("failed to parse return item: " + itemSql);
-      }
-      var expr = projection.getItems().getFirst().getExpression();
-      if (expr == null) {
-        throw new IllegalArgumentException("failed to parse return item: " + itemSql);
-      }
-      return expr;
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("failed to parse return item: " + itemSql, e);
-    }
   }
 }
