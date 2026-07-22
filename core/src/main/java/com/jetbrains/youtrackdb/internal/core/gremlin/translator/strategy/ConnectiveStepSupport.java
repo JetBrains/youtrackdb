@@ -23,6 +23,31 @@ final class ConnectiveStepSupport {
   }
 
   /**
+   * Walks every child sub-traversal and returns the accepted captures in input order.
+   * Returns {@code null} when the connective is empty or when any child declines.
+   *
+   * <p>No caller-visible state is committed here: each child still runs behind the
+   * sub-walk capture boundary, so a declined child leaves the outer context untouched.
+   * Callers keep connective-specific commit semantics separate from this shared walk phase.
+   */
+  static List<SubTraversalPredicateAdapter> walkAcceptedChildren(
+      ConnectiveStep<?> connective, RecognitionContext ctx) {
+    var children = connective.getLocalChildren();
+    if (children.isEmpty()) {
+      return null;
+    }
+    var adapters = new ArrayList<SubTraversalPredicateAdapter>(children.size());
+    for (var child : children) {
+      var adapter = ctx.walkChild(child);
+      if (adapter.outcome() != Outcome.ACCEPTED) {
+        return null;
+      }
+      adapters.add(adapter);
+    }
+    return adapters;
+  }
+
+  /**
    * Commits a pure-filter child: AND-composes captured alias filters into {@code ctx} and applies any
    * boundary-node re-types the child captured in its pattern buffer (a folded {@code hasLabel(L)}
    * re-types through {@code addNode} without flipping {@link SubTraversalPredicateAdapter#hasEdges()}).
@@ -75,16 +100,12 @@ final class ConnectiveStepSupport {
     if (boundary == null) {
       return null;
     }
-    var children = connective.getLocalChildren();
-    if (children.isEmpty()) {
+    var adapters = walkAcceptedChildren(connective, ctx);
+    if (adapters == null) {
       return null;
     }
     var exprs = new ArrayList<SQLBooleanExpression>();
-    for (var child : children) {
-      var adapter = ctx.walkChild(child);
-      if (adapter.outcome() != Outcome.ACCEPTED) {
-        return null;
-      }
+    for (var adapter : adapters) {
       if (adapter.hasEdges()) {
         return null;
       }

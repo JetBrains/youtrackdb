@@ -1,8 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import java.util.ArrayList;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.filter.ConnectiveStep;
 
 /**
  * Recogniser for {@link AndStep}, the {@code ConnectiveStrategy} form of logical AND over child
@@ -38,25 +36,9 @@ final class AndStepRecogniser implements StepRecogniser {
     if (ctx.boundaryAlias() == null) {
       return Outcome.DECLINE;
     }
-    var decline = walkAndCommit(andStep, ctx);
-    return decline != null ? decline : Outcome.ACCEPTED;
-  }
-
-  private static Outcome walkAndCommit(ConnectiveStep<?> connective, RecognitionContext ctx) {
-    var children = connective.getLocalChildren();
-    if (children.isEmpty()) {
+    var adapters = ConnectiveStepSupport.walkAcceptedChildren(andStep, ctx);
+    if (adapters == null) {
       return Outcome.DECLINE;
-    }
-    // Walk every child before committing anything — a declined child must leave the outer context
-    // untouched (the sub-walk capture boundary), mirroring HasStepRecogniser's
-    // translate-all-then-contribute shape.
-    var adapters = new ArrayList<SubTraversalPredicateAdapter>(children.size());
-    for (var child : children) {
-      var adapter = ctx.walkChild(child);
-      if (adapter.outcome() != Outcome.ACCEPTED) {
-        return Outcome.DECLINE;
-      }
-      adapters.add(adapter);
     }
     for (var adapter : adapters) {
       if (adapter.hasEdges()) {
@@ -65,6 +47,6 @@ final class AndStepRecogniser implements StepRecogniser {
         ConnectiveStepSupport.commitPureFilterChild(ctx, adapter);
       }
     }
-    return null;
+    return Outcome.ACCEPTED;
   }
 }
