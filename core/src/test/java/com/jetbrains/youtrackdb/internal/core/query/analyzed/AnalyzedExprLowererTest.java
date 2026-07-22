@@ -304,8 +304,8 @@ public class AnalyzedExprLowererTest {
     return new BinaryOp(operator, var("a"), var("b"));
   }
 
-  /// Parses an SQL comparison string into an {@link SQLBinaryCondition} and lowers it through the
-  /// package-visible {@link AnalyzedExprLowerer#lowerBoolean} entry. Named for the entry it
+  /// Parses an SQL comparison string into an {@link SQLBinaryCondition} and lowers it through
+  /// {@link AnalyzedExprLowerer#lowerBoolean}. Named for the entry it
   /// exercises (the boolean walk) rather than the production private {@code lowerComparison}, which
   /// it does not call directly.
   private static AnalyzedExpr lowerComparisonSql(String sql) {
@@ -348,14 +348,14 @@ public class AnalyzedExprLowererTest {
 
   /// WHEN a hand-built {@link SQLNotBlock} with its `sub` left unset (null) is lowered, THE pass
   /// throws {@link UnsupportedAnalyzedNodeException}, not a NullPointerException. The parser never
-  /// produces a null-sub NOT block, but {@code lowerBoolean} is package-visible so a same-package
-  /// caller could hold a partially-built node; the null guard keeps the boolean entry's "throw,
-  /// never anything else" contract total rather than NPEing in the recursion.
+  /// produces a null-sub NOT block, but {@code lowerBoolean} is public so any caller could hold
+  /// a partially-built node; the null guard keeps the boolean entry's "throw, never anything
+  /// else" contract total rather than NPEing in the recursion.
   @Test
   public void notBlockWithNullSubThrowsTypedExceptionNotNpe() {
     SQLNotBlock block = new SQLNotBlock(-1);
     // sub is left unset (null); negate defaults to false. Reaching the sub recursion would NPE
-    // without the guard, so this pins the typed-failure contract on the package-visible entry.
+    // without the guard, so this pins the typed-failure contract on the public entry.
     assertThrows(
         UnsupportedAnalyzedNodeException.class, () -> AnalyzedExprLowerer.lowerBoolean(block));
   }

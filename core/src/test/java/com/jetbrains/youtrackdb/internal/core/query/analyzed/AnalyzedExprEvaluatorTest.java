@@ -34,8 +34,8 @@ import org.junit.Test;
 /// SQLExpression#execute(Result, CommandContext)} for arithmetic and function-call fragments, {@link
 /// SQLBinaryCondition#evaluate(Result, CommandContext)} for comparison and boolean fragments — so the
 /// harness dispatches the oracle by parsed shape and lowers comparison / {@code NOT} fragments through
-/// the package-visible {@link AnalyzedExprLowerer#lowerBoolean}, which is why this suite lives in the
-/// {@code query.analyzed} package.
+/// {@link AnalyzedExprLowerer#lowerBoolean} (public since Track 04), which is why this suite lives
+/// in the {@code query.analyzed} package.
 ///
 /// Each matrix row pins a mechanism a naive implementation would get wrong: precedence and
 /// associativity in the arithmetic fold, integer-vs-double widening through the shared promotion
