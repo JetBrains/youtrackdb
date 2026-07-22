@@ -30,6 +30,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - 2026-07-22 (Phase A, T4): Frozen `design.md` §empty-input still tags projection work as "Track 5" and conflates `values` with `dropNullRows`; track plan's `dropOnAbsent` is correct — Phase-4 reconciliation only.
 - 2026-07-22 (Step 7): Post-RETURN rows drop the matched entity — `values`/`valueMap`/`elementMap` must RETURN the boundary entity for `EntityImpl.hasProperty`. Single-key `select` must unwrap (native SelectOne). SQL `sum` over absent-valued matched rows can yield `0`, so empty-aggregate fixtures use zero-match filters.
 - 2026-07-22 (post-Step 7): `GremlinPlanFingerprint` omitted Track 6 result-shaping (`order`/`limit`/`skip`/`groupBy`/`distinct`) — collision risk for `limit(2)` vs `limit(5)`; fixed in the same session as the Parameter-binding reconciliation Decision Log entries.
+- 2026-07-22 (Phase C startup): High steps 1/3/4/6/7 skipped Phase B sub-step 4 (`review-bugs`); remediated with retroactive per-step `review-bugs` plus track-level Phase C. Phase B base recording was missing — Phase C uses `d7dd3f8171`.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -218,3 +219,5 @@ Log — the conservative migration retained the plan Architecture Notes rather t
 <!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
 cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->
 ee8d63e1ce
+
+Note: recorded base `ee8d63e1ce` is reachable but pre-dates Track 5 completion + Track 6 Phase A; Phase B never wrote a `Record Phase B base commit for Track 6` commit. Using actual Phase B start `d7dd3f8171` (tip after Phase A / parent of Step 1) for Phase C. Retroactive step-level `review-bugs` also runs for skipped high steps 1, 3, 4, 6, 7.
