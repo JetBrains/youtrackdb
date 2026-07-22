@@ -167,4 +167,4 @@ Draws from: the engine's optimisation backlog and live-tree code inspection (no 
 | 15 | 11-walkthrough.md | all |
 | 16 | 11-walkthrough.md; 12-cost-model.md; 13-hash-joins.md; 14-index-assisted-traversal.md | all |
 | 17 | 15-reference.md | all |
-| 18 | New — the engine's optimisation backlog (YTDB issue tracker) | 8, 10, 13, 16, 7 |
+| 18 | New — the engine's optimisation backlog (YTDB issue tracker) | 7, 8, 10, 13, 14, 16 |

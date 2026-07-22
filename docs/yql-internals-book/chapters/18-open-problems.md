@@ -133,6 +133,11 @@ cost signal it consumes is trustworthy.
 
 ## 18.2 Cardinality estimation, version two
 
+A query that runs in milliseconds for every project in your database can fall
+off a cliff for exactly one of them — the largest — and the planner never sees
+it coming. The reason is that the numbers it plans with are averages, and an
+average is a lie about a skewed distribution.
+
 Chapter 8 introduced the three numbers the planner reasons with — cardinality,
 selectivity, and fan-out — and was candid that each is allowed to be wrong.
 Fan-out in particular is a *global average*: `EdgeFanOutEstimator.estimateFanOut`
@@ -151,13 +156,13 @@ comment on every issue of one named project:
 
 ```sql
 MATCH {class: Project, as: p, where: (name = :projectName)}
-      .out('hasIssue')  {class: Issue,   as: i}
-      .out('hasComment'){class: Comment, as: c}
+      .out('HasIssue')  {class: Issue,   as: i}
+      .out('HasComment'){class: Comment, as: c}
 RETURN c
 ```
 
 The planner estimates the intermediate size as
-`|p| × avg(hasIssue) × avg(hasComment)`. But project issue counts differ by
+`|p| × avg(HasIssue) × avg(HasComment)`. But project issue counts differ by
 orders of magnitude — the IntelliJ IDEA project versus a three-person team's
 project share the same edge class and nothing else. A global average is
 dominated by the many small projects, so the estimate for `name = 'IntelliJ
@@ -171,8 +176,8 @@ The team's direction is to make the estimator skew-aware at the edge-class
 level and richer at the endpoints, in four increments ordered by return on
 investment. First, cache the edge count for each `(source class, edge class,
 target class)` triple, so a pattern with class constraints on both ends of an
-edge gets a point estimate instead of a proportional guess. Second — the
-differentiator no surveyed engine offers — maintain a degree-distribution
+edge gets a point estimate instead of a proportional guess. Second — the piece
+the current estimator most conspicuously lacks — maintain a degree-distribution
 histogram per `(source class, edge class, direction)`, reusing the existing
 `EquiDepthHistogram`
 (`core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/EquiDepthHistogram.java`)
@@ -204,71 +209,94 @@ is where the real design work lives.
 
 Chapters 8 and 14 each introduced a cost model, and here is the awkward truth
 the two chapters never reconciled: they are describing *different, incompatible*
-cost models, and the engine runs both at once. Chapter 8's `CostModel`
+cost conventions, and the engine runs both at once. Chapter 8's `CostModel`
 (`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/CostModel.java:38`)
 is the legacy one. Its class Javadoc states the unit plainly — "costs are
 expressed in abstract units where one sequential page read = 1.0" — and its
 `edgeTraversalCost` method (`CostModel.java:150`) returns `sourceRows ×
 avgFanOut × randomPageReadCost`, a dimensionless weighted score. Chapter 14's
-pre-filter amortization decision uses something else entirely: a *calibrated
-nanosecond* model that measures the current, live cost of a scan against the
-cost of a random load and adapts within a rolling window. Its logic lives in
+pre-filter amortization decision speaks a *different* dimensionless currency.
+Its break-even test — is building a pre-filter RidSet worth more than it costs?
+— is `estimatedSize / (loadToScanRatio × (1 − selectivity))`, computed by
 `EdgeTraversal.evaluateIndexLookupAmortization`
-(`.../match/EdgeTraversal.java:957`), which consumes a measured
-`currentLoadToScanRatio` (`EdgeTraversal.java:994`) and accumulates real
-wall-clock nanoseconds in `preFilterBuildTimeNanos`
-(`EdgeTraversal.java:316`).
+(`.../match/EdgeTraversal.java:957`). The `loadToScanRatio` in that formula is
+not a measurement; it is a static constant, `DEFAULT_LOAD_TO_SCAN_RATIO = 100.0`
+(`EdgeTraversal.java:143`), overridable by a configuration knob whose default is
+likewise `100.0`, documented as "calibrated for cold SSD storage"
+(`GlobalConfiguration.java:1387`). It encodes a human's guess that a random
+record load costs about a hundred times one in-memory RidSet scan entry.
+`currentLoadToScanRatio` (`EdgeTraversal.java:994`) simply returns that
+override-or-default; nothing about it is live.
 
-The problem is not that either model is wrong; it is that a number in abstract
-page-read units and a number in nanoseconds cannot be compared. Ask the
-question an IDP planner must answer constantly — "is applying this index
-pre-filter here worth more than the edge traversal I would otherwise do next?"
-— and the engine has no way to answer it, because the pre-filter's cost is in
-nanoseconds and the traversal's cost is in dimensionless weights. The two
-decisions sit side by side and speak different languages. Weighted scores also
-drift with hardware and cache warmth in a way a fixed "I/O is 4× a sequential
-read" coefficient cannot track; nanoseconds, measured live, do not.
+There *is* a real nanosecond counter in this code, and it is a trap for anyone
+skimming. `preFilterBuildTimeNanos` (`EdgeTraversal.java:316`) accumulates
+genuine wall-clock time spent building pre-filter RidSets — but it feeds only
+the `PROFILE` pretty-printer, which prints it as a human-readable `buildTime`
+(`MatchStep.java:240`). It is diagnostic output, never an input to the
+amortization decision above. Neither cost system in the engine today is
+nanosecond-denominated, and neither adapts to live measurements; both are
+dimensionless formulas over fixed, hand-tuned coefficients.
 
-The team's direction is to make nanoseconds the single currency. The
-pre-filter model already demonstrates the template — a pure static cost
-function of measured inputs, a metric-recording site on the operator's hot
-path, a cold-start default, and a configuration override — and the work is to
-extend that template to every operator the planner reasons about: edge
+The problem is not that either formula is wrong; it is that a number in
+page-read units and a number in load-to-scan-ratio units cannot be compared.
+Ask the question an IDP planner must answer constantly — "is applying this
+index pre-filter here worth more than the edge traversal I would otherwise do
+next?" — and the engine has no way to answer it, because the pre-filter
+decision is denominated in one dimensionless currency and the traversal cost in
+another, and neither can be converted into the other. The two decisions sit
+side by side and speak different languages. Worse, both currencies rest on
+coefficients baked in at development time — `CostModel`'s "a random read costs
+4× a sequential one", the pre-filter path's "a load costs 100× a scan" —
+guesses that cannot track the hardware and cache state actually in front of the
+query.
+
+The team's direction is to converge on a single cost currency, and the currency
+of choice is calibrated nanoseconds — because nanoseconds add, whereas
+dimensionless weighted scores tied to drifting coefficients do not compose, and
+because a cost that is measured rather than assumed can adapt to the hardware it
+runs on. The pre-filter path already demonstrates the *discipline* the
+unification needs, even though its currency is the wrong one: a pure static cost
+function of its inputs, a cold-start default, and a configuration override to
+tune it. The work is to give every operator the planner reasons about — edge
 traversal, class and alias prefetch, index seek, hash-join build and probe,
 adjacency-list intersection, filter evaluation, and the depth-multiplied WHILE
-traversal. Once every operator speaks nanoseconds, the legacy `CostModel` can
-be retired one caller at a time, `estimateEdgeCost` can be rewritten in the new
-currency (this is precisely what stage one of §18.1 consumes), and the
-hash-join threshold can become a calibrated cost comparison rather than the
-node-count cutoff it is today.
+traversal — a cost function in that one shared currency, backed where possible
+by a live metric instead of a hand-tuned constant. Once every operator speaks
+it, the legacy `CostModel` can be retired one caller at a time, `estimateEdgeCost`
+can be rewritten in the new currency (this is precisely what stage one of §18.1
+consumes), and the hash-join threshold can become a calibrated cost comparison
+rather than the node-count cutoff it is today.
 
 A contributor starts by reading `CostModel`
 (`.../executor/CostModel.java:38`) to see every dimensionless formula that
-needs a nanosecond counterpart, then reads
+needs a single-currency counterpart, then reads
 `EdgeTraversal.evaluateIndexLookupAmortization`
-(`.../match/EdgeTraversal.java:957`) as the worked example to imitate. This is
-foundational, medium-sized work: no single formula is hard, but there are many
-of them, each needs a live metric wired through the profiler, and the whole set
-is a prerequisite for both stages of the planner upgrade. It is the kind of
-change that is easy to start and demands discipline to finish.
+(`.../match/EdgeTraversal.java:957`) — the break-even formula and its static
+`loadToScanRatio` — as the worked example of the cost-function shape to imitate.
+This is foundational, medium-sized work: no single formula is hard, but there
+are many of them, each ideally backed by a metric wired through the profiler,
+and the whole set is a prerequisite for both stages of the planner upgrade. It
+is the kind of change that is easy to start and demands discipline to finish.
 
 ---
 
 ## 18.4 Teaching the plan cache to notice stale statistics
 
+A query can be planned perfectly on Monday and be running a disastrous plan by
+Friday — with no schema touched, no index changed, and no line of the query
+altered. All that changed is the data underneath it, and the plan cache has no
+idea.
+
 Chapter 7 §7.9 walked through the `YqlExecutionPlanCache` and every event that
 clears it: a schema change, an index-manager update, a function- or
 sequence-library change, a storage-configuration update, and — checked lazily
-on read — a change to the global command timeout. You can see the whole set of
-triggers as the listener methods on the cache:
-`onSchemaUpdate`
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/YqlExecutionPlanCache.java:149`),
-`onIndexManagerUpdate` (`YqlExecutionPlanCache.java:155`),
-`onFunctionLibraryUpdate` (`YqlExecutionPlanCache.java:161`),
-`onSequenceLibraryUpdate` (`YqlExecutionPlanCache.java:166`),
-`onStorageConfigurationUpdate` (`YqlExecutionPlanCache.java:171`), and the
-timeout drift check (`YqlExecutionPlanCache.java:122`). Read that list again
-and notice what is missing: nothing on it fires when the *data* changes.
+on read — a change to the global command timeout. Each is a listener method on
+the cache — `onSchemaUpdate`, `onIndexManagerUpdate`, `onFunctionLibraryUpdate`,
+`onSequenceLibraryUpdate`, and `onStorageConfigurationUpdate`
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/YqlExecutionPlanCache.java:149–171`) —
+alongside a lazy command-timeout drift check (`YqlExecutionPlanCache.java:122`).
+Read that list again and notice what is missing: nothing on it fires when the
+*data* changes.
 
 That gap is invisible today and load-bearing tomorrow. A plan is built from a
 snapshot of cardinality estimates and index histograms, then reused for the
@@ -313,29 +341,40 @@ statistics drifted.
 
 ## 18.5 When a hash join outgrows memory: spill to disk
 
-Chapter 13 built up the hash-join variants and was careful about their safety
-net: when a build side turns out larger than the planner estimated, the step
-does not crash — it falls back to per-row nested-loop evaluation and keeps
-producing correct results, only slower. That fallback is exactly where a
-performance cliff hides, and it is worth being precise about what the engine
-does and does not do at the cliff edge, because it is easy to assume a database
-throws or spills when it does neither.
+Chapter 13 taught you the hash-join idea: rather than re-run a sub-plan once per
+outer row, build a hash table from the inner side once and probe it in O(1) per
+row, trading memory for time. It also taught you the safety net every hash-join
+step keeps — when a build side turns out larger than the planner estimated, the
+step does not crash; it falls back to per-row nested-loop evaluation and keeps
+producing correct results, only slower.
+
+This section is about a fourth hash-join step that Chapter 13 did not open up,
+and about what that safety net costs when it fires. The step handles
+*back-reference* edges — the shapes where a traversal target is compared to an
+already-bound alias, such as `where: (@rid = $matched.person.@rid)` or
+`$currentMatch NOT IN $matched.start.out('LIKES')`. Instead of walking a link
+bag once per upstream row, it builds a hash table from the back-referenced
+vertex's link bag, caches it per binding, and probes it per row in O(1). That
+step is `BackRefHashJoinStep`
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/BackRefHashJoinStep.java`),
+and it is where the fallback cliff is steepest. It is worth being precise about
+what the engine does and does not do at the edge of that cliff, because it is
+easy to assume a database throws or spills when it does neither.
 
 Here is the honest picture. There is no hard memory cap that aborts a hash
 join. Past the build-side estimate governed by `QUERY_MATCH_HASH_JOIN_THRESHOLD`
 (`core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java:863`,
 default 10,000), the planner simply does not choose the hash path, and at
-runtime an oversized build degrades to nested loops. For the back-reference
-join this is visible directly in the code: `BackRefHashJoinStep`'s class
-Javadoc states that past the threshold "the step falls back to per-row
-nested-loop traversal"
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/BackRefHashJoinStep.java:39`),
-and the fallback itself is the `nestedLoopFallback` method
-(`BackRefHashJoinStep.java:420`), reached from the probe paths on a failed
-build (`BackRefHashJoinStep.java:292` and `:358`). And there is no spill to
-disk anywhere — searching the tree for the spill primitives a
-spill-to-disk design would build on (`SpillFile`, `SpillPartitionManager`,
-`SpillRowSerializer`) returns nothing; they do not exist yet.
+runtime an oversized build degrades to nested loops. For this step the fallback
+is spelled out in the code: its class Javadoc states that past the threshold
+"the step falls back to per-row nested-loop traversal"
+(`BackRefHashJoinStep.java:39`), and the fallback itself is the
+`nestedLoopFallback` method (`BackRefHashJoinStep.java:420`), reached from the
+probe paths on a failed build (`BackRefHashJoinStep.java:292` and `:358`). And
+there is no spill to disk anywhere — searching the tree for the spill
+primitives a spill-to-disk design would build on (`SpillFile`,
+`SpillPartitionManager`, `SpillRowSerializer`) returns nothing; they do not
+exist yet.
 
 Why it bites: consider a MATCH with an anti-join over a popular vertex's
 outgoing edges — `$currentMatch NOT IN $matched.person.out('LIKES')` — where
@@ -364,10 +403,10 @@ extreme, million-edge vertices.
 A contributor reads `BackRefHashJoinStep`
 (`.../match/BackRefHashJoinStep.java`): the class Javadoc at line 39 for the
 current threshold behaviour, the `nestedLoopFallback` method at line 420 for
-what the cliff costs, and the `CachedBuild` / `BUILD_FAILED` build-state
-handling at lines 54 and 61 that a memory-budget or spilled state would
-replace. Scope: the memory-budget phase is high-value and comparatively
-low-effort — a contained change to one step's guard. Building the spill
+what the cliff costs, and the `BUILD_FAILED` / `CachedBuild` build-state
+markers at lines 54 and 61 that a memory-budget or spilled state would replace.
+Scope: the memory-budget phase is high-value and comparatively low-effort — a
+contained change to one step's guard. Building the spill
 primitives from scratch and then wiring them in is a substantially larger,
 storage-touching effort, and it is genuinely standalone: it does not depend on
 the planner or cost-model arc, and nothing in that arc depends on it.
@@ -533,9 +572,12 @@ the people who improves it.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/CostModel.java:38`
   — the legacy dimensionless cost model (§18.3).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/EdgeTraversal.java`
-  — the calibrated nanosecond pre-filter model: `evaluateIndexLookupAmortization`
-  (line 957), `currentLoadToScanRatio` (line 994), `preFilterBuildTimeNanos`
-  (line 316).
+  — the pre-filter build-amortization model (a dimensionless load-to-scan
+  ratio, not a live nanosecond cost): `evaluateIndexLookupAmortization`
+  (line 957); the static `DEFAULT_LOAD_TO_SCAN_RATIO = 100.0` (line 143)
+  returned by `currentLoadToScanRatio` (line 994); and the PROFILE-only
+  diagnostic counter `preFilterBuildTimeNanos` (line 316), printed by
+  `MatchStep.java:240`.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/EdgeFanOutEstimator.java:74`
   and `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/SelectivityEstimator.java:82`
   — the estimators of §18.2, with `EquiDepthHistogram`
@@ -549,8 +591,9 @@ the people who improves it.
   — nested-loop fallback (`nestedLoopFallback`, line 420; class doc, line 39);
   no spill infrastructure exists (§18.5).
 - `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java`
-  — `QUERY_MATCH_HASH_JOIN_THRESHOLD` (line 863); the dead `QUERY_PARALLEL_*`
-  knobs (lines 894, 900, 906).
+  — `QUERY_MATCH_HASH_JOIN_THRESHOLD` (line 863),
+  `QUERY_PREFILTER_LOAD_TO_SCAN_RATIO` (line 1387, default 100.0), and the dead
+  `QUERY_PARALLEL_*` knobs (lines 894, 900, 906).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/query/ExecutionStep.java`
   — `getCost` (line 30) and `toResult` (line 35): the nanosecond cost surface
   the observability work extends (§18.6).
@@ -566,8 +609,12 @@ the people who improves it.
   selectivity, and fan-out; the numbers §18.2 and §18.3 sharpen.
 - [Chapter 10 in this book](10-scheduling.md) — the greedy scheduling DFS that
   §18.1 upgrades.
-- [Chapter 13 in this book](13-hash-joins.md) — the hash-join variants and the
-  nested-loop fallback that §18.5 replaces with spill.
+- [Chapter 13 in this book](13-hash-joins.md) — the hash-join idea and its
+  three variants; §18.5 concerns a fourth, `BackRefHashJoinStep`, and its
+  spill gap.
+- [Chapter 14 in this book](14-index-assisted-traversal.md) — index-assisted
+  pre-filtering and its load-to-scan-ratio amortization: the second of the two
+  cost conventions §18.3 sets out to unify.
 - [Chapter 7 in this book](07-eight-phase-planner.md) — §7.9, the plan cache
   whose invalidation §18.4 extends.
 - [Chapter 16 in this book](16-reading-explain.md) — reading EXPLAIN, the

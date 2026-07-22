@@ -45,7 +45,7 @@ The production artifacts live under [`../../yql-internals-book-builder/`](../../
 
 ## Production record
 
-Two full cycles of the pipeline have been completed. Final body: 18 chapters, ~7 500 lines.
+Two full authoring cycles plus a third refresh cycle (which also added Chapter 18) have been completed. Final body: 18 chapters, ~7 800 lines.
 
 ### Cycle 1 — initial draft
 
