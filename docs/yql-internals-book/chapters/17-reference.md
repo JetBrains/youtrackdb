@@ -72,6 +72,7 @@ abbreviates
 | `…/internal/core/sql/executor/match/ChainSemiJoin.java` | Pattern B: `.outE('E').inV()` chain semi-join descriptor | Ch. 10 |
 | `…/internal/core/sql/executor/match/AntiSemiJoin.java` | Pattern D: NOT IN anti-semi-join descriptor | Ch. 10 |
 | `…/internal/core/sql/executor/match/BackRefHashJoinStep.java` | Back-reference semi-join step; builds a neighbour RID-set once and probes in O(1) | Ch. 10, 13 |
+| `…/internal/core/sql/executor/match/PreFilterSkipReason.java` | Enum naming why an eligible edge was denied a pre-filter at runtime; surfaced in PROFILE output only, never in EXPLAIN | Ch. 14, 16 |
 | `…/internal/core/sql/executor/CartesianProductStep.java` | Cross join between disjoint connected components | Ch. 7 |
 | `…/internal/core/sql/executor/TraversalPreFilterHelper.java` | Index lookup helper that attaches a pre-filter to an `EdgeTraversal` | Ch. 14 |
 | `…/internal/core/sql/executor/RidFilterDescriptor.java` | RID-set pre-filter descriptor attached to an `EdgeTraversal` | Ch. 14 |
@@ -81,13 +82,14 @@ abbreviates
 | `…/internal/core/index/engine/SelectivityEstimator.java` | Selectivity estimation for WHERE predicates and class filters | Ch. 8 |
 | `…/internal/core/sql/parser/YqlStatementCache.java` | Per-database LRU cache for parsed `SQLStatement` objects, keyed by raw SQL text; shared across all sessions on the same database | Ch. 4, 7 |
 | `…/internal/core/sql/parser/YqlExecutionPlanCache.java` | Per-database LRU cache for assembled `SelectExecutionPlan` templates; copy-on-read guarantees per-caller isolation; invalidated on any schema, index, or configuration change | Ch. 7 |
-| `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` | All runtime-configurable parameters; MATCH-related knobs at lines 854–885, 1174–1195, and 1292–1315 | Ch. 13, 14 |
+| `…/internal/core/sql/executor/cache/QueryResultCache.java` | Entry point of the per-transaction query-result cache (one instance per `FrontendTransactionImpl`); caches result rows before the pipeline runs, reconciles hits against in-transaction mutations, and evicts under LRU. The rest of the `sql/executor/cache/` package holds its shape classifier, delta builder, and non-determinism detector. | Ch. 7 |
+| `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` | All runtime-configurable parameters; MATCH hash-join knobs at lines 863–892, query-result-cache knobs at 961–1009, and pre-filter knobs at 1351–1395 | Ch. 7, 13, 14 |
 
 ---
 
 ## 17.2 Configuration knobs
 
-The four runtime properties live in `GlobalConfiguration.java` and can be
+The runtime properties in Table 17.2 live in `GlobalConfiguration.java` and can be
 adjusted without a server restart — they are read at query planning time,
 not at startup. The two planner constants are `private static final` fields
 of `MatchExecutionPlanner` and are not externally configurable.
@@ -96,23 +98,30 @@ of `MatchExecutionPlanner` and are not externally configurable.
 
 | `GlobalConfiguration` constant | System property key | Default | Role | Chapter |
 |---|---|---|---|---|
-| `STATEMENT_CACHE_SIZE` | `youtrackdb.statement.cacheSize` | `100` | Capacity (in entries) for both `YqlStatementCache` (parsed AST) and `YqlExecutionPlanCache` (assembled plan). Set to `0` to disable both caches. (`GlobalConfiguration.java:952`) | Ch. 7 |
-| `COMMAND_TIMEOUT` | `youtrackdb.command.timeout` | `0` (disabled) | Default query timeout in milliseconds. A change to this value at runtime immediately invalidates the entire plan cache, because cached plans embed a `TimeoutStep` whose threshold was fixed at planning time. (`GlobalConfiguration.java:834`) | Ch. 7 |
-| `QUERY_MATCH_HASH_JOIN_THRESHOLD` | `youtrackdb.query.match.hashJoinThreshold` | `10000` | Maximum estimated build-side cardinality for hash-join eligibility. Build estimates above this value force a nested-loop fallback. Set to `0` to disable all hash joins. | Ch. 13 |
-| `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` | `youtrackdb.query.match.hashJoinUpstreamMin` | `5` | Minimum probe-side (upstream) row count before hash join is considered. Below this threshold nested loops are already fast. Set to `0` to bypass both this guard and the cost comparison, leaving only the build-side cap. | Ch. 13 |
-| `QUERY_MATCH_CORRELATED_CACHE_SIZE` | `youtrackdb.query.match.correlatedCacheSize` | `16` | LRU cache capacity for `CorrelatedOptionalHashJoinStep`. Higher values reduce neighbour-set rebuilds when many distinct correlated vertices interleave in the upstream stream, at the cost of memory. | Ch. 13 |
-| `QUERY_STATS_DEFAULT_FAN_OUT` | `youtrackdb.query.stats.defaultFanOut` | `10.0` | Fallback fan-out value used by `EdgeFanOutEstimator` when the schema carries no edge-count statistics for the requested class and direction. | Ch. 8 |
-| `QUERY_STATS_DEFAULT_SELECTIVITY` | `youtrackdb.query.stats.defaultSelectivity` | `0.1` | Fallback selectivity fraction used by `SelectivityEstimator` for non-indexed or unrecognised predicates. | Ch. 8 |
-| `QUERY_PREFILTER_MAX_RIDSET_SIZE` | `youtrackdb.query.prefilter.maxRidSetSize` | `100000` | Maximum number of RIDs collected from an index or reverse-edge lookup before the pre-filter build is aborted. Protects against excessive heap use for low-selectivity indexes. (`GlobalConfiguration.java:1292`) | Ch. 14 |
-| `QUERY_PREFILTER_MAX_SELECTIVITY_RATIO` | `youtrackdb.query.prefilter.maxSelectivityRatio` | `0.8` | Maximum ratio of RID-set size to adjacency-list size at which the pre-filter is still applied. Above this ratio the filter is too weak to save I/O. (`GlobalConfiguration.java:1300`) | Ch. 14 |
-| `QUERY_PREFILTER_MIN_LINKBAG_SIZE` | `youtrackdb.query.prefilter.minLinkBagSize` | `50` | Minimum adjacency-list (link bag) size below which pre-filtering is skipped entirely. Loading a small number of records directly is cheaper than building a RID set. (`GlobalConfiguration.java:1308`) | Ch. 14 |
+| `STATEMENT_CACHE_SIZE` | `youtrackdb.statement.cacheSize` | `100` | Capacity (in entries) for both `YqlStatementCache` (parsed AST) and `YqlExecutionPlanCache` (assembled plan). Set to `0` to disable both caches. (`GlobalConfiguration.java:1011`) | Ch. 7 |
+| `COMMAND_TIMEOUT` | `youtrackdb.command.timeout` | `0` (disabled) | Default query timeout in milliseconds. A change to this value at runtime immediately invalidates the entire plan cache, because cached plans embed a `TimeoutStep` whose threshold was fixed at planning time. (`GlobalConfiguration.java:843`) | Ch. 7 |
+| `QUERY_TX_RESULT_CACHE_ENABLED` | `youtrackdb.query.txResultCache.enabled` | `false` | Master switch for the per-transaction query-result cache. When off (the default) the cache is never consulted and `FrontendTransactionImpl.getQueryResultCache()` returns `null`. Enabling it never changes result cardinality. (`GlobalConfiguration.java:961`) | Ch. 7 |
+| `QUERY_TX_RESULT_CACHE_MAX_ENTRIES` | `youtrackdb.query.txResultCache.maxEntries` | `200` | Maximum number of cached results retained per transaction, under LRU eviction. Entries with a live result-set view are exempt, so the map may grow transiently above this bound. (`GlobalConfiguration.java:971`) | Ch. 7 |
+| `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY` | `youtrackdb.query.txResultCache.maxRecordsPerEntry` | `10000` | Per-entry cap on the records a cached result may hold. Crossing it overflows the entry: its key is marked non-cacheable for the rest of the transaction while the consumer still receives every result from the live stream. (`GlobalConfiguration.java:980`) | Ch. 7 |
+| `QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD` | `youtrackdb.query.txResultCache.deltaUnreconcilableInvalidationThreshold` | `3` | Strike limit: how many times a delta-unreconcilable entry may be invalidated by an intervening mutation before its key is routed to the non-cacheable set for the rest of the transaction. Note the property key diverges from the constant name. (`GlobalConfiguration.java:991`) | Ch. 7 |
+| `QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD` | `youtrackdb.query.txResultCache.matchMultiInvalidationThreshold` | `3` | Strike limit for multi-alias MATCH entries, applied the same way as the delta-unreconcilable threshold. Note the property key diverges from the constant name. (`GlobalConfiguration.java:1001`) | Ch. 7 |
+| `QUERY_MATCH_HASH_JOIN_THRESHOLD` | `youtrackdb.query.match.hashJoinThreshold` | `10000` | Maximum estimated build-side cardinality for hash-join eligibility. Build estimates above this value force a nested-loop fallback. Set to `0` to disable all hash joins. (`GlobalConfiguration.java:863`) | Ch. 13 |
+| `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` | `youtrackdb.query.match.hashJoinUpstreamMin` | `5` | Minimum probe-side (upstream) row count before hash join is considered. Below this threshold nested loops are already fast. Set to `0` to bypass both this guard and the cost comparison, leaving only the build-side cap. (`GlobalConfiguration.java:873`) | Ch. 13 |
+| `QUERY_MATCH_CORRELATED_CACHE_SIZE` | `youtrackdb.query.match.correlatedCacheSize` | `16` | LRU cache capacity for `CorrelatedOptionalHashJoinStep`. Higher values reduce neighbour-set rebuilds when many distinct correlated vertices interleave in the upstream stream, at the cost of memory. (`GlobalConfiguration.java:884`) | Ch. 13 |
+| `QUERY_STATS_DEFAULT_FAN_OUT` | `youtrackdb.query.stats.defaultFanOut` | `10.0` | Fallback fan-out value used by `EdgeFanOutEstimator` when the schema carries no edge-count statistics for the requested class and direction. (`GlobalConfiguration.java:1240`) | Ch. 8 |
+| `QUERY_STATS_DEFAULT_SELECTIVITY` | `youtrackdb.query.stats.defaultSelectivity` | `0.1` | Fallback selectivity fraction used by `SelectivityEstimator` for non-indexed or unrecognised predicates. (`GlobalConfiguration.java:1233`) | Ch. 8 |
+| `QUERY_PREFILTER_MAX_RIDSET_SIZE` | `youtrackdb.query.prefilter.maxRidSetSize` | heap-adaptive | Maximum number of RIDs collected from an index or reverse-edge lookup before the pre-filter build is aborted. Auto-scaled to ~0.5% of max heap, clamped to `[100000, 10000000]`: `(int) Math.min(10_000_000L, Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200))`. Set explicitly to override the auto-scaling. (`GlobalConfiguration.java:1351`) | Ch. 14 |
+| `QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO` | `youtrackdb.query.prefilter.edgeLookupMaxRatio` | `0.8` | Admission bound for the reverse-edge `EdgeRidLookup` path: maximum ratio of collected RID-set size to link-bag size. Above this the overlap is too high for the filter to save I/O. (`GlobalConfiguration.java:1362`) | Ch. 14 |
+| `QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY` | `youtrackdb.query.prefilter.indexLookupMaxSelectivity` | `0.95` | Admission bound for the `IndexLookup` path: maximum selectivity (`estimateHits / totalCount`) of the target predicate. Above this the condition matches too many records to be worth a pre-filter. Independent of the edge-lookup ratio. (`GlobalConfiguration.java:1370`) | Ch. 14 |
+| `QUERY_PREFILTER_MIN_LINKBAG_SIZE` | `youtrackdb.query.prefilter.minLinkBagSize` | `50` | Minimum adjacency-list (link bag) size below which pre-filtering is skipped entirely. Loading a small number of records directly is cheaper than building a RID set. (`GlobalConfiguration.java:1379`) | Ch. 14 |
+| `QUERY_PREFILTER_LOAD_TO_SCAN_RATIO` | `youtrackdb.query.prefilter.loadToScanRatio` | `100.0` | Cost of a random record load relative to one RID-set scan entry, used in the `IndexLookup` build-amortisation formula. Calibrated for cold SSD storage; a higher value makes the amortisation check stricter. (`GlobalConfiguration.java:1387`) | Ch. 14 |
 
 **Table 17.3 — Private planner constants (not runtime-configurable).**
 
 | Constant | Location | Value | Role | Chapter |
 |---|---|---|---|---|
-| `THRESHOLD` | `MatchExecutionPlanner.java:328` | `100` | Prefetch cap: aliases whose estimated cardinality falls below this value are materialised by `MatchPrefetchStep` before the main traversal. Also used as the fallback `source_rows` estimate when no cardinality data is available. | Ch. 7, 11 |
-| `INNER_JOIN_MEMORY_WEIGHT` | `MatchExecutionPlanner.java:358` | `7` | Divisor applied to `QUERY_MATCH_HASH_JOIN_THRESHOLD` for the `INNER_JOIN` mode eligibility check. Reflects that an inner-join map stores full `Result` payloads rather than lightweight keys, requiring approximately seven times more memory per entry. | Ch. 13 |
+| `THRESHOLD` | `MatchExecutionPlanner.java:336` | `100` | Prefetch cap: aliases whose estimated cardinality falls below this value are materialised by `MatchPrefetchStep` before the main traversal. Also used as the fallback `source_rows` estimate when no cardinality data is available. | Ch. 7, 11 |
+| `INNER_JOIN_MEMORY_WEIGHT` | `MatchExecutionPlanner.java:366` | `7` | Divisor applied to `QUERY_MATCH_HASH_JOIN_THRESHOLD` for the `INNER_JOIN` mode eligibility check. Reflects that an inner-join map stores full `Result` payloads rather than lightweight keys, requiring approximately seven times more memory per entry. | Ch. 13 |
 
 ---
 
@@ -425,10 +434,14 @@ Each connected component of the pattern graph is planned independently.
 by `TraversalPreFilterHelper`. At runtime the traverser checks each
 adjacency-list RID against the descriptor's index-derived set before
 loading the target record, eliminating the record I/O for non-matching
-neighbours. Pre-filters are applicable when the target alias has a
-selective, indexed WHERE predicate and the index is a standard B-tree or
-hash index on the target class (appears in EXPLAIN as `intersection: …`).
-(Ch. 14)
+neighbours. Two admission paths qualify an edge: a reverse-edge
+`EdgeRidLookup`, admitted when the overlap ratio between the collected RID
+set and the link bag stays below `QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO`;
+and an `IndexLookup` on a selective indexed predicate, admitted when its
+selectivity stays below `QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY` and
+the build cost amortises against the record loads it saves. Attachment
+appears in EXPLAIN as `intersection: …`; the reason an eligible edge was
+skipped surfaces only in PROFILE, via `PreFilterSkipReason`. (Ch. 14)
 
 ---
 
