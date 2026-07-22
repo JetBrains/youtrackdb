@@ -20,6 +20,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T12:38Z [ctx=info] Step 3 complete (tip d56953c3d1; GremlinProjectionRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T12:56Z [ctx=info] Step 4 complete (tip bd45c5a6b6; ByModulatorTranslatorTest + GremlinProjectionRecogniserTest + DedupGlobalStepRecogniserTest green)
 - [x] 2026-07-22T13:20Z [ctx=info] Step 5 complete (tip 6ea1e4fb7d; OrderRangeStepRecogniserTest + GremlinStepWalkerTest green)
+- [x] 2026-07-22T13:51Z [ctx=info] Step 6 complete (tip b660e7527e; GremlinAggregateRecogniserTest + GremlinStepWalkerTest + smoke green)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -73,7 +74,7 @@ Two semantic hazards dominate this track:
 3. **`GremlinProjectionAssembler` + projection recognisers** — `PropertiesStep` (`values`), `PropertyMapStep` (`valueMap`/`elementMap`), `SelectStep`, `ProjectStep`; `EntityImpl.hasProperty(key)` absent-vs-null classification (R1); `dropOnAbsent` for single-key `values`; pin boundary output type per terminal (`MAP` / `SINGLE_VALUE`). Accept `PropertyType.VALUE` and `PropertyType.PROPERTY` on `PropertiesStep` (T3). Detail: Plan of Work item 2, Decision Log T1/R1. — `risk: high` *(depends on Steps 1–2)*  [x] commit: d56953c3d1
 4. **`ByModulatorTranslator`** (shared `match/builder/`) — key-side (`by("k")`, `by(T.id)`, `by(T.label)`, `__.values/id/label` unwraps, `Order.asc/desc`) and value-side (`by(__.count())`, `by(__.fold())`, …) via sub-walker capture (R3); declines edges/aggregates/lambdas/`Order.shuffle`/per-label-count-mismatch. Detail: Plan of Work item 3. — `risk: high` *(depends on Step 1)*  [x] commit: bd45c5a6b6
 5. **`OrderGlobalStep` + `RangeGlobalStep`** — `SQLOrderBy` (`Order.shuffle` declines); `SQLSkip` + `SQLLimit` (`range` → `limit = high - low`, unbounded high → skip-only). Detail: Plan of Work item 4. — `risk: medium` *(depends on Steps 1, 4)*  [x] commit: 6ea1e4fb7d
-6. **Aggregate recognisers + count short-circuit** — `count`/`sum`/`min`/`max`/`mean`/`group`/`groupCount` → `SQLProjection` + `SQLGroupBy`; `dropNullRows` per output type; consume `lastPropertyProjection` for `values("age").mean()` (A1); extract `handleHardwiredCountOnClass*` to shared helper, invoke from `MatchExecutionPlanner` (R2). Multi-label / non-polymorphic counts decline to `YTDBGraphCountStrategy`. Detail: Plan of Work items 5–6. — `risk: high` *(depends on Steps 1, 3, 4)*
+6. **Aggregate recognisers + count short-circuit** — `count`/`sum`/`min`/`max`/`mean`/`group`/`groupCount` → `SQLProjection` + `SQLGroupBy`; `dropNullRows` per output type; consume `lastPropertyProjection` for `values("age").mean()` (A1); extract `handleHardwiredCountOnClass*` to shared helper, invoke from `MatchExecutionPlanner` (R2). Multi-label / non-polymorphic counts decline to `YTDBGraphCountStrategy`. Detail: Plan of Work items 5–6. — `risk: high` *(depends on Steps 1, 3, 4)*  [x] commit: b660e7527e
 7. **Boundary projection + parity tests** — complete `YTDBMatchPlanStep` `MAP` / `SINGLE_VALUE` / `SCALAR` payload emission; `dropNullRows` row loop + `dropOnAbsent` entity check (R5); `group`/`groupCount` MAP accumulation; extend `EdgeTraversalEquivalenceTest` / new projection-equivalence tests for absent-vs-null, empty-input aggregates, order, pagination, dedup. Detail: Validation and Acceptance. — `risk: high` *(depends on Steps 1–6)*
 
 **Step sequencing.** Strictly ordered 1→7 — Step 1 is the shared foundation; projection recognisers (3) before boundary completion (7); `ByModulatorTranslator` (4) before order/group `by` shapes (5–6). Reconciled track tag: `high`.
@@ -147,6 +148,20 @@ Two semantic hazards dominate this track:
 - `OrderRangeStepRecogniserTest.java`, extended `GremlinStepWalkerTest.java`
 
 **Critical context:** Step 6 aggregates + count short-circuit; Step 7 completes boundary MAP/SINGLE_VALUE/SCALAR emission and parity tests.
+
+### Step 6 — commit b660e7527e, 2026-07-22T13:51Z [ctx=info]
+**What was done:** Added `GremlinAggregateAssembler` and recognisers for `count` (SCALAR; non-polymorphic declines), property aggregates (`sum`/`min`/`max`/`mean` over `lastPropertyProjection` with `dropNullRows`), and `group`/`groupCount` (MAP + `SQLGroupBy`). Extracted `HardwiredCountOptimizations` from `SelectExecutionPlanner`; `MatchExecutionPlanner` short-circuits single-node unfiltered `count(*)` to `CountFromClassStep` after `buildPatterns`.
+
+**What was discovered:** Filtered MATCH counts stay on the generic aggregate path for Phase 1 — index short-circuit still needs `QueryPlanningInfo` WHERE flattening (SELECT path unchanged).
+
+**What changed from plan:** Indexed MATCH count short-circuit deferred; bare class-count path is live for Gremlin/GQL/SQL.
+
+**Key files:**
+- `GremlinAggregateAssembler.java`, `CountGlobalStepRecogniser.java`, `PropertyAggregateStepRecogniser.java`, `GroupStepRecogniser.java`, `GroupCountStepRecogniser.java`
+- `HardwiredCountOptimizations.java`, `SelectExecutionPlanner.java`, `MatchExecutionPlanner.java`
+- `GremlinAggregateRecogniserTest.java`
+
+**Critical context:** Step 7 completes `YTDBMatchPlanStep` MAP/SINGLE_VALUE/SCALAR projection and parity tests (including empty-input aggregates and absent-vs-null).
 
 ## Validation and Acceptance
 - `select` / `values` / `valueMap` / `elementMap` / `project` translate and match native multisets, with the correct boundary output type per terminal step.
