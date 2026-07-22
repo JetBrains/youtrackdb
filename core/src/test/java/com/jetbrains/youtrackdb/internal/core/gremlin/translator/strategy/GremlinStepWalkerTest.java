@@ -734,6 +734,44 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .containsExactly("a", "b");
   }
 
+  /** {@code g.V().values("name")} translates end-to-end with {@code SINGLE_VALUE} boundary type. */
+  @Test
+  public void walk_valuesSingleKey_pinsSingleValueOutput() {
+    var admin = graph.traversal().V().values("name").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+    assertThat(result.dropOnAbsent()).isTrue();
+    assertThat(result.inputs().returnItems()).hasSize(1);
+    assertThat(result.inputs().returnItems().getFirst().toString()).contains("name");
+  }
+
+  /** {@code g.V().as("v").select("v")} translates with {@code MAP} output and labelled RETURN. */
+  @Test
+  public void walk_selectBoundLabel_pinsMapOutput() {
+    var admin = graph.traversal().V().as("v").select("v").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.MAP);
+    assertThat(result.inputs().returnAliases().getFirst().getStringValue()).isEqualTo("v");
+  }
+
+  /** {@code g.V().valueMap("name")} translates with property column in RETURN. */
+  @Test
+  public void walk_valueMapSingleKey_pinsMapOutput() {
+    var admin = graph.traversal().V().valueMap("name").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.MAP);
+    assertThat(result.inputs().returnAliases().getFirst().getStringValue()).isEqualTo("name");
+  }
+
   /**
    * A null user label must not throw from the reserved-prefix scan. A step's label set can carry a
    * null — {@code as((String) null)} reaches {@code AbstractStep.addLabel}, which adds the label

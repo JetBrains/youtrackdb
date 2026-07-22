@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.Collection;
+import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -209,6 +210,17 @@ interface RecognitionContext extends ParamSink {
    * the user-visible name.
    */
   void setNamedDedupReturnProjection(Collection<String> userLabels);
+
+  /** Clears the three parallel RETURN lists before a terminator replaces the projection. */
+  void clearReturnProjection();
+
+  /**
+   * Appends one RETURN column ({@code expression AS alias} when {@code returnAlias} is non-null).
+   */
+  void appendReturnColumn(SQLExpression expression, @Nullable String returnAlias);
+
+  /** Read-only view of RETURN items accumulated so far (for recogniser post-checks). */
+  List<SQLExpression> returnItems();
 
   // --- Result shaping (Track 6) -----------------------------------------------------------------
 

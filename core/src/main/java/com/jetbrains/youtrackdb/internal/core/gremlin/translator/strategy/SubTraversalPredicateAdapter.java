@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -328,6 +329,21 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void setNamedDedupReturnProjection(java.util.Collection<String> userLabels) {
     // Swallowed — see setReturnDistinct.
+  }
+
+  @Override
+  public void clearReturnProjection() {
+    // Swallowed — sub-walk children do not shape the parent's RETURN clause.
+  }
+
+  @Override
+  public void appendReturnColumn(SQLExpression expression, @Nullable String returnAlias) {
+    // Swallowed — see clearReturnProjection.
+  }
+
+  @Override
+  public List<SQLExpression> returnItems() {
+    return List.of();
   }
 
   @Override

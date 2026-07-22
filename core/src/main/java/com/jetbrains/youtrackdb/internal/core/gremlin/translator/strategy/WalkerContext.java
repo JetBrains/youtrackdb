@@ -488,6 +488,25 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
+  public void clearReturnProjection() {
+    returnItems.clear();
+    returnAliases.clear();
+    returnNestedProjections.clear();
+  }
+
+  @Override
+  public void appendReturnColumn(SQLExpression expression, @Nullable String returnAlias) {
+    returnItems.add(expression);
+    returnAliases.add(returnAlias == null ? null : new SQLIdentifier(returnAlias));
+    returnNestedProjections.add(null);
+  }
+
+  @Override
+  public List<SQLExpression> returnItems() {
+    return returnItems;
+  }
+
+  @Override
   public void setReturnDistinct(boolean distinct) {
     this.returnDistinct = distinct;
   }
