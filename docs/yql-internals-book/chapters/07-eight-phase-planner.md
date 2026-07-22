@@ -307,6 +307,71 @@ window and warm the cache by running representative queries immediately afterwar
 
 The configuration knobs mentioned here are collected in Table 17.2 of Chapter 17.
 
+### A third cache — results, not plans
+
+Both caches so far are *compile-phase*: `YqlStatementCache` skips the parser,
+`YqlExecutionPlanCache` skips the eight planning phases. Neither touches execution. Once a
+caller holds a plan, running it — pulling rows through every step, scanning storage,
+filtering, projecting — happens in full, every time.
+
+Consider a transaction that issues the same query twice:
+
+```
+begin;
+  select from Person where city = 'Berlin';   -- runs the whole pipeline
+  -- … unrelated work …
+  select from Person where city = 'Berlin';   -- runs it again, start to finish
+commit;
+```
+
+The plan cache makes the second call cheap to *plan* — it copies a template instead of
+replanning — but the copied plan still executes end to end. If nothing the transaction did
+between the two calls could have changed the answer, that second execution is pure
+repetition.
+
+The *transaction-scoped query-result cache* addresses exactly this. Unlike the two
+compile-phase caches it does not live on `SharedContext` and is not shared across sessions:
+it is a single `QueryResultCache` held per transaction, a field on `FrontendTransactionImpl`
+(`core/.../tx/FrontendTransactionImpl.java:142`), and it sits *in front of* the whole
+pipeline. Before a statement reaches the planner, `DatabaseSessionEmbedded` routes it
+through `serveThroughCache()` (`core/.../db/DatabaseSessionEmbedded.java:679` and `:721`),
+which looks the query up (`:817`) and, on a hit, returns a cached view immediately (`:834`)
+— the eight phases of this chapter, and every step they would have produced, are skipped.
+
+The feature is off by default. It is gated by `QUERY_TX_RESULT_CACHE_ENABLED`
+(`core/.../api/config/GlobalConfiguration.java:961`), a `Boolean` defaulting to `false`;
+while the flag is off, `getQueryResultCache()` returns `null` and `serveThroughCache()`
+falls straight through to normal execution. Enabled, the cache is bounded by
+`QUERY_TX_RESULT_CACHE_MAX_ENTRIES` (default 200, `GlobalConfiguration.java:971`) and
+evicts least-recently-used entries when full.
+
+Caching results is harder than caching plans, because a plan is inert and a result is not.
+If the transaction mutates a `Person` row between the two identical selects, replaying the
+stored rows verbatim would be wrong — so a *delta* mechanism (`DeltaBuilder`, yielding a
+`TxDeltaCursor`) reconciles a stored result against the mutations made since it was
+recorded, keeping a hit identical to what a fresh execution would return. To know what
+"the same kind of result" even means, the cache first sorts each query into a *shape* — the
+result category it knows how to store and reconcile, computed by `ShapeClassifier` into a
+`CacheableShape` (`core/.../sql/executor/cache/CacheableShape.java:30`); queries whose shape
+it does not recognise are not cached. And a query that is non-deterministic by design — one
+calling `sysdate()` or `uuid()`, or referencing a per-row `$` variable — is refused outright
+by `NonDeterministicQueryDetector`
+(`core/.../sql/executor/cache/NonDeterministicQueryDetector.java:51`), since freezing its
+output would be a bug, not an optimisation.
+
+The cache's lifetime is the transaction's: it is cleared when the transaction ends and when
+one re-begins (`FrontendTransactionImpl.clear()`, `:1038`), so nothing survives a commit or
+rollback. Because a bulk operation can invalidate more than the delta machinery can cheaply
+reconcile, `TRUNCATE CLASS` discards the whole cache in one call to
+`QueryResultCache.invalidateAll()` (`core/.../sql/executor/cache/QueryResultCache.java:318`).
+Entries whose shape makes per-mutation reconciliation impractical are retired instead by a
+strike-based scheme, gated by two threshold knobs also collected in Table 17.2.
+
+The contrast is the whole point. The compile-phase caches save the cost of *preparing* to
+run a query and are shared, long-lived, and keyed by SQL text; the query-result cache saves
+the cost of *running* one, is private to a single transaction, and is correct only because
+it actively reconciles against that transaction's own mutations.
+
 ---
 
 ## Looking ahead
