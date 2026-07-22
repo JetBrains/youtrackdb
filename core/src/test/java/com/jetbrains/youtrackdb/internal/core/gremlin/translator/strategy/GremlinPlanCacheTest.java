@@ -117,6 +117,48 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(fingerprint(one)).isNotEqualTo(fingerprint(two));
   }
 
+  /**
+   * Distinct {@code limit} / {@code skip} literals must not share a cache entry — they are inline in
+   * MATCH and not rebound per execution.
+   */
+  @Test
+  public void distinctLimitSkip_distinctFingerprints() {
+    var limit2 = walk(() -> graph.traversal().V().limit(2));
+    var limit5 = walk(() -> graph.traversal().V().limit(5));
+    assertThat(fingerprint(limit2)).isNotEqualTo(fingerprint(limit5));
+
+    var skip1 = walk(() -> graph.traversal().V().skip(1));
+    var skip2 = walk(() -> graph.traversal().V().skip(2));
+    assertThat(fingerprint(skip1)).isNotEqualTo(fingerprint(skip2));
+  }
+
+  /** {@code order().by(...)} differs from unordered {@code g.V()} in the fingerprint. */
+  @Test
+  public void orderBy_distinctFromUnordered() {
+    var plain = walk(() -> graph.traversal().V());
+    var ordered =
+        walk(() -> graph.traversal().V().order()
+            .by("name", org.apache.tinkerpop.gremlin.process.traversal.Order.desc));
+    assertThat(fingerprint(plain)).isNotEqualTo(fingerprint(ordered));
+  }
+
+  /** {@code dedup()} (DISTINCT) differs from a non-distinct walk of the same hop shape. */
+  @Test
+  public void dedup_distinctFromNonDistinct() {
+    seedKnowsGraph();
+    var plain = walk(() -> graph.traversal().V().out("knows"));
+    var deduped = walk(() -> graph.traversal().V().out("knows").dedup());
+    assertThat(fingerprint(plain)).isNotEqualTo(fingerprint(deduped));
+  }
+
+  /** {@code groupCount().by("name")} differs from bare {@code count()} in the fingerprint. */
+  @Test
+  public void groupCount_distinctFromCount() {
+    var count = walk(() -> graph.traversal().V().count());
+    var groupCount = walk(() -> graph.traversal().V().groupCount().by("name"));
+    assertThat(fingerprint(count)).isNotEqualTo(fingerprint(groupCount));
+  }
+
   /** Schema listener invalidates the cache; no live schema mutation required. */
   @Test
   public void schemaChange_invalidatesCache() {

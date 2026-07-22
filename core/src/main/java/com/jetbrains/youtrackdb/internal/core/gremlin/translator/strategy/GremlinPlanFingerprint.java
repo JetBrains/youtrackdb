@@ -12,10 +12,13 @@ import javax.annotation.Nonnull;
 /**
  * Synthesises a value-independent fingerprint from post-walk {@link MatchPlanInputs} for the
  * {@link GremlinPlanCache}. The key enumerates the positive pattern topology, alias classes (verbatim),
- * alias filters, detached NOT expressions, and return projection — never {@link
+ * alias filters, detached NOT expressions, return projection, and result-shaping clauses ({@code
+ * GROUP BY} / {@code ORDER BY} / {@code LIMIT} / {@code SKIP} / {@code DISTINCT}) — never {@link
  * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement#toGenericStatement()}, which
  * omits {@code notMatchExpressions}. Positional parameters render as {@code ?}; structural tokens
  * (class names, {@code ~label}, RIDs) stay verbatim so distinct labels and NOT shapes do not collide.
+ * Limit / skip literals stay in the key (they are not positional slots), so {@code limit(2)} and
+ * {@code limit(5)} cannot share a cached plan.
  */
 final class GremlinPlanFingerprint {
 
@@ -35,6 +38,7 @@ final class GremlinPlanFingerprint {
     appendAliasFilters(sb, inputs.aliasFilters());
     appendNotExpressions(sb, inputs.notMatchExpressions());
     appendReturnProjection(sb, inputs);
+    appendResultShaping(sb, inputs);
     return sb.toString();
   }
 
@@ -108,5 +112,32 @@ final class GremlinPlanFingerprint {
       }
       sb.append(']');
     }
+  }
+
+  /**
+   * Appends Track 6 result-shaping clauses. Limit / skip use {@code toString} (not
+   * {@code toGenericStatement}): {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNumber}
+   * collapses every integer to {@code ?}, which would let {@code limit(2)} and {@code limit(5)}
+   * collide. Group / order keep {@code toGenericStatement} — their discriminators are property
+   * names and directions, not rebound literals.
+   */
+  private static void appendResultShaping(StringBuilder sb, MatchPlanInputs inputs) {
+    sb.append(";G:");
+    if (inputs.groupBy() != null) {
+      inputs.groupBy().toGenericStatement(sb);
+    }
+    sb.append(";O:");
+    if (inputs.orderBy() != null) {
+      inputs.orderBy().toGenericStatement(sb);
+    }
+    sb.append(";L:");
+    if (inputs.limit() != null) {
+      inputs.limit().toString(NO_PARAMS, sb);
+    }
+    sb.append(";S:");
+    if (inputs.skip() != null) {
+      inputs.skip().toString(NO_PARAMS, sb);
+    }
+    sb.append(";D:").append(inputs.returnDistinct());
   }
 }
