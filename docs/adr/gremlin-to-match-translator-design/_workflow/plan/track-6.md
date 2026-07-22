@@ -21,12 +21,14 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T12:56Z [ctx=info] Step 4 complete (tip bd45c5a6b6; ByModulatorTranslatorTest + GremlinProjectionRecogniserTest + DedupGlobalStepRecogniserTest green)
 - [x] 2026-07-22T13:20Z [ctx=info] Step 5 complete (tip 6ea1e4fb7d; OrderRangeStepRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T13:51Z [ctx=info] Step 6 complete (tip b660e7527e; GremlinAggregateRecogniserTest + GremlinStepWalkerTest + smoke green)
+- [x] 2026-07-22T14:50Z [ctx=info] Step 7 complete (tip 985a14e1e8; boundary MAP/SINGLE_VALUE/SCALAR + ProjectionEquivalenceTest green)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 - 2026-07-22 (Phase A, T2): `GremlinStepWalker.buildResult` does not yet wire `returnDistinct` / `groupBy` / `orderBy` / `limit` / `skip` into `MatchPlanInputs` even though the record supports them — foundation step must extend `WalkerContext` and `buildResult` together.
 - 2026-07-22 (Phase A, R2): `handleHardwiredCountOnClass*` lives only on `SelectExecutionPlanner` (private static); `MatchExecutionPlanner` has no count short-circuit hook yet — extraction is a real new seam, not a re-export.
 - 2026-07-22 (Phase A, T4): Frozen `design.md` §empty-input still tags projection work as "Track 5" and conflates `values` with `dropNullRows`; track plan's `dropOnAbsent` is correct — Phase-4 reconciliation only.
+- 2026-07-22 (Step 7): Post-RETURN rows drop the matched entity — `values`/`valueMap`/`elementMap` must RETURN the boundary entity for `EntityImpl.hasProperty`. Single-key `select` must unwrap (native SelectOne). SQL `sum` over absent-valued matched rows can yield `0`, so empty-aggregate fixtures use zero-match filters.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -75,7 +77,7 @@ Two semantic hazards dominate this track:
 4. **`ByModulatorTranslator`** (shared `match/builder/`) — key-side (`by("k")`, `by(T.id)`, `by(T.label)`, `__.values/id/label` unwraps, `Order.asc/desc`) and value-side (`by(__.count())`, `by(__.fold())`, …) via sub-walker capture (R3); declines edges/aggregates/lambdas/`Order.shuffle`/per-label-count-mismatch. Detail: Plan of Work item 3. — `risk: high` *(depends on Step 1)*  [x] commit: bd45c5a6b6
 5. **`OrderGlobalStep` + `RangeGlobalStep`** — `SQLOrderBy` (`Order.shuffle` declines); `SQLSkip` + `SQLLimit` (`range` → `limit = high - low`, unbounded high → skip-only). Detail: Plan of Work item 4. — `risk: medium` *(depends on Steps 1, 4)*  [x] commit: 6ea1e4fb7d
 6. **Aggregate recognisers + count short-circuit** — `count`/`sum`/`min`/`max`/`mean`/`group`/`groupCount` → `SQLProjection` + `SQLGroupBy`; `dropNullRows` per output type; consume `lastPropertyProjection` for `values("age").mean()` (A1); extract `handleHardwiredCountOnClass*` to shared helper, invoke from `MatchExecutionPlanner` (R2). Multi-label / non-polymorphic counts decline to `YTDBGraphCountStrategy`. Detail: Plan of Work items 5–6. — `risk: high` *(depends on Steps 1, 3, 4)*  [x] commit: b660e7527e
-7. **Boundary projection + parity tests** — complete `YTDBMatchPlanStep` `MAP` / `SINGLE_VALUE` / `SCALAR` payload emission; `dropNullRows` row loop + `dropOnAbsent` entity check (R5); `group`/`groupCount` MAP accumulation; extend `EdgeTraversalEquivalenceTest` / new projection-equivalence tests for absent-vs-null, empty-input aggregates, order, pagination, dedup. Detail: Validation and Acceptance. — `risk: high` *(depends on Steps 1–6)*
+7. **Boundary projection + parity tests** — complete `YTDBMatchPlanStep` `MAP` / `SINGLE_VALUE` / `SCALAR` payload emission; `dropNullRows` row loop + `dropOnAbsent` entity check (R5); `group`/`groupCount` MAP accumulation; extend `EdgeTraversalEquivalenceTest` / new projection-equivalence tests for absent-vs-null, empty-input aggregates, order, pagination, dedup. Detail: Validation and Acceptance. — `risk: high` *(depends on Steps 1–6)*  [x]
 
 **Step sequencing.** Strictly ordered 1→7 — Step 1 is the shared foundation; projection recognisers (3) before boundary completion (7); `ByModulatorTranslator` (4) before order/group `by` shapes (5–6). Reconciled track tag: `high`.
 
@@ -162,6 +164,20 @@ Two semantic hazards dominate this track:
 - `GremlinAggregateRecogniserTest.java`
 
 **Critical context:** Step 7 completes `YTDBMatchPlanStep` MAP/SINGLE_VALUE/SCALAR projection and parity tests (including empty-input aggregates and absent-vs-null).
+
+### Step 7 — commit 985a14e1e8, 2026-07-22T14:50Z [ctx=info]
+**What was done:** Completed `YTDBMatchPlanStep` projection for `MAP` / `SINGLE_VALUE` / `SCALAR` with `dropOnAbsent` / `dropNullRows` row loops and `group`/`groupCount` map accumulation. Assemblers now RETURN the boundary entity for presence checks; valueMap wraps property values in singleton lists; elementMap emits `T.id`/`T.label` keys; single-key `select` unwraps to the column value (native SelectOne shape). Added `ProjectionEquivalenceTest` for absent-vs-null, empty aggregates, order/limit, dedup, groupCount.
+
+**What was discovered:** Post-RETURN MATCH rows lack the entity — presence checks require an explicit entity RETURN column. Native `select("a")` emits the value, not a one-entry map. SQL `sum(alias.age)` over a matched vertex with absent `age` can yield `0`, so empty-input aggregate parity uses a zero-match filter (`has` that matches nothing), not “vertex present, property absent”.
+
+**What changed from plan:** Added walker flags `presencePropertyKeys`, `wrapMapValuesInLists`, `accumulateMap`, `unwrapSingletonMap`, `elementMapTokens` rather than inferring all shaping from RETURN column names alone.
+
+**Key files:**
+- `YTDBMatchPlanStep.java`, `GremlinProjectionAssembler.java`, `GremlinAggregateAssembler.java`
+- `GremlinToMatchTranslator.java`, `WalkerContext.java`, `RecognitionContext.java`
+- `ProjectionEquivalenceTest.java`
+
+**Critical context:** Track 6 step implementation is complete; next is track-level code review + track completion checkboxes.
 
 ## Validation and Acceptance
 - `select` / `values` / `valueMap` / `elementMap` / `project` translate and match native multisets, with the correct boundary output type per terminal step.
