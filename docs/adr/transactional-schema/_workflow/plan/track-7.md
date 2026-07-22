@@ -33,6 +33,9 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [x] 2026-07-22T15:10Z [ctx=safe] Step 4 complete (commit 449d1745c0; resumed after an
   auth-failure interruption mid-implementation — the uncommitted primitive was re-verified
   against the spec before tests were written)
+- [x] 2026-07-22T17:40Z [ctx=safe] Step 3 review-fix iteration 1 complete (commit f7009df7a7;
+  concurrency + baseline + crash-safety reviews: 5 should-fixes + 4 suggestions — all applied or
+  dispositioned, 0 blockers)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -376,6 +379,65 @@ ci-integration verify: surefire ci/disk profile 17407/0 (the racer red is gone),
 with only the four known Track 6 rename classes failing (21 failures, identical to the HEAD
 baseline — no new IT failures). The storage stays usable after teardown of the poisoned-storage
 test (checkErrorState gates only component operations, not close/drop).
+
+### Step 3 review-fix iteration 1 — commit f7009df7a7, 2026-07-22T17:40Z [ctx=safe]
+**What was done:** Applied the three Step 3 review reports
+(`track-7/reviews/{concurrency,baseline,crash-safety}-step3-iter1.md`; 0 blockers). (1) Skip
+detection reads no plain field: `currentTx` is volatile with the happens-before chain documented
+at `hasInFlightForeignCommit` (the design's "skip detection must not read plain fields" pin now
+holds literally). (2) Atomic one-shot teardown claim in `internalClose`: exactly one full
+teardown per open cycle — the pool fall-through racing the owner's completer (or a borrower's own
+close) can no longer double-fire close listeners or double-decrement the storage session count;
+the claim releases on a thrown (incomplete) teardown to preserve cleanup-retry semantics, resets
+on pooled `reuse()`, composes with the skip path (which returns before the claim), keeps the
+CN24 mark-after-guard placement, and the false "contained by the one-shot status guard" comments
+are corrected. The `-ea` activation assert moved before the claim/flag writes so an assert-fire
+cannot strand `internalCloseInProgress`. (3) The pool-skip WARN's LogManager overload defect is
+fixed (the message had landed in the dbName parameter slot); skip/completer/pool-loop logs now
+carry session identity, db name, and tx status. (4) The engage wait-loop's status probe is the
+lock-free `getStatus()` read instead of the stateLock-taking `isClosed()`. (5) Tests: a
+deterministic post-acquire Dekker self-release test (red-first proven by neutering the re-check),
+a deterministic exactly-one-full-teardown claim-race test (red-first proven by neutering the
+claim; first teardown held open inside its close listener), the mislabeled rollback-throw test
+split into its true skipped-rollback shape (dangling tx now cleaned up) plus a genuinely-throwing
+teardown variant (an `AssertionError` from `onBeforeTxRollback`, which the listener loop does not
+swallow), the pool-skip test's hang-on-regression converted to a bounded failure, and the stale
+class javadoc / reuse-clear "second belt" mislabel corrected.
+
+**What was discovered:** A genuinely THROWING rollback is not reachable through exception-typed
+listener failures (`beforeRollbackOperations` swallows `Exception`) — but an `AssertionError`
+propagates, giving the FM-A2 throw shape a deterministic public-seam drive. The claim's failure
+semantics needed a decision the reviews left open: consuming the claim permanently on a THROWN
+teardown would have made a broken session permanently uncloseable (a behavior regression), so the
+claim releases on incomplete unwind — concurrent both-act stays contained because the release
+happens only after the failed attempt fully unwound.
+
+**Accepted residual (recorded per the review):** the neither-completes corner — if the
+transaction's own `close()` throws BEFORE its status write, the owner's completer may read a
+stale mark-free state while the pool skipped: neither side completes the teardown. The permit is
+still safe (the widened release pass and the claim cover the release), but the session object,
+its session-count slot, and its tsMin pin leak until the storage closes — an FM-A5-class loud
+residual (StaleTransactionMonitor reports it). The design doc's round-2 CN22 wording ("the only
+defeater is JVM death mid-completer") is SUPERSEDED by this record: a pre-status-write throw in
+tx-close is a second, equally accepted defeater.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java`
+  (volatile `currentTx`, `teardownClaim`, assert placement, diagnostics)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbeddedPooled.java`
+  (WARN overload fix + payload, `reuse()` claim reset, comment corrections)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabasePoolImpl.java` (log identity)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/MetadataWriteMutex.java`
+  (lock-free status probe in the wait loop)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/MetadataWriteMutexTest.java`
+
+**Critical context:** Verification: MetadataWriteMutexTest 22/22 (both new mechanism tests
+red-first proven), SchemaCommitReconciliationTest + CommitTimeIndexBuildTest 59/59, full core
+unit suite 17428/0, coverage gate PASSED (90.2% line / 81.9% branch). Integration judgment: the
+failsafe ITs were NOT re-run for this fix — the claim changes session-close semantics only, a
+path every one of the 17k+ unit tests (including the pooled Gremlin scenario suites) exercises
+constantly and in exactly the way the ITs would; the prior step's full-verify baseline plus the
+full unit suite is the proportionate check.
 
 ### Step 4 — commit 449d1745c0, 2026-07-22T15:10Z [ctx=safe]
 **What was done:** Landed the `ScalableRWLock.exclusiveLockWithAbort(BooleanSupplier abort, long
