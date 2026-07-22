@@ -251,7 +251,11 @@ public class ExpandStepAnalyzedExprParityTest extends TestUtilsFixture {
       e3.setProperty("score", 300);
       e3.setProperty("name", "Charlie");
 
-      // Null-valued row to exercise null handling
+      // Null-valued row to exercise null handling. setProperty(_, null) stores explicit null
+      // fields, so this entity is non-empty and survives ExpandStep's "nothing to expand" guard,
+      // reaching filterMap on the EntityImpl fast path. (Non-vacuous participation is asserted
+      // directly in nullValuedEntityRowReachesFastPathFilter — the differential parity harness
+      // below agrees whether or not this row participates, so it cannot prove that on its own.)
       var e4 = session.newEntity(className);
       e4.setProperty("age", null);
       e4.setProperty("score", null);
@@ -268,6 +272,73 @@ public class ExpandStepAnalyzedExprParityTest extends TestUtilsFixture {
       for (String predicate : lowerableCorpus()) {
         assertParityEntityExpandedRows(className, predicate);
       }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Non-vacuous fast-path null coverage: a null-valued EntityImpl row must flow THROUGH expansion
+   * and reach {@code filterMap} on the fast path, so IS NULL / IS NOT NULL are evaluated against a
+   * real EntityImpl whose filtered property is null.
+   *
+   * <p>Regression guard for the generic harness: {@link #parityEntityBackedExpandedRows()} agrees
+   * between the IR and AST paths whether or not the null row participates, so it cannot by itself
+   * prove the null row is not silently dropped before the filter. This test asserts the row's exact
+   * presence/absence and its entity-backed nature directly. It also confirms empirically that
+   * {@code setProperty(_, null)} keeps the entity non-empty (rather than assuming it), so the row
+   * survives ExpandStep's "nothing to expand" guard and reaches the fast path.
+   */
+  @Test
+  public void nullValuedEntityRowReachesFastPathFilter() {
+    var className = createClassInstance().getName();
+    session.begin();
+    try {
+      var present = session.newEntity(className);
+      present.setProperty("age", 42);
+      present.setProperty("name", "Present");
+
+      // Filtered property (age) is null; a non-null 'name' marker distinguishes the row.
+      var nullRow = session.newEntity(className);
+      nullRow.setProperty("age", null);
+      nullRow.setProperty("name", "NullRow");
+      session.commit();
+    } catch (RuntimeException e) {
+      session.rollback();
+      throw e;
+    }
+
+    session.begin();
+    try {
+      // IS NULL: only the null-age row survives — and it must be an EntityImpl-backed row so the
+      // null comparison provably ran on a real entity (fast path), not a projection.
+      var isNull = parseWhere("SELECT FROM " + className + " WHERE age IS NULL");
+      var ctxNull = newContext();
+      var stepNull = new ExpandStep(ctxNull, false, null, isNull, null);
+      stepNull.setPrevious(new FetchFromClassExecutionStep(className, null, ctxNull, null, false));
+      assertThat(stepNull.getAnalyzed())
+          .as("IS NULL must lower to IR (IR path active)")
+          .isNotNull();
+      var isNullRows = drain(stepNull.start(ctxNull), ctxNull);
+      assertThat(isNullRows)
+          .as("IS NULL: only the null-age entity row survives")
+          .hasSize(1);
+      assertThat(isNullRows.get(0).isEntity())
+          .as("surviving null-age row must be EntityImpl-backed (fast path), not a projection")
+          .isTrue();
+      assertThat((String) isNullRows.get(0).getProperty("name")).isEqualTo("NullRow");
+
+      // IS NOT NULL: only the present-age row survives (null-age row correctly excluded).
+      var isNotNull = parseWhere("SELECT FROM " + className + " WHERE age IS NOT NULL");
+      var ctxNotNull = newContext();
+      var stepNotNull = new ExpandStep(ctxNotNull, false, null, isNotNull, null);
+      stepNotNull.setPrevious(
+          new FetchFromClassExecutionStep(className, null, ctxNotNull, null, false));
+      var isNotNullRows = drain(stepNotNull.start(ctxNotNull), ctxNotNull);
+      assertThat(isNotNullRows)
+          .as("IS NOT NULL: only the present-age entity row survives")
+          .hasSize(1);
+      assertThat((String) isNotNullRows.get(0).getProperty("name")).isEqualTo("Present");
     } finally {
       session.rollback();
     }

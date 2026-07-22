@@ -67,8 +67,8 @@ import javax.annotation.Nullable;
  * BETWEEN, $-variables, multi-segment paths), and the empty/no-filter case, silently fall back to
  * the AST path — correctness is preserved, only the performance benefit of the IR path is lost.
  *
- * <p>Unlike {@code FilterStep}, ExpandStep has no serialize override and no
- * {@code registerBooleanExpression} side-channel, so the generic filter is the only carrier that
+ * <p>ExpandStep has no serialize override and, unlike {@code FilterStep}, no
+ * {@code registerBooleanExpression} side-channel — so the generic filter is the only carrier that
  * needs the dual-carry treatment. The RID value-expression paths
  * ({@code ridFilterDescriptor}/{@code indexDescriptor}) are unrelated to boolean-predicate lowering
  * and are untouched.
@@ -216,9 +216,15 @@ public class ExpandStep extends AbstractExecutionStep {
   @Nullable private Result filterMap(Result result, CommandContext ctx) {
     if (analyzed != null) {
       Object evaluatorResult = AnalyzedExprEvaluator.evaluate(analyzed, result, ctx);
-      return Boolean.TRUE.equals(evaluatorResult) ? result : null;
+      if (Boolean.TRUE.equals(evaluatorResult)) {
+        return result;
+      }
+      return null;
     }
-    return pushDownFilter.matchesFilters(result, ctx) ? result : null;
+    if (pushDownFilter.matchesFilters(result, ctx)) {
+      return result;
+    }
+    return null;
   }
 
   private ExecutionStream nextResults(
