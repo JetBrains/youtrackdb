@@ -62,7 +62,7 @@ freshly scanned) record into an alias-keyed row
 it, two `+ MATCH` lines with `---->` arrows are `MatchStep` instances
 traversing outward edges. The direction arrow tells you which way the
 traverser walked: `---->` means forward (out), `<----` means reverse (in)
-(`MatchStep.prettyPrint`, verified at `MatchStep.java:125`). The final line
+(`MatchStep.prettyPrint`, verified at `MatchStep.java:127`). The final line
 is the projection that produces the RETURN columns.
 
 That is the entire normal-path read. Everything the planner chose is there.
@@ -86,7 +86,7 @@ corresponding class; all are verified against the source.
 
 **`+ PREFETCH <alias>`** — `MatchPrefetchStep`. The planner decided this
 alias has cardinality below the prefetch threshold (100 records by default,
-`MatchExecutionPlanner.java:328`) and materialised it before the main loop.
+`MatchExecutionPlanner.java:336`) and materialised it before the main loop.
 Prefetching is a small optimisation: it avoids re-running the inner scan on
 every outer row. It does not change the plan order.
 
@@ -172,7 +172,7 @@ at `InvertedWhileHashJoinStep.java:343`.
 
 **`+ BACK-REF HASH JOIN`** — `BackRefHashJoinStep`. The intersection path
 for a back-reference equality filter resolved via an edge reverse-lookup.
-The alias and edge class are shown inline. Verified at `BackRefHashJoinStep.java:675`.
+The alias and edge class are shown inline. Verified at `BackRefHashJoinStep.java:846`.
 
 **`+ CartesianProduct (…)`** — `CartesianProductStep`. Appears when the
 query has two or more disjoint components with no shared alias. The step
@@ -465,7 +465,7 @@ component 2.
 
 **Cause.** The two MATCH expressions in the query have no shared alias and
 no correlation between them. The planner correctly identifies this as two
-disjoint components (`splitDisjointPatterns`, `MatchExecutionPlanner.java:4185`)
+disjoint components (`splitDisjointPatterns`, `MatchExecutionPlanner.java:4407`)
 and cross-joins them. With 10 000 rows in component 1 and 5 000 in component
 2, the product is 50 million rows before any further filtering.
 
@@ -601,7 +601,7 @@ is defined there, cross-referenced to the chapter where it first appears.
   `executionPlan` via `executionPlan.toResult(session)`.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SelectExecutionPlan.java:94`
   — `prettyPrint` concatenates each step's text in runtime order.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchStep.java:125`
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchStep.java:127`
   — `prettyPrint` for edge steps: direction arrow, alias names, intersection annotation.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchFirstStep.java:125`
   — `prettyPrint` for the root step: `SET <alias> AS <sub-plan>`.
@@ -613,7 +613,7 @@ is defined there, cross-referenced to the chapter where it first appears.
   — `prettyPrint` for the correlated optional hash join.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/InvertedWhileHashJoinStep.java:343`
   — `prettyPrint` for the inverted-WHILE hash join.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/BackRefHashJoinStep.java:675`
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/BackRefHashJoinStep.java:846`
   — `prettyPrint` for back-reference hash join variants.
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/MatchStatementExecutionTest.java:2305`
   — `testExplainMatchQuery` and surrounding tests: the richest source of verified EXPLAIN

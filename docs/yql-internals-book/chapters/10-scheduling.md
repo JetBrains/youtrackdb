@@ -46,7 +46,7 @@ The output of this search is a `List<EdgeTraversal>` — the *schedule*. Each
 `out` flag that says whether the runtime should walk forward (from the
 syntactic source) or in reverse (from the syntactic target). That list is
 built by `getTopologicalSortedSchedule` in `MatchExecutionPlanner`
-(`core/.../match/MatchExecutionPlanner.java:1945`).
+(`core/.../match/MatchExecutionPlanner.java:1976`).
 
 ---
 
@@ -57,12 +57,12 @@ The scheduler is structured as two nested loops.
 ### 10.2.1 The outer loop
 
 The outer loop runs until every edge in the pattern has been scheduled
-(`MatchExecutionPlanner.java:1970`). On each iteration it picks the
+(`MatchExecutionPlanner.java:2001`). On each iteration it picks the
 cheapest, unvisited, dependency-free alias from the set `remainingStarts`
 and starts a DFS from it.
 
 `remainingStarts` is a `LinkedHashSet<String>` built in two steps
-(`MatchExecutionPlanner.java:1960–1968`):
+(`MatchExecutionPlanner.java:1991–1999`):
 
 1. All aliases that have known cardinality estimates are sorted ascending by
    estimate and added first.
@@ -83,19 +83,19 @@ throws `CommandExecutionException` with the message:
  undefined alias or a circular dependency on a $matched condition."
 ```
 
-(`MatchExecutionPlanner.java:1998`).
+(`MatchExecutionPlanner.java:2029`).
 
 ### 10.2.2 The inner DFS
 
 The inner function `updateScheduleStartingAt`
-(`MatchExecutionPlanner.java:2032`) does the actual work. Given a start
+(`MatchExecutionPlanner.java:2063`) does the actual work. Given a start
 node, it:
 
 1. Marks the start node visited and clears it from every
-   `remainingDependencies` entry (`MatchExecutionPlanner.java:2067–2069`).
+   `remainingDependencies` entry (`MatchExecutionPlanner.java:2098–2100`).
 2. Enumerates candidate edges: all out-edges of the start node, plus any
    in-edges that are *invertible* (§10.3), plus non-invertible in-edges
-   whose syntactic source is already visited (`MatchExecutionPlanner.java:2074–2096`).
+   whose syntactic source is already visited (`MatchExecutionPlanner.java:2105–2127`).
 3. Scores and sorts each candidate by estimated cost (§10.4).
 4. Processes candidates in cost order: skips those whose neighbour still has
    unresolved dependencies, emits those that are ready, and recurses into
@@ -200,7 +200,7 @@ calls `item.getMethod().executeReverse()` instead of `execute()`. The
 original source node's class and RID constraints travel with the
 `EdgeTraversal` as `leftClass` and `leftRid` fields that the reverse
 traverser uses to validate candidates
-(`core/.../match/EdgeTraversal.java:44–60`).
+(`core/.../match/EdgeTraversal.java:55–64`).
 
 ### 10.3.3 The non-invertible hazard
 
@@ -230,8 +230,8 @@ where `base_cost = source_rows × fan_out × COST_RANDOM_PAGE_READ`
 ### 10.4.1 Source rows
 
 `source_rows` is `estimatedRootEntries.getOrDefault(sourceAlias, THRESHOLD)`
-(`MatchExecutionPlanner.java:2106`). `THRESHOLD = 100`
-(`MatchExecutionPlanner.java:328`) is the fallback for aliases that carry no
+(`MatchExecutionPlanner.java:2137`). `THRESHOLD = 100`
+(`MatchExecutionPlanner.java:336`) is the fallback for aliases that carry no
 `class:` constraint. It is the same constant used for the prefetch decision
 in the previous planning phase — a deliberate choice that makes unestimated
 aliases appear as neither artificially cheap nor artificially expensive.
@@ -255,7 +255,7 @@ schema-less `BOTH` edges look free.
 
 ### 10.4.3 Target selectivity
 
-`applyTargetSelectivity` (`MatchExecutionPlanner.java:2460`) scales the
+`applyTargetSelectivity` (`MatchExecutionPlanner.java:2491`) scales the
 base cost down when the *neighbour* alias carries a WHERE clause that
 filters aggressively. It inspects the WHERE AST shape: a simple equality
 reduces the cost by roughly `1 / distinctCount`; an inequality reduces it
@@ -263,18 +263,18 @@ by `(distinctCount - 1) / distinctCount`. When an index covers the filter,
 `SelectivityEstimator` reads the histogram for a tighter estimate.
 
 When the neighbour is already in `visitedNodes`, the cost is set to `0.0`
-(`MatchExecutionPlanner.java:2115`). No new rows are produced — the edge
+(`MatchExecutionPlanner.java:2147`). No new rows are produced — the edge
 becomes a pure equality check (§10.6).
 
 ### 10.4.4 Depth multiplier
 
-`applyDepthMultiplier` (`MatchExecutionPlanner.java:2814`) penalises
+`applyDepthMultiplier` (`MatchExecutionPlanner.java:3058`) penalises
 recursive edges:
 
 - Plain single-hop edge: multiplier = 1 (no change).
 - `while:` with `maxdepth: N`: multiply by N.
 - `while:` without `maxdepth:`: multiply by `DEFAULT_WHILE_DEPTH = 10`
-  (`MatchExecutionPlanner.java:2830`).
+  (`MatchExecutionPlanner.java:3074`).
 
 The default of 10 is pessimistic by design. One upstream row in a recursive
 edge can fan out into an entire reachability subtree; scheduling it early
@@ -327,7 +327,7 @@ picking a more expensive edge.
 
 ### 10.5.1 Building the dependency map
 
-`getDependencies(pattern)` (`MatchExecutionPlanner.java:4160`) scans every
+`getDependencies(pattern)` (`MatchExecutionPlanner.java:4382`) scans every
 alias's WHERE clause for `$matched.X` references. It returns a map from
 each alias to the set of other aliases it requires:
 
@@ -340,13 +340,13 @@ remainingDependencies = {
 ```
 
 The map is initialised once, before the outer loop starts
-(`MatchExecutionPlanner.java:1950`).
+(`MatchExecutionPlanner.java:1981`).
 
 ### 10.5.2 Satisfying dependencies during the DFS
 
 When the inner loop processes candidate edges in cost order, it checks
 whether the *neighbour*'s dependency set is empty before emitting the edge
-(`MatchExecutionPlanner.java:2150–2158`):
+(`MatchExecutionPlanner.java:2181–2189`):
 
 ```java
 var deps = remainingDependencies.get(neighboringNode.alias);
@@ -357,7 +357,7 @@ if (!deps.isEmpty()) {
 ```
 
 The key invariant: the moment a node is marked visited, it is removed from
-*every* dependency set in the map (`MatchExecutionPlanner.java:2068–2069`).
+*every* dependency set in the map (`MatchExecutionPlanner.java:2099–2100`).
 This removal happens *before* the inner loop evaluates any of the start
 node's candidate edges. As a consequence, if `author` is the DFS root and
 is marked visited first, `reader`'s dependency on `"author"` is cleared
@@ -433,7 +433,7 @@ neighbours and emits the row only when one of them equals the already-bound
 target alias. No new alias enters the row; the step acts as a filter.
 
 The direction of the check edge follows this rule
-(`MatchExecutionPlanner.java:2205–2210`):
+(`MatchExecutionPlanner.java:2236–2241`):
 
 ```java
 boolean traversalDirection;
@@ -452,7 +452,7 @@ An alternative implementation exists for patterns where the back-reference
 join is large: the planner may attach a `SemiJoinDescriptor` to the
 `EdgeTraversal`, in which case `EdgeTraversal.isConsumed()` returns `true`
 and `addStepsFor` skips the edge entirely
-(`MatchExecutionPlanner.java:4244`). A `BackRefHashJoinStep` on the
+(`MatchExecutionPlanner.java:4466`). A `BackRefHashJoinStep` on the
 adjacent edge covers it instead. This hash-join variant is examined in
 Chapter 13.
 
@@ -471,14 +471,14 @@ RETURN p, c
 
 These two patterns have no connection. The scheduler cannot traverse from
 one to the other. The planner detects this situation by calling
-`splitDisjointPatterns()` (`MatchExecutionPlanner.java:4185`), which
+`splitDisjointPatterns()` (`MatchExecutionPlanner.java:4407`), which
 delegates to `pattern.getDisjointPatterns()` to compute the connected
 components of the pattern graph.
 
 When `subPatterns.size() > 1`, the planner schedules each component
 independently via `createPlanForPattern`, then joins their independent row
 streams through a `CartesianProductStep`
-(`MatchExecutionPlanner.java:530–538`):
+(`MatchExecutionPlanner.java:538–546`):
 
 ```java
 if (subPatterns.size() > 1) {
@@ -512,7 +512,7 @@ consequences follow:
    to `Long.MAX_VALUE`, making it prohibitively expensive as a root.
 
 2. **A different runtime step is emitted.** `addStepsFor`
-   (`MatchExecutionPlanner.java:4267`) detects `while:` edges and may
+   (`MatchExecutionPlanner.java:4489`) detects `while:` edges and may
    substitute an `InvertedWhileHashJoinStep` when the planner determines
    the reachability set can be pre-materialised. If it cannot, a plain
    `MatchStep` with `MatchEdgeTraverser` handles the recursion via its
@@ -528,8 +528,8 @@ variants itself.
 ## 10.9 Step Generation: Turning the Schedule into a Pipeline
 
 Immediately after `getTopologicalSortedSchedule` returns its list,
-`createPlanForPattern` (`MatchExecutionPlanner.java:1775`) calls
-`addStepsFor` (`MatchExecutionPlanner.java:4213`) once for each
+`createPlanForPattern` (`MatchExecutionPlanner.java:1790`) calls
+`addStepsFor` (`MatchExecutionPlanner.java:4435`) once for each
 `EdgeTraversal`:
 
 - **First edge** (`first=true`): a `MatchFirstStep` is prepended. The
@@ -714,14 +714,14 @@ of Chapter 11.
 ## Further Reading
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java`
-  — `getTopologicalSortedSchedule()` (line 1945), `updateScheduleStartingAt()`
-  (line 2032), `estimateEdgeCost()` (line 2291), `applyTargetSelectivity()`
-  (line 2460), `applyDepthMultiplier()` (line 2814), `getDependencies()`
-  (line 4160), `addStepsFor()` (line 4213), `splitDisjointPatterns()`
-  (line 4185).
+  — `getTopologicalSortedSchedule()` (line 1976), `updateScheduleStartingAt()`
+  (line 2063), `estimateEdgeCost()` (line 2322), `applyTargetSelectivity()`
+  (line 2491), `applyDepthMultiplier()` (line 3058), `getDependencies()`
+  (line 4382), `addStepsFor()` (line 4435), `splitDisjointPatterns()`
+  (line 4407).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/EdgeTraversal.java`
   — The scheduled edge record: direction flag, left-side constraints,
-  `isConsumed()` (line 179).
+  `isConsumed()` (line 504).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMatchPathItem.java`
   — `isBidirectional()` (line 58): the invertibility predicate.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/EdgeFanOutEstimator.java`

@@ -110,7 +110,7 @@ filters cannot be independently materialised. Its result depends on *which* upst
 is currently being evaluated — so it must be re-executed for each one.
 
 The planner checks this in `MatchExecutionPlanner.notPatternDependsOnMatched()`
-(`MatchExecutionPlanner.java:744`). If any filter in the expression contains a `$matched.`
+(`MatchExecutionPlanner.java:754`). If any filter in the expression contains a `$matched.`
 or `$parent.` reference, hash join is rejected and the planner falls back to the
 nested-loop `FilterNotMatchPatternStep`, which re-executes the sub-plan in the current
 context on each outer row.
@@ -120,7 +120,7 @@ context on each outer row.
 If the planner's estimate of how many rows the build side will produce exceeds
 `QUERY_MATCH_HASH_JOIN_THRESHOLD` (default 10,000), the hash structure could consume too
 much heap. The planner rejects hash join and falls back to nested loops
-(`MatchExecutionPlanner.java:1192–1194`; `GlobalConfiguration.java:854`).
+(`MatchExecutionPlanner.java:1203–1205`; `GlobalConfiguration.java:863`).
 
 Setting this threshold to zero disables hash join entirely across all three variants.
 
@@ -133,7 +133,7 @@ approximately seven to one per entry.
 
 When the join mode is `INNER_JOIN`, the planner applies a tighter cardinality limit:
 `threshold / INNER_JOIN_MEMORY_WEIGHT`, where `INNER_JOIN_MEMORY_WEIGHT` is the constant
-7 (`MatchExecutionPlanner.java:358`, checked at lines 1199–1200). An inner join that
+7 (`MatchExecutionPlanner.java:366`, checked at lines 1209–1210). An inner join that
 would pass the general cap may still fail this stricter check.
 
 ### Guards 3 and 4: Upstream size and cost comparison
@@ -152,7 +152,7 @@ to zero. When it is non-zero (default 5):
   ```
 
   If `hashJoinCost >= nestedLoopCost`, the extra build work does not pay off and the
-  planner falls back (`MatchExecutionPlanner.java:1217–1226`).
+  planner falls back (`MatchExecutionPlanner.java:1229–1237`).
 
 All four guards are statically evaluated at planning time using the cardinality estimates
 from Chapter 8. Even when all four pass, a runtime overflow path provides a final safety
@@ -202,7 +202,7 @@ of evidence is not evidence of absence — while `SEMI_JOIN` discards it
 ## Excluding forbidden rows: the `NOT` variant
 
 Consider the blocking query from the opening. At planning time, `MatchExecutionPlanner`
-calls `canUseHashJoin()` on the `NOT` expression (`MatchExecutionPlanner.java:893`).
+calls `canUseHashJoin()` on the `NOT` expression (`MatchExecutionPlanner.java:903`).
 There is no `$matched` reference in the NOT clause, the origin alias `p` has a known
 class, and the estimated cardinality of the NOT sub-pattern is below the threshold. Hash
 join is selected.
@@ -282,7 +282,7 @@ insight is that the edge direction is inverted: the original edge runs outward f
 by the correlated vertex's RID (`CorrelatedOptionalHashJoinStep.java:60`). The cache is a
 `LinkedHashMap<RID, NeighborEntry>` with access-order eviction, sized by
 `QUERY_MATCH_CORRELATED_CACHE_SIZE` (default 16,
-`GlobalConfiguration.java:875`). The LRU design matters when upstream rows interleave
+`GlobalConfiguration.java:884`). The LRU design matters when upstream rows interleave
 among several distinct `startPerson` values — without it, the neighbour set would be
 rebuilt on every row alternation.
 
@@ -414,7 +414,7 @@ exactly once, during the build phase, and then probes in O(1) per upstream row.
 | `youtrackdb.query.match.hashJoinUpstreamMin` | `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` | `5` | Minimum upstream rows for hash join to be worthwhile. Set to `0` to bypass Guards 3 and 4; only the build-side cap applies. |
 | `youtrackdb.query.match.correlatedCacheSize` | `QUERY_MATCH_CORRELATED_CACHE_SIZE` | `16` | LRU cache entries in `CorrelatedOptionalHashJoinStep`. Increase if upstream rows interleave many distinct correlated vertices. |
 
-The `INNER_JOIN_MEMORY_WEIGHT` constant (value 7, `MatchExecutionPlanner.java:358`) is
+The `INNER_JOIN_MEMORY_WEIGHT` constant (value 7, `MatchExecutionPlanner.java:366`) is
 not externally configurable — it reflects an empirically measured memory ratio between
 materialising full `ResultInternal` rows and lightweight `JoinKey` entries, and is not
 expected to change with query shape.
@@ -466,10 +466,10 @@ executions.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/JoinMode.java` —
   `ANTI_JOIN`, `SEMI_JOIN`, `INNER_JOIN` enum at line 15.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` —
-  `canUseHashJoin` at line 893; `notPatternDependsOnMatched` at line 744;
-  `traceBackwardBranch` at line 1150; `INNER_JOIN_MEMORY_WEIGHT` constant at line 358;
-  cardinality and cost guards at lines 1189–1227.
+  `canUseHashJoin` at line 903; `notPatternDependsOnMatched` at line 754;
+  `traceBackwardBranch` at line 1160; `INNER_JOIN_MEMORY_WEIGHT` constant at line 366;
+  cardinality and cost guards at lines 1198–1237.
 - `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` —
-  `QUERY_MATCH_HASH_JOIN_THRESHOLD` at line 854;
-  `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` at line 864;
-  `QUERY_MATCH_CORRELATED_CACHE_SIZE` at line 875.
+  `QUERY_MATCH_HASH_JOIN_THRESHOLD` at line 863;
+  `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` at line 873;
+  `QUERY_MATCH_CORRELATED_CACHE_SIZE` at line 884.

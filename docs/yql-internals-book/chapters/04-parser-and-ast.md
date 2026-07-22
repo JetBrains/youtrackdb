@@ -262,7 +262,7 @@ Two structural facts worth noting:
   but the parser never fills it in, and neither does the statement's own `buildPatterns()` method
   at line 211 — that method has no production callers and is used only in tests. During planning,
   the planner calls its own private `MatchExecutionPlanner.buildPatterns(CommandContext)` at
-  `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:4378`,
+  `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:4600`,
   which populates a `Pattern` field on the planner itself (not on the AST). At the end of parsing,
   only syntax is present.
 
@@ -282,7 +282,7 @@ query's grammar — nothing more. Schema resolution is absent: `class: Person` i
 until the planner calls `filter.getClassName(context)` during Phase 1. Alias unification is
 absent: if `p` appears in two `{…}` blocks, the parser emits two independent `SQLMatchFilter`
 objects with no link between them; merging them into one `PatternNode` happens in
-`buildPatterns(CommandContext)` at `MatchExecutionPlanner.java:4378` (Chapter 6). Default alias
+`buildPatterns(CommandContext)` at `MatchExecutionPlanner.java:4600` (Chapter 6). Default alias
 assignment is absent: nodes without an `as:` key return null from `getAlias()` until
 `assignDefaultAliases()` runs inside `buildPatterns()`. Execution direction is absent:
 `.out('Knows')` is stored exactly as written, and the scheduler (Chapter 10) is free to reverse
@@ -312,11 +312,11 @@ There is one non-obvious thing the planner does before it reads a single node: i
 copy of the AST.
 
 `MatchExecutionPlanner`'s constructor
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:424`)
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:432`)
 opens with this:
 
 ```java
-// core/.../sql/executor/match/MatchExecutionPlanner.java:426
+// core/.../sql/executor/match/MatchExecutionPlanner.java:434
 // Deep-copy all mutable AST components to allow safe in-place mutation during planning
 this.matchExpressions =
         stm.getMatchExpressions().stream().map(SQLMatchExpression::copy).collect(Collectors.toList());

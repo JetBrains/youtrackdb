@@ -54,7 +54,7 @@ produces the smallest initial set of records and therefore drives the fewest sub
 hops.
 
 Cardinality is computed by `MatchExecutionPlanner.estimateRootEntries()`
-(`core/.../sql/executor/match/MatchExecutionPlanner.java:4775`), which returns a
+(`core/.../sql/executor/match/MatchExecutionPlanner.java:5192`), which returns a
 `Map<String, Long>` keyed by alias name. The method follows a straightforward
 priority order for each alias:
 
@@ -66,7 +66,7 @@ priority order for each alias:
 - If the alias has a class but no filter, the cardinality is `classCount + 1`.
 
 The `+ 1` in the unfiltered case is a deliberate bias
-(`MatchExecutionPlanner.java:4819`). When two aliases have the same class size, the
+(`MatchExecutionPlanner.java:5236`). When two aliases have the same class size, the
 `+ 1` ensures the filtered alias always wins as root, even if the filter estimate
 happens to equal the class count. Filtering at the root avoids materialising records
 that the filter would immediately discard inside the nested loop; the planner encodes
@@ -89,10 +89,10 @@ The lower the selectivity, the more tightly the predicate filters.
 Selectivity is what `SelectivityEstimator` computes
 (`core/.../core/index/engine/SelectivityEstimator.java`). The class is shared between
 the `SELECT` and `MATCH` planners; the MATCH planner reaches it through the
-package-private static helper `estimateFilterSelectivity()` (`MatchExecutionPlanner.java:2551`),
+package-private static helper `estimateFilterSelectivity()` (`MatchExecutionPlanner.java:2795`),
 which walks the WHERE AST and assembles per-condition selectivity into a compound selectivity for
-the whole filter. (A separate `private` overload at line 2399 handles simpler single-predicate
-delegation; the AND/OR composition logic described here lives in the line-2551 overload.)
+the whole filter. (A separate `private` overload at line 2430 handles simpler single-predicate
+delegation; the AND/OR composition logic described here lives in the line-2795 overload.)
 
 `SelectivityEstimator` works in three tiers, resolved in priority order. Each public
 estimation method — `estimateEquality`, `estimateGreaterThan`, `estimateLessThan`, and
@@ -106,7 +106,7 @@ return `0.0` immediately. An empty index means nothing can match.
 **Rule 2 (Uniform).** If the index has entries but no `EquiDepthHistogram` has been built
 yet (the histogram argument is `null`, which happens when `nonNullCount` is below
 `QUERY_STATS_HISTOGRAM_MIN_SIZE`, default 1,000 entries per
-`GlobalConfiguration.java:1196`), use summary counters — total count, null count,
+`GlobalConfiguration.java:1255`), use summary counters — total count, null count,
 distinct count — under uniform-distribution assumptions. For equality the formula is
 `1 / distinctCount`. For unbounded range predicates (e.g., `age > 30`) the estimator
 returns one-third — the same default PostgreSQL uses for the same situation.
@@ -342,9 +342,9 @@ real estimate is missing.
 
 | Situation | Fallback value | Configuration key (`GlobalConfiguration`) |
 |---|---|---|
-| Alias has no estimate in `estimateRootEntries` | 100 (`THRESHOLD`, `MatchExecutionPlanner.java:328`) | Not configurable |
-| Edge or source class missing from schema | 10.0 (`QUERY_STATS_DEFAULT_FAN_OUT`, `GlobalConfiguration.java:1181`) | `youtrackdb.query.stats.defaultFanOut` |
-| Non-indexed or unrecognised predicate | 0.1 (`QUERY_STATS_DEFAULT_SELECTIVITY`, `GlobalConfiguration.java:1174`) | `youtrackdb.query.stats.defaultSelectivity` |
+| Alias has no estimate in `estimateRootEntries` | 100 (`THRESHOLD`, `MatchExecutionPlanner.java:336`) | Not configurable |
+| Edge or source class missing from schema | 10.0 (`QUERY_STATS_DEFAULT_FAN_OUT`, `GlobalConfiguration.java:1240`) | `youtrackdb.query.stats.defaultFanOut` |
+| Non-indexed or unrecognised predicate | 0.1 (`QUERY_STATS_DEFAULT_SELECTIVITY`, `GlobalConfiguration.java:1233`) | `youtrackdb.query.stats.defaultSelectivity` |
 | Target has no WHERE filter and no cardinality entry | 1.0 (no reduction applied) | N/A |
 
 These constants exist because the planner must always produce a plan. A planner that
@@ -410,7 +410,7 @@ edgeTraversalCost = sourceRows × avgFanOut × randomPageReadCost
 ```
 
 The `QUERY_STATS_COST_RANDOM_PAGE_READ` configuration constant (accessed via the
-`CostModel.randomPageReadCost()` accessor) defaults to 4.0 (`GlobalConfiguration.java:1263`).
+`CostModel.randomPageReadCost()` accessor) defaults to 4.0 (`GlobalConfiguration.java:1322`).
 It reflects a physical reality: neighbouring vertices in a graph are rarely stored on
 the same page; each hop typically requires a random I/O rather than a sequential one.
 A sequential read costs 1.0 in the model; a random read costs 4.0. The planner uses
@@ -418,12 +418,12 @@ this ratio to express that edge traversals are more expensive per row than full 
 scans.
 
 This raw edge cost feeds into two further adjustments that `MatchExecutionPlanner`
-applies on top of it. `applyTargetSelectivity()` (`MatchExecutionPlanner.java:2460`)
+applies on top of it. `applyTargetSelectivity()` (`MatchExecutionPlanner.java:2491`)
 multiplies the cost by the selectivity of the target alias's WHERE filter — a more
 selective target means fewer rows to process after the hop, so the cost is discounted.
-`applyDepthMultiplier()` (`MatchExecutionPlanner.java:2814`) inflates the cost for
+`applyDepthMultiplier()` (`MatchExecutionPlanner.java:3058`) inflates the cost for
 recursive edges with a `while:` clause: when no explicit `maxdepth:` is set the
-multiplier is 10 (the `DEFAULT_WHILE_DEPTH` constant, line 2830), ensuring the
+multiplier is 10 (the `DEFAULT_WHILE_DEPTH` constant, line 3074), ensuring the
 planner never treats a potentially unbounded traversal as cheap. Those adjustments
 belong to the scheduling phase; Chapter 10 works through them in detail.
 

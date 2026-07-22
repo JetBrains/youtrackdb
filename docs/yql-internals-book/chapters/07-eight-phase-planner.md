@@ -201,7 +201,7 @@ planning phases when a structurally identical query arrives a second time.
 The two caches share one configuration knob:
 
 ```java
-// core/.../api/config/GlobalConfiguration.java:952
+// core/.../api/config/GlobalConfiguration.java:1011
 STATEMENT_CACHE_SIZE(
     "youtrackdb.statement.cacheSize",
     "Number of parsed SQL statements kept in cache. Zero means cache disabled",
@@ -267,11 +267,11 @@ cache entirely:
   which walks every step in the assembled plan and returns `false` if any step signals
   non-cacheability. A plan containing a step that embeds session-specific or
   non-reproducible state cannot safely be stored as a shared template and is therefore
-  discarded rather than put into the cache (`MatchExecutionPlanner.java:627–631`).
+  discarded rather than put into the cache (`MatchExecutionPlanner.java:635–639`).
 - **Schema changed during planning.** After assembling the plan, the planner compares
   `YqlExecutionPlanCache.getLastInvalidation(session)` against the timestamp taken before
   Phase 1 began
-  (`MatchExecutionPlanner.java:627–631`).
+  (`MatchExecutionPlanner.java:635–639`).
   If the schema was modified concurrently — another session created a class, updated an
   index, or changed a function — `lastInvalidation` will be greater than `planningStart`
   and the plan is discarded rather than stored, preventing a stale plan from being served

@@ -20,7 +20,7 @@ next result.
 
 ## 12.1 The strategy pattern, concretely
 
-Open `MatchStep.java` and look at `internalStart` (line 86):
+Open `MatchStep.java` and look at `internalStart` (line 87):
 
 ```java
 var resultSet = prev.start(ctx);
@@ -31,16 +31,16 @@ return resultSet.flatMap(this::createNextResultSet);
 one thing:
 
 ```java
-// MatchStep.java:97–99
+// MatchStep.java:99–101
 public ExecutionStream createNextResultSet(Result lastUpstreamRecord, CommandContext ctx) {
   return createTraverser(lastUpstreamRecord);
 }
 ```
 
-`createTraverser` (line 106) is the factory:
+`createTraverser` (line 108) is the factory:
 
 ```java
-// MatchStep.java:106–117
+// MatchStep.java:108–119
 protected MatchEdgeTraverser createTraverser(Result lastUpstreamRecord) {
   if (edge.edge.item instanceof SQLMultiMatchPathItem)
     return new MatchMultiEdgeTraverser(lastUpstreamRecord, edge);
@@ -134,7 +134,7 @@ The traversal lifecycle for one upstream row is:
 4. `computeNext(ctx)` — consumes one candidate from the downstream stream, performs the
    consistency check, and builds a `MatchResultRow` if the candidate passes.
 5. `next(ctx)` — returns the buffered result and writes `$matched` on `CommandContext`
-   (line 189) so downstream WHERE clauses can see the current row.
+   (line 190) so downstream WHERE clauses can see the current row.
 
 ---
 
@@ -145,7 +145,7 @@ the scheduler agrees that walking forward is cheaper, and at runtime the travers
 exactly as written. For this case `EdgeTraversal.out` is `true` and `createTraverser`
 instantiates a plain `MatchEdgeTraverser`.
 
-`traversePatternEdge` (line 530) does three things. It saves the current value of
+`traversePatternEdge` (line 531) does three things. It saves the current value of
 `$current` on `CommandContext`, sets `$current` to the source record (so that the
 traversal method — `out()`, `in()`, `both()` — can reference it internally), calls
 `this.item.getMethod().execute(startingPoint, iCommandContext)` to get the raw adjacency
@@ -187,7 +187,7 @@ this.endPointAlias      = edge.edge.out.alias;  // syntactic source → actual e
 `getStartingPointAlias()` and `getEndpointAlias()` return these stored values, so
 `init()` in the parent class will extract the *in* alias's record as the starting point.
 
-**Traversal direction.** `traversePatternEdge` (line 75) replaces the forward
+**Traversal direction.** `traversePatternEdge` (line 76) replaces the forward
 `execute()` call with `executeReverse()`:
 
 ```java
@@ -387,11 +387,11 @@ unless the engine tracks where it has already been.
 This is *bounded recursion*, and it is the job of `LazyRecursiveTraversalStream`
 (`LazyRecursiveTraversalStream.java`).
 
-**The hand-off.** Back in `MatchEdgeTraverser.executeTraversal` (line 347), the
-non-recursive and recursive branches diverge at line 368:
+**The hand-off.** Back in `MatchEdgeTraverser.executeTraversal` (line 348), the
+non-recursive and recursive branches diverge at line 369:
 
 ```java
-// MatchEdgeTraverser.java:368–411
+// MatchEdgeTraverser.java:369–413
 if (whileCondition == null && maxDepth == null) {
   // single-hop path — described in §12.3
 } else {
@@ -456,7 +456,7 @@ each path. Alice-Bob-Carol and Alice-Dave-Carol are two different paths to the s
 vertex Carol, and both are valid answers. Deduplicating by vertex would suppress the
 second path entirely.
 
-`executeTraversal` detects this case at line 405:
+`executeTraversal` detects this case at line 406:
 
 ```java
 var hasPathAlias = item.getFilter().getPathAlias() != null;
@@ -495,10 +495,10 @@ private boolean shouldExpand(int idx) {
 ```
 
 When neither is present in the AST, `executeTraversal` never reaches the recursive
-branch at all — the `whileCondition == null && maxDepth == null` guard at line 368
+branch at all — the `whileCondition == null && maxDepth == null` guard at line 369
 sends all such edges down the single-hop path. For cost-estimation purposes the planner
 treats an unbounded WHILE edge as having an expected depth of `DEFAULT_WHILE_DEPTH = 10`
-(`MatchExecutionPlanner.java:2830`), but at runtime the only hard stops are `maxDepth`
+(`MatchExecutionPlanner.java:3074`), but at runtime the only hard stops are `maxDepth`
 and the `while:` predicate itself.
 
 **A two-level worked example.** Suppose `start` is `Alice (#1:1)`, `while: ($depth < 2)`,
@@ -550,7 +550,7 @@ variable. The traverser's job on that second edge is no longer to discover a new
 it is to confirm that the friend it finds is the same `y` that was bound earlier.
 
 There is no dedicated traverser class for this situation. The enforcement is a two-line
-check inside `MatchEdgeTraverser.computeNext` (lines 230–231):
+check inside `MatchEdgeTraverser.computeNext` (lines 231–232):
 
 ```java
 var prevValue = ResultInternal.toResult(
@@ -604,7 +604,7 @@ SQL expressions that reference these variables by name — `$matched.person`, fo
 internal optimisation.
 
 **`$matched` — the current result row.**
-Written by `MatchEdgeTraverser.next` (line 189) immediately after a result is consumed
+Written by `MatchEdgeTraverser.next` (line 190) immediately after a result is consumed
 by the caller:
 
 ```java
@@ -618,8 +618,8 @@ The invariant is that by the time any such WHERE clause is evaluated, `$matched`
 already been updated to the row that was just accepted upstream.
 
 **`$currentMatch` — the candidate under evaluation.**
-Written immediately before calling `matchesFilters` (line 434) and restored immediately
-after (lines 438, 441):
+Written immediately before calling `matchesFilters` (line 435) and restored immediately
+after (lines 439, 442):
 
 ```java
 iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, next);
@@ -634,7 +634,7 @@ nested calls to `matchesFilters` — for instance inside a `WHILE` predicate —
 correct candidate at each level.
 
 **`$current` — the source record for the current expansion.**
-Written by `traversePatternEdge` (line 533) before the traversal method is called and
+Written by `traversePatternEdge` (line 534) before the traversal method is called and
 restored in a `finally` block (line 539):
 
 ```java
@@ -683,11 +683,11 @@ nested-loop failure mode it repairs.
 ## Further reading
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchEdgeTraverser.java`
-  — base traverser and forward edge traversal; hosts `computeNext` (line 212),
-  `executeTraversal` (line 347), `traversePatternEdge` (line 530), and `applyPreFilter`
-  (line 556)
+  — base traverser and forward edge traversal; hosts `computeNext` (line 213),
+  `executeTraversal` (line 348), `traversePatternEdge` (line 531), and `applyPreFilter`
+  (line 557)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchReverseEdgeTraverser.java`
-  — alias swap (constructor line 41), `traversePatternEdge` override (line 75),
+  — alias swap (constructor line 41), `traversePatternEdge` override (line 76),
   constraint-redirect overrides (lines 52–66)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchFieldTraverser.java`
   — field-expression traversal (line 45)
@@ -699,7 +699,7 @@ nested-loop failure mode it repairs.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/OptionalMatchStep.java`
   — `createTraverser` override that always returns `OptionalMatchEdgeTraverser` (line 32)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchStep.java`
-  — `internalStart` (line 86), `createTraverser` factory (line 106)
+  — `internalStart` (line 87), `createTraverser` factory (line 108)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/command/CommandContext.java`
   — `VAR_CURRENT` (line 41), `VAR_CURRENT_MATCH` (line 43), `VAR_MATCHED` (line 45)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/LazyRecursiveTraversalStream.java`
