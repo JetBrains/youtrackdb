@@ -340,14 +340,11 @@ tests. So the traverser reads the forward link-bag size and, if it is below
 reach the admission logic at all — there the optimisation would add overhead rather than
 remove it.
 
-### Two admission paths, one per expensive descriptor
+### The absolute cap
 
 Once the link bag is large enough, the traverser calls `EdgeTraversal.resolveWithCache`
-(`EdgeTraversal.java:683`), and here the single ratio guard of earlier versions has been
-replaced by *two* distinct admission tests — one for each kind of expensive descriptor. Which
-test runs is decided by the descriptor's own `passesSelectivityCheck`, and the two answers
-are computed from entirely different inputs. Before either runs, though, both share one
-absolute ceiling.
+(`EdgeTraversal.java:683`). Before it runs either admission test, it enforces one absolute
+ceiling shared by both paths.
 
 That ceiling is the **absolute cap**. `resolveWithCache` first obtains the cheap size estimate
 and compares it against `TraversalPreFilterHelper.maxRidSetSize()` (`EdgeTraversal.java:769`).
@@ -363,6 +360,13 @@ same ceiling is re-checked *during* materialisation: both `resolveIndexToRidSet`
 `TraversalPreFilterHelper.java:138` and `:245`) and abort early if the intermediate result
 outgrows it. An over-budget descriptor does not stall the query; it returns `null` and the
 traverser falls back to post-load evaluation for that vertex.
+
+### Two admission paths, one per expensive descriptor
+
+Past the cap, the single ratio guard of earlier versions has been replaced by *two* distinct
+admission tests — one for each kind of expensive descriptor. Which test runs is decided by the
+descriptor's own `passesSelectivityCheck`, and the two answers are computed from entirely
+different inputs.
 
 #### Path A — the edge-lookup overlap ratio
 
@@ -437,7 +441,7 @@ Rejections are cached too — a `CAP_EXCEEDED`, `STATS_UNAVAILABLE`, or `SELECTI
 verdict stores a `null` under the key so later vertices short-circuit instead of re-deciding.
 And if `resolve()` returns `null` after passing every up-front guard — a mid-materialisation
 cap abort, or a missing reverse-edge target vertex — the traverser records `BUILD_FAILED`
-(`EdgeTraversal.java:855`) and caches that too.
+(`EdgeTraversal.java:881`) and caches that too.
 
 Each of those outcomes is a constant of the `PreFilterSkipReason` enum
 (`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/PreFilterSkipReason.java`):

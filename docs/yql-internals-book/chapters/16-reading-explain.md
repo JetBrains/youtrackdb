@@ -110,7 +110,7 @@ under which reversal is permitted.
 
 If an index pre-filter was attached to this edge (Chapter 14), the line
 carries a parenthesised suffix such as
-`(intersection: index Post.timestamp selectivity=0.0003 estHits=12)` or
+`(intersection: index Post.timestamp selectivity=0.0025 estHits=5000)` or
 `(intersection: out('Wrote'))` for a reverse-edge lookup. This annotation is
 produced by `MatchStep.appendIntersectionDescriptor` (verified at
 `MatchStep.java:168`). When you see it, the planner *attached* a descriptor —
@@ -395,7 +395,8 @@ the WHERE clause.
   an explicit `class:` declaration to the target alias or ensure class
   inference can work (the edge class must declare its linked vertex types).
 - The WHERE clause uses an OR condition. `findIndexForFilter` rejects
-  multi-branch OR (Chapter 14 §14.6). A predicate like
+  multi-branch OR (see Chapter 14, *Limitations* — "OR-combined index
+  conditions"). A predicate like
   `status = 'active' OR priority > 3` is not pre-filterable in the current
   implementation.
 

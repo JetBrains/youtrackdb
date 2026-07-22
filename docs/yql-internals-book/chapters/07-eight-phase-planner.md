@@ -317,11 +317,11 @@ filtering, projecting — happens in full, every time.
 Consider a transaction that issues the same query twice:
 
 ```
-begin;
-  select from Person where city = 'Berlin';   -- runs the whole pipeline
+BEGIN;
+  SELECT FROM Person WHERE city = 'Berlin';   -- runs the whole pipeline
   -- … unrelated work …
-  select from Person where city = 'Berlin';   -- runs it again, start to finish
-commit;
+  SELECT FROM Person WHERE city = 'Berlin';   -- runs it again, start to finish
+COMMIT;
 ```
 
 The plan cache makes the second call cheap to *plan* — it copies a template instead of
@@ -334,9 +334,9 @@ compile-phase caches it does not live on `SharedContext` and is not shared acros
 it is a single `QueryResultCache` held per transaction, a field on `FrontendTransactionImpl`
 (`core/.../tx/FrontendTransactionImpl.java:142`), and it sits *in front of* the whole
 pipeline. Before a statement reaches the planner, `DatabaseSessionEmbedded` routes it
-through `serveThroughCache()` (`core/.../db/DatabaseSessionEmbedded.java:679` and `:721`),
-which looks the query up (`:817`) and, on a hit, returns a cached view immediately (`:834`)
-— the eight phases of this chapter, and every step they would have produced, are skipped.
+through `serveThroughCache()` (`core/.../db/DatabaseSessionEmbedded.java:679`), which looks
+the query up and, on a hit, returns a cached view immediately — the eight phases of this
+chapter, and every step they would have produced, are skipped.
 
 The feature is off by default. It is gated by `QUERY_TX_RESULT_CACHE_ENABLED`
 (`core/.../api/config/GlobalConfiguration.java:961`), a `Boolean` defaulting to `false`;
