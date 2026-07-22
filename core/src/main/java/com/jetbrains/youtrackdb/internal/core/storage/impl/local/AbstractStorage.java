@@ -3087,12 +3087,23 @@ public abstract class AbstractStorage
           //     durably delete its files); keeping the storage live could
           //     advertise a reverted commit. Neither is safe, so the
           //     registry publication is left standing and the storage is
-          //     moved to error state: every later operation fails fast and
-          //     the reopen rebuilds the registries from the durable truth,
-          //     whichever way the WAL landed. setInError deliberately
-          //     skips AssertionError (its dev/test-only guard), which is
-          //     acceptable: asserts never fire in production, and the
-          //     rethrow below still fails the commit loudly.
+          //     moved to error state. Containment scope, stated honestly:
+          //     the error state gates component-WRITE operations only
+          //     (checkErrorState is consulted at the component-lock
+          //     acquisition), so writes fail fast while reads and registry
+          //     queries keep serving — in the durably-committed sub-shape
+          //     (a post-commitChanges throw) other sessions can read the
+          //     new durable rows under the still-unpromoted, stale schema
+          //     until the reopen. That divergence window is accepted: the
+          //     dirty flag is preserved by the error state, so the next
+          //     open replays the WAL and rebuilds registries and schema
+          //     from the durable truth, whichever way the WAL landed.
+          //     AssertionError is wrapped before setInError below because
+          //     the setter's stray-dev-assert skip would otherwise leave
+          //     this arm's containment disabled under -ea — here the
+          //     poison is load-bearing (an in-doubt commit with its
+          //     publication standing must not stay writable), not a
+          //     defensive courtesy.
           try {
             endTxCommit(atomicOperation);
           } catch (final IOException | RuntimeException | AssertionError e) {
@@ -3100,7 +3111,12 @@ public abstract class AbstractStorage
               if (atomicOperation.isRollbackInProgress()) {
                 undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
               } else {
-                setInError(e);
+                setInError(e instanceof AssertionError
+                    ? BaseException.wrapException(
+                        new StorageException(name,
+                            "endTxCommit failed without an internal rollback"),
+                        e, name)
+                    : e);
                 LogManager.instance()
                     .error(this,
                         "endTxCommit failed after the schema-carry reconcile without an internal"
@@ -3476,6 +3492,31 @@ public abstract class AbstractStorage
       }
       if (entry.id() < collections.size() && collections.get(entry.id()) == null) {
         registerCollection(collection);
+        // The drop also removed the collection's SharedLinkBagBTree from the link-bag manager's
+        // in-memory map EAGERLY (deleteComponentByCollectionId is not rollback-aware; only the
+        // file delete was buffered and reverted), and every link-bag access resolves through that
+        // map with no reload branch — without this restore the re-registered collection's first
+        // link-bag operation fails until a reopen rebuilds the map. Best-effort like the
+        // surrounding cleanup: a failure here is logged, never thrown over the propagating commit
+        // failure. The read-only operation is the lightweight snapshot-only kind (started and
+        // deactivated, never applied), so it works even when the storage is already in error
+        // state (the error gate covers component-write operations only).
+        try {
+          final var restoreReadOperation = atomicOperationsManager.startAtomicOperation();
+          try {
+            linkCollectionsBTreeManager.restoreComponentByCollectionId(
+                restoreReadOperation, entry.id());
+          } finally {
+            restoreReadOperation.deactivate();
+          }
+        } catch (final RuntimeException | AssertionError linkBagRestoreFailure) {
+          LogManager.instance()
+              .error(this,
+                  "Failed to restore the link-bag component registration of collection '%s'"
+                      + " (slot %d) during failed-commit undo; link-bag operations on the restored"
+                      + " collection will fail until the storage reopens",
+                  linkBagRestoreFailure, collection.getName(), entry.id());
+        }
       } else {
         // Unreachable by construction: the create-undo arm above ran first (freeing every id this
         // commit created) and the whole undo holds stateLock.writeLock(), so a dropped collection's
@@ -3784,8 +3825,11 @@ public abstract class AbstractStorage
    * <p>Deterministic invariant, not best-effort: after this arm runs the surviving committed index
    * MUST be fully usable again. The only best-effort part is failure containment — this runs in the
    * failure-path {@code finally} while the original commit exception propagates, so a reconstruction
-   * that itself hits an unexpected error is logged loudly and assert-guarded rather than thrown, so it
-   * never masks the primary commit failure with a secondary one. Runs under the held write lock.
+   * that itself hits an unexpected error is logged loudly and never thrown (a throw — including an
+   * {@code -ea} assert — would mask the primary commit failure and skip the remaining undo arms).
+   * When the storage is already in error state (a non-retry-family primary failure poisoned it
+   * before this undo ran), the reconstruction's component operations fail fast by design and the
+   * forced reopen is the healer. Runs under the held write lock.
    *
    * @param droppedEngines the engines the failed commit dropped (slot + captured durable data).
    */
@@ -3796,9 +3840,14 @@ public abstract class AbstractStorage
       if (engineData == null) {
         // No captured durable data means there was nothing to reconstruct (a drop whose config read
         // returned null before the delete). Nothing to restore; the divergence self-corrects on the
-        // next reopen if it ever occurs.
-        assert false
-            : "dropped index engine at slot " + internalId + " had no captured durable data";
+        // next reopen if it ever occurs. Logged, NOT assert-thrown: this loop runs while the
+        // primary commit exception propagates, and an -ea AssertionError here would replace that
+        // primary failure and skip the remaining restore arms plus the membership undo.
+        LogManager.instance()
+            .error(this,
+                "Dropped index engine at slot %d had no captured durable data during"
+                    + " failed-commit undo; nothing to reconstruct",
+                null, internalId);
         continue;
       }
       // Idempotent against a slot a later create-undo already left null-and-reusable: only reconstruct
@@ -3819,17 +3868,25 @@ public abstract class AbstractStorage
             });
       } catch (final IOException | RuntimeException | AssertionError e) {
         // Loud failure containment: the reconstruction runs while the primary commit exception is
-        // propagating, so it must not throw a secondary exception that masks the primary. Log at error
-        // and assert-guard so a -ea test surfaces the broken invariant, while production keeps the
-        // primary failure intact. A reconstruction failure is a real defect (the surviving committed
-        // index is unusable until the next reopen), never a silently shipped broken index.
+        // propagating, so it must not throw a secondary exception (including an -ea
+        // AssertionError) that masks the primary and skips the remaining restore arms plus the
+        // caller's trailing membership undo. Log at error and continue; the log is the surfacing.
+        // A failure here is EXPECTED when the primary failure already moved the storage to error
+        // state (a non-retry-family lifecycle failure poisons before this undo runs, and the
+        // reconstruction's component operations then fail fast on checkErrorState) — in that case
+        // the reopen the poison forces is the designated healer. Outside the poisoned case a
+        // reconstruction failure is a real defect (the surviving committed index is unusable
+        // until the next reopen), diagnosed from this log rather than a masking throw.
         LogManager.instance()
             .error(this,
                 "Failed to reconstruct dropped index engine '"
                     + engineData.getName() + "' (slot " + internalId + ") after a failed schema"
-                    + " commit; the surviving committed index is unusable until the storage reopens",
+                    + " commit; the surviving committed index is unusable until the storage"
+                    + " reopens"
+                    + (isInError()
+                        ? " (storage already in error state; the forced reopen will heal it)"
+                        : ""),
                 e);
-        assert false : "dropped index engine reconstruction failed for slot " + internalId;
       }
     }
   }

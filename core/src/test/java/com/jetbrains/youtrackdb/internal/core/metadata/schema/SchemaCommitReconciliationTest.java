@@ -26,7 +26,12 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -34,6 +39,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -41,6 +47,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.commons.io.FileUtils;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -77,6 +84,26 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     var operation = storage.getAtomicOperationsManager().startAtomicOperation();
     try {
       return LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId);
+    } finally {
+      operation.deactivate();
+    }
+  }
+
+  /**
+   * Whether the link-bag component of {@code collectionId} is resolvable through the in-memory
+   * link-bag manager map — the map every link-bag operation resolves through, with no reload
+   * branch on a miss. Distinct from {@link #linkBagComponentPresent}: that probes the durable
+   * FILE, this probes the eagerly mutated in-memory registration. The failed-drop undo must
+   * restore BOTH, or the restored collection's first link-bag operation fails until a reopen
+   * rebuilds the map even though the rolled-back file is intact on disk.
+   */
+  private boolean linkBagComponentResolvable(int collectionId) {
+    var storage = (AbstractStorage) session.getStorage();
+    var manager =
+        (LinkCollectionsBTreeManagerShared) storage.getLinkCollectionsBtreeCollectionManager();
+    var operation = storage.getAtomicOperationsManager().startAtomicOperation();
+    try {
+      return manager.getComponentByCollectionId(collectionId, operation) != null;
     } finally {
       operation.deactivate();
     }
@@ -409,6 +436,14 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
         session.getCollectionNameById(droppedCollectionId));
     assertTrue("the class must still be in the committed schema after the failed drop",
         schemaShared().existsClass("DropThenFail"));
+    // The drop removed the collection's link-bag component from the in-memory manager map
+    // EAGERLY (only the file delete was buffered and rolled back), and this pure-drop shape has
+    // no slot-reusing create to mask the gap with a replacement entry — the undo must restore
+    // the registration itself, or the restored collection's first link-bag operation fails
+    // until reopen despite the intact file.
+    assertTrue("the restored collection's link-bag component must be resolvable through the"
+        + " in-memory manager after the failed pure-drop commit",
+        linkBagComponentResolvable(droppedCollectionId));
   }
 
   /**
@@ -480,6 +515,9 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     assertTrue(
         "the restored collection's link-bag component must survive the slot-reuse create-undo",
         linkBagComponentPresent(droppedCollectionId));
+    assertTrue("the restored collection's link-bag component must be resolvable through the"
+        + " in-memory manager after the failed slot-reuse commit",
+        linkBagComponentResolvable(droppedCollectionId));
     assertClassWritableAndReadable("DropForSlotReuse");
   }
 
@@ -565,6 +603,9 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     // its rows read back, and the restored index serves lookups for a fresh row.
     assertTrue("the restored collection's link-bag component must survive the undo",
         linkBagComponentPresent(droppedCollectionId));
+    assertTrue("the restored collection's link-bag component must be resolvable through the"
+        + " in-memory manager after the routed endTxCommit failure",
+        linkBagComponentResolvable(droppedCollectionId));
     assertClassWritableAndReadable("EndFailDropped");
     session.executeInTx(tx -> {
       var row = (EntityImpl) session.newEntity("EndFailIndexed");
@@ -642,6 +683,104 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     }
     assertTrue("the storage must be moved to error state on a no-rollback endTxCommit failure",
         errorState);
+  }
+
+  /**
+   * The reopen-recovery half of the no-rollback endTxCommit failure contract. The poisoned
+   * shape's whole justification is "the reopen rebuilds the registries from the durable truth":
+   * the error state preserves the storage's dirty flag on close, so the next open replays the WAL
+   * and reconstructs the registries and the committed schema from the durable state — which for
+   * the post-durability hook shape certainly contains both the drop and the create the failed
+   * commit carried. This needs a real storage restart, so the test manages its own DISK-typed
+   * database in a dedicated directory (the shared test session's default in-memory storage cannot
+   * restart), poisons it, closes the whole context, reopens, and asserts the recovered state:
+   * error state cleared, the dropped class gone, the created class present and writable.
+   */
+  @Test
+  public void poisonedEndTxCommitFailureRecoversOnReopen() throws Exception {
+    var dbName = "PoisonedReopen";
+    var contextPath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-poisoned-reopen";
+    var context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+    try {
+      context.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+      String droppedCollectionName;
+      var localSession = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        localSession.executeInTx(
+            tx -> localSession.getMetadata().getSchema().createClass("ReopenDropped"));
+        droppedCollectionName = localSession.getCollectionNameById(
+            localSession.getMetadata().getSchema().getClass("ReopenDropped")
+                .getCollectionIds()[0]);
+        var storage = (AbstractStorage) localSession.getStorage();
+        storage.setEndTxCommitPostDurabilityFailureTestHook(
+            () -> {
+              throw new CommandInterruptedException(
+                  dbName, "injected post-durability endTxCommit failure");
+            });
+        try {
+          localSession.begin();
+          var schema = localSession.getMetadata().getSchema();
+          schema.dropClass("ReopenDropped");
+          schema.createClass("ReopenCreated");
+          try {
+            localSession.commit();
+            fail("the schema commit must fail when endTxCommit fails after durability");
+          } catch (final RuntimeException expected) {
+            // The in-doubt shape: publication stands, storage poisoned.
+          }
+        } finally {
+          storage.setEndTxCommitPostDurabilityFailureTestHook(null);
+        }
+        // Sanity: the storage is poisoned, so the close below must preserve the dirty flag and
+        // force the next open onto the WAL-replay recovery path.
+        var poisoned = false;
+        try {
+          storage.checkErrorState();
+        } catch (final RuntimeException expectedPoison) {
+          poisoned = true;
+        }
+        assertTrue("the storage must be poisoned before the recovery half runs", poisoned);
+      } finally {
+        localSession.activateOnCurrentThread();
+        localSession.close();
+      }
+      context.close();
+
+      // Reopen: the fresh storage instance recovers from the durable truth.
+      context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+      var reopenedSession = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        var storage = (AbstractStorage) reopenedSession.getStorage();
+        // Must not throw: the error state belonged to the discarded pre-restart instance.
+        storage.checkErrorState();
+        var schema = reopenedSession.getMetadata().getSchema();
+        assertFalse("the durably dropped class must be gone after recovery",
+            schema.existsClass("ReopenDropped"));
+        assertTrue("the durably created class must be visible after recovery",
+            schema.existsClass("ReopenCreated"));
+        assertFalse("the dropped collection must not be registered after recovery",
+            reopenedSession.getCollectionNames().contains(droppedCollectionName));
+        // Usable: a row round-trips through the recovered class.
+        var rid = reopenedSession.computeInTx(tx -> {
+          var row = (EntityImpl) reopenedSession.newEntity("ReopenCreated");
+          row.setProperty("probe", "recovered");
+          return row.getIdentity();
+        });
+        reopenedSession.executeInTx(tx -> {
+          EntityImpl loaded = reopenedSession.load(rid);
+          assertEquals("the recovered class must serve its rows back", "recovered",
+              loaded.getProperty("probe"));
+        });
+      } finally {
+        reopenedSession.activateOnCurrentThread();
+        reopenedSession.close();
+      }
+      context.drop(dbName);
+    } finally {
+      context.close();
+      FileUtils.deleteDirectory(new File(contextPath));
+    }
   }
 
   /**
