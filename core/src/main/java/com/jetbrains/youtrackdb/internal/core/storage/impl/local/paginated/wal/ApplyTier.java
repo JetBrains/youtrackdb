@@ -32,15 +32,16 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
  * concurrent optimistic reader can observe through this page write, by traced reader behavior
  * rather than by field naming.
  *
- * <p><b>Side conditions</b> the classification must uphold (checked row-by-row in the golden
- * tier table):
+ * <p><b>Side conditions</b> the classification must uphold. SC-P and SC-R are machine-checked
+ * from the golden tier table's per-row metadata ({@code ApplyTierGoldenTableTest}); G2 is
+ * discharged by per-row audit of the GATE rows and has no machine check:
  * <ul>
  *   <li><b>Publish-after-establish (SC-P)</b>: for content established <em>in place</em> on an
- *       existing page, the establishing delta's merged tier must stay strictly below every
- *       same-commit pointer targeting it. Establishment on fresh pages is immune via the
+ *       existing page, the establishing delta's merged tier must stay strictly below the
+ *       declared tier of every same-commit pointer targeting it. Establishment on fresh pages is immune via the
  *       NEW-force override; plain in-place updates of already-published entries carry no
  *       obligation (per-page write atomicity gives readers an old-or-new view).</li>
- *   <li><b>Retire-before-publish for relocations (SC-R)</b>: when a commit relocates an entry,
+ *   <li><b>Publish-before-retire for relocations (SC-R)</b>: when a commit relocates an entry,
  *       some publish making the new copy reachable must have merged tier strictly below every
  *       retire removing the old copy; otherwise a prefix cut shows the entry at neither
  *       site.</li>

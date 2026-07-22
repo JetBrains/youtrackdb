@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -11,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -43,12 +41,14 @@ public class ApplyTierGoldenTableTest {
    * primary publish of the leaf-split relocation) can land on a parent page that also shrinks,
    * lifting the merged tier to RETIRE and tying with the old-leaf shrink. Track 04 must resolve
    * this (fallback predicate on the co-location, a within-tier ordering rule, or reader
-   * hop-compensation) and then EMPTY this allowlist. Entries are {@code publishRow->retireRow}
-   * pairs by simple class name.
+   * hop-compensation) and then EMPTY this allowlist. Entries are namespaced by side condition
+   * ({@code SC-P:} or {@code SC-R:} prefix) so an allowlisted SC-R pair can never suppress a
+   * future SC-P violation between the same two classes, followed by
+   * {@code obligationRow->targetRow} simple class names.
    */
   private static final Set<String> KNOWN_VIOLATIONS = Set.of(
-      "BTreeSVBucketV3AddNonLeafEntryOp->BTreeSVBucketV3ShrinkOp",
-      "RidbagBucketAddNonLeafEntryOp->RidbagBucketShrinkOp");
+      "SC-R:BTreeSVBucketV3AddNonLeafEntryOp->BTreeSVBucketV3ShrinkOp",
+      "SC-R:RidbagBucketAddNonLeafEntryOp->RidbagBucketShrinkOp");
 
   /** One parsed golden-table row. */
   private record GoldenRow(
@@ -71,9 +71,15 @@ public class ApplyTierGoldenTableTest {
   public static void loadGoldenTable() throws Exception {
     goldenByFqn = new LinkedHashMap<>();
     goldenBySimpleName = new LinkedHashMap<>();
+    var resourceStream = ApplyTierGoldenTableTest.class.getResourceAsStream(GOLDEN_RESOURCE);
+    Assert.assertNotNull(
+        "Golden tier table resource '" + GOLDEN_RESOURCE + "' not found next to "
+            + ApplyTierGoldenTableTest.class.getName()
+            + ". If the file was moved or renamed, update GOLDEN_RESOURCE — the golden table"
+            + " is the governance gate for all apply-tier declarations.",
+        resourceStream);
     try (var reader = new BufferedReader(new InputStreamReader(
-        ApplyTierGoldenTableTest.class.getResourceAsStream(GOLDEN_RESOURCE),
-        StandardCharsets.UTF_8))) {
+        resourceStream, StandardCharsets.UTF_8))) {
       String line;
       while ((line = reader.readLine()) != null) {
         line = line.strip();
@@ -118,30 +124,24 @@ public class ApplyTierGoldenTableTest {
 
   /**
    * Registers all operations into a fresh factory (exactly as AbstractStorage does at startup)
-   * and returns the registered PageOperation classes, discovered by reading the factory's
-   * id-to-type table. Using the real registration path guarantees the test sees every class a
-   * production storage would register — a hand-maintained list could silently miss additions.
+   * and returns the registered PageOperation classes via the factory's package-private
+   * registration snapshot. Using the real registration path guarantees the test sees every
+   * class a production storage would register — a hand-maintained list could silently miss
+   * additions.
    */
-  private static List<Class<?>> registeredOperationClasses() throws Exception {
+  private static List<Class<?>> registeredOperationClasses() {
     var factory = new WALRecordsFactory();
     PageOperationRegistry.registerAll(factory);
 
-    Field tableField = WALRecordsFactory.class.getDeclaredField("idToTypeTable");
-    tableField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    var table = (AtomicReferenceArray<Class<?>>) tableField.get(factory);
-
     var classes = new ArrayList<Class<?>>();
-    for (var i = 0; i < table.length(); i++) {
-      var type = table.get(i);
-      if (type != null) {
-        Assert.assertTrue(
-            "Registered WAL record type " + type.getName() + " (ID " + i
-                + ") is not a PageOperation; PageOperationRegistry must register only"
-                + " PageOperation subclasses",
-            PageOperation.class.isAssignableFrom(type));
-        classes.add(type);
-      }
+    for (var entry : factory.registeredRecordTypes().entrySet()) {
+      var type = entry.getValue();
+      Assert.assertTrue(
+          "Registered WAL record type " + type.getName() + " (ID " + entry.getKey()
+              + ") is not a PageOperation; PageOperationRegistry must register only"
+              + " PageOperation subclasses",
+          PageOperation.class.isAssignableFrom(type));
+      classes.add(type);
     }
     return classes;
   }
@@ -161,7 +161,6 @@ public class ApplyTierGoldenTableTest {
             ApplyTier.GATE, ApplyTier.UNORDERED
         },
         ApplyTier.values());
-    Assert.assertSame(ApplyTier.NEW, ApplyTier.valueOf("NEW"));
   }
 
   /**
@@ -213,7 +212,9 @@ public class ApplyTierGoldenTableTest {
 
   /**
    * Structural validity of the golden metadata: every cross-reference (publishedBy, retiredBy,
-   * colocations) must resolve to a golden row; establishing rows must name their publisher;
+   * colocations) must resolve to a golden row; co-location lists must be symmetric (if A can
+   * share a page with B, B can share it with A — one-sided edits would otherwise leave a stale
+   * list silently feeding the worst-case merge); establishing rows must name their publisher;
    * UNORDERED rows must be justified as dead and carry no ordering metadata (they force the
    * epoch-bracket fallback, so no inequality applies to them).
    */
@@ -225,9 +226,16 @@ public class ApplyTierGoldenTableTest {
           row.note().isEmpty());
 
       for (var reference : row.colocations()) {
-        Assert.assertTrue(
+        var peer = goldenBySimpleName.get(reference);
+        Assert.assertNotNull(
             "Golden row " + name + " references unknown co-location class " + reference,
-            goldenBySimpleName.containsKey(reference));
+            peer);
+        Assert.assertTrue(
+            "Co-location lists must be symmetric: " + name + " lists " + reference
+                + " but " + reference + " does not list " + name
+                + ". Update both rows together — asymmetric lists drift stale and feed"
+                + " worstMergedTier incomplete co-location sets.",
+            reference.equals(name) || peer.colocations().contains(name));
       }
       if (!row.publishedBy().equals("-")) {
         Assert.assertTrue(
@@ -288,11 +296,11 @@ public class ApplyTierGoldenTableTest {
    *       another page.</li>
    * </ul>
    *
-   * <p>NEW-tier peers are excluded from the worst-case merge: their presence on a page means
-   * the page is freshly allocated, and NEW-force pins the whole merged delta to the first
-   * tier (reachability then shields it). UNORDERED rows carry no inequalities — any commit
-   * containing one takes the epoch-bracket fallback (asserted in
-   * {@link #goldenMetadataIsWellFormed()}).
+   * <p>The worst-case merge deliberately models the published-page scenario, which is the
+   * binding one: pages carrying a NEW peer are freshly allocated, NEW-forced, and shielded by
+   * reachability, and NEW peers cannot raise the max anyway (NEW is the lowest tier).
+   * UNORDERED rows carry no inequalities — any commit containing one takes the epoch-bracket
+   * fallback (asserted in {@link #goldenMetadataIsWellFormed()}).
    *
    * <p>The two known cascading-split violations are allowlisted in {@link #KNOWN_VIOLATIONS};
    * the test also fails when an allowlist entry stops violating, so the suppression cannot go
@@ -305,14 +313,24 @@ public class ApplyTierGoldenTableTest {
     for (var row : goldenByFqn.values()) {
       if (row.establishes()) {
         var publisher = goldenBySimpleName.get(row.publishedBy());
+        Assert.assertNotNull(
+            "Golden row " + row.simpleName() + " has dangling publishedBy reference '"
+                + row.publishedBy() + "' — fix the golden table (see also"
+                + " goldenMetadataIsWellFormed)",
+            publisher);
         if (worstMergedTier(row).ordinal() >= publisher.tier().ordinal()) {
-          violations.add(row.simpleName() + "->" + publisher.simpleName());
+          violations.add("SC-P:" + row.simpleName() + "->" + publisher.simpleName());
         }
       }
       if (row.primaryPublish() && !row.retiredBy().equals("-")) {
         var retire = goldenBySimpleName.get(row.retiredBy());
+        Assert.assertNotNull(
+            "Golden row " + row.simpleName() + " has dangling retiredBy reference '"
+                + row.retiredBy() + "' — fix the golden table (see also"
+                + " goldenMetadataIsWellFormed)",
+            retire);
         if (worstMergedTier(row).ordinal() >= retire.tier().ordinal()) {
-          violations.add(row.simpleName() + "->" + retire.simpleName());
+          violations.add("SC-R:" + row.simpleName() + "->" + retire.simpleName());
         }
       }
     }
@@ -338,15 +356,22 @@ public class ApplyTierGoldenTableTest {
 
   /**
    * Worst-case merged tier of the page carrying {@code row}: the max over the row's own tier
-   * and its declared same-commit co-locations, excluding NEW peers (their presence implies a
-   * fresh, NEW-forced, reachability-shielded page) and UNORDERED peers (their presence forces
-   * the epoch-bracket fallback for the whole commit).
+   * and its declared same-commit co-locations. NEW peers need no special-casing — NEW is the
+   * lowest tier, so they can never raise the max, and the check deliberately targets the
+   * published-page (non-NEW-forced) scenario, which is the binding one. UNORDERED peers are
+   * skipped defensively: a commit containing one takes the epoch-bracket fallback and is never
+   * tier-ordered (goldenMetadataIsWellFormed forbids such co-locations outright; the skip only
+   * keeps this model honest if that invariant is ever relaxed).
    */
   private static ApplyTier worstMergedTier(GoldenRow row) {
     var worst = row.tier();
     for (var peerName : row.colocations()) {
       var peer = goldenBySimpleName.get(peerName);
-      if (peer.tier() == ApplyTier.NEW || peer.tier() == ApplyTier.UNORDERED) {
+      Assert.assertNotNull(
+          "Golden row " + row.simpleName() + " has dangling co-location reference '"
+              + peerName + "' — fix the golden table (see also goldenMetadataIsWellFormed)",
+          peer);
+      if (peer.tier() == ApplyTier.UNORDERED) {
         continue;
       }
       if (peer.tier().ordinal() > worst.ordinal()) {

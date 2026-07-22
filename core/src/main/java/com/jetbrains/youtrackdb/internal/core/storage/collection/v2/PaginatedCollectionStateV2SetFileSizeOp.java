@@ -92,9 +92,10 @@ public final class PaginatedCollectionStateV2SetFileSizeOp extends PageOperation
   }
 
   /**
-   * {@link ApplyTier#GATE}: Reader-navigated gate: the logical data-file page count seeds iteration
-   * and bounds validation. Applied last; satisfies G2 — a widening exposes only commit-created data
-   * pages.
+   * {@link ApplyTier#GATE}: End-of-commit allocator bookkeeping: the logical data-page counter is
+   * read only at open/recovery (free-space-map rebuild bound, orphan truncation) and by the
+   * allocator under the component exclusive lock — never navigated by concurrent readers. A
+   * widening exposes only commit-created data pages (G2-compatible).
    */
   @Override
   public ApplyTier applyTier() {
