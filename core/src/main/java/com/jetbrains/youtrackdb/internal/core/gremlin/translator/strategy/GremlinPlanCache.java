@@ -1,18 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
-import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -23,11 +17,9 @@ import javax.annotation.Nullable;
  * the cache through the same {@link MetadataUpdateListener} hook as {@link
  * com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
  */
-public final class GremlinPlanCache implements MetadataUpdateListener {
+public final class GremlinPlanCache
+    extends AbstractMetadataUpdateCache<String, InternalExecutionPlan> {
 
-  private final int capacity;
-  @Nullable private final Cache<String, InternalExecutionPlan> cache;
-  private final AtomicLong lastInvalidation = new AtomicLong(-1);
   private volatile long lastGlobalTimeout =
       GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
 
@@ -35,20 +27,16 @@ public final class GremlinPlanCache implements MetadataUpdateListener {
    * @param size the size of the cache; 0 means cache disabled
    */
   public GremlinPlanCache(int size) {
-    this.capacity = size;
-    this.cache = size > 0 ? CacheBuilder.newBuilder().maximumSize(size).build() : null;
+    super(size);
   }
 
   public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
-    return instance(db).lastInvalidation.get();
+    return instance(db).getLastInvalidation();
   }
 
   /** Returns {@code true} when an entry exists for {@code fingerprint}. */
   public boolean contains(String fingerprint) {
-    if (capacity == 0 || cache == null) {
-      return false;
-    }
-    return cache.asMap().containsKey(fingerprint);
+    return containsKey(fingerprint);
   }
 
   @Nullable public static InternalExecutionPlan get(
@@ -68,7 +56,7 @@ public final class GremlinPlanCache implements MetadataUpdateListener {
   }
 
   void putInternal(String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    if (fingerprint == null || capacity == 0 || cache == null) {
+    if (fingerprint == null || !cacheEnabled()) {
       return;
     }
     var internal = (InternalExecutionPlan) plan;
@@ -76,7 +64,7 @@ public final class GremlinPlanCache implements MetadataUpdateListener {
     copyCtx.setDatabaseSession(db);
     internal = internal.copy(copyCtx);
     internal.close();
-    cache.put(fingerprint, internal);
+    putCached(fingerprint, internal);
   }
 
   @Nullable InternalExecutionPlan getInternal(
@@ -87,45 +75,11 @@ public final class GremlinPlanCache implements MetadataUpdateListener {
       invalidate();
       this.lastGlobalTimeout = currentGlobalTimeout;
     }
-    if (fingerprint == null || capacity == 0 || cache == null) {
+    if (fingerprint == null || !cacheEnabled()) {
       return null;
     }
-    var result = cache.getIfPresent(fingerprint);
+    var result = getCached(fingerprint);
     return result != null ? result.copy(ctx) : null;
-  }
-
-  public void invalidate() {
-    if (cache != null) {
-      cache.invalidateAll();
-    }
-    lastInvalidation.set(System.nanoTime());
-  }
-
-  @Override
-  public void onSchemaUpdate(DatabaseSessionEmbedded session, String databaseName,
-      SchemaShared schema) {
-    invalidate();
-  }
-
-  @Override
-  public void onIndexManagerUpdate(DatabaseSessionEmbedded session, String databaseName,
-      IndexManagerAbstract indexManager) {
-    invalidate();
-  }
-
-  @Override
-  public void onFunctionLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
-    invalidate();
-  }
-
-  @Override
-  public void onSequenceLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
-    invalidate();
-  }
-
-  @Override
-  public void onStorageConfigurationUpdate(String databaseName, StorageConfiguration update) {
-    invalidate();
   }
 
   public static @Nonnull GremlinPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {
