@@ -8,8 +8,13 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExprEvaluator;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExprLowerer;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.UnsupportedAnalyzedNodeException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
@@ -49,6 +54,25 @@ import javax.annotation.Nullable;
  *       are applied <em>after</em> each expanded record is loaded.
  * </ol>
  *
+ * <h2>Dual-carry generic filter</h2>
+ *
+ * <p>The generic push-down filter is dual-carried: the step holds both the original AST
+ * ({@code pushDownFilter}) and, when the predicate is within the analyzed-expression lowering
+ * subset, a pre-lowered IR tree ({@code analyzed}). Post-expansion filtering branches on the IR
+ * first: when present, the IR path ({@link AnalyzedExprEvaluator}) evaluates the predicate;
+ * otherwise, the AST fallback ({@code pushDownFilter.matchesFilters}) is used.
+ *
+ * <p>Lowering happens once, in the constructor, so every {@code new ExpandStep(...)} site inherits
+ * dual-carry automatically without planner edits. Predicates outside the lowering subset (e.g. IN,
+ * BETWEEN, $-variables, multi-segment paths), and the empty/no-filter case, silently fall back to
+ * the AST path — correctness is preserved, only the performance benefit of the IR path is lost.
+ *
+ * <p>Unlike {@code FilterStep}, ExpandStep has no serialize override and no
+ * {@code registerBooleanExpression} side-channel, so the generic filter is the only carrier that
+ * needs the dual-carry treatment. The RID value-expression paths
+ * ({@code ridFilterDescriptor}/{@code indexDescriptor}) are unrelated to boolean-predicate lowering
+ * and are untouched.
+ *
  * @see SelectExecutionPlanner#handleExpand
  * @see UnwindStep
  */
@@ -86,6 +110,14 @@ public class ExpandStep extends AbstractExecutionStep {
    */
   @Nullable private final IndexSearchDescriptor indexDescriptor;
 
+  /**
+   * Pre-lowered IR tree for the {@code pushDownFilter} predicate, or {@code null} when there is no
+   * push-down filter or the predicate is outside the analyzed-expression lowering subset. When
+   * non-null, {@link #filterMap} evaluates via the IR path; when null, it falls back to the AST's
+   * {@code matchesFilters}.
+   */
+  @Nullable private final AnalyzedExpr analyzed;
+
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
     this(ctx, profilingEnabled, expandAlias, null, null, null, null);
   }
@@ -101,12 +133,49 @@ public class ExpandStep extends AbstractExecutionStep {
       @Nullable IntSet acceptedCollectionIds,
       @Nullable RidFilterDescriptor ridFilterDescriptor,
       @Nullable IndexSearchDescriptor indexDescriptor) {
+    // Public entry points lower the push-down filter once, here, so all construction sites inherit
+    // dual-carry without planner edits.
+    this(ctx, profilingEnabled, expandAlias, pushDownFilter, acceptedCollectionIds,
+        ridFilterDescriptor, indexDescriptor, tryLower(pushDownFilter));
+  }
+
+  /**
+   * Private copy-constructor: accepts an already-lowered IR tree directly (no re-lowering). The IR
+   * is deeply immutable, so sharing it across copies is safe and avoids redundant work.
+   */
+  private ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias,
+      @Nullable SQLWhereClause pushDownFilter,
+      @Nullable IntSet acceptedCollectionIds,
+      @Nullable RidFilterDescriptor ridFilterDescriptor,
+      @Nullable IndexSearchDescriptor indexDescriptor,
+      @Nullable AnalyzedExpr analyzed) {
     super(ctx, profilingEnabled);
     this.expandAlias = expandAlias;
     this.pushDownFilter = pushDownFilter;
     this.acceptedCollectionIds = acceptedCollectionIds;
     this.ridFilterDescriptor = ridFilterDescriptor;
     this.indexDescriptor = indexDescriptor;
+    this.analyzed = analyzed;
+  }
+
+  /**
+   * Attempts to lower the push-down filter's base expression to the analyzed-expression IR.
+   * Returns {@code null} when there is no push-down filter, when the WHERE clause has no base
+   * expression (empty WHERE), or when the predicate is outside the lowering subset.
+   */
+  @Nullable private static AnalyzedExpr tryLower(@Nullable SQLWhereClause pushDownFilter) {
+    if (pushDownFilter == null) {
+      return null;
+    }
+    SQLBooleanExpression baseExpr = pushDownFilter.getBaseExpression();
+    if (baseExpr == null) {
+      return null;
+    }
+    try {
+      return AnalyzedExprLowerer.lowerBoolean(baseExpr);
+    } catch (UnsupportedAnalyzedNodeException e) {
+      return null;
+    }
   }
 
   @Override
@@ -130,10 +199,26 @@ public class ExpandStep extends AbstractExecutionStep {
     var expanded = resultSet.flatMap(
         (result, fmCtx) -> nextResults(result, fmCtx, combinedRidSet));
     if (pushDownFilter != null) {
-      expanded = expanded.filter(
-          (result, filterCtx) -> pushDownFilter.matchesFilters(result, filterCtx) ? result : null);
+      expanded = expanded.filter(this::filterMap);
     }
     return expanded;
+  }
+
+  /**
+   * Evaluates the push-down filter for a single expanded record. Branches on the IR first (N1
+   * mitigation): when {@code analyzed} is non-null, the IR path is used; otherwise, the AST
+   * fallback. Only called when {@code pushDownFilter != null} (guarded in {@link #internalStart}).
+   *
+   * <p>The boolean extraction contract ({@code Boolean.TRUE.equals(...)}) matches the AST's own
+   * contract in {@code SQLBinaryCondition.evaluate}: null and non-Boolean evaluator results are
+   * treated as {@code false}, preserving the two-valued filter semantics.
+   */
+  @Nullable private Result filterMap(Result result, CommandContext ctx) {
+    if (analyzed != null) {
+      Object evaluatorResult = AnalyzedExprEvaluator.evaluate(analyzed, result, ctx);
+      return Boolean.TRUE.equals(evaluatorResult) ? result : null;
+    }
+    return pushDownFilter.matchesFilters(result, ctx) ? result : null;
   }
 
   private ExecutionStream nextResults(
@@ -257,11 +342,22 @@ public class ExpandStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
+    // Share the deeply-immutable IR; copy only the mutable AST carrier.
     return new ExpandStep(ctx, profilingEnabled, expandAlias,
         pushDownFilter != null ? pushDownFilter.copy() : null,
         acceptedCollectionIds,
         ridFilterDescriptor,
-        indexDescriptor);
+        indexDescriptor,
+        this.analyzed);
+  }
+
+  /**
+   * Returns the pre-lowered IR tree, or {@code null} when there is no push-down filter or the
+   * predicate is outside the analyzed-expression lowering subset. Package-private: used by tests to
+   * verify the N1 mitigation (IR-first vs AST-fallback branch selection).
+   */
+  @Nullable AnalyzedExpr getAnalyzed() {
+    return analyzed;
   }
 
   @Nullable private static RidSet resolveIndexToRidSet(
