@@ -9,7 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.Collection;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
@@ -185,6 +187,28 @@ interface RecognitionContext extends ParamSink {
    * on the source vertex.
    */
   void setSingleReturnColumn(String alias);
+
+  // --- User label propagation (Track 6) ---------------------------------------------------------
+
+  /**
+   * Binds every non-null {@code as(label)} on {@code step} to {@code internalAlias}. Returns {@code
+   * false} when a user label is already bound to a different internal alias — the recogniser should
+   * decline the whole walk. A step with no labels is a no-op success.
+   */
+  boolean bindStepLabels(Step<?, ?> step, String internalAlias);
+
+  /**
+   * Resolves a Gremlin user label to the internal pattern alias it was bound to, or {@code null}
+   * when the label was never surfaced by an accepted {@code as(...)} step.
+   */
+  @Nullable String resolveUserLabel(String userLabel);
+
+  /**
+   * Replaces the RETURN projection with one column per named dedup label ({@code dedup("a","b")}),
+   * each keyed on the internal alias bound to that user label and aliased in the RETURN clause under
+   * the user-visible name.
+   */
+  void setNamedDedupReturnProjection(Collection<String> userLabels);
 
   // --- Result shaping (Track 6) -----------------------------------------------------------------
 

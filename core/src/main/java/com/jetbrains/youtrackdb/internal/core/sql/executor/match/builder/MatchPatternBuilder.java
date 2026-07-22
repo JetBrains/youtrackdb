@@ -11,8 +11,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -55,6 +57,11 @@ public final class MatchPatternBuilder {
   private final Pattern pattern = new Pattern();
   private final Map<String, String> aliasClasses = new LinkedHashMap<>();
   private final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+  /**
+   * Gremlin {@code as(label)} display names registered per internal pattern alias. Not consumed by
+   * {@link #build()} yet — retained for planner / {@code $matched} wiring in later tracks.
+   */
+  private final Map<String, Set<String>> aliasUserLabels = new LinkedHashMap<>();
   private boolean built;
 
   /**
@@ -238,6 +245,27 @@ public final class MatchPatternBuilder {
    */
   public Map<String, String> registeredAliasClasses() {
     return Collections.unmodifiableMap(aliasClasses);
+  }
+
+  /**
+   * Records a Gremlin {@code as(label)} binding for an internal pattern alias. Multiple user labels
+   * may refer to the same alias ({@code g.V().as("a").as("b")}).
+   */
+  public void registerUserLabel(String internalAlias, String userLabel) {
+    aliasUserLabels
+        .computeIfAbsent(internalAlias, ignored -> new LinkedHashSet<>())
+        .add(userLabel);
+  }
+
+  /**
+   * Returns an unmodifiable view of user labels registered per internal alias.
+   */
+  public Map<String, Set<String>> registeredUserLabels() {
+    var copy = new LinkedHashMap<String, Set<String>>(aliasUserLabels.size());
+    for (var entry : aliasUserLabels.entrySet()) {
+      copy.put(entry.getKey(), Set.copyOf(entry.getValue()));
+    }
+    return Collections.unmodifiableMap(copy);
   }
 
   /**

@@ -72,6 +72,9 @@ final class GremlinPatternAssembler {
     var targetAlias = ctx.nextAnonVertexAlias();
     appendFoldedHop(
         ctx, fromAlias, targetAlias, toBuilderDirection(hop.getDirection()), arity.label());
+    if (!ctx.bindStepLabels(hop, targetAlias)) {
+      return Outcome.DECLINE;
+    }
     return Outcome.ACCEPTED;
   }
 

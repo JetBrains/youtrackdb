@@ -16,10 +16,12 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
@@ -92,6 +94,13 @@ final class WalkerContext implements RecognitionContext {
 
   /** When {@code true}, the assembled plan carries {@code RETURN DISTINCT} ({@code dedup()}). */
   boolean returnDistinct;
+
+  /**
+   * Gremlin {@code as(label)} → internal pattern alias. Populated by {@link #bindStepLabels} when a
+   * recognised step carries user labels; consumed by named {@code dedup(labels...)} and later
+   * projection recognisers.
+   */
+  final Map<String, String> userLabelToAlias = new LinkedHashMap<>();
 
   /** {@code GROUP BY} clause for {@code group()} / {@code groupCount()} terminators. */
   @Nullable SQLGroupBy groupBy;
@@ -435,6 +444,47 @@ final class WalkerContext implements RecognitionContext {
     returnItems.add(new SQLExpression(new SQLIdentifier(alias)));
     returnAliases.add(new SQLIdentifier(alias));
     returnNestedProjections.add(null);
+  }
+
+  @Override
+  public boolean bindStepLabels(Step<?, ?> step, String internalAlias) {
+    var labels = GremlinStepLabels.userLabels(step);
+    if (labels.isEmpty()) {
+      return true;
+    }
+    for (String userLabel : labels) {
+      var existing = userLabelToAlias.get(userLabel);
+      if (existing != null && !existing.equals(internalAlias)) {
+        return false;
+      }
+    }
+    for (String userLabel : labels) {
+      userLabelToAlias.put(userLabel, internalAlias);
+      patternBuilder.registerUserLabel(internalAlias, userLabel);
+    }
+    return true;
+  }
+
+  @Nullable @Override
+  public String resolveUserLabel(String userLabel) {
+    return userLabelToAlias.get(userLabel);
+  }
+
+  @Override
+  public void setNamedDedupReturnProjection(Collection<String> userLabels) {
+    returnItems.clear();
+    returnAliases.clear();
+    returnNestedProjections.clear();
+    for (String userLabel : userLabels) {
+      var internalAlias = userLabelToAlias.get(userLabel);
+      if (internalAlias == null) {
+        throw new IllegalStateException(
+            "setNamedDedupReturnProjection called with unbound label: " + userLabel);
+      }
+      returnItems.add(new SQLExpression(new SQLIdentifier(internalAlias)));
+      returnAliases.add(new SQLIdentifier(userLabel));
+      returnNestedProjections.add(null);
+    }
   }
 
   @Override

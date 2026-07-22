@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
@@ -311,6 +312,22 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void setSingleReturnColumn(String alias) {
     // Intentionally no-op — see the class Javadoc "Why a delegating capture context".
+  }
+
+  @Override
+  public boolean bindStepLabels(Step<?, ?> step, String internalAlias) {
+    // Swallowed: user labels on a combinator child are scoped to the sub-walk, not the outer walk.
+    return true;
+  }
+
+  @Nullable @Override
+  public String resolveUserLabel(String userLabel) {
+    return parent.resolveUserLabel(userLabel);
+  }
+
+  @Override
+  public void setNamedDedupReturnProjection(java.util.Collection<String> userLabels) {
+    // Swallowed — see setReturnDistinct.
   }
 
   @Override

@@ -136,6 +136,9 @@ final class StartStepRecogniser implements StepRecogniser {
     // The boundary step pulls the matched vertex out of each row by name, so the RETURN projection
     // keeps the alias as the row key: one column boundaryAlias AS boundaryAlias.
     ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
+    if (!ctx.bindStepLabels(graphStep, BOUNDARY_ALIAS)) {
+      return Outcome.DECLINE;
+    }
     return Outcome.ACCEPTED;
   }
 

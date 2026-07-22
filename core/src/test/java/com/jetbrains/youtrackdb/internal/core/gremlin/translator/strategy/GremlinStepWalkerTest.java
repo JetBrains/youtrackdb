@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -677,6 +678,60 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result)
         .as("a non-$ user label must not be declined by the reserved-prefix scan")
         .isNotNull();
+  }
+
+  /**
+   * {@code g.V().dedup()} translates end-to-end and sets {@code returnDistinct} on the assembled
+   * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs}.
+   */
+  @Test
+  public void walk_vertexSourceWithDedup_setsReturnDistinct() {
+    var admin = graph.traversal().V().dedup().asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().returnDistinct()).isTrue();
+  }
+
+  /**
+   * {@code g.V().as("v").dedup("v")} surfaces the user label in RETURN and sets distinct.
+   */
+  @Test
+  public void walk_namedDedupWithAs_projectsUserLabel() {
+    var admin = graph.traversal().V().as("v").dedup("v").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().returnDistinct()).isTrue();
+    assertThat(result.inputs().returnAliases()).hasSize(1);
+    assertThat(result.inputs().returnAliases().getFirst().getStringValue()).isEqualTo("v");
+  }
+
+  /** {@code dedup("missing")} without a matching {@code as(...)} declines the whole walk. */
+  @Test
+  public void walk_namedDedupUnboundLabel_declines() {
+    var admin = graph.traversal().V().dedup("missing").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * {@code g.V().as("a").out().as("b").dedup("a","b")} projects both bound labels with distinct.
+   */
+  @Test
+  public void walk_multiHopNamedDedup_projectsBothLabels() {
+    var admin = graph.traversal().V().as("a").out().as("b").dedup("a", "b").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().returnDistinct()).isTrue();
+    assertThat(result.inputs().returnAliases()).extracting(SQLIdentifier::getStringValue)
+        .containsExactly("a", "b");
   }
 
   /**

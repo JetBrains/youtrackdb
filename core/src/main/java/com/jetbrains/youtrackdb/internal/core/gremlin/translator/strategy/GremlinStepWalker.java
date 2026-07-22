@@ -14,6 +14,7 @@ import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
@@ -101,17 +102,18 @@ final class GremlinStepWalker {
    * edge-returning hop to {@link CombinatorFoldedHopRecogniser}. {@link HasStepRecogniser}
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
-      Map.of(
-          GraphStep.class, StartStepRecogniser.INSTANCE,
-          VertexStep.class, VertexStepRecogniser.INSTANCE,
-          VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
-          HasStep.class, HasStepRecogniser.INSTANCE,
-          TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE,
-          AndStep.class, AndStepRecogniser.INSTANCE,
-          OrStep.class, OrStepRecogniser.INSTANCE,
-          NotStep.class, NotStepRecogniser.INSTANCE,
-          WhereTraversalStep.class, WhereTraversalStepRecogniser.INSTANCE,
-          WherePredicateStep.class, WherePredicateStepRecogniser.INSTANCE);
+      Map.ofEntries(
+          Map.entry(GraphStep.class, StartStepRecogniser.INSTANCE),
+          Map.entry(VertexStep.class, VertexStepRecogniser.INSTANCE),
+          Map.entry(VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE),
+          Map.entry(HasStep.class, HasStepRecogniser.INSTANCE),
+          Map.entry(TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE),
+          Map.entry(AndStep.class, AndStepRecogniser.INSTANCE),
+          Map.entry(OrStep.class, OrStepRecogniser.INSTANCE),
+          Map.entry(NotStep.class, NotStepRecogniser.INSTANCE),
+          Map.entry(WhereTraversalStep.class, WhereTraversalStepRecogniser.INSTANCE),
+          Map.entry(WherePredicateStep.class, WherePredicateStepRecogniser.INSTANCE),
+          Map.entry(DedupGlobalStep.class, DedupGlobalStepRecogniser.INSTANCE));
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
