@@ -29,6 +29,7 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [x] 2026-07-22T06:40Z [ctx=safe] Step 1 review-fix iteration 2 complete (commit 7d2369cda0;
   crash-safety review CS20–CS25: 2 should-fixes + 4 suggestions — all applied or dispositioned,
   0 blockers)
+- [x] 2026-07-22T12:30Z [ctx=safe] Step 3 complete (commit 11bf0eda26)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -187,7 +188,7 @@ HEAD `e2605c8ba3` and is **Step 1's** acceptance test; `EmbeddedTestSuite.testQu
    - **Verification:** `./mvnw -pl core,tests clean test` (the `tests` module runs `EmbeddedTestSuite`; core for the regression); storage/tx touched → `./mvnw -pl core clean verify -P ci-integration-tests`.
    - **Red-first / acceptance:** `EmbeddedTestSuite.testQueryCount` (`SQLSelectTest#testQueryCount`) is RED at HEAD `e2605c8ba3`; it is the Step 2 acceptance test and must go green.
 
-3. **Draft A — mutex permit handshake and the Q-A2 skip protocol** (Draft A §A.2; Rulings Q-A1/Q-A3/Q-A4/Q-A5; §Amendments pass-14 CN11/CN12/CN13/CN14, CS11/CS12, CN16/CN17/CN18; §Amendments round 2 CN20+CS17, CN22, CS16, CN24; V2 ordering). Convert `MetadataWriteMutex.holder` to `AtomicReference<Holder>` with `Holder(session, ordinal, thread)` and a monotonic ordinal; add `releaseFor(session, ordinal)` as a `(session, ordinal)`-keyed `compareAndSet` that warn-noops on mismatch and never throws. On the session, replace `metadataMutexEngaged` with a wipe-surviving `volatile long engagedOrdinal` (0 = none) and add a dedicated `volatile boolean teardownIntent`. Engage writes the holder then the ordinal (V2: ordinal-store strictly before mark-read) then re-checks `teardownIntent` (Dekker), self-releasing-and-throwing on a marked session; a same-session re-engage throws loudly (FM-A7, `IllegalStateException`, Q-A5 message/type pins) instead of self-parking. Replace `acquireUninterruptibly` with the Q-A3 timed re-wait loop (unbounded wait; ~10s periodic holder-naming WARN; interruptible → restore flag + throw `DatabaseException`; loop-top re-check of the waiter's own `teardownIntent`/status). Route every releaser (owner finally, foreign teardown, engage self-release) through one `getAndSet(engagedOrdinal, 0)` atomic claim (CN17 funnel), keeping the `releaseFor` CAS+ordinal as the independent second belt. Widen the FM-A2 release to `internalClose`'s outer finally (CN12) and isolate `DatabasePoolImpl.close`'s per-session `realClose` in `try/catch(Throwable)`. Implement the Q-A2 skip protocol: pool `realClose` detects an in-flight foreign commit via **volatile** `status`/`storageTxThreadId` (CN13), sets `teardownIntent` and re-validates (Dekker completer, CN22), performs only the CN20/CS17 whitelist (set mark; remove pool-thread-private thread-local activation; log — NO `sessionCount` decrement, NO `status=CLOSED`, NO cache/sharedContext teardown, NO one-shot-guard consumption); the owner becomes the sole completer, running the full `internalClose` **strictly after** its own `tx.close()`, throw-isolated (CS16). Set the unconditional `teardownIntent` mark AFTER `internalClose`'s one-shot guard (CN24) and clear it on `reuse()` (Q-A4 second belt). — risk: high (Concurrency)  [ ]  commit: _pending_
+3. **Draft A — mutex permit handshake and the Q-A2 skip protocol** (Draft A §A.2; Rulings Q-A1/Q-A3/Q-A4/Q-A5; §Amendments pass-14 CN11/CN12/CN13/CN14, CS11/CS12, CN16/CN17/CN18; §Amendments round 2 CN20+CS17, CN22, CS16, CN24; V2 ordering). Convert `MetadataWriteMutex.holder` to `AtomicReference<Holder>` with `Holder(session, ordinal, thread)` and a monotonic ordinal; add `releaseFor(session, ordinal)` as a `(session, ordinal)`-keyed `compareAndSet` that warn-noops on mismatch and never throws. On the session, replace `metadataMutexEngaged` with a wipe-surviving `volatile long engagedOrdinal` (0 = none) and add a dedicated `volatile boolean teardownIntent`. Engage writes the holder then the ordinal (V2: ordinal-store strictly before mark-read) then re-checks `teardownIntent` (Dekker), self-releasing-and-throwing on a marked session; a same-session re-engage throws loudly (FM-A7, `IllegalStateException`, Q-A5 message/type pins) instead of self-parking. Replace `acquireUninterruptibly` with the Q-A3 timed re-wait loop (unbounded wait; ~10s periodic holder-naming WARN; interruptible → restore flag + throw `DatabaseException`; loop-top re-check of the waiter's own `teardownIntent`/status). Route every releaser (owner finally, foreign teardown, engage self-release) through one `getAndSet(engagedOrdinal, 0)` atomic claim (CN17 funnel), keeping the `releaseFor` CAS+ordinal as the independent second belt. Widen the FM-A2 release to `internalClose`'s outer finally (CN12) and isolate `DatabasePoolImpl.close`'s per-session `realClose` in `try/catch(Throwable)`. Implement the Q-A2 skip protocol: pool `realClose` detects an in-flight foreign commit via **volatile** `status`/`storageTxThreadId` (CN13), sets `teardownIntent` and re-validates (Dekker completer, CN22), performs only the CN20/CS17 whitelist (set mark; remove pool-thread-private thread-local activation; log — NO `sessionCount` decrement, NO `status=CLOSED`, NO cache/sharedContext teardown, NO one-shot-guard consumption); the owner becomes the sole completer, running the full `internalClose` **strictly after** its own `tx.close()`, throw-isolated (CS16). Set the unconditional `teardownIntent` mark AFTER `internalClose`'s one-shot guard (CN24) and clear it on `reuse()` (Q-A4 second belt). — risk: high (Concurrency)  [x]  commit: 11bf0eda26
    - **Goal:** the mutex has exactly one releaser and never wedges (I-handshake-1), tx-scoped resources tear down only on the owning thread (I-C3), and a pool teardown of a checked-out session heals the permit via the owning-session teardown.
    - **In-scope files:** `.../core/db/MetadataWriteMutex.java`; `.../core/db/DatabaseSessionEmbedded.java` (`engageMetadataWriteMutex`, `releaseMetadataWriteMutexForTx`, `internalClose` outer-finally release + mark placement, `engagedOrdinal`/`teardownIntent`, FM-A7 throw); `.../core/db/DatabaseSessionEmbeddedPooled.java` (`realClose` mark+skip-detection+re-check, `reuse` mark-clear); `.../core/db/DatabasePoolImpl.java` (`close` per-session `catch(Throwable)`); `.../core/tx/FrontendTransactionImpl.java` (volatile `status`/`storageTxThreadId`, owner completer finally after `close()`); `core/src/test/java/.../db/MetadataWriteMutexTest.java`.
    - **Discharges:** Draft A §A.2 and its behavior matrix; Rulings Q-A1/Q-A3/Q-A4/Q-A5; §Amendments pass-14 CN11–CN14, CS11, CS12, CN16, CN17, CN18 (FM-A4c accept); §Amendments round 2 CN20+CS17, CN22, CS16, CN24; V2 ordering; risk-list items 3 (FM-A4c) and 5 (post-volatile TOCTOU).
@@ -372,6 +373,70 @@ ci-integration verify: surefire ci/disk profile 17407/0 (the racer red is gone),
 with only the four known Track 6 rename classes failing (21 failures, identical to the HEAD
 baseline — no new IT failures). The storage stays usable after teardown of the poisoned-storage
 test (checkErrorState gates only component operations, not close/drop).
+
+### Step 3 — commit 11bf0eda26, 2026-07-22T12:30Z [ctx=safe]
+**What was done:** Landed Draft A — the mutex permit handshake and the Q-A2 skip protocol — per
+the amended design (Rulings Q-A1/Q-A3/Q-A4/Q-A5; pass-14 CN11–CN14/CS11/CS12/CN16–CN18; round-2
+CN20+CS17/CN22/CS16/CN24; V2 ordering, implemented with an explicit ordering comment at the
+engage). `MetadataWriteMutex`: holder is `AtomicReference<Holder(session, ordinal, thread,
+acquiredAtNanos)>` with a monotonic ordinal; `releaseFor(session, ordinal)` is a keyed CAS,
+warn-noop, never-throw, winner-nulls-before-release; the engage is the Q-A3 timed re-wait loop
+(unbounded, ~10s holder-naming WARN, interruptible with flag restored → `DatabaseException`,
+loop-top self-teardown re-check) with the FM-A7 same-session stranded-holder
+`IllegalStateException` (message pins: ordinal/thread/elapsed + "never released").
+`DatabaseSessionEmbedded`: `engagedMutexOrdinal` (AtomicLong, wipe-surviving) replaces the boolean
+marker; all three release sites funnel through one `getAndSet(0)` claim; volatile `teardownIntent`
+set after `internalClose`'s one-shot guard (both arms), cleared on `reuse()`; the release pass is
+hoisted to `internalClose`'s OUTER finally; the owner-as-completer
+(`completeDeferredTeardownAfterTxClose`) runs at the tx-close boundary, throw-isolated, filtered
+by an `internalCloseInProgress` reentrance guard. `DatabaseSessionEmbeddedPooled.realClose`:
+mark-first → re-validate (`isCommittingOnForeignThread` on volatile `status`/`storageTxThreadId`)
+→ skip (mark+log only) or fall through to the full teardown. `DatabasePoolImpl.close`: per-session
+`catch(Throwable)` log-and-continue. Ten new tests in `MetadataWriteMutexTest` pin the matrix
+(rollback-throw strand heal; marked-session loud fail with permit free; foreign-teardown harvest;
+double-release single-permit proof incl. stale-ordinal warn-noop; FM-A7 type+message; pool-skip
+defers-to-owner with commit undisturbed and durable; pool fall-through full teardown; CS16
+masked-outcome; interrupted waiter; pool-loop isolation); the 9 existing tests stay green.
+
+**What was discovered:** A first version of the pool-skip test deadlocked the fork: asserting
+`pooled.isClosed()` while the owner was parked INSIDE the commit window blocks on
+`stateLock.readLock` behind the held write lock — mid-window assertions must use the lock-free
+`getStatus()` probe. The completer's teardown removes the thread-local activation, so any
+subsequent same-thread session use must re-activate. The environmental parallel-surefire
+fork-startup crash (Track 4 notes) reproduced once and disappeared on retry.
+
+**What changed from the plan (deviations, all mechanical):** (1) `Holder` carries a fourth
+component `acquiredAtNanos` — required by the pinned "elapsed" in the WARN and FM-A7 messages.
+(2) The session-side record is a final `AtomicLong` field rather than a volatile long +
+field-updater — same semantics, simpler claim. (3) A volatile `engagedMutex` reference is
+captured at engage so the release funnel works after `internalClose` nulls `sharedContext`
+(the widened outer-finally release would otherwise lose its path to the mutex on late-throw
+teardowns). (4) The FM-A7 check fires on same-session regardless of thread (strictly safer than
+the sketch's same-thread qualification; the pins hold). (5) The skip whitelist's "remove
+pool-thread-private activation" is vacuous here: realClose detects the skip BEFORE activating, so
+nothing is planted (documented at the seam). (6) The FM-A3 "three interleavings" and CN22 (c)
+both-act shapes are not deterministically driveable in a unit test; their safety property (single
+release) is pinned by the double-release test plus the claim/CAS design — the two deterministic
+interleavings each have a dedicated test.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/MetadataWriteMutex.java` (rewrite)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java`
+  (ordinal claim funnel, teardown mark, widened outer-finally release, completer)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbeddedPooled.java`
+  (skip protocol, reuse mark-clear)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabasePoolImpl.java` (loop isolation)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransactionImpl.java`
+  (volatile status/storageTxThreadId, foreign-commit probe, completer at close tail)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/MetadataWriteMutexTest.java`
+
+**Critical context:** No freezer/gate seams, `ScalableRWLock`, or `commitSchemaCarry` checkpoint
+wiring touched (Steps 4–5); both endTxCommit test hooks' semantics preserved; no coupling to
+`computeWithFreshCommittedReads` or the reload guard. FM-A5 (leaked session) remains the accepted
+loud wedge — no reaper. Verification: full core unit suite 17418/0; full
+`verify -P ci-integration-tests` green (surefire ci/disk 17418/0, failsafe 513/0 — zero IT
+failures on the branch now); coverage gate PASSED (90.1% line / 81.7% branch on
+changed-vs-develop).
 
 ### Step 1 review-fix iteration 2 — commit 7d2369cda0, 2026-07-22T06:40Z [ctx=safe]
 **What was done:** Applied the crash-safety/durability review findings (report:
