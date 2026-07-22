@@ -1,20 +1,18 @@
 # YTDB doctrine additions
 
-## Satellite review PRs
+## Peer review
 
-Full mechanics (creation, observation loop, re-pinning, cleanup) live in
-`docs-internal/dev-workflow/satellite-pr.md` — read it before acting;
-these rules only bind the workflow, they do not restate it.
+YTDB layers no satellite review PRs on the slate workflow. Peer review
+is OPTIONAL and, when the user wants it, runs on the umbrella PR
+itself, for changes of any size:
 
-1. Multi-track changes only: after each track's user approval and
-   marker commit land, ask the user whether to open a draft satellite
-   review PR for that track.
-2. Satellites are review-only: always draft, never merged, never marked
-   ready for review.
-3. Once a satellite is open, the track blocks the next one until the
-   peer review completes or the user explicitly waives completion.
-4. Sticky answers ("yes/no for all remaining tracks") are honored and
-   recorded under the umbrella PR's Tracks table.
-5. Single-track and trivial changes: at the ready-for-review flip, ask
-   the user whether they want a peer review; if yes, it runs directly
-   on the ready umbrella PR — no satellite branches or PR are created.
+1. Ask the user whether they want a peer review as part of the
+   ready-for-review flip (pr-publishing.md § Ready-for-review flip).
+   YTDB runs no pre-flip layered review, so the flip checklist's
+   layered-review item is otherwise satisfied by default.
+2. If yes, peers review the now-ready umbrella PR directly — no
+   separate review branches or PRs. The agent handles review
+   observations as normal post-flip commits and keeps the PR
+   description in sync (pr-publishing.md § After the flip).
+3. Peer review supplements, never replaces, the mandatory per-track
+   user review (track-workflow.md § Peer review).

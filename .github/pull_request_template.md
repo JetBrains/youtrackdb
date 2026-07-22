@@ -24,6 +24,6 @@ docs-internal/dev-workflow/track-development.md for YTDB deltas. -->
 Branch-life only: this table is stripped from the description before the PR is flipped ready
 for review. -->
 
-| # | Track | Scope | Status | Satellite PR |
-|---|-------|-------|--------|--------------|
+| # | Track | Scope | Status |
+|---|-------|-------|--------|
 
