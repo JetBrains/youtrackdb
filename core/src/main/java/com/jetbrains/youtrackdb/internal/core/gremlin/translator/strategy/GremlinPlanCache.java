@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricDefinition;
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricScope.Database;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricScope.Global;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -24,9 +24,10 @@ import javax.annotation.Nullable;
  * com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
  *
  * <p>Hit/miss counters ({@link #getHits()} / {@link #getMisses()}) are lifetime totals on the
- * shared-context instance. Each lookup also feeds the per-database profiler rates {@link
+ * shared-context instance. Each lookup also feeds the global profiler rates {@link
  * CoreMetrics#GREMLIN_PLAN_CACHE_HIT_RATE} / {@link CoreMetrics#GREMLIN_PLAN_CACHE_MISS_RATE}
- * (JMX under {@code scope=Database}).
+ * (same Global hit+miss {@link TimeRate} pair as {@link CoreMetrics#QUERY_CACHE_HIT_RATE} /
+ * {@link CoreMetrics#QUERY_CACHE_MISS_RATE}; JMX under {@code scope=Global}).
  */
 public final class GremlinPlanCache
     extends AbstractMetadataUpdateCache<String, InternalExecutionPlan> {
@@ -92,21 +93,20 @@ public final class GremlinPlanCache
     var result = getCached(fingerprint);
     if (result != null) {
       recordHit();
-      recordProfilerRate(db, CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE);
+      recordProfilerRate(CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE);
       return result.copy(ctx);
     }
     recordMiss();
-    recordProfilerRate(db, CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE);
+    recordProfilerRate(CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE);
     return null;
   }
 
-  private static void recordProfilerRate(
-      DatabaseSessionEmbedded db, MetricDefinition<Database, TimeRate> definition) {
+  private static void recordProfilerRate(MetricDefinition<Global, TimeRate> definition) {
     var registry = metricsRegistry();
     if (registry == null) {
       return;
     }
-    registry.databaseMetric(definition, db.getDatabaseName()).record();
+    registry.globalMetric(definition).record();
   }
 
   @Nullable private static MetricsRegistry metricsRegistry() {
