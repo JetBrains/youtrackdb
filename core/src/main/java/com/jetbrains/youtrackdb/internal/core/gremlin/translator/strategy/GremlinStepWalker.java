@@ -18,6 +18,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalSte
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
@@ -26,6 +28,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ProjectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
@@ -125,7 +128,10 @@ final class GremlinStepWalker {
           Map.entry(ElementMapStep.class, ElementMapStepRecogniser.INSTANCE),
           Map.entry(SelectOneStep.class, SelectOneStepRecogniser.INSTANCE),
           Map.entry(SelectStep.class, SelectStepRecogniser.INSTANCE),
-          Map.entry(ProjectStep.class, ProjectStepRecogniser.INSTANCE));
+          Map.entry(ProjectStep.class, ProjectStepRecogniser.INSTANCE),
+          Map.entry(OrderGlobalStep.class, OrderGlobalStepRecogniser.INSTANCE),
+          Map.entry(RangeGlobalStep.class, RangeGlobalStepRecogniser.INSTANCE),
+          Map.entry(RangeGlobalStepPlaceholder.class, RangeGlobalStepRecogniser.INSTANCE));
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}

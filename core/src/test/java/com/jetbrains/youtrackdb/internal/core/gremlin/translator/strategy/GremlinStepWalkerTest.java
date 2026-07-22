@@ -772,6 +772,35 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result.inputs().returnAliases().getFirst().getStringValue()).isEqualTo("name");
   }
 
+  /** {@code g.V().order().by("name", Order.desc)} translates with an ORDER BY clause. */
+  @Test
+  public void walk_orderByProperty_setsOrderBy() {
+    var admin =
+        graph.traversal().V().order()
+            .by("name", org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+            .asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().orderBy()).isNotNull();
+    assertThat(result.inputs().orderBy().toString()).contains("name");
+  }
+
+  /** {@code g.V().range(1, 4)} translates to SKIP 1 LIMIT 3. */
+  @Test
+  public void walk_range_setsSkipAndLimit() {
+    var admin = graph.traversal().V().range(1, 4).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().skip()).isNotNull();
+    assertThat(result.inputs().limit()).isNotNull();
+    assertThat(result.inputs().skip().toString()).contains("1");
+    assertThat(result.inputs().limit().toString()).contains("3");
+  }
+
   /**
    * A null user label must not throw from the reserved-prefix scan. A step's label set can carry a
    * null — {@code as((String) null)} reaches {@code AbstractStep.addLabel}, which adds the label
