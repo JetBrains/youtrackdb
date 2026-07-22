@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -113,5 +114,14 @@ public final class RidbagBucketUpdateValueOp extends PageOperation {
     return toString("index=" + index
         + ", valLen=" + (value != null ? value.length : "null")
         + ", keySize=" + keySize);
+  }
+
+  /**
+   * {@link ApplyTier#PAYLOAD}: In-place same-size value update of an already-published entry; page-
+   * atomic old-or-new (non-establishing per SC-P).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PAYLOAD;
   }
 }

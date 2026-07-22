@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -83,5 +84,15 @@ public final class BTreeSVBucketV3SetLeftSiblingOp extends PageOperation {
   @Override
   public String toString() {
     return toString("siblingPageIndex=" + siblingPageIndex);
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Backlink update on the right neighbor, classified publish-tier per
+   * the YTDB-1203 design decision (strict monotonic-dedup contract; backward scans stay epoch/lock-
+   * protected regardless).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

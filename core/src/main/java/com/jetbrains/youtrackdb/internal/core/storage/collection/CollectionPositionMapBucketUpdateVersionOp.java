@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -90,5 +91,15 @@ public final class CollectionPositionMapBucketUpdateVersionOp extends PageOperat
   @Override
   public String toString() {
     return toString("index=" + index + ", recordVersion=" + recordVersion);
+  }
+
+  /**
+   * {@link ApplyTier#PAYLOAD}: In-place version-field update of a FILLED entry; page-atomic old-or-
+   * new, with old-version readers compensated by the heap snapshot index (non-establishing per
+   * SC-P).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PAYLOAD;
   }
 }

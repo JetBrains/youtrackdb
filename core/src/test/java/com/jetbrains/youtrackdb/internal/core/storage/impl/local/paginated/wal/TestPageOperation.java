@@ -57,4 +57,13 @@ public class TestPageOperation extends PageOperation {
   public int getTestValue() {
     return testValue;
   }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Test-only record for the WAL factory serialization pipeline; never
+   * produced by live code.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
+  }
 }

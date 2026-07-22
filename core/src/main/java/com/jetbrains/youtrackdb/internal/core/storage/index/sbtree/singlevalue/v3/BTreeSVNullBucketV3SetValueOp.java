@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.
 
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -96,5 +97,14 @@ public final class BTreeSVNullBucketV3SetValueOp extends PageOperation {
   public String toString() {
     return toString("collectionId=" + collectionId
         + ", collectionPosition=" + collectionPosition);
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Single-page atomic set of the null-key value at its fixed location —
+   * the write is its own publish.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

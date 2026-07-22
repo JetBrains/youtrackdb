@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -114,5 +115,15 @@ public final class RidbagBucketShrinkOp extends PageOperation {
   public String toString() {
     return toString(
         "entries=" + (retainedEntries != null ? retainedEntries.size() : "null"));
+  }
+
+  /**
+   * {@link ApplyTier#RETIRE}: Split-time removal of moved-out entries from a published bucket —
+   * redirects reachability away, the canonical retire-last delta (page-atomic with the same page's
+   * sibling redirect or rebuild re-add).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.RETIRE;
   }
 }

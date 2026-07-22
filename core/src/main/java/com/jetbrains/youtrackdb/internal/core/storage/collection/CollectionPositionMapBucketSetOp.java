@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -118,5 +119,16 @@ public final class CollectionPositionMapBucketSetOp extends PageOperation {
   public String toString() {
     return toString("index=" + index + ", entryPageIndex=" + entryPageIndex
         + ", recordPosition=" + recordPosition + ", recordVersion=" + recordVersion);
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Sets an entry to FILLED with the record's (page, position) — the
+   * publish that makes a created or relocated record reachable (updates always relocate, and this
+   * op is the sole publisher of the new copy, SC-R). The old copy is retired only by a later GC
+   * commit.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

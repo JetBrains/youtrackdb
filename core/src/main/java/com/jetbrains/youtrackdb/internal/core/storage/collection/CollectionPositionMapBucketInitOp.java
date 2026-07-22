@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -28,5 +29,14 @@ public final class CollectionPositionMapBucketInitOp extends PageOperation {
   @Override
   public int getId() {
     return RECORD_ID;
+  }
+
+  /**
+   * {@link ApplyTier#NEW}: Position-map bucket pages are initialized only when freshly allocated
+   * during position-map growth.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.NEW;
   }
 }

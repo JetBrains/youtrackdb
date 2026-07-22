@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -83,5 +84,15 @@ public final class BTreeSVEntryPointV3SetTreeSizeOp extends PageOperation {
   @Override
   public String toString() {
     return toString("size=" + size);
+  }
+
+  /**
+   * {@link ApplyTier#GATE}: The entry point is a link-free hub: no reader navigates through it to
+   * reach tree pages (the root is fixed at page 1); tree size is a single-scalar read, old-or-new
+   * either way.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.GATE;
   }
 }

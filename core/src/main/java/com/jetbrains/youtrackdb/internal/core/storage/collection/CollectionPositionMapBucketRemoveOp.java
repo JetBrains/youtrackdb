@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -91,5 +92,15 @@ public final class CollectionPositionMapBucketRemoveOp extends PageOperation {
   @Override
   public String toString() {
     return toString("index=" + index + ", deletionVersion=" + deletionVersion);
+  }
+
+  /**
+   * {@link ApplyTier#RETIRE}: Marks an entry REMOVED with a deletion version (MVCC tombstone),
+   * removing the record's reachability for post-commit readers; must apply after all same-commit
+   * publishes.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.RETIRE;
   }
 }

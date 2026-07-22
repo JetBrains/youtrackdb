@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -111,5 +112,14 @@ public final class RidbagBucketRemoveNonLeafEntryOp extends PageOperation {
     return toString("entryIndex=" + entryIndex
         + ", keyLen=" + (key != null ? key.length : "null")
         + ", prevChild=" + prevChild);
+  }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Never produced by live code: Bucket#removeNonLeafEntry has no
+   * callers in production sources.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
   }
 }

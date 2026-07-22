@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -81,5 +82,14 @@ public final class RidbagEntryPointSetTreeSizeOp extends PageOperation {
   @Override
   public String toString() {
     return toString("size=" + size);
+  }
+
+  /**
+   * {@link ApplyTier#GATE}: The entry point is never on a read path (all lookups start at the fixed
+   * root page); tree size is a single-scalar read, old-or-new either way.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.GATE;
   }
 }

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -81,5 +82,14 @@ public final class RidbagBucketInitOp extends PageOperation {
   @Override
   public String toString() {
     return toString("isLeaf=" + isLeaf);
+  }
+
+  /**
+   * {@link ApplyTier#NEW}: Buckets are initialized only on freshly allocated pages (tree creation
+   * and splits).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.NEW;
   }
 }

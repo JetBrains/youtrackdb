@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -150,5 +151,16 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
         + ", allocatedIndex=" + allocatedIndex
         + ", entryPosition=" + entryPosition
         + ", holeSize=" + holeSize);
+  }
+
+  /**
+   * {@link ApplyTier#PAYLOAD}: Writes a record chunk into a slot that is unreachable until the same
+   * commit's position-map SET publish applies. Establishing write (SC-P): its merged tier must stay
+   * below that publish; chunk-chain pointers between appended chunks are same-tier but shielded by
+   * the higher-tier position-map publish.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PAYLOAD;
   }
 }
