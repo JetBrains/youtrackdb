@@ -31,17 +31,7 @@ targets it, and track 01's base is the merge-base with it.
   `docs-internal/agents/orchestrator-guidelines.md` § Git Conventions.
 - The PR description follows the repository template at `.github/pull_request_template.md`,
   which instantiates the generic description rules owned by pr-publishing.md (Motivation,
-  Planned changes with its subsections and hard guards, Tracks). The template's Tracks table
-  adds a YTDB-specific "Satellite PR" column for the peer-review layer below.
-
-## Peer-review layer: satellite PRs
-
-YTDB layers a per-track peer-review process on the baseline via the slate doctrine
-extension (`doctrineExtraPath` → `docs-internal/agents/slate-doctrine-extra.md`). Full
-mechanics — creation, observation loop, rebase re-pinning, cleanup at merge — live in
-`docs-internal/dev-workflow/satellite-pr.md`. The rule that layered peer review supplements,
-never replaces, the mandatory per-track user review is owned by track-workflow.md § Peer
-review.
+  Planned changes with its subsections and hard guards, Tracks).
 
 ## Verification integration
 
@@ -53,6 +43,6 @@ exact command lines are in `docs-internal/agents/thread-guidelines.md`.
 
 Changing the `ytdb-slate` version pin in `.pi/settings.json` is a tracked change like any
 other — it takes the full workflow. In addition, whoever bumps the pin MUST re-read this
-document and `docs-internal/dev-workflow/satellite-pr.md` against the NEW package docs and
+document and `docs-internal/agents/slate-doctrine-extra.md` against the NEW package docs and
 fix any skew: the deltas here are valid only relative to the package version they were
 written against.

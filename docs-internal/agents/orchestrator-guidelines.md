@@ -15,7 +15,7 @@ code review → mandatory user review → marker commit), and the change-size sc
 and pr-publishing.md — umbrella draft PR before implementation, description rules,
 ready-for-review flip, user-performed merge (draft-PR publishing is enabled for this repo).
 YTDB deltas — the `develop` base branch, issue-prefix/PR-template conventions, the
-satellite peer-review layer, and the package pin-bump rule — live in
+umbrella-PR peer-review policy, and the package pin-bump rule — live in
 `docs-internal/dev-workflow/track-development.md`.
 
 This flow covers **all files in the repository**, including `.pi/` configuration, prompts,
@@ -79,17 +79,16 @@ dispatch a build there while another build or test run is in progress.
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
 - **Multiple issues**: when a PR addresses several issues, list them all in the title, comma-separated and wrapped in square brackets: `[YTDB-123, YTDB-456] <summary>`.
-- Target branch: `develop` (exception: satellite review PRs target their pinned `track-NN-base`
-  branch)
+- Target branch: `develop`
 - **1 PR = 1 squashed commit** — all branch commits are squashed on merge
 - **Merge is user-performed** — the agent never merges the umbrella PR; the pre-flip
   checklist and flip mechanics are owned by pr-publishing.md (ytdb-slate package)
   § Ready-for-review flip.
-- **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made. Satellite review PRs are exempt — they carry a track-summary body instead (see the satellite bullet below).
+- **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
 - **Keep the PR title and description in sync with follow-up commits** — the squash-merge builds the commit message from them, not from individual commit messages, so stale text ships to `develop`'s history; sync rules owned by pr-publishing.md § Keeping the PR in sync.
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
 - **Planned changes & Tracks sections**: The PR template includes "Planned changes" and "Tracks" sections, mandatory for non-trivial changes. The umbrella draft PR's description is kept in sync as work proceeds — description rules in pr-publishing.md (ytdb-slate package); YTDB template deltas in `docs-internal/dev-workflow/track-development.md`.
-- **Satellite review PRs** are draft-only review vehicles for individual tracks (multi-track changes only): they are never merged and never marked ready for review — see `docs-internal/dev-workflow/satellite-pr.md`.
+- **Peer review** is optional and, when the user wants it, runs directly on the ready umbrella PR at the ready-for-review flip — no separate review branches or PRs are created; see `docs-internal/agents/slate-doctrine-extra.md`.
 
 ### Rebase Conflict Resolution
 - When a rebase produces conflicts in prose-heavy files (e.g., `AGENTS.md` or `docs-internal/adr/**`), re-read every resolved file end-to-end before continuing — three-way prose merges can splice text that parses but contradicts itself.
