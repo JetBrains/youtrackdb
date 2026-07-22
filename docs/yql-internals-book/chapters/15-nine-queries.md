@@ -42,7 +42,7 @@ per record — `{p: Person#0:0}`, `{p: Person#0:1}`, and so on. `ReturnMatch*Ste
 into the final result row. There is no `MatchStep`, no `CartesianProductStep`, no NOT processing.
 
 The prefetch decision is worth noting even in this minimal case: if the `Person` class count is
-below the threshold of 100 (`MatchExecutionPlanner.java:328`), the planner will emit a
+below the threshold of 100 (`MatchExecutionPlanner.java:336`), the planner will emit a
 `MatchPrefetchStep` ahead of `MatchFirstStep`, pre-materialising all matching records before
 the pull-based loop starts. For a full class scan this threshold is almost never met in
 production, so the degenerate single-node query typically runs without a prefetch step.
@@ -68,7 +68,7 @@ filter `name='Alice'` is highly selective — `SQLWhereClause.estimate()` finds 
 very few matching records. `friend` has no `class:` declaration and receives no estimate at all,
 making it ineligible as a root. Phase 3 therefore picks `me` without a contest.
 
-Because `me`'s estimate is below the prefetch threshold of 100 (`MatchExecutionPlanner.java:328`),
+Because `me`'s estimate is below the prefetch threshold of 100 (`MatchExecutionPlanner.java:336`),
 phase 4 adds `me` to `aliasesToPrefetch` and emits a `MatchPrefetchStep`. The prefetch
 materialises the matching records into memory so `MatchFirstStep` does not need to re-execute the
 sub-plan for each downstream pull.
@@ -201,7 +201,7 @@ nodes — the distinction surfaces at execution.
 
 `OptionalMatchStep` (Chapter 11) attempts the traversal. When no `ManagedBy` neighbours exist,
 it emits the row anyway, setting alias `boss` to the `EMPTY_OPTIONAL` sentinel described in
-Chapter 11. `RemoveEmptyOptionalsStep` (`MatchExecutionPlanner.java:556`) performs the final
+Chapter 11. `RemoveEmptyOptionalsStep` (`MatchExecutionPlanner.java:564`) performs the final
 sweep: it replaces every sentinel with actual `null`. The projection then sees `boss = null`
 and emits `boss.name = null`.
 
@@ -231,9 +231,9 @@ a depth-bounded recursive traversal, and it imposes a hard constraint on the sch
 edges are never invertible.
 
 **Planner phase.** Phase 1 (`buildPatterns`) calls `collectAliasesFromWhilePatterns`
-(`MatchExecutionPlanner.java:4403`) internally to mark `reached` as a WHILE alias. After Phase 3
+(`MatchExecutionPlanner.java:4854`) internally to mark `reached` as a WHILE alias. After Phase 3
 (`estimateRootEntries`) completes the cardinality map, the planner inflates the estimate for every
-WHILE alias to `Long.MAX_VALUE` (lines 503–505), which prevents it from winning the root
+WHILE alias to `Long.MAX_VALUE` (lines 511–515), which prevents it from winning the root
 competition. The scheduler (Chapter 10) will therefore never attempt to reverse the WHILE edge
 regardless of what the cost comparison says. The invertibility check (Chapter 10) explicitly
 excludes WHILE edges because bounded recursion has no well-defined reverse traversal. With `start`
@@ -276,12 +276,17 @@ The new feature is a WHERE clause on `fof` that references `$matched.me` — a c
 that only exists once `me` has been bound. This is the first query where the scheduler is
 *constrained by data flow*, not just by cardinality.
 
-**Planner phase.** `dependsOnExecutionContext()` (`MatchExecutionPlanner.java:643`) scans the
-filter text for `$matched.` and `$currentMatch` references. It returns `true` for the `fof`
-filter, which has two consequences. First, `fof` is removed from the root candidates list
-(`MatchExecutionPlanner.java:513`): the planner cannot start from an alias whose filter cannot
-be evaluated at the start of execution. Second, `fof` is excluded from prefetch: no point
-materialising it before `me` is bound.
+**Planner phase.** The `$matched.me` reference makes `fof` a *dependent* alias, and the planner
+reacts to it in two separate places. When the scheduler builds its dependency map,
+`getDependencies()` (`MatchExecutionPlanner.java:4382`) extracts the aliases each filter reaches
+through `$matched`; for `fof` it records a dependency on `me`. The scheduler then only ever begins
+a traversal pass from a node whose dependencies are already satisfied
+(`MatchExecutionPlanner.java:2013`), so `fof` can never be the starting root — an alias whose
+filter cannot be evaluated until another alias is bound has nowhere to start from. The same
+reference also keeps `fof` out of the prefetch set: `dependsOnExecutionContext()`
+(`MatchExecutionPlanner.java:651`), the helper that flags any filter touching `$matched.` or
+`$parent`, is applied as a guard over the prefetch candidates (`MatchExecutionPlanner.java:521`),
+and there is no point materialising `fof` before `me` is bound.
 
 With `fof` ineligible, the cost competition runs only over `me` (estimate ≈ 1) and the anonymous
 intermediate node (no estimate). `me` wins, the scheduler places the two edges in the only valid
@@ -330,7 +335,7 @@ The new feature is a `NOT` clause. The engine must eliminate every `Person` that
 edge leading to the admin record. This is the first query where a second independent sub-plan
 runs alongside the main one — and their results are reconciled by a hash anti-join.
 
-**Planner phase.** `manageNotPatterns()` (`MatchExecutionPlanner.java:673`) processes the
+**Planner phase.** `manageNotPatterns()` (`MatchExecutionPlanner.java:681`) processes the
 negative expression and runs `canUseHashJoin()`. The three guards (covered in full in
 Chapter 13) all pass here: the NOT pattern has no `$matched` reference, the admin set is
 tiny (cardinality ≈ 1), and the upstream `Person` scan is large. The planner wires a
@@ -398,7 +403,7 @@ flowchart TB
 (equality filter); `competitor` = `Company.count + 1` (unfiltered class); `friend` and `employer`
 absent (no class declaration).
 
-**Split.** `splitDisjointPatterns()` (`MatchExecutionPlanner.java:4185`) detects two components:
+**Split.** `splitDisjointPatterns()` (`MatchExecutionPlanner.java:4407`) detects two components:
 `{me, friend, city, employer}` and `{competitor}`. It wraps both sub-plans in a
 `CartesianProductStep` (Chapter 10). Neither component has an edge to the other in the positive
 pattern, so the product is unavoidable. The NOT clause is the only relationship between them.
@@ -487,7 +492,7 @@ every configuration knob, the full glossary.
 
 *Further reading*
 
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` — all eight planning phases; root selection at line 4775; prefetch threshold at line 328; hash-join guards at lines 338 and 348; `manageNotPatterns` at line 673; `splitDisjointPatterns` at line 4185
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` — all eight planning phases; root selection at line 5192; prefetch threshold at line 336; hash-join guards at lines 345 and 355; `manageNotPatterns` at line 681; `splitDisjointPatterns` at line 4407
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchFirstStep.java` — initial record scan
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchStep.java` — edge traversal step and traverser delegation
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/OptionalMatchStep.java` — optional edge handling and `EMPTY_OPTIONAL` sentinel
