@@ -92,6 +92,7 @@ classDiagram
       +cacheKey(ctx) Object
       +estimatedSize(ctx, cacheKey) int
       +resolve(ctx, cacheKey) RidSet
+      +passesSelectivityCheck(resolvedSize, linkBagSize, ctx) boolean
     }
     class DirectRid {
       SQLExpression ridExpression
@@ -116,59 +117,75 @@ classDiagram
 
 **Figure 14.2 — The four implementations of `RidFilterDescriptor`.**
 
-The three methods on the interface divide the work:
+The four methods on the interface divide the work:
 
 - `cacheKey(ctx)` returns a key that uniquely identifies what the RID set will contain, so the
   same set can be reused across multiple source vertices. Returns `null` when caching is not
   worthwhile.
 - `estimatedSize(ctx, cacheKey)` returns a cheap upper-bound estimate of the set size, used
-  to skip materialisation when the estimate already exceeds the safety cap. Returns `-1` when
+  to decide whether materialisation is worthwhile *before* paying its cost. Returns `-1` when
   no estimate is available.
 - `resolve(ctx, cacheKey)` materialises and returns the full `RidSet`, or `null` if
   materialisation should be skipped.
+- `passesSelectivityCheck(resolvedSize, linkBagSize, ctx)` is the admission test: given the
+  set size — estimated or actual — and the current vertex's link-bag size, it answers "is
+  this pre-filter still worth applying?" The three non-trivial variants answer that question
+  in different ways, and two of those answers are the two runtime admission paths that the
+  second half of this chapter is built around.
 
 `RidFilterDescriptor` is defined in
-`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/RidFilterDescriptor.java:27`.
+`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/RidFilterDescriptor.java:29`.
 
-**`DirectRid`** (`RidFilterDescriptor.java:97`) covers the case where the WHERE clause is
+**`DirectRid`** (`RidFilterDescriptor.java:129`) covers the case where the WHERE clause is
 simply `@rid = #12:5` — a literal or named-parameter RID. `resolve` evaluates the expression
 and returns a singleton `RidSet`. `estimatedSize` is always 1. `cacheKey` returns `null`
 because a singleton set is trivial to rebuild each time and caching is not worth the overhead.
+Its `passesSelectivityCheck` always returns `true`: a single-RID filter is free to apply and
+can never be counter-productive.
 
-**`EdgeRidLookup`** (`RidFilterDescriptor.java:141`) covers back-reference intersection.
+**`EdgeRidLookup`** (`RidFilterDescriptor.java:181`) covers back-reference intersection.
 When the target alias's WHERE clause contains `@rid = $matched.X.@rid`, the set of matching
 vertices is exactly the set of neighbours that alias `X` is connected to via the reverse
 edge. `resolve` loads the target vertex (the already-bound `X`), reads its reverse link bag
 for the given edge class — for `out('HAS_CREATOR')`, that is the `in_HAS_CREATOR` field on
-the target — and collects vertex RIDs into a `RidSet`. `estimatedSize` reads the reverse
-link-bag size via `TraversalPreFilterHelper.reverseLinkBagSize`, which is an O(1) stored-field
-read. `cacheKey` returns the resolved target RID, so the cache entry is reused across all
-source vertices that share the same `$matched.X` binding.
+the target — and collects vertex RIDs into a `RidSet`. A fourth record component,
+`collectEdgeRids`, switches the collector between vertex RIDs (for `out()`/`in()`) and edge
+RIDs (for `outE()`/`inE()`, where the adjacency iterator filters on the edge record itself).
+`estimatedSize` reads the reverse link-bag size via
+`TraversalPreFilterHelper.reverseLinkBagSize`, which is an O(1) stored-field read. `cacheKey`
+returns the resolved target RID, so the cache entry is reused across all source vertices that
+share the same `$matched.X` binding. Its `passesSelectivityCheck` (`RidFilterDescriptor.java:195`)
+is an *overlap ratio* test — the first of the two admission paths — described in detail later.
 
-**`IndexLookup`** (`RidFilterDescriptor.java:200`) covers field conditions that can be
+**`IndexLookup`** (`RidFilterDescriptor.java:257`) covers field conditions that can be
 served by an index — equality, range, membership. `resolve` calls
 `TraversalPreFilterHelper.resolveIndexToRidSet`, which runs the index scan and accumulates
 results. `estimatedSize` returns a histogram-based estimate from the index descriptor.
-`cacheKey` returns the index name: because the query parameters are literals or named
-parameters (never `$matched` references), the index result is the same for every source
-vertex in the query, and a single resolve suffices for the entire execution.
+`cacheKey` returns a fingerprint of the index and its condition: because the query parameters
+are literals or named parameters (never `$matched` references), the index result is the same
+for every source vertex in the query, and a single resolve suffices for the entire execution.
+Its `passesSelectivityCheck` (`RidFilterDescriptor.java:278`) is a *class-level selectivity*
+test — the second admission path — which ignores the per-vertex link-bag size entirely.
 
-**`Composite`** (`RidFilterDescriptor.java:239`) combines two or more descriptors by
+**`Composite`** (`RidFilterDescriptor.java:335`) combines two or more descriptors by
 intersecting their results. `resolve` resolves each child and intersects the resulting
 `RidSet`s at the bitmap level via `TraversalPreFilterHelper.intersect`. `estimatedSize`
 returns the minimum of child estimates, since an intersection is bounded by its smallest
 input. `cacheKey` returns `null` if any child returns `null`, disabling caching for the
-whole composite.
+whole composite. Its `passesSelectivityCheck` returns `true` if *any* child passes: the
+intersection is bounded by its most selective child, so one selective input is enough to
+justify the work.
 
 The following code snippet shows the exact shape of the interface as implemented, including
 the `record` syntax used for each variant:
 
 ```java
-// RidFilterDescriptor.java:27
+// RidFilterDescriptor.java:29
 public sealed interface RidFilterDescriptor {
   int estimatedSize(CommandContext ctx, @Nullable Object cacheKey);
   @Nullable RidSet resolve(CommandContext ctx, @Nullable Object cacheKey);
   @Nullable Object cacheKey(CommandContext ctx);
+  boolean passesSelectivityCheck(int resolvedSize, int linkBagSize, CommandContext ctx);
 
   record DirectRid(SQLExpression ridExpression)
       implements RidFilterDescriptor { ... }
@@ -193,49 +210,68 @@ public sealed interface RidFilterDescriptor {
 Pre-filter attachment is a post-scheduling pass. After the planner's topological scheduler
 returns the ordered list of `EdgeTraversal` objects (Chapter 10), the method
 `MatchExecutionPlanner.optimizeScheduleWithIntersections` makes a single left-to-right sweep
-over that list (`MatchExecutionPlanner.java:3010`). As it walks, it maintains a
+over that list (`MatchExecutionPlanner.java:3254`). As it walks, it maintains a
 `boundAliases` set — the aliases that have already been produced by earlier edges and are
 therefore available to back-reference expressions.
+
+The method returns a `boolean`, `hasIndexLookup`, which is `true` when at least one
+`IndexLookup` descriptor was attached during the sweep (`MatchExecutionPlanner.java:3459`).
+The caller (`MatchExecutionPlanner.java:1806`) uses that flag to gate a later forecast pass:
+`IndexLookup` is the only descriptor whose runtime admission consults per-query row-count
+forecasts, so when the sweep attached none, the planner skips that bookkeeping entirely.
+What the sweep no longer does is *reject* a descriptor on an estimated hit count. An earlier
+version compared the index's global hit estimate against a cap and refused to attach when it
+was too large; that gate was deliberately removed, because a globally large index result can
+still be highly selective once intersected with a single vertex's small link bag, and the
+link-bag size is unknown at plan time. Admission is therefore a *runtime* decision now, made
+per source vertex by the two paths described in the next section.
 
 For each edge whose target alias carries a `WHERE` clause, the pass checks three cases in
 sequence:
 
 **Case 1 — RID equality in the WHERE clause.** The pass calls
-`targetFilter.findRidEquality()`. If the expression references a bound alias via
-`$matched.X.@rid`, the pass checks whether the back-reference pattern qualifies for the
-semi-join hash-table path described in Chapter 13. If it does, a `SemiJoinDescriptor` is
-attached instead of a `RidFilterDescriptor`, and the `EdgeRidLookup` path is skipped. If it
-does not qualify for a semi-join, an `EdgeRidLookup` descriptor is attached to the producing
-edge so that the forward adjacency list is intersected with the reverse-edge set of the
-referenced alias. When the RID expression is a literal or parameter with no alias reference,
-a `DirectRid` descriptor is attached directly to the current edge (`MatchExecutionPlanner.java:3149`).
+`targetFilter.findRidEquality()` (`MatchExecutionPlanner.java:3303`). If the expression
+references a bound alias via `$matched.X.@rid`, the pass checks whether the back-reference
+pattern qualifies for the semi-join hash-table path described in Chapter 13. If it does, a
+`SingleEdgeSemiJoin` descriptor is attached instead of a `RidFilterDescriptor`, and the
+`EdgeRidLookup` path is skipped. If it does not qualify for a semi-join, an `EdgeRidLookup`
+descriptor is attached to the producing edge (`MatchExecutionPlanner.java:3367`) so that the
+forward adjacency list is intersected with the reverse-edge set of the referenced alias.
+When the RID expression is a literal or parameter with no alias reference, a `DirectRid`
+descriptor is attached directly to the current edge (`MatchExecutionPlanner.java:3399`).
 
 **Case 2 — NOT IN anti-semi-join.** If no semi-join descriptor was attached in Case 1, the
-pass calls `detectNotInAntiJoin`. A pattern of the form
-`$currentMatch NOT IN $matched.X.out('E')` produces an `AntiSemiJoinDescriptor`, which is
+pass calls `detectNotInAntiJoin` (`MatchExecutionPlanner.java:3414`). A pattern of the form
+`$currentMatch NOT IN $matched.X.out('E')` produces an `AntiSemiJoin` descriptor, which is
 the domain of the `BackRefHashJoinStep` covered in Chapter 13.
 
 **Case 3 — Index-eligible field condition.** After the back-reference and anti-join checks,
-the pass looks for an index. It calls `targetFilter.splitByMatchedReference()` to isolate the
-portion of the WHERE clause that does not reference `$matched` — only that portion can be
-served by a static index lookup. The non-`$matched` fragment is handed to
-`TraversalPreFilterHelper.findIndexForFilter`, which normalises the clause and delegates to
+the pass looks for an index. It calls `targetFilter.splitByMatchedReference()`
+(`MatchExecutionPlanner.java:3435`) to isolate the portion of the WHERE clause that does not
+reference `$matched` — only that portion can be served by a static index lookup. The
+non-`$matched` fragment is handed to `TraversalPreFilterHelper.findIndexForFilter`
+(`MatchExecutionPlanner.java:3444`), which normalises the clause and delegates to
 `SelectExecutionPlanner.findBestIndexFor` to select the best available index. If a usable
 index is found, an `IndexLookup` descriptor is attached via `addIntersectionDescriptor`
-(`MatchExecutionPlanner.java:3194–3198`).
+(`MatchExecutionPlanner.java:3447`).
 
 When `addIntersectionDescriptor` is called a second time on the same edge, the existing
-descriptor and the new one are wrapped in a `Composite` (`EdgeTraversal.java:162`):
+descriptor and the new one are folded into a single *flat* `Composite`
+(`EdgeTraversal.java:429`). The flattening matters: if either side is already a `Composite`,
+its children are spliced in rather than nested, so a later scan for the `IndexLookup` child
+— which the runtime admission path needs — always finds every leaf in one pass:
 
 ```java
-// EdgeTraversal.java:162
+// EdgeTraversal.java:429
 public void addIntersectionDescriptor(RidFilterDescriptor descriptor) {
   if (intersectionDescriptor == null) {
     intersectionDescriptor = descriptor;
-  } else {
-    intersectionDescriptor = new RidFilterDescriptor.Composite(
-        List.of(intersectionDescriptor, descriptor));
+    return;
   }
+  var flattened = new ArrayList<RidFilterDescriptor>();
+  appendFlattened(flattened, intersectionDescriptor);
+  appendFlattened(flattened, descriptor);
+  intersectionDescriptor = new RidFilterDescriptor.Composite(flattened);
 }
 ```
 
@@ -244,20 +280,22 @@ single flat branch are not pre-filterable and fall back to post-load evaluation.
 deliberate simplification: an OR-based RID union across different index types can easily
 become more expensive than the original adjacency scan.
 
-The class filter is attached in a separate, subsequent pass by
-`attachCollectionIdFilters` (`MatchExecutionPlanner.java:3905`). For each edge whose target
-alias has a known class, the planner calls
-`TraversalPreFilterHelper.collectionIdsForClass(schemaClass)`, which collects all collection IDs
-owned by that class and its subclasses via `SchemaClass.getPolymorphicCollectionIds()`
-(`TraversalPreFilterHelper.java:69`). The resulting `IntSet` is stored as
-`EdgeTraversal.acceptedCollectionIds`.
+The class filter is attached in a separate pass, `stampEdgeMetadata`
+(`MatchExecutionPlanner.java:2604`), which walks the schedule once more and stamps two kinds
+of plan-time metadata on each edge. For every edge whose target alias has a known class it
+calls `TraversalPreFilterHelper.collectionIdsForClass(schemaClass)`
+(`TraversalPreFilterHelper.java:90`), which collects all collection IDs owned by that class
+and its subclasses via `SchemaClass.getPolymorphicCollectionIds()`, and stores the resulting
+`IntSet` as `EdgeTraversal.acceptedCollectionIds`. The same pass also stamps the per-query
+row-count forecasts that the index-lookup admission path consults — but only when the earlier
+sweep reported `hasIndexLookup`, since no other descriptor reads them.
 
 ### Class inference: enabling both filters without explicit schema declarations
 
 For the class filter and the index filter to engage, the target alias's class must be known at
 plan time. The class may be stated explicitly (`class: Post`) or inferred from the edge
 schema. Inference is performed by `MatchExecutionPlanner.inferClassFromEdgeSchema`
-(`MatchExecutionPlanner.java:4558`):
+(`MatchExecutionPlanner.java:4974`):
 
 - `out('X')` / `in('X')`: the target vertex class is read from the LINK-type property on
   edge class `X` — the `in` property for `out('X')`, the `out` property for `in('X')`.
@@ -275,59 +313,139 @@ optimisation is applied, and execution falls back to standard post-load filterin
 ## What happens at runtime
 
 The class filter and the RID-set filter are applied inside
-`MatchEdgeTraverser.applyPreFilter` (`MatchEdgeTraverser.java:556`), called immediately after
+`MatchEdgeTraverser.applyPreFilter` (`MatchEdgeTraverser.java:557`), called immediately after
 the graph method (`out()`, `in()`, `both()`) returns the raw adjacency object.
 
 The method first checks whether the result is a `PreFilterableLinkBagIterable`. If it is not
 — for example, when the traversal method does not produce a link-bag iterator — the method
 returns the object unchanged. The pre-filter is silently a no-op in that case.
 
-When the result is a `PreFilterableLinkBagIterable`, two filter layers are applied
-independently:
+When the result is a `PreFilterableLinkBagIterable`, the class filter goes first, because it
+is unconditional and free. If `edge.getAcceptedCollectionIds()` is non-null,
+`pfli.withClassFilter(collectionIds)` is applied immediately (`MatchEdgeTraverser.java:566`).
+This requires no descriptor and costs no I/O — the collection ID is embedded in the RID, so
+narrowing the iterator to the target class is a single integer comparison per entry.
 
-**Class filter** (`MatchEdgeTraverser.java:565`): if `edge.getAcceptedCollectionIds()` is
-non-null, `pfli.withClassFilter(collectionIds)` is called immediately. This requires no
-descriptor and costs no I/O — the collection ID is embedded in the RID.
+The RID-set filter is where the real decision happens, and it runs only when the edge carries
+an `intersectionDescriptor`. Before any set is materialised, one guard stands in front of
+everything else.
 
-**RID-set filter** (`MatchEdgeTraverser.java:574`): applied only when the edge has an
-`intersectionDescriptor` and two runtime guards both pass.
+### The link-bag size guard
 
-The first guard is the **link-bag size guard**: the forward link-bag size must be at least
-`TraversalPreFilterHelper.minLinkBagSize()`, controlled by
-`GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE` (default 50). Walking five neighbours
-raw is cheaper than resolving an index and performing five set-membership tests; the guard
-prevents the optimisation from being applied to tiny adjacency lists where it would add
-overhead rather than remove it.
+Walking five neighbours raw is cheaper than resolving an index and running five set-membership
+tests. So the traverser reads the forward link-bag size and, if it is below
+`TraversalPreFilterHelper.minLinkBagSize()`, records the skip and moves on
+(`MatchEdgeTraverser.java:585`). The threshold is
+`GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE`, default 50. Tiny adjacency lists never
+reach the admission logic at all — there the optimisation would add overhead rather than
+remove it.
 
-The second guard is the **ratio guard**: after the descriptor resolves to a `RidSet`,
-`TraversalPreFilterHelper.passesRatioCheck(ridSet.size(), linkBagSize)` must return `true`
-(`TraversalPreFilterHelper.java:351`). The check fails when
-`ridSetSize / linkBagSize > maxSelectivityRatio()`, controlled by
-`GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO` (default 0.8). A filter that
-lets through 80% of the adjacency list provides little benefit and the overhead of
-`contains()` calls is not justified.
+### Two admission paths, one per expensive descriptor
 
-Both guards are applied twice — once inside `EdgeTraversal.resolveWithCache` against the
-estimated size (fast, before full materialisation), and once in `applyPreFilter` against the
-actual materialised `RidSet` size. The two checks use different inputs: the estimate check
-can fail on a large estimate and allow a later vertex to trigger resolution, while the actual
-check can fail because the real set turned out larger than estimated.
+Once the link bag is large enough, the traverser calls `EdgeTraversal.resolveWithCache`
+(`EdgeTraversal.java:683`), and here the single ratio guard of earlier versions has been
+replaced by *two* distinct admission tests — one for each kind of expensive descriptor. Which
+test runs is decided by the descriptor's own `passesSelectivityCheck`, and the two answers
+are computed from entirely different inputs. Before either runs, though, both share one
+absolute ceiling.
 
-`EdgeTraversal.resolveWithCache` (`EdgeTraversal.java:229`) manages the full resolution
-logic with a fixed-capacity lazy cache. On first use the method checks for a cache hit, then
-obtains the cheap size estimate, applies the absolute cap guard
-(`GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE`, default 100 000), applies the per-vertex
-ratio guard against the estimate, and finally calls `descriptor.resolve()`. Successful
-resolutions are stored in the cache keyed by `descriptor.cacheKey()`. The cache has a fixed
-capacity of 64 entries (`EdgeTraversal.java:88`); once full, new entries are silently dropped.
-There is no eviction and no LRU bookkeeping — the number of distinct descriptor keys across
-a single query is small enough that a fixed-capacity map is sufficient.
+That ceiling is the **absolute cap**. `resolveWithCache` first obtains the cheap size estimate
+and compares it against `TraversalPreFilterHelper.maxRidSetSize()` (`EdgeTraversal.java:769`).
+Unlike the fixed 100 000 of earlier versions, this cap is now *heap-adaptive*: half a percent
+of the maximum heap, clamped to the range [100 000, 10 000 000]
+(`GlobalConfiguration.java:1351`). A larger heap tolerates a larger materialised set; a small
+one is protected from a set that would dwarf it. When the estimate exceeds the cap the build
+is abandoned before it starts, recorded as `CAP_EXCEEDED`, and the `null` is cached so later
+vertices sharing the same key do not re-estimate. Because the estimate can under-count, the
+same ceiling is re-checked *during* materialisation: both `resolveIndexToRidSet` and
+`resolveReverseEdgeLookup` test their running count against the cap every 1024 elements
+(bitmask `0x3FF`, `TraversalPreFilterHelper.java:79`; the checks sit at
+`TraversalPreFilterHelper.java:138` and `:245`) and abort early if the intermediate result
+outgrows it. An over-budget descriptor does not stall the query; it returns `null` and the
+traverser falls back to post-load evaluation for that vertex.
 
-To prevent unbounded materialisation, `TraversalPreFilterHelper.resolveIndexToRidSet` and
-`resolveReverseEdgeLookup` check every 1024 elements (bitmask `0x3FF`,
-`TraversalPreFilterHelper.java:58`) against `maxRidSetSize()` and abort early if the
-intermediate result is already too large. An over-budget descriptor does not stall the query;
-it simply returns `null`, and the traverser falls back to post-load evaluation for that vertex.
+#### Path A — the edge-lookup overlap ratio
+
+An `EdgeRidLookup` produces the set of neighbours reachable from a bound alias through a
+reverse edge. Its value depends entirely on how much of the *current* adjacency list that set
+covers: if the reverse set already contains four out of every five forward neighbours,
+intersecting the two barely narrows anything, and the membership tests are pure overhead.
+
+So `EdgeRidLookup.passesSelectivityCheck` (`RidFilterDescriptor.java:195`) is an overlap
+ratio. It keeps the filter only when
+
+```
+resolvedSize / linkBagSize <= edgeLookupMaxRatio()
+```
+
+where `edgeLookupMaxRatio()` is `GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO`,
+default 0.8 (`GlobalConfiguration.java:1362`). A reverse set covering more than 80 % of the
+adjacency list is rejected. The test is cheap and per-vertex, so it runs twice: once inside
+`resolveWithCache` against the estimated size, and once in `applyPreFilter`
+(`MatchEdgeTraverser.java:607`) against the actual `ridSet.size()`, because the two inputs can
+disagree — the real set may turn out larger than the estimate. A failure on the actual size is
+recorded as `OVERLAP_RATIO_TOO_HIGH` (`MatchEdgeTraverser.java:620`).
+
+#### Path B — the index-lookup amortization
+
+An `IndexLookup` is a different animal. It scans an index once and produces the same RID set
+for every source vertex in the query, so its cost is a *one-time build* amortised across all
+the vertices that consult it. A per-vertex overlap ratio is the wrong question; the right
+question is whether that build will pay for itself.
+
+That reasoning lives in `EdgeTraversal.checkIndexLookupAmortization`
+(`EdgeTraversal.java:1019`), and it runs in two stages. First, selectivity. The method reads
+the index's class-level selectivity — the fraction of the class the condition matches. If that
+statistic is unavailable it rejects immediately and records `STATS_UNAVAILABLE`
+(`EdgeTraversal.java:1037`): without a known selectivity the build cost cannot be bounded, and
+the design refuses to gamble. If the selectivity is known but exceeds
+`TraversalPreFilterHelper.indexLookupMaxSelectivity()` — default 0.95, from
+`GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY`
+(`GlobalConfiguration.java:1370`) — the index matches almost the whole class and cannot narrow
+anything, so it is rejected as `SELECTIVITY_TOO_LOW` (`EdgeTraversal.java:1049`). Note that
+this is a *class-level* selectivity, not a per-vertex ratio: `IndexLookup`'s
+`passesSelectivityCheck` ignores the link-bag size entirely, because the set of matching
+records is a property of the condition and the class, identical for every source vertex.
+
+Second, break-even. When the selectivity clears the threshold, the method computes the minimum
+number of neighbours that must be scanned before the build amortises, in
+`computeMinNeighborsForBuild` (`EdgeTraversal.java:1174`):
+
+```
+m = estimatedSize / (loadToScanRatio · (1 − s))
+```
+
+Here `s` is the selectivity, `estimatedSize` the expected set size, and `loadToScanRatio` the
+modelled cost of a random record load relative to a single set-scan entry —
+`GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO`, default 100.0
+(`GlobalConfiguration.java:1387`), reflecting that a cold random load is roughly two orders of
+magnitude more expensive than a membership test. If the planner's row-count forecast for this
+edge already exceeds `m`, the traverser commits to the build on the first vertex
+(`BUILD_EAGER`). If it does not — or if the forecast is untrustworthy because the root sample
+was too small — the traverser defers instead, accumulating observed link-bag sizes across
+vertices and building only once the running total crosses the break-even (`DEFERRED_WITH_NET`).
+While it is still deferring, the skip is recorded as `BUILD_NOT_AMORTIZED`
+(`EdgeTraversal.java:1121`).
+
+### The descriptor cache and the vocabulary of skips
+
+`resolveWithCache` memoises successful resolutions in a fixed-capacity map keyed by
+`descriptor.cacheKey()`. The capacity is 64 entries (`CACHE_CAPACITY`,
+`EdgeTraversal.java:339`); once full, new entries are silently dropped, because the number of
+distinct descriptor keys in a single query is small enough that no eviction policy is needed.
+Rejections are cached too — a `CAP_EXCEEDED`, `STATS_UNAVAILABLE`, or `SELECTIVITY_TOO_LOW`
+verdict stores a `null` under the key so later vertices short-circuit instead of re-deciding.
+And if `resolve()` returns `null` after passing every up-front guard — a mid-materialisation
+cap abort, or a missing reverse-edge target vertex — the traverser records `BUILD_FAILED`
+(`EdgeTraversal.java:855`) and caches that too.
+
+Each of those outcomes is a constant of the `PreFilterSkipReason` enum
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/PreFilterSkipReason.java`):
+`NONE`, `CAP_EXCEEDED`, `SELECTIVITY_TOO_LOW`, `BUILD_NOT_AMORTIZED`, `LINKBAG_TOO_SMALL`,
+`OVERLAP_RATIO_TOO_HIGH`, `BUILD_FAILED`, and `STATS_UNAVAILABLE`. Together they are the running
+vocabulary the traverser uses to explain, per edge, why a pre-filter did or did not fire — and,
+as Chapter 16 shows, they surface in `PROFILE` output (never in plain `EXPLAIN`), which is
+exactly where you look when a filter you expected to fire did not.
 
 ---
 
@@ -359,7 +477,7 @@ objects and unify aliases across expressions (Chapter 6).
 returns an `IndexLookup` descriptor wrapping that index. The descriptor is attached to the
 `EdgeTraversal` via `addIntersectionDescriptor`.
 
-`attachCollectionIdFilters` then calls `collectionIdsForClass` for the `Post` class and stores
+`stampEdgeMetadata` then calls `collectionIdsForClass` for the `Post` class and stores
 the resulting `IntSet` as `acceptedCollectionIds` on the same `EdgeTraversal`.
 
 **Stage 3 — runtime.** The traverser calls `out('Wrote')` on Alice's vertex. The result is a
@@ -368,11 +486,16 @@ narrowing the iterator to Post RIDs only. Alice's adjacency list may contain ent
 other classes if the `Wrote` edge class is not strictly typed; the class filter eliminates
 them.
 
-The link-bag size is, say, 40 000. That exceeds `minLinkBagSize()` of 50. The traverser calls
-`resolveWithCache`. The `IndexLookup` descriptor scans the `Post.timestamp` index for entries
-after `:lastWeek` and materialises a `RidSet` of, say, 12 matching posts. The ratio check:
-12 / 40 000 = 0.0003, well below 0.8. The `RidSet` is cached under the index name.
-`withRidFilter(ridSet)` wraps the iterable.
+The link-bag size is, say, 40 000 — far above `minLinkBagSize()` of 50, so the guard passes
+and the traverser calls `resolveWithCache`. The descriptor is an `IndexLookup`, so admission
+runs down Path B. First the selectivity: `timestamp > :lastWeek` matches only a sliver of the
+`Post` class, well under the 0.95 ceiling, so the index is not rejected as too broad. Then the
+break-even: with a low selectivity and an expected result of a few dozen RIDs, the minimum
+neighbour count `m` from `computeMinNeighborsForBuild` is tiny, and Alice's 40 000-strong link
+bag dwarfs it — the build amortises immediately, so the traverser materialises the set on this
+first vertex. The scan of `Post.timestamp` for entries after `:lastWeek` yields a `RidSet` of,
+say, 12 matching posts, cached under the descriptor's fingerprint. `withRidFilter(ridSet)`
+wraps the iterable.
 
 The iterator now yields at most 12 RIDs. The traverser loads each, evaluates the full WHERE
 clause (index predicates are permitted to be conservative, so the post-load check ensures
@@ -393,9 +516,11 @@ The eligibility conditions reduce to three requirements:
    descriptors. `@rid = literal` produces `DirectRid`. `@rid = $matched.X.@rid` produces
    `EdgeRidLookup` (when it does not qualify for a semi-join).
 
-3. **The runtime guards must pass for the given source vertex.** Even when a descriptor exists
-   at plan time, the optimisation is skipped at runtime if the link bag is smaller than
-   `minLinkBagSize()` or the resolved `RidSet` is too large relative to the link bag.
+3. **The runtime admission must pass for the given source vertex.** Even when a descriptor
+   exists at plan time, the filter is skipped at runtime if the link bag is smaller than
+   `minLinkBagSize()`, if the estimated set exceeds the heap-adaptive cap, or if the
+   descriptor's own admission test fails — the overlap ratio for an `EdgeRidLookup`, or the
+   selectivity-and-amortization check for an `IndexLookup`.
 
 ---
 
@@ -427,16 +552,22 @@ gracefully to standard post-load filtering in all these cases.
 
 ## Configuration knobs
 
-Three `GlobalConfiguration` keys control the runtime thresholds:
+Five `GlobalConfiguration` keys control the runtime thresholds. They mirror the structure of
+the runtime section: one shared cap, one shared link-bag floor, and one knob for each of the
+two admission paths (plus the cost ratio that Path B's break-even formula reads).
+
+**Table 14.1 — The five pre-filter configuration keys.**
 
 | Key | Default | Effect |
 |---|---|---|
-| `youtrackdb.query.prefilter.maxRidSetSize` | 100 000 | Absolute cap on RidSet entries; exceeding it aborts materialisation |
-| `youtrackdb.query.prefilter.maxSelectivityRatio` | 0.8 | Maximum `ridSetSize / linkBagSize`; above this the filter is skipped |
-| `youtrackdb.query.prefilter.minLinkBagSize` | 50 | Minimum adjacency-list size below which the RID-set filter is skipped |
+| `youtrackdb.query.prefilter.maxRidSetSize` | heap-adaptive: 0.5 % of max heap, clamped to [100 000, 10 000 000] | Absolute cap on RidSet entries; exceeding it (up front or mid-build) aborts materialisation |
+| `youtrackdb.query.prefilter.minLinkBagSize` | 50 | Minimum adjacency-list size below which the RID-set filter is skipped entirely |
+| `youtrackdb.query.prefilter.edgeLookupMaxRatio` | 0.8 | Path A: maximum `resolvedSize / linkBagSize` for an `EdgeRidLookup`; above this the overlap is too high to help |
+| `youtrackdb.query.prefilter.indexLookupMaxSelectivity` | 0.95 | Path B: maximum class-level selectivity for an `IndexLookup`; above this the condition matches too much of the class |
+| `youtrackdb.query.prefilter.loadToScanRatio` | 100.0 | Path B: modelled cost of a random record load relative to one set-scan entry, used in the amortization break-even `m` |
 
-All three are declared in
-`core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java:1292`.
+All five are declared in the pre-filter block of
+`core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java:1351`.
 
 ---
 
@@ -455,26 +586,35 @@ are engaged — a spaced-repetition pass over the entire engine.
 
 ## Further reading
 
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/RidFilterDescriptor.java:27`
-  — the sealed interface and its four implementations (`DirectRid`, `EdgeRidLookup`,
-  `IndexLookup`, `Composite`).
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/RidFilterDescriptor.java:29`
+  — the sealed interface and its four implementations (`DirectRid` line 129, `EdgeRidLookup`
+  line 181, `IndexLookup` line 257, `Composite` line 335), plus the `passesSelectivityCheck`
+  admission test (line 123) whose per-variant bodies drive the two runtime paths.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/TraversalPreFilterHelper.java`
-  — centralised utilities: `findIndexForFilter` (line 293), `resolveIndexToRidSet` (line 93),
-  `resolveReverseEdgeLookup` (line 163), `passesRatioCheck` (line 351),
-  `collectionIdsForClass` (line 69).
+  — centralised utilities: `maxRidSetSize` (line 33), `edgeLookupMaxRatio` (line 42),
+  `indexLookupMaxSelectivity` (line 52), `minLinkBagSize` (line 62),
+  `collectionIdsForClass` (line 90), `resolveIndexToRidSet` (line 114),
+  `resolveReverseEdgeLookup` (line 184), `findIndexForFilter` (line 314).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/EdgeTraversal.java`
-  — `addIntersectionDescriptor` (line 162), `resolveWithCache` (line 229), and the descriptor
-  cache (`CACHE_CAPACITY = 64`, line 88).
+  — `addIntersectionDescriptor` (line 429), `resolveWithCache` (line 683),
+  `checkIndexLookupAmortization` (line 1019), `computeMinNeighborsForBuild` (line 1174), and
+  the descriptor cache (`CACHE_CAPACITY = 64`, line 339).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchEdgeTraverser.java`
-  — `applyPreFilter` (line 556).
+  — `applyPreFilter` (line 557), the link-bag guard (line 585), and the per-vertex overlap
+  re-check (line 607).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java`
-  — `optimizeScheduleWithIntersections` (line 3010), `attachCollectionIdFilters` (line 3905),
-  `inferClassFromEdgeSchema` (line 4558).
+  — `optimizeScheduleWithIntersections` (line 3254), `stampEdgeMetadata` (line 2604),
+  `inferClassFromEdgeSchema` (line 4974).
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/PreFilterSkipReason.java`
+  — the eight-constant enum of per-edge skip reasons, surfaced in `PROFILE` output.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/record/impl/PreFilterableLinkBagIterable.java`
   — the shared interface for filterable link-bag iterables.
-- `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java:1292`
-  — `QUERY_PREFILTER_MAX_RIDSET_SIZE`, `QUERY_PREFILTER_MAX_SELECTIVITY_RATIO`,
-  `QUERY_PREFILTER_MIN_LINKBAG_SIZE`.
+- `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java:1351`
+  — the pre-filter configuration block: `QUERY_PREFILTER_MAX_RIDSET_SIZE`,
+  `QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO` (line 1362),
+  `QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY` (line 1370),
+  `QUERY_PREFILTER_MIN_LINKBAG_SIZE` (line 1379),
+  `QUERY_PREFILTER_LOAD_TO_SCAN_RATIO` (line 1387).
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/MatchPreFilterComprehensiveTest.java`
   — end-to-end tests for the index-assisted traversal path.
 - Chapter 8 — cost estimation and fan-out estimates that inform scheduling decisions made

@@ -110,12 +110,13 @@ under which reversal is permitted.
 
 If an index pre-filter was attached to this edge (Chapter 14), the line
 carries a parenthesised suffix such as
-`(intersection: index Post.timestamp-idx)` or
+`(intersection: index Post.timestamp selectivity=0.0003 estHits=12)` or
 `(intersection: out('Wrote'))` for a reverse-edge lookup. This annotation is
 produced by `MatchStep.appendIntersectionDescriptor` (verified at
-`MatchStep.java:154`). When you see it, the traverser is skipping adjacency
-list entries that do not appear in the RID set resolved from the index before
-loading any record.
+`MatchStep.java:168`). When you see it, the planner *attached* a descriptor —
+but whether the traverser actually applies it is a per-vertex runtime decision
+(§16.5.3). When it does apply, the traverser skips adjacency-list entries that
+are absent from the resolved RID set before loading any record.
 
 **`+ OPTIONAL MATCH ---->`** or `+ OPTIONAL MATCH <----` —
 `OptionalMatchStep`. Structurally identical to `MatchStep` but semantically
@@ -377,8 +378,10 @@ no `(intersection: …)` suffix, on an edge where you expected an index
 pre-filter to be active.
 
 **What the plan text shows.** A plain MATCH step — no intersection
-annotation. At runtime, every neighbour in the adjacency list is loaded and
-post-filtered by the WHERE clause.
+annotation. Because the annotation is emitted whenever a descriptor was
+attached at plan time, its absence means the planner attached nothing: at
+runtime every neighbour in the adjacency list is loaded and post-filtered by
+the WHERE clause.
 
 **Likely causes.**
 
@@ -387,26 +390,32 @@ post-filtered by the WHERE clause.
   the WHERE clause. If no such index is present, no descriptor is attached and
   the plain traversal is the only option.
 - The class of the target alias is unknown at plan time. Without a target
-  class, `optimizeScheduleWithIntersections` cannot resolve the index because
-  it does not know which class to search. Add an explicit `class:` declaration
-  to the target alias or ensure class inference can work (the edge class must
-  declare its linked vertex types).
+  class, `optimizeScheduleWithIntersections` (`MatchExecutionPlanner.java:3254`)
+  cannot resolve the index because it does not know which class to search. Add
+  an explicit `class:` declaration to the target alias or ensure class
+  inference can work (the edge class must declare its linked vertex types).
 - The WHERE clause uses an OR condition. `findIndexForFilter` rejects
   multi-branch OR (Chapter 14 §14.6). A predicate like
   `status = 'active' OR priority > 3` is not pre-filterable in the current
   implementation.
-- The link-bag on the source vertex is too small. The runtime path applies a
-  minimum link-bag size guard (`QUERY_PREFILTER_MIN_LINKBAG_SIZE`) before
-  engaging the RID-set filter. For small adjacency lists the overhead of
-  resolving the RID set exceeds the savings from skipping records. EXPLAIN
-  shows the descriptor as attached (the annotation would be present in a
-  schema-level inspection), but at runtime the guard fires and the filter is
-  skipped. You cannot see this from EXPLAIN text alone; it requires runtime
-  profiling or `PROFILE MATCH …`.
 
 **Fix.** Create a `NOTUNIQUE` index on the target property. Add `class:` to
 the target alias. For OR conditions, consider rewriting as a `UNION` of two
 simpler queries each with an equality or range predicate.
+
+**A subtler variant: attached but not admitted.** The plan-time sweep no
+longer rejects a descriptor on an estimated hit count — that gate was removed,
+and admission is now a *runtime* decision made per source vertex (Chapter 14).
+So EXPLAIN can show an `(intersection: …)` suffix — the descriptor *was*
+attached — and yet the filter never fires, because one of the two runtime
+admission paths rejected it: the source link bag fell below
+`QUERY_PREFILTER_MIN_LINKBAG_SIZE`, the `EdgeRidLookup` overlap ratio was too
+high, or the `IndexLookup` selectivity was above threshold or its build never
+amortised. None of that is visible in plain EXPLAIN text. It surfaces only in
+`PROFILE`, which prints the per-edge `PreFilterSkipReason` —
+`LINKBAG_TOO_SMALL`, `OVERLAP_RATIO_TOO_HIGH`, `SELECTIVITY_TOO_LOW`,
+`BUILD_NOT_AMORTIZED`, `CAP_EXCEEDED`, and the rest. When a filter you expected
+is annotated but the query is still slow, switch from `EXPLAIN` to `PROFILE`.
 
 ### 16.5.4 Hash join explosion
 
@@ -557,10 +566,14 @@ planner attached to each step. It does not show:
   without any change to the EXPLAIN text — the plan was built for hash join
   and the text reflects that. The fallback happens silently. Only PROFILE
   or application-level logging will reveal it.
-- **Index selectivity numbers.** The `(intersection: index X)` annotation
-  names the index but does not print the estimated hit count or the
-  link-bag-to-ridset ratio that determines whether the filter fires at
-  runtime.
+- **Whether a pre-filter is admitted at runtime.** The
+  `(intersection: index X selectivity=… estHits=…)` annotation names the index
+  and, since both are computed at plan time, prints its class-level selectivity
+  and estimated hit count. What it cannot show is the per-vertex admission
+  decision: whether the source link bag cleared the minimum size, whether the
+  `EdgeRidLookup` overlap ratio or the `IndexLookup` selectivity passed, and
+  whether an index build amortised. Those are runtime outcomes, recorded as
+  `PreFilterSkipReason` values and printed only by `PROFILE`.
 
 These gaps are not omissions in the design; they are consequences of the
 engine's architecture. The plan is built once and discarded; execution does
