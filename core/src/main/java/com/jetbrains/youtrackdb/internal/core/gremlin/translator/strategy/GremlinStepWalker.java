@@ -25,8 +25,14 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicate
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep.WhereEndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep.WhereStartStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GroupCountStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GroupStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.MaxGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.MeanGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.MinGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ProjectStep;
@@ -34,6 +40,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.SumGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
@@ -131,7 +138,14 @@ final class GremlinStepWalker {
           Map.entry(ProjectStep.class, ProjectStepRecogniser.INSTANCE),
           Map.entry(OrderGlobalStep.class, OrderGlobalStepRecogniser.INSTANCE),
           Map.entry(RangeGlobalStep.class, RangeGlobalStepRecogniser.INSTANCE),
-          Map.entry(RangeGlobalStepPlaceholder.class, RangeGlobalStepRecogniser.INSTANCE));
+          Map.entry(RangeGlobalStepPlaceholder.class, RangeGlobalStepRecogniser.INSTANCE),
+          Map.entry(CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE),
+          Map.entry(SumGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+          Map.entry(MinGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+          Map.entry(MaxGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+          Map.entry(MeanGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+          Map.entry(GroupStep.class, GroupStepRecogniser.INSTANCE),
+          Map.entry(GroupCountStep.class, GroupCountStepRecogniser.INSTANCE));
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}

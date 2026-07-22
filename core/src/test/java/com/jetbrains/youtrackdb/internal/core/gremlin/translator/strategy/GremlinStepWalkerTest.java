@@ -222,16 +222,15 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   /**
    * A multi-step traversal is now walked (no up-front size gate) and declines at the first
-   * unrecognized step class. {@code g.V().count()} has two steps: the walker recognizes the
-   * vertex source, the claiming recogniser advances the cursor past it, and the walker then
-   * dispatches the {@code CountGlobalStep} — which has no registry entry — so under all-or-nothing
-   * the whole walk declines. This pins that removing the upper-bound size gate did not let a
-   * multi-step traversal translate: it still declines, via the no-recogniser path rather than a
-   * step-count check. The traversal's native step list is left untouched.
+   * unrecognized step class. {@code g.V().fold()} has two steps: the walker recognizes the
+   * vertex source, then hits {@code FoldStep} — which has no registry entry — so under
+   * all-or-nothing the whole walk declines. This pins that removing the upper-bound size gate
+   * did not let a multi-step traversal translate: it still declines, via the no-recogniser path
+   * rather than a step-count check. The traversal's native step list is left untouched.
    */
   @Test
   public void walk_multiStepTraversal_declinesAtUnrecognizedFollowUpStep() {
-    var admin = graph.traversal().V().count().asAdmin();
+    var admin = graph.traversal().V().fold().asAdmin();
     var stepsBefore = List.copyOf(admin.getSteps());
 
     var result = GremlinStepWalker.production().walk(admin);
@@ -242,6 +241,19 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(admin.getSteps())
         .as("the walk never mutates the traversal's native step list")
         .isEqualTo(stepsBefore);
+  }
+
+  /** {@code g.V().count()} translates end-to-end with {@code SCALAR} output and {@code count(*)}. */
+  @Test
+  public void walk_count_pinsScalarOutput() {
+    var admin = graph.traversal().V().count().asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SCALAR);
+    assertThat(result.inputs().returnItems().getFirst().toString())
+        .containsIgnoringCase("count(*)");
   }
 
   /**

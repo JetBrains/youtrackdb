@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -30,7 +29,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFunctionCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
@@ -482,190 +480,7 @@ public class SelectExecutionPlanner {
    */
   private boolean handleHardwiredOptimizations(
       SelectExecutionPlan result, CommandContext ctx, boolean profilingEnabled) {
-    if (handleHardwiredCountOnClass(result, info, ctx, profilingEnabled)) {
-      return true;
-    }
-    return handleHardwiredCountOnClassUsingIndex(result, info, ctx, profilingEnabled);
-  }
-
-  /**
-   * Handles the special case of {@code SELECT count(*) FROM ClassName} with no WHERE,
-   * no GROUP BY, no ORDER BY, no SKIP/LIMIT, no LET, etc.
-   *
-   * <p>If all preconditions are met and no security policies restrict reads on the target
-   * class, the plan is reduced to a single {@link CountFromClassStep} which reads the
-   * record count from class metadata in O(1) time.
-   *
-   * @return {@code true} if the optimization was applied
-   */
-  private static boolean handleHardwiredCountOnClass(
-      SelectExecutionPlan result,
-      QueryPlanningInfo info,
-      CommandContext ctx,
-      boolean profilingEnabled) {
-    var session = ctx.getDatabaseSession();
-    var targetClass = info.target == null ? null : info.target.getSchemaClass(session);
-    if (targetClass == null) {
-      return false;
-    }
-
-    if (info.distinct || info.expand) {
-      return false;
-    }
-    if (info.preAggregateProjection != null) {
-      return false;
-    }
-    if (!isCountStar(info)) {
-      return false;
-    }
-    if (!isMinimalQuery(info)) {
-      return false;
-    }
-    if (securityPoliciesExistForClass(targetClass, ctx)) {
-      return false;
-    }
-    result.chain(
-        new CountFromClassStep(
-            targetClass, info.projection.getAllAliases().iterator().next(), ctx, profilingEnabled));
-    return true;
-  }
-
-  /**
-   * Returns {@code true} if a security policy restricts read access to the given class,
-   * which would make a direct metadata count incorrect (the count must respect row-level
-   * security filtering).
-   */
-  private static boolean securityPoliciesExistForClass(SchemaClassInternal targetClass,
-      CommandContext ctx) {
-    if (targetClass == null) {
-      return false;
-    }
-
-    var session = ctx.getDatabaseSession();
-    var security = session.getSharedContext().getSecurity();
-
-    return security.isReadRestrictedBySecurityPolicy(session,
-        "database.class." + targetClass.getName());
-  }
-
-  /**
-   * Handles the special case of {@code SELECT count(*) FROM ClassName WHERE field = ?}
-   * when a single-field index exists on the filtered property.
-   *
-   * <p>Constraints checked (all must be true for the optimization to apply):
-   * <ul>
-   *   <li>Target is a class (not a subquery, variable, etc.)</li>
-   *   <li>Projection is exactly one count(*)</li>
-   *   <li>WHERE is a single equality condition on a base identifier</li>
-   *   <li>A single-field class index covers the equality field</li>
-   *   <li>No security policies restrict reads</li>
-   * </ul>
-   *
-   * @return {@code true} if the optimization was applied
-   */
-  private static boolean handleHardwiredCountOnClassUsingIndex(
-      SelectExecutionPlan result,
-      QueryPlanningInfo info,
-      CommandContext ctx,
-      boolean profilingEnabled) {
-    var session = ctx.getDatabaseSession();
-    var targetClass = info.target == null ? null : info.target.getSchemaClass(session);
-    if (targetClass == null) {
-      return false;
-    }
-    if (info.distinct || info.expand) {
-      return false;
-    }
-    if (info.preAggregateProjection != null) {
-      return false;
-    }
-    if (!isCountStar(info)) {
-      return false;
-    }
-    if (info.projectionAfterOrderBy != null
-        || info.globalLetClause != null
-        || info.perRecordLetClause != null
-        || info.groupBy != null
-        || info.orderBy != null
-        || info.unwind != null
-        || info.skip != null) {
-      return false;
-    }
-
-    if (info.flattenedWhereClause == null
-        || info.flattenedWhereClause.size() > 1
-        || info.flattenedWhereClause.getFirst().getSubBlocks().size() > 1) {
-      // for now it only handles a single equality condition, it can be extended
-      return false;
-    }
-    var condition = info.flattenedWhereClause.getFirst().getSubBlocks().getFirst();
-    if (!(condition instanceof SQLBinaryCondition binaryCondition)) {
-      return false;
-    }
-    if (!binaryCondition.getLeft().isBaseIdentifier()) {
-      return false;
-    }
-    if (!(binaryCondition.getOperator() instanceof SQLEqualsOperator)) {
-      // this can be extended to use range operators too
-      return false;
-    }
-    if (securityPoliciesExistForClass(targetClass, ctx)) {
-      return false;
-    }
-
-    for (var classIndex : targetClass.getClassIndexesInternal()) {
-      var fields = classIndex.getDefinition().getProperties();
-      if (fields.size() == 1
-          && fields.getFirst()
-              .equals(binaryCondition.getLeft().getDefaultAlias().getStringValue())) {
-        var expr = binaryCondition.getRight();
-        result.chain(
-            new CountFromIndexWithKeyStep(
-                new SQLIndexIdentifier(classIndex.getName(), SQLIndexIdentifier.Type.INDEX),
-                expr,
-                info.projection.getAllAliases().iterator().next(),
-                ctx,
-                profilingEnabled));
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Returns {@code true} if the query has no WHERE, no SKIP/LIMIT, no UNWIND,
-   * no GROUP BY, no ORDER BY, and no LET -- i.e. the simplest possible query
-   * form that qualifies for hardwired optimizations like metadata-based count.
-   */
-  private static boolean isMinimalQuery(QueryPlanningInfo info) {
-    return info.projectionAfterOrderBy == null
-        && info.globalLetClause == null
-        && info.perRecordLetClause == null
-        && info.whereClause == null
-        && info.flattenedWhereClause == null
-        && info.groupBy == null
-        && info.orderBy == null
-        && info.unwind == null
-        && info.skip == null;
-  }
-
-  /**
-   * Returns {@code true} if the query is exactly {@code SELECT count(*)} with a
-   * single aggregate projection item and a single output projection item that is
-   * a simple alias passthrough (not wrapped in a complex expression like CASE).
-   */
-  private static boolean isCountStar(QueryPlanningInfo info) {
-    if (info.aggregateProjection == null
-        || info.projection == null
-        || info.aggregateProjection.getItems().size() != 1
-        || info.projection.getItems().size() != 1) {
-      return false;
-    }
-    var item = info.aggregateProjection.getItems().getFirst();
-    var postItem = info.projection.getItems().getFirst();
-    return item.getExpression().toString().equalsIgnoreCase("count(*)")
-        && postItem.getExpression().isBaseIdentifier();
+    return HardwiredCountOptimizations.tryApply(result, info, ctx, profilingEnabled);
   }
 
   /**

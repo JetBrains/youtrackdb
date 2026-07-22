@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExec
  *  Optimized: [CountFromClassStep]                   (reads metadata, O(1))
  * </pre>
  *
- * @see SelectExecutionPlanner#handleHardwiredCountOnClass
+ * @see HardwiredCountOptimizations#handleHardwiredCountOnClass
  */
 public class CountFromClassStep extends AbstractExecutionStep {
 

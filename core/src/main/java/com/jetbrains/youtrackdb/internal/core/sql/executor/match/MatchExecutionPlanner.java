@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.HardwiredCountOptimizations;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
@@ -596,6 +597,20 @@ public class MatchExecutionPlanner {
 
     var result = new SelectExecutionPlan(context);
 
+    // Shared count short-circuit (SELECT + MATCH): single-node count(*) with no edges/filters
+    // becomes CountFromClassStep before the MATCH scan pipeline is built.
+    if (tryHardwiredMatchCount(result, context, enableProfiling)) {
+      if (useCache
+          && !enableProfiling
+          && statement != null
+          && statement.executinPlanCanBeCached(session)
+          && result.canBeCached()
+          && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+        YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, session);
+      }
+      return result;
+    }
+
     // Phase 3: Estimate how many root records each aliased node will produce.
     var estimatedRootEntries =
         estimateRootEntries(aliasClasses, aliasPinnedRids, aliasFilters, context);
@@ -736,6 +751,62 @@ public class MatchExecutionPlanner {
     }
 
     return result;
+  }
+
+  /**
+   * Single-node {@code RETURN count(*)} with no edges, no NOT patterns, and no alias filters maps
+   * to {@link com.jetbrains.youtrackdb.internal.core.sql.executor.CountFromClassStep} via the shared
+   * helper. Filtered / multi-node / grouped counts fall through to the generic MATCH aggregate
+   * path (or, for declined Gremlin shapes, to {@code YTDBGraphCountStrategy}).
+   */
+  private boolean tryHardwiredMatchCount(
+      SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
+    if (returnItems == null || returnItems.size() != 1) {
+      return false;
+    }
+    if (!"count(*)".equalsIgnoreCase(returnItems.getFirst().toString().trim())) {
+      return false;
+    }
+    if (returnDistinct || groupBy != null || orderBy != null || unwind != null || skip != null) {
+      return false;
+    }
+    if (pattern == null || pattern.numOfEdges != 0 || pattern.aliasToNode.size() != 1) {
+      return false;
+    }
+    if (notMatchExpressions != null && !notMatchExpressions.isEmpty()) {
+      return false;
+    }
+    if (subPatterns != null && subPatterns.size() > 1) {
+      return false;
+    }
+    var alias = pattern.aliasToNode.keySet().iterator().next();
+    if (aliasFilters != null && aliasFilters.get(alias) != null) {
+      // Filtered count stays on the generic path (index short-circuit needs QueryPlanningInfo).
+      return false;
+    }
+    if (aliasPinnedRids != null
+        && aliasPinnedRids.get(alias) != null
+        && !aliasPinnedRids.get(alias).isEmpty()) {
+      return false;
+    }
+    var className = aliasClasses == null ? null : aliasClasses.get(alias);
+    if (className == null || className.isBlank()) {
+      return false;
+    }
+    var session = context.getDatabaseSession();
+    var schema = session.getMetadata().getSchemaInternal();
+    var targetClass = (SchemaClassInternal) schema.getClass(className);
+    if (targetClass == null) {
+      return false;
+    }
+    var resultAlias =
+        returnAliases != null
+            && !returnAliases.isEmpty()
+            && returnAliases.getFirst() != null
+                ? returnAliases.getFirst().getStringValue()
+                : "count";
+    return HardwiredCountOptimizations.tryMatchCountFromClass(
+        result, targetClass, resultAlias, context, enableProfiling);
   }
 
   /**
