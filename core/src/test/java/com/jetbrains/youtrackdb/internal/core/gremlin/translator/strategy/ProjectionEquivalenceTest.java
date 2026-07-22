@@ -186,6 +186,58 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().out("knows").dedup());
   }
 
+  /**
+   * Named {@code dedup("v")} on the current boundary keeps ELEMENT emission and matches native
+   * (DISTINCT without rewriting RETURN under the user alias).
+   */
+  @Test
+  public void namedDedup_currentBoundary_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().as(v).dedup(v)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("v").dedup("v"));
+  }
+
+  /**
+   * {@code dedup().by("name")} declines to native — MATCH cannot DISTINCT-ON a property while
+   * still emitting the current element.
+   */
+  @Test
+  public void dedupByName_declinesToNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().dedup().by(name)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().dedup().by("name"));
+  }
+
+  /**
+   * Named dedup on a prior path label declines to native (unique-by-{@code a}, emit-{@code b} is
+   * not MATCH {@code DISTINCT} on RETURN).
+   */
+  @Test
+  public void namedDedup_priorLabel_declinesToNative() {
+    var a = graph.addVertex(T.label, "Person", "name", "Alice");
+    var b1 = graph.addVertex(T.label, "Person", "name", "Bob");
+    var b2 = graph.addVertex(T.label, "Person", "name", "Carol");
+    a.addEdge("knows", b1);
+    a.addEdge("knows", b2);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().as(a).out(knows).as(b).dedup(a)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().as("a").out("knows").as("b").dedup("a"));
+  }
+
   private void assertEquivalent(
       String scenario,
       Recognition expected,

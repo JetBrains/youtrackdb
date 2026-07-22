@@ -11,7 +11,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 ## Progress
 - [x] Review + decomposition (1 iteration: iter1 PASS — Technical + Risk + Adversarial; 0 blockers)
 - [x] Step implementation
-- [x] Track-level code review (1 iteration: iter1 PASS — main-session remediation; 0 blockers / 0 should-fix)
+- [x] Track-level code review (iter1 deeper FAIL → SF1/SF2 fixed; awaiting Approve)
 - [ ] Track completion
 
 - [x] 2026-07-22T10:30Z [ctx=info] Review + decomposition complete (strategic trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter1; 7 steps, reconciled tag `high`)
@@ -22,7 +22,8 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T13:20Z [ctx=info] Step 5 complete (tip 6ea1e4fb7d; OrderRangeStepRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T13:51Z [ctx=info] Step 6 complete (tip b660e7527e; GremlinAggregateRecogniserTest + GremlinStepWalkerTest + smoke green)
 - [x] 2026-07-22T14:50Z [ctx=info] Step 7 complete (tip 985a14e1e8; boundary MAP/SINGLE_VALUE/SCALAR + ProjectionEquivalenceTest green)
-- [x] 2026-07-22T15:55Z [ctx=info] Phase C code review complete (tip 1d17dc04eb; main-session iter1 PASS — Task subagents blocked by usage limit)
+- [x] 2026-07-22T15:55Z [ctx=info] Phase C shallow PASS withdrawn (tip 1d17dc04eb)
+- [x] 2026-07-22 [ctx=info] Phase C deeper re-audit found SF1/SF2; named/by dedup fix + regression tests green
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -41,7 +42,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - 2026-07-22 (Phase A, R3): **Value-side `by(__.count())` / `by(__.fold())` routes through the Track 5 sub-walker (`walkChild` + capture adapter), not a fresh `WalkerContext`.**
 - 2026-07-22 (post-Step 7, cache congruence): **`GremlinPlanFingerprint` must include result-shaping clauses (`groupBy` / `orderBy` / `limit` / `skip` / `returnDistinct`).** Limit/skip must use `toString` (not `toGenericStatement`) — `SQLNumber` collapses every integer to `?`, which would still collide `limit(2)` with `limit(5)`. Group/order keep `toGenericStatement` (property names / directions). Extends the Track 5 “full post-walk `MatchPlanInputs`” rule past the projection-only sections Step 5 shipped.
 - 2026-07-22 (post-Step 7, Parameter-binding reconciliation): **As-built wins over frozen `design.md` §Parameter binding on three points; sync into `design-final` / design prose in Phase 4, do not reverse the code or edit frozen `design.md` in Phase 3.** (1) RID-bearing walks (`g.V(id)` / `hasId`) inline RIDs via `MatchLiteralBuilder.toLiteral` and **bypass** `GremlinPlanCache` (`markRidBearing`) — they are not positional `?` “out of the key”. (2) The cache key is a hand-built post-walk `MatchPlanInputs` fingerprint, not “normalised traversal bytecode”. (3) `toLiteral` remains for RIDs and the null-`ParamSink` test path; production predicate values use `bindParam`. `bindParam` does not type-switch/`Supplier`-decline today — optional hardening deferred.
-- 2026-07-22 (post-Step 7, plan-cache monitoring): **`GremlinPlanCache` exposes lifetime `getHits()` / `getMisses()` / `size()` and the Global profiler pair `GremlinPlanCacheHitRate` / `GremlinPlanCacheMissRate` — same hit+miss `TimeRate` shape and Global scope as `QUERY_CACHE_*` (tx result cache), not disk `CACHE_HIT_RATIO`.** YQL/GQL plan caches share counters but no named CoreMetrics yet. R6 tests pin miss-then-hit and cold-rebuild ≡ cache-hit multisets.
+- 2026-07-22 (Phase C deeper): **Named / modulated `dedup` must not rewrite RETURN under `ELEMENT`.** Accept only anonymous `dedup()` and named labels that all resolve to the current boundary alias (`returnDistinct` only). Decline `by(...)` and prior-hop named labels to native — MATCH `DISTINCT` cannot express unique-by-key / emit-current.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -58,7 +59,7 @@ Iteration 1 (findings in `reviews/{technical,risk,adversarial}-iter1.md`):
 
 **Gate verdict iteration 1: PASS.** Reconciled track tag: `high`. Seven steps, strictly ordered 1→7.
 
-**Phase C (2026-07-22, iter1 — main-session remediation).** Task subagent fan-out failed (account usage limit). Main session reviewed cumulative `d7dd3f8171..HEAD` covering retroactive high-step bugs focus (1/3/4/6/7) plus track-level bugs / code-quality / test-quality / concurrency. Findings in `reviews/phase-c-iter1.md`: **PASS** — 0 blockers, 0 should-fix, 2 suggestions (dead dual-flag path documentation; YQL/GQL counter wiring without CoreMetrics). No fix iteration.
+**Phase C (2026-07-22, iter1 — main-session remediation + deeper re-audit).** Task subagent fan-out failed (account usage limit). Shallow main-session PASS (0 should-fix) was wrong: named/`by` dedup rewrote RETURN under `ELEMENT` and emitted null payloads (SF1); equivalence suite never covered those shapes (SF2). Deeper re-audit **FAIL** → fix: accept only anonymous `dedup()` and named labels on the current boundary (distinct, no RETURN rewrite); decline prior-hop named dedup and `by(...)` to native. Details in `reviews/phase-c-iter1.md`.
 
 ## Context and Orientation
 By Track 6 the boundary step emits `ELEMENT` (vertex hops). This track adds the remaining four output types: `MAP` (`select` multi / `valueMap` / `elementMap` / `project` / `group` / `groupCount`), `SINGLE_VALUE` (`values` single-key), and `SCALAR` (`count` / `sum` / `min` / `max` / `mean`). Each terminal-step recogniser pins the type on the boundary at translation time.

@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -707,10 +706,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V().as("v").dedup("v")} surfaces the user label in RETURN and sets distinct.
+   * {@code g.V().as("v").dedup("v")} sets distinct and keeps the boundary RETURN (does not rewrite
+   * columns under the user label).
    */
   @Test
-  public void walk_namedDedupWithAs_projectsUserLabel() {
+  public void walk_namedDedupWithAs_setsDistinctKeepsBoundaryReturn() {
     var admin = graph.traversal().V().as("v").dedup("v").asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
@@ -718,7 +718,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result).isNotNull();
     assertThat(result.inputs().returnDistinct()).isTrue();
     assertThat(result.inputs().returnAliases()).hasSize(1);
-    assertThat(result.inputs().returnAliases().getFirst().getStringValue()).isEqualTo("v");
+    assertThat(result.inputs().returnAliases().getFirst().getStringValue())
+        .isEqualTo(result.boundaryAlias());
   }
 
   /** {@code dedup("missing")} without a matching {@code as(...)} declines the whole walk. */
@@ -732,18 +733,16 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V().as("a").out().as("b").dedup("a","b")} projects both bound labels with distinct.
+   * {@code g.V().as("a").out().as("b").dedup("a","b")} declines — prior-hop uniqueness while
+   * emitting the current traverser is not expressible as MATCH {@code DISTINCT} on RETURN.
    */
   @Test
-  public void walk_multiHopNamedDedup_projectsBothLabels() {
+  public void walk_multiHopNamedDedup_declines() {
     var admin = graph.traversal().V().as("a").out().as("b").dedup("a", "b").asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).isNotNull();
-    assertThat(result.inputs().returnDistinct()).isTrue();
-    assertThat(result.inputs().returnAliases()).extracting(SQLIdentifier::getStringValue)
-        .containsExactly("a", "b");
+    assertThat(result).isNull();
   }
 
   /** {@code g.V().values("name")} translates end-to-end with {@code SINGLE_VALUE} boundary type. */

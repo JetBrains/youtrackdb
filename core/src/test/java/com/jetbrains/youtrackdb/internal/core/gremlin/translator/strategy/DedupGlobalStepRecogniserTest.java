@@ -12,9 +12,9 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
 /**
- * Unit tests for {@link DedupGlobalStepRecogniser}: anonymous {@code dedup()} sets {@code RETURN
- * DISTINCT}; named {@code dedup(labels...)} projects bound {@code as(...)} labels then sets
- * distinct; unbound labels and {@code by(...)} modulators decline.
+ * Unit tests for {@link DedupGlobalStepRecogniser}: anonymous {@code dedup()} and named
+ * {@code dedup(labels…)} that only name the current boundary set {@code RETURN DISTINCT} without
+ * rewriting RETURN; prior-hop labels and {@code by(...)} modulators decline.
  */
 public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
 
@@ -37,11 +37,12 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * {@code dedup("v")} after {@code as("v")} replaces RETURN with the internal alias surfaced under
-   * the user label and sets distinct.
+   * {@code dedup("v")} after {@code as("v")} on the current boundary sets distinct and leaves the
+   * ELEMENT RETURN (boundary alias) unchanged — rewriting RETURN under the user label broke
+   * {@code projectElement}.
    */
   @Test
-  public void namedDedup_projectsBoundLabel() {
+  public void namedDedup_currentBoundary_setsDistinctWithoutRewritingReturn() {
     var admin = graph.traversal().V().as("v").dedup("v").asAdmin();
     var ctx = contextAfterStart(admin);
     var cursor = cursorAtDedup(admin);
@@ -51,8 +52,7 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.returnDistinct).isTrue();
     assertThat(ctx.returnItems).hasSize(1);
-    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo("v");
-    assertThat(ctx.returnItems.getFirst().toString()).contains(BOUNDARY_ALIAS);
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(BOUNDARY_ALIAS);
   }
 
   /** {@code dedup("missing")} declines when the label was never bound by an accepted {@code as}. */
@@ -68,19 +68,20 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnDistinct).isFalse();
   }
 
-  /** {@code dedup().by("name")} projects the modulated dedup key and sets distinct. */
+  /**
+   * {@code dedup().by("name")} declines — MATCH cannot DISTINCT-ON a property while still emitting
+   * the current element under {@code ELEMENT} projection.
+   */
   @Test
-  public void dedupWithByChild_accepted() {
+  public void dedupWithByChild_declines() {
     var admin = graph.traversal().V().dedup().by("name").asAdmin();
     var ctx = seededContext();
     var cursor = cursorAtDedup(admin);
 
     var outcome = DedupGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.returnDistinct).isTrue();
-    assertThat(ctx.returnItems).hasSize(1);
-    assertThat(ctx.returnItems.getFirst().toString()).contains("name");
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.returnDistinct).isFalse();
   }
 
   /** {@code g.V().as("v")} binds the start label through {@link StartStepRecogniser}. */
