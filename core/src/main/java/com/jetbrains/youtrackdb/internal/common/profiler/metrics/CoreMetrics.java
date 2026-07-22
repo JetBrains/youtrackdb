@@ -238,6 +238,29 @@ public class CoreMetrics {
           "Number of currently active transactions across all threads",
           MetricType.gauge(Integer.class));
 
+  // --- Gremlin-to-MATCH plan cache (SharedContext LRU) ---
+
+  public static final MetricDefinition<MetricScope.Database, TimeRate> GREMLIN_PLAN_CACHE_HIT_RATE =
+      new MetricDefinition<>(
+          "GremlinPlanCacheHitRate",
+          "Gremlin Plan Cache Hit Rate",
+          "The rate of Gremlin-to-MATCH plan-cache hits (per second) for the last 60 seconds",
+          MetricType.rate(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Database,
+      TimeRate> GREMLIN_PLAN_CACHE_MISS_RATE =
+          new MetricDefinition<>(
+              "GremlinPlanCacheMissRate",
+              "Gremlin Plan Cache Miss Rate",
+              "The rate of Gremlin-to-MATCH plan-cache misses (per second) for the last 60 seconds",
+              MetricType.rate(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  TimeUnit.SECONDS));
+
   public static final Set<MetricDefinition<MetricScope.Database, ?>> DATABASE_METRICS = Set.of(
       DISK_READ_RATE,
       DISK_WRITE_RATE,
@@ -253,7 +276,9 @@ public class CoreMetrics {
       SNAPSHOT_INDEX_SIZE,
       LWM_LAG,
       STALE_TX_COUNT,
-      ACTIVE_TX_COUNT);
+      ACTIVE_TX_COUNT,
+      GREMLIN_PLAN_CACHE_HIT_RATE,
+      GREMLIN_PLAN_CACHE_MISS_RATE);
 
   // ===================== CLASS (disabled for now) ===================== //
 

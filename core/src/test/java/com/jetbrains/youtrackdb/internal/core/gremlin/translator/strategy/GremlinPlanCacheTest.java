@@ -18,7 +18,8 @@ import org.junit.Test;
  * R6 determinism and correctness tests for {@link GremlinPlanCache} and {@link
  * GremlinPlanFingerprint}: distinct shapes occupy distinct entries, same shapes fingerprint
  * identically, positional rebinding serves the second value's multiset, RID-bearing shapes bypass
- * the cache, and schema changes invalidate entries.
+ * the cache, schema changes invalidate entries, a second apply records a hit, and a cache hit
+ * returns the same multiset as a cold rebuild.
  */
 public class GremlinPlanCacheTest extends GraphBaseTest {
 
@@ -173,6 +174,54 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     GremlinPlanCache.instance(graphSession()).onSchemaUpdate(null, "test", null);
     assertThat(GremlinPlanCache.getLastInvalidation(graphSession())).isGreaterThan(before);
     assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isFalse();
+  }
+
+  /**
+   * First apply of a shape records a miss and populates the cache; the second apply of the same
+   * shape records a hit — proof the production {@code get} path served the plan, not a silent
+   * rebuild.
+   */
+  @Test
+  public void secondApply_recordsCacheHit() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hitsBefore = cache.getHits();
+    var missesBefore = cache.getMisses();
+
+    apply(() -> graph.traversal().V().has("age", 30));
+    assertThat(cache.getMisses()).isEqualTo(missesBefore + 1);
+    assertThat(cache.getHits()).isEqualTo(hitsBefore);
+
+    apply(() -> graph.traversal().V().has("age", 40));
+    assertThat(cache.getHits()).isEqualTo(hitsBefore + 1);
+    assertThat(cache.getMisses()).isEqualTo(missesBefore + 1);
+  }
+
+  /**
+   * Cold rebuild (after invalidate) and a subsequent cache hit return the same multiset for the
+   * same predicate value — plan reuse must not change Gremlin results.
+   */
+  @Test
+  public void cacheHit_sameResultsAsColdRebuild() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    graph.addVertex(T.label, "Person", "name", "Carol", "age", 30);
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var cold = sortedNames(apply(() -> graph.traversal().V().has("age", 30)));
+    assertThat(cold).containsExactly("Alice", "Carol");
+
+    cache.invalidate();
+    var rebuilt = sortedNames(apply(() -> graph.traversal().V().has("age", 30)));
+    assertThat(rebuilt).isEqualTo(cold);
+
+    var hitsBefore = cache.getHits();
+    var warm = sortedNames(apply(() -> graph.traversal().V().has("age", 30)));
+    assertThat(cache.getHits()).isEqualTo(hitsBefore + 1);
+    assertThat(warm).isEqualTo(cold);
   }
 
   // ---------------------------------------------------------------------------

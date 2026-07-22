@@ -1,6 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricDefinition;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricScope.Database;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
@@ -16,6 +22,11 @@ import javax.annotation.Nullable;
  * InternalExecutionPlan#copy(CommandContext)} for the caller's context. Schema changes invalidate
  * the cache through the same {@link MetadataUpdateListener} hook as {@link
  * com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
+ *
+ * <p>Hit/miss counters ({@link #getHits()} / {@link #getMisses()}) are lifetime totals on the
+ * shared-context instance. Each lookup also feeds the per-database profiler rates {@link
+ * CoreMetrics#GREMLIN_PLAN_CACHE_HIT_RATE} / {@link CoreMetrics#GREMLIN_PLAN_CACHE_MISS_RATE}
+ * (JMX under {@code scope=Database}).
  */
 public final class GremlinPlanCache
     extends AbstractMetadataUpdateCache<String, InternalExecutionPlan> {
@@ -79,7 +90,32 @@ public final class GremlinPlanCache
       return null;
     }
     var result = getCached(fingerprint);
-    return result != null ? result.copy(ctx) : null;
+    if (result != null) {
+      recordHit();
+      recordProfilerRate(db, CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE);
+      return result.copy(ctx);
+    }
+    recordMiss();
+    recordProfilerRate(db, CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE);
+    return null;
+  }
+
+  private static void recordProfilerRate(
+      DatabaseSessionEmbedded db, MetricDefinition<Database, TimeRate> definition) {
+    var registry = metricsRegistry();
+    if (registry == null) {
+      return;
+    }
+    registry.databaseMetric(definition, db.getDatabaseName()).record();
+  }
+
+  @Nullable private static MetricsRegistry metricsRegistry() {
+    try {
+      return YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    } catch (RuntimeException ignored) {
+      // Engine / profiler not initialised (common in unit tests).
+      return null;
+    }
   }
 
   public static @Nonnull GremlinPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {

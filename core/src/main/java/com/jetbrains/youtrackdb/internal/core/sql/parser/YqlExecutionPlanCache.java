@@ -128,8 +128,12 @@ public class YqlExecutionPlanCache extends AbstractMetadataUpdateCache<String, I
 
     // Guava Cache handles LRU eviction and concurrent access internally
     var result = getCached(statement);
-    // Copy outside cache — no lock held during potentially expensive copy()
-    return result != null ? result.copy(ctx) : null;
+    if (result != null) {
+      recordHit();
+      return result.copy(ctx);
+    }
+    recordMiss();
+    return null;
   }
 
   public static @Nonnull YqlExecutionPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {

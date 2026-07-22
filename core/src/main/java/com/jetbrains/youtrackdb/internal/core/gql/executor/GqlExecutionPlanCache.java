@@ -104,7 +104,12 @@ public class GqlExecutionPlanCache extends AbstractMetadataUpdateCache<String, G
       return null;
     }
     var cached = getCached(statement);
-    return cached != null ? cached.copy() : null;
+    if (cached != null) {
+      recordHit();
+      return cached.copy();
+    }
+    recordMiss();
+    return null;
   }
 
   public static @Nonnull GqlExecutionPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {
