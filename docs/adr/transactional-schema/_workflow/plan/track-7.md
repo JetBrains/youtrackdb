@@ -36,6 +36,9 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [x] 2026-07-22T17:40Z [ctx=safe] Step 3 review-fix iteration 1 complete (commit f7009df7a7;
   concurrency + baseline + crash-safety reviews: 5 should-fixes + 4 suggestions — all applied or
   dispositioned, 0 blockers)
+- [x] 2026-07-22T19:50Z [ctx=safe] Step 4 review-fix iteration 1 complete (commit 5811042e95;
+  concurrency + baseline reviews: 2 should-fixes + 4 suggestions — all applied except one
+  sampling suggestion dispositioned as accepted, 0 blockers)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -379,6 +382,51 @@ ci-integration verify: surefire ci/disk profile 17407/0 (the racer red is gone),
 with only the four known Track 6 rename classes failing (21 failures, identical to the HEAD
 baseline — no new IT failures). The storage stays usable after teardown of the poisoned-storage
 test (checkErrorState gates only component operations, not close/drop).
+
+### Step 4 review-fix iteration 1 — commit 5811042e95, 2026-07-22T19:50Z [ctx=safe]
+**What was done:** Applied the two Step 4 review reports
+(`track-7/reviews/{concurrency,baseline}-step4-iter1.md`; 0 blockers). (1) Throwing-predicate
+hardening: the whole phase-2 region of `exclusiveLockWithAbort` is guarded so a predicate that
+throws at the drain poll or the success-edge re-check releases the write bit before propagating
+(previously the bit leaked permanently — an ownerless storage-wide wedge); no double-unlock is
+possible because the abort branches unlock-and-return before any further evaluation. Red-first
+proven: both new throwing-predicate tests failed against the unguarded shape with the
+leaked-bit assertion. (2) Liveness test: a continuous-coverage reader test discriminates the
+CN19 guarantee — staggered readers with unequal long residences re-acquiring through tight
+`sharedTryLock` spins; red-first proven by temporarily reverting the primitive to the
+release-on-timeout retry shape, which starved to the 60s test timeout, while the
+single-acquisition shape acquires within ~one residence (3/3 stable). Suggestions: the interrupt
+message is generalized (no storage-specific wording in a shared primitive; the holder snapshot
+no longer misreports a queue state a pre-interrupted thread never entered); a null predicate is
+rejected up front; argument-validation, null-predicate, and two-waiter serialization tests
+added; failure hygiene across the suite (daemon helpers; abort flags/latches/interrupts fired in
+finally so a failed assertion leaks no live helper); dead counter removed; `BooleanSupplier`
+imported; the phase-1 CLH tail-re-enqueue fairness trade-off documented in the javadoc.
+
+**What was discovered:** The reviewer's starvation model for the retry shape needed a sharper
+test than first written: with yield-parked `sharedLock` readers the retry shape's inter-attempt
+release window (~ns, since an uncontended re-acquire is immediate) is practically unexploitable,
+so the first two candidate tests passed against BOTH shapes. Only readers spinning on
+`sharedTryLock` — which react to the dropped bit within nanoseconds — reliably re-admit through
+the retry shape's release windows and keep coverage continuous; that construction starves the
+retry shape deterministically while remaining stable for the real shape. Recorded here because
+any future liveness test for this primitive family needs the same construction.
+
+**Dispositions:** the writer-preference single-sample suggestion (release-window regressions
+being black-box-undetectable by that test) was NOT taken as a test change — the new
+continuous-coverage test now fails exactly that regression class end-to-end, which supersedes
+per-phase sampling; everything else was applied.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/common/concur/lock/ScalableRWLock.java`
+  (phase-2 throw guard, null-check, interrupt message, fairness javadoc)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/common/concur/lock/ScalableRWLockTest.java`
+  (5 new tests, failure-hygiene hardening, cleanups)
+
+**Critical context:** Step 5 may now wire the primitive with ANY predicate — the throw-free
+requirement is downgraded from a correctness precondition to a performance recommendation.
+Verification: ScalableRWLockTest 18/18, lock package 119/0, full core unit suite 17433/0,
+coverage gate PASSED (90.5% line / 82.3% branch).
 
 ### Step 3 review-fix iteration 1 — commit f7009df7a7, 2026-07-22T17:40Z [ctx=safe]
 **What was done:** Applied the three Step 3 review reports
