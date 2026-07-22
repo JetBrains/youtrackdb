@@ -16,6 +16,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 
 - [x] 2026-07-22T10:30Z [ctx=info] Review + decomposition complete (strategic trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter1; 7 steps, reconciled tag `high`)
 - [x] 2026-07-22T12:12Z [ctx=info] Step 1 complete (tip cf4698732d; WalkerContextResultShapingTest + GremlinToMatchStrategyTest + GremlinStepWalkerTest green)
+- [x] 2026-07-22T12:24Z [ctx=info] Step 2 complete (tip 0597b30ef6; DedupGlobalStepRecogniserTest + GremlinStepWalkerTest green)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -65,7 +66,7 @@ Two semantic hazards dominate this track:
 
 ## Concrete Steps
 1. **Walker foundation + `BoundaryOutputType` expansion** — add `MAP` / `SINGLE_VALUE` / `SCALAR` to `BoundaryOutputType`; extend `WalkerContext` / `RecognitionContext` with `returnDistinct`, `groupBy`, `orderBy`, `limit`, `skip`, `dropNullRows`, `dropOnAbsent`, and `lastPropertyProjection` (A1); wire all fields through `GremlinStepWalker.buildResult` → `MatchPlanInputs` and `TranslationResult` → `YTDBMatchPlanStep` constructor (T2). Extend `YTDBMatchPlanStep` skeleton to branch on output type (element path unchanged). Detail: Plan of Work items 5–6 (flags), Decision Log A1. — `risk: high`  [x] commit: cf4698732d
-2. **`as(label)` propagation + `DedupGlobalStep`** — propagate `as(label)` to the most recent pattern node's alias metadata (`MatchPatternBuilder` extension — T1); `DedupGlobalStep` → `returnDistinct` (no labels) or projection-over-labels + DISTINCT (named labels; decline when a label is not surfaced — A2). Detail: Plan of Work item 1. — `risk: medium` *(depends on Step 1)*
+2. **`as(label)` propagation + `DedupGlobalStep`** — propagate `as(label)` to the most recent pattern node's alias metadata (`MatchPatternBuilder` extension — T1); `DedupGlobalStep` → `returnDistinct` (no labels) or projection-over-labels + DISTINCT (named labels; decline when a label is not surfaced — A2). Detail: Plan of Work item 1. — `risk: medium` *(depends on Step 1)*  [x] commit: 0597b30ef6
 3. **`GremlinProjectionAssembler` + projection recognisers** — `PropertiesStep` (`values`), `PropertyMapStep` (`valueMap`/`elementMap`), `SelectStep`, `ProjectStep`; `EntityImpl.hasProperty(key)` absent-vs-null classification (R1); `dropOnAbsent` for single-key `values`; pin boundary output type per terminal (`MAP` / `SINGLE_VALUE`). Accept `PropertyType.VALUE` and `PropertyType.PROPERTY` on `PropertiesStep` (T3). Detail: Plan of Work item 2, Decision Log T1/R1. — `risk: high` *(depends on Steps 1–2)*
 4. **`ByModulatorTranslator`** (shared `match/builder/`) — key-side (`by("k")`, `by(T.id)`, `by(T.label)`, `__.values/id/label` unwraps, `Order.asc/desc`) and value-side (`by(__.count())`, `by(__.fold())`, …) via sub-walker capture (R3); declines edges/aggregates/lambdas/`Order.shuffle`/per-label-count-mismatch. Detail: Plan of Work item 3. — `risk: high` *(depends on Step 1)*
 5. **`OrderGlobalStep` + `RangeGlobalStep`** — `SQLOrderBy` (`Order.shuffle` declines); `SQLSkip` + `SQLLimit` (`range` → `limit = high - low`, unbounded high → skip-only). Detail: Plan of Work item 4. — `risk: medium` *(depends on Steps 1, 4)*
@@ -90,6 +91,20 @@ Two semantic hazards dominate this track:
 - `WalkerContextResultShapingTest.java`
 
 **Critical context:** Later steps set recogniser-side flags and RETURN clauses on the walker; Step 7 completes boundary payload shaping and drop loops. `lastPropertyProjection` is written by Step 3 `PropertiesStepRecogniser` and consumed by Step 6 aggregates.
+
+### Step 2 — commit 0597b30ef6, 2026-07-22T12:24Z [ctx=info]
+**What was done:** Propagated Gremlin `as(label)` from `StartStepRecogniser` and folded hop steps into `WalkerContext.userLabelToAlias` via `bindStepLabels`, with `MatchPatternBuilder.registerUserLabel` retaining display metadata. Added `DedupGlobalStepRecogniser`: anonymous `dedup()` sets `returnDistinct`; named `dedup(labels…)` projects bound labels then sets distinct; unbound labels and `by(...)` modulators decline. Switched `PRODUCTION_RECOGNISERS` to `Map.ofEntries` (11 entries exceeds `Map.of` arity). Added `DedupGlobalStepRecogniserTest` and extended `GremlinStepWalkerTest`.
+
+**What was discovered:** `Map.of` caps at 10 key-value pairs — the dedup recogniser was the 11th registry entry.
+
+**What changed from plan:** `MatchPatternBuilder.registerUserLabel` stores metadata only; `build()` does not yet consume it (planner wiring deferred). Combinator sub-walks swallow label binding on the capture adapter.
+
+**Key files:**
+- `GremlinStepLabels.java`, `DedupGlobalStepRecogniser.java`, `WalkerContext.java`, `RecognitionContext.java`
+- `StartStepRecogniser.java`, `GremlinPatternAssembler.java`, `MatchPatternBuilder.java`, `GremlinStepWalker.java`
+- `DedupGlobalStepRecogniserTest.java`, `GremlinStepWalkerTest.java`
+
+**Critical context:** Step 3 projection recognisers read `resolveUserLabel`; named dedup already exercises multi-column RETURN. `dedup().by(...)` declines until Step 4 `ByModulatorTranslator`.
 
 ## Validation and Acceptance
 - `select` / `values` / `valueMap` / `elementMap` / `project` translate and match native multisets, with the correct boundary output type per terminal step.
