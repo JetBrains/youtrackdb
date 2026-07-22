@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
@@ -7,13 +8,18 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Test;
@@ -343,8 +349,9 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var mutex = session.getSharedContext().getMetadataWriteMutex();
     var outer = session;
     var inner = openDatabase();
+    var outerOrdinal = 0L;
     try {
-      mutex.engage(outer);
+      outerOrdinal = mutex.engage(outer);
       assertTrue("the outer session must hold the mutex", mutex.isEngagedBy(outer));
       try {
         mutex.engage(inner);
@@ -358,7 +365,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
       assertTrue("a rejected same-thread engage must not disturb the outer session's hold",
           mutex.isEngagedBy(outer));
     } finally {
-      mutex.releaseFor(outer);
+      mutex.releaseFor(outer, outerOrdinal);
       inner.activateOnCurrentThread();
       inner.close();
       outer.activateOnCurrentThread();
@@ -379,8 +386,9 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var foreignSession = new AtomicReference<DatabaseSessionEmbedded>();
     var foreignThreadRef = new AtomicReference<Thread>();
     var foreignAboutToEngage = new CountDownLatch(1);
+    var foreignOrdinal = new AtomicLong();
 
-    mutex.engage(session);
+    var ownOrdinal = mutex.engage(session);
     try {
       spawn(() -> {
         var other = openDatabase();
@@ -392,7 +400,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
           foreignThreadRef.set(Thread.currentThread());
           foreignAboutToEngage.countDown();
           // Blocks here until the test thread releases the permit.
-          mutex.engage(other);
+          foreignOrdinal.set(mutex.engage(other));
           foreignEngaged.countDown();
         } catch (Throwable t) {
           foreignError.compareAndSet(null, t);
@@ -413,7 +421,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
       assertFalse("the foreign engage must not have completed while the permit is held",
           foreignEngaged.getCount() == 0);
     } finally {
-      mutex.releaseFor(session);
+      mutex.releaseFor(session, ownOrdinal);
     }
 
     assertTrue("the foreign thread must engage once the permit is released",
@@ -424,7 +432,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
     // Release on the foreign thread's behalf and close its session so the @After join is clean.
     var other = foreignSession.get();
     assertNotNull("the foreign session must have been opened", other);
-    mutex.releaseFor(other);
+    mutex.releaseFor(other, foreignOrdinal.get());
     other.activateOnCurrentThread();
     other.close();
     session.activateOnCurrentThread();
@@ -628,5 +636,459 @@ public class MetadataWriteMutexTest extends DbTestBase {
       throw new AssertionError("the next schema writer must engage and commit after a failed seed",
           workerError.get());
     }
+  }
+
+  /**
+   * A teardown whose rollback throws BEFORE the transaction's own close() ran must still release
+   * the permit (the widened release pass in internalClose's outer finally). The historical wedge:
+   * internalClose swallows a rollback throw and proceeds to CLOSED, but tx.close() — the normal
+   * release site — never runs, stranding the single permit forever. Driven by forcing the open
+   * transaction's status to ROLLED_BACK so rollbackInternal throws its "already rolled back"
+   * IllegalStateException before reaching close(), then closing the session and asserting the
+   * permit is free and immediately usable by the next writer.
+   */
+  @Test
+  public void teardownRollbackThrowBeforeTxCloseStillReleasesPermit() {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var victim = openDatabase();
+    victim.activateOnCurrentThread();
+    victim.begin();
+    victim.getMetadata().getSchema().createClass("RollbackThrowVictim");
+    assertTrue("the schema write must engage the mutex", mutex.isEngagedBy(victim));
+
+    // Force the state rollbackInternal rejects loudly, so the teardown's rollback throws before
+    // tx.close() can run its release finally.
+    ((FrontendTransactionImpl) victim.getTransactionInternal())
+        .setStatus(FrontendTransaction.TXSTATUS.ROLLED_BACK);
+    victim.close();
+
+    assertFalse("the widened outer-finally release pass must free the permit even when the"
+        + " teardown's rollback threw before tx.close()",
+        mutex.isEngagedBy(victim));
+    // The permit is usable, not merely unrecorded: the next schema transaction proceeds.
+    session.activateOnCurrentThread();
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterRollbackThrow"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterRollbackThrow"));
+  }
+
+  /**
+   * Dekker pair, teardown-first shape: an engage attempted on a session already marked for
+   * teardown must fail loudly WITHOUT acquiring (or while self-releasing), leaving the permit
+   * free. Covers the wait-loop's self-check and the post-acquire re-check with one observable
+   * contract: a marked session cannot walk away holding the permit, and the failure is a
+   * DatabaseException, not a silent park.
+   */
+  @Test
+  public void engageOnTeardownMarkedSessionFailsLoudAndLeavesPermitFree() {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var marked = openDatabase();
+    marked.activateOnCurrentThread();
+    marked.begin();
+    marked.markTeardownIntent();
+    try {
+      try {
+        marked.getMetadata().getSchema().createClass("MarkedSessionClass");
+        fail("a schema write on a teardown-marked session must fail loudly");
+      } catch (final DatabaseException expected) {
+        assertTrue("the failure must name the closed-while-engaging cause",
+            expected.getMessage().contains("while"));
+      }
+      assertFalse("a rejected engage must leave the permit free", mutex.isEngagedBy(marked));
+    } finally {
+      marked.getTransactionInternal().rollbackInternal();
+      marked.clearTeardownIntent();
+      marked.close();
+      session.activateOnCurrentThread();
+    }
+    // The permit is genuinely free: the next writer engages and commits.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterMarkedReject"));
+  }
+
+  /**
+   * Dekker pair, engage-first shape: a foreign-thread teardown of a session holding an engaged
+   * permit harvests the ordinal through the release funnel and frees the permit — the pool-close
+   * heal path. The owner parks holding an open schema transaction; the test thread (playing the
+   * pool thread) activates the session and runs the full teardown; the permit must be free
+   * afterwards and the next writer must proceed.
+   */
+  @Test
+  public void foreignTeardownHarvestsEngagedPermit() throws InterruptedException {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var engaged = new CountDownLatch(1);
+    var ownerMayFinish = new CountDownLatch(1);
+    var ownerSession = new AtomicReference<DatabaseSessionEmbedded>();
+    var ownerError = new AtomicReference<Throwable>();
+    spawn(() -> {
+      var owner = openDatabase();
+      ownerSession.set(owner);
+      try {
+        owner.activateOnCurrentThread();
+        owner.begin();
+        owner.getMetadata().getSchema().createClass("ForeignTeardownClass");
+        engaged.countDown();
+        ownerMayFinish.await();
+      } catch (Throwable t) {
+        ownerError.compareAndSet(null, t);
+        engaged.countDown();
+      }
+    }, "foreign-teardown-owner");
+
+    assertTrue("the owner must engage the mutex", engaged.await(5, TimeUnit.SECONDS));
+    if (ownerError.get() != null) {
+      throw new AssertionError("the owner must not error", ownerError.get());
+    }
+    var owner = ownerSession.get();
+    assertTrue("the owner session must hold the permit", mutex.isEngagedBy(owner));
+
+    // Foreign teardown (the pool-close shape): activate the owner's session on THIS thread and
+    // run its own full teardown. The release pass harvests the engage's ordinal and frees the
+    // permit; the (session, ordinal) CAS is the second belt.
+    owner.activateOnCurrentThread();
+    owner.internalClose(false);
+    assertFalse("the foreign teardown must harvest the engaged permit",
+        mutex.isEngagedBy(owner));
+
+    ownerMayFinish.countDown();
+    session.activateOnCurrentThread();
+    // The permit is usable by the next writer.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterForeignTeardown"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterForeignTeardown"));
+  }
+
+  /**
+   * Double release keeps a single permit. An explicit early release (playing the foreign
+   * teardown's pass) followed by the owner's own tx-close release must free the permit exactly
+   * once: the session-level atomic ordinal claim lets only one releaser through, and a stale
+   * ordinal presented directly to the mutex warn-noops. Proven by observing the single-permit
+   * property afterwards: with one session holding the permit, a second engager PARKS — a
+   * double-released (double-incremented) permit would admit it immediately.
+   */
+  @Test
+  public void doubleReleaseKeepsSinglePermit() throws InterruptedException {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    session.begin();
+    session.getMetadata().getSchema().createClass("DoubleReleaseClass");
+    assertTrue(mutex.isEngagedBy(session));
+
+    // First releaser (the foreign teardown's pass in miniature): claims the ordinal and releases.
+    session.releaseMetadataWriteMutexForTx();
+    assertFalse("the first release must free the permit", mutex.isEngagedBy(session));
+    // A stale re-presentation directly to the mutex must warn-noop, not release again.
+    mutex.releaseFor(session, 999_999L);
+
+    // Second releaser (the owner's tx-close finally): the atomic claim returns 0 — no-op.
+    session.commit();
+
+    // Single-permit proof: engage through one session, then a second engager must PARK rather
+    // than acquire a phantom second permit.
+    var firstOrdinal = mutex.engage(session);
+    var parked = new AtomicReference<Thread>();
+    var acquired = new CountDownLatch(1);
+    var secondOrdinal = new AtomicLong();
+    var secondSession = new AtomicReference<DatabaseSessionEmbedded>();
+    spawn(() -> {
+      var other = openDatabase();
+      secondSession.set(other);
+      other.activateOnCurrentThread();
+      parked.set(Thread.currentThread());
+      secondOrdinal.set(mutex.engage(other));
+      acquired.countDown();
+    }, "double-release-prober");
+
+    var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (parked.get() == null && System.nanoTime() < deadline) {
+      Thread.onSpinWait();
+    }
+    assertNotNull("the prober must have started", parked.get());
+    var state = awaitThreadParked(parked.get(), 5_000);
+    assertTrue("a second engager must park on the single permit (a double release would have"
+        + " admitted it immediately), observed state " + state,
+        state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+    assertFalse("the prober must not have acquired while the permit is held",
+        acquired.getCount() == 0);
+
+    mutex.releaseFor(session, firstOrdinal);
+    assertTrue("the prober must acquire after the release", acquired.await(15, TimeUnit.SECONDS));
+    mutex.releaseFor(secondSession.get(), secondOrdinal.get());
+    var other = secondSession.get();
+    other.activateOnCurrentThread();
+    other.close();
+    session.activateOnCurrentThread();
+  }
+
+  /**
+   * A same-session re-engage on a stranded holder throws immediately instead of parking forever
+   * on the session's own permit. The strand is simulated by engaging the mutex directly (no
+   * session-side ordinal record, so no teardown will ever release it); the next schema write on
+   * the same session must throw {@link IllegalStateException} naming the stranded holder and the
+   * likely cause — the type and message are pinned contract.
+   */
+  @Test
+  public void strandedSameSessionReengageThrowsLoudly() {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var strandedOrdinal = mutex.engage(session);
+    try {
+      session.begin();
+      try {
+        var thrown = assertThrows(
+            "a same-session re-engage on a stranded holder must throw, not park",
+            IllegalStateException.class,
+            () -> session.getMetadata().getSchema().createClass("StrandedReengage"));
+        assertTrue("the message must name the stranded-holder state: " + thrown.getMessage(),
+            thrown.getMessage().contains("already held by this session"));
+        assertTrue("the message must name the likely cause: " + thrown.getMessage(),
+            thrown.getMessage().contains("never released"));
+      } finally {
+        session.rollback();
+      }
+    } finally {
+      mutex.releaseFor(session, strandedOrdinal);
+    }
+  }
+
+  /**
+   * Q-A2 skip protocol, owner-completes interleaving: a pool close that finds the session
+   * mid-commit on its owner thread defers the teardown to the owner. The pool thread performs
+   * only the whitelist (mark + log): the commit is undisturbed and completes successfully, the
+   * owner's completer then runs the full teardown on the owning thread, the permit is freed, the
+   * committed class is visible, and the storage remains fully usable (the session count was
+   * decremented exactly once, by the owner's completer — no premature storage auto-close).
+   */
+  @Test
+  public void poolCloseDuringCommitDefersTeardownToOwner() throws Exception {
+    var storage = (AbstractStorage) session.getStorage();
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var inWindow = new CountDownLatch(1);
+    var releaseWindow = new CountDownLatch(1);
+    storage.setCommitWindowTestHook(() -> {
+      inWindow.countDown();
+      try {
+        releaseWindow.await();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(e);
+      }
+    });
+
+    var pooledRef = new AtomicReference<DatabaseSessionEmbedded>();
+    var commitError = new AtomicReference<Throwable>();
+    var committed = new CountDownLatch(1);
+    try {
+      spawn(() -> {
+        try {
+          var pooled = pool.acquire();
+          pooledRef.set(pooled);
+          pooled.begin();
+          pooled.getMetadata().getSchema().createClass("PoolSkipClass");
+          pooled.commit();
+        } catch (Throwable t) {
+          commitError.compareAndSet(null, t);
+        } finally {
+          committed.countDown();
+        }
+      }, "pool-skip-owner");
+
+      assertTrue("the owner must park inside the commit window",
+          inWindow.await(10, TimeUnit.SECONDS));
+
+      // Pool close while the owner is mid-commit: the skip branch marks and defers. It must
+      // return promptly (it neither parks on the commit nor tears the live transaction down).
+      pool.close();
+      var pooled = pooledRef.get();
+      assertNotNull(pooled);
+      // Lock-free status probe: isClosed() would take the storage state lock and block behind
+      // the parked commit's held write lock. The skip must have left the session OPEN.
+      assertEquals("the skip must not close the mid-commit session",
+          DatabaseSessionEmbedded.STATUS.OPEN, pooled.getStatus());
+      assertTrue("the skip must not release the live commit's permit",
+          mutex.isEngagedBy(pooled));
+      assertEquals("the commit must still be parked in the window", 1, committed.getCount());
+    } finally {
+      releaseWindow.countDown();
+      storage.setCommitWindowTestHook(null);
+    }
+
+    assertTrue("the owner's commit must finish", committed.await(15, TimeUnit.SECONDS));
+    if (commitError.get() != null) {
+      throw new AssertionError(
+          "the deferred teardown must not disturb the commit outcome", commitError.get());
+    }
+    var pooled = pooledRef.get();
+    // The owner's completer ran the full teardown on the owning thread. (The window is released
+    // now, so the lock-taking isClosed() probe is safe again.)
+    assertTrue("the owner's completer must have closed the session", pooled.isClosed());
+    assertFalse("the permit must be free after the owner's teardown",
+        mutex.isEngagedBy(pooled));
+    // The commit is durable and the storage fully usable afterwards (sole session-count
+    // decrement, no premature auto-close).
+    assertTrue("the deferred-teardown commit must be durable",
+        session.getMetadata().getSchema().existsClass("PoolSkipClass"));
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterPoolSkip"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterPoolSkip"));
+  }
+
+  /**
+   * Q-A2 skip protocol, pool-falls-through interleaving: when the pool close's re-validation
+   * finds no in-flight commit (here: an idle open schema transaction), it runs the normal full
+   * teardown itself — rollback, session closed, permit harvested — and the next writer proceeds.
+   */
+  @Test
+  public void poolCloseFallsThroughToFullTeardownWhenNotCommitting() throws Exception {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var engaged = new CountDownLatch(1);
+    var ownerMayFinish = new CountDownLatch(1);
+    var pooledRef = new AtomicReference<DatabaseSessionEmbedded>();
+    spawn(() -> {
+      try {
+        var pooled = pool.acquire();
+        pooledRef.set(pooled);
+        pooled.begin();
+        pooled.getMetadata().getSchema().createClass("PoolFallThroughClass");
+        engaged.countDown();
+        ownerMayFinish.await();
+      } catch (Throwable t) {
+        engaged.countDown();
+      }
+    }, "pool-fallthrough-owner");
+
+    assertTrue("the owner must engage the mutex", engaged.await(10, TimeUnit.SECONDS));
+    var pooled = pooledRef.get();
+    assertNotNull(pooled);
+    assertTrue(mutex.isEngagedBy(pooled));
+
+    // The tx is idle-open (BEGUN, not COMMITTING): the pool's re-validation falls through to the
+    // full teardown on the pool thread — the one legitimate foreign releaser.
+    pool.close();
+    assertTrue("the pool's full teardown must close the idle session", pooled.isClosed());
+    assertFalse("the pool's full teardown must harvest the permit", mutex.isEngagedBy(pooled));
+
+    ownerMayFinish.countDown();
+    session.activateOnCurrentThread();
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterPoolFallThrough"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterPoolFallThrough"));
+  }
+
+  /**
+   * A deferred-teardown failure never masks the commit outcome. The session is marked for
+   * teardown (as the pool skip does mid-commit) and carries a close listener that throws an
+   * {@link AssertionError} — an error the teardown's listener loop does not swallow. The commit
+   * must still return success and the class must be durably committed: the owner's completer is
+   * throw-isolated, so the teardown throwable is logged, never propagated over a durable commit
+   * (which would drive a client to retry a durably applied commit).
+   */
+  @Test
+  public void throwingCloseListenerNeverMasksCommitOutcome() {
+    var victim = openDatabase();
+    victim.activateOnCurrentThread();
+    var listener = new SessionListener() {
+      @Override
+      public void onClose(final DatabaseSessionEmbedded database) {
+        throw new AssertionError("forced close-listener failure");
+      }
+    };
+    victim.registerListener(listener);
+    try {
+      victim.begin();
+      victim.getMetadata().getSchema().createClass("MaskedOutcomeClass");
+      // Simulate the pool skip having marked the session mid-commit.
+      victim.markTeardownIntent();
+      // Must return normally: the completer's teardown failure is logged, not thrown.
+      victim.commit();
+    } finally {
+      victim.unregisterListener(listener);
+      victim.clearTeardownIntent();
+      if (!victim.isClosed()) {
+        // The completer's teardown removed the thread-local activation; re-activate before the
+        // cleanup close.
+        victim.activateOnCurrentThread();
+        victim.close();
+      }
+      session.activateOnCurrentThread();
+    }
+    assertTrue("the commit outcome must stand despite the teardown failure",
+        session.getMetadata().getSchema().existsClass("MaskedOutcomeClass"));
+  }
+
+  /**
+   * An interrupted engage waiter throws {@link DatabaseException} naming the holder and restores
+   * the interrupt flag — the waiter is killable, unlike the old uninterruptible park. The wait
+   * itself stays unbounded (no spurious DDL failure by contention alone); interruption is the
+   * only early exit besides the waiter's own teardown.
+   */
+  @Test
+  public void interruptedEngageWaiterThrowsAndRestoresInterruptFlag() throws InterruptedException {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var holderOrdinal = mutex.engage(session);
+    var thrown = new AtomicReference<Throwable>();
+    var flagRestored = new AtomicBoolean(false);
+    var waiterStarted = new CountDownLatch(1);
+    try {
+      var waiter = spawn(() -> {
+        var other = openDatabase();
+        try {
+          other.activateOnCurrentThread();
+          waiterStarted.countDown();
+          try {
+            mutex.engage(other);
+          } catch (Throwable t) {
+            thrown.set(t);
+            flagRestored.set(Thread.currentThread().isInterrupted());
+          }
+        } finally {
+          // Clear the interrupt status before the teardown so the session close is undisturbed.
+          Thread.interrupted();
+          other.activateOnCurrentThread();
+          other.close();
+        }
+      }, "interrupted-engage-waiter");
+
+      assertTrue("the waiter must start", waiterStarted.await(5, TimeUnit.SECONDS));
+      var state = awaitThreadParked(waiter, 5_000);
+      assertTrue("the waiter must park on the held permit, observed state " + state,
+          state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+      waiter.interrupt();
+      waiter.join(5_000);
+      assertFalse("the interrupted waiter must exit", waiter.isAlive());
+      assertNotNull("the interrupted waiter must have thrown", thrown.get());
+      assertTrue("the throw must be a DatabaseException naming the wait: " + thrown.get(),
+          thrown.get() instanceof DatabaseException
+              && thrown.get().getMessage().contains("interrupted while waiting"));
+      assertTrue("the interrupt flag must be restored before the throw", flagRestored.get());
+    } finally {
+      mutex.releaseFor(session, holderOrdinal);
+    }
+  }
+
+  /**
+   * Pool-close loop isolation: a session whose teardown throws must not abort the loop and
+   * strand the remaining sessions. Two borrowed idle sessions both carry close listeners that
+   * throw {@link AssertionError} (which the listener loop does not swallow); the pool close must
+   * still complete without throwing — pre-isolation, the first throwing realClose aborted the
+   * loop and the whole close.
+   */
+  @Test
+  public void poolCloseLoopSurvivesThrowingSessionTeardown() {
+    var first = pool.acquire();
+    var second = pool.acquire();
+    var listener = new SessionListener() {
+      @Override
+      public void onClose(final DatabaseSessionEmbedded database) {
+        throw new AssertionError("forced teardown failure");
+      }
+    };
+    first.registerListener(listener);
+    second.registerListener(listener);
+    // Must not throw: each realClose is throw-isolated, so the loop reaches every session.
+    pool.close();
+    session.activateOnCurrentThread();
+    // The storage stays usable afterwards.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterThrowingPoolClose"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterThrowingPoolClose"));
   }
 }
