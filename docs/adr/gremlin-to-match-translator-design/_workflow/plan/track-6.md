@@ -19,6 +19,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T12:24Z [ctx=info] Step 2 complete (tip 0597b30ef6; DedupGlobalStepRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T12:38Z [ctx=info] Step 3 complete (tip d56953c3d1; GremlinProjectionRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T12:56Z [ctx=info] Step 4 complete (tip bd45c5a6b6; ByModulatorTranslatorTest + GremlinProjectionRecogniserTest + DedupGlobalStepRecogniserTest green)
+- [x] 2026-07-22T13:20Z [ctx=info] Step 5 complete (tip 6ea1e4fb7d; OrderRangeStepRecogniserTest + GremlinStepWalkerTest green)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -71,7 +72,7 @@ Two semantic hazards dominate this track:
 2. **`as(label)` propagation + `DedupGlobalStep`** — propagate `as(label)` to the most recent pattern node's alias metadata (`MatchPatternBuilder` extension — T1); `DedupGlobalStep` → `returnDistinct` (no labels) or projection-over-labels + DISTINCT (named labels; decline when a label is not surfaced — A2). Detail: Plan of Work item 1. — `risk: medium` *(depends on Step 1)*  [x] commit: 0597b30ef6
 3. **`GremlinProjectionAssembler` + projection recognisers** — `PropertiesStep` (`values`), `PropertyMapStep` (`valueMap`/`elementMap`), `SelectStep`, `ProjectStep`; `EntityImpl.hasProperty(key)` absent-vs-null classification (R1); `dropOnAbsent` for single-key `values`; pin boundary output type per terminal (`MAP` / `SINGLE_VALUE`). Accept `PropertyType.VALUE` and `PropertyType.PROPERTY` on `PropertiesStep` (T3). Detail: Plan of Work item 2, Decision Log T1/R1. — `risk: high` *(depends on Steps 1–2)*  [x] commit: d56953c3d1
 4. **`ByModulatorTranslator`** (shared `match/builder/`) — key-side (`by("k")`, `by(T.id)`, `by(T.label)`, `__.values/id/label` unwraps, `Order.asc/desc`) and value-side (`by(__.count())`, `by(__.fold())`, …) via sub-walker capture (R3); declines edges/aggregates/lambdas/`Order.shuffle`/per-label-count-mismatch. Detail: Plan of Work item 3. — `risk: high` *(depends on Step 1)*  [x] commit: bd45c5a6b6
-5. **`OrderGlobalStep` + `RangeGlobalStep`** — `SQLOrderBy` (`Order.shuffle` declines); `SQLSkip` + `SQLLimit` (`range` → `limit = high - low`, unbounded high → skip-only). Detail: Plan of Work item 4. — `risk: medium` *(depends on Steps 1, 4)*
+5. **`OrderGlobalStep` + `RangeGlobalStep`** — `SQLOrderBy` (`Order.shuffle` declines); `SQLSkip` + `SQLLimit` (`range` → `limit = high - low`, unbounded high → skip-only). Detail: Plan of Work item 4. — `risk: medium` *(depends on Steps 1, 4)*  [x] commit: 6ea1e4fb7d
 6. **Aggregate recognisers + count short-circuit** — `count`/`sum`/`min`/`max`/`mean`/`group`/`groupCount` → `SQLProjection` + `SQLGroupBy`; `dropNullRows` per output type; consume `lastPropertyProjection` for `values("age").mean()` (A1); extract `handleHardwiredCountOnClass*` to shared helper, invoke from `MatchExecutionPlanner` (R2). Multi-label / non-polymorphic counts decline to `YTDBGraphCountStrategy`. Detail: Plan of Work items 5–6. — `risk: high` *(depends on Steps 1, 3, 4)*
 7. **Boundary projection + parity tests** — complete `YTDBMatchPlanStep` `MAP` / `SINGLE_VALUE` / `SCALAR` payload emission; `dropNullRows` row loop + `dropOnAbsent` entity check (R5); `group`/`groupCount` MAP accumulation; extend `EdgeTraversalEquivalenceTest` / new projection-equivalence tests for absent-vs-null, empty-input aggregates, order, pagination, dedup. Detail: Validation and Acceptance. — `risk: high` *(depends on Steps 1–6)*
 
@@ -133,6 +134,19 @@ Two semantic hazards dominate this track:
 - `ProjectStepRecogniser.java`, `SelectStepRecogniser.java`, `SelectOneStepRecogniser.java`, `DedupGlobalStepRecogniser.java`
 
 **Critical context:** Step 5 `OrderGlobalStepRecogniser` consumes `translateKeyModulator` + `parseSortDirection`. Step 6 group recognisers consume `translateValueModulator`.
+
+### Step 5 — commit 6ea1e4fb7d, 2026-07-22T13:20Z [ctx=info]
+**What was done:** Added `OrderGlobalStepRecogniser` (`order()` / `order().by(...)` → `SQLOrderBy`; bare/identity sorts by `@rid`; `Order.shuffle` declines) and `RangeGlobalStepRecogniser` (`limit`/`skip`/`range` → `SQLSkip`/`SQLLimit`). Registered both plus `RangeGlobalStepPlaceholder` in the production walker.
+
+**What was discovered:** TinkerPop encodes `skip(n)` as `RangeGlobalStep(n, -1)` (not `Long.MAX_VALUE` as the design draft guessed). Both unbounded sentinels are accepted.
+
+**What changed from plan:** Second `order`/`range` on the same walk declines rather than composing — Phase 1 restriction.
+
+**Key files:**
+- `OrderGlobalStepRecogniser.java`, `RangeGlobalStepRecogniser.java`, `GremlinStepWalker.java`
+- `OrderRangeStepRecogniserTest.java`, extended `GremlinStepWalkerTest.java`
+
+**Critical context:** Step 6 aggregates + count short-circuit; Step 7 completes boundary MAP/SINGLE_VALUE/SCALAR emission and parity tests.
 
 ## Validation and Acceptance
 - `select` / `values` / `valueMap` / `elementMap` / `project` translate and match native multisets, with the correct boundary output type per terminal step.
