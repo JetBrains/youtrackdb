@@ -20,8 +20,18 @@
 # workflow-level GITHUB_TOKEN is deliberately given no permissions
 # (permissions: {}); the audit uses the dedicated token instead.
 #
+# NOTE: until that secret is provisioned, every scheduled run will FAIL
+# (red) and fire the daily Zulip alert. A maintainer seeing daily
+# red/alerts should first confirm the FORK_POLICY_AUDIT_TOKEN secret
+# exists before assuming an actual policy drift.
+#
 # Scheduled + manual dispatch only — it never runs on pull_request or
 # push events, so it cannot be triggered (or observed) by fork PRs.
+#
+# NOTE: GitHub runs `schedule` triggers only from the repository's
+# DEFAULT branch (develop). This workflow is therefore not exercised on
+# the daily cron until it merges to develop; before then it can only be
+# run manually via workflow_dispatch.
 # ------------------------------------------------------------------
 name: Fork Approval Policy Drift Check
 
