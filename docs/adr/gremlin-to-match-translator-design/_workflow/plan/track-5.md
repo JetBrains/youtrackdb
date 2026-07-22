@@ -12,7 +12,9 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 - [x] Review + decomposition (2 iterations: iter1 adversarial FAIL/A1 blocker → fixed; iter2 PASS)
 - [x] Step implementation (5/5 steps complete; +2 post-step refactors)
 - [x] Track-level code review (iter1 PASS — main-agent Auto review; 0 blockers, 0 should-fix, 4 suggestions deferred)
-- [ ] Track completion
+- [x] Track completion
+
+- [x] 2026-07-22T10:00Z [ctx=info] Track completion — see Episodes § Track completion
 
 - [x] 2026-07-20T16:15Z [ctx=info] Step 1 complete (commits 9b5b6d68e2 + dd10f274a8; dim-review bugs iter1→iter2 PASS after BG1 fix; 12 adapter tests green)
 - [x] 2026-07-20T16:45Z [ctx=info] Step 2 complete (tip 259afc3394; dim-review bugs iter1 FAIL BG1+BG2 → Review fix → iter2 PASS)
@@ -52,6 +54,8 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
 **Phase C track review (2026-07-21, iter1).** Sub-agent fan-out blocked by API usage limits; completed as main-agent Auto review across bugs / code-quality / test-quality / performance / concurrency. **Gate: PASS** — 0 blockers, 0 should-fix. Deferred suggestions: BG1 latent `matchExpressions` fingerprint gap (same as Step 5), BG2 sub-walk reserved-prefix guard (Track 6), CQ1 optional Javadoc on `VertexStepContract` widening, TQ1 optional combinator+cache integration test. Step 1 BG1 (`addNode` → `hasEdges`) verified fixed on cumulative diff.
+
+**Track completion (2026-07-22).** 5 steps + 2 post-step refactors; 0 failed. Post-Phase-C cache-structure cleanup (`AbstractMetadataUpdateCache` base class) deduplicated `YqlExecutionPlanCache` / `GqlExecutionPlanCache` / `GremlinPlanCache` listener boilerplate without behavioural change.
 
 **Narrowed-scope Phase A (2026-07-20).** Strategic trio against the logical-filters + D5 track (predicted tag `high` → Technical + Risk + Adversarial). mcp-steroid was not probed this session; symbol audits used codebase reads with reference-accuracy caveats in each review file. All three review files are the sub-agents' own output.
 
@@ -199,6 +203,14 @@ The `GremlinPlanCache` (D5) closes the seam Track 4 leaves open. Track 4's predi
 **What changed from plan:** Post-step refactor of Step 2 routing landed after Step 5; behaviour preserved, structure clarified.
 
 **Key files:** `CombinatorFoldedHopRecogniser.java` (new), `VertexHopRecogniser.java`, `VertexStepRecogniser.java`, `GremlinPatternAssembler.java`
+
+### Track completion — 2026-07-22T10:00Z [ctx=info]
+
+Track 5 delivers logical filters and the plan cache: `SubTraversalPredicateAdapter` + sub-walker seam (A4 alias isolation), `AndStepRecogniser` / `OrStepRecogniser` / `NotStepRecogniser` / `Where*` recognisers, `MatchPatternBuilder.buildNotExpression` for edge-bearing NOT, and `GremlinPlanCache` (D5) with `GremlinPlanFingerprint` + positional-parameter binding via `ParamSink`. Post-step refactors: `ParamSink` narrowing, `CombinatorFoldedHopRecogniser` extraction, `ConnectiveStepSupport.walkAcceptedChildren` shared walk phase.
+
+**Cross-track impact (Track 6):** `PropertiesStep` / `SelectStep` / projection recognisers can now register — `hasNot(key)`'s values-child branch no longer blocks on missing recognisers. `bindParam` + cache fingerprint are live; extend `GremlinPlanFingerprint` with `matchExpressions` before any positive detached-MATCH recogniser lands (BG1). Sub-walk reserved-`$` prefix guard (BG2) should land when `as(label)` propagation consumes child labels. `ByModulatorTranslator` value-side `by(__.count())` / `by(__.fold())` reuses the sub-walker from Step 1.
+
+5 steps + 2 post-step refactors, 0 failed.
 
 ## Validation and Acceptance
 - `and` (pure / edge-bearing / mixed children), `or` (pure-filter children; an edge-bearing child declines), `not` (both shapes), `where(traversal)`, and `where(P)` translate or decline per design; every declined walk leaves the parent context unmutated via whole-context discard.
