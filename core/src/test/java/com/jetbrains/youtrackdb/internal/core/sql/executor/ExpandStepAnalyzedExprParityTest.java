@@ -284,10 +284,13 @@ public class ExpandStepAnalyzedExprParityTest extends TestUtilsFixture {
    *
    * <p>Regression guard for the generic harness: {@link #parityEntityBackedExpandedRows()} agrees
    * between the IR and AST paths whether or not the null row participates, so it cannot by itself
-   * prove the null row is not silently dropped before the filter. This test asserts the row's exact
-   * presence/absence and its entity-backed nature directly. It also confirms empirically that
-   * {@code setProperty(_, null)} keeps the entity non-empty (rather than assuming it), so the row
-   * survives ExpandStep's "nothing to expand" guard and reaches the fast path.
+   * prove the null row is not silently dropped before the filter. This test asserts directly that
+   * the row survives expansion and is entity-backed: an {@code age IS NULL} filter yields exactly
+   * the null-{@code age} row (matched by its {@code name} marker), and that surviving row reports
+   * {@code isEntity() == true} — so the null-{@code age} comparison provably ran on a real
+   * EntityImpl (fast path), not a projection. The mirrored {@code age IS NOT NULL} filter excludes
+   * it. The row carries a non-null {@code name} marker purely to identify it in the result set;
+   * the coverage under test is the null {@code age} field, not entity non-emptiness.
    */
   @Test
   public void nullValuedEntityRowReachesFastPathFilter() {
