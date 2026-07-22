@@ -33,8 +33,11 @@ import org.junit.Test;
  * fails loudly instead of self-deadlocking; a foreign thread parks until release; and a mis-ordered
  * engage (from inside a held shared metadata lock) trips the engage-order assertion.
  *
- * <p>The abnormal-termination permit handshake and the freezer gate are a later track and are not
- * exercised here.
+ * <p>The abnormal-termination permit handshake IS exercised here: the widened teardown release
+ * pass, the Dekker teardown-intent pair (both deterministic shapes), the stranded-holder
+ * re-engage throw, the double-release single-permit proof, the pool-close skip protocol with the
+ * owner-as-completer, the atomic one-shot teardown claim, and the interruptible timed engage.
+ * Only the freezer gate remains a later step and is not exercised here.
  */
 public class MetadataWriteMutexTest extends DbTestBase {
 
@@ -639,34 +642,89 @@ public class MetadataWriteMutexTest extends DbTestBase {
   }
 
   /**
-   * A teardown whose rollback throws BEFORE the transaction's own close() ran must still release
-   * the permit (the widened release pass in internalClose's outer finally). The historical wedge:
-   * internalClose swallows a rollback throw and proceeds to CLOSED, but tx.close() — the normal
-   * release site — never runs, stranding the single permit forever. Driven by forcing the open
-   * transaction's status to ROLLED_BACK so rollbackInternal throws its "already rolled back"
-   * IllegalStateException before reaching close(), then closing the session and asserting the
-   * permit is free and immediately usable by the next writer.
+   * A teardown whose rollback SKIPS entirely — the transaction reads as already rolled back, so
+   * {@code session.rollback()}'s isActive gate bypasses rollbackInternal and tx.close() (the
+   * normal release site) never runs — must still release the permit through the widened release
+   * pass in internalClose's outer finally. Driven by forcing the open transaction's status to
+   * ROLLED_BACK: the teardown completes "normally" (no throw) but without ever reaching
+   * tx.close(). The sibling test below covers the teardown-THROWS shape of the same widened
+   * release contract.
    */
   @Test
-  public void teardownRollbackThrowBeforeTxCloseStillReleasesPermit() {
+  public void teardownWithSkippedRollbackStillReleasesPermit() {
     var mutex = session.getSharedContext().getMetadataWriteMutex();
     var victim = openDatabase();
     victim.activateOnCurrentThread();
     victim.begin();
-    victim.getMetadata().getSchema().createClass("RollbackThrowVictim");
+    victim.getMetadata().getSchema().createClass("RollbackSkipVictim");
     assertTrue("the schema write must engage the mutex", mutex.isEngagedBy(victim));
 
-    // Force the state rollbackInternal rejects loudly, so the teardown's rollback throws before
-    // tx.close() can run its release finally.
-    ((FrontendTransactionImpl) victim.getTransactionInternal())
-        .setStatus(FrontendTransaction.TXSTATUS.ROLLED_BACK);
+    // Force the state session.rollback()'s isActive gate skips: the teardown then never calls
+    // rollbackInternal, so tx.close() — and its release finally — never runs.
+    var tx = (FrontendTransactionImpl) victim.getTransactionInternal();
+    tx.setStatus(FrontendTransaction.TXSTATUS.ROLLED_BACK);
     victim.close();
 
     assertFalse("the widened outer-finally release pass must free the permit even when the"
-        + " teardown's rollback threw before tx.close()",
+        + " teardown's rollback was skipped and tx.close() never ran",
         mutex.isEngagedBy(victim));
+    // Clean up the transaction object the skipped rollback left dangling (its atomic operation
+    // was never deactivated and its tsMin never reset): close it explicitly on this thread.
+    victim.activateOnCurrentThread();
+    tx.close();
     // The permit is usable, not merely unrecorded: the next schema transaction proceeds.
     session.activateOnCurrentThread();
+    session.executeInTx(
+        tx2 -> session.getMetadata().getSchema().createClass("AfterRollbackSkip"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterRollbackSkip"));
+  }
+
+  /**
+   * A teardown that genuinely THROWS before tx.close() must still release the permit through the
+   * widened outer-finally release pass, with the failure propagating to the closer. Driven
+   * deterministically: a session listener's {@code onBeforeTxRollback} throws an
+   * {@link AssertionError}, which the listener loop does NOT swallow (it absorbs only
+   * {@code Exception}), so the teardown's rollback aborts before clear()/tx.close() and the error
+   * escapes internalClose — the exact pre-tx-close strand shape the widened release exists for.
+   * The failed teardown also releases the atomic teardown claim, so a later cleanup close can
+   * retry and fully close the broken session.
+   */
+  @Test
+  public void teardownThrowBeforeTxCloseStillReleasesPermit() {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var victim = openDatabase();
+    victim.activateOnCurrentThread();
+    var listener = new SessionListener() {
+      @Override
+      public void onBeforeTxRollback(
+          final com.jetbrains.youtrackdb.internal.core.tx.Transaction transaction) {
+        throw new AssertionError("forced pre-rollback teardown failure");
+      }
+    };
+    victim.registerListener(listener);
+    try {
+      victim.begin();
+      victim.getMetadata().getSchema().createClass("RollbackThrowVictim");
+      assertTrue("the schema write must engage the mutex", mutex.isEngagedBy(victim));
+      try {
+        victim.close();
+        fail("the teardown must propagate the pre-tx-close failure");
+      } catch (final AssertionError expected) {
+        assertTrue("the propagated failure must be the injected one",
+            expected.getMessage().contains("forced pre-rollback teardown failure"));
+      }
+      assertFalse("the widened outer-finally release pass must free the permit even when the"
+          + " teardown threw before tx.close()",
+          mutex.isEngagedBy(victim));
+    } finally {
+      // The failed teardown released the teardown claim, so this retry close completes the
+      // broken session's teardown (the listener is gone, the rollback proceeds normally).
+      victim.unregisterListener(listener);
+      victim.activateOnCurrentThread();
+      victim.close();
+      session.activateOnCurrentThread();
+    }
+    // The permit is usable by the next writer.
     session.executeInTx(
         tx -> session.getMetadata().getSchema().createClass("AfterRollbackThrow"));
     assertTrue(session.getMetadata().getSchema().existsClass("AfterRollbackThrow"));
@@ -756,6 +814,128 @@ public class MetadataWriteMutexTest extends DbTestBase {
     session.executeInTx(
         tx -> session.getMetadata().getSchema().createClass("AfterForeignTeardown"));
     assertTrue(session.getMetadata().getSchema().existsClass("AfterForeignTeardown"));
+  }
+
+  /**
+   * Dekker pair, post-acquire re-check shape (the engage-side belt of the V2 ordering): the
+   * teardown-intent mark lands while the engage is PARKED in the permit wait — past the loop-top
+   * self-check — so the engage ACQUIRES the permit and only then sees the mark; it must
+   * self-release through the atomic claim and throw. Deterministic drive: the engage parks behind
+   * a held permit, the mark is set while it is parked, then the holder releases — the woken
+   * tryAcquire succeeds and the next mark read is the post-acquire re-check. The distinct
+   * "while engaging" message pins that exact branch (the loop-top arm says "while waiting to
+   * engage"); the permit must be free afterwards (self-released, not stranded).
+   */
+  @Test
+  public void postAcquireDekkerRecheckSelfReleasesAndThrows() throws InterruptedException {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var holderOrdinal = mutex.engage(session); // the permit is held, so the victim's engage parks
+    var victimRef = new AtomicReference<DatabaseSessionEmbedded>();
+    var victimThrown = new AtomicReference<Throwable>();
+    var victimReady = new CountDownLatch(1);
+    var victimDone = new CountDownLatch(1);
+    var worker = spawn(() -> {
+      var victim = openDatabase();
+      victimRef.set(victim);
+      try {
+        victim.activateOnCurrentThread();
+        victim.begin();
+        victimReady.countDown();
+        try {
+          // Parks in the engage wait; after the holder releases, the acquire succeeds and the
+          // post-acquire re-check sees the mark set below.
+          victim.getMetadata().getSchema().createClass("PostAcquireDekker");
+        } catch (Throwable t) {
+          victimThrown.set(t);
+        } finally {
+          victim.getTransactionInternal().rollbackInternal();
+          victim.clearTeardownIntent();
+          victim.close();
+        }
+      } finally {
+        victimDone.countDown();
+      }
+    }, "post-acquire-dekker-victim");
+
+    try {
+      assertTrue(victimReady.await(5, TimeUnit.SECONDS));
+      var state = awaitThreadParked(worker, 5_000);
+      assertTrue("the victim must park on the held permit, observed state " + state,
+          state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+      // The mark lands while the victim is parked INSIDE the permit wait — past its loop-top
+      // check — so only the post-acquire re-check can see it.
+      victimRef.get().markTeardownIntent();
+    } finally {
+      mutex.releaseFor(session, holderOrdinal);
+    }
+
+    assertTrue("the victim must finish", victimDone.await(15, TimeUnit.SECONDS));
+    assertNotNull("the marked victim's engage must have failed", victimThrown.get());
+    assertTrue("the failure must be the post-acquire self-release branch (message pins the"
+        + " 'while engaging' arm, not the loop-top 'while waiting' arm): " + victimThrown.get(),
+        victimThrown.get() instanceof DatabaseException
+            && victimThrown.get().getMessage().contains("while engaging the metadata-write mutex"));
+    // The self-release freed the permit: the next writer engages and commits.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterPostAcquireDekker"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterPostAcquireDekker"));
+  }
+
+  /**
+   * The atomic one-shot teardown claim: two racing full teardowns of one session run EXACTLY one
+   * full teardown body — the close listeners fire once and the storage session count is
+   * decremented once (a double decrement would skew the count and could auto-close the storage
+   * under a live session). Deterministic under any interleaving: the first teardown is held open
+   * INSIDE its close listener while the second teardown runs to completion — with a plain
+   * status-based guard the second would pass (the status flips CLOSED only after the listeners)
+   * and double-run; with the claim it must no-op.
+   */
+  @Test
+  public void concurrentTeardownsRunExactlyOneFullTeardown() throws InterruptedException {
+    var victim = openDatabase();
+    var closeListenerFired = new AtomicLong();
+    var firstInListener = new CountDownLatch(1);
+    var releaseListener = new CountDownLatch(1);
+    victim.registerListener(new SessionListener() {
+      @Override
+      public void onClose(final DatabaseSessionEmbedded database) {
+        closeListenerFired.incrementAndGet();
+        firstInListener.countDown();
+        try {
+          releaseListener.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      }
+    });
+
+    var first = spawn(() -> {
+      victim.activateOnCurrentThread();
+      victim.internalClose(false);
+    }, "teardown-first");
+    assertTrue("the first teardown must reach its close listener",
+        firstInListener.await(5, TimeUnit.SECONDS));
+
+    // The second teardown runs while the first is mid-body (status still OPEN): it must no-op on
+    // the atomic claim rather than double-running the listeners and the session-count decrement.
+    var second = spawn(() -> {
+      victim.activateOnCurrentThread();
+      victim.internalClose(false);
+    }, "teardown-second");
+    second.join(5_000);
+    assertFalse("the losing teardown must no-op promptly", second.isAlive());
+
+    releaseListener.countDown();
+    first.join(5_000);
+    assertFalse("the winning teardown must complete", first.isAlive());
+    assertEquals("exactly one full teardown may run (single listener firing, single"
+        + " session-count decrement)", 1L, closeListenerFired.get());
+
+    // The storage session accounting is intact: another session opens, works, and closes.
+    session.activateOnCurrentThread();
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().createClass("AfterClaimRace"));
+    assertTrue(session.getMetadata().getSchema().existsClass("AfterClaimRace"));
   }
 
   /**
@@ -894,9 +1074,21 @@ public class MetadataWriteMutexTest extends DbTestBase {
       assertTrue("the owner must park inside the commit window",
           inWindow.await(10, TimeUnit.SECONDS));
 
-      // Pool close while the owner is mid-commit: the skip branch marks and defers. It must
-      // return promptly (it neither parks on the commit nor tears the live transaction down).
-      pool.close();
+      // Pool close while the owner is mid-commit: the skip branch marks and defers. Run it on
+      // its own thread with a bounded await so a skip regression (a full teardown that parks on
+      // the commit's held locks) FAILS the test instead of hanging the fork — the window latch is
+      // still released by the finally below either way.
+      var poolCloseDone = new CountDownLatch(1);
+      spawn(() -> {
+        try {
+          pool.close();
+        } finally {
+          poolCloseDone.countDown();
+        }
+      }, "pool-closer");
+      assertTrue("pool.close() must return promptly — the skip must neither park on the live"
+          + " commit nor tear it down",
+          poolCloseDone.await(10, TimeUnit.SECONDS));
       var pooled = pooledRef.get();
       assertNotNull(pooled);
       // Lock-free status probe: isClosed() would take the storage state lock and block behind

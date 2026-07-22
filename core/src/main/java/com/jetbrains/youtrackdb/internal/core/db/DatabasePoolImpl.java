@@ -136,9 +136,10 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
         } catch (final Throwable perSessionCloseFailure) {
           LogManager.instance()
               .error(this,
-                  "Failed to close a pooled session during pool shutdown; continuing with the"
-                      + " remaining sessions",
-                  perSessionCloseFailure);
+                  "Failed to close pooled session %08X of database '%s' during pool shutdown;"
+                      + " continuing with the remaining sessions",
+                  perSessionCloseFailure,
+                  System.identityHashCode(res), res.getDatabaseName());
         }
       }
       p.close();

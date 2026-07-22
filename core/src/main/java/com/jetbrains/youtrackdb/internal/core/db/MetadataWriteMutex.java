@@ -143,8 +143,13 @@ public final class MetadataWriteMutex {
     while (true) {
       // Loop-top self-check: a waiter whose own session was marked for teardown (or closed) must
       // abort instead of acquiring — otherwise a pool shutdown could park behind a permit only to
-      // engage it on a session that no longer has a releaser.
-      if (session.isTeardownIntentMarked() || session.isClosed()) {
+      // engage it on a session that no longer has a releaser. The status probe is the LOCK-FREE
+      // getStatus() read, deliberately not isClosed(): isClosed() consults the storage state lock
+      // (stateLock.readLock), which would block this waiter uninterruptibly and WARN-silently
+      // behind any in-flight commit window — defeating the loop's own diagnostics and
+      // interruptibility pins.
+      if (session.isTeardownIntentMarked()
+          || session.getStatus() == DatabaseSessionEmbedded.STATUS.CLOSED) {
         throw new DatabaseException(session.getDatabaseName(),
             "the session was closed while waiting to engage the metadata-write mutex; "
                 + describeHolder());

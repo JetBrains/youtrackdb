@@ -46,10 +46,15 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
   @Override
   public void reuse() {
     activateOnCurrentThread();
-    // Second belt against a stale Dekker teardown-intent mark surviving into this fresh borrow:
-    // a marked session's first mutex engage would self-abort on a healthy session. The primary
-    // belt is that a guard-returning no-op close never plants the mark in the first place.
+    // Clear the Dekker teardown-intent mark for this fresh borrow. For a RECYCLED session this
+    // clear is the ONLY belt: the recycle teardown (internalClose(true)) legitimately marks — it
+    // tears — so every returned session arrives here marked, and without the clear the borrower's
+    // first mutex engage would self-abort on a healthy session. (The no-mark-on-no-op-close rule
+    // guards a different path: a guard-returning close that tears nothing.) The teardown claim is
+    // reset for the same reason — the recycle teardown consumed it, and the next close of this
+    // borrow must be able to claim its own teardown.
     clearTeardownIntent();
+    resetTeardownClaim();
     setStatus(STATUS.OPEN);
   }
 
@@ -81,11 +86,19 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
       // internalClose on the owning thread after its tx closes. Nothing pool-thread-private was
       // planted before this check (activation happens only on the fall-through below), so there
       // is nothing to remove here.
+      //
+      // The message is pre-formatted and passed through the (requester, message, Throwable)
+      // overload: a (requester, String, String) call shape would resolve to the
+      // (requester, dbName, message) overload and log only the database name, losing the
+      // diagnostic entirely.
       LogManager.instance()
           .warn(this,
-              "Pool close found session of database '%s' mid-commit on its owner thread;"
-                  + " deferring the session teardown to the committing owner",
-              getDatabaseName());
+              String.format(
+                  "Pool close found session %08X of database '%s' mid-commit on its owner thread"
+                      + " (tx status %s); deferring the session teardown to the committing owner",
+                  System.identityHashCode(this), getDatabaseName(),
+                  getTransactionStatusForDiagnostics()),
+              (Throwable) null);
       return;
     }
     activateOnCurrentThread();
