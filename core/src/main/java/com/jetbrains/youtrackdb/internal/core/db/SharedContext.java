@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -23,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantLock;
@@ -32,10 +34,13 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   /**
    * Matches the names of the storage-birth blob collections ({@code $blob0..N-1}) created by
-   * {@link AbstractStorage} inside the storage-create atomic operation. Storage collection names
-   * are stored lower-cased, so no case folding is needed here.
+   * {@link AbstractStorage} inside the storage-create atomic operation. Derived from the shared
+   * {@link MetadataDefault#BLOB_COLLECTION_NAME_PREFIX} constant the creator loop uses, so the
+   * two sides of the name contract cannot drift apart. Storage collection names are stored
+   * lower-cased, so no case folding is needed here.
    */
-  private static final Pattern BLOB_COLLECTION_NAME_PATTERN = Pattern.compile("\\$blob\\d+");
+  private static final Pattern BLOB_COLLECTION_NAME_PATTERN =
+      Pattern.compile(Pattern.quote(MetadataDefault.BLOB_COLLECTION_NAME_PREFIX) + "\\d+");
 
   protected YouTrackDBInternalEmbedded youtrackDB;
   protected AbstractStorage storage;
@@ -211,7 +216,11 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       // second config read routes through the process-global mutable fallback and could observe
       // a different value than storage birth did, registering bogus ids or leaving physical
       // blob collections unregistered. The count is frozen at storage birth by construction.
-      for (var collectionName : storage.getCollectionNames()) {
+      // The names are snapshotted defensively: getCollectionNames() returns a live view of the
+      // storage's collection map, and each registration below self-commits the schema root —
+      // safe today (a root save never allocates a collection), but a copy keeps a future
+      // save-path change from turning genesis into a ConcurrentModificationException.
+      for (var collectionName : List.copyOf(storage.getCollectionNames())) {
         if (BLOB_COLLECTION_NAME_PATTERN.matcher(collectionName).matches()) {
           schema.addBlobCollection(session, storage.getCollectionIdByName(collectionName));
         }

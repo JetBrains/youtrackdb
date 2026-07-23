@@ -38,6 +38,16 @@ import javax.annotation.Nullable;
 public class MetadataDefault implements MetadataInternal {
 
   public static final String COLLECTION_INTERNAL_NAME = "internal";
+
+  /**
+   * Name prefix of the storage-birth blob collections ({@code $blob0..N-1}). Shared between the
+   * creator loop in {@code AbstractStorage.doCreate} and the register-only enumeration in
+   * {@code SharedContext.create}, so the two sides of the name contract cannot drift apart. The
+   * concrete {@code $blob<i>} shape itself is a design-pinned constant (Track 8 ruling R3) —
+   * tests pin the literal independently on purpose.
+   */
+  public static final String BLOB_COLLECTION_NAME_PREFIX = "$blob";
+
   protected int schemaCollectionId;
 
   protected SchemaProxy schema;

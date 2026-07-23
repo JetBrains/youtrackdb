@@ -38,9 +38,9 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     // below runs. The record used to be pinned as #1:3 (a genesis security record under the
     // pre-Track-8 fresh-DB layout); since the $blob* collections moved to the storage-birth
     // slots 1..N, the target is resolved dynamically so the test is layout-independent.
-    var internalRid = session.query("select from OSecurityPolicy limit 1")
-        .next().getIdentity();
-    session.load(internalRid);
+    try (var result = session.query("select from OSecurityPolicy limit 1")) {
+      session.load(result.next().getIdentity());
+    }
     session.commit();
 
     session.begin();

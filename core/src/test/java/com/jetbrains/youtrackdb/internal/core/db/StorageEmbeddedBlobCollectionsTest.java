@@ -4,6 +4,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
@@ -215,26 +216,85 @@ public class StorageEmbeddedBlobCollectionsTest {
     youTrackDB = createContext();
     var dbName = "blobDiskReopen";
     youTrackDB.create(dbName, DatabaseType.DISK, "admin", ADMIN_PASSWORD, "admin");
-    Set<Integer> storageIds;
-    RID rid;
-    try (var session = youTrackDB.open(dbName, "admin", ADMIN_PASSWORD)) {
-      storageIds = storageBlobCollectionIds(session);
-      session.begin();
-      var blob = session.newBlob(PAYLOAD);
-      session.commit();
-      rid = blob.getIdentity();
+    // The drop rides an outer finally spanning BOTH session blocks, so a failure in the first
+    // block cannot leak the on-disk database directory; the drop goes through whichever
+    // context is current at that point (the field is reassigned by the mid-test reopen).
+    try {
+      Set<Integer> storageIds;
+      RID rid;
+      try (var session = youTrackDB.open(dbName, "admin", ADMIN_PASSWORD)) {
+        storageIds = storageBlobCollectionIds(session);
+        session.begin();
+        var blob = session.newBlob(PAYLOAD);
+        session.commit();
+        rid = blob.getIdentity();
+      }
+      // Full context close: the reopened context loads a fresh SharedContext from disk.
+      youTrackDB.close();
+      youTrackDB = createContext();
+      try (var session = youTrackDB.open(dbName, "admin", ADMIN_PASSWORD)) {
+        assertEquals("the blob registration must survive a disk reopen",
+            storageIds, registeredBlobCollectionIds(session));
+        session.begin();
+        var loaded = session.<Blob>load(rid);
+        assertArrayEquals("the blob payload must survive a disk reopen",
+            PAYLOAD, loaded.toStream());
+        session.rollback();
+      }
+    } finally {
+      youTrackDB.drop(dbName);
     }
-    // Full context close: the reopened context loads a fresh SharedContext from disk.
-    youTrackDB.close();
+  }
+
+  /**
+   * A NEGATIVE {@code STORAGE_BLOB_COLLECTIONS_COUNT} is a misconfiguration: it would silently
+   * produce a database that can never store blobs, failing only at the first blob save with a
+   * message that never names the knob — and the count is frozen for the database's lifetime.
+   * Storage creation must therefore reject it loudly at create time, with the failure naming
+   * the configuration key.
+   */
+  @Test
+  public void negativeBlobCollectionsCountIsRejectedAtCreateTime() {
     youTrackDB = createContext();
+    var dbName = "blobNegativeCount";
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT, -1)
+        .build();
+    try {
+      youTrackDB.create(dbName, DatabaseType.MEMORY, config, "admin", ADMIN_PASSWORD, "admin");
+      fail("a negative blob-collections count must be rejected at storage-create time");
+    } catch (RuntimeException e) {
+      // The create failure is wrapped on the way out; the root cause must name the knob so the
+      // operator can find the misconfigured parameter.
+      var messages = new StringBuilder();
+      for (Throwable t = e; t != null; t = t.getCause()) {
+        messages.append(t.getMessage()).append('\n');
+      }
+      assertTrue("the create-time rejection must name the misconfigured knob, saw: " + messages,
+          messages.toString()
+              .contains(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT.getKey()));
+    }
+  }
+
+  /**
+   * A count of ZERO stays allowed: it is a deliberate blob-less database. Creation succeeds, no
+   * {@code $blob*} collection exists, and the schema registration is empty.
+   */
+  @Test
+  public void zeroBlobCollectionsCountCreatesBlobLessDatabase() {
+    youTrackDB = createContext();
+    var dbName = "blobZeroCount";
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT, 0)
+        .build();
+    youTrackDB.create(dbName, DatabaseType.MEMORY, config, "admin", ADMIN_PASSWORD, "admin");
     try (var session = youTrackDB.open(dbName, "admin", ADMIN_PASSWORD)) {
-      assertEquals("the blob registration must survive a disk reopen",
-          storageIds, registeredBlobCollectionIds(session));
-      session.begin();
-      var loaded = session.<Blob>load(rid);
-      assertArrayEquals("the blob payload must survive a disk reopen",
-          PAYLOAD, loaded.toStream());
-      session.rollback();
+      assertTrue("a zero-count database must have no physical $blob* collections",
+          storageBlobCollectionIds(session).isEmpty());
+      assertTrue("a zero-count database must register no blob collections",
+          registeredBlobCollectionIds(session).isEmpty());
     } finally {
       youTrackDB.drop(dbName);
     }
