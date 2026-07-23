@@ -202,8 +202,10 @@ public final class MetadataWriteMutex {
       // method, a mismatch here means a stale or duplicate release attempt worth diagnosing.
       LogManager.instance()
           .warn(this,
-              "metadata-write mutex release for ordinal %d skipped: %s",
-              expectedOrdinal, describeHolder());
+              "metadata-write mutex release skipped for requester session %08X of database '%s'"
+                  + " (presented ordinal %d): %s",
+              System.identityHashCode(session), session.getDatabaseName(), expectedOrdinal,
+              describeHolder());
       return;
     }
     if (holder.compareAndSet(current, null)) {
@@ -212,9 +214,10 @@ public final class MetadataWriteMutex {
       // A concurrent releaser won the CAS between our read and our CAS; it releases the permit.
       LogManager.instance()
           .warn(this,
-              "metadata-write mutex release for ordinal %d lost the clear race; the concurrent"
-                  + " releaser owns the permit release",
-              expectedOrdinal);
+              "metadata-write mutex release for requester session %08X of database '%s'"
+                  + " (presented ordinal %d) lost the clear race; the concurrent releaser owns"
+                  + " the permit release",
+              System.identityHashCode(session), session.getDatabaseName(), expectedOrdinal);
     }
   }
 

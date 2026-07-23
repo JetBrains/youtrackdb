@@ -72,7 +72,8 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
     // completer — so at least one side always runs the full teardown: if our re-check below still
     // sees the commit in flight, the owner's later mark-read sees this mark and completes; if the
     // commit already finished, we fall through to the full teardown ourselves. Both acting is the
-    // benign overlap case, contained by the one-shot close guard and the atomic release claim.
+    // benign overlap case, contained by the atomic teardown claim inside internalClose (exactly
+    // one full teardown proceeds) and the atomic release claim (exactly one permit release).
     markTeardownIntent();
     if (hasInFlightForeignCommit()) {
       // The Q-A2 skip: this session's transaction is COMMITTING on its owner's thread right now.
@@ -82,7 +83,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
       // commit. Perform ONLY the whitelist: the mark is set (above) and we log; deliberately NO
       // rollback/clear, NO mutex release (the owner's own close releases the live commit's
       // permit), NO status flip, NO session-count decrement, NO cache/sharedContext teardown, and
-      // the internalClose one-shot guard is NOT consumed — the owner's completer runs the full
+      // the internalClose teardown claim is NOT consumed — the owner's completer runs the full
       // internalClose on the owning thread after its tx closes. Nothing pool-thread-private was
       // planted before this check (activation happens only on the fall-through below), so there
       // is nothing to remove here.

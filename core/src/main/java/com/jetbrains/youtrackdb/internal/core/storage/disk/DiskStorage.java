@@ -60,6 +60,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
@@ -354,7 +355,10 @@ public class DiskStorage extends AbstractStorage {
     java.io.File[] nonActiveSegments;
 
     LogSequenceNumber lastLSN;
-    final var freezeId = getAtomicOperationsManager().freezeWriteOperations(null);
+    // A TRANSIENT self-quiesce (the incremental-backup WAL copy): bounded by the copy body, so
+    // schema commits may park behind it exactly like data commits.
+    final var freezeId =
+        getAtomicOperationsManager().freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
     try {
       lastLSN = writeAheadLog.end();
       writeAheadLog.flush();
@@ -1246,7 +1250,10 @@ public class DiskStorage extends AbstractStorage {
     try {
       final long startSegment;
       final LogSequenceNumber freezeLsn;
-      final var newSegmentFreezeId = atomicOperationsManager.freezeWriteOperations(null);
+      // A TRANSIENT self-quiesce (the backup segment cut): bounded by the cut body, so schema
+      // commits may park behind it exactly like data commits.
+      final var newSegmentFreezeId =
+          atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
       try {
         final var startLsn = writeAheadLog.end();
         if (startLsn != null) {

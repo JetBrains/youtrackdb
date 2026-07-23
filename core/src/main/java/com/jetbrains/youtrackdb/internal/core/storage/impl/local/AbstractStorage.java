@@ -120,6 +120,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStor
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
@@ -2522,36 +2523,58 @@ public abstract class AbstractStorage
       final var txSchemaState = session.getTxSchemaState();
       final boolean schemaCarry = txSchemaState != null;
 
+      // Freezer-gate checkpoint (1): the best-effort entry probe, hoisted ABOVE the snapshot pin
+      // so its throw has genuinely zero side effects — no pin taken, no lock held, no WAL or
+      // table state. It catches the common pre-engaged operator freeze at the cheapest point;
+      // the later checkpoints stay the authoritative backstop for a freeze engaging after this
+      // probe passed. Data commits are not probed — their freeze semantics are byte-for-byte
+      // unchanged.
+      if (schemaCarry && isOperatorFreezeActive()) {
+        throw operatorFreezeGateException();
+      }
+
       session.getMetadata().makeThreadLocalSchemaSnapshot();
+      // Single-owner pin/clear pairing: this NESTED try opens immediately after the pin above and
+      // its finally performs the SOLE clear — lexically paired with the pin, deliberately NOT the
+      // method's outermost try (which precedes the pin and the hoisted probe: an outermost-finally
+      // clear would fire on pre-pin throws, including probe rejections, and drive the pin count
+      // negative). Every escape path after the pin — the write-lock abort throw, the in-freezer
+      // gate throws, any applyCommitOperations exception (including ordinary version-conflict
+      // aborts), and success — funnels through this one clear exactly once; applyCommitOperations
+      // itself no longer clears. This pairing also covers throws from the index-operation sort
+      // and atomic-operation reads below, which previously sat between the pin and the old clear.
+      try {
+        final var indexOperations = getSortedIndexOperations(frontendTransaction);
+        final var atomicOperation = frontendTransaction.getAtomicOperation();
+        final List<RecordOperation> result = new ArrayList<>(8);
 
-      final var indexOperations = getSortedIndexOperations(frontendTransaction);
-      final var atomicOperation = frontendTransaction.getAtomicOperation();
-      final List<RecordOperation> result = new ArrayList<>(8);
-
-      if (schemaCarry) {
-        commitSchemaCarry(frontendTransaction, session, txSchemaState, indexOperations,
-            atomicOperation, allocated, result);
-      } else {
-        stateLock.readLock().lock();
-        try {
-          applyCommitOperations(frontendTransaction, session, indexOperations, atomicOperation,
-              allocated, null, result);
-        } finally {
-          stateLock.readLock().unlock();
+        if (schemaCarry) {
+          commitSchemaCarry(frontendTransaction, session, txSchemaState, indexOperations,
+              atomicOperation, allocated, result);
+        } else {
+          stateLock.readLock().lock();
+          try {
+            applyCommitOperations(frontendTransaction, session, indexOperations, atomicOperation,
+                allocated, null, result);
+          } finally {
+            stateLock.readLock().unlock();
+          }
         }
-      }
 
-      if (logger.isDebugEnabled()) {
-        LogManager.instance()
-            .debug(
-                this,
-                "%d Committed transaction %d on database '%s' (result=%s)",
-                logger, Thread.currentThread().threadId(),
-                frontendTransaction.getId(),
-                session.getDatabaseName(),
-                result);
+        if (logger.isDebugEnabled()) {
+          LogManager.instance()
+              .debug(
+                  this,
+                  "%d Committed transaction %d on database '%s' (result=%s)",
+                  logger, Thread.currentThread().threadId(),
+                  frontendTransaction.getId(),
+                  session.getDatabaseName(),
+                  result);
+        }
+        return result;
+      } finally {
+        session.getMetadata().clearThreadLocalSchemaSnapshot();
       }
-      return result;
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2763,7 +2786,7 @@ public abstract class AbstractStorage
       // populate the engines after the record apply, publish into the shared index maps after
       // commitChanges. Null on a pure-data commit and on a schema-carry commit with no index delta.
       IndexManagerEmbedded.ReconciledIndexPlan indexPlan = null;
-      startTxCommit(atomicOperation);
+      startTxCommit(atomicOperation, schemaContext != null);
       try {
         if (schemaContext != null) {
           // The reconciliation publishes created collections into the live registries inside its own
@@ -3205,7 +3228,10 @@ public abstract class AbstractStorage
       }
     } finally {
       atomicOperationsManager.ensureThatComponentsUnlocked(atomicOperation);
-      session.getMetadata().clearThreadLocalSchemaSnapshot();
+      // The thread-local schema snapshot pinned at commit entry is deliberately NOT cleared here:
+      // commit() owns the pin/clear pairing as a single owner (the nested finally right after its
+      // pin), so every escape path clears exactly once — a second clear here would drive the pin
+      // count negative on every failed commit.
     }
   }
 
@@ -3242,7 +3268,20 @@ public abstract class AbstractStorage
     try {
       indexManager.acquireExclusiveLockForCommit();
       try {
-        stateLock.writeLock().lock();
+        // Freezer-gate checkpoint (2): acquire the storage write lock through the
+        // abort-predicate single-acquisition primitive. A plain lock() here could block
+        // indefinitely behind readers while an operator freeze engages — with the two metadata
+        // locks held, that converts the freeze into a schema-read outage; and a queued plain
+        // writer would stall every new reader behind it (writer preference). The primitive
+        // acquires the write bit once (bounded by the residual reader residence — no
+        // release-on-timeout retry window for readers to slip through) and aborts within one
+        // poll granularity when the operator-kind predicate turns true; on abort nothing is
+        // held and no reader is queued behind a gave-up writer, and the two metadata locks
+        // unwind through the enclosing finallys.
+        if (!stateLock.exclusiveLockWithAbort(
+            this::isOperatorFreezeActive, OPERATOR_FREEZE_ABORT_POLL_NANOS)) {
+          throw operatorFreezeGateException();
+        }
         try {
           // Open the lock-free commit window: schema toStream/fromStream and the record-read path
           // re-enter stateLock.readLock() through session.load, which would busy-spin forever on the
@@ -5574,7 +5613,12 @@ public abstract class AbstractStorage
    */
   private void doSynch() {
     final var synchStartedAt = System.nanoTime();
-    final var lockId = atomicOperationsManager.freezeWriteOperations(null);
+    // A TRANSIENT self-quiesce: bounded by the flush body, so schema commits may park behind it
+    // exactly like data commits. Note the legal nesting: freeze() (an OPERATOR freeze) calls this
+    // method inside its own frozen window, taking the freeze-request count 1->2->1 while the
+    // operator-kind count stays 1 — the kind counters tolerate it by construction.
+    final var lockId =
+        atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
     try {
       checkOpennessAndMigration();
 
@@ -5746,12 +5790,17 @@ public abstract class AbstractStorage
           flushDirtyHistograms();
         }
 
+        // Both arms are OPERATOR freezes (the admin-initiated filesystem-snapshot freeze, of
+        // unbounded duration until release()): the kind arms the schema-commit gate, so a
+        // schema-carrying commit aborts loudly instead of parking inside its four-lock window
+        // for the freeze's whole duration.
         if (throwException) {
           atomicOperationsManager.freezeWriteOperations(
+              FreezeKind.OPERATOR,
               () -> new ModificationOperationProhibitedException(name,
                   "Modification requests are prohibited"));
         } else {
-          atomicOperationsManager.freezeWriteOperations(null);
+          atomicOperationsManager.freezeWriteOperations(FreezeKind.OPERATOR, null);
         }
 
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
@@ -5796,6 +5845,8 @@ public abstract class AbstractStorage
         }
       }
 
+      // The -1 sentinel maps explicitly to the OPERATOR decrement on the release side: this is
+      // the operator freeze()'s paired release, and it never retained its freeze id.
       atomicOperationsManager.unfreezeWriteOperations(-1);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -6590,7 +6641,53 @@ public abstract class AbstractStorage
   }
 
   private void startTxCommit(AtomicOperation atomicOperation) {
-    atomicOperationsManager.startToApplyOperations(atomicOperation);
+    startTxCommit(atomicOperation, false);
+  }
+
+  /**
+   * Starts the commit's apply window, threading the schema-arm signal into the freezer: a
+   * schema-carrying commit's entrant carries the shared gate-exception factory so the freezer's
+   * loop-top and park-decision checkpoints abort it loudly under an operator freeze instead of
+   * parking it with all four locks held. Data commits enter unarmed — byte-for-byte the
+   * historical park semantics.
+   */
+  private void startTxCommit(AtomicOperation atomicOperation, final boolean schemaArmed) {
+    atomicOperationsManager.startToApplyOperations(atomicOperation, schemaArmed,
+        schemaArmed ? this::operatorFreezeGateException : null);
+  }
+
+  /**
+   * The poll bound of the checkpoint-(2) write-lock acquisition: the phase-1 per-attempt park
+   * bound of {@code exclusiveLockWithAbort} and thus the coarsest operator-freeze abort latency
+   * while queued; the phase-2 drain polls the predicate per iteration regardless. 1ms keeps the
+   * abort latency negligible against an operator freeze's (human-scale) duration while adding no
+   * measurable cost to the rare schema-commit path.
+   */
+  private static final long OPERATOR_FREEZE_ABORT_POLL_NANOS =
+      TimeUnit.MILLISECONDS.toNanos(1);
+
+  /**
+   * The single kind probe of the schema-commit freezer gate (Q-B3 shared-helper pin): the entry
+   * probe, the write-lock abort predicate, and — through the threaded supplier — the two
+   * in-freezer checkpoints all read this one counter probe, so the four checkpoints cannot
+   * drift.
+   */
+  private boolean isOperatorFreezeActive() {
+    return atomicOperationsManager.isOperatorFreezeActive();
+  }
+
+  /**
+   * The single gate-exception factory of the schema-commit freezer gate (Q-B5): the stable,
+   * tested message names the storage and distinguishes a gate/probe abort from the legacy
+   * throw-mode freeze supplier's wording. Type {@link ModificationOperationProhibitedException}
+   * (a {@code HighLevelException}), so the abort is loud, retryable, and never moves the storage
+   * to error state.
+   */
+  private ModificationOperationProhibitedException operatorFreezeGateException() {
+    return new ModificationOperationProhibitedException(name,
+        "Schema commit aborted: operator freeze in progress on storage '" + name
+            + "' - modifications are prohibited until release; retry after the storage is"
+            + " released");
   }
 
   private void recoverIfNeeded() throws Exception {
