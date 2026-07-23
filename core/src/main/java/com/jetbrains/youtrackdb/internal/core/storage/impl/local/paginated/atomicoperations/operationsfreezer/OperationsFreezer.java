@@ -126,6 +126,13 @@ public final class OperationsFreezer {
           throw schemaGate.get();
         }
 
+        // Pinned contract (BG8, user-ruled 2026-07-23): an entrant that was already PARKED
+        // under an earlier park-mode freeze and is woken by a throw-mode operator freeze's
+        // arm cut re-evaluates here and THROWS the registered supplier's exception
+        // deterministically — it does not park through to completion after the release, as the
+        // pre-gate code happened to do. Intentional, not a regression: throw-mode means the
+        // operator explicitly requested loud failure for write operations, and LockSupport's
+        // spurious-wakeup spec never guaranteed park-through anyway.
         throwFreezeExceptionIfNeeded();
 
         final var thread = Thread.currentThread();
@@ -209,7 +216,10 @@ public final class OperationsFreezer {
       // cut protocol is single-cutter-only; the unserialized two-cutter shape wedges a freezer
       // thread on a link latch forever, the liveness defect the same test pins). The wake
       // is a deliberate, bounded thundering herd (Q-B4): parked DATA entrants wake, re-evaluate,
-      // and re-park through the loop (none is admitted — freezeRequests is positive); a parked
+      // and re-park through the loop (none is admitted — freezeRequests is positive) — unless
+      // THIS freeze registered a throw supplier, in which case the woken data entrants throw it
+      // deterministically at the loop's supplier check (the pinned BG8 contract, user-ruled
+      // 2026-07-23; see the comment there); a parked
       // SCHEMA-armed entrant wakes and throws at the loop-top gate instead of staying parked for
       // the operator freeze's whole duration. At most the concurrently parked committers wake,
       // once per operator-freeze engagement, one loop iteration each.
