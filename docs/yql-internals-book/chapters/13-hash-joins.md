@@ -9,12 +9,12 @@ scratch, collect its results, and continue.
 
 That model is correct. It is also, in the wrong query, catastrophically slow.
 
-This chapter introduces the three hash-join variants the planner substitutes when the
+This chapter introduces the four hash-join variants the planner substitutes when the
 nested-loop cost is unacceptable: `HashJoinMatchStep`, `CorrelatedOptionalHashJoinStep`,
-and `InvertedWhileHashJoinStep`. Each variant is introduced by the problem it was built to
-solve, not by the class name. The chapter closes by cataloguing the configuration knobs
-that gate the choice, and by pointing toward Chapter 14, where the engine attacks a
-different flavour of the same problem.
+`BackRefHashJoinStep`, and `InvertedWhileHashJoinStep`. Each variant is introduced by the
+problem it was built to solve, not by the class name. The chapter closes by cataloguing
+the configuration knobs that gate the choice, and by pointing toward Chapter 14, where the
+engine attacks a different flavour of the same problem.
 
 ---
 
@@ -122,7 +122,7 @@ If the planner's estimate of how many rows the build side will produce exceeds
 much heap. The planner rejects hash join and falls back to nested loops
 (`MatchExecutionPlanner.java:1203–1205`; `GlobalConfiguration.java:863`).
 
-Setting this threshold to zero disables hash join entirely across all three variants.
+Setting this threshold to zero disables hash join entirely across all four variants.
 
 ### Guard 2b: Tighter cap for INNER_JOIN
 
@@ -238,13 +238,16 @@ Resulting cost: one pass over the blocked-admin traversal during the build, then
 hash lookup per `Person` during the probe. The quadratic blowup is gone.
 
 The eligibility tree above governs the *first* variant — `HashJoinMatchStep` in its
-`ANTI_JOIN`, `SEMI_JOIN`, and `INNER_JOIN` modes. The next two variants are not reached
+`ANTI_JOIN`, `SEMI_JOIN`, and `INNER_JOIN` modes. The next three variants are not reached
 through that tree. `CorrelatedOptionalHashJoinStep` triggers on OPTIONAL edges whose
 `WHERE` clause contains a `$matched` back-reference — a shape the context-dependency
-guard explicitly rejects for the generic step. `InvertedWhileHashJoinStep` triggers on
-`WHILE` patterns that the scheduler has placed in the uninvertible direction; no
-threshold comparison is involved. When reading the next two sections, do not try to map
-their triggers onto the guards above — each variant has its own separate entry path.
+guard explicitly rejects for the generic step. `BackRefHashJoinStep` triggers on that
+same back-reference shape when the target is *required* rather than optional, and on the
+`NOT IN` anti-join shape; it is chosen in a separate scheduler sweep gated only by the
+threshold. `InvertedWhileHashJoinStep` triggers on `WHILE` patterns that the scheduler
+has placed in the uninvertible direction; no threshold comparison is involved. When
+reading the next three sections, do not try to map their triggers onto the guards above —
+each variant has its own separate entry path.
 
 ---
 
@@ -306,9 +309,127 @@ For each upstream row, the step proceeds as follows:
 
 ---
 
+## The required back-reference: semi-joins and anti-joins
+
+The optional back-reference in the previous section has a forgiving contract. A `liker`
+who turns out not to know the `startPerson` still survives — the step binds the target to
+null and moves on. Every upstream row passes through.
+
+Make that same edge *required* and the contract inverts. A row that fails the
+back-reference check must now be *dropped*, not kept with a null. This is a *semi-join*:
+the edge exists only to test membership, and the row lives or dies on whether the test
+passes.
+
+The query shape is otherwise identical to the optional case. Drop the `OPTIONAL` keyword
+and the target `likerFriend` becomes required:
+
+```sql
+MATCH {class: Person, as: startPerson}
+      .in('HAS_CREATOR'){class: Post, as: post}
+      .in('LIKES'){class: Person, as: liker}
+{as: liker}.out('KNOWS')
+         {where: (@rid = $matched.startPerson.@rid), as: likerFriend}
+RETURN liker, likerFriend
+```
+
+The `WHERE` clause is the same `@rid = $matched.startPerson.@rid` back-reference you saw
+one section ago, and the edge runs in the same direction. The only difference is the
+missing `OPTIONAL` keyword. And that single bit is the *entire* discriminator between the
+two steps. The planner makes exactly this test: the correlated-optional detector bails
+out unless the target node is optional (`MatchExecutionPlanner.java:4166`), while the
+semi-join detector requires it to be *non*-optional (`MatchExecutionPlanner.java:3348`).
+An optional target routes to `CorrelatedOptionalHashJoinStep` with LEFT-join semantics —
+a miss yields null and the row survives. A required target routes to
+`BackRefHashJoinStep` with semi-join semantics — a miss drops the row.
+
+### Building the set from the record, not from a query
+
+Both steps split the work into a build phase and a probe phase, but they build the
+membership set differently. `CorrelatedOptionalHashJoinStep` runs a `SELECT expand(...)`
+query to gather the neighbour set. `BackRefHashJoinStep` skips SQL entirely: it loads the
+back-referenced entity once and reads its edge link-bag field straight off the record
+(`BackRefHashJoinStep.java:561`). The link bag *is* the adjacency list — there is nothing
+to query. The step walks that bag once into a hash structure, then probes each upstream
+row's source RID against it in O(1).
+
+Like the correlated step, it caches the built structure per distinct back-reference
+binding so that interleaved upstream rows do not rebuild it. But the cache size is not
+configurable. It is a fixed-capacity LRU holding `CACHE_CAPACITY = 256` entries
+(`BackRefHashJoinStep.java:51`), hard-coded rather than exposed through a
+`GlobalConfiguration` knob the way `QUERY_MATCH_CORRELATED_CACHE_SIZE` governs the
+correlated step.
+
+The step shares the generic build-side threshold rather than owning one of its own. It
+reads `QUERY_MATCH_HASH_JOIN_THRESHOLD` through `getHashJoinThreshold()` while building
+each table (`BackRefHashJoinStep.java:566`). Setting that threshold to zero disables the
+step, exactly as it disables the other three variants. If a link bag exceeds the
+threshold at runtime, the build returns null and the step falls back to per-row
+evaluation — correctness holds, only speed degrades. For the two semi-join variations
+that fallback is a nested-loop traversal through `nestedLoopFallback()`
+(`BackRefHashJoinStep.java:420`), reusing the original edge the planner kept in reserve.
+The anti-join has no reserved edge; it instead re-evaluates the stored `NOT IN` condition
+per row through `handleAntiJoinBuildFailure()` (`BackRefHashJoinStep.java:332`, `397`).
+
+### Three variations of the back-reference
+
+The step recognises three variations, each backed by a record in the sealed
+`SemiJoinDescriptor` hierarchy (`SemiJoinDescriptor.java:26`).
+
+*Single-edge semi-join* (`SingleEdgeSemiJoin`) is the plain case above: one edge, one
+back-reference. The build stores source RID → edge count in an `Object2IntOpenHashMap<RID>`
+(`BackRefHashJoinStep.java:572`) rather than a plain set, so that parallel edges of the
+same class between the same pair of vertices still emit the right number of rows. A probe
+with a positive count keeps the row; a zero count drops it
+(`BackRefHashJoinStep.java:282`). This variation *replaces* the target's `MatchStep`
+outright.
+
+*Chain semi-join* (`ChainSemiJoin`) applies when the pattern reaches the target through
+an edge-then-vertex hop written as `.outE('E').inV()`. This variation replaces *two*
+`MatchStep`s: the planner skips the predecessor edge it marked as consumed
+(`MatchExecutionPlanner.java:4466`), then chains a single `BackRefHashJoinStep` for the
+pair (`MatchExecutionPlanner.java:4530`). The build stores source RID → list of edge rows
+in a `HashMap<RID, List<Result>>` (`BackRefHashJoinStep.java:738`), because the
+intermediate edge alias may still be projected downstream; each probe fans that list back
+out into one row per edge (`BackRefHashJoinStep.java:350`).
+
+*Anti-join* (`AntiSemiJoin`) is the one shape the correlated optional step has no answer
+for. It handles the exclusion filter `$currentMatch NOT IN $matched.X.out('E')` — "keep
+this row only if the current vertex is *not* among the anchor's neighbours." The build
+collects the forbidden neighbours into a `RidSet` (`BackRefHashJoinStep.java:796`), and
+the probe keeps a row exactly when its RID is *absent* from that set
+(`BackRefHashJoinStep.java:325`). Note the structural difference from the other two: an
+anti-join is not a replacement. The planner leaves the normal `MatchStep` in place and
+chains the `BackRefHashJoinStep` *after* it as a post-filter, having stripped only the
+`NOT IN` term from the MatchStep's `WHERE` clause at plan time
+(`MatchExecutionPlanner.java:4522`). Single-edge and chain semi-joins take the
+MatchStep's place; the anti-join stands behind it.
+
+There is no inner-join mode here. Unlike the generic `HashJoinMatchStep` with its three
+`JoinMode` values, `BackRefHashJoinStep` only ever runs the two membership semantics
+above — semi (keep on hit) and anti (keep on miss).
+
+### Where it gets chosen
+
+The last thing to know about this variant is *where* it is selected, because it is not
+the eligibility tree. All three variations are detected in
+`optimizeScheduleWithIntersections()` (`MatchExecutionPlanner.java:3254`) — the same
+schedule-optimization sweep Chapter 14 describes for attaching index pre-filters to
+edges. That sweep does not consult the four guards of Figure 13.1 at all; it gates the
+back-reference join on one thing only, the threshold (`isSemiJoinCandidate` returns false
+when the threshold is zero, `MatchExecutionPlanner.java:3474`). So do not look for
+`BackRefHashJoinStep` anywhere in that decision tree — the tree governs `HashJoinMatchStep`
+alone.
+
+In EXPLAIN output the step announces itself with `+ BACK-REF HASH JOIN` for the two
+semi-join variations and `+ BACK-REF HASH JOIN ANTI` for the anti-join
+(`BackRefHashJoinStep.java:850`, `863`). Chapter 16 shows how to read those lines inside
+a full plan.
+
+---
+
 ## Recursive edges that cannot be reversed: materialising the full reachability set
 
-The third variant handles `WHILE` edges. The class that implements it is `InvertedWhileHashJoinStep`. Recall from Chapter 10 that a `WHILE` edge
+The fourth variant handles `WHILE` edges. The class that implements it is `InvertedWhileHashJoinStep`. Recall from Chapter 10 that a `WHILE` edge
 declares a recursive traversal over some predicate — for example, "follow
 `IS_SUBCLASS_OF` edges until the target `TagClass` has `name = :tagClass`." The scheduler
 may schedule this edge in the direction opposite to the written one: instead of starting
@@ -423,13 +544,14 @@ All three properties are hot-configurable at runtime: they are read at query pla
 via `GlobalConfiguration.getValueAsLong()` / `getValueAsInteger()`, not cached at server
 startup. Adjusting them takes effect on the next query without a restart.
 
-When diagnosing a slow MATCH that involves `NOT`, `OPTIONAL`, or a `WHILE` edge, the
-first diagnostic step is to verify whether the planner chose a hash join or fell back to
-nested loops. The EXPLAIN output emits `HASH ANTI_JOIN`, `HASH SEMI_JOIN`,
-`CORRELATED OPTIONAL HASH JOIN`, or `INVERTED WHILE HASH JOIN` prefixes on the relevant
-step when the hash path was chosen. Absence of those prefixes on a large query is the
-signal that one of the four guards rejected it — and the threshold properties are the
-primary levers.
+When diagnosing a slow MATCH that involves `NOT`, `OPTIONAL`, a `$matched` back-reference,
+or a `WHILE` edge, the first diagnostic step is to verify whether the planner chose a
+hash join or fell back to nested loops. The EXPLAIN output emits `HASH ANTI_JOIN`, `HASH SEMI_JOIN`,
+`CORRELATED OPTIONAL HASH JOIN`, `BACK-REF HASH JOIN` (or `BACK-REF HASH JOIN ANTI`), or
+`INVERTED WHILE HASH JOIN` prefixes on the relevant step when the hash path was chosen.
+Absence of those prefixes on a large query is the signal that the planner fell back to
+nested loops — because one of the four guards rejected the generic step, or the threshold
+ruled out a back-reference join — and the threshold properties are the primary levers.
 
 ---
 
@@ -453,6 +575,16 @@ executions.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/CorrelatedOptionalHashJoinStep.java` —
   LRU-cached correlated optional join; neighbour build at line 148; truncation fallback
   at lines 123–130; inverse-direction SQL at lines 163–164.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/BackRefHashJoinStep.java` —
+  required back-reference semi-join and anti-join; hard-coded `CACHE_CAPACITY` (256) at
+  line 51; link-bag read off the loaded record at line 561; single-edge build
+  (`Object2IntOpenHashMap`) at line 572 and probe at line 282; chain build
+  (`HashMap<RID, List<Result>>`) at line 738 and probe at line 350; anti-join build
+  (`RidSet`) at line 796 and probe at line 325; nested-loop fallback at line 420; EXPLAIN
+  prefixes at lines 850 and 863.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/SemiJoinDescriptor.java` —
+  sealed descriptor hierarchy for the three back-reference variations at line 26
+  (`SingleEdgeSemiJoin`, `ChainSemiJoin`, `AntiSemiJoin`).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/InvertedWhileHashJoinStep.java` —
   inverted-WHILE join; anchor discovery at line 185; level-by-level BFS at line 219;
   forward-BFS fallback at line 256.
@@ -468,7 +600,9 @@ executions.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` —
   `canUseHashJoin` at line 903; `notPatternDependsOnMatched` at line 754;
   `traceBackwardBranch` at line 1160; `INNER_JOIN_MEMORY_WEIGHT` constant at line 366;
-  cardinality and cost guards at lines 1198–1237.
+  cardinality and cost guards at lines 1198–1237; `getHashJoinThreshold` at line 345;
+  back-reference semi-join detection in `optimizeScheduleWithIntersections` at line 3254;
+  optionality discriminator at lines 3348 and 4166.
 - `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` —
   `QUERY_MATCH_HASH_JOIN_THRESHOLD` at line 863;
   `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` at line 873;
