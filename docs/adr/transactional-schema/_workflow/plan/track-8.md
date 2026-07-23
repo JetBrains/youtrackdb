@@ -315,7 +315,8 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
      core unit run, not a targeted subset); `./mvnw -pl core,tests clean test`;
      `./mvnw -pl core clean verify -P ci-integration-tests`.
    - **Depends on / seam ownership:** depends on Steps 1 and 2. OWNS the tx-wrapping of
-     `SharedContext.create` (Step 1's loop mechanics unchanged) and everything in
+     `SharedContext.create` (Step 1's enumeration mechanics; the registration call is re-routed
+     per the CS47 seam annotation above) and everything in
      `YouTrackDBInternalEmbedded` (no other step touches it). Does NOT touch
      `AbstractStorage.doCreate` (Step 1's seam) or `DatabaseExport`/`DatabaseImport`
      (Steps 4-6). The genesis-session double-`callOnCreateListeners` observation (CN
