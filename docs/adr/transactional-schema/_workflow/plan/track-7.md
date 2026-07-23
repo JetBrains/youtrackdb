@@ -39,6 +39,9 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [x] 2026-07-22T19:50Z [ctx=safe] Step 4 review-fix iteration 1 complete (commit 5811042e95;
   concurrency + baseline reviews: 2 should-fixes + 4 suggestions — all applied except one
   sampling suggestion dispositioned as accepted, 0 blockers)
+- [x] 2026-07-23T00:15Z [ctx=safe] Step 5 complete (commit 736cab68ec; includes the
+  waiting-list single-cutter liveness fix the integration profile surfaced — see Episodes
+  §Step 5)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -88,6 +91,16 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
   never restored it), self-heals on reopen (preload re-reads durable state), benign for
   registry/row operations. Left unfixed and recorded here so the eventual owner knows it is not a
   Step 1 regression.
+- 2026-07-23T00:15Z Step 5's operator-arm cut surfaced a LATENT single-cutter assumption in the
+  freezer's `WaitingList`: `cutWaitingList` reads `tail` BEFORE `head`, so a second concurrent
+  cutter that completes a full cut (plus one enqueue) between those two reads hands the first
+  cutter a cross-generation pair whose head lies past the captured tail — the head CAS still
+  succeeds and the traversal wedges forever on a link latch. Historically unreachable (the sole
+  cutter was `releaseOperations` on the 1→0 transition); the operator arm made cutters
+  concurrent and hung the integration profile's sequential fork
+  (`FreezeAndDBRecordInsertAtomicityTest`). Fixed by serializing cutters (`synchronized`
+  `cutWaitingList`); a wake-only non-detaching walk was tried first and LIVELOCKS — both failure
+  shapes are pinned by `OperationsFreezerLivenessTest`. See Episodes §Step 5.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -213,7 +226,7 @@ HEAD `e2605c8ba3` and is **Step 1's** acceptance test; `EmbeddedTestSuite.testQu
    - **Verification:** `./mvnw -pl core clean test -Dtest=ScalableRWLockTest` — pure concurrency primitive, no storage/tx, so unit tests only; no integration run required for this step.
    - **Depends on / seam ownership:** no dependency (net-new); MUST land before Step 5, which wires it into checkpoint (2).
 
-5. **Draft B — freezer gate wiring (four checkpoints, freeze-kind taxonomy, single-owner snapshot clear)** (Draft B §B.2; Rulings Q-B1/Q-B2/Q-B3/Q-B4/Q-B5; §Amendments pass-14 CN10 as re-amended by round-2 CN19, CS10 as re-amended by round-2 CS15+CN21 and pass-16 CS19, CN15; CS14 + round-2 CN23+CS18; V1/V8 orderings). Add a `FreezeKind {OPERATOR, TRANSIENT_QUIESCE}` taxonomy with an `operatorFreezeRequests` counter incremented before `freezeRequests` and decremented after it (V1/V8 pinned orderings), and the operator-arm cut-and-unpark after the increments. Install the four kind-aware checkpoints for the schema-armed entrant (`schemaContext != null`, threaded through `startTxCommit`→`startToApplyOperations`→`startOperation`): (1) the entry probe hoisted ABOVE the `:2525` snapshot pin (zero side effects); (2) the `stateLock.writeLock` acquisition in `commitSchemaCarry` via Step 4's `exclusiveLockWithAbort` with `operatorFreezeRequests > 0` as the abort predicate; (3) the `startOperation` loop-top gate; (4) the `startOperation` park-decision gate — all throwing one shared `ModificationOperationProhibitedException` factory (Q-B3/Q-B5 distinct message including storage name). Data commits keep byte-for-byte today's semantics. Replace the pin/clear pairing with the CS15/CS19 single-owner clear: keep the pin at `:2525`, put the sole clear in a NESTED `try/finally` opened immediately after the pin (CS19 — NOT the method's literal outermost try at `:2514`, which precedes the pin and the hoisted probe), and DELETE the `applyCommitOperations:3142` clear. Map `freeze()` (`:5522/:5526`) to OPERATOR, `doSynch()` (`:5349`) and the two `DiskStorage` backup sites (`copyWALToBackup:357`, `storeBackupDataToStream:1249`) to TRANSIENT, and `release()`/`unfreezeWriteOperations(-1)` (`:5571`) explicitly to an OPERATOR decrement with a CAS-floor underflow guard (CN23/CS18: decrement-only-if-positive; log-not-throw on release-finally-reachable decrements; tolerant/dropped lockstep assert). — risk: high (Concurrency; Crash-safety / Durability)  [ ]  commit: _pending_
+5. **Draft B — freezer gate wiring (four checkpoints, freeze-kind taxonomy, single-owner snapshot clear)** (Draft B §B.2; Rulings Q-B1/Q-B2/Q-B3/Q-B4/Q-B5; §Amendments pass-14 CN10 as re-amended by round-2 CN19, CS10 as re-amended by round-2 CS15+CN21 and pass-16 CS19, CN15; CS14 + round-2 CN23+CS18; V1/V8 orderings). Add a `FreezeKind {OPERATOR, TRANSIENT_QUIESCE}` taxonomy with an `operatorFreezeRequests` counter incremented before `freezeRequests` and decremented after it (V1/V8 pinned orderings), and the operator-arm cut-and-unpark after the increments. Install the four kind-aware checkpoints for the schema-armed entrant (`schemaContext != null`, threaded through `startTxCommit`→`startToApplyOperations`→`startOperation`): (1) the entry probe hoisted ABOVE the `:2525` snapshot pin (zero side effects); (2) the `stateLock.writeLock` acquisition in `commitSchemaCarry` via Step 4's `exclusiveLockWithAbort` with `operatorFreezeRequests > 0` as the abort predicate; (3) the `startOperation` loop-top gate; (4) the `startOperation` park-decision gate — all throwing one shared `ModificationOperationProhibitedException` factory (Q-B3/Q-B5 distinct message including storage name). Data commits keep byte-for-byte today's semantics. Replace the pin/clear pairing with the CS15/CS19 single-owner clear: keep the pin at `:2525`, put the sole clear in a NESTED `try/finally` opened immediately after the pin (CS19 — NOT the method's literal outermost try at `:2514`, which precedes the pin and the hoisted probe), and DELETE the `applyCommitOperations:3142` clear. Map `freeze()` (`:5522/:5526`) to OPERATOR, `doSynch()` (`:5349`) and the two `DiskStorage` backup sites (`copyWALToBackup:357`, `storeBackupDataToStream:1249`) to TRANSIENT, and `release()`/`unfreezeWriteOperations(-1)` (`:5571`) explicitly to an OPERATOR decrement with a CAS-floor underflow guard (CN23/CS18: decrement-only-if-positive; log-not-throw on release-finally-reachable decrements; tolerant/dropped lockstep assert). — risk: high (Concurrency; Crash-safety / Durability)  [x]  commit: 736cab68ec
    - **Goal:** a schema commit never blocks or parks while an operator freeze is active at any of the four checkpoints (I-freezer-1), and no exception path leaks the `immutableCount` snapshot pin (single-owner clear).
    - **In-scope files:** `.../paginated/atomicoperations/operationsfreezer/OperationsFreezer.java` (`FreezeKind`, `operatorFreezeRequests`, loop-top + park-decision gates, operator-arm cut-and-unpark, CAS-floor guard); `.../paginated/atomicoperations/AtomicOperationsManager.java` (`freezeWriteOperations` kind param, arm-signal threading, `unfreezeWriteOperations(-1)`→OPERATOR mapping); `.../storage/impl/local/AbstractStorage.java` (`freeze`/`doSynch`/`release` kind mapping; `commitSchemaCarry` checkpoint (2) via `exclusiveLockWithAbort`; hoisted probe before `:2525`; single-owner nested-finally clear + delete `:3142`; shared exception factory; arm signal from `startTxCommit`); `.../storage/disk/DiskStorage.java` (two TRANSIENT sites); freezer-gate test class(es) (new `FreezerGateTest` and/or additions to `CommitTimeIndexBuildTest`).
    - **Discharges:** Draft B §B.2; Rulings Q-B1 (arm frontend schema-carry only; corrected CN15 legacy risk record), Q-B2 (four-site count + the three taxonomy constraints below), Q-B3/Q-B5 (probe + shared factory), Q-B4 (herd); §Amendments pass-14 CN10/CS10/CN15; round-2 CN19 (primitive) / CS15+CN21 (single-owner clear) / CN23+CS18 (guard); pass-16 CS19 (nested-finally) / CN25 (via Step 4); V1/V8; risk-list items 1 (legacy full-outage), 2 (retract-window spurious throw), 6 (quiesce theft).
@@ -249,6 +262,86 @@ checkpoints + CN23/CS18 underflow guard → Step 5; the CN19/CN25 abort-predicat
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 5 — commit 736cab68ec, 2026-07-23T00:15Z [ctx=safe]
+**What was done:** Landed Draft B — the freezer gate wiring per the amended design. `FreezeKind
+{OPERATOR, TRANSIENT_QUIESCE}` recorded at the four registration sites (`freeze()` → OPERATOR;
+`doSynch` and the two `DiskStorage` backup sites → TRANSIENT; `release()`/`unfreezeWriteOperations(-1)`
+mapped explicitly to the OPERATOR decrement); `operatorFreezeRequests` with the V1 arm ordering
+(kind before count, cut strictly after both) and the V8 retract ordering (count before kind),
+both CAS-floor guarded (decrement-only-if-positive, log-not-throw — CN23/CS18); the four
+kind-aware checkpoints for the schema-armed entrant — (1) the entry probe hoisted above the
+snapshot pin, (2) the `commitSchemaCarry` write-lock acquisition via Step 4's
+`exclusiveLockWithAbort` with `operatorFreezeRequests > 0` as the abort predicate, (3) the
+`startOperation` loop-top gate, (4) the park-decision re-check after the enqueue — all throwing
+the shared Q-B3/Q-B5 `ModificationOperationProhibitedException` factory (stable message with the
+storage name); the CS15/CS19 single-owner snapshot clear (one nested `try/finally` opened
+immediately after the pin; the `applyCommitOperations` clear deleted); data commits byte-for-byte
+unchanged. `FreezerGateTest` (8 tests) pins the dual-path gate matrix, the Q-B4 herd re-park, the
+five-path pin-balance matrix on recycled pooled sessions, the double-release CAS-floor guard, and
+the unchanged legacy throw-mode/transient-park semantics.
+
+**Liveness defect found and fixed (the step's hard discovery):** with the gate in place the
+full-suite run was green (17441/0) but `verify -P ci-integration-tests` never completed: in the
+sequential fork, `FreezeAndDBRecordInsertAtomicityTest`'s freezer threads wedged inside
+`WaitingList.cutWaitingList → waitTillAllLinksWillBeCreated`. Root cause, proven by a driven
+reproducer (`OperationsFreezerLivenessTest`: operator freeze/release churn threads over
+continuous `startOperation` traffic, bounded joins so a wedge fails instead of hanging the
+fork): `cutWaitingList` is only sound for ONE cutter at a time. It captures `tail` BEFORE
+`head`; a second cutter that completes a full cut plus one enqueue between those two reads hands
+the first cutter a cross-generation pair whose head lies at-or-past its captured tail. The head
+CAS still succeeds (after the first-ever enqueue, cutters are the only head mutators, and the
+head VALUE is current — only the pair is inconsistent), the list head swings backwards onto a
+detached node, and the traversal chases a tail that is behind it: `node.next != tail` is never
+satisfied, so it blocks forever on the link latch of a node that never receives a successor, or
+on a detached tail-copy whose latch is never counted down at all. Historically the invariant
+held implicitly — the sole cutter was `releaseOperations` on the freeze-request 1→0 transition
+— and the operator-arm cut (fired on every operator registration, concurrent with other
+registrations and with releases) broke it. Red-first: the reproducer wedged the unfixed shape at
+exactly the reported stack within ~5s of churn.
+
+**Fix choice and the rejected alternative (documented deviation):** the fix keeps the design
+text's "reuse releaseOperations' existing detach-and-unpark block" — the operator arm still cuts
+— and adds one deviation: `cutWaitingList` is now `synchronized`, restoring the single-cutter
+invariant structurally (the design text never stated the invariant; it assumed it). Enqueues
+stay lock-free (the monitor is a leaf lock; the latch waits inside it are bounded by an
+in-flight enqueuer's two plain stores). The first fix attempted — the operator arm stops cutting
+and only WALKS the live list, unparking without detaching, leaving the release as the sole
+cutter — is UNSOUND and was rejected on evidence: the same stress test livelocked it (all churn
+threads RUNNABLE inside the walk), because a woken data entrant re-enqueues a fresh node while
+`freezeRequests` stays positive, so a non-detaching walk chases a list that grows faster than it
+is traversed. The cut has no such chase: it detaches one consistent finite generation, and no
+wakeup is lost because every waiter enqueues a fresh node before each park. The V1 arm ordering
+is unchanged (kind published before count, the serialized cut strictly after both increments);
+the herd semantics hold (woken data commits re-park, none admitted — re-verified by
+`FreezerGateTest`).
+
+**Bookkeeping note (investigated, deliberately not applied):** the gate report
+`track-7/reviews/gate-step3-fixes-iter1.md` suggested correcting the Step 3 review-fix episode's
+"MetadataWriteMutexTest 22/22" to 23, claiming 23 `@Test` methods. The raw grep does return 23,
+but one hit is `{@code @Test}` inside the spawn-helper's Javadoc (line 47) — the file has 22
+real `@Test` methods and the recorded 22/22 is correct, so the episode text stands.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/operationsfreezer/{FreezeKind,OperationsFreezer,WaitingList}.java`
+  (taxonomy, counters, checkpoints (3)+(4), serialized cut with the single-cutter contract javadoc)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java`
+  (kind mapping, hoisted probe, checkpoint (2), single-owner clear, shared exception factory)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java`,
+  `.../storage/disk/DiskStorage.java`, `.../core/db/DatabaseSessionEmbeddedPooled.java`,
+  `.../core/db/MetadataWriteMutex.java`, `.../core/metadata/MetadataDefault.java` (kind threading,
+  TRANSIENT sites, pin accounting seams)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/FreezerGateTest.java`
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/operationsfreezer/OperationsFreezerLivenessTest.java`
+
+**Critical context:** any future caller that cuts the waiting list MUST go through the
+serialized `cutWaitingList`; a non-detaching wake of the live list is a livelock, not an
+optimization. Verification: FreezerGateTest 8/8; OperationsFreezerLivenessTest red-first against
+both broken shapes (wedge and livelock), then stable green across repeated runs;
+`FreezeAndDBRecordInsertAtomicityTest` green repeatedly; full core unit suite 17442/0 (parallel)
++ 2219/0 (sequential) + 18/0 (MT); full `verify -P ci-integration-tests` COMPLETES and is green
+(surefire ci/disk 17442/0, failsafe 513/0); coverage gate PASSED (89.6% line / 82.2% branch on
+changed-vs-develop).
 
 ### Step 1 — commit cb2d4d3b79, 2026-07-21T17:30Z [ctx=safe]
 **What was done:** Turned the standing red merge-blocker
