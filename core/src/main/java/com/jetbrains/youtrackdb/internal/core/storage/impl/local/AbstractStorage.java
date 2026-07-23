@@ -1509,6 +1509,21 @@ public abstract class AbstractStorage
           // ADD THE METADATA COLLECTION TO STORE INTERNAL STUFF
           doAddCollection(atomicOperation, MetadataDefault.COLLECTION_INTERNAL_NAME);
 
+          // The $blob<i> collections are storage-birth system collections: they are created
+          // here, inside the same WAL atomic operation as the `internal` collection, so they
+          // are atomic with storage creation (a crashed create WAL-reverts them together with
+          // everything else). The count is read exactly ONCE, from the create-time context
+          // configuration — it is a storage-birth property frozen at create; a later re-read
+          // could observe a different process-global value and diverge from what was actually
+          // created. SharedContext.create() registers the resulting collections in the schema
+          // by enumerating the actual $blob* collections by name, never re-reading this value.
+          var blobCollectionsCount =
+              contextConfiguration.getValueAsInteger(
+                  GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
+          for (var i = 0; i < blobCollectionsCount; i++) {
+            doAddCollection(atomicOperation, "$blob" + i);
+          }
+
           ((CollectionBasedStorageConfiguration) configuration)
               .setCreationVersion(atomicOperation, YouTrackDBConstants.getVersion());
           ((CollectionBasedStorageConfiguration) configuration)

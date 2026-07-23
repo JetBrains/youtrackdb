@@ -26,8 +26,17 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 public class SharedContext extends ListenerManger<MetadataUpdateListener> {
+
+  /**
+   * Matches the names of the storage-birth blob collections ({@code $blob0..N-1}) created by
+   * {@link AbstractStorage} inside the storage-create atomic operation. Storage collection names
+   * are stored lower-cased, so no case folding is needed here.
+   */
+  private static final Pattern BLOB_COLLECTION_NAME_PATTERN = Pattern.compile("\\$blob\\d+");
+
   protected YouTrackDBInternalEmbedded youtrackDB;
   protected AbstractStorage storage;
   protected SchemaShared schema;
@@ -195,12 +204,17 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       schema.createClass(session, "V");
       schema.createClass(session, "E");
 
-      var blobCollectionsCount = storage.getContextConfiguration()
-          .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
-
-      for (var i = 0; i < blobCollectionsCount; i++) {
-        var blobCollectionId = session.addCollection("$blob" + i);
-        schema.addBlobCollection(session, blobCollectionId);
+      // The $blob<i> collections physically exist since storage birth (created by
+      // AbstractStorage inside the storage-create atomic operation), so genesis only REGISTERS
+      // them in the schema's blob-collection set. The storage's actual $blob* collections are
+      // enumerated by name — deliberately NOT re-reading STORAGE_BLOB_COLLECTIONS_COUNT: a
+      // second config read routes through the process-global mutable fallback and could observe
+      // a different value than storage birth did, registering bogus ids or leaving physical
+      // blob collections unregistered. The count is frozen at storage birth by construction.
+      for (var collectionName : storage.getCollectionNames()) {
+        if (BLOB_COLLECTION_NAME_PATTERN.matcher(collectionName).matches()) {
+          schema.addBlobCollection(session, storage.getCollectionIdByName(collectionName));
+        }
       }
 
       // create geospatial classes
