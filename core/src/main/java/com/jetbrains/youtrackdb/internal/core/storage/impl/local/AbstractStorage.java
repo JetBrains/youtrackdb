@@ -1520,8 +1520,22 @@ public abstract class AbstractStorage
           var blobCollectionsCount =
               contextConfiguration.getValueAsInteger(
                   GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
+          // A negative count is a misconfiguration that would otherwise silently produce a
+          // database that can never store blobs (failing only at the first blob save with a
+          // message that never names this knob) — and the value is frozen for the database's
+          // lifetime, so it must be rejected loudly here at create time. Zero stays allowed:
+          // a deliberately blob-less database is a valid configuration. The throw propagates
+          // out of the atomic operation, so the whole create rolls back.
+          if (blobCollectionsCount < 0) {
+            throw new StorageException(name,
+                "Invalid value "
+                    + blobCollectionsCount
+                    + " of configuration parameter '"
+                    + GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT.getKey()
+                    + "': the blob-collections count of a storage can not be negative");
+          }
           for (var i = 0; i < blobCollectionsCount; i++) {
-            doAddCollection(atomicOperation, "$blob" + i);
+            doAddCollection(atomicOperation, MetadataDefault.BLOB_COLLECTION_NAME_PREFIX + i);
           }
 
           ((CollectionBasedStorageConfiguration) configuration)
