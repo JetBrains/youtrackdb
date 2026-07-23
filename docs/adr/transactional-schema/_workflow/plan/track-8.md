@@ -45,10 +45,11 @@ bump to 15, and per-record spill-to-temp. The two units share no files; the pack
 justification is in `## Interfaces and Dependencies`.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-07-23T12:00Z [ctx=safe] Review + decomposition complete (6-step roster approved)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -134,8 +135,8 @@ promote-rename so a truncated dump is never promoted.
 > supersedes them — most prominently the WC1 supersession of Validation bullet 2 (no test
 > names from the superseded clauses). The steps below cite the design sections, rulings, and
 > finding IDs each discharges; "pin G.5/M.5 #n" refers to the design doc's test-pin lists.
-> This is a decomposition PROPOSAL pending user approval; implementation has not started (all
-> commit slots `_pending_`).
+> The 6-step roster below is USER-APPROVED (2026-07-23); implementation has not started (all
+> commit slots `_pending_` until each step lands).
 
 **No standing red-at-HEAD tests exist for this track** (unlike Track 7). The design's three
 red-first candidates are new tests that must be written and shown red before their fix lands:
