@@ -51,6 +51,9 @@ justification is in `## Interfaces and Dependencies`.
 - [ ] Track completion
 - [x] 2026-07-23T12:00Z [ctx=safe] Review + decomposition complete (6-step roster approved)
 - [x] 2026-07-23T21:31Z [ctx=safe] Step 1 complete (commit 6611cbf6b2)
+- [x] 2026-07-23T23:30Z [ctx=safe] Step 1 review-fix iteration 1 complete (commit 931e264f48;
+  baseline + crash-safety reviews: 0 blockers, 1 should-fix (CS47, docs), 8 suggestions — all
+  applied or dispositioned)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -80,11 +83,25 @@ justification is in `## Interfaces and Dependencies`.
   fafac7e8b3 fixed) that was initially misread as a standing red at HEAD. With core in the
   reactor (`-pl core,tests`) the module is fully green. Rule: never run the `tests` module
   without `core` in the same reactor invocation.
-- **2026-07-23 (Step 1, Q-G3 pre-observation):** genesis blob-set persistence at HEAD relies on
-  a schema-root save that happens downstream of `SharedContext.create`'s blob loop (the loop
-  itself only mutates the in-memory set); the register-only rewrite preserves that shape
-  unchanged, and the new test pins the persisted root payload directly, so Step 2/3 inherit a
-  verified baseline.
+- **2026-07-23 (Step 1, Q-G3 pre-observation — CORRECTED by review CS47):** ~~genesis blob-set
+  persistence at HEAD relies on a schema-root save that happens downstream of
+  `SharedContext.create`'s blob loop (the loop itself only mutates the in-memory set)~~ — that
+  claim was WRONG. The traced mechanism (crash-safety review, CS47): **each
+  `SchemaShared.addBlobCollection` call self-commits the schema root synchronously, per
+  iteration**, via `releaseSchemaWriteLock(session)` (default `iSave=true`) → `saveInternal` →
+  `session.executeInTx(toStream)`; NOTHING downstream of the loop saves the schema. The
+  register-only rewrite keeps that identical call and path (only the id source changed), and
+  the new test pins the persisted root payload directly. Step-3 consequence: the loop can NOT
+  be tx-wrapped "unchanged" — under an active transaction the direct `SchemaShared` call's
+  `saveInternal` throws `SchemaException` ("Cannot change the schema while a transaction is
+  active"); the registration must be re-routed through `SchemaProxy.resolveForWrite()`/the
+  session (design G2.b's letter) when Step 3 wraps it (seam annotation added to Step 3's spec).
+- **2026-07-23 (Step 1, review CS48):** the FM-M16 importer blob-id-mapping window is ARMED
+  in-tree from commit 6611cbf6b2 until Step 5's §A3 fix lands: `DatabaseImport.importSchema`
+  (`DatabaseImport.java:528-541`) resolves a dump's raw blob-collection ids in the target id
+  space, so importing a blob-bearing pre-Track-8 dump into a fresh (renumbered) target
+  misregisters class collections as blob collections. Design-acknowledged sequencing (FM-M16,
+  pinned by M.5 #13) — do not trust blob-bearing legacy-dump imports on this branch mid-track.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -207,8 +224,9 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
      `LocalPaginatedStorageRestore*` ITs).
    - **Depends on / seam ownership:** first step; no dependency. OWNS `AbstractStorage.doCreate`
      (no later step touches it) and the *mechanics* of `SharedContext.create`'s blob loop;
-     Step 3 later wraps that unchanged loop into the phase-1 transaction (tx-wrapping is
-     Step 3's seam, loop mechanics are this step's).
+     Step 3 later wraps that loop into the phase-1 transaction (tx-wrapping is Step 3's seam,
+     loop mechanics are this step's). **CS47 correction:** "unchanged" was inaccurate — the
+     tx-wrap requires re-routing the registration call (see the seam annotation in Step 3).
 
 2. **G1 bootstrap-valid empty-schema root + Q-G3 IM-root symmetry verify** (design G2.a; ruling
    Q-G3; FM-G1; pass-1 WC2 pin split, WC4 hand-off). Make `SchemaShared.create` persist the
@@ -246,7 +264,18 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    CN54 drop-path exemption; pass-1 WI9, CN53 constraint; FM-G2/G3/G5/G7/G8). Restructure
    `SharedContext.create`: phase 1 = ONE schema transaction spanning the `SecurityShared.create`
    DDL half, the sibling creators' DDL (OFunction/OSequence/OSchedule), the O/V/E classes, and
-   the blob registration (Step 1's loop, now tx-wrapped) — engaging the metadata-write mutex on
+   the blob registration (Step 1's loop, now tx-wrapped — **CS47 seam annotation:** the
+   registration MUST be re-routed through `SchemaProxy.resolveForWrite()`/the session when
+   tx-wrapped; the Step-1 loop calls `SchemaShared.addBlobCollection` DIRECTLY, whose
+   `releaseSchemaWriteLock`→`saveInternal` self-commit throws
+   `SchemaException("Cannot change the schema while a transaction is active…")` under an active
+   tx (`SchemaShared.java:1508-1513`); routed through the proxy, the write lands on the
+   tx-local copy whose `saveInternal` returns early — design G2.b's letter. Step-3 reviewer
+   obligations carried from the Step-1 reviews: re-grep that
+   `STORAGE_BLOB_COLLECTIONS_COUNT` still has exactly ONE production read after the tx-wrap
+   (TQ12/CN50), and note the register loop's defensive name-snapshot (`List.copyOf`) exists
+   because each registration self-commits while iterating (CQ14)) — engaging the
+   metadata-write mutex on
    first write and committing through the schema-carry path (engines built at commit); phase 2
    = ONE data transaction inserting default roles + users (Q-G2, supersedes today's two-tx
    shape). Preserve: guard-first tx-free no-op (`SecurityShared:595`), the import call site
@@ -478,13 +507,61 @@ WI5-named `DbImportExportTest`/`DbImportStreamExportTest` are `@Disabled` at HEA
 suite leg); a stale ~/.m2 January core snapshot produced a phantom `testQueryCount` red when
 the `tests` module was run without `core` in the reactor — fully attributed, HEAD is green (all
 three in `## Surprises & Discoveries`). Q-G3's verify-first item remains Step 2's (this step
-only recorded the blob-set persistence baseline observation).
+only recorded a blob-set persistence baseline observation — whose mechanism claim was later
+CORRECTED by review CS47: the registration self-commits the root per iteration; see the
+Surprises bullet and the Step 1 review-fix episode).
 
 **Discharges:** ruling R3; design G2.b incl. CN50; WI5 recipe steps (1)-(3); FM-G4/FM-G5
 (mechanism: the whole `doCreate` body is one WAL atomic operation — no partial blob set is ever
 exposed; unregistered-blob inertness unchanged pending Step 3's containment); pins G.5 #7
 (implemented) and #8 (executed — the sweep itself). The WI8d Move-2 triad was already recorded
 in this file's Purpose section at decomposition.
+
+### Step 1 review-fix iteration 1 — commit 931e264f48, 2026-07-23T23:30Z [ctx=safe]
+**What was done:** applied the two Step 1 review reports
+(`track-8/reviews/{baseline,crash-safety}-step1-iter1.md`; 0 blockers, 1 should-fix, 8
+suggestions). (1) **CS47 (should-fix, docs+seam):** the Step-1 record's blob-set persistence
+baseline was WRONG — `SchemaShared.addBlobCollection` self-commits the schema root
+synchronously per iteration (`releaseSchemaWriteLock`→`saveInternal`→`executeInTx(toStream)`);
+nothing downstream of the loop saves it. Corrected the Surprises bullet and Episode text;
+added the Step-3 seam annotation (tx-wrap MUST re-route the registration through
+`SchemaProxy.resolveForWrite()`/the session — the direct `SchemaShared` call throws
+`SchemaException` under an active tx) and the matching as-built correction at design-drafts
+§G2.b. No routing change now — that is Step 3's seam. (2) **CS48 (docs):** recorded that the
+FM-M16 importer blob-id-mapping window is ARMED from 6611cbf6b2 until Step 5's §A3 fix.
+(3) **CS49/TQ12 (dispositions):** the enlarged create op's first direct crash-path tests arrive
+with Step 3's pin G.5 #9; the Step-3 reviewer must re-grep the single production read of
+`STORAGE_BLOB_COLLECTIONS_COUNT` after the tx-wrap (both carried in the Step-3 seam
+annotation). (4) **BG12 (code):** `doCreate` rejects a NEGATIVE blob-collections count loudly
+at create time naming the knob key (throw inside the create atomic op → whole create rolls
+back; zero stays allowed as a deliberate blob-less DB) — pinned by two new tests
+(`negativeBlobCollectionsCountIsRejectedAtCreateTime` asserts the cause chain names the key;
+`zeroBlobCollectionsCountCreatesBlobLessDatabase` pins empty physical+registered sets).
+(5) **CQ13 (code):** the `$blob` prefix is now the shared constant
+`MetadataDefault.BLOB_COLLECTION_NAME_PREFIX` (creator loop + register pattern both derive from
+it); tests keep independent `$blob` literals deliberately — the name shape is design-pinned
+(R3). (6) **CQ14 (code):** the register loop snapshots the collection names
+(`List.copyOf`) instead of iterating the live view while self-committing. (7) **TQ11 (test):**
+`StringsTest` re-pins provisional-RID distinctness and the `#collection:-position` text shape
+dynamically. (8) **TQ13 (test):** `blobLayoutSurvivesDiskReopen`'s drop moved to an outer
+finally spanning both session blocks; `CommandExecutorSQLTruncateTest` closes its `ResultSet`.
+
+**Key files:** `core/.../metadata/MetadataDefault.java` (new constant);
+`core/.../storage/impl/local/AbstractStorage.java` (negative-count guard);
+`core/.../db/SharedContext.java` (derived pattern; defensive copy);
+`StorageEmbeddedBlobCollectionsTest` (+2 tests, hygiene), `CommandExecutorSQLTruncateTest`,
+`StringsTest`; `track-8.md` + `track-8-design-drafts.md` (CS47/CS48 records, Step-3 seam
+annotation).
+
+**Verification:** targeted `-pl core -Dtest=StorageEmbeddedBlobCollectionsTest,
+CommandExecutorSQLTruncateTest,EntityImplTest` → 35/35 green; `./mvnw -pl core,tests clean
+test` → BUILD SUCCESS (core 17451 — +2 new tests — + 2219 sequential; tests 1300 incl. the
+hardened `StringsTest`; 0 failures); coverage gate vs origin/develop → PASSED, 88.6% line
+(2072/2339), 83.2% branch (950/1142); spotless clean. **ITs deliberately not re-run this
+iteration:** the production diff is a misconfiguration-only guard (valid-config create path
+byte-identical), a same-value constant extraction, and a read-side defensive copy — none
+alters the storage-create/backup/restore behavior the `ci-integration-tests` suite exercises,
+and Step 1's full IT run (3:09h, 513 ITs green) covered the identical valid-path behavior.
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the
