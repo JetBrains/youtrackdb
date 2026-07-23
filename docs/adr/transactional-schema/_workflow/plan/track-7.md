@@ -19,8 +19,8 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-07-21T13:00Z [ctx=safe] Review + decomposition complete (5-step roster approved)
 - [x] 2026-07-21T17:30Z [ctx=safe] Step 1 complete (commit cb2d4d3b79)
 - [x] 2026-07-21T18:15Z [ctx=safe] Step 2 complete (commit fafac7e8b3)
@@ -48,6 +48,11 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
   blockers)
 - [x] 2026-07-23T06:10Z [ctx=safe] BG8 resolved (commit 3dd408a439; user-ruled Option A — pin
   the deterministic throw)
+- [x] 2026-07-23T09:30Z [ctx=safe] Track-level code review complete (3 perspectives —
+  concurrency + crash-safety + baseline; 0 blockers, 0 should-fixes; suggestions triaged:
+  BG9/CN46/CQ11/CQ12 fixed in commit f5c162225b, gate-verified 4/4 in commit 4cadd3037b;
+  CS32/CS33/CN47 filed as follow-up drafts for later tracks)
+- [x] 2026-07-23T10:00Z [ctx=safe] Track completion — user-approved 2026-07-23
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
