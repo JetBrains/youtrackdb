@@ -21,7 +21,9 @@ NOT re-ask them.
   flag/mode switch. A dump declaring `exporter-version < 15` keeps today's lenient general-import
   behavior (including the plain-JSON fallback); a dump declaring `>= 15` gets the full strict
   matrix (manifest verify, section presence, gzip full-consumption, non-gzip rejection,
-  best-effort ack gate, info-field validation).
+  best-effort ack gate, info-field validation). *(Refined 2026-07-23, pass-1 WC3: the Q-M2 ruling
+  splits the `>= 15` arm — the strict matrix = v15 exactly, `>= 16` short-circuits to
+  reject-with-redirect — and SR2 rejects an UNDECLARED exporter-version fail-closed.)*
 - **R2 — Manifest: in-dump trailing section.** The manifest (class/index/record counts) is a
   trailing JSON section **inside the dump**, not a sidecar file. Consequence: the frozen plan's
   "manifest written last and atomically (temp + fsync + rename)" discipline transfers to the dump
@@ -35,6 +37,9 @@ NOT re-ask them.
   renumbers collection ids in every fresh database (blobs move from the highest slots to `1..N`;
   class collections shift up by N). All production lookups are name/schema-dynamic **[verified —
   t60.e2]**, but test fixtures, stored dumps, or tests pinning fresh-DB collection ids may break.
+  **[Corrected 2026-07-23, pass-1 WI1: one production exception exists —
+  `DatabaseImport.importSchema`'s blob-collection mapping resolves raw dump ids in the target id
+  space (`DatabaseImport.java:528-541`); Draft M owns the fix, see Amendments §A3.]**
   **De-risking requirement:** an early, targeted test sweep for id-pinning fixtures is a mandatory
   first-step activity of the genesis unit, before the restructure lands.
 - **R4 — v15 import validation of info fields.** A v15 dump's `schema-version` and sibling info
@@ -47,7 +52,8 @@ NOT re-ask them.
 - **The top-level-DDL mutex-bypass gap is HONORED, NOT OWNED.** Legacy non-transactional DDL paths
   (including `DatabaseImport.importSchema`'s class/property/index creation, which runs outside any
   transaction) bypass the metadata-write mutex — documented at `IndexManagerEmbedded.java:787-791`
-  and honored as out of scope by Track 7 (`track-7-design-drafts.md` §0). Draft G removes the
+  and honored as out of scope by Track 7 (`_workflow/track-7-design-drafts.md` §0 — one directory
+  above this file, not a `plan/` sibling; pass-1 WC5b). Draft G removes the
   single largest legacy top-level DDL consumer (genesis) but does not close the gap; Draft M's
   import keeps its DDL on the legacy path deliberately (consistent with the gap's planned removal
   in an upcoming PR). ~~**YouTrack ID for the gap: pending from the user** (not present anywhere in
@@ -105,6 +111,17 @@ initial write through `toStream` itself (single serializer, no hand-rolled twin 
 the write stays inside `create`'s existing `computeInTx`. The IM root shell has the same
 empty-entity shape; whether it needs a symmetric fix is a verify-first item (Q-G3).
 
+**Completeness signal (pass-1 CS35, folded into the §A1 containment):** the bootstrap payload
+silences the only open-time breadcrumb an empty root produces today (`fromStream:887-894` no
+longer fires), so G2.a alone would *worsen* post-crash diagnosability. The replacement signal is
+the open-time genesis-completion check (Amendments §A1): a half-genesis database refuses the open
+loudly instead of error-logging — strictly stronger than the breadcrumb it replaces.
+
+**Design-final hand-off (pass-1 WC4):** design.md:504-506's clause "the schema transaction …
+writes the first schema record" is superseded in letter — the bootstrap root pre-exists the
+genesis tx, which writes the first *per-class* records and rewrites the root. Reconciled in the
+Phase-4 `design-final.md`, not here.
+
 ### G2.b — R3: blob collections embedded into storage creation
 
 Per ruling R3, `AbstractStorage.doCreate` gains a loop next to the `internal` create
@@ -115,8 +132,8 @@ create (`doCreateCollection` javadoc contract, `AbstractStorage.java:7040-7044`)
 mechanism; new call is the only code change]**. Both storage profiles inherit it (`doCreate` is
 shared). Collection ids become: `internal` = 0, `$blob0..N-1` = 1..N, class collections from N+1.
 
-`SharedContext.create`'s blob loop becomes register-only: resolve
-`session.getCollectionIdByName("$blob" + i)` and call `schema.addBlobCollection(...)` — which
+`SharedContext.create`'s blob loop becomes register-only: enumerate the storage's **actual**
+`$blob*` collections by name and call `schema.addBlobCollection(...)` for each resolved id — which
 routes through `resolveForWrite()` (`SchemaProxy.java:460-462`), i.e. **inside the genesis schema
 tx it is a pure tx-local root-payload write** picked up by the commit's root-diff
 (`SchemaShared.java:1309`). The awkward direct-storage-op-inside-metadata-creation disappears; the
@@ -125,6 +142,13 @@ genesis schema tx contains only schema writes.
 Documented semantic consequence: `STORAGE_BLOB_COLLECTIONS_COUNT` becomes a storage-birth property
 frozen at create (it is already effectively read-once-at-genesis today). The id-renumbering caveat
 and its mandatory early test sweep are on the record in §0/R3.
+
+**Single-read pin (pass-1 CN50):** the count is read exactly ONCE, in `doCreate`, from the
+create-time `contextConfiguration`. The register loop performs NO second config read — a second
+read would route through `ContextConfiguration.getValue`'s process-global mutable fallback
+(`ContextConfiguration.java:90-96`) and could observe a different value than storage birth did
+(registering bogus ids, or leaving physical blobs unregistered). Enumerating the actual `$blob*`
+collections by name implements the frozen-at-birth semantic literally.
 
 ### G2.c — Two-phase genesis restructure
 
@@ -160,16 +184,28 @@ The restructured create must work there unchanged: guard-first (usually no-op), 
 run, its phase-1 schema tx nests correctly inside the import flow — Track 4's link-consistency
 save/restore (track-4.md:378) exists precisely for this nesting and must not regress.
 
+**Lock interaction (pass-1 WI9):** the phase-1 commit runs while `SharedContext.create` holds
+`SharedContext.lock`, so the four-lock commit order (mutex → `SchemaShared.lock` → IM lock →
+`stateLock.writeLock`) nests entirely inside that lock. Safe by construction at genesis: the
+factory monitor spans the whole create (concurrency report P1/P2), so no other session exists to
+form a cycle. The import-nested call site differs precisely in NOT holding `SharedContext.lock`,
+so no new lock-order edge appears there either.
+
+**Failure containment (pass-1 CS34+CN48):** genesis exception/crash containment —
+cleanup-on-exception in `YouTrackDBInternalEmbedded.createStorage` plus the open-time
+genesis-completion marker — is specified in Amendments §A1; FM-G3/FM-G5, pin G.5 #9, and the G.6
+footprint are amended accordingly.
+
 ## G.3 Failure-mode analysis
 
 | # | Scenario | HEAD verdict / design answer |
 |---|---|---|
 | FM-G1 | First schema tx on a virgin DB trips the `copyForTx` bootstrap assert (`SchemaShared.java:300`) or the empty-root error branch (`:887-894`) | **broken at HEAD for the restructured flow** — closed by G2.a (bootstrap-valid root) |
 | FM-G2 | Unified single-tx genesis exposes an unbuilt `OUser.name` to UNIQUE enforcement mid-tx | avoided structurally by the two-phase split (D18, frozen); not re-litigated |
-| FM-G3 | Crash mid-genesis | today: dozens of intermediate self-commit states; after: three coarse states (storage-created-only / phase-1-committed / complete). A failed create propagates and the DB is discarded, not reopened **[inferred — creation-failure protocol, to pin with a test]** |
-| FM-G4 | Crash inside storage create with embedded blobs | whole `doCreate` body is one WAL atomic operation — no partial blob set survives **[verified mechanism]** |
-| FM-G5 | Blobs physically present but unregistered (crash between storage create and phase-1 commit) | readers consult only the schema set (`getBlobCollectionIds:5028`) → blobs inert, DB is a discarded half-create anyway; benign |
-| FM-G6 | Collection-id renumbering breaks id-pinned fixtures/dumps/tests | de-risked by the mandatory early sweep (R3); production lookups verified dynamic (t60.e2) |
+| FM-G3 | Crash/abort mid-genesis | **AMENDED (pass-1 CS34+CN48+CS36+CS37 — supersedes the original "three coarse states / discarded, not reopened [inferred]" row, which was false at HEAD):** the designed sequence has the W0–W9 durable crash-state enumeration (Amendments §A1). Containment: cleanup-on-exception in `createStorage` (exception path) + the open-time genesis-completion marker (crash path) — W6/W7 refuse the open loudly; W1/W2 residues are removed by cleanup or fail configuration load |
+| FM-G4 | Crash inside storage create with embedded blobs | whole `doCreate` body is one WAL atomic operation — no partial blob set is ever exposed to a reader **[verified mechanism]**; the pre-existing clean-flag window (W2, pass-1 CS37) corrects the envelope to "WAL-rolls-back OR fails configuration load", both unusable-and-discarded — carried in §A1's enumeration |
+| FM-G5 | Blobs physically present but unregistered (crash between storage create and phase-1 commit) | readers consult only the schema set (`getBlobCollectionIds:5028`) → blobs inert; the half-create is condemned by the §A1 containment (completion marker refuses the open) — benign **(amended, pass-1 CS34: "discarded anyway" is now enforced, not assumed)** |
+| FM-G6 | Collection-id renumbering breaks id-pinned fixtures/dumps/tests | de-risked by the mandatory early sweep (R3, made executable by pass-1 WI5 — pin #8); production lookups dynamic **except** the importer's blob-id mapping (`DatabaseImport.java:528-541`), fixed by Draft M per Amendments §A3 (pass-1 WI1) — the fixture sweep cannot catch that production path |
 | FM-G7 | Import-nested `security.create` (validation off, null user, possibly non-default session state) breaks under the restructure | closed by the guard-first + nesting-compat requirements (G2.c); pinned by a dedicated test |
 | FM-G8 | Phase-1 commit failure leaves a half-registered schema | Track 4's undo/reconciliation arms own this path; genesis adds no new mechanism — it is the natural end-to-end exerciser (D18 rationale) |
 
@@ -183,8 +219,11 @@ save/restore (track-4.md:378) exists precisely for this nesting and must not reg
 
 1. *Virgin-DB schema tx seeds cleanly* — open a schema tx immediately after DB create; assert the
    seed succeeds and the tx-local copy is empty (red at HEAD: FM-G1). **Red-first candidate.**
-2. *Bootstrap root round-trips* — create → close → reopen; assert schema loads with version 6,
-   empty classes, counter 0 (pins the G2.a payload shape on both profiles).
+2. *Bootstrap root round-trips* **(reworded, pass-1 WC2)** — (a) unit-level: the root persisted
+   by `SchemaShared.create` parses as the bootstrap-valid empty-schema shape (version 6, empty
+   classes, counter 0) *before phase 1 runs*; (b) DB-level: create → close → reopen loads the
+   genesis-POPULATED schema without the FM-G1 error branch (a completed create can never show an
+   empty schema).
 3. *I-U4 positive* — during genesis phase 1 the mutex is engaged; during phase 2 it is not
    (observable via `MetadataWriteMutex` holder state, as `MetadataWriteMutexTest` already does).
 4. *Engine-before-insert* — after phase 1 commits, `OUser.name` resolves to a built engine
@@ -195,11 +234,23 @@ save/restore (track-4.md:378) exists precisely for this nesting and must not reg
 6. *System-DB genesis* — phase 2 empty (no roles/users), phase 1 identical.
 7. *Blob registration* — `getBlobCollectionIds()` equals the storage-created `$blob*` ids; blob
    record round-trip on both profiles.
-8. *Id-renumbering sweep* — the R3 de-risk sweep: run the suites most likely to pin fresh-DB
-   collection ids (import/export, backup/restore, RID-literal tests) against the renumbered layout
-   **before** the restructure lands; fix fixtures found.
-9. *Crash/abort protocol* — a phase-1 abort leaves a DB that create-retry or discard handles
-   loudly (pins FM-G3's protocol).
+8. *Id-renumbering sweep* **(made executable, pass-1 WI5)** — ordering: (1) static sweep before
+   any code change — grep tests/fixtures/stored dumps for `#\d+:\d+` RID literals and hard-coded
+   collection ids; (2) land the R3 `doCreate` blob loop alone; (3) run the named suites against
+   the renumbered layout: `DbImportExportTest`, `DbImportStreamExportTest`,
+   `DatabaseExportImportRoundTripTest`, the `StorageBackup*` / `LocalPaginatedStorageRestore*`
+   ITs, and the RID-literal tests in `tests/`; (4) only then land the two-phase restructure.
+   Fixture rule: regenerable fixtures are re-exported with new binaries; stored dumps stay valid
+   by construction (import maps collections by name; the blob row is closed by §A3).
+9. *Failure containment* **(rewritten, pass-1 CS34+CN48)** — against the §A1 W-states: (a)
+   exception path: an injected phase-1/phase-2 failure propagates AND cleans up — storage absent
+   from `storages`/`sharedContexts`, on-disk residue removed, `exists()` false, create-retry
+   succeeds, and `create(failIfExists=false)` re-creates instead of silently no-op'ing; (b) crash
+   path: a W6/W7-state DB (completion marker absent) refuses `open`/`openNoAuthenticate` loudly
+   with the discard-and-recreate message; (c) a completed create opens with the marker present,
+   on both profiles.
+10. *Single data transaction (Q-G2)* **(added, pass-1 WI4)** — phase 2 commits exactly once
+    (roles + users in one tx), observable via commit-count instrumentation or the tx listener.
 
 ## G.6 File-level footprint
 
@@ -211,9 +262,10 @@ save/restore (track-4.md:378) exists precisely for this nesting and must not reg
 | `core/.../metadata/security/SecurityShared.java` | DDL/data split of `create`; guard stays first |
 | `core/.../schedule/SchedulerImpl.java`, `metadata/function/FunctionLibraryImpl.java`, `metadata/sequence/SequenceLibraryImpl.java` | creator tx-compatibility (join the genesis tx; Q-G1 governs their standalone call sites) |
 | `core/.../index/IndexManagerEmbedded.java` | only if Q-G3 requires the IM-root symmetric fix |
+| `core/.../db/YouTrackDBInternalEmbedded.java` | **(added, pass-1 CS34+CN48)** cleanup-on-exception in `createStorage`; open-time genesis-completion check wiring |
 | Tests: new genesis bootstrap test class + sweep fixes | §G.5 |
 
-~7-9 production files + tests; within the plan's ~14-file combined budget.
+~8-10 production files + tests; within the plan's ~14-file combined budget.
 
 ---
 
@@ -245,8 +297,9 @@ completion-flag-gated promote; in-dump trailing manifest (R2) + fsync-before-ren
 fsync-capable move); import hardening under R1's v15-strictness (manifest verify, section-presence
 check, single-member gzip full-consumption validation, non-gzip rejection, best-effort ack gate,
 R4 info-field validation); migration tests. **Out:** the format itself and the open-time gate
-(Track 2 — confirmed present); any in-place migrator (D20 non-goal); the general (<15) import
-path's leniency, which is preserved byte-for-byte.
+(Track 2 — confirmed present); any in-place migrator (D20 non-goal); the general (declared
+`<= 14`) import path's leniency, which is preserved byte-for-byte (an UNDECLARED exporter-version
+is no longer lenient — rejected fail-closed per SR2).
 
 ## M.2 Design narrative
 
@@ -268,17 +321,34 @@ path's leniency, which is preserved byte-for-byte.
    design pins the property; the mechanism is the implementer's). A copy-out I/O failure is
    whole-or-fatal: abort, no promote.
 4. **Completion-flag-gated promote.** A boolean set only after the last section (the manifest) is
-   written and the stream closed cleanly; `close()` promotes `.tmp` → final **only when the flag
-   is set**. The failure path closes and deletes/leaves the `.tmp`, never renames — this kills the
-   promote-on-failure defect (M.0). The streaming (OutputStream) variant has no rename to gate;
-   its completion marker is the manifest section itself (import verifies it, path-agnostic).
+   written and the stream closed cleanly; `close()` promotes the temp file → final **only when
+   the flag is set**. The failure path closes and deletes/leaves the temp file, never renames —
+   this kills the promote-on-failure defect (M.0). **(Amended, pass-1 CS41):** the constructor's
+   upfront delete of the previous final-name dump (`DatabaseExport:85`,
+   `prepareForFileCreationOrReplacement`) is DROPPED — the final name is replaced only at a
+   verified promote (REPLACE_EXISTING-capable atomic move), so a failed export preserves the
+   operator's last good dump. **(Amended, pass-1 CN52):** the temp filename is per-export unique
+   (UUID/pid-suffixed) and opened `CREATE_NEW`, so concurrent exporters of the same target cannot
+   interleave bytes in one temp file, and each promote publishes one internally consistent dump.
+   The streaming (OutputStream) variant has no rename to gate; its completion marker is the
+   manifest section itself (import verifies it, path-agnostic).
 5. **Manifest last + durable promote.** The in-dump trailing manifest section (R2) carries class /
    index / record counts (counts of *exported* records, so a best-effort dump's manifest matches
-   what is present) plus the brokenRids count. Write order pinned: manifest is the final section
-   before the closing brace. Promote order pinned: flush + close → **fsync the dump file** → rename
-   (a new fsync-capable variant of `FileUtils.atomicMoveWithFallback`; the existing helper renames
-   without fsync, `FileUtils.java:306-320`, so a crash after rename could otherwise expose a
-   truncated final-name file).
+   what is present) plus the brokenRids count. **Shape pinned (pass-1 WI8c):** section tag
+   `"manifest"`, fields `classes`, `indexes`, `records`, `brokenRids` — total counts
+   (per-collection granularity declined for v1). **Count provenance pinned (pass-1 CN51):** the
+   exporter increments its own per-section counters as it writes — the manifest is NEVER
+   re-derived from a fresh schema snapshot at manifest/close time (`getImmutableSchemaSnapshot`
+   mints fresh snapshots when unpinned, `MetadataDefault.java:137-145`, so re-derivation under
+   concurrent DDL would fail-closed-reject a good dump); the importer verifies against its own
+   consumption tallies, never against target-DB queries. Write order pinned: manifest is the
+   final section before the closing brace. **Promote recipe pinned (amended, pass-1 CS40 —
+   supersedes "flush + close → fsync the dump file → rename"):** close the gzip stream → reopen a
+   `FileChannel` on the temp file and `force(true)` (the stream is already closed, so the fsync
+   needs its own channel) → `ATOMIC_MOVE` + `REPLACE_EXISTING` rename → **fsync the parent
+   directory** (POSIX rename durability). The non-atomic fallback arm of the new move helper is
+   fail-closed on the v15 export path — no silent copy fallback, which would reintroduce the
+   torn-final-name state this recipe closes.
 6. **Primary-exception preservation.** The scan/render failure propagates as the primary;
    `close()`-path secondaries are caught and attached as suppressed, never replacing the primary
    (at HEAD a throw from `close()` in the `finally` at `:157-160` would mask the scan exception
@@ -289,25 +359,55 @@ path's leniency, which is preserved byte-for-byte.
 
 ### M2.b — Import hardening (v15-strict per R1)
 
-The importer reads `exporter-version` from the info section as today. **If >= 15, the strict
-matrix arms**; below 15, behavior is unchanged (lenient general path, plain-JSON fallback kept,
-with the known consequence recorded).
+The importer reads `exporter-version` from the info section as today. **Dispatch (harmonized,
+pass-1 WC3 + SR2):** `== 15` arms the full strict matrix; `>= 16` short-circuits to
+reject-with-redirect naming both versions (Q-M2); an undeclared or malformed `exporter-version`
+is rejected fail-closed (SR2); a declared `<= 14` keeps today's lenient behavior (plain-JSON
+fallback kept, with the known consequence recorded).
+
+**Pre-flight ordering (pass-1 CS38 — blocker remedy).** ALL import-preamble mutations of the
+target — `removeDefaultNonSecurityClasses` (`importDatabase:214`), the auto-index snapshot
+(`:216-222`), and `removeDefaultCollections` (via `importSchema:497` / `importCollections:848`) —
+are DEFERRED until after the info section is parsed and the Q-M2 pre-flight matrix has passed.
+For `>= 15` the info section is required first (compatible: every exporter writes `info` first,
+`exportDatabase:136`); the `< 15` path defers identically — behavior-preserving, since nothing
+between `:214` and the first section consumes the dropped classes. This makes every ruled
+pre-flight rejection genuinely precede all target mutation; the structural post-mutation
+rejections are scoped by SR1.
 
 1. **Non-gzip rejection.** The silent fallback (`ctor:136-143`) is restructured: the stream is
    opened as today, but once the info section declares `>= 15`, having arrived via the plain-JSON
    fallback is a hard failure ("a v15 dump is gzip-framed; refusing unverifiable input"). A
    manually-gunzipped v15 dump is therefore rejected (fail-closed; Q-M3 offers the user the final
    word). Detection is necessarily post-info-parse — the version lives inside the stream.
-2. **Whole-stream gzip validation.** A `GZIPInputStream` subclass validates single-member framing
-   and full consumption via inflater arithmetic: `Inflater.getBytesRead()` + parsed header length
-   + 8-byte trailer must equal the physical stream size at EOF; **exhaustion probes are forbidden**
-   (they consume trailing residue into the dead decoder buffer — design.md §"Schema-format
-   migration" gotcha). Applied when the source is seekable/sizable (file path); the pure-stream
-   ctor validates what it can (single-member + clean trailer) — exact stream-variant scope pinned
-   at decomposition.
+2. **Whole-stream gzip validation** **(sequence pinned, pass-1 CS43 — supersedes the bare
+   arithmetic sentence).** A `GZIPInputStream` subclass that **disables multi-member
+   continuation** (this is what makes draining safe). Validation sequence, in order: (1) after
+   the manifest parses, drain the *decompressed* stream to EOF — reads return -1 once the
+   subclass has verified the trailer, without probing for a next member; (2) assert
+   `inflater.finished()`; (3) for seekable sources, assert `headerLen + Inflater.getBytesRead()
+   + 8 == physicalSize`. The forbidden "exhaustion probe" is the raw-stream / JDK next-member
+   probe (it consumes trailing residue into the dead decoder buffer — design.md §"Schema-format
+   migration" gotcha), NOT the decompressed-side drain: skipping the drain leaves
+   `getBytesRead()` legitimately short of the deflate stream and would false-reject valid dumps.
+   Layered detection: truncated deflate → EOF/inflate exception during parse; corrupt trailer →
+   subclass trailer verify; trailing garbage → arithmetic; content corruption → CRC32. The
+   pure-stream ctor applies (1)-(2) (single-member + trailer + finished); the physical-size
+   arithmetic (3) needs a sizable source — exact stream-variant scope carried as an explicit
+   decomposition obligation (pass-1 WI10a).
 3. **Manifest verify + section presence.** After the section loop, a v15 import hard-fails on: a
    missing or unparsable manifest section; any expected section absent (info, collections, schema,
-   records, indexes, brokenRids, manifest); manifest counts disagreeing with what was imported.
+   records, indexes, brokenRids, manifest); a duplicated section (the presence tracker counts
+   occurrences — pass-1 WI10c); manifest counts disagreeing with the importer's own consumption
+   tallies (provenance per M2.a-5 / CN51); non-empty `brokenRids` without the best-effort marker
+   (an honest default-mode v15 export aborts before producing brokenRids, so the combination
+   proves tampering/inconsistency — pass-1 WI10b). **Version gating (pass-1 WI6):** the new
+   `manifest` tag case in the shared section loop arms only for `exporterVersion >= 15`; below,
+   the tag remains unsupported and throws as at HEAD — preserving the `< 15` path byte-for-byte.
+   **Contract scope (SR1):** these are structural whole-stream rejections and are inherently
+   post-mutation — a v15 import rejected here has mutated the target, which is CONDEMNED (the
+   operator procedure mandates import-into-a-fresh-database and discard-on-any-failure; no
+   two-pass import).
 4. **Best-effort ack gate.** A dump whose info section carries the best-effort marker is refused
    unless the importer was given an explicit acknowledgment flag; only a v15-aware importer knows
    to enforce this (the marker rides the info section, M2.a-2).
@@ -324,7 +424,7 @@ with the known consequence recorded).
 | FM-M1 | Mid-collection scan failure → success exit + promoted dump (`:221-239` + `:270-301`) | **defect at HEAD** — closed by rethrow-by-default + completion flag (M2.a-2/4). Red-first. |
 | FM-M2 | Mid-render failure leaves partial JSON in the shared stream and the export continues (`:584-615`) | **defect at HEAD** — closed by the bounded buffer + whole-or-discarded copy-out (M2.a-3) |
 | FM-M3 | Failure path promotes `.tmp` → final (`close()` in `finally`) | **defect at HEAD** — closed by the completion-flag gate (M2.a-4) |
-| FM-M4 | Crash after rename, before data hits disk → truncated final-name dump | **latent at HEAD** (no fsync in `atomicMoveWithFallback:306-320`) — closed by fsync-before-rename (M2.a-5) |
+| FM-M4 | Crash after rename before data is durable → truncated final-name dump; or the rename itself lost (directory entry not durable) after exit 0 | **latent at HEAD** (no fsync in `atomicMoveWithFallback:306-320`) — closed by the amended M2.a-5 recipe: file `force(true)` + rename + parent-directory fsync (pass-1 CS40) |
 | FM-M5 | Close-path secondary masks the scan primary | **latent at HEAD** — closed by suppressed-attachment (M2.a-6) |
 | FM-M6 | Truncated/corrupt gzip imports silently (fallback `:136-143`; no consumption check) | **defect at HEAD** — closed by non-gzip rejection + full-consumption validation (M2.b-1/2). Red-first. |
 | FM-M7 | Dump missing a whole section imports silently (`:226-242` loop) | **defect at HEAD** — closed by section-presence + manifest verify (M2.b-3) |
@@ -334,6 +434,10 @@ with the known consequence recorded).
 | FM-M11 | Old-format DB opened in place by new binaries | **already closed** by Track 2's gate (`SchemaShared.java:895-904`); this track only pins the redirect test |
 | FM-M12 | v14 and older dumps regress under the new strictness | prevented structurally by R1's `>= 15` keying — the lenient path is untouched; pinned by a v14-dump compatibility test |
 | FM-M13 | Streaming export/import variants break under promote/manifest logic | promote gate is a no-op for the stream ctor; manifest is in-dump so streams carry it; pinned by the existing stream round-trip test |
+| FM-M14 | Import preamble mutates the target before any v15 rejection can fire (`importDatabase:214` vs `:230`) | **defect at the HEAD flow** — closed by the CS38 pre-flight deferral (M2.b intro); pinned by M.5 #15 |
+| FM-M15 | Two concurrent exporters interleave one fixed `.tmp`; both set the completion flag; a corrupt dump is promoted over the good one | **defect of the un-amended design** — closed by the unique `CREATE_NEW` temp name (M2.a-4, pass-1 CN52); pinned by M.5 #17 |
+| FM-M16 | Dump blob-collection ids resolved raw in the R3-renumbered target — a class collection silently registered as a blob collection (`DatabaseImport.java:528-541`) | **defect at HEAD under R3** — closed by routing through `collectionToCollectionMapping` / `$blob*` name-match (Amendments §A3, pass-1 WI1); pinned by M.5 #13 |
+| FM-M17 | Manifest counts re-derived from a fresh snapshot under concurrent DDL → false fail-closed rejection of a good dump | **defect of the un-amended design** — closed by exporter-tallied / importer-tallied count provenance (M2.a-5, pass-1 CN51) |
 
 ## M.4 Invariants discharged
 
@@ -342,19 +446,25 @@ with the known consequence recorded).
   old-format open is rejected, not migrated (FM-M11); a missing section is refused (FM-M7); a
   best-effort dump requires the ack flag (FM-M8).
 - **I-migration-isolation** — a record is exported whole or not at all, including its copy-out
-  (M2.a-3); a mid-record I/O failure leaves no file at the final name (M2.a-4); an
-  oversized-but-healthy record is present, not dropped (FM-M9); a failed render lands in
-  `brokenRids` and continues only in best-effort mode (M2.a-2).
+  (M2.a-3); a mid-record I/O failure leaves the final name **untouched** (a pre-existing dump is
+  preserved — reworded per pass-1 CS41) (M2.a-4); an oversized-but-healthy record is present, not
+  dropped (FM-M9); a failed render lands in `brokenRids` and continues only in best-effort mode
+  (M2.a-2). Pre-flight import rejections precede all target mutation (CS38); structural
+  rejections condemn the target per SR1.
 - **I-migration-failfast** — an injected record-scan failure produces a loud primary exception
   (`DatabaseExportException` whose *cause* is the scan exception; close-path secondaries
-  suppressed), no file at the final name, nothing promoted (M2.a-2/4/6). (The plan's "exit ≠ 0"
-  maps to this exception contract: no CLI exists in-repo — the `console` module is empty — so the
-  thrown-primary contract *is* the operator surface.)
+  suppressed), the final name untouched, nothing promoted (M2.a-2/4/6, reworded per pass-1 CS41).
+  (The plan's "exit ≠ 0" maps to this exception contract: no export CLI entry point exists
+  in-repo — the `console` module ships packaging/bin scripts but no Java sources (pass-1 WC5c) —
+  so the thrown-primary contract *is* the operator surface, and the WI3 operator document pins
+  the exit-status gate.)
 
 ## M.5 Test-pin candidates
 
-1. *Injected scan failure* — export throws with the scan exception as primary cause; no file at
-   the final name; `.tmp` not promoted (red at HEAD: FM-M1/M3). **Red-first candidate.**
+1. *Injected scan failure* **(reworded, pass-1 CS41)** — export throws with the scan exception
+   as primary cause; the **final name is untouched** (a pre-existing dump at the final name is
+   preserved on failure); the temp file is never promoted (red at HEAD: FM-M1/M3). **Red-first
+   candidate.**
 2. *Mid-render failure* — default: abort, nothing promoted; best-effort: record discarded whole,
    RID in `brokenRids`, dump parses end-to-end (red at HEAD: FM-M2).
 3. *Truncated gzip dump* — v15 import fails loudly (red at HEAD: FM-M6). **Red-first candidate.**
@@ -370,6 +480,27 @@ with the known consequence recorded).
 11. *v14 round-trip + streaming round-trip* — unchanged behavior (FM-M12/M13).
 12. *End-to-end migration rehearsal* — export a populated new-format DB, import into a fresh DB,
     `DatabaseCompare`-level equivalence; manifest verified.
+13. *Cross-layout blob import (pass-1 WI1)* — a v14-layout dump WITH blob content (blobs at the
+    highest source ids) imported into an R3-renumbered target: blob records classified as blobs;
+    no class collection registered as a blob collection.
+14. *Q-M2 matrix — versions (pass-1 WI4)* — `schema-version` missing / malformed / out of range
+    → reject naming declared vs supported; a `>= 16` dump → reject-with-redirect naming both
+    versions; an undeclared `exporter-version` → reject (SR2); a declared v14 → lenient path
+    unchanged.
+15. *Q-M2 matrix — fields + pre-flight scope (pass-1 WI4)* — mandatory fields enforced; unknown
+    extra info fields tolerated and logged; a pre-flight rejection leaves the target database
+    unmutated (classes, indexes, records intact — pins CS38 + SR1's scope boundary).
+16. *Structural-rejection condemnation (SR1)* — a v15 import failing manifest/consumption checks
+    throws loudly after mutation; the test asserts the loud failure and documents the
+    condemn-target contract (no assertion that the target is clean).
+17. *Durable promote discipline (pass-1 WI7)* — the promote path calls the fsync-capable move
+    (file force + rename + parent-dir fsync); an unflagged `close()` never renames; concurrent
+    exporters (CN52) each write a unique `CREATE_NEW` temp file and the promoted dump parses
+    end-to-end; an export under concurrent DDL yields a self-consistent manifest (FM-M17/CN51).
+18. *Operator procedure doc (pass-1 WI3, folds CS44)* — the migration-procedure page exists under
+    `docs/` and mandates: export-exit-status gate before import; import into a fresh,
+    out-of-service target; ANY failure (including post-mutation structural rejections) condemns
+    the target — discard, never return to service; import completeness = importer exit 0.
 
 ## M.6 File-level footprint
 
@@ -378,10 +509,15 @@ with the known consequence recorded).
 | `core/.../db/tool/DatabaseExport.java` | v15; rethrow-by-default + opt-out; bounded buffer/spill; completion flag; manifest section; promote rewire |
 | `core/.../db/tool/DatabaseImport.java` | v15-strict arm: non-gzip rejection, manifest/section verify, ack gate, R4 info validation |
 | new `core/.../db/tool/…GZIPInputStream` subclass | single-member + full-consumption validation (M2.b-2) |
-| `core/.../common/io/FileUtils.java` | fsync-capable atomic move variant |
+| `core/.../common/io/FileUtils.java` | fsync-capable atomic move variant (file force + REPLACE_EXISTING rename + parent-dir fsync; fail-closed fallback — pass-1 CS40/CS41) |
+| `core/.../api/config/GlobalConfiguration.java` | **(added, pass-1 WI8a)** the Q-M1 spill-threshold knob |
+| `core/.../db/tool/DatabaseImpExpAbstract.java` | **(noted, pass-1 WI8b)** possibly touched by the best-effort / ack option plumbing — options-only, so the two-unit packing premise survives |
+| `docs/` operator migration-procedure page | **(added, pass-1 WI3)** export-exit-status gate, fresh out-of-service target, discard-on-any-failure (folds CS44 + carries the SR1 doctrine) |
 | Tests: `DatabaseExportImportRoundTripTest` (extend), new fail-closed test class(es), fixture dumps | §M.5 |
 
-~4 production files + tests; disjoint from Draft G's footprint (the packing premise holds).
+~5-6 production files + one docs page + tests; the Draft G / Draft M production footprints remain
+disjoint (WI1's fix lands in `DatabaseImport.java`, already Draft M's file — packing premise
+holds).
 
 ---
 
@@ -390,16 +526,17 @@ with the known consequence recorded).
 - **I-U4** — Draft G §G.4: two-phase shape, mutex in phase 1 only, engine-before-insert pinned
   positively (tests 3-4).
 - **I-migration-fail-closed / I-migration-isolation / I-migration-failfast** — Draft M §M.4: each
-  clause mapped to a mechanism (M2.a/M2.b) and a failure mode (FM-M1..M13), with the R1 keying
-  guaranteeing the legacy path cannot regress.
+  clause mapped to a mechanism (M2.a/M2.b) and a failure mode (FM-M1..M17), with the R1 keying
+  guaranteeing the declared-legacy path cannot regress (structural-rejection scope per SR1).
 
 ## Provenance / verification key
 
 - **[verified]** — established by reading the cited code at HEAD `d664589d7f` (recon t60.e1,
   feasibility t60.e2).
 - **[inferred]** — reachability- or protocol-dependent; consistent with the code but not proven
-  without execution (FM-G3's discard protocol; M2.a-6's masking reachability; the D18
-  counterfactual's post-Track-5 behavior). Tagged inline.
+  without execution (FM-G3's original discard-protocol inference — since superseded by the §A1
+  containment; M2.a-6's masking reachability; the D18 counterfactual's post-Track-5 behavior).
+  Tagged inline.
 
 ---
 
@@ -449,9 +586,13 @@ locked before drafting and stand unchanged.
 
 - **Q-G1 — one schema transaction, as recommended.** Phase 1 is ONE schema transaction spanning
   all creators and the O/V/E classes: single commit, single mutex engagement, all-or-nothing. The
-  standalone lazy creator call sites (`FunctionLibraryProxy.java:54`,
-  `SequenceLibraryProxy.java:72`) stay on the legacy top-level path until that path's removal
-  (whose upcoming-PR status is now on the record — see §Admin below).
+  standalone lazy creator call sites stay on the legacy top-level path until that path's removal
+  (whose upcoming-PR status is now on the record — see §Admin below). **[Citation corrected
+  2026-07-23, pass-1 CN49 — decision unchanged: the sites originally cited here
+  (`FunctionLibraryProxy.java:54`, `SequenceLibraryProxy.java:72`) are test-only dead code; the
+  LIVE lazy-creation sites are `FunctionLibraryImpl.createFunction:137-139 → init:164-185`
+  (including its index-repair arm) and `SequenceLibraryImpl.createSequence:103-123 → init`. The
+  Open Questions Q-G1 text retains the original citations as historical record.]**
 - **Q-G2 — one merged data transaction, as recommended.** Phase 2 is ONE data transaction for the
   default roles + users — a single all-or-nothing default-security unit (supersedes today's
   two-tx shape at `SecurityShared.java:628-656`).
@@ -488,10 +629,182 @@ These rulings complete the mandatory user design review for Track 8. Next gates:
 pre-implementation adversarial review of this agreed design, then step decomposition into
 track-8.md.
 
+### Supplementary rulings — adversarial pass-1 triage (2026-07-23)
+
+Issued by the user during the pass-1 triage (see Amendments). They scope/extend the rulings above
+without re-opening them.
+
+- **SR1 (resolves CS39 + CN51-secondary) — "rejections before mutation" is SCOPED to pre-flight.**
+  The Q-M2 guarantee "All rejections throw BEFORE any mutation of the target database" applies to
+  the PRE-FLIGHT rejections (the info-section matrix: version dispatch, schema-version range,
+  mandatory fields, framing/fallback detection, ack gate), which the CS38 deferral makes genuinely
+  pre-mutation. Structural whole-stream rejections — manifest counts, gzip trailer/consumption,
+  section presence — are inherently post-mutation; the new operator migration-procedure document
+  (WI3) mandates import-into-a-fresh-database and discard-on-any-failure, so a structurally
+  rejected target is CONDEMNED, never returned to service. **NO two-pass import** (the
+  considered-and-rejected alternative is on the record in the durability report §CS39).
+- **SR2 (resolves CS42 + WI2) — a dump with NO declared exporter-version is REJECTED
+  fail-closed.** A dump that reaches its section loop (or end of stream) without having declared a
+  parseable `exporter-version` does not ride the lenient path — it is rejected. Legitimate legacy
+  dumps always declare a version (every exporter since the legacy era writes `info` first), so the
+  only inputs this rejects are corrupt, truncated (e.g. the streaming crash shapes), or
+  hand-damaged dumps — exactly the fail-closed set. This closes the strict matrix's bootstrapping
+  hole (arming previously required the very field the missing section carries).
+
 ---
 
-## Amendments — adversarial review (reserved)
+## Amendments — adversarial pass 1 triage (2026-07-23)
 
-<!-- Reserved for adversarial-pass triage against the agreed design, per the Track 7 precedent
-(pass reports + user-approved triage; reversed decisions amend the drafts above explicitly,
-superseded sentences named). Empty until the first pass lands. -->
+Adversarial pass 1 attacked the agreed design (drafts + §0 rulings + 2026-07-23 rulings) from
+three perspectives. Reports: `track-8/reviews/adversarial-durability-pass1.md` (CS34–CS44),
+`track-8/reviews/adversarial-concurrency-pass1.md` (CN48–CN53),
+`track-8/reviews/adversarial-completeness-pass1.md` (WI1–WI10, WC1–WC5). User-approved triage
+(2026-07-23): three blocker-remedy clusters adopted (§A1 genesis-failure containment, §A2 import
+pre-flight deferral, §A3 blob-id import mapping), two supplementary rulings issued (SR1, SR2 —
+recorded in the Rulings section), every should-fix adopted, every suggestion dispositioned below.
+No settled ruling was re-litigated. Where an amendment changes earlier text the superseded
+sentence is named; mechanical consequences (FM rows, test pins, footprints, recipe sentences) are
+edited in place in the draft body, each edit tagged `(pass-1 <ID>)`.
+
+### Disposition table (every finding; nothing silently dropped)
+
+| ID | Severity | Disposition |
+|---|---|---|
+| CS34 | blocker | ADOPTED — §A1 (cleanup-on-exception + open-time completion marker); FM-G3/FM-G5, pin G.5 #9, G.6 footprint amended |
+| CS35 | should-fix | FOLDED into §A1 — the marker refusal is the replacement completeness signal (G2.a amended) |
+| CS36 | should-fix | ADOPTED in §A1 — FM-G3 rewritten to the W-state enumeration; pointer-fold hardening considered and DECLINED (scope) |
+| CS37 | suggestion | RECORDED as pre-existing observation, no code action — the corrected claim ("WAL-rolls-back OR fails config load") carried in §A1 W1/W2 and the amended FM-G4 row |
+| CS38 | blocker | ADOPTED — §A2 pre-flight deferral (M2.b intro amended; FM-M14; pin M.5 #15) |
+| CS39 | should-fix | RESOLVED by SR1 — contract scoped; condemn-target doctrine; NO two-pass import |
+| CS40 | should-fix | ADOPTED — promote recipe: file `force(true)` + REPLACE_EXISTING rename + parent-dir fsync; fail-closed fallback (M2.a-5 amended; FM-M4 updated) |
+| CS41 | should-fix | ADOPTED — upfront final-name delete dropped; promote-time replace only; M.4 + pin M.5 #1 reworded to "final name untouched / pre-existing dump preserved" |
+| CS42 | should-fix | RESOLVED by SR2 — undeclared exporter-version rejected fail-closed |
+| CS43 | should-fix | ADOPTED — exact gzip validation sequence pinned (M2.b-2 rewritten) |
+| CS44 | suggestion | FOLDED into WI3's operator document (exit-0 gate + condemn-target; pin M.5 #18) |
+| CN48 | should-fix | ADOPTED — merged into §A1 (same remedy as CS34; footprint gains `YouTrackDBInternalEmbedded.java`) |
+| CN49 | should-fix | ADOPTED — citation correction only, decision unchanged (Rulings §Q-G1 annotated; live sites named) |
+| CN50 | should-fix | ADOPTED — single config read at storage create; register loop enumerates actual `$blob*` collections by name (G2.b amended) |
+| CN51 | should-fix | primary ADOPTED — exporter-tallied / importer-tallied count provenance (M2.a-5, M2.b-3, FM-M17); secondary RESOLVED by SR1 |
+| CN52 | should-fix | ADOPTED — per-export unique `CREATE_NEW` temp name (M2.a-4; FM-M15; pin M.5 #17) |
+| CN53 | suggestion | DEFERRED — pre-existing system-DB first-touch race, unchanged by Track 8; pin G.5 #6 must avoid parallel first-touch; an opportunistic one-line fix may ride the genesis unit if free |
+| WI1 | blocker | ADOPTED — §A3 (Draft M owns the blob-id mapping fix); §0 R3 / FM-G6 `[verified]` claim corrected; pin M.5 #13 |
+| WI2 | should-fix | RESOLVED by SR2 |
+| WI3 | should-fix | ADOPTED — operator migration-procedure page added to M.6 + pin M.5 #18 (folds CS44, carries the SR1 doctrine) |
+| WI4 | should-fix | ADOPTED — Q-M2 matrix pins M.5 #14-15 (+#16 for the SR1 scope); Q-G2 single-tx pin G.5 #10 |
+| WI5 | should-fix | ADOPTED — sweep made executable (ordering, named suites, grep patterns, fixture rule — pin G.5 #8 rewritten) |
+| WI6 | suggestion | ADOPTED — `manifest` tag case version-gated (M2.b-3) |
+| WI7 | suggestion | ADOPTED — FM-M4 gains pin M.5 #17 (fsync-move called on promote; unflagged close never renames) |
+| WI8 | suggestion | ADOPTED — (a) `GlobalConfiguration.java` in M.6; (b) `DatabaseImpExpAbstract` options touch noted, packing premise survives; (c) manifest JSON shape pinned (M2.a-5); (d) the Move-2 ADDED/MODIFIED/REMOVED triad must record the R3 scope expansion (`AbstractStorage`, `SharedContext`) and M2.a-7 vs the frozen track-8.md In-scope list |
+| WI9 | suggestion | ADOPTED — `SharedContext.lock` interaction argument added (G2.c) |
+| WI10 | suggestion | (a) stream-ctor validation scope carried as an explicit decomposition obligation (M2.b-2); (b) ADOPTED — brokenRids-without-marker rejected; (c) ADOPTED — duplicate sections rejected (both M2.b-3) |
+| WC1 | should-fix | ADOPTED — R1's supersession of frozen track-8.md Validation bullet 2 recorded below; Move 2/3 carries it into track-8.md |
+| WC2 | should-fix | ADOPTED — pin G.5 #2 rewritten (post-genesis reopen shows the genesis-POPULATED schema) |
+| WC3 | suggestion | ADOPTED — dispatch phrasing harmonized (§0 R1 note; M2.b intro) |
+| WC4 | suggestion | ADOPTED — design-final reconciliation hand-off recorded (G2.a): "writes the first schema record" superseded in letter |
+| WC5 | suggestion | (a) RECORDED — implementation-plan.md's checklist shows Tracks 5-7 unchecked though landed; plan-file hygiene at Move 2 (this commit touches only this file); (b) ADOPTED — track-7 drafts path spelled in §0; (c) ADOPTED — "console module is empty" made precise in M.4 |
+| CN observations (no ID) | — | RECORDED for the implementer: `callOnCreateListeners` fires twice per create at HEAD (`YouTrackDBInternalEmbedded:757` + `:770`) and the genesis session is never closed by `createStorage` — genesis tests must not pin a single listener invocation; pre-existing, outside the Track 8 footprint |
+
+The three reports' null-verdict sets (durability N-G1..N-G3 / N-M1..N-M4; concurrency
+V/F/L/I/S/E tables; completeness N1–N8) stand as recorded proofs; no action.
+
+### A1 — CS34 + CN48 + CS36 (+ CS35 folded): genesis-failure containment
+
+**What the pass found.** FM-G3's "A failed create propagates and the DB is discarded, not
+reopened [inferred]" is FALSE at HEAD: `createStorage` performs no cleanup on the exception path
+(`YouTrackDBInternalEmbedded.java:744-755` puts the storage into `storages` before
+`internalCreate`, and the catch only wraps and rethrows); every post-`preCreateSteps` crash state
+makes `exists()` true; `create(failIfExists=false)` then silently no-ops on the residue
+(`:760-766`); and the W6/W7 states reopen SILENTLY (post-G2.a the bootstrap root parses without
+the `fromStream:887-894` breadcrumb, and `SecurityShared.load` even creates `OSecurityPolicy` on
+open, `setupPredicateSecurity:1078-1101`). "Three coarse states" also undercounts the designed
+sequence's durable crash states.
+
+**Supersessions.** This amendment supersedes: FM-G3's original row in full (both the "three
+coarse states (storage-created-only / phase-1-committed / complete)" enumeration and the
+"discarded, not reopened [inferred]" claim); FM-G5's "DB is a discarded half-create anyway" (now
+enforced, not assumed); test pin G.5 #9's original wording; G.6's original footprint list and
+count.
+
+**Corrected crash-state enumeration (durability report §2, adopted as the design's FM-G3).**
+
+| State | Crash point | At reopen | Design answer |
+|---|---|---|---|
+| W0 | before `preCreateSteps` | no residue | clean re-create (benign) |
+| W1 | inside the create atomic op, before `clearStorageDirty` | dirty → WAL rolls the create op back → configuration absent → open fails loudly | residue removed by cleanup (exception path) or manual discard (crash); no longer blocks re-create |
+| W2 | after durable `clearStorageDirty` (`AbstractStorage:1524`), before the op's WAL commit is durable | clean-flagged corpse: recovery skipped, configuration load fails loudly (CS37) | same as W1 — unusable either way; mechanism claim corrected from "WAL-reverted" to "rolls back OR fails config load" |
+| W3 | storage durable, before the schema-root tx | `SchemaNotCreatedException` (loud) | condemned by the missing completion marker |
+| W4 | schema root committed, `setSchemaRecordId` pointer op not (`AbstractStorage:8088-8100` is a separate atomic op) | same signature as W3 | condemned by the marker |
+| W5 | schema root + pointer done, IM root/pointer not (`IndexManagerEmbedded:608-621`, same two-step shape) | IM load fails (loud) | condemned by the marker |
+| W6 | root shells done, phase-1 not committed | **silent open under the un-amended design** (bootstrap root parses; zero classes/users) | **refused loudly by the open-time completion check** |
+| W7 | phase-1 committed, phase-2 not | **silent open, zero users; authenticated open fails with a credentials-shaped error** | **refused loudly by the open-time completion check** |
+| W8 | between roles/users txs | eliminated by Q-G2's single data tx | closed by design |
+| W9 | after the phase-2 commit, before listeners | complete DB; listeners are runtime-only | benign |
+
+**Adopted mechanism (BOTH, per the user-approved remedy).**
+1. **Primary — cleanup-on-exception in `createStorage`.** On any failure out of
+   `internalCreate`/genesis: remove the storage from `storages` and the context from
+   `sharedContexts`, close the storage, and delete the on-disk residue (disk profile) — restoring
+   `exists() == false`, so a create-retry re-creates cleanly and `create(failIfExists=false)` can
+   never silently no-op on a condemned residue.
+2. **Belt — open-time genesis-completion check.** A genesis-completion marker (storage-config
+   property) written immediately after the phase-2 commit completes — for the system DB and the
+   `CREATE_DEFAULT_USERS=false` case too: the marker means "the genesis sequence ran to
+   completion", NOT "users exist" (a zero-OUser-rows heuristic would false-positive on
+   `createDefaultUsers=false`). At open, a database with internal metadata but no marker refuses
+   the open loudly with a "genesis incomplete — discard and re-create" message. Compatibility:
+   every database these binaries can open passed Track 2's schema-v6 gate; databases created by
+   pre-Track-8 builds of this branch lack the marker — dev-only exposure, accepted and recorded.
+3. **CS35 fold — the replacement completeness signal.** The marker refusal replaces (and is
+   strictly stronger than) the `fromStream:887-894` breadcrumb G2.a silences; W6/W7 go from
+   silent-open to loud refusal.
+4. **CS36 residue.** The honest enumeration above is mandatory; the optional hardening (folding
+   the `setSchemaRecordId`/`setIndexMgrRecordId` pointer writes into the create atomic op) was
+   considered and DECLINED as scope — W3-W5 already fail loudly and are condemned by the marker.
+
+### A2 — CS38: import pre-flight deferral
+
+**What the pass found.** The import preamble mutates the target before any v15 rejection can
+fire: `removeDefaultNonSecurityClasses` (`importDatabase:214`) drops every non-security class and
+its indexes BEFORE `importInfo` (`:230`) can learn the dump's version — so every ruled Q-M2
+rejection would fire post-mutation, violating the ruling's letter.
+
+**Adopted remedy** (specified in the amended M2.b intro): ALL preamble target mutations (`:214`,
+the auto-index snapshot `:216-222`, `removeDefaultCollections` via `importSchema:497` /
+`importCollections:848`) are deferred until after the info section parses and the Q-M2 pre-flight
+matrix passes; `>= 15` requires the info section first (compatible — every exporter writes `info`
+first, `exportDatabase:136`); the `< 15` path defers identically (behavior-preserving: nothing
+between `:214` and the first section consumes the dropped classes). Supersedes the draft's silent
+retention of the HEAD import order. Post-mutation structural rejections are scoped by SR1.
+
+### A3 — WI1: blob-collection import mapping under R3
+
+**What the pass found.** `DatabaseImport.importSchema` maps the dump's `blob-collections` ids RAW
+into the target id space (`DatabaseImport.java:528-541`, never consulting
+`collectionToCollectionMapping`), so under R3's renumbering a v14-layout dump's blob ids (highest
+slots) resolve to CLASS collections in the fresh target (blobs at `1..N`) — a class collection
+silently registered as a blob collection on the flagship migration path. This also falsifies §0
+R3's unqualified "[verified] All production lookups are name/schema-dynamic".
+
+**Adopted remedy.** Draft M owns the fix (it lands in `DatabaseImport.java`, already in M.6 — the
+two-unit packing premise holds): the blob registration routes through
+`collectionToCollectionMapping` (or `$blob*` name-match — decomposition picks; both eliminate the
+cross-layout misclassification). Supersedes: §0 R3's and FM-G6's unqualified name-dynamic claim
+(both corrected in place). New pin: M.5 #13 (a v14-layout dump WITH blob content into an
+R3-renumbered target). New FM row: FM-M16.
+
+### Frozen-plan supersession record (pass-1 WC1)
+
+Ruling R1 (2026-07-23) SUPERSEDES two clauses of frozen track-8.md §"Validation and Acceptance"
+bullet 2: "a complete legacy dump missing any expected section is refused" and "a legacy dump
+requires the explicit unverified-import acknowledgment flag". Under R1, declared-legacy (`<= 14`)
+dumps keep today's lenient behavior — a missing section is tolerated and no legacy ack flag
+exists (the ack gate keys off the v15 best-effort marker, M2.b-4). Move 2/3 MUST carry this
+supersession into track-8.md before the EARS lines are used as test method names, so
+decomposition generates tests from the amended contract, not the frozen bullets.
+
+### Triage verdict
+
+Pass-1 triage complete and user-approved (2026-07-23). Amendments applied to the draft body in
+place (tagged `(pass-1 <ID>)`); SR1/SR2 recorded in the Rulings section. Next gate per the track
+workflow: step decomposition into track-8.md (Move 2/3), carrying the WC1 supersession, the WI8d
+Move-2 triad obligations, and the WI10a stream-ctor decomposition obligation.
