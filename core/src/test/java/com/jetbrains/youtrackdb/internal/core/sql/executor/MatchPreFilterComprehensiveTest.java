@@ -975,11 +975,13 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
   }
 
   /**
-   * bothE degrades to no pre-filter but still produces correct results.
-   * This documents the intentional limitation for bothE().
+   * bothE now applies the index pre-filter, since {@code PreFilterableChainedIterable}
+   * makes bidirectional link-bag traversals eligible (YTDB-646). Previously this
+   * test documented the silent degradation — it now guards against regression by
+   * asserting that the intersection descriptor IS present.
    */
   @Test
-  public void edgeMethod_bothE_noPreFilter() {
+  public void edgeMethod_bothE_appliesPreFilter() {
     session.begin();
     // CKnows from p0: out to p1, p2. in from nobody.
     // bothE should find p1, p2
@@ -996,24 +998,13 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     // p0→p2 has since=2007 > 2006 → target p2 via outE.inV
     assertEquals(Set.of("p2"), names);
 
-    // Verify the bothE() edge step specifically has no intersection descriptor.
-    // Check only the plan line for the bothE edge, not the entire plan, to
-    // avoid false positives from unrelated edges that may have intersection.
-    String plan = explainPlan(
+    // Verify that the bothE() edge step carries an intersection descriptor.
+    assertPlanHasIntersection(
         "MATCH {class: CPerson, as: p, where: (name = 'p0')}"
             + ".bothE('CKnows'){as: k, where: (since > 2006)}"
             + ".inV(){as: target}"
-            + " RETURN target.name as name");
-    boolean bothEEdgeHasIntersection = false;
-    for (String line : plan.split("\n")) {
-      if (line.contains("bothE(") || line.contains("{k}")) {
-        bothEEdgeHasIntersection = line.contains("intersection:");
-        break;
-      }
-    }
-    assertFalse(
-        "bothE() edge should NOT have intersection descriptor:\n" + plan,
-        bothEEdgeHasIntersection);
+            + " RETURN target.name as name",
+        "bothE() with alias and indexed property should apply intersection pre-filter");
     session.commit();
   }
 

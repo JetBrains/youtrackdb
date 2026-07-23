@@ -150,3 +150,9 @@ CREATE INDEX Message.creationDate ON Message(creationDate) NOTUNIQUE;
 CREATE INDEX Forum.creationDate ON Forum(creationDate) NOTUNIQUE;
 CREATE INDEX HAS_MEMBER.joinDate ON HAS_MEMBER(joinDate) NOTUNIQUE;
 CREATE INDEX WORK_AT.workFrom ON WORK_AT(workFrom) NOTUNIQUE;
+-- KNOWS.creationDate enables index-assisted pre-filtering for bothE('KNOWS') queries
+-- that filter by friendship date (e.g. "show all connections since date D").
+-- Without this index, bothE traversals load all KNOWS link-bag entries and
+-- filter post-load; with it, the planner uses PreFilterableChainedIterable to
+-- intersect both link-bag directions against the index RID set before any disk I/O.
+CREATE INDEX KNOWS.creationDate ON KNOWS(creationDate) NOTUNIQUE;
