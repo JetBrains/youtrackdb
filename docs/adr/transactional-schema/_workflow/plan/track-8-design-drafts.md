@@ -137,7 +137,13 @@ shared). Collection ids become: `internal` = 0, `$blob0..N-1` = 1..N, class coll
 routes through `resolveForWrite()` (`SchemaProxy.java:460-462`), i.e. **inside the genesis schema
 tx it is a pure tx-local root-payload write** picked up by the commit's root-diff
 (`SchemaShared.java:1309`). The awkward direct-storage-op-inside-metadata-creation disappears; the
-genesis schema tx contains only schema writes.
+genesis schema tx contains only schema writes. **[Correction, Step-1 review CS47 (2026-07-23): as
+implemented at Step 1 (commit 6611cbf6b2) the loop calls `SchemaShared.addBlobCollection`
+DIRECTLY on the committed instance — outside a tx this is behaviorally identical (a per-iteration
+`saveInternal` self-commit), but it does NOT route through the proxy. The proxy routing described
+here is what Step 3's tx-wrap must INTRODUCE: the direct call's `saveInternal` throws
+`SchemaException` under an active transaction (`SchemaShared.java:1508-1513`). Seam annotation
+carried in track-8.md Step 3.]**
 
 Documented semantic consequence: `STORAGE_BLOB_COLLECTIONS_COUNT` becomes a storage-birth property
 frozen at create (it is already effectively read-once-at-genesis today). The id-renumbering caveat
