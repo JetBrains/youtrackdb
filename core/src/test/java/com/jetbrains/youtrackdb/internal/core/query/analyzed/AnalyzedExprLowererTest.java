@@ -260,6 +260,38 @@ public class AnalyzedExprLowererTest {
         new FuncCall("asInteger", List.of(var("name"))), lower("name.asInteger()"));
   }
 
+  /// WHEN a no-arg `column.type()` is lowered, THE pass throws as out-of-subset. The AST
+  /// special-cases this exact shape (`SQLBaseExpression.isEntityPropertyType()`) to read the
+  /// DECLARED schema type via the non-validating `EntityImpl.getPropertyTypeInternal`, bypassing
+  /// the validating `getProperty`. The IR has no equivalent accessor, so a generic `FuncCall`
+  /// would evaluate the base column through the validating `getProperty` path — which crashes on
+  /// booked edge-management names (`out_`/`in_`) on vertices and returns the runtime value-type
+  /// rather than the declared type. Rejecting it forces the AST fallback, restoring exact parity
+  /// (regression guard for the `fireDatabaseMigration` `.type() <> ...` crash, YTDB-916).
+  @Test
+  public void columnTypeMethodThrows() {
+    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("name.type()"));
+  }
+
+  /// WHEN a no-arg `.type()` is applied to a non-column base (a string literal), THE pass still
+  /// lowers to a `FuncCall`. The AST's entity-property-type special case requires an identifier
+  /// base, so `'x'.type()` is NOT special-cased there and never touches the validating
+  /// `getProperty` path — the `.type()` rejection must stay narrow and not over-reject literals.
+  @Test
+  public void typeMethodOnStringLiteralStillLowersToFuncCall() {
+    assertEquals(new FuncCall("type", List.of(new Const("x"))), lower("'x'.type()"));
+  }
+
+  /// WHEN a `column.type(arg)` (a `.type` call WITH arguments) is lowered, THE pass still lowers to
+  /// a `FuncCall`. The AST's entity-property-type special case requires an empty parameter list, so
+  /// `name.type('x')` is not special-cased there either — the rejection stays narrow to the exact
+  /// no-arg `.type()` shape and must not swallow the arg-bearing variant.
+  @Test
+  public void typeMethodWithArgumentStillLowersToFuncCall() {
+    assertEquals(
+        new FuncCall("type", List.of(var("name"), new Const("x"))), lower("name.type('x')"));
+  }
+
   /// WHEN a method call carries an argument `name.append('x')` is lowered, THE IR is a {@link
   /// FuncCall} whose argument list is the lowered base followed by each lowered method argument.
   /// This exercises the argument-lowering loop a zero-argument method call leaves uncovered.
