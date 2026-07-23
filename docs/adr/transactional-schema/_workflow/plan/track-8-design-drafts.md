@@ -50,8 +50,9 @@ NOT re-ask them.
   and honored as out of scope by Track 7 (`track-7-design-drafts.md` §0). Draft G removes the
   single largest legacy top-level DDL consumer (genesis) but does not close the gap; Draft M's
   import keeps its DDL on the legacy path deliberately (consistent with the gap's planned removal
-  in an upcoming PR). **YouTrack ID for the gap: pending from the user** (not present anywhere in
-  the repo; see Open Questions).
+  in an upcoming PR). ~~**YouTrack ID for the gap: pending from the user** (not present anywhere in
+  the repo; see Open Questions).~~ **RESOLVED 2026-07-23: MOOT** — the legacy top-level DDL path
+  is removed in an upcoming PR (user ruling, see Rulings §Admin); no YouTrack ID will be cited.
 
 ---
 
@@ -435,14 +436,57 @@ re-asked.
   weakens the whole-stream validation story (no gzip trailer to verify).
 - **Admin:** the YouTrack issue ID for the top-level-DDL mutex-bypass gap (honored-not-owned, §0)
   is still not recorded anywhere in the repo — please supply it so the track file and PR
-  description can cite it.
+  description can cite it. **RESOLVED 2026-07-23 (see Rulings §Admin): MOOT** — the legacy path is
+  removed in an upcoming PR; no ID will be cited.
 
 ---
 
-## Rulings — user design review (pending)
+## Rulings — user design review (2026-07-23)
 
-<!-- Reserved. Filled when the user rules on the Open Questions above and approves/amends the
-drafts. Binding inputs to the adversarial review and step decomposition. -->
+All six open questions plus the admin item ruled by the user on 2026-07-23. These rulings are
+binding inputs to the adversarial review and step decomposition. The four §0 rulings (R1–R4) were
+locked before drafting and stand unchanged.
+
+- **Q-G1 — one schema transaction, as recommended.** Phase 1 is ONE schema transaction spanning
+  all creators and the O/V/E classes: single commit, single mutex engagement, all-or-nothing. The
+  standalone lazy creator call sites (`FunctionLibraryProxy.java:54`,
+  `SequenceLibraryProxy.java:72`) stay on the legacy top-level path until that path's removal
+  (whose upcoming-PR status is now on the record — see §Admin below).
+- **Q-G2 — one merged data transaction, as recommended.** Phase 2 is ONE data transaction for the
+  default roles + users — a single all-or-nothing default-security unit (supersedes today's
+  two-tx shape at `SecurityShared.java:628-656`).
+- **Q-G3 — verify-first, as recommended.** During the first step, verify whether the genesis
+  commit's index reconciliation or the reopen load chokes on the empty `IndexManagerEmbedded`
+  root shell (`IndexManagerEmbedded.create:608-621`) the way `copyForTx` does on the schema root
+  (`SchemaShared.java:300-301`); if red, extend the G2.a bootstrap-payload fix to it
+  symmetrically.
+- **Q-M1 — `GlobalConfiguration` knob, as recommended.** The spill threshold is a
+  `GlobalConfiguration` knob with a default in the tens of MB. Operational tuning, not
+  correctness.
+- **Q-M2 — full validation matrix ruled.** (1) **exporter-version dispatch:** `<= 14` → the
+  legacy lenient path, unchanged (the migration vehicle, per R1); `== 15` → the strict path;
+  `>= 16` → reject-with-redirect naming both versions ("produced by newer binaries; import with a
+  release supporting exporter version N"). (2) **schema-version:** mandatory in v15 dumps and
+  must satisfy `MIN_IMPORTABLE` (= 6) `<= declared <= CURRENT` (= 6) — exact equality today,
+  expressed as a range so the future version bump is a one-constant change; missing or malformed →
+  reject. (3) **Mandatory fields** = `exporter-version` + `schema-version` (the fields import
+  decision logic consumes); other known info fields are type-checked if present but not required.
+  (4) **Unknown extra fields tolerated** (logged, not rejected — as recommended): the version
+  number is the compatibility contract, not field enumeration. All rejections throw BEFORE any
+  mutation of the target database (I-migration-isolation / I-migration-failfast), with messages
+  naming the declared vs supported values.
+- **Q-M3 — always rejected, as recommended (as drafted in M2.b-1).** A manually-gunzipped v15
+  dump is ALWAYS rejected; no override flag. An override would gut the whole-stream validation
+  story — with no gzip trailer there is nothing to verify.
+- **Admin — RESOLVED: MOOT.** The top-level-DDL mutex-bypass gap needs no YouTrack ID: the legacy
+  top-level DDL path is removed in an upcoming PR (user, 2026-07-23). The §0 honored-not-owned
+  note and the Open Questions admin bullet are updated in place (historical text retained, marked
+  resolved); the track file and PR description cite the upcoming-removal rationale instead of an
+  issue ID.
+
+These rulings complete the mandatory user design review for Track 8. Next gates:
+pre-implementation adversarial review of this agreed design, then step decomposition into
+track-8.md.
 
 ---
 
