@@ -76,7 +76,8 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
     // one full teardown proceeds) and the atomic release claim (exactly one permit release).
     markTeardownIntent();
     if (hasInFlightForeignCommit()) {
-      // The Q-A2 skip: this session's transaction is COMMITTING on its owner's thread right now.
+      // The pool-teardown skip: this session's transaction is COMMITTING on its owner's thread
+      // right now.
       // Tearing it down here would mutate the live commit's transaction object (clear() of the
       // record operations mid-apply, cache shutdown under the promotion reads) and could flip
       // checkOpenness under the committing owner — corrupting or falsely failing a durable

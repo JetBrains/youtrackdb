@@ -81,7 +81,7 @@ public class FrontendTransactionImpl implements
 
   @Nonnull
   protected DatabaseSessionEmbedded session;
-  // Volatile: the Q-A2 pool-teardown skip detection reads the status from a foreign thread
+  // Volatile: the pool-teardown skip detection reads the status from a foreign thread
   // (status == COMMITTING && storageTxThreadId != current thread), and the reads must see the
   // last tx-boundary write in synchronization order — a plain read could observe a stale
   // COMMITTING left over from a prior transaction on this reused object and false-skip. The
@@ -162,8 +162,8 @@ public class FrontendTransactionImpl implements
   // Thread that called startStorageTx() and incremented the per-thread activeTxCount.
   // Pool shutdown may close a session from a different thread than the one that began the tx;
   // in that case tsMin belongs to the originating thread's TsMinHolder and must not be reset.
-  // Volatile for the same reason as status: the Q-A2 skip detection compares it against the pool
-  // thread's own id from a foreign thread.
+  // Volatile for the same reason as status: the pool-teardown skip detection compares it against
+  // the pool thread's own id from a foreign thread.
   private volatile long storageTxThreadId;
 
   /**
@@ -181,7 +181,7 @@ public class FrontendTransactionImpl implements
   }
 
   /**
-   * Whether this transaction is mid-commit on a thread other than the caller's — the Q-A2
+   * Whether this transaction is mid-commit on a thread other than the caller's — the
    * skip-protocol detection a pool teardown runs before tearing down a checked-out session.
    * Both fields are volatile, so a foreign reader sees the last tx-boundary writes; the residual
    * TOCTOU is the accepted one (late-skip = the commit already finished, the owner's completer or
@@ -1029,7 +1029,7 @@ public class FrontendTransactionImpl implements
     try {
       closeInternal();
     } finally {
-      // Owner-as-completer for the Q-A2 pool-teardown skip, strictly AFTER the transaction's own
+      // Owner-as-completer for the pool-teardown skip, strictly AFTER the transaction's own
       // close (the mutex was released by closeInternal's finally, so the completer's own release
       // pass is a no-op via the atomic claim). Runs on both the commit and rollback outcomes
       // (close() is the common boundary) and is throw-isolated inside, so a deferred-teardown
