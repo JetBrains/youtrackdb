@@ -294,11 +294,38 @@ public final class AnalyzedExprLowerer {
     if (methodName == null) {
       throw new UnsupportedAnalyzedNodeException(methodCall.getClass());
     }
+    List<SQLExpression> params = methodCall.getParams();
+    // AST parity for `column.type()`: SQLBaseExpression.isEntityPropertyType() special-cases a
+    // single-segment column base carrying a no-arg `.type()` modifier, reading the DECLARED schema
+    // type via the non-validating EntityImpl.getPropertyTypeInternal and bypassing the validating
+    // getProperty. The IR has no equivalent accessor, so lowering `column.type()` to a generic
+    // FuncCall evaluates its base argument through the validating getProperty path, which (a)
+    // throws on booked edge-management names (out_/in_) on vertices and (b) yields the runtime
+    // value-type instead of the declared type. Reject it so FilterStep/ExpandStep fall back to the
+    // AST carrier, restoring exact parity. Narrow by design: only a no-arg `.type()` over a
+    // single-segment Var is rejected — other no-arg methods (e.g. .asString()) and `.type()` on a
+    // non-column base (e.g. a string literal, which the AST does not special-case) still lower to a
+    // FuncCall.
+    //
+    // COUPLED PAIR: this guard must stay in sync with SQLBaseExpression.isEntityPropertyType(). If
+    // that AST special-case's shape changes (base kind, method name, or arity), re-audit this
+    // guard too, or the IR-vs-AST divergence it fixes will silently return.
+    if ("type".equals(methodName)
+        && params.isEmpty()
+        && base instanceof AnalyzedExpr.Var var
+        // Defensive / always-true today: both call sites of lowerWithOptionalModifier build only
+        // single-segment Vars (lowerIdentifier constructs Var from one columnName; the string-
+        // literal site passes a Const, not a Var), and multi-segment paths are rejected earlier as
+        // out-of-subset modifiers. Kept to mirror isEntityPropertyType()'s single-segment
+        // (isBaseIdentifier) requirement — do not hunt for a multi-segment-Var source; there is
+        // none.
+        && var.path().size() == 1) {
+      throw new UnsupportedAnalyzedNodeException(baseExpression.getClass());
+    }
     // Build the argument array once and wrap it in an immutable List via List.of: the base value is
     // the first argument, each lowered method parameter follows. This avoids the second defensive
     // copy a separate accumulator-plus-List.copyOf would cost while keeping the FuncCall's backing
     // list read-only (FuncCall.args() is read-only by convention).
-    List<SQLExpression> params = methodCall.getParams();
     AnalyzedExpr[] args = new AnalyzedExpr[params.size() + 1];
     args[0] = base;
     for (int i = 0; i < params.size(); i++) {
