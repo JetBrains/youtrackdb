@@ -231,7 +231,9 @@ footprint are amended accordingly.
 5. *Import-nested create* — an import that reaches `removeDefaultCollections` recreates the
    security schema and users; guard no-op path also pinned (create returns null when classes
    exist, without opening a tx).
-6. *System-DB genesis* — phase 2 empty (no roles/users), phase 1 identical.
+6. *System-DB genesis* — phase 2 empty (no roles/users), phase 1 identical; the test MUST avoid
+   parallel system-DB first-touch (the pre-existing unsynchronized `init()` race — CN53,
+   deferred; constraint copied here per gate-1 OBS-2).
 7. *Blob registration* — `getBlobCollectionIds()` equals the storage-created `$blob*` ids; blob
    record round-trip on both profiles.
 8. *Id-renumbering sweep* **(made executable, pass-1 WI5)** — ordering: (1) static sweep before
@@ -247,8 +249,10 @@ footprint are amended accordingly.
    from `storages`/`sharedContexts`, on-disk residue removed, `exists()` false, create-retry
    succeeds, and `create(failIfExists=false)` re-creates instead of silently no-op'ing; (b) crash
    path: a W6/W7-state DB (completion marker absent) refuses `open`/`openNoAuthenticate` loudly
-   with the discard-and-recreate message; (c) a completed create opens with the marker present,
-   on both profiles.
+   with the discard-and-recreate message, and `drop()` discards the corpse WITHOUT surfacing the
+   refusal (gate-1 CN54); (c) a completed create opens with the marker present, on both profiles
+   (the W9a crash window — phase-2 durable, marker not yet — is an accepted fail-closed false
+   refusal, gate-1 CS45).
 10. *Single data transaction (Q-G2)* **(added, pass-1 WI4)** — phase 2 commits exactly once
     (roles + users in one tx), observable via commit-count instrumentation or the tx listener.
 
@@ -365,10 +369,16 @@ reject-with-redirect naming both versions (Q-M2); an undeclared or malformed `ex
 is rejected fail-closed (SR2); a declared `<= 14` keeps today's lenient behavior (plain-JSON
 fallback kept, with the known consequence recorded).
 
-**Pre-flight ordering (pass-1 CS38 — blocker remedy).** ALL import-preamble mutations of the
-target — `removeDefaultNonSecurityClasses` (`importDatabase:214`), the auto-index snapshot
-(`:216-222`), and `removeDefaultCollections` (via `importSchema:497` / `importCollections:848`) —
+**Pre-flight ordering (pass-1 CS38 — blocker remedy; block boundary pinned by gate-1 WI11).**
+ALL import-preamble mutations of the target — the contiguous block `DatabaseImport.java:214-:223`
+INCLUSIVE: `removeDefaultNonSecurityClasses` (`:214`), the auto-index snapshot (`:216-222`), and
+the order-coupled `beforeImportSchemaSnapshot` capture (`:223`, consumed by `importRecords`'
+system-record classification — it must move WITH the drop it observes, or `importRecords` sees a
+snapshot still containing the to-be-dropped classes) — plus `removeDefaultCollections` (via
+`importSchema:497` / `importCollections:848`) —
 are DEFERRED until after the info section is parsed and the Q-M2 pre-flight matrix has passed.
+A dump whose first tag is not `info` is rejected by SR2's trigger before any deferred mutation
+can be unlocked.
 For `>= 15` the info section is required first (compatible: every exporter writes `info` first,
 `exportDatabase:136`); the `< 15` path defers identically — behavior-preserving, since nothing
 between `:214` and the first section consumes the dropped classes. This makes every ruled
@@ -432,7 +442,7 @@ rejections are scoped by SR1.
 | FM-M9 | Oversized record sheds or OOMs the export | closed by spill-to-temp; the record is exported (M2.a-3) |
 | FM-M10 | Dangling field name read as a valid record | closed by parse rejection (M2.b-5) |
 | FM-M11 | Old-format DB opened in place by new binaries | **already closed** by Track 2's gate (`SchemaShared.java:895-904`); this track only pins the redirect test |
-| FM-M12 | v14 and older dumps regress under the new strictness | prevented structurally by R1's `>= 15` keying — the lenient path is untouched; pinned by a v14-dump compatibility test |
+| FM-M12 | v14 and older dumps regress under the new strictness | prevented structurally by the harmonized dispatch — a declared `<= 14` rides the lenient path unchanged (phrasing harmonized per gate-1 WC6; was "R1's `>= 15` keying"); pinned by a v14-dump compatibility test |
 | FM-M13 | Streaming export/import variants break under promote/manifest logic | promote gate is a no-op for the stream ctor; manifest is in-dump so streams carry it; pinned by the existing stream round-trip test |
 | FM-M14 | Import preamble mutates the target before any v15 rejection can fire (`importDatabase:214` vs `:230`) | **defect at the HEAD flow** — closed by the CS38 pre-flight deferral (M2.b intro); pinned by M.5 #15 |
 | FM-M15 | Two concurrent exporters interleave one fixed `.tmp`; both set the completion flag; a corrupt dump is promoted over the good one | **defect of the un-amended design** — closed by the unique `CREATE_NEW` temp name (M2.a-4, pass-1 CN52); pinned by M.5 #17 |
@@ -485,11 +495,14 @@ rejections are scoped by SR1.
     no class collection registered as a blob collection.
 14. *Q-M2 matrix — versions (pass-1 WI4)* — `schema-version` missing / malformed / out of range
     → reject naming declared vs supported; a `>= 16` dump → reject-with-redirect naming both
-    versions; an undeclared `exporter-version` → reject (SR2); a declared v14 → lenient path
-    unchanged.
+    versions; an undeclared `exporter-version` → reject (SR2); a malformed/unparseable
+    `exporter-version` value → rejected, same SR2 outcome as absent (gate-1 WI12a); a declared
+    v14 → lenient path unchanged.
 15. *Q-M2 matrix — fields + pre-flight scope (pass-1 WI4)* — mandatory fields enforced; unknown
-    extra info fields tolerated and logged; a pre-flight rejection leaves the target database
-    unmutated (classes, indexes, records intact — pins CS38 + SR1's scope boundary).
+    extra info fields tolerated and logged; a known optional info field present with a wrong
+    type → type-check rejection per Q-M2(3) (gate-1 WI12b); a pre-flight rejection leaves the
+    target database unmutated (classes, indexes, records intact — pins CS38 + SR1's scope
+    boundary).
 16. *Structural-rejection condemnation (SR1)* — a v15 import failing manifest/consumption checks
     throws loudly after mutation; the test asserts the loud failure and documents the
     condemn-target contract (no assertion that the target is clean).
@@ -615,7 +628,9 @@ locked before drafting and stand unchanged.
   (4) **Unknown extra fields tolerated** (logged, not rejected — as recommended): the version
   number is the compatibility contract, not field enumeration. All rejections throw BEFORE any
   mutation of the target database (I-migration-isolation / I-migration-failfast), with messages
-  naming the declared vs supported values.
+  naming the declared vs supported values. *(Scoped by SR1 — inline pointer added per gate-1
+  WC6: this sentence governs the PRE-FLIGHT rejections; structural whole-stream rejections are
+  inherently post-mutation and condemn the target, see Rulings §SR1.)*
 - **Q-M3 — always rejected, as recommended (as drafted in M2.b-1).** A manually-gunzipped v15
   dump is ALWAYS rejected; no override flag. An override would gut the whole-stream validation
   story — with no gzip trailer there is nothing to verify.
@@ -644,8 +659,13 @@ without re-opening them.
   rejected target is CONDEMNED, never returned to service. **NO two-pass import** (the
   considered-and-rejected alternative is on the record in the durability report §CS39).
 - **SR2 (resolves CS42 + WI2) — a dump with NO declared exporter-version is REJECTED
-  fail-closed.** A dump that reaches its section loop (or end of stream) without having declared a
-  parseable `exporter-version` does not ride the lenient path — it is rejected. Legitimate legacy
+  fail-closed.** Trigger precise per gate-1 CS46: the rejection fires at the **first non-`info`
+  section tag, or at end of stream, whichever comes first**, if no parseable `exporter-version`
+  has been declared by then. (The version is always declared *inside* the section loop via
+  `importInfo`, so the superseded "reaches its section loop" phrasing could be misread as
+  rejecting every dump at loop entry.) This also closes the loop with CS38: a dump whose first
+  tag is not `info` is rejected before any deferred preamble mutation can be unlocked. A dump
+  rejected here does not ride the lenient path. Legitimate legacy
   dumps always declare a version (every exporter since the legacy era writes `info` first), so the
   only inputs this rejects are corrupt, truncated (e.g. the streaming crash shapes), or
   hand-damaged dumps — exactly the fail-closed set. This closes the strict matrix's bootstrapping
@@ -738,7 +758,8 @@ count.
 | W6 | root shells done, phase-1 not committed | **silent open under the un-amended design** (bootstrap root parses; zero classes/users) | **refused loudly by the open-time completion check** |
 | W7 | phase-1 committed, phase-2 not | **silent open, zero users; authenticated open fails with a credentials-shaped error** | **refused loudly by the open-time completion check** |
 | W8 | between roles/users txs | eliminated by Q-G2's single data tx | closed by design |
-| W9 | after the phase-2 commit, before listeners | complete DB; listeners are runtime-only | benign |
+| W9a | phase-2 commit durable, completion marker not yet durable (the marker write is its own durability event — gate-1 CS45) | genesis-complete but marker-less → the belt check refuses the open | **fail-closed FALSE REFUSAL of a genuinely-complete DB — ACCEPTED**: the refusal's discard-and-recreate procedure is cheap and correct for a fresh, data-free DB; no unsafe state opens |
+| W9 | marker durable, before listeners | complete DB; listeners are runtime-only | benign **(narrowed, gate-1 CS45: W9 begins only once the marker is durable — the earlier "after the phase-2 commit" span belongs to W9a)** |
 
 **Adopted mechanism (BOTH, per the user-approved remedy).**
 1. **Primary — cleanup-on-exception in `createStorage`.** On any failure out of
@@ -751,7 +772,10 @@ count.
    `CREATE_DEFAULT_USERS=false` case too: the marker means "the genesis sequence ran to
    completion", NOT "users exist" (a zero-OUser-rows heuristic would false-positive on
    `createDefaultUsers=false`). At open, a database with internal metadata but no marker refuses
-   the open loudly with a "genesis incomplete — discard and re-create" message. Compatibility:
+   the open loudly with a "genesis incomplete — discard and re-create" message. The marker write
+   is a separate durability event, so the W9a crash window (phase-2 durable, marker not yet) is
+   reachable; its fail-closed false refusal of a genuinely-complete DB is ACCEPTED (gate-1 CS45,
+   see the W-table). Compatibility:
    every database these binaries can open passed Track 2's schema-v6 gate; databases created by
    pre-Track-8 builds of this branch lack the marker — dev-only exposure, accepted and recorded.
 3. **CS35 fold — the replacement completeness signal.** The marker refusal replaces (and is
@@ -760,6 +784,15 @@ count.
 4. **CS36 residue.** The honest enumeration above is mandatory; the optional hardening (folding
    the `setSchemaRecordId`/`setIndexMgrRecordId` pointer writes into the create atomic op) was
    considered and DECLINED as scope — W3-W5 already fail loudly and are condemned by the marker.
+5. **Drop-path exemption (gate-1 CN54).** The completion check gates session-minting opens *for
+   use*; it must NOT break the very discard it prescribes. `drop()` internally mints a session
+   via `openNoAuthenticate` (`YouTrackDBInternalEmbedded.java:814`) to fire `onDrop` listeners,
+   then deletes in its `finally` (`:820-841`) — under a naive belt check, dropping a W6/W7
+   corpse would delete successfully yet still throw the refusal out of `drop()`. Specified
+   handling: the drop path BYPASSES or TOLERATES the refusal (exempt the check on drop's internal
+   open, or catch-and-proceed to deletion) — corpse deletion must succeed without surfacing the
+   refusal; `onDrop` listeners not firing for a corpse (no usable session can be minted) is
+   accepted and recorded. Pinned by the extended pin G.5 #9(b).
 
 ### A2 — CS38: import pre-flight deferral
 
@@ -768,10 +801,12 @@ fire: `removeDefaultNonSecurityClasses` (`importDatabase:214`) drops every non-s
 its indexes BEFORE `importInfo` (`:230`) can learn the dump's version — so every ruled Q-M2
 rejection would fire post-mutation, violating the ruling's letter.
 
-**Adopted remedy** (specified in the amended M2.b intro): ALL preamble target mutations (`:214`,
-the auto-index snapshot `:216-222`, `removeDefaultCollections` via `importSchema:497` /
-`importCollections:848`) are deferred until after the info section parses and the Q-M2 pre-flight
-matrix passes; `>= 15` requires the info section first (compatible — every exporter writes `info`
+**Adopted remedy** (specified in the amended M2.b intro; block boundary pinned by gate-1 WI11 as
+`DatabaseImport.java:214-:223` INCLUSIVE — the order-coupled `beforeImportSchemaSnapshot` capture
+at `:223` is part of the deferred preamble): ALL preamble target mutations (`:214`, the
+auto-index snapshot `:216-222`, the `:223` snapshot capture, `removeDefaultCollections` via
+`importSchema:497` / `importCollections:848`) are deferred until after the info section parses
+and the Q-M2 pre-flight matrix passes; `>= 15` requires the info section first (compatible — every exporter writes `info`
 first, `exportDatabase:136`); the `< 15` path defers identically (behavior-preserving: nothing
 between `:214` and the first section consumes the dropped classes). Supersedes the draft's silent
 retention of the HEAD import order. Post-mutation structural rejections are scoped by SR1.
@@ -808,3 +843,29 @@ Pass-1 triage complete and user-approved (2026-07-23). Amendments applied to the
 place (tagged `(pass-1 <ID>)`); SR1/SR2 recorded in the Rulings section. Next gate per the track
 workflow: step decomposition into track-8.md (Move 2/3), carrying the WC1 supersession, the WI8d
 Move-2 triad obligations, and the WI10a stream-ctor decomposition obligation.
+
+### Gate verification — iteration 1 (2026-07-23)
+
+Two gate reports verified the pass-1 amendments finding-by-finding:
+`track-8/reviews/gate-design-pass1-cscn-iter1.md` (CS34–CS44, CN48–CN53) and
+`track-8/reviews/gate-design-pass1-wiwc-iter1.md` (WI1–WI10, WC1–WC5). **Outcome: all 32 pass-1
+findings VERIFIED; zero REJECTED / STILL OPEN / MOOT** — both blockers (CS34, CS38, WI1)
+conclusively, both supplementary rulings (SR1, SR2) correctly recorded and propagated. The gates
+filed six new suggestion-severity findings plus one carried observation; all were user-approved
+2026-07-23 and micro-amended in place, each edit tagged `(gate-1 <ID>)`:
+
+| ID | Source gate | Disposition |
+|---|---|---|
+| CS45 | CS/CN gate | ADOPTED — W9a row added to the §A1 W-table (phase-2 durable, marker not yet durable → fail-closed FALSE REFUSAL of a genuinely-complete DB, ACCEPTED); W9 narrowed to begin at marker durability; §A1 mechanism 2 and pin G.5 #9(c) carry the accepted window |
+| CS46 | CS/CN gate | ADOPTED — SR2's trigger reworded to the precise condition: first non-`info` section tag or EOF, whichever comes first, without a parseable `exporter-version` (the superseded "reaches its section loop" phrasing was literally satisfiable by every dump); cross-linked to CS38's deferral |
+| CN54 | CS/CN gate | ADOPTED — §A1 mechanism 5: the completion check gates session-minting opens for use; the `drop()` internal `openNoAuthenticate` (`YouTrackDBInternalEmbedded:814`) bypasses/tolerates the refusal, corpse deletion must succeed without surfacing it, `onDrop`-not-firing accepted; pin G.5 #9(b) extended |
+| WI11 | WI/WC gate | ADOPTED — §A2 / M2.b deferred-block boundary pinned as `DatabaseImport.java:214-:223` INCLUSIVE (the order-coupled `beforeImportSchemaSnapshot` capture at `:223` moves with the drop it observes) |
+| WI12 | WI/WC gate | ADOPTED — pin M.5 #14 extended: malformed/unparseable `exporter-version` → rejected (same SR2 outcome as absent); pin M.5 #15 extended: known optional info field with a wrong type → type-check rejection per Q-M2(3) |
+| WC6 | WI/WC gate | ADOPTED — inline SR1 scope pointer added to the Q-M2 ruling bullet's "before mutation" sentence (matching the R1/R3/Q-G1 annotation convention); FM-M12's stale "R1's `>= 15` keying" phrasing harmonized to "declared `<= 14` → lenient" |
+| OBS-2 | CS/CN gate (observation) | ADOPTED — CN53's "avoid parallel system-DB first-touch" test constraint copied from the disposition table into pin G.5 #6's own text |
+
+Residual gate observations carried without edits: OBS-1 (the `:223` snapshot's consumers are
+drop-invariant — subsumed by WI11's block pin), OBS-3 (bookkeeping, no orphaned supersessions),
+and the WI/WC gate's count note (the pass-1 disposition table carries 32 IDs, not 31 as the gate
+tasking stated — the table was and is complete). Design phase closes here; next gate: step
+decomposition into track-8.md (Move 2/3) with the carry list from the Triage verdict above.
