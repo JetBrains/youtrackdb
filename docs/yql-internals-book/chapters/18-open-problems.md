@@ -127,15 +127,98 @@ and expands forward; it cannot discover that starting from the tiny far-end
 set and walking the whole pattern in reverse would touch orders of magnitude
 fewer rows.
 
-Two more shapes share the pathology. In the first, an expensive edge ought to
-be deferred until a downstream filter has shrunk the intermediate cardinality,
-but greedy takes the locally cheap edge now and pays for it later. In the
-second, two independent sub-patterns have a cheapest interleaving that greedy
-cannot see, because it commits to one ordering and lives with it. These are not
-contrived corners. They are the shape of heavy, multi-hop analytical
-traversals — the ones that begin at a broad, weakly-filtered end and only narrow
-deep in the pattern, exactly like the worked example above — where the cheapest
-plan runs against the very direction greedy commits to first.
+Two more shapes share the pathology, and both are worth seeing in miniature.
+
+**The first is an edge that should have waited.** Ask for your friends who live
+in your own — heavily populated — home country:
+
+```sql
+MATCH {class: Person, as: me, where: (id = :personId)}
+      .out('LIVES_IN'){class: Country, as: home}
+      .in('LIVES_IN') {class: Person,  as: friend},
+   {as: me}.out('KNOWS'){as: friend}
+RETURN friend
+```
+
+Only `me` carries a filter, so the root is forced and correct — there is no
+wrong end to start from this time. Greedy loses anyway, one hop later. From `me`
+two edges are ready: `out('LIVES_IN')` to your country, fan-out one, and
+`out('KNOWS')` to your friends, fan-out thirty. Greedy ranks them by that
+immediate fan-out, takes the country edge because one beats thirty, and — because
+the inner search runs each branch to the bottom before trying another — is left
+standing on `home` with only its expensive edge remaining:
+
+```
+me                             →  1
+me.out('LIVES_IN')   → home    →  1 × 1 = 1
+home.in('LIVES_IN')  → friend  →  1 × 50,000,000 = 50,000,000   (every resident)
+friend  =?=  me.out('KNOWS')   →  keep the ~30 you actually know
+```
+
+Fifty million residents materialised to find thirty friends. The edge that
+explodes — walking a country back to its inhabitants — is exactly the one that
+should have waited until `KNOWS` had shrunk the set to thirty, at which point it
+collapses to a membership check:
+
+```
+me                             →  1
+me.out('KNOWS')      → friend  →  1 × 30 = 30
+me.out('LIVES_IN')   → home    →  30 × 1 = 30
+friend.out('LIVES_IN') =?= home →  keep those whose country is home
+```
+
+Thirty rows against fifty million — and greedy cannot see it, because the
+ruinous edge is one hop past the one it is scoring. Nor can you dodge it by
+rewriting the query: a plain edge traverses either way, so spelling the
+residents step in the opposite direction hands greedy the very same explosion.
+
+**The second is two independent questions asked in the wrong order.** Find the
+replies to your posts and, separately, your friends who live in one small
+country:
+
+```sql
+MATCH {class: Person, as: me, where: (id = :personId)}
+      .in('HAS_CREATOR'){class: Post,    as: myPost}
+      .in('REPLY_OF')   {class: Comment, as: reply},
+   {as: me}.out('KNOWS'){class: Person, as: friend}
+      .out('LIVES_IN')  {class: Country, as: home, where: (name = :smallCountry)}
+RETURN reply, friend
+```
+
+Nothing links the two branches; the answer is every reply paired with every
+qualifying friend. Greedy expands the cheaper first edge — your ten posts beat
+your thirty friends — and, depth-first, runs that whole branch out before it
+touches the other:
+
+```
+me                              →  1
+me.in('HAS_CREATOR')  → myPost  →  1 × 10 = 10
+myPost.in('REPLY_OF') → reply   →  10 × 10 = 100      (branch one, in full)
+{me}.out('KNOWS')     → friend  →  100 × 30 = 3,000   (branch two, piled on top)
+friend.out('LIVES_IN')→ home    →  keep the 2 in :smallCountry → 200
+```
+
+The cheaper plan interleaves: run the friends branch first, let the
+small-country filter cut thirty down to two, and only then multiply in the
+hundred replies:
+
+```
+me                              →  1
+{me}.out('KNOWS')     → friend  →  1 × 30 = 30
+friend.out('LIVES_IN')→ home    →  keep the 2 in :smallCountry → 2
+me.in('HAS_CREATOR')  → myPost  →  2 × 10 = 20
+myPost.in('REPLY_OF') → reply   →  20 × 10 = 200
+```
+
+Two hundred answers either way, but greedy's peak intermediate is fifteen times
+larger — and it cannot reach the cheaper plan, because committing to the cheap
+first edge means running that branch to the bottom before the filter on the
+other branch ever gets a turn.
+
+These are not contrived corners. They are the everyday shape of heavy,
+multi-hop analytical traversals: one branch fans out through a broad middle
+while the single selective filter sits at the far end, and greedy commits to an
+order before that filter ever gets a turn.
 
 None of this means greedy is a mistake. When the locally cheapest next edge is
 also the globally best one — the common case for small patterns — greedy
@@ -489,11 +572,12 @@ lookup.
 The proposed extension adds those missing estimates to the step's structured
 output. The immediately useful, well-defined one is rows: estimated rows in and
 out, and — once profiling is on — the estimated-versus-actual row ratio above. An
-estimated-*cost* field can follow, but only once the cost-basis question of
-§18.1 is settled; until then there is no honest way to line a page-read estimate
-up against a nanosecond measurement, so the row ratio is the number worth
-surfacing first. At the plan level the same surface would carry the planner's
-own wall-time, whether the plan came from the cache fresh or was replanned,
+estimated-*cost* field can follow, but only once §18.1's open question of whether
+cost stays in page-read units or moves to measured time is settled; until then
+there is no honest way to line a page-read estimate up against a nanosecond
+measurement, so the row ratio is the number worth surfacing first. At the plan
+level the same surface would carry the planner's own wall-time, whether the
+plan came from the cache fresh or was replanned,
 and — tied to the stats-drift work of §18.3 — the statistics epoch the plan was
 built under. Once the IDP planner of §18.1
 exists, this is also where its rejected alternatives would surface: the plans the
