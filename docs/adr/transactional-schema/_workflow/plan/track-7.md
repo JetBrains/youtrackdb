@@ -46,6 +46,8 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
   concurrency + crash-safety + baseline reviews: 3 should-fixes + 7 suggestions — all applied
   except BG8, deferred pending a user decision on the cut-woken throw-mode semantics; 0
   blockers)
+- [x] 2026-07-23T06:10Z [ctx=safe] BG8 resolved (commit 3dd408a439; user-ruled Option A — pin
+  the deterministic throw)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -315,6 +317,23 @@ restore strict park-through is a product-behavior decision awaiting the user; no
 touches that interleaving in this commit. TQ10's wake-trajectory nuance is partially absorbed by
 the new stack-attribution asserts; the herd test's re-park observation window remains
 as-reviewed (its load-bearing assertions are trajectory-independent).
+
+**BG8 RESOLVED — commit 3dd408a439, 2026-07-23T06:10Z [ctx=safe]:** the user ruled Option A —
+the deterministic throw is CORRECT and is now the pinned contract: throw-mode means the operator
+explicitly requested loud failure for writes, and `LockSupport.park`'s spurious-wakeup spec never
+guaranteed park-through anyway. Comments-only in production (the rationale now sits at the
+loop's supplier-check throw site and at the arm-cut site, both marked as the user-ruled contract
+so a future reader does not "fix" it back) plus one pinning test:
+`cutWokenParkedDataCommitThrowsSupplierUnderThrowModeOperatorFreeze` parks a data commit behind
+a transient quiesce, engages a throw-mode operator freeze (manager level, with the legacy
+supplier `freeze(true)` registers), and asserts the woken commit fails promptly with the
+SUPPLIER's exception (legacy wording, explicitly not the schema-gate factory's) and that the
+storage is fully usable after the releases — bounded latches, 60s timeout. Verification:
+FreezerGateTest 11/11 + OperationsFreezerLivenessTest green targeted, full core unit suite
+17445/0 (parallel) + 2219/0 (sequential) + 18/0 (MT), coverage gate PASSED (90.7% line / 82.8%
+branch on changed-vs-develop). The full IT profile was NOT re-run — judgment: the production
+diff is comments-only and the new test rides paths the last full-verify run (at b54384e08a)
+already exercised end to end.
 
 **Key files:**
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java`
