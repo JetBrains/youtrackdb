@@ -466,17 +466,18 @@ step keeps — when a build side turns out larger than the planner estimated, th
 step does not crash; it falls back to per-row nested-loop evaluation and keeps
 producing correct results, only slower.
 
-This section is about a fourth hash-join step that Chapter 13 did not open up,
-and about what that safety net costs when it fires. The step handles
-*back-reference* edges — the shapes where a traversal target is compared to an
-already-bound alias, such as `where: (@rid = $matched.person.@rid)` or
-`$currentMatch NOT IN $matched.person.out('LIKES')`. Instead of walking a link
-bag once per upstream row, it builds a hash table from the back-referenced
-vertex's link bag, caches it per binding, and probes it per row in O(1). That
-step is `BackRefHashJoinStep`, and it is where the fallback cliff is steepest.
-It is worth being precise about what the engine does and does not do at the edge
-of that cliff, because it is easy to assume a database throws or spills when it
-does neither.
+Chapter 13 also introduced the fourth of those steps, `BackRefHashJoinStep` —
+the required back-reference semi-join and anti-join step. It handles the shapes
+where a traversal target is compared to an already-bound alias, such as
+`where: (@rid = $matched.person.@rid)` or
+`$currentMatch NOT IN $matched.person.out('LIKES')`, and rather than re-check
+that comparison row by row it builds a hash set from the back-referenced
+vertex's link bag once and probes it in O(1). This section is not about how the
+step works — Chapter 13 covered that — but about what its safety net costs when
+the build side outgrows memory: the spill-to-disk gap. `BackRefHashJoinStep` is
+where the fallback cliff is steepest, and it is worth being precise about what
+the engine does and does not do at the edge of that cliff, because it is easy to
+assume a database throws or spills when it does neither.
 
 Here is the honest picture. There is no hard memory cap that aborts a hash join.
 Past the build-side estimate governed by `QUERY_MATCH_HASH_JOIN_THRESHOLD`
@@ -721,8 +722,8 @@ and start there.
 - [Chapter 10 in this book](10-scheduling.md) — the greedy scheduling DFS that
   §18.1 upgrades.
 - [Chapter 13 in this book](13-hash-joins.md) — the hash-join idea and its
-  three variants; §18.4 concerns a fourth, `BackRefHashJoinStep`, and its
-  spill gap.
+  four variants; §18.4 examines the spill gap in the fourth,
+  `BackRefHashJoinStep`.
 - [Chapter 14 in this book](14-index-assisted-traversal.md) — index-assisted
   traversal; the alternative §18.1's IDP search would price directly against
   nested loops.

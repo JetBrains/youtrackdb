@@ -678,8 +678,10 @@ O(1) probes per row. A truly optimal plan might avoid the fan-out problem
 altogether by choosing a different root or a different schedule, but the
 hash-join threshold is the single largest mechanism the planner has for
 containing the damage when its own greedy choice turns out to be wrong. See
-Chapter 13 §"When the planner picks a hash join" for the eligibility
-conditions and the size threshold that controls when the substitution fires.
+Chapter 13 §"The required back-reference: semi-joins and anti-joins" —
+specifically its "Where it gets chosen" discussion of the
+intersection-optimization sweep — for how the planner selects this
+substitution and the size threshold that controls when it fires.
 
 ---
 

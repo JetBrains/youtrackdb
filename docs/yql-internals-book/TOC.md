@@ -109,7 +109,7 @@ Draws from: 10-runtime-traversal.md.
 The basic engine is a nested-loop machine. Part VI covers the two optimisation layers that replace — or accelerate — parts of it. The reader needs everything from Parts I–V in place before this makes sense.
 
 **Chapter 13 — When Nested Loops Aren't Enough: Hash Joins**
-The three hash-join variants (`HashJoinMatchStep`, `CorrelatedOptionalHashJoinStep`, `InvertedWhileHashJoinStep`), the conditions under which the planner selects each, and the configuration knobs. Each variant is introduced by the problem it solves — `NOT` patterns, `OPTIONAL` with a back-reference, inverted `WHILE` — not by the class name.
+The four hash-join variants (`HashJoinMatchStep`, `CorrelatedOptionalHashJoinStep`, `InvertedWhileHashJoinStep`, `BackRefHashJoinStep`), the conditions under which the planner selects each, and the configuration knobs. Each variant is introduced by the problem it solves — `NOT` patterns, `OPTIONAL` with a back-reference, inverted `WHILE`, required back-references — not by the class name.
 Draws from: 13-hash-joins.md.
 
 **Chapter 14 — Index-Assisted Traversal: Pre-Filtering Adjacency Lists**

@@ -67,10 +67,10 @@ abbreviates
 | `…/internal/core/sql/executor/match/ReturnMatchPatternsStep.java` | RETURN projection: patterns variant | Ch. 11 |
 | `…/internal/core/sql/executor/match/ReturnMatchPathElementsStep.java` | RETURN projection: path-elements variant | Ch. 11 |
 | `…/internal/core/sql/executor/match/MatchAssertions.java` | Assertion helpers for the executor package | Ch. 11 |
-| `…/internal/core/sql/executor/match/SemiJoinDescriptor.java` | Sealed interface for back-reference semi-join descriptors attached to an `EdgeTraversal` | Ch. 10 |
-| `…/internal/core/sql/executor/match/SingleEdgeSemiJoin.java` | Pattern A: single-edge back-reference semi-join descriptor | Ch. 10 |
-| `…/internal/core/sql/executor/match/ChainSemiJoin.java` | Pattern B: `.outE('E').inV()` chain semi-join descriptor | Ch. 10 |
-| `…/internal/core/sql/executor/match/AntiSemiJoin.java` | Pattern D: NOT IN anti-semi-join descriptor | Ch. 10 |
+| `…/internal/core/sql/executor/match/SemiJoinDescriptor.java` | Sealed interface for back-reference semi-join descriptors attached to an `EdgeTraversal` | Ch. 10, 13 |
+| `…/internal/core/sql/executor/match/SingleEdgeSemiJoin.java` | Pattern A: single-edge back-reference semi-join descriptor | Ch. 10, 13 |
+| `…/internal/core/sql/executor/match/ChainSemiJoin.java` | Pattern B: `.outE('E').inV()` chain semi-join descriptor | Ch. 10, 13 |
+| `…/internal/core/sql/executor/match/AntiSemiJoin.java` | Pattern D: NOT IN anti-semi-join descriptor | Ch. 10, 13 |
 | `…/internal/core/sql/executor/match/BackRefHashJoinStep.java` | Back-reference semi-join step; builds a neighbour RID-set once and probes in O(1) | Ch. 10, 13 |
 | `…/internal/core/sql/executor/match/PreFilterSkipReason.java` | Enum naming why an eligible edge was denied a pre-filter at runtime; surfaced in PROFILE output only, never in EXPLAIN | Ch. 14, 16 |
 | `…/internal/core/sql/executor/CartesianProductStep.java` | Cross join between disjoint connected components | Ch. 7 |
@@ -220,7 +220,7 @@ back-reference semi-join: instead of checking a back-reference equality
 condition for every traversal candidate row-by-row, the step builds a hash
 set (or set of sets) once from a materialised neighbour list, then probes
 it in O(1) per upstream row. Which neighbour list to build is determined by
-the `SemiJoinDescriptor` attached to the associated `EdgeTraversal`. (Ch. 10)
+the `SemiJoinDescriptor` attached to the associated `EdgeTraversal`. (Ch. 10, 13)
 
 ---
 
@@ -515,7 +515,7 @@ attaches a `SemiJoinDescriptor` to an `EdgeTraversal` when a back-reference
 pattern qualifies for the semi-join optimisation, signalling to the step
 generator that a `BackRefHashJoinStep` should handle that edge instead of a
 `MatchStep`. Mutually exclusive with a `RidFilterDescriptor` on the same
-edge. (Ch. 10)
+edge. (Ch. 10, 13)
 
 ---
 

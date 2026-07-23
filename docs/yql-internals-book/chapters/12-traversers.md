@@ -669,12 +669,14 @@ it is fast enough.
 But the nested-loop model has a fundamental cost: when a late stage of the pattern is
 highly selective, the engine has already paid the full scan cost of all the earlier
 stages to get there. If a pattern includes a `NOT` clause, an `OPTIONAL` with a back
-reference, or an inverted `WHILE`, the nested-loop structure cannot prune early without
-restructuring the plan.
+reference, a required back reference, or an inverted `WHILE`, the nested-loop structure
+cannot prune early without restructuring the plan.
 
-Chapter 13 introduces the three hash-join variants that replace `MatchStep` in exactly
-those cases: `HashJoinMatchStep` for `NOT` patterns, `CorrelatedOptionalHashJoinStep`
-for `OPTIONAL` with a back reference, and `InvertedWhileHashJoinStep` for inverted
+Chapter 13 introduces the four hash-join variants the planner substitutes in those
+cases: `HashJoinMatchStep` for `NOT` patterns, `CorrelatedOptionalHashJoinStep` for
+`OPTIONAL` with a back reference, `BackRefHashJoinStep` for required back references
+(its semi-join sub-shapes replace one or two `MatchStep`s, while its anti-join sub-shape
+runs as a post-filter after a `MatchStep`), and `InvertedWhileHashJoinStep` for inverted
 `WHILE` patterns. Each variant is introduced not by its class name but by the specific
 nested-loop failure mode it repairs.
 
@@ -710,7 +712,9 @@ nested-loop failure mode it repairs.
   — layered row wrapper that stores only the new alias and delegates upstream lookups
 - Chapter 11 (*The Step Pipeline*) — establishes `MatchStep`, `OptionalMatchStep`, and
   how steps are chained
-- Chapter 13 (*Hash Joins*) — the three hash-join variants that replace `MatchStep` for
-  `NOT`, `OPTIONAL`-with-back-reference, and inverted-`WHILE` patterns
+- Chapter 13 (*Hash Joins*) — the four hash-join variants the planner substitutes for
+  `NOT`, `OPTIONAL`-with-back-reference, required-back-reference, and inverted-`WHILE`
+  patterns (the anti-join shape of the required-back-reference variant
+  `BackRefHashJoinStep` is a post-filter, not a `MatchStep` replacement)
 - Chapter 14 (*Index-Assisted Traversal*) — explains `RidFilterDescriptor` and how
   `applyPreFilter` uses it
