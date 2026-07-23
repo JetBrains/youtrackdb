@@ -632,6 +632,78 @@ public class FreezerGateTest extends DbTestBase {
   }
 
   /**
+   * The pinned BG8 contract (user-ruled 2026-07-23, Option A — deterministic throw): a data
+   * commit already PARKED under an earlier park-mode freeze, when a THROW-MODE operator freeze
+   * engages over it, is woken by the operator-arm cut, re-evaluates, and THROWS the registered
+   * supplier's exception deterministically — it does not park through to completion after the
+   * release, as the pre-gate code happened to do. Throw-mode means the operator explicitly
+   * requested loud failure for writes, and LockSupport's spurious-wakeup spec never guaranteed
+   * park-through anyway. The asserted exception is the SUPPLIER's (legacy wording), not the
+   * schema-gate factory's — the two must not blur.
+   */
+  @Test(timeout = 60_000)
+  public void cutWokenParkedDataCommitThrowsSupplierUnderThrowModeOperatorFreeze()
+      throws Exception {
+    // Timed bodies run on a surrogate thread, so the session is re-activated.
+    session.activateOnCurrentThread();
+    session.getMetadata().getSchema().createClass("ThrowModeWake");
+    var manager = storage().getAtomicOperationsManager();
+    var writerOutcome = new AtomicReference<Throwable>();
+    var writerDone = new CountDownLatch(1);
+
+    var transientId = manager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+    long operatorId = -2;
+    try {
+      var writer = spawn(() -> {
+        try (var writerSession = openDatabase()) {
+          writerSession.activateOnCurrentThread();
+          try {
+            writerSession.executeInTx(tx -> {
+              var row = (EntityImpl) writerSession.newEntity("ThrowModeWake");
+              row.setProperty("v", 1);
+            });
+          } catch (Throwable t) {
+            writerOutcome.set(t);
+          }
+        } finally {
+          writerDone.countDown();
+        }
+      }, "throw-mode-wake-writer");
+      var state = awaitThreadParked(writer, 10_000);
+      assertTrue("the data commit must park behind the transient quiesce, observed " + state,
+          state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+      assertEquals("the commit must still be parked", 1, writerDone.getCount());
+
+      // The THROW-MODE operator freeze engages over the park-mode quiesce (manager level, with
+      // the legacy supplier freeze(true) registers): its cut wakes the parked entrant, which
+      // must throw the supplier's exception instead of re-parking.
+      operatorId = manager.freezeWriteOperations(FreezeKind.OPERATOR,
+          () -> new ModificationOperationProhibitedException(session.getDatabaseName(),
+              "Modification requests are prohibited"));
+      assertTrue("the woken data commit must fail promptly instead of parking through",
+          writerDone.await(10, TimeUnit.SECONDS));
+      var outcome = writerOutcome.get();
+      assertNotNull("the woken data commit must have thrown", outcome);
+      assertTrue("the failure must be the supplier's exception: " + outcome,
+          outcome instanceof ModificationOperationProhibitedException
+              && outcome.getMessage().contains("Modification requests are prohibited"));
+      assertFalse("the schema-gate wording must not leak onto the supplier path",
+          outcome.getMessage().contains(GATE_MESSAGE_FRAGMENT));
+    } finally {
+      if (operatorId != -2) {
+        manager.unfreezeWriteOperations(operatorId);
+      }
+      manager.unfreezeWriteOperations(transientId);
+    }
+
+    // The throw left the storage fully usable after the releases.
+    session.executeInTx(tx -> {
+      var row = (EntityImpl) session.newEntity("ThrowModeWake");
+      row.setProperty("v", 2);
+    });
+  }
+
+  /**
    * Data commits under a TRANSIENT quiesce keep the historical semantics byte-for-byte: a brief
    * park, then success — never a throw.
    */
