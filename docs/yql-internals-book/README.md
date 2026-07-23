@@ -22,7 +22,7 @@ When the book is refreshed against a newer tree, bump this table and re-run the 
 
 ### Refresh history
 
-- **Cycle 3 (2026-07-21)** — drift refresh against `a9b05e3f56`. Semantic rewrites: Ch 14 (pre-filter two-path admission model, post-YTDB-651), Ch 17 (reference tables: split pre-filter knobs + new tx-result-cache knobs), Ch 16 (EXPLAIN pathology). New content: Ch 7 §7.9 new subsection “A third cache — results, not plans” (transaction query-result cache). Full line-number re-sync sweep across Ch 3–13, 15–17. Ch 9 §9.1 corrected (root-entry RID-pin single→list). First drift report: `maintenance/drift-a9b05e3f56.md`.
+- **Cycle 3 (2026-07-21)** — drift refresh against `a9b05e3f56`. Semantic rewrites: Ch 14 (pre-filter two-path admission model, post-YTDB-651), Ch 17 (reference tables: split pre-filter knobs + new tx-result-cache knobs), Ch 16 (EXPLAIN pathology). New content: Ch 7 §7.9 new subsection “A third cache — results, not plans” (transaction query-result cache). New chapter: Ch 18 “Open Problems: A Contributor's Map” (new Part VIII). Full line-number re-sync sweep across Ch 3–13, 15–17. Ch 9 §9.1 corrected (root-entry RID-pin single→list). First drift report: `maintenance/drift-a9b05e3f56.md`.
 
 
 ## Contents

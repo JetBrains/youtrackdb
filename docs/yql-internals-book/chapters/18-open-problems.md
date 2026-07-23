@@ -47,6 +47,7 @@ flowchart TD
     SD -. ships with .-> S2
     OB -. makes all of it debuggable .-> S1
     OB -.-> S2
+    OB -. lets you confirm a replan .-> SD
     SP:::standalone
 
     classDef standalone stroke-dasharray: 4 4;
