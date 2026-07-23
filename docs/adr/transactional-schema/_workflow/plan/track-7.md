@@ -18,7 +18,7 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-21T13:00Z [ctx=safe] Review + decomposition complete (5-step roster approved)
@@ -135,6 +135,16 @@ design.md D-records this track owns. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-07-23 Pool-teardown skip protection boundary (the pass-14 CS13 record, carried here as the
+  durable track-file line the note asked for; also in the design risk list and the PR
+  description as risk 4 with the CN20+CS17 narrowing): when a connection-pool `realClose()` finds
+  the checked-out session's transaction committing on its owner's thread, it performs ONLY the
+  whitelist — set the teardown-intent mark and log — and deliberately does NOT roll back or
+  clear the transaction, release the mutex, flip status, decrement the session count, tear down
+  the cache/sharedContext, or consume the one-shot teardown claim. The owning thread is the sole
+  completer and runs the full teardown after its own transaction closes; the mark-first /
+  re-validate handshake guarantees at least one side completes. This confines every mutation of a
+  live commit's transaction state to the owning thread (invariant I-C3).
 
 ## Context and Orientation
 Track 3 introduced the `MetadataWriteMutex` `Semaphore(1)` with its engage point, the

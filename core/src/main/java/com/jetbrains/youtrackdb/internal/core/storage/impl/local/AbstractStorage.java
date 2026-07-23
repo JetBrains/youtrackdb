@@ -3627,6 +3627,11 @@ public abstract class AbstractStorage
    */
   private void revertCreatedCollectionStructure(final int realId,
       final StorageCollection collection, final boolean slotReused) {
+    // Enters the freezer UNARMED (the internal atomic-operation wrapper below) while holding the
+    // metadata-write mutex, the schema and index-manager write locks, and stateLock.writeLock.
+    // Never parks under an operator freeze: an operator freeze can only arm under
+    // stateLock.readLock (see freeze()), which the held write lock excludes for this whole
+    // window. If that premise ever changes, this undo could park unbounded here with no gate.
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
@@ -3886,6 +3891,9 @@ public abstract class AbstractStorage
    * @param droppedEngines the engines the failed commit dropped (slot + captured durable data).
    */
   private void restoreReconciledDroppedIndexEngines(final List<DroppedIndexEngine> droppedEngines) {
+    // Enters the freezer UNARMED while holding the metadata-write mutex, both metadata write
+    // locks, and stateLock.writeLock; safe from an operator-freeze park because a freeze arms
+    // only under stateLock.readLock (see freeze()), excluded here by the held write lock.
     for (final var dropped : droppedEngines) {
       final var internalId = dropped.internalId();
       final var engineData = dropped.data();
@@ -3957,6 +3965,9 @@ public abstract class AbstractStorage
   // Package-private for tests: the guarded config-delete and the non-B-tree skip are
   // failure-path arms that production only reaches through an injected commit fault.
   void revertCreatedIndexEngineStructure(final BaseIndexEngine engine) {
+    // Enters the freezer UNARMED while holding the metadata-write mutex, both metadata write
+    // locks, and stateLock.writeLock; safe from an operator-freeze park because a freeze arms
+    // only under stateLock.readLock (see freeze()), excluded here by the held write lock.
     // The file family is keyed by the engine's stable file base id, so only an engine that
     // carries one (every local B-tree engine) can be swept for survivors. A non-B-tree engine
     // cannot be created by the local commit window, so the conservative skip is unreachable in
@@ -5807,6 +5818,18 @@ public abstract class AbstractStorage
         // unbounded duration until release()): the kind arms the schema-commit gate, so a
         // schema-carrying commit aborts loudly instead of parking inside its four-lock window
         // for the freeze's whole duration.
+        //
+        // LOAD-BEARING PREMISE: this is the ONLY production site that registers an operator
+        // freeze, and it does so while holding stateLock.readLock (taken at the top of this
+        // method). That is the belt two other things rely on: (a) the in-freezer loop-top and
+        // park-decision gates and the operator-arm wake are exercised in production only through
+        // this readLock-held path; and (b) the failure-path undo helpers
+        // (revertCreatedCollectionStructure, revertCreatedIndexEngineStructure,
+        // restoreReconciledDroppedIndexEngines) enter the freezer UNARMED while holding
+        // stateLock.writeLock, and are safe precisely because no operator freeze can arm while
+        // they hold the write lock — registering one here would first need this readLock, which
+        // the writeLock excludes. A future operator-freeze registration added on a path that does
+        // NOT hold stateLock.readLock would break both belts (see those helpers' notes).
         final long freezeId;
         if (throwException) {
           freezeId = atomicOperationsManager.freezeWriteOperations(
@@ -6685,7 +6708,7 @@ public abstract class AbstractStorage
       TimeUnit.MILLISECONDS.toNanos(1);
 
   /**
-   * The single kind probe of the schema-commit freezer gate (Q-B3 shared-helper pin): the entry
+   * The single kind probe of the schema-commit freezer gate (one shared helper): the entry
    * probe, the write-lock abort predicate, and — through the threaded supplier — the two
    * in-freezer checkpoints all read this one counter probe, so the four checkpoints cannot
    * drift.
@@ -6695,7 +6718,7 @@ public abstract class AbstractStorage
   }
 
   /**
-   * The single gate-exception factory of the schema-commit freezer gate (Q-B5): the stable,
+   * The single gate-exception factory of the schema-commit freezer gate: the stable,
    * tested message names the storage and distinguishes a gate/probe abort from the legacy
    * throw-mode freeze supplier's wording. Type {@link ModificationOperationProhibitedException}
    * (a {@code HighLevelException}), so the abort is loud, retryable, and never moves the storage

@@ -277,7 +277,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private final LocalRecordCache localCache = new LocalRecordCache();
   private final CurrentStorageComponentsFactory componentsFactory;
   private boolean initialized = false;
-  // Volatile for the Q-A2 pool-teardown skip detection: hasInFlightForeignCommit() reads the
+  // Volatile for the pool-teardown skip detection: hasInFlightForeignCommit() reads the
   // CURRENT transaction object from a foreign thread before consulting its volatile
   // status/storageTxThreadId fields. With a plain field the foreign read could return a stale
   // pre-begin placeholder (or a prior borrow's transaction object) with no happens-before edge to
@@ -318,7 +318,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * The Dekker teardown-intent mark: volatile, set by every teardown that actually tears (after
    * {@code internalClose}'s one-shot guard passes — a guard-returning no-op close must not plant a
    * stale mark) and by the pool-teardown entry ({@code realClose}) before it re-validates the
-   * Q-A2 skip condition. The engage path stores its acquire ordinal FIRST and then re-reads this
+   * pool-teardown skip condition. The engage path stores its acquire ordinal FIRST and then re-reads this
    * mark (ordinal-store-before-mark-read): with the teardown writing the mark before its release
    * pass, at least one side always sees the other — a teardown that missed a mid-flight engage is
    * seen by the engage's re-check (which self-releases and throws), and an engage the teardown
@@ -3424,8 +3424,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // the pre-rollback throw points (closeActiveQueries/localCache.shutdown), a rollback that
       // threw before reaching tx.close(), and the storage-already-closed early return above. A
       // no-op when nothing is engaged (the atomic claim returns 0) and idempotent against the
-      // normal tx-close release (the claim makes exactly one releaser proceed). The Q-A2 skip path
-      // returns from realClose() before ever entering this method, so this pass can never release
+      // normal tx-close release (the claim makes exactly one releaser proceed). The pool-teardown
+      // skip path returns from realClose() before ever entering this method, so this pass can
+      // never release
       // a live foreign commit's permit. releaseMetadataWriteMutexForTx never throws by contract.
       releaseMetadataWriteMutexForTx();
       internalCloseInProgress = false;
@@ -3872,7 +3873,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     final var mutex = sharedCtx.getMetadataWriteMutex();
     final long ordinal = mutex.engage(this);
     engagedMutex = mutex;
-    // V2 mandatory ordering (the Dekker pair's formal soundness depends on it): store the acquire
+    // Mandatory ordering (the Dekker pair's formal soundness depends on it): store the acquire
     // ordinal STRICTLY BEFORE reading the teardown-intent mark. The teardown side writes the mark
     // and then runs its release pass; with these orders, either the teardown's getAndSet harvests
     // the ordinal we just stored (the teardown releases), or its claim returned 0 — in which case
@@ -3968,7 +3969,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * Owner-as-completer for the Q-A2 pool-teardown skip: called at the transaction-close boundary
+   * Owner-as-completer for the pool-teardown skip: called at the transaction-close boundary
    * (the tail finally of {@code FrontendTransactionImpl.close()}, after the mutex release), on
    * both the commit and rollback outcomes. If a pool teardown skipped this session because our
    * commit was in flight (it set the teardown-intent mark and deferred), the owner — the sole
@@ -4003,7 +4004,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   /**
    * Whether this session's current transaction is COMMITTING on a thread other than the caller's
-   * — the Q-A2 skip-protocol detection a pool teardown runs before tearing down a checked-out
+   * — the skip-protocol detection a pool teardown runs before tearing down a checked-out
    * session. Reads only the transaction's volatile {@code status}/{@code storageTxThreadId}, so it
    * is safe from a foreign thread; the residual TOCTOU is the accepted one (late-skip = the commit
    * already finished and the owner completes; late-rollback = today's behavior).

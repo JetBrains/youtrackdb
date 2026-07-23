@@ -121,9 +121,9 @@ public final class MetadataWriteMutex {
   public long engage(final DatabaseSessionEmbedded session) {
     final var current = holder.get();
     if (current != null && current.session() == session) {
-      // FM-A7 / Q-A5: a same-session re-engage is only reachable after a prior acquisition on this
-      // session was stranded (its release never ran); parking would self-deadlock forever on the
-      // session's own permit. Type and message are pinned by a regression test.
+      // A same-session re-engage is only reachable after a prior acquisition on this session was
+      // stranded (its release never ran); parking would self-deadlock forever on the session's
+      // own permit. Type and message are pinned by a regression test.
       throw new IllegalStateException(
           "the metadata-write mutex is already held by this session (acquire ordinal "
               + current.ordinal() + ", acquired on thread '" + current.thread().getName() + "' "
@@ -159,8 +159,8 @@ public final class MetadataWriteMutex {
           break;
         }
       } catch (final InterruptedException e) {
-        // Q-A3 pin (3): restore the interrupt flag and fail loudly naming the holder — the waiter
-        // is killable, unlike the old acquireUninterruptibly park.
+        // Restore the interrupt flag and fail loudly naming the holder — the waiter is killable,
+        // unlike the old acquireUninterruptibly park.
         Thread.currentThread().interrupt();
         throw BaseException.wrapException(
             new DatabaseException(session.getDatabaseName(),
@@ -222,8 +222,9 @@ public final class MetadataWriteMutex {
   }
 
   /**
-   * Whether {@code session} currently holds the permit. Used by the engage-order assertion and by
-   * tests; not part of the release protocol.
+   * Whether {@code session} currently holds the permit. Test-observability only — it has no
+   * production callers and is not part of the engage or release protocol; the release path keys
+   * on the {@code (session, ordinal)} CAS, not on this probe.
    */
   public boolean isEngagedBy(final DatabaseSessionEmbedded session) {
     final var current = holder.get();

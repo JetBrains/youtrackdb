@@ -86,7 +86,7 @@ public final class OperationsFreezer {
    *       and with the operations count already re-balanced, mirroring the throw-supplier
    *       discipline;</li>
    *   <li>the PARK-DECISION re-check — evaluated strictly AFTER {@code addThreadInWaitingList}
-   *       returned and immediately before the park (the V1 entrant ordering:
+   *       returned and immediately before the park (the entrant ordering:
    *       enqueue-before-recheck). Together with the arm side's publish-kind-before-count and
    *       cut-after-both-increments orderings this closes the engage-during-enqueue race,
    *       including the cut firing before this entrant enqueued: either the entrant's node made
@@ -126,7 +126,7 @@ public final class OperationsFreezer {
           throw schemaGate.get();
         }
 
-        // Pinned contract (BG8, user-ruled 2026-07-23): an entrant that was already PARKED
+        // Pinned contract (user-ruled 2026-07-23): an entrant that was already PARKED
         // under an earlier park-mode freeze and is woken by a throw-mode operator freeze's
         // arm cut re-evaluates here and THROWS the registered supplier's exception
         // deterministically — it does not park through to completion after the release, as the
@@ -140,7 +140,7 @@ public final class OperationsFreezer {
         operationsWaitingList.addThreadInWaitingList(thread);
 
         // Checkpoint: the schema-armed park-decision re-check, strictly AFTER the enqueue
-        // returned (V1 entrant ordering) and immediately before the park. See the method Javadoc
+        // returned (enqueue-before-recheck) and immediately before the park. See the method Javadoc
         // for why this ordering closes the engage-during-enqueue race. Throwing here
         // deliberately leaves this entrant's just-enqueued node linked: the next cut unparks a
         // thread that never parked on it (a benign stray permit — every park site re-checks in
@@ -180,7 +180,7 @@ public final class OperationsFreezer {
   /**
    * Registers a freeze of the given kind and drains the in-flight operations.
    *
-   * <p>OPERATOR arm orderings (load-bearing for the gate — V1): the kind counter is incremented
+   * <p>OPERATOR arm orderings (load-bearing for the gate): the kind counter is incremented
    * BEFORE {@code freezeRequests} (publish kind-before-count: an entrant that observes the count
    * also observes the kind), and the cut-and-unpark runs strictly AFTER both increments (an
    * entrant that enqueued before the cut is woken by it; one that enqueued after reads the
@@ -193,7 +193,7 @@ public final class OperationsFreezer {
     final var id = freezeIdGen.incrementAndGet();
 
     if (kind == FreezeKind.OPERATOR) {
-      // V1 arm ordering, part 1: publish the kind BEFORE the count.
+      // Arm ordering, part 1: publish the kind BEFORE the count.
       operatorFreezeRequests.incrementAndGet();
       operatorFreezeIds.add(id);
     }
@@ -205,7 +205,7 @@ public final class OperationsFreezer {
     }
 
     if (kind == FreezeKind.OPERATOR) {
-      // V1 arm ordering, part 2: the operator-arm cut-and-unpark runs strictly AFTER both
+      // Arm ordering, part 2: the operator-arm cut-and-unpark runs strictly AFTER both
       // increments, so every woken entrant re-evaluates against fully published state. The cut
       // detaches a FINITE generation: a woken DATA entrant re-enqueues a fresh node before it
       // re-parks (so no wakeup is ever lost to the eventual release-side cut), and the detached
@@ -215,10 +215,10 @@ public final class OperationsFreezer {
       // and with releases, so cutWaitingList serializes cutters internally (its monitor — the
       // cut protocol is single-cutter-only; the unserialized two-cutter shape wedges a freezer
       // thread on a link latch forever, the liveness defect the same test pins). The wake
-      // is a deliberate, bounded thundering herd (Q-B4): parked DATA entrants wake, re-evaluate,
+      // is a deliberate, bounded thundering herd: parked DATA entrants wake, re-evaluate,
       // and re-park through the loop (none is admitted — freezeRequests is positive) — unless
       // THIS freeze registered a throw supplier, in which case the woken data entrants throw it
-      // deterministically at the loop's supplier check (the pinned BG8 contract, user-ruled
+      // deterministically at the loop's supplier check (the pinned contract, user-ruled
       // 2026-07-23; see the comment there); a parked
       // SCHEMA-armed entrant wakes and throws at the loop-top gate instead of staying parked for
       // the operator freeze's whole duration. At most the concurrently parked committers wake,
@@ -249,7 +249,7 @@ public final class OperationsFreezer {
    * matching retained id (the storage-level {@code release()} normally passes the real id its
    * paired {@code freeze()} retained) — maps explicitly to the OPERATOR decrement.
    *
-   * <p>Retract ordering (V8): the count is decremented BEFORE the kind counter, the mirror of the
+   * <p>Retract ordering: the count is decremented BEFORE the kind counter, the mirror of the
    * arm's publish-kind-before-count — an entrant that still observes the count also still
    * observes the kind. Both decrements are CAS-floor (decrement-only-if-positive): a buggy double
    * release can never drive a counter negative and silently disarm the gate, and a concurrent
@@ -257,8 +257,8 @@ public final class OperationsFreezer {
    * decrement-then-set-zero shape would lose it). Underflow attempts are LOGGED, never thrown —
    * these decrements are reachable from transient-release finallys (the synch and backup
    * bodies), where a throw would mask the frozen body's primary exception. No lockstep
-   * cross-counter assert exists: the V1/V8 orderings create legal transient windows where the
-   * counters disagree, so such an assert would fire spuriously on a healthy system.
+   * cross-counter assert exists: the arm/retract orderings create legal transient windows where
+   * the counters disagree, so such an assert would fire spuriously on a healthy system.
    */
   public void releaseOperations(final long id) {
     final FreezeKind kind;
@@ -276,7 +276,7 @@ public final class OperationsFreezer {
     final var freezeParametersMap =
         new Long2ObjectOpenHashMap<>(freezeParametersIdMap);
 
-    // V8 retract ordering, part 1: the count before the kind.
+    // Retract ordering, part 1: the count before the kind.
     final var requests = decrementToFloor(freezeRequests);
     if (requests < 0) {
       LogManager.instance()
@@ -287,7 +287,7 @@ public final class OperationsFreezer {
               null, id);
     }
     if (kind == FreezeKind.OPERATOR) {
-      // V8 retract ordering, part 2: the kind counter after the count.
+      // Retract ordering, part 2: the kind counter after the count.
       if (decrementToFloor(operatorFreezeRequests) < 0) {
         LogManager.instance()
             .error(this,
@@ -312,7 +312,7 @@ public final class OperationsFreezer {
 
   /**
    * Detaches the current waiting-list generation and unparks every waiter in it. The WHEN of
-   * each call is load-bearing and documented at the call sites (the operator arm's V1
+   * each call is load-bearing and documented at the call sites (the operator arm's
    * cut-after-both-increments ordering; the release side's freeze-request 1&rarr;0 transition);
    * the detach-walk-unpark mechanics are identical.
    */
