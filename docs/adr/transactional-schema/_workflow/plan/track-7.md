@@ -42,6 +42,10 @@ builds on the mutex primitive (Track 3) and the schema-carrying commit (Track 4)
 - [x] 2026-07-23T00:15Z [ctx=safe] Step 5 complete (commit 736cab68ec; includes the
   waiting-list single-cutter liveness fix the integration profile surfaced — see Episodes
   §Step 5)
+- [x] 2026-07-23T04:59Z [ctx=safe] Step 5 review-fix iteration 1 complete (commit b54384e08a;
+  concurrency + crash-safety + baseline reviews: 3 should-fixes + 7 suggestions — all applied
+  except BG8, deferred pending a user decision on the cut-woken throw-mode semantics; 0
+  blockers)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -262,6 +266,75 @@ checkpoints + CN23/CS18 underflow guard → Step 5; the CN19/CN25 abort-predicat
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 5 review-fix iteration 1 — commit b54384e08a, 2026-07-23T04:59Z [ctx=safe]
+**What was done:** Applied the three Step 5 review reports
+(`track-7/reviews/{concurrency,crash-safety,baseline}-step5-iter1.md`; 0 blockers). (1)
+Bookkeeping leak (should-fix, filed by all three reviews): every storage-level operator
+`freeze()`/`release()` cycle stranded one id record in the freezer — `freeze()` discarded the id
+its registration returned and `release()` released through the `-1` sentinel, which cannot remove
+the retained id&rarr;kind record. `AbstractStorage` now retains each operator freeze's real id in
+a per-storage `ConcurrentLinkedDeque` and `release()` pops one and releases by it (LIFO pairing
+across concurrent cycles is sound — every retained id resolves to the same OPERATOR kind, so
+which paired id a release pops changes no counter movement); the sentinel remains only as a
+guarded fallback for a release without a matching freeze. The reviewers' warning was honored: a
+sweep-on-`op==0` cleanup was NOT used — it races the arm's publish ordering (`op++` then
+`add(id)`) and could wipe a LIVE id, permanently disarming the gate (worse than the leak).
+Red-first proven: 16 cycles stranded 16 ids against the pre-fix shape. A test-observability
+counter (`registeredOperatorFreezeIdCount`) pins the set size across repeated cycles of both
+freeze arms. (2) Checkpoint-2 mechanism pin (should-fix, test-only): the existing
+probe-to-entry-window test could not distinguish the abort-predicate acquisition from a plain
+lock (checkpoint 3 catches the same shape identically when `stateLock` is uncontended). The new
+`writeLockAbortFiresWhileQueuedBehindFreezerParkedReader` adds the missing ingredient — a data
+commit parked in the freezer behind a TRANSIENT quiesce while HOLDING `stateLock.readLock` — so
+the armed commit genuinely blocks inside the write-lock acquisition when the operator freeze
+engages; it must abort out of the acquisition (checkpoint-2 stack attribution: a
+`commitSchemaCarry` frame, no freezer frame), leave the pin balanced, and reads must flow while
+the freeze is still engaged. Red-first proven by temporarily reverting checkpoint 2 to a plain
+acquisition: the commit hung behind the parked reader and the bounded await failed. (3)
+Suggestions, all taken: the dead one-arg `startTxCommit` overload deleted; a schema-armed freezer
+entrant with a null gate factory now fails loudly at the API boundary
+(`Objects.requireNonNull`); `@Test(timeout)` on the three main-thread gate tests (with the
+surrogate-thread session re-activation JUnit's timeout mechanics require), so a total gate
+regression fails by name instead of hanging the fork; the benign stray node a park-decision
+throw leaves enqueued is documented at the throw site (with the warning not to "fix" it by
+moving the gate above the enqueue — that reopens the V1 race); the detach-and-unpark loop is
+deduplicated into `cutAndUnparkWaiters()` with the load-bearing WHEN comments kept at the call
+sites; the entry probe's PLACEMENT is pinned by stack attribution in the probe test (the zero
+pin-delta assert alone cannot pin placement — a deeper checkpoint's throw also balances the pin
+through the nested finally); the in-freezer throw path gained a direct pin-balance assertion
+(previously only the recycle-inside-close indirect net, whose failure would have read as a latch
+timeout).
+
+**Deferred (explicitly NOT addressed, per the work order):** BG8 — the operator-arm cut makes a
+data commit already parked behind an existing freeze throw deterministically when a THROW-MODE
+operator freeze (`freeze(true)`) engages over it, where it historically parked through to
+completion (nondeterministically permitted before — `LockSupport.park` tolerates spurious
+wakeups — but never deterministic). Whether to pin the new deterministic-throw behavior or
+restore strict park-through is a product-behavior decision awaiting the user; no code or test
+touches that interleaving in this commit. TQ10's wake-trajectory nuance is partially absorbed by
+the new stack-attribution asserts; the herd test's re-park observation window remains
+as-reviewed (its load-bearing assertions are trajectory-independent).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java`
+  (freeze-id retention deque, release-by-id with guarded sentinel fallback, dead overload
+  removed)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/operationsfreezer/OperationsFreezer.java`
+  (armed-entrant null guard, stray-node comment, `cutAndUnparkWaiters()`, id-set javadoc +
+  test accessor)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationsManager.java`
+  (test-observability delegate)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/FreezerGateTest.java`
+  (2 new tests, both red-first proven; timeouts; attribution + pin asserts)
+
+**Critical context:** the freezer's id&rarr;kind record set is now expected to mirror the
+concurrently engaged operator freezes exactly; any future registration path must release by its
+real id (the sentinel is a logged fallback, not an API). Verification: FreezerGateTest 10/10,
+OperationsFreezerLivenessTest green, FreezeAndDBRecordInsertAtomicityTest green targeted; full
+core unit suite 17444/0 (parallel) + 2219/0 (sequential) + 18/0 (MT); full
+`verify -P ci-integration-tests` green (surefire ci/disk 17444/0, failsafe 513/0); coverage gate
+PASSED (88.5% line / 83.1% branch on changed-vs-develop).
 
 ### Step 5 — commit 736cab68ec, 2026-07-23T00:15Z [ctx=safe]
 **What was done:** Landed Draft B — the freezer gate wiring per the amended design. `FreezeKind
