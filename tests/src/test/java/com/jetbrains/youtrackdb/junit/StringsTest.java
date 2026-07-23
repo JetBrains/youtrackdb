@@ -111,8 +111,14 @@ public class StringsTest extends BaseDBJUnit5Test {
 
     var value = document.toString();
 
+    // The expected string is built from the entities' actual provisional RIDs instead of pinning
+    // the fresh-DB collection id (it was #7:-2 under the pre-Track-8 layout and shifted when the
+    // $blob* collections moved to the storage-birth slots 1..N). The pinned intent is the
+    // rendering shape: a self-reference renders as the RID without recursing.
+    var rid = document.getIdentity();
+    var ridTwo = docTwo.getIdentity();
     assertEquals(
-        "O#7:-2{ref:#7:-3,selfref:#7:-2} v0", value);
+        "O" + rid + "{ref:" + ridTwo + ",selfref:" + rid + "} v0", value);
     session.commit();
   }
 }
