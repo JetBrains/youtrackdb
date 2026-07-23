@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedExcept
 import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -112,8 +113,13 @@ public class FreezerGateTest extends DbTestBase {
    * count is balanced across the rejection, and the recycled pooled borrower stays healthy.
    * Path (a) of the five-path pin-balance matrix.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void probeThrowsOnPreEngagedOperatorFreeze() {
+    // The timeout converts a total gate regression (this main-thread commit parking in the
+    // freezer with the release sitting in the finally below) from a fork-wide hang into a named
+    // failure. JUnit runs a timed test body on a surrogate thread, so the @Before-thread session
+    // must be re-activated here.
+    session.activateOnCurrentThread();
     var pooled = pool.acquire();
     pooled.begin();
     pooled.getMetadata().getSchema().createClass("ProbeFreeze");
@@ -128,6 +134,14 @@ public class FreezerGateTest extends DbTestBase {
           thrown.getMessage().contains(GATE_MESSAGE_FRAGMENT));
       assertEquals("a probe rejection must leave the snapshot pin balanced",
           pinsBefore, pinCount(pooled));
+      // Placement pin: the entry probe rejects at commit() entry, BEFORE the snapshot pin, the
+      // metadata locks, and the freezer. The zero pin-delta assert above cannot pin placement by
+      // itself (a deeper checkpoint's throw also balances the pin through the nested finally),
+      // so the throw site is attributed by its stack: no commitSchemaCarry and no freezer frame.
+      assertTrue("the rejection must come from the entry probe, not a deeper checkpoint",
+          Arrays.stream(thrown.getStackTrace()).noneMatch(
+              frame -> frame.getMethodName().equals("commitSchemaCarry")
+                  || frame.getClassName().endsWith("OperationsFreezer")));
     } finally {
       session.activateOnCurrentThread();
       session.release();
@@ -216,6 +230,165 @@ public class FreezerGateTest extends DbTestBase {
   }
 
   /**
+   * Checkpoint (2)'s abort MECHANISM, not just its outcome: an armed schema commit whose storage
+   * write-lock acquisition is blocked behind a freezer-parked data commit — the parked commit
+   * holds {@code stateLock.readLock} while it parks behind a TRANSIENT quiesce, so a plain
+   * {@code lock()} at checkpoint (2) would sit in the writer queue for the freeze's whole
+   * duration and, by writer preference, stall every new reader behind it: the exact read-outage
+   * defect the abort-predicate acquisition exists to prevent. Once the operator freeze engages,
+   * the commit must abort out of the acquisition (checkpoint-(2) stack attribution, balanced
+   * pin) and reads must flow while the freeze is still engaged. Red-first proven by reverting
+   * checkpoint (2) to a plain acquisition: the commit hangs behind the parked reader and the
+   * bounded await fails.
+   */
+  @Test
+  public void writeLockAbortFiresWhileQueuedBehindFreezerParkedReader() throws Exception {
+    session.getMetadata().getSchema().createClass("Cp2QueueData");
+    var schemaShared = session.getSharedContext().getSchema();
+    var manager = storage().getAtomicOperationsManager();
+    var dataError = new AtomicReference<Throwable>();
+    var commitError = new AtomicReference<Throwable>();
+    var pinsAfter = new AtomicReference<Integer>();
+    var dataCommitted = new CountDownLatch(1);
+    var ready = new CountDownLatch(1);
+    var goCommit = new CountDownLatch(1);
+    var done = new CountDownLatch(1);
+
+    var transientId = manager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+    long operatorId = -2;
+    try {
+      // Ingredient 1: a data commit parked in the freezer behind the transient quiesce. The
+      // pure-data commit branch takes stateLock.readLock around its apply and the freezer entry
+      // sits inside it, so the parked thread HOLDS the read lock — the blocker a plain
+      // write-lock acquisition cannot get past until the freezes release.
+      var dataWriter = spawn(() -> {
+        try (var writerSession = openDatabase()) {
+          writerSession.activateOnCurrentThread();
+          writerSession.executeInTx(tx -> {
+            var row = (EntityImpl) writerSession.newEntity("Cp2QueueData");
+            row.setProperty("v", 1);
+          });
+          dataCommitted.countDown();
+        } catch (Throwable t) {
+          dataError.compareAndSet(null, t);
+        }
+      }, "cp2-parked-reader");
+      var state = awaitThreadParked(dataWriter, 10_000);
+      assertTrue("the data commit must park in the freezer holding the read lock, observed "
+          + state, state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+
+      // Ingredient 2: the armed schema commit, blocked right after its entry probe by the held
+      // committed-schema write lock (the same probe-to-entry-window drive as the test above).
+      var worker = spawn(() -> {
+        var pooled = pool.acquire();
+        try {
+          pooled.begin();
+          pooled.getMetadata().getSchema().createClass("Cp2Queue");
+          ready.countDown();
+          try {
+            goCommit.await();
+            pooled.commit();
+          } catch (Throwable t) {
+            commitError.set(t);
+          }
+          pinsAfter.set(pinCount(pooled));
+        } finally {
+          pooled.close();
+          done.countDown();
+        }
+      }, "cp2-queued-committer");
+
+      assertTrue(ready.await(10, TimeUnit.SECONDS));
+      schemaShared.acquireSchemaWriteLock(session);
+      var lockHeld = true;
+      try {
+        goCommit.countDown();
+        state = awaitThreadParked(worker, 5_000);
+        assertTrue("the committer must block on the held schema lock, observed " + state,
+            state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+
+        // Release the schema lock: the committer proceeds into checkpoint (2), where the parked
+        // reader blocks the drain. The brief sleep biases the interleaving toward the
+        // queued-in-acquisition trajectory (write bit held, drain spinning on the parked
+        // reader); if the freeze below engages before the committer reaches the acquisition, it
+        // aborts at the acquisition's entry check instead — the same checkpoint and the same
+        // assertions, so the bias cannot flake the test.
+        schemaShared.releaseSchemaWriteLock(session, false);
+        lockHeld = false;
+        Thread.sleep(500);
+
+        // The operator freeze engages at manager level (the public freeze() API needs the read
+        // lock the queued writer blocks); the abort predicate turns true and the committer must
+        // abort out of the lock acquisition within one poll.
+        operatorId = manager.freezeWriteOperations(FreezeKind.OPERATOR, null);
+        assertTrue("the queued schema commit must abort instead of waiting out the freeze",
+            done.await(15, TimeUnit.SECONDS));
+        assertNotNull("the commit must have failed at the write-lock checkpoint",
+            commitError.get());
+        assertTrue("the failure must be the stable gate exception: " + commitError.get(),
+            commitError.get() instanceof ModificationOperationProhibitedException
+                && commitError.get().getMessage().contains(GATE_MESSAGE_FRAGMENT));
+        // Checkpoint attribution: the abort must come from commitSchemaCarry's gated
+        // acquisition — not from the entry probe (which ran before the freeze existed) and not
+        // from the in-freezer checkpoints (which a plain-lock regression could reach only after
+        // the freezes released).
+        var frames = commitError.get().getStackTrace();
+        assertTrue("expected a commitSchemaCarry frame, got " + Arrays.toString(frames),
+            Arrays.stream(frames)
+                .anyMatch(frame -> frame.getMethodName().equals("commitSchemaCarry")));
+        assertTrue("the abort must not come from the in-freezer checkpoints",
+            Arrays.stream(frames)
+                .noneMatch(frame -> frame.getClassName().endsWith("OperationsFreezer")));
+        assertEquals("the write-lock abort must leave the snapshot pin balanced",
+            Integer.valueOf(0), pinsAfter.get());
+
+        // The outage property itself: with the aborted writer gone (the abort releases the
+        // write bit), READS flow while the operator freeze is still engaged. Bounded worker so
+        // a regression (a queued writer stalling readers) fails the join instead of hanging the
+        // fork; reads never enter the freezer, so the active freezes cannot park it.
+        var readerDone = new CountDownLatch(1);
+        var readerError = new AtomicReference<Throwable>();
+        spawn(() -> {
+          try {
+            session.activateOnCurrentThread();
+            session.begin();
+            try {
+              session.browseClass("Cp2QueueData").hasNext();
+            } finally {
+              session.rollback();
+            }
+          } catch (Throwable t) {
+            readerError.compareAndSet(null, t);
+          } finally {
+            readerDone.countDown();
+          }
+        }, "cp2-read-prober");
+        assertTrue("reads must flow while the operator freeze is engaged",
+            readerDone.await(10, TimeUnit.SECONDS));
+        if (readerError.get() != null) {
+          throw new AssertionError("the read probe must succeed under the operator freeze",
+              readerError.get());
+        }
+        session.activateOnCurrentThread();
+      } finally {
+        if (lockHeld) {
+          schemaShared.releaseSchemaWriteLock(session, false);
+        }
+      }
+    } finally {
+      if (operatorId != -2) {
+        manager.unfreezeWriteOperations(operatorId);
+      }
+      manager.unfreezeWriteOperations(transientId);
+    }
+    assertTrue("the parked data commit must complete after the release",
+        dataCommitted.await(10, TimeUnit.SECONDS));
+    if (dataError.get() != null) {
+      throw new AssertionError("the parked data commit must complete cleanly", dataError.get());
+    }
+  }
+
+  /**
    * Checkpoint (3) plus the operator-arm cut: a schema commit parked behind a TRANSIENT quiesce
    * (all four locks held, parked in the freezer) is woken by an arriving operator freeze's
    * cut-and-unpark and throws the stable gate exception at the loop-top gate instead of staying
@@ -228,6 +401,7 @@ public class FreezerGateTest extends DbTestBase {
   public void parkedSchemaCommitWakesAndThrowsWhenOperatorFreezeArrives() throws Exception {
     var manager = storage().getAtomicOperationsManager();
     var commitError = new AtomicReference<Throwable>();
+    var pinsAfterThrow = new AtomicReference<Integer>();
     var pooledClosed = new CountDownLatch(1);
 
     var transientId = manager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
@@ -243,6 +417,7 @@ public class FreezerGateTest extends DbTestBase {
           } catch (Throwable t) {
             commitError.set(t);
           }
+          pinsAfterThrow.set(pinCount(pooled));
         } finally {
           pooled.close();
           pooledClosed.countDown();
@@ -263,6 +438,11 @@ public class FreezerGateTest extends DbTestBase {
       assertTrue("the failure must be the stable gate exception: " + commitError.get(),
           commitError.get() instanceof ModificationOperationProhibitedException
               && commitError.get().getMessage().contains(GATE_MESSAGE_FRAGMENT));
+      // Direct pin balance on the in-freezer (loop-top) throw path — previously covered only
+      // indirectly by the pooled recycle inside close(), whose failure would have read as a
+      // latch timeout rather than a pin leak.
+      assertEquals("the in-freezer gate throw must leave the snapshot pin balanced",
+          Integer.valueOf(0), pinsAfterThrow.get());
     } finally {
       if (operatorId != -2) {
         manager.unfreezeWriteOperations(operatorId);
@@ -353,8 +533,12 @@ public class FreezerGateTest extends DbTestBase {
    * operator freeze still arms the gate (a silent disarm is the exact outage class the guard
    * exists to prevent).
    */
-  @Test
+  @Test(timeout = 60_000)
   public void doubleReleaseFloorsCountersAndGateStillArms() {
+    // Timeout: a gate regression parks the main-thread commit below with the releases already
+    // consumed — a named failure beats a fork hang. Timed bodies run on a surrogate thread, so
+    // the session is re-activated.
+    session.activateOnCurrentThread();
     var manager = storage().getAtomicOperationsManager();
     var operatorId = manager.freezeWriteOperations(FreezeKind.OPERATOR, null);
     assertTrue(manager.isOperatorFreezeActive());
@@ -387,12 +571,45 @@ public class FreezerGateTest extends DbTestBase {
   }
 
   /**
+   * The operator freeze-id bookkeeping across storage-level {@code freeze()}/{@code release()}
+   * cycles: {@code freeze()} retains its registration's real id and {@code release()} releases
+   * by it, so the freezer's id&rarr;kind record is removed each cycle and the retained-id set
+   * does not grow for the storage's lifetime (both freeze arms: park-mode and throw-mode). A
+   * leak here is invisible to the counters — the gate still arms and disarms — hence the direct
+   * set-size pin.
+   */
+  @Test(timeout = 60_000)
+  public void repeatedFreezeReleaseCyclesDoNotLeakOperatorFreezeIds() {
+    // Timed bodies run on a surrogate thread, so the session is re-activated.
+    session.activateOnCurrentThread();
+    var manager = storage().getAtomicOperationsManager();
+    var baseline = manager.registeredOperatorFreezeIdCount();
+    for (var i = 0; i < 16; i++) {
+      // Alternate the throw-mode and park-mode arms — both register OPERATOR with a real id.
+      session.freeze(i % 2 == 0);
+      try {
+        assertTrue(manager.isOperatorFreezeActive());
+      } finally {
+        session.release();
+      }
+    }
+    assertEquals("freeze()/release() cycles must not strand operator freeze ids",
+        baseline, manager.registeredOperatorFreezeIdCount());
+    assertFalse("no operator freeze may remain registered after the paired cycles",
+        manager.isOperatorFreezeActive());
+  }
+
+  /**
    * The legacy throw-mode operator freeze is byte-for-byte unchanged for data writes: the
    * registered supplier's message ("Modification requests are prohibited") — NOT the gate's
    * distinct wording — surfaces on a data write under freeze(true).
    */
-  @Test
+  @Test(timeout = 60_000)
   public void throwModeFreezeKeepsLegacySupplierForDataWrites() {
+    // Timeout: a regression to park-mode semantics parks the main-thread write below with the
+    // release in the finally — a named failure beats a fork hang. Timed bodies run on a
+    // surrogate thread, so the session is re-activated.
+    session.activateOnCurrentThread();
     session.getMetadata().getSchema().createClass("ThrowModeData");
     session.freeze(true);
     try {

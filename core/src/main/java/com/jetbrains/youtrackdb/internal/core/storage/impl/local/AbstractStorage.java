@@ -182,6 +182,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -298,6 +299,18 @@ public abstract class AbstractStorage
       YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getDefaultImplementation();
 
   protected volatile AtomicOperationsManager atomicOperationsManager;
+
+  /**
+   * The freeze ids of this storage's currently engaged operator freezes: {@link #freeze} pushes
+   * the id its registration returned and {@link #release} pops one and releases by that real id,
+   * so the freezer removes the freeze's id&rarr;kind record instead of stranding it (the {@code
+   * -1} sentinel remains only as a guarded fallback for a {@code release()} without a matching
+   * {@code freeze()}). LIFO pairing across concurrent freeze/release cycles is sound: every
+   * retained id resolves to the same OPERATOR kind, so which paired id a release pops does not
+   * change any counter movement.
+   */
+  private final ConcurrentLinkedDeque<Long> operatorFreezeIds = new ConcurrentLinkedDeque<>();
+
   private volatile boolean wereNonTxOperationsPerformedInPreviousOpen;
 
   /**
@@ -5794,14 +5807,19 @@ public abstract class AbstractStorage
         // unbounded duration until release()): the kind arms the schema-commit gate, so a
         // schema-carrying commit aborts loudly instead of parking inside its four-lock window
         // for the freeze's whole duration.
+        final long freezeId;
         if (throwException) {
-          atomicOperationsManager.freezeWriteOperations(
+          freezeId = atomicOperationsManager.freezeWriteOperations(
               FreezeKind.OPERATOR,
               () -> new ModificationOperationProhibitedException(name,
                   "Modification requests are prohibited"));
         } else {
-          atomicOperationsManager.freezeWriteOperations(FreezeKind.OPERATOR, null);
+          freezeId = atomicOperationsManager.freezeWriteOperations(FreezeKind.OPERATOR, null);
         }
+        // Retain the real id immediately after registration (before anything below can throw),
+        // so the paired release() releases by id and the freezer's id->kind record is removed
+        // instead of leaking one entry per freeze/release cycle.
+        operatorFreezeIds.push(freezeId);
 
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
         try {
@@ -5845,9 +5863,13 @@ public abstract class AbstractStorage
         }
       }
 
-      // The -1 sentinel maps explicitly to the OPERATOR decrement on the release side: this is
-      // the operator freeze()'s paired release, and it never retained its freeze id.
-      atomicOperationsManager.unfreezeWriteOperations(-1);
+      // Release by the real id the paired freeze() retained, so the freezer removes the
+      // freeze's id->kind record (see the operatorFreezeIds field javadoc for why LIFO pairing
+      // across concurrent cycles is sound). The -1 sentinel is only the guarded fallback for a
+      // release() without a matching freeze() (a double release): it still maps explicitly to
+      // the OPERATOR decrement, whose CAS-floor guard then logs the underflow.
+      final var freezeId = operatorFreezeIds.poll();
+      atomicOperationsManager.unfreezeWriteOperations(freezeId != null ? freezeId : -1);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -6638,10 +6660,6 @@ public abstract class AbstractStorage
             .warn(this, "Snapshot index cleanup failed during resetTsMin", e);
       }
     }
-  }
-
-  private void startTxCommit(AtomicOperation atomicOperation) {
-    startTxCommit(atomicOperation, false);
   }
 
   /**

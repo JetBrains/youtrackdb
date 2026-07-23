@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -35,12 +36,24 @@ public final class OperationsFreezer {
   private final AtomicInteger operatorFreezeRequests = new AtomicInteger();
 
   /**
-   * The ids of registered OPERATOR freezes that carry a real id, so an id-keyed release maps back
-   * to the OPERATOR decrement. The storage-level operator {@code release()} uses the {@code -1}
-   * sentinel (it never retained its freeze id), which the release side maps to OPERATOR
-   * explicitly.
+   * The ids of currently registered OPERATOR freezes, so an id-keyed release maps back to the
+   * OPERATOR decrement and removes its record. Every registration is expected to release by its
+   * real id — the storage-level operator {@code release()} pops the id its paired {@code
+   * freeze()} retained — so the set stays bounded by the number of concurrently engaged operator
+   * freezes. The {@code -1} sentinel remains only as a guarded fallback for a release with no
+   * matching retained id (a double release): it maps to OPERATOR explicitly but cannot remove
+   * any record.
    */
   private final Set<Long> operatorFreezeIds = ConcurrentHashMap.newKeySet();
+
+  /**
+   * Test-observability only: the number of retained operator freeze-id records. Pinned by the
+   * bookkeeping-leak regression — repeated storage-level {@code freeze()}/{@code release()}
+   * cycles must not grow this set.
+   */
+  public int registeredOperatorFreezeIdCount() {
+    return operatorFreezeIds.size();
+  }
 
   private final WaitingList operationsWaitingList = new WaitingList();
 
@@ -90,6 +103,13 @@ public final class OperationsFreezer {
    */
   public void startOperation(final boolean schemaArmed,
       @Nullable final Supplier<? extends BaseException> schemaGate) {
+    if (schemaArmed) {
+      // Fail a miswired armed entrant loudly at the API boundary: without this, a null factory
+      // would surface only as a bare NPE at gate-evaluation time — inside the freezer, under an
+      // active operator freeze, the worst possible diagnosis point.
+      Objects.requireNonNull(schemaGate,
+          "a schema-armed freezer entrant must supply the gate-exception factory");
+    }
     final var operationDepth = this.operationDepth.get();
     if (operationDepth.value == 0) {
       operationsCount.increment();
@@ -114,7 +134,12 @@ public final class OperationsFreezer {
 
         // Checkpoint: the schema-armed park-decision re-check, strictly AFTER the enqueue
         // returned (V1 entrant ordering) and immediately before the park. See the method Javadoc
-        // for why this ordering closes the engage-during-enqueue race.
+        // for why this ordering closes the engage-during-enqueue race. Throwing here
+        // deliberately leaves this entrant's just-enqueued node linked: the next cut unparks a
+        // thread that never parked on it (a benign stray permit — every park site re-checks in
+        // a loop) and retains the node only until that cut. Do NOT "fix" that residue by moving
+        // this gate above the enqueue — the enqueue-before-recheck ordering is exactly what
+        // closes the race.
         if (schemaArmed && operatorFreezeRequests.get() > 0) {
           throw schemaGate.get();
         }
@@ -188,11 +213,7 @@ public final class OperationsFreezer {
       // SCHEMA-armed entrant wakes and throws at the loop-top gate instead of staying parked for
       // the operator freeze's whole duration. At most the concurrently parked committers wake,
       // once per operator-freeze engagement, one loop iteration each.
-      var node = operationsWaitingList.cutWaitingList();
-      while (node != null) {
-        LockSupport.unpark(node.item);
-        node = node.next;
-      }
+      cutAndUnparkWaiters();
     }
 
     while (operationsCount.sum() > 0) {
@@ -212,10 +233,11 @@ public final class OperationsFreezer {
   }
 
   /**
-   * Releases a freeze. The kind is resolved from the registration record: the {@code -1} sentinel
-   * is the storage-level operator {@code release()} (which never retained its freeze id) and maps
-   * explicitly to the OPERATOR decrement; a retained id maps to OPERATOR exactly when its
-   * registration recorded it as such, and to TRANSIENT otherwise.
+   * Releases a freeze. The kind is resolved from the registration record: a retained id maps to
+   * OPERATOR exactly when its registration recorded it as such (removing the record), and to
+   * TRANSIENT otherwise; the {@code -1} sentinel — the guarded fallback for a release with no
+   * matching retained id (the storage-level {@code release()} normally passes the real id its
+   * paired {@code freeze()} retained) — maps explicitly to the OPERATOR decrement.
    *
    * <p>Retract ordering (V8): the count is decremented BEFORE the kind counter, the mirror of the
    * arm's publish-kind-before-count — an entrant that still observes the count also still
@@ -231,7 +253,7 @@ public final class OperationsFreezer {
   public void releaseOperations(final long id) {
     final FreezeKind kind;
     if (id == -1) {
-      // The storage-level operator release() API's anonymous sentinel.
+      // The guarded fallback sentinel: an operator release without a matching retained id.
       kind = FreezeKind.OPERATOR;
     } else {
       kind = operatorFreezeIds.remove(id) ? FreezeKind.OPERATOR : FreezeKind.TRANSIENT_QUIESCE;
@@ -274,12 +296,21 @@ public final class OperationsFreezer {
         freezeParametersIdMap.remove(freezeId);
       }
 
-      var node = operationsWaitingList.cutWaitingList();
+      cutAndUnparkWaiters();
+    }
+  }
 
-      while (node != null) {
-        LockSupport.unpark(node.item);
-        node = node.next;
-      }
+  /**
+   * Detaches the current waiting-list generation and unparks every waiter in it. The WHEN of
+   * each call is load-bearing and documented at the call sites (the operator arm's V1
+   * cut-after-both-increments ordering; the release side's freeze-request 1&rarr;0 transition);
+   * the detach-walk-unpark mechanics are identical.
+   */
+  private void cutAndUnparkWaiters() {
+    var node = operationsWaitingList.cutWaitingList();
+    while (node != null) {
+      LockSupport.unpark(node.item);
+      node = node.next;
     }
   }
 

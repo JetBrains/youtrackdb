@@ -298,6 +298,13 @@ public class AtomicOperationsManager {
   }
 
   /**
+   * Test-observability only: see {@link OperationsFreezer#registeredOperatorFreezeIdCount()}.
+   */
+  public int registeredOperatorFreezeIdCount() {
+    return writeOperationsFreezer.registeredOperatorFreezeIdCount();
+  }
+
+  /**
    * Ends the current atomic operation on this manager.
    */
   public void endAtomicOperation(@Nonnull final AtomicOperation operation, final Throwable error)
