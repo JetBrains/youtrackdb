@@ -54,6 +54,8 @@ justification is in `## Interfaces and Dependencies`.
 - [x] 2026-07-23T23:30Z [ctx=safe] Step 1 review-fix iteration 1 complete (commit 931e264f48;
   baseline + crash-safety reviews: 0 blockers, 1 should-fix (CS47, docs), 8 suggestions — all
   applied or dispositioned)
+- [x] 2026-07-24T02:52Z [ctx=safe] Step 2 complete (commit 908a2374e6; red-first shown; Q-G3
+  verdict: GREEN, no IM symmetric fix)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -237,7 +239,7 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    the genesis commit's index reconciliation or the reopen load chokes on the empty
    `IndexManagerEmbedded` root shell the way `copyForTx` does on the schema root, extend the
    fix symmetrically; record the verdict in this file (Episodes). — risk: medium (Crash-safety /
-   schema-format compatibility)  [ ]  commit: _pending_
+   schema-format compatibility)  [x]  commit: 908a2374e6
    - **Goal:** any schema transaction opened against a virgin database seeds cleanly
      (`copyForTx`'s `globalProperties` precondition, `SchemaShared.java:300-301`, holds from
      the instant the root exists) — the enabler for the genesis schema tx.
@@ -517,6 +519,54 @@ Surprises bullet and the Step 1 review-fix episode).
 exposed; unregistered-blob inertness unchanged pending Step 3's containment); pins G.5 #7
 (implemented) and #8 (executed — the sweep itself). The WI8d Move-2 triad was already recorded
 in this file's Purpose section at decomposition.
+
+### Step 2 — commit 908a2374e6, 2026-07-24T02:52Z [ctx=safe]
+**What was done:** the G1 bootstrap-valid empty-schema root (design G2.a/FM-G1) plus the Q-G3
+verify-first check. **Red-first:** pin G.5 #1 (`virginDbSchemaTransactionSeedsCleanly`) was
+written FIRST and shown RED at HEAD 85e517ed1f — failure signature exactly as the design
+predicted: `java.lang.AssertionError: copyForTx requires a bootstrapped committed schema
+carrying global properties` (the `copyForTx` bootstrapped-schema assert; test builds run
+`-ea`). Pin G.5 #2(a) was red alongside it (`schemaVersion expected:<6> but was:<null>` — the
+empty entity carries no payload). **Fix:** `SchemaShared.create` now writes the bootstrap-valid
+empty-schema payload through `toStream` itself (single serializer — no twin format), INSIDE
+create's existing `computeInTx`: the root's provisional identity is assigned before the
+`toStream` call (the transaction serves the just-created record by its provisional id;
+`ChangeableRecordId` promotes in place at commit), so no crash point can expose a payload-less
+root. Persisted shape: `schemaVersion` = CURRENT (6), empty `globalProperties` EMBEDDEDLIST,
+`collectionCounter` 0, empty `blobCollections` EMBEDDEDSET, NO `classes` link set (toStream's
+empty shape leaves it unallocated — `fromStream`/`copyForTx` parse the absent set as empty).
+The CS35 note is honored: the silenced `fromStream` "schema is empty" breadcrumb's replacement
+(the genesis-completion marker) is Step 3's deliverable and its storage-config mechanism is
+independent of the root payload — nothing Step 3 needs was destroyed.
+
+**Q-G3 verify-first verdict: GREEN — no IM-root symmetric fix needed** (ruling's verify arm;
+`IndexManagerEmbedded.java` untouched). Trace: every reader/writer of the empty IM root shell
+tolerates it — `load`/`reload` parse via `getLinkSet(CONFIG_INDEXES)` which is null-guarded
+(`IndexManagerAbstract.load:231-246`); the commit-time index reconciliation writes via
+`getOrCreateLinkSet` (`enrollReconciledIndexRecords`, `IndexManagerEmbedded:1186-1187`); the
+legacy `addIndexInternalNoLock(updateEntity=true)` path also uses `getOrCreateLinkSet`. Unlike
+the schema root there is NO version field, NO parse precondition, and NO `copyForTx`-style
+assert — the tx-local index view is an overlay over the in-memory committed maps, not a
+root-record re-parse. Pinned empirically by
+`emptyIndexManagerRootShellToleratesReopenLoad` (fresh IM instance loads the just-created
+empty shell → no throw, zero indexes), which was GREEN already at HEAD in the red run.
+
+**Key files:** `core/.../metadata/schema/SchemaShared.java` (`create`); new
+`core/.../metadata/schema/GenesisSchemaBootstrapTest.java` (3 tests — pins G.5 #1, G.5 #2(a),
+Q-G3 empirical arm; the virgin state is reconstructed unit-level via a fresh `SchemaEmbedded`
+instance, since mid-genesis is the only production reach of that state).
+
+**Verification:** red run first (2 failures, signatures above; IM arm green);
+`-Dtest=GenesisSchemaBootstrapTest` → 3/3 green post-fix; `./mvnw -pl core,tests clean test`
+→ BUILD SUCCESS (core 17454 — +3 new tests — + 2219 sequential; tests 1300; 0 failures);
+schema-record format touched → `./mvnw -pl core clean verify -P ci-integration-tests` → BUILD
+SUCCESS (513 ITs, 3:18 h); spotless clean; coverage gate vs origin/develop → PASSED, 90.9%
+line (2117/2330), 83.0% branch (969/1168).
+
+**Discharges:** design G2.a (mandatory enabler); FM-G1; ruling Q-G3 (verify-first arm — verdict
+recorded above); the WC4 design-final hand-off stays recorded, not implemented (Phase 4's
+`design-final.md` reconciliation). Surprises: none — the red-first signature and the Q-G3
+outcome both matched the design's predictions exactly.
 
 ### Step 1 review-fix iteration 1 — commit 931e264f48, 2026-07-23T23:30Z [ctx=safe]
 **What was done:** applied the two Step 1 review reports
