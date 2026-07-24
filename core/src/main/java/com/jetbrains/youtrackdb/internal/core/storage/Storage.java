@@ -259,6 +259,13 @@ public interface Storage {
 
   void setProperty(String property, String value);
 
+  /**
+   * Reads a storage-configuration property previously written by {@link #setProperty}. Returns
+   * {@code null} when the property was never set. Used by the open path to read the
+   * genesis-completion marker before a session is minted.
+   */
+  @Nullable String getProperty(String property);
+
   void setRecordSerializer(String recordSerializer, int version);
 
   void clearProperties();

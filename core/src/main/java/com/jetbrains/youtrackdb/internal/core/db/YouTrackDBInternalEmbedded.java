@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.engine.MemoryAndLocalPaginatedEngi
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.GenesisIncompleteException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -437,12 +438,51 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
       throw e;
     }
+    // Genesis-completion belt (design §A1): every session-minting open runs through here, so a
+    // half-genesis corpse (a crash between storage creation and the end of the metadata
+    // creation sequence) is refused loudly instead of reopening silently with a partial or
+    // empty schema. drop() tolerates the refusal on its internal open (CN54), so the discard
+    // the message prescribes always works.
+    checkGenesisCompleted(storage);
     // Wire the general-purpose executor into histogram managers so they can
     // schedule background rebalance work. We deliberately avoid ioExecutor
     // here because it is also used by AsynchronousFileChannel for I/O
     // completions — running blocking reads on it causes deadlocks.
     storage.setHistogramExecutor(youTrack.getExecutor());
     return storage;
+  }
+
+  /**
+   * Refuses to mint sessions on a database whose genesis never ran to completion: the
+   * completion marker is the storage-configuration property {@code SharedContext.create}
+   * writes as its last act. A database without it is a half-genesis crash corpse (W3–W7 of the
+   * design's crash-state enumeration) — or, in the accepted W9a window, a genuinely complete
+   * database whose marker write was not yet durable; both are refused fail-closed with the
+   * discard-and-recreate message. Databases created by pre-marker builds of this development
+   * branch are refused too — a recorded, accepted dev-only exposure.
+   */
+  private static void checkGenesisCompleted(AbstractStorage storage) {
+    if (!Boolean.parseBoolean(storage.getProperty(SharedContext.GENESIS_COMPLETED_PROPERTY))) {
+      throw new GenesisIncompleteException(storage.getName(),
+          "Database '"
+              + storage.getName()
+              + "' cannot be opened: its creation did not run to completion (the"
+              + " genesis-completion marker is absent). Discard and re-create the database.");
+    }
+  }
+
+  /**
+   * Whether the given open failure is (or wraps) the genesis-completion refusal. The open paths
+   * wrap every failure into a generic {@code DatabaseException}, so the drop-path exemption
+   * (CN54) walks the cause chain for the marker refusal.
+   */
+  private static boolean isCausedByGenesisIncomplete(Throwable failure) {
+    for (var cause = failure; cause != null; cause = cause.getCause()) {
+      if (cause instanceof GenesisIncompleteException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void checkDefaultPassword(String database, String user, String password) {
@@ -748,6 +788,12 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
             createOps.accept(storage, embedded);
           }
         } catch (Exception e) {
+          // Genesis-failure containment (design §A1, CS34+CN48): a failed create must leave NO
+          // residue — otherwise exists() stays true, create(failIfExists=false) silently no-ops
+          // on the corpse, and a create-retry is refused. The maps are purged, the storage
+          // closed and its on-disk content deleted, restoring exists() == false. Cleanup
+          // failures are attached as suppressed so the primary genesis failure propagates.
+          cleanUpFailedCreate(name, e);
           throw BaseException.wrapException(
               new DatabaseException(basePath.toString(), "Cannot create database '" + name + "'"),
               e,
@@ -768,6 +814,41 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       }
     }
     embedded.callOnCreateListeners();
+  }
+
+  /**
+   * Purges every trace of a failed database creation (design §A1, primary containment arm):
+   * the storage is removed from {@link #storages} and its shared context from
+   * {@link #sharedContexts}, the storage is closed and its on-disk residue deleted, so
+   * {@link #exists} returns {@code false} again and both a create-retry and a
+   * {@code create(failIfExists=false)} call re-create cleanly instead of silently adopting a
+   * half-genesis corpse. Runs inside the caller's synchronized block. Cleanup failures never
+   * mask the primary genesis failure — they are logged and attached as suppressed.
+   */
+  private void cleanUpFailedCreate(String name, Exception primaryFailure) {
+    var sharedContext = sharedContexts.remove(name);
+    if (sharedContext != null) {
+      try {
+        sharedContext.close();
+      } catch (RuntimeException cleanupFailure) {
+        primaryFailure.addSuppressed(cleanupFailure);
+      }
+    }
+    var storage = storages.remove(name);
+    if (storage != null) {
+      currentStorageIds.remove(storage.getId());
+      try {
+        // delete() closes the storage and removes its on-disk content (a no-op set of files
+        // for the memory profile); it tolerates a storage whose create failed early.
+        storage.delete();
+      } catch (RuntimeException cleanupFailure) {
+        LogManager.instance()
+            .warn(this,
+                "Could not delete the residue of the failed creation of database '%s'",
+                cleanupFailure, name);
+        primaryFailure.addSuppressed(cleanupFailure);
+      }
+    }
   }
 
   private DatabaseSessionEmbedded internalCreate(
@@ -811,12 +892,31 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     }
     checkDatabaseName(name);
     try {
-      var db = openNoAuthenticate(name, user);
-      for (var it = youTrack.getDbLifecycleListeners();
-          it.hasNext();) {
-        it.next().onDrop(db);
+      DatabaseSessionEmbedded db = null;
+      try {
+        db = openNoAuthenticate(name, user);
+      } catch (RuntimeException openFailure) {
+        // The genesis-completion check gates opens FOR USE; it must not block the very discard
+        // it prescribes (design CN54). A genesis-incomplete corpse is deleted below without the
+        // onDrop listeners — no usable session can be minted for it. Any other open failure
+        // keeps today's behavior: the deletion in the finally still runs, and the failure
+        // surfaces to the caller.
+        if (!isCausedByGenesisIncomplete(openFailure)) {
+          throw openFailure;
+        }
+        LogManager.instance()
+            .info(this,
+                "Dropping database '%s' whose creation never ran to completion; the onDrop"
+                    + " lifecycle listeners are skipped because no session can be opened on it",
+                name);
       }
-      db.close();
+      if (db != null) {
+        for (var it = youTrack.getDbLifecycleListeners();
+            it.hasNext();) {
+          it.next().onDrop(db);
+        }
+        db.close();
+      }
     } finally {
       synchronized (this) {
         if (exists(name)) {

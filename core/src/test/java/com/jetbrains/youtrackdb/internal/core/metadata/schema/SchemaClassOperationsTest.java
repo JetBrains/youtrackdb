@@ -715,24 +715,27 @@ public class SchemaClassOperationsTest extends DbTestBase {
   }
 
   @Test
-  public void createPropertyInsideTransactionIsRejected() {
-    // SchemaClassEmbedded.addProperty rejects creation inside an active transaction — pin the
-    // SchemaException arm.
+  public void createPropertyInsideTransactionIsTxLocal() {
+    // De-guarded for the genesis phase-1 schema transaction (Track 8 Step 3): an in-transaction
+    // property create routes through the proxy's resolveForWrite to the transaction-local class
+    // copy — it no longer throws, is visible inside the transaction, and a rollback discards it
+    // (the same contract as the dropClass/createIndex de-guards pinned by SchemaDeguardTest).
     Schema schema = session.getMetadata().getSchema();
     var cls = schema.createClass("PropInTx");
 
     session.begin();
     try {
       cls.createProperty("p", PropertyType.STRING);
-      fail("createProperty must throw inside a transaction");
-    } catch (SchemaException expected) {
-      assertTrue("error must mention the inside-transaction case",
-          expected.getMessage().toLowerCase().contains("transaction"));
+      assertNotNull("the tx-local property must be visible inside the transaction",
+          schema.getClass("PropInTx").getProperty("p"));
     } finally {
       session.rollback();
     }
 
-    // Creation succeeds outside the transaction.
+    assertNull("the rolled-back property must not survive into the committed schema",
+        schema.getClass("PropInTx").getProperty("p"));
+
+    // Creation still succeeds outside a transaction (the legacy top-level path).
     cls.createProperty("p", PropertyType.STRING);
     assertNotNull(cls.getProperty("p"));
   }

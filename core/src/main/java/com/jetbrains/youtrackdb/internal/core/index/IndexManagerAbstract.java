@@ -249,6 +249,20 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
       Identifiable indexIdentifiable,
       IndexMetadata newIndexMetadata);
 
+  /**
+   * Explicitly removes an index record's link from this manager's {@code CONFIG_INDEXES} link
+   * set, enrolling the manager record into the given transaction. The legacy index-delete path
+   * calls this instead of relying on the bidirectional-link tracker's referrer auto-cleanup:
+   * index records created by a commit-time schema write carry no back-reference bag (the
+   * schema-carry commit serializes with the tracker suppressed), so a tracked delete would
+   * leave the link dangling — the reopen would then fail loudly on the dead link. The
+   * commit-time drop half performs the same explicit unlink in its enroll phase.
+   */
+  void unlinkIndexRecord(FrontendTransaction transaction, RID indexRecordId) {
+    var indexManagerEntity = transaction.loadEntity(indexManagerIdentity);
+    indexManagerEntity.getOrCreateLinkSet(CONFIG_INDEXES).remove(indexRecordId);
+  }
+
   protected void addIndexInternalNoLock(final Index index, FrontendTransaction transaction,
       boolean updateEntity) {
     if (updateEntity) {

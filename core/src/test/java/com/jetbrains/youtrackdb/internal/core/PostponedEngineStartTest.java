@@ -511,6 +511,11 @@ public class PostponedEngineStartTest {
         }
 
         @Override
+        public String getProperty(String property) {
+          return null;
+        }
+
+        @Override
         public void setRecordSerializer(String recordSerializer, int version) {
         }
 
