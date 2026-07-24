@@ -64,6 +64,8 @@ justification is in `## Interfaces and Dependencies`.
 - [x] 2026-07-24T14:29Z [ctx=safe] Step 3 review-fix iteration 1 complete (commit 6b61334581;
   baseline + crash-safety + concurrency reviews: 0 blockers, 2 should-fix (CS52, CQ17), ~15
   suggestions — all applied or dispositioned)
+- [x] 2026-07-24T19:16Z [ctx=safe] Step 4 complete (commit 2433d684ae; red-first M.5 #1 shown;
+  one as-built deviation: a minimal manifest-consuming arm in DatabaseImport — see Episodes)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -405,7 +407,7 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    own unit tests pinning the CS43 sequence (multi-member continuation disabled → decompressed
    drain to EOF → `inflater.finished()` → seekable-source arithmetic) before Step 5 wires it
    into the importer — the Track 7 primitive-before-consumer pattern. — risk: high
-   (Crash-safety / Durability)  [ ]  commit: _pending_
+   (Crash-safety / Durability)  [x]  commit: 2433d684ae
    - **Goal:** a failed or crashed export can never promote, mask its primary failure, corrupt
      a record into the dump, or destroy the operator's previous dump; the gzip validator
      exists, isolated-tested, ready for import wiring.
@@ -749,6 +751,84 @@ operation-id-horizon fixture-casualty class (both in §Surprises & Discoveries);
 was mandated for this step and none was needed — the restructure's failures were all caught
 by the existing suites plus the new pins. The CS50/W6 armed window is CLOSED as of this
 commit.
+
+### Step 4 — commit 2433d684ae, 2026-07-24T19:16Z [ctx=safe]
+**What was done:** the M2.a export hardening + the CS43 validated-gzip primitive.
+**Red-first (pin M.5 #1):** `injectedScanFailureAbortsWithoutTouchingFinalName` written FIRST
+and shown RED at HEAD bac3747535 — failure signature: `AssertionError: a mid-scan failure must
+abort the export loudly` (the listener-injected mid-records-phase failure was swallowed into a
+success exit; the constructor had ALREADY deleted the pre-existing final-name dump and the
+finally's close() promoted the partial dump over it — FM-M1/M3/CS41 in one signature). Green
+with the hardening: loud `DatabaseExportException` carrying the injected cause, final name
+byte-identical to the sentinel, zero temp residue. (No other red-first pins were mandated for
+this step.)
+
+**Implementation per design element:** (1) `EXPORTER_VERSION` 15. (2) Rethrow-by-default
+(M2.a-2): the collection-scan arm always rethrows wrapped; the per-record arm aborts by
+default with a message naming the `-bestEffort=true` opt-out; under the opt-out the record is
+discarded WHOLE, lands in `brokenRids`, and the `best-effort` scalar marker rides the info
+section. (3) Whole-or-discarded rendering (M2.a-3/Q-M1): per-record `SpillableRecordBuffer`
+(own generator, `AUTO_CLOSE_TARGET` off so the generator close cannot cascade into the
+buffer's delete-on-close lifecycle) spilling beyond the new
+`GlobalConfiguration.EXPORT_RECORD_SPILL_THRESHOLD` knob (default 32 MB) to a collision-free
+temp file in the dump's directory, deleted on every path; chunked raw copy-out
+(`writeRawValue("")` + `writeRaw` — memory-bounded both ways), whole-or-fatal. (4)
+Completion-flag-gated promote (M2.a-4/CS41/CN52): `completed` set only after the manifest was
+written and the stream closed cleanly; per-export unique `CREATE_NEW` temp name
+(`<final>.<uuid>.tmp`); NO upfront final-name delete (both `prepareForFileCreationOrReplacement`
+calls gone); `close()` without completion is an abort — deletes the temp, never renames. (5)
+Manifest last (M2.a-5/R2/WI8c/CN51): trailing `manifest` section with
+`classes`/`indexes`/`records`/`brokenRids` totals tallied by the writing loops themselves.
+Promote recipe (CS40) in the new `FileUtils.durableAtomicMove`: reopened-channel
+`force(true)` → `ATOMIC_MOVE`+`REPLACE_EXISTING` → parent-dir fsync; fail-closed (no copy
+fallback; the dir-fsync leg is best-effort only where the platform cannot open a directory
+channel, e.g. Windows — logged). (6) Primary-exception preservation (M2.a-6): failure-path
+cleanup suppresses secondaries onto the primary. (7) Schema-section `version` field writes
+`SchemaShared.CURRENT_VERSION_NUMBER` (M2.a-7). Streaming variant: no rename to gate; the
+manifest itself is its completion marker. (8) `ValidatedGZIPInputStream` (CS43): single-member
+decoder with continuation disabled BY CONSTRUCTION, drain-to-EOF → trailer CRC32+ISIZE verify
+→ `verifyFullyConsumed()` (incl. in-window trailing-residue rejection) →
+`verifyPhysicalSize()` arithmetic (`headerLen + getBytesRead() + 8 == physicalSize`);
+sequence-order enforced (verification before the drain is an error).
+
+**As-built deviations (recorded):** (a) the primitive extends `InflaterInputStream`
+(`GZIPInputStream`'s superclass) rather than `GZIPInputStream` itself — the JDK decoder's
+member-continuation is private and unhookable; the behavior contract (the design's Signatures
+section) is implemented exactly. (b) `DatabaseImport` gained a MINIMAL manifest-consuming arm
+(`skipManifest`, no validation) — the step's seam note says "does NOT touch DatabaseImport",
+but without it every v15 dump import throws "unsupported tag 'manifest'" and the
+step-mandated round-trip suites cannot stay green; Step 5's v15-strict skeleton replaces it
+with the version-gated validating arm (WI6/CN51). (c) a protected `renderRecord` seam was
+extracted so tests can inject deterministic render failures. (d) `DatabaseImpExpAbstract` was
+NOT touched (the `-bestEffort` option lives in `DatabaseExport.parseSetting`; the importer's
+ack flag is Step 5's own surface — packing premise intact).
+
+**Tests:** `DatabaseExportHardeningTest` (7): pin M.5 #1 (red-first),
+`renderFailureAbortsByDefault` + `bestEffortDiscardsWholeRecordAndRecordsTheMarker` (pin #2,
+incl. the info marker and manifest-vs-content equality), `oversizedRecordSpillsAndIsExportedWhole`
+(pin #8), `unflaggedCloseNeverRenames` + `concurrentExportersUseUniqueTempFilesAndPromoteConsistentDumps`
++ `manifestStaysSelfConsistentUnderConcurrentDdl` (pin #17, CN52/CN51; the mid-export DDL runs
+deterministically from the listener on a second session); every promoted dump is re-read
+through the primitive with the FULL CS43 sequence. `ValidatedGZIPInputStreamTest` (9): valid /
+truncated-deflate / truncated-trailer / trailing-garbage / multi-member / corrupt-trailer-CRC
+/ corrupt-trailer-ISIZE / non-gzip-at-construction / sequence-order-enforced.
+`SpillableRecordBufferTest` (4): threshold boundary (at-threshold in memory, +1 spills),
+single-byte crossing, round-trip fidelity, spill-file deletion on the copy-out AND discard
+paths. `FileUtilsDurableAtomicMoveTest` (2): replace-existing + fresh-target moves.
+
+**Verification:** `-Dtest=DatabaseExportImportRoundTripTest,+new classes,+import suites` →
+green; `./mvnw -pl core clean test` → BUILD SUCCESS (17490 — +20 new tests — + 2219
+sequential; 0 failures); `./mvnw -pl core,tests clean test` → BUILD SUCCESS (tests 1300);
+step-mandated import/export ITs → `./mvnw -pl core clean verify -P ci-integration-tests` →
+BUILD SUCCESS (513 ITs, 3:10 h); spotless clean; coverage gate vs origin/develop → PASSED,
+89.5% line (2252/2515), 82.4% branch (1023/1242). (The `FileUtilsDurableAtomicMoveTest` was
+added after the full battery as a test-only pin of the already-exercised promote primitive;
+verified targeted.)
+
+**Discharges:** M2.a-1..7; CS40/CS41/CS43(primitive)/CN51(export)/CN52; WI7; WI8a/b/c; Q-M1;
+FM-M1/M2/M3/M4/M5/M9/M15/M17; pins M.5 #1/#2/#8/#17 + the CS43 primitive suite. WI10a (the
+stream-ctor validation scope) stays Step 5's explicit obligation — the primitive already
+exposes steps (1)+(2) stream-only and step (3) for sizable sources.
 
 ### Step 3 review-fix iteration 1 — commit 6b61334581, 2026-07-24T14:29Z [ctx=safe]
 **What was done:** applied the three Step 3 review reports
