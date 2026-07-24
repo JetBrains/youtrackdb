@@ -8,10 +8,12 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -154,8 +156,75 @@ public class SQLSuffixIdentifier extends SimpleNode {
         return result;
       }
       if (iCurrentRecord != null) {
-        if (iCurrentRecord.hasProperty(varName)) {
-          return iCurrentRecord.getProperty(varName);
+        // LET-variable shortcut: $-prefixed names fail EntityImpl
+        // .validatePropertyName at the base level (first char must be
+        // letter/_/@/~), so getProperty would throw. They never live on the
+        // entity — resolve from Result metadata / temporary properties
+        // directly without any record dispatch.
+        if (varName.startsWith("$")) {
+          if (iCurrentRecord instanceof ResultInternal resultInternal) {
+            if (resultInternal.getMetadataKeys().contains(varName)) {
+              return resultInternal.getMetadata(varName);
+            }
+            if (resultInternal.getTemporaryProperties().contains(varName)) {
+              return resultInternal.getTemporaryProperty(varName);
+            }
+          }
+          return null;
+        }
+
+        // Safe path (hasProperty-first, which never runs validatePropertyName)
+        // for any name on which getProperty could throw. The getProperty-first
+        // hot path below is entered only for names that base
+        // validatePropertyName accepts; anything else is routed here so it
+        // resolves like the old hasProperty-first code (absent → null) instead
+        // of throwing. Two families of unsafe names:
+        //
+        //   * Names rejected by the base EntityImpl.validatePropertyName —
+        //     empty, a forbidden character (':', ',', ';', ' ', '='), or a
+        //     first char that is not a letter/'_'/'@'/'~'. These reach us via
+        //     real SQL through backtick-quoted identifiers, e.g. SELECT
+        //     `123prop` FROM V: the property is usually absent, and
+        //     getProperty-first would throw IllegalArgumentException/
+        //     DatabaseException where hasProperty-first returns null. The
+        //     predicate is isSafeForGetProperty (mirrors validatePropertyName).
+        //   * Vertex edge-management accessors: VertexEntityImpl rejects the
+        //     out_/in_ PREFIXES (e.g. `out_drives`), which pass base validation
+        //     but throw on a vertex record. These appear in real projections
+        //     such as `select out_[...].in_ from V`.
+        //
+        // (EdgeEntityImpl additionally rejects the EXACT names "out"/"in" via
+        // EdgeInternal.checkPropertyName — not the out_/in_ prefixes — but that
+        // pre-existing edge-only case is outside this guard and behaves
+        // identically to the old code, so it is left untouched here.)
+        //
+        // hasProperty does NOT validate: it returns false when the entry is
+        // absent (→ fall through to the metadata/temporary-property lookup
+        // below, then null) and true when present, so no name can throw here.
+        //
+        // KEEP IN SYNC with EntityImpl.validatePropertyName /
+        // SchemaShared.checkPropertyNameIfValid (base rules, mirrored by
+        // isSafeForGetProperty) and VertexEntityImpl/EdgeEntityImpl
+        // .validatePropertyName (subclass edge rules). If those change, update
+        // this guard so getProperty is only called first for accepted names.
+        if (varName.startsWith(Vertex.DIRECTION_OUT_PREFIX)
+            || varName.startsWith(Vertex.DIRECTION_IN_PREFIX)
+            || !isSafeForGetProperty(varName)) {
+          if (iCurrentRecord.hasProperty(varName)) {
+            return iCurrentRecord.getProperty(varName);
+          }
+        } else {
+          // Hot path for regular property names: getProperty first — single
+          // dispatch in the common case (property exists with non-null
+          // value). Only call hasProperty when getProperty returns null, to
+          // disambiguate "absent" from "present-but-null". On a lazy bare-
+          // RID Result, getProperty materializes the entity in one step
+          // (loadLazyAndGetProperty caches it in this.identifiable), so the
+          // eventual hasProperty hits the hot path without reloading.
+          var propValue = iCurrentRecord.getProperty(varName);
+          if (propValue != null || iCurrentRecord.hasProperty(varName)) {
+            return propValue;
+          }
         }
 
         if (iCurrentRecord instanceof ResultInternal resultInternal
@@ -175,6 +244,42 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
 
     return null;
+  }
+
+  /**
+   * Non-throwing mirror of {@link EntityImpl#validatePropertyName(String, boolean)} with {@code
+   * allowMetadata = true} (the mode used by {@code EntityImpl.getProperty}). Returns {@code true}
+   * only for names that base entity validation accepts — i.e. names for which {@code getProperty}
+   * will NOT throw. Names that would be rejected must instead be resolved through {@code
+   * hasProperty}-first, which never validates.
+   *
+   * <p>The forbidden-character set is delegated to {@link
+   * SchemaShared#checkPropertyNameIfValid(String)} so it cannot drift from the real validation;
+   * only the small first-character and metadata rules are mirrored here.
+   *
+   * <p>KEEP IN SYNC with EntityImpl.validatePropertyName. This covers only base validation; the
+   * out_/in_ subclass rules (VertexEntityImpl/EdgeEntityImpl) are handled separately at the call
+   * site.
+   */
+  private static boolean isSafeForGetProperty(String name) {
+    // Empty (or whitespace-only, which trims to empty) names make
+    // checkPropertyNameIfValid throw — treat them as unsafe for the hot path.
+    if (name.trim().isEmpty()) {
+      return false;
+    }
+    var firstChar = name.charAt(0);
+    // Metadata accessors are accepted under allowMetadata regardless of the rest
+    // of the name (validatePropertyName returns before its char checks).
+    if (firstChar == '@' || firstChar == '~') {
+      return true;
+    }
+    // Forbidden characters (':', ',', ';', ' ', '='): reuse the schema-level
+    // predicate so this stays in sync with validatePropertyName.
+    if (SchemaShared.checkPropertyNameIfValid(name) != null) {
+      return false;
+    }
+    // First char must be a letter or underscore.
+    return firstChar == '_' || Character.isLetter(firstChar);
   }
 
   @Nullable

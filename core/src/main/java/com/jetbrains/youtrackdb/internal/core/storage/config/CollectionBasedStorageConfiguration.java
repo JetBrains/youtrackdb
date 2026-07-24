@@ -138,6 +138,22 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private final HashMap<String, Object> cache = new HashMap<>();
 
+  // Cache resolved TimeZone to avoid lock + property-map + TimeZone.getTimeZone
+  // allocation on every date comparison. Hot path: SQL WHERE date predicates
+  // hit this once per row via compareFromPageFrameOrdering → DateHelper.
+  //
+  // setTimeZone invalidates this field BEFORE rewriting the persistent property,
+  // both inside the write lock. This ordering is what keeps the lock-bypassing
+  // fast path in getTimeZone consistent: once a fast-path reader observes null
+  // here it falls through to the slow path, which takes the read lock and
+  // therefore blocks until the writer releases the write lock — at which point
+  // the persistent state is fully published. Reversing the two writes would
+  // expose a window where the persistent property is already NEW but
+  // cachedTimeZone still serves the OLD value to fast-path readers.
+  // volatile guarantees the null-write is visible to fast-path readers without
+  // any lock handshake on their side.
+  private volatile TimeZone cachedTimeZone;
+
   private StorageConfigurationUpdateListener updateListener;
 
   private final ThreadLocal<PausedNotificationsState> pauseNotifications =
@@ -785,6 +801,14 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public void setTimeZone(final AtomicOperation atomicOperation, final TimeZone timeZone) {
     lock.writeLock().lock();
     try {
+      // Invalidate cache BEFORE rewriting the persistent property. Fast-path
+      // readers in getTimeZone bypass the lock; if we updated the property
+      // first, a concurrent reader could still see the OLD cached TimeZone
+      // while the persistent state already holds NEW. Nulling first forces any
+      // fast-path miss into the slow path, which blocks on the read lock until
+      // this write lock is released — at which point the persistent state is
+      // fully published.
+      cachedTimeZone = null;
       updateStringProperty(atomicOperation, TIME_ZONE_PROPERTY, timeZone.getID(), true);
     } finally {
       lock.writeLock().unlock();
@@ -793,14 +817,23 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   @Override
   @Nullable public TimeZone getTimeZone() {
+    var cached = cachedTimeZone;
+    if (cached != null) {
+      return cached;
+    }
     lock.readLock().lock();
     try {
+      cached = cachedTimeZone;
+      if (cached != null) {
+        return cached;
+      }
       final var timeZone = readStringProperty(TIME_ZONE_PROPERTY);
       if (timeZone == null) {
         return null;
       }
-
-      return TimeZone.getTimeZone(timeZone);
+      cached = TimeZone.getTimeZone(timeZone);
+      cachedTimeZone = cached;
+      return cached;
     } finally {
       lock.readLock().unlock();
     }
