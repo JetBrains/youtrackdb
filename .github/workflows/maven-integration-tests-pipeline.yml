@@ -253,6 +253,11 @@ jobs:
     needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Every GitHub operation here authenticates with the minted App token
+    # (checkout + persisted push credential); no step uses GITHUB_TOKEN, so the
+    # built-in token carries no scopes (defense-in-depth over the broad
+    # workflow-level grant).
+    permissions: {}
     steps:
       - name: Mint GitHub App token
         id: app-token
