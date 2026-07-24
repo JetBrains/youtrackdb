@@ -643,7 +643,9 @@ public abstract class IndexAbstract implements Index {
             // Same explicit unlink + suppressed tracker as delete(): the old index record may
             // be bag-less (commit-created), so the tracked deletion arm cannot auto-clean the
             // manager's CONFIG_INDEXES link — the rebuild would otherwise leave a dangling
-            // link to the deleted record next to the fresh record it links below.
+            // link to the deleted record next to the fresh record it links below. The same
+            // CQ17 precision as delete() applies: the suppression relies on deleteRecord's
+            // synchronous before-deletion checks.
             final var priorLinkConsistency = session.isLinkConsistencyEnabled();
             session.disableLinkConsistencyCheck();
             try {
@@ -895,8 +897,12 @@ public abstract class IndexAbstract implements Index {
       // deletion arm can neither auto-clean the manager's CONFIG_INDEXES link nor validate the
       // missing bag — it would either leave the link dangling or throw. Unlink explicitly and
       // run the delete with the tracker suppressed, mirroring the commit-time drop half
-      // (enrollReconciledIndexRecords). Capture-and-restore preserves an outer disabled window
-      // (e.g. an import).
+      // (enrollReconciledIndexRecords). PRECISION (review CQ17): the suppression works only
+      // because FrontendTransactionImpl.deleteRecord runs the before-deletion link checks
+      // SYNCHRONOUSLY at the delete call — the window closes when this method returns, before
+      // the enclosing transaction commits; a refactor deferring those callbacks to commit time
+      // must move the suppression with them. Capture-and-restore preserves an outer disabled
+      // window (e.g. an import).
       final var priorLinkConsistency = session.isLinkConsistencyEnabled();
       session.disableLinkConsistencyCheck();
       try {

@@ -1548,16 +1548,22 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
 
     session.executeInTx(transaction -> {
-      // The schema records are structural, not user data: the bidirectional-link tracker is
-      // suppressed for this save exactly as it is for the schema-carry commit's serialization
-      // window (see commitSchemaCarry in AbstractStorage). The tracker is only self-consistent
-      // when both halves of a link edit run tracked, and per-class records created by a
-      // commit-time schema write are deliberately bag-less — so a tracked legacy save that
-      // drops such a class (the import's removeDefault* path dropping genesis-committed
-      // classes) would throw LinksConsistencyException on the missing back-reference bag.
-      // Suppressing both halves keeps the pairing symmetric: schema records carry no
-      // back-reference maintenance on either path. Capture-and-restore (not blanket re-enable)
-      // preserves an outer disabled window, e.g. an import.
+      // The bidirectional-link tracker is suppressed around toStream because of the RECORD
+      // DELETES its drop loop performs: per-class records created by a commit-time schema
+      // write are deliberately bag-less (the schema-carry commit serializes with the tracker
+      // suppressed — see commitSchemaCarry in AbstractStorage), so a TRACKED delete of such a
+      // record (the import's removeDefault* path dropping genesis-committed classes) throws
+      // LinksConsistencyException on the missing back-reference bag. PRECISION (review CQ17):
+      // this window is effective ONLY because FrontendTransactionImpl.deleteRecord runs the
+      // before-deletion link checks SYNCHRONOUSLY at the delete call, i.e. inside this window
+      // — the window closes when this lambda returns, BEFORE the commit runs its batched
+      // before-callbacks. Consequently the ADD side (linking a new class record into the
+      // root's link set) still runs tracking-ON at commit and DOES create back-reference bags
+      // on legacy-created records; that asymmetry is harmless because the drop side never
+      // relies on the bags — toStream removes the root link EXPLICITLY. A refactor that
+      // defers deleteRecord's callback execution to commit time would silently disarm this
+      // window and must move the suppression with it. Capture-and-restore (not blanket
+      // re-enable) preserves an outer disabled window, e.g. an import.
       final var priorLinkConsistency = session.isLinkConsistencyEnabled();
       session.disableLinkConsistencyCheck();
       try {

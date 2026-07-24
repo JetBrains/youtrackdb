@@ -740,6 +740,33 @@ public class SchemaClassOperationsTest extends DbTestBase {
     assertNotNull(cls.getProperty("p"));
   }
 
+  /**
+   * The COMMIT half of the de-guarded in-transaction property create (review TQ16): a property
+   * created inside a user transaction survives the commit into the committed schema — with its
+   * declared type — and survives a forced re-parse of the persisted schema records (the
+   * byte-level pin; genesis covers this only transitively through phase 1).
+   */
+  @Test
+  public void createPropertyInsideTransactionPersistsAtCommit() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("PropInTxCommit");
+
+    session.begin();
+    schema.getClass("PropInTxCommit").createProperty("p", PropertyType.STRING);
+    session.commit();
+
+    var committed = schema.getClass("PropInTxCommit").getProperty("p");
+    assertNotNull("the committed property must be visible after the transaction", committed);
+    assertEquals(PropertyType.STRING, committed.getType());
+
+    // Force a fromStream re-parse of the persisted schema records so the pin covers the
+    // durable bytes, not just the in-memory promotion.
+    session.getSharedContext().getSchema().reload(session);
+    var reparsed = schema.getClass("PropInTxCommit").getProperty("p");
+    assertNotNull("the committed property must survive a schema re-parse", reparsed);
+    assertEquals(PropertyType.STRING, reparsed.getType());
+  }
+
   @Test
   public void dropPropertyInsideTransactionIsRejected() {
     // SchemaClassEmbedded.dropProperty rejects deletion inside an active transaction — pin the

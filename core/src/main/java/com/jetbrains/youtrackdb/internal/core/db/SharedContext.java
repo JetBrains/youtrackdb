@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.GenesisIncompleteException;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
@@ -45,11 +46,13 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   /**
    * Storage-configuration property written as the LAST act of {@link #create}: its presence
    * means "the genesis sequence ran to completion" — NOT "users exist" (it is written for the
-   * system database and under {@code CREATE_DEFAULT_USERS=false} too). The open path refuses a
+   * system database and under {@code CREATE_DEFAULT_USERS=false} too). {@link #load} refuses a
    * database that lacks it (a half-genesis crash corpse must be discarded and re-created, never
-   * silently reopened); {@code drop()} tolerates the refusal so the discard itself always works.
-   * The marker write is its own durability event, so a crash after a completed genesis but
-   * before the marker is durable yields an accepted fail-closed FALSE refusal (design W9a).
+   * silently reopened) — deliberately AFTER the schema load, so Track 2's schema-version gate
+   * owns old-format databases with its export/reimport redirect (review CS52); {@code drop()}
+   * tolerates the refusal so the discard itself always works. The marker write is its own
+   * durability event, so a crash after a completed genesis but before the marker is durable
+   * yields an accepted fail-closed FALSE refusal (design W9a).
    */
   public static final String GENESIS_COMPLETED_PROPERTY = "genesisCompleted";
 
@@ -149,6 +152,25 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     try {
       database.executeInTx(transaction -> {
         schema.load(database);
+        // Genesis-completion belt (design §A1): a database whose creation never ran to
+        // completion is refused before anything else loads — a half-genesis corpse (W6/W7 of
+        // the design's crash-state enumeration) would otherwise reopen silently with a partial
+        // or empty schema; the accepted W9a window (complete database, marker write not yet
+        // durable) is refused fail-closed the same way. The check runs AFTER the schema load
+        // ON PURPOSE (review CS52): Track 2's schema-version gate inside fromStream must own
+        // old-format databases first, with its export/reimport redirect — never the
+        // discard-and-recreate refusal below. It runs on the FIRST session of every context
+        // (the loaded flag is set only at the end, so a refused load re-runs and re-refuses),
+        // which is every reopen a real crash corpse can experience; drop() tolerates the
+        // refusal (CN54) so the prescribed discard always works.
+        if (!Boolean.parseBoolean(storage.getProperty(GENESIS_COMPLETED_PROPERTY))) {
+          throw new GenesisIncompleteException(storage.getName(),
+              "Database '"
+                  + storage.getName()
+                  + "' cannot be opened: its creation did not run to completion (the"
+                  + " genesis-completion marker is absent). Discard and re-create the"
+                  + " database.");
+        }
         schema.forceSnapshot();
         indexManager.load(database);
         // The Immutable snapshot should be after index and schema that require and before

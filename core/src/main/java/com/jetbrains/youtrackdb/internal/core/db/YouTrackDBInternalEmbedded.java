@@ -343,7 +343,14 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   private DatabaseSessionEmbedded newSessionInstance(
       AbstractStorage storage, YouTrackDBConfigImpl config) {
     var embedded = new DatabaseSessionEmbedded(storage, serverMode);
-    embedded.init(config, getOrCreateSharedContext(storage));
+    try {
+      embedded.init(config, getOrCreateSharedContext(storage));
+    } catch (RuntimeException e) {
+      // A genesis-incomplete refusal (raised by SharedContext.load during the metadata load)
+      // must not leave the corpse's storage open and registered — see the helper's javadoc.
+      unregisterGenesisIncompleteCorpse(storage, e);
+      throw e;
+    }
     return embedded;
   }
 
@@ -438,12 +445,9 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
       throw e;
     }
-    // Genesis-completion belt (design §A1): every session-minting open runs through here, so a
-    // half-genesis corpse (a crash between storage creation and the end of the metadata
-    // creation sequence) is refused loudly instead of reopening silently with a partial or
-    // empty schema. drop() tolerates the refusal on its internal open (CN54), so the discard
-    // the message prescribes always works.
-    checkGenesisCompleted(storage);
+    // The genesis-completion belt (design §A1) fires in SharedContext.load, AFTER the schema
+    // version gate had its chance — not here (review CS52): an old-format database must get
+    // the export/reimport redirect, never the discard-and-recreate refusal.
     // Wire the general-purpose executor into histogram managers so they can
     // schedule background rebalance work. We deliberately avoid ioExecutor
     // here because it is also used by AsynchronousFileChannel for I/O
@@ -453,21 +457,33 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   }
 
   /**
-   * Refuses to mint sessions on a database whose genesis never ran to completion: the
-   * completion marker is the storage-configuration property {@code SharedContext.create}
-   * writes as its last act. A database without it is a half-genesis crash corpse (W3–W7 of the
-   * design's crash-state enumeration) — or, in the accepted W9a window, a genuinely complete
-   * database whose marker write was not yet durable; both are refused fail-closed with the
-   * discard-and-recreate message. Databases created by pre-marker builds of this development
-   * branch are refused too — a recorded, accepted dev-only exposure.
+   * Closes and unregisters a corpse storage whose open was refused by the genesis-completion
+   * belt (reviews BG14/CN55/CS55): keeping the refused storage open and registered would pin
+   * its file locks and WAL buffers for the process lifetime and block the manual discard the
+   * refusal message prescribes on locking platforms. Mirrors the {@code storage.open} failure
+   * arm in {@code getAndOpenStorage}; {@code drop()} re-initializes the storage from disk for
+   * the deletion. Other open failures keep today's behavior (the storage stays registered).
+   * Cleanup failures never mask the refusal — they are attached as suppressed.
    */
-  private static void checkGenesisCompleted(AbstractStorage storage) {
-    if (!Boolean.parseBoolean(storage.getProperty(SharedContext.GENESIS_COMPLETED_PROPERTY))) {
-      throw new GenesisIncompleteException(storage.getName(),
-          "Database '"
-              + storage.getName()
-              + "' cannot be opened: its creation did not run to completion (the"
-              + " genesis-completion marker is absent). Discard and re-create the database.");
+  private synchronized void unregisterGenesisIncompleteCorpse(AbstractStorage storage,
+      RuntimeException failure) {
+    if (!isCausedByGenesisIncomplete(failure)) {
+      return;
+    }
+    storages.remove(storage.getName());
+    currentStorageIds.remove(storage.getId());
+    var sharedContext = sharedContexts.remove(storage.getName());
+    if (sharedContext != null) {
+      try {
+        sharedContext.close();
+      } catch (RuntimeException cleanupFailure) {
+        failure.addSuppressed(cleanupFailure);
+      }
+    }
+    try {
+      storage.shutdown();
+    } catch (RuntimeException cleanupFailure) {
+      failure.addSuppressed(cleanupFailure);
     }
   }
 
@@ -518,8 +534,14 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     synchronized (this) {
       checkOpen();
       var storage = getAndOpenStorage(name, pool.getConfig());
-      embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage),
-          serverMode);
+      try {
+        embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage),
+            serverMode);
+      } catch (RuntimeException e) {
+        // Same corpse unregistration as the non-pooled open paths (BG14/CN55/CS55).
+        unregisterGenesisIncompleteCorpse(storage, e);
+        throw e;
+      }
     }
     embedded.rebuildIndexes();
     embedded.internalOpen(user, password);
@@ -533,8 +555,14 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     synchronized (this) {
       checkOpen();
       var storage = getAndOpenStorage(name, pool.getConfig());
-      embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage),
-          serverMode);
+      try {
+        embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage),
+            serverMode);
+      } catch (RuntimeException e) {
+        // Same corpse unregistration as the non-pooled open paths (BG14/CN55/CS55).
+        unregisterGenesisIncompleteCorpse(storage, e);
+        throw e;
+      }
     }
 
     embedded.rebuildIndexes();
@@ -798,6 +826,12 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
               new DatabaseException(basePath.toString(), "Cannot create database '" + name + "'"),
               e,
               basePath.toString());
+        } catch (Error e) {
+          // An Error (OOM, StackOverflow) mid-genesis must not skip the residue cleanup either
+          // (review CN56); the cleanup is best-effort under an Error, and the Error itself is
+          // rethrown unwrapped.
+          cleanUpFailedCreate(name, e);
+          throw e;
         }
 
         embedded.callOnCreateListeners();
@@ -806,6 +840,27 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
           throw new DatabaseException(basePath.toString(),
               "Cannot create new database '" + name + "' because it already exists");
         } else {
+          // Never silently no-op over a genesis-incomplete residue (§A1's letter, review
+          // BG14): probe the pre-existing database's completion marker — opening the storage
+          // exactly as a subsequent open would (a healthy database is left open and
+          // registered, the same state an open() call produces). A marker-less residue is a
+          // crash corpse (or an old-format/pre-marker database, which cannot be silently
+          // adopted either); it is refused loudly instead of being reported as "nothing to
+          // do". The message avoids unconditional discard advice: an old-format database's
+          // migration guidance lives in the open path's schema-version gate.
+          var existing = getAndOpenStorage(name, solveConfig(config));
+          if (!Boolean.parseBoolean(
+              existing.getProperty(SharedContext.GENESIS_COMPLETED_PROPERTY))) {
+            var refusal = new GenesisIncompleteException(name,
+                "Cannot create database '"
+                    + name
+                    + "': a database with this name already exists but does not carry the"
+                    + " genesis-completion marker. If it is the residue of a crashed creation,"
+                    + " drop it and re-create; if it was created by an older version, open it"
+                    + " directly to get the migration guidance.");
+            unregisterGenesisIncompleteCorpse(existing, refusal);
+            throw refusal;
+          }
           LogManager.instance()
               .info(this, "Database '%s' already exists, nothing to do", name);
           return;
@@ -825,7 +880,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
    * half-genesis corpse. Runs inside the caller's synchronized block. Cleanup failures never
    * mask the primary genesis failure — they are logged and attached as suppressed.
    */
-  private void cleanUpFailedCreate(String name, Exception primaryFailure) {
+  private void cleanUpFailedCreate(String name, Throwable primaryFailure) {
     var sharedContext = sharedContexts.remove(name);
     if (sharedContext != null) {
       try {
@@ -1120,7 +1175,29 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
               this);
       // TODO: Add Creation settings and parameters
       if (!exists) {
-        embedded = internalCreate(configuration, storage);
+        try {
+          embedded = internalCreate(configuration, storage);
+        } catch (RuntimeException | Error e) {
+          // §A1 parity for the server-configured create path (reviews CS53/CN58): a genesis
+          // failure here must not leave residue the next boot silently adopts. The shared
+          // context internalCreate registered is purged, the storage deleted (closing it and
+          // removing the on-disk content); the storage was not yet in the storages map.
+          var sharedContext = sharedContexts.remove(storage.getName());
+          if (sharedContext != null) {
+            try {
+              sharedContext.close();
+            } catch (RuntimeException cleanupFailure) {
+              e.addSuppressed(cleanupFailure);
+            }
+          }
+          currentStorageIds.remove(storage.getId());
+          try {
+            storage.delete();
+          } catch (RuntimeException cleanupFailure) {
+            e.addSuppressed(cleanupFailure);
+          }
+          throw e;
+        }
       }
       storages.put(name, storage);
     }

@@ -44,7 +44,12 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     // proxy's resolveForWrite) the create rides the user transaction: the new property lands in
     // the private copy's class and global-property table and commits with the schema-carry
     // write — the same de-guard shape as dropClass/createIndex. The genesis phase-1 schema
-    // transaction is the first production consumer.
+    // transaction is the first production consumer. NOTE (review BG16): a non-unsafe in-tx
+    // create reaches fireDatabaseMigration, whose batched updates degrade to nested no-op
+    // commits inside the user transaction — ALL migration rewrites of type-mismatched existing
+    // records join (and grow) the caller's transaction instead of committing per batch, and a
+    // rollback discards them with it. Semantically consistent, but callers creating properties
+    // in-tx on large populated classes should expect the accumulated write set.
     if (!owner.txLocal && session.getTransactionInternal().isActive()) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot create property '" + propertyName + "' inside a transaction");

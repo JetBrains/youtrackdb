@@ -1686,7 +1686,14 @@ public abstract class AbstractStorage
   }
 
   private void doDelete() throws IOException {
-    makeStorageDirty();
+    // A never-opened storage (a crash corpse whose open fails, re-initialized by drop() purely
+    // for deletion) has no startup-metadata channel to write the dirty flag to — and needs
+    // none: the flag exists to force recovery on a crashed WRITER, and deletion removes the
+    // files wholesale. Skipping it makes drop() the universal discard for W1/W2-class corpses
+    // instead of failing on the missing channel before any file is removed (review CS54).
+    if (status != STATUS.CLOSED) {
+      makeStorageDirty();
+    }
 
     // CLOSE THE DATABASE BY REMOVING THE CURRENT USER
     doShutdownOnDelete();

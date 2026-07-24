@@ -601,8 +601,11 @@ public class SecurityShared implements SecurityInternal {
 
     // Two-phase shape (Track 8 D18/G2.c): phase 1 commits the whole security schema — building
     // the OUser.name UNIQUE engine at commit — before phase 2 inserts the first role or user.
-    // executeInTx joins an already-active transaction (the import-nested call site), so the DDL
-    // commits with the outer transaction there.
+    // PRECONDITION (review CQ17): the caller must be transaction-free, or the two phases would
+    // silently collapse into the outer transaction and the engine-before-insert property would
+    // not hold. Every live caller satisfies it: genesis calls the split methods directly, and
+    // the import call site (DatabaseImport.removeDefaultCollections) is provably tx-free — the
+    // legacy dropClass calls preceding it throw under an active transaction.
     session.executeInTx(transaction -> createSecuritySchema(session));
 
     return insertDefaultSecurity(session);

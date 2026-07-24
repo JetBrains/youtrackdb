@@ -341,7 +341,12 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
         && delegate.size() >= topThreshold
         && !isOwnedByMetadataRecord()) {
       convertToTree(transaction);
-    } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
+    } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold
+        && !isOwnedByMetadataRecord()) {
+      // The down-conversion arm is suppressed for metadata records too (containment symmetry,
+      // review CN57): a pre-pin btree-backed metadata root would otherwise convert — and
+      // request the btree's deletion — mid-serialization inside the schema-carry commit
+      // window, the same unowned interaction the embedded→btree guard above closes.
       convertToEmbedded(transaction);
     }
   }
