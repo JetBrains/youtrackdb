@@ -51,6 +51,36 @@ Each tier has single-threaded and multi-threaded concrete classes:
 
 Multi-threaded classes use `@Threads(Threads.MAX)` (one thread per available processor).
 
+## AnalyzedExpr Predicate-Eval Benchmarks (YTDB-916)
+
+The dataset-free predicate-evaluation microbenchmarks (Bench 1 evaluator-sensitivity A/B, Bench 2 `FilterStep` throughput, Bench 3 `ExpandStep` throughput) that exercise the YTDB-916 analyzed-expression IR paths **no longer live in this module**. They are LDBC-free — they spin up an in-memory synthetic `Bench` schema and only touch core query internals — so they now live alongside the other core JMH microbenchmarks in **`core` test sources**:
+
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/`
+  - `AnalyzedExprEvaluator{,SingleThread}Benchmark`, `FilterStepThroughput{,SingleThread}Benchmark`, `ExpandStepThroughput{,SingleThread}Benchmark` (the benchmarks)
+  - `AnalyzedExprBenchmarkState`, `ThroughputBenchmarkState`, `ExpandThroughputBenchmarkState`, `BenchDataset` (JMH state + shared dataset builder)
+  - `AnalyzedExprGuardTest`, `ExpandStepIrPathGuardTest` (JUnit correctness guards, run as ordinary `core` unit tests)
+
+Only the three `*SingleThreadBenchmark` classes are runnable entry points — each has a `main()` that builds a JMH `Runner`/`OptionsBuilder`; the base `*Benchmark` classes are `abstract` and have no `main()`. Because they live in `core` **test** sources, launch them off the core test classpath, e.g.:
+
+```bash
+# 1. Compile core test sources (generates the JMH glue) and capture the test classpath.
+./mvnw -q -pl core -am test-compile
+./mvnw -q -pl core dependency:build-classpath -Dmdep.includeScope=test \
+    -Dmdep.outputFile=/tmp/core-test-cp.txt
+CP="core/target/test-classes:core/target/classes:$(cat /tmp/core-test-cp.txt)"
+
+# 2a. Full run via the class's own main() (honours its @Fork/@Warmup/@Measurement annotations).
+java -cp "$CP" \
+    com.jetbrains.youtrackdb.internal.core.sql.executor.AnalyzedExprEvaluatorSingleThreadBenchmark
+
+# 2b. Quick/filtered run via the JMH CLI (org.openjdk.jmh.Main accepts -f/-wi/-i/-p overrides).
+java -cp "$CP" org.openjdk.jmh.Main "AnalyzedExprEvaluatorSingleThreadBenchmark" -f 1 -wi 0 -i 1
+```
+
+From an IDE, just run the `*SingleThreadBenchmark` class's `main()` directly (its run classpath is already the core test scope).
+
+The dataset-size overrides `-Danalyzed.bench.rows=<n>` and `-Danalyzed.bench.expand.leaves=<n>` are read **inside the forked JMH JVM**, so a bare `-D…` on the launcher JVM never reaches them. Forward them into the fork with the JMH CLI's `-jvmArgsAppend` (e.g. append `-jvmArgsAppend "-Danalyzed.bench.rows=1000"` to the 2b command), or add them to the `OptionsBuilder` in `main()`.
+
 ## Execution Time
 
 Fork count and iteration length vary by tier to achieve stable results within a reasonable time budget. Parameter curation significantly reduces total runtime compared to the random-sampling approach.
@@ -375,6 +405,8 @@ jmh-ldbc/
     LdbcMultiThread{ISUltraFast,IS,IC,ICSlow,ICUltraSlow}Benchmark.java   # @Threads(MAX)
     LdbcDatabaseTool.java              # CLI for export/import/backup/restore operations
     LdbcExplainTool.java               # EXPLAIN/PROFILE for all queries
+    # NOTE: the YTDB-916 predicate-eval benches + BenchDataset moved to core test sources
+    #       (com.jetbrains.youtrackdb.internal.core.sql.executor) — see the section above.
   src/main/resources/
     ldbc-schema.sql                    # DDL: vertex/edge classes, properties, indexes
     ldbc-queries/
@@ -382,6 +414,11 @@ jmh-ldbc/
       IC1.sql .. IC13.sql              # Interactive Complex queries (YouTrackDB MATCH SQL)
       IC4-oldpost-count.sql            # IC4 curation factor query (NOT-pattern cost)
     log4j2.xml                         # Logging configuration
+  src/test/java/.../ldbc/
+    # NOTE: AnalyzedExprGuardTest + ExpandStepIrPathGuardTest moved to core test sources
+    #       (com.jetbrains.youtrackdb.internal.core.sql.executor) — see the section above.
+    LdbcQueryCorrectnessTest.java      # LDBC query result-correctness checks
+    LdbcQueryExplainTest.java          # LDBC EXPLAIN/PROFILE checks
 ```
 
 ### SQL file conventions

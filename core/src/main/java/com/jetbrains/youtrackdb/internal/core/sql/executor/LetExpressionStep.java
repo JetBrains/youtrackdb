@@ -2,8 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -77,35 +75,6 @@ public class LetExpressionStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ LET (for each record)\n" + spaces + "  " + varname + " = " + expression;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    if (varname != null) {
-      result.setProperty("varname", varname.serialize(session));
-    }
-    if (expression != null) {
-      result.setProperty("expression", expression.serialize(session));
-    }
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      if (fromResult.getProperty("varname") != null) {
-        varname = SQLIdentifier.deserialize(fromResult.getProperty("varname"));
-      }
-      if (fromResult.getProperty("expression") != null) {
-        expression = new SQLExpression(-1);
-        expression.deserialize(fromResult.getProperty("expression"));
-      }
-      reset();
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /** Cacheable: expression AST is deep-copied per execution via {@link #copy}. */

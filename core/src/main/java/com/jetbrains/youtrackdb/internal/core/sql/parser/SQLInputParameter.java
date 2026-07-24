@@ -3,12 +3,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -154,23 +151,6 @@ public class SQLInputParameter extends SimpleNode {
     throw new UnsupportedOperationException();
   }
 
-  @Nullable
-  public static SQLInputParameter deserializeFromOResult(Result res) {
-    try {
-      var result =
-          (SQLInputParameter)
-              Class.forName(res.getProperty("__class"))
-                  .getConstructor(Integer.class)
-                  .newInstance(-1);
-      result.deserialize(res);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new CommandExecutionException(res.getBoundedToSession(), ""), e,
-          res.getBoundedToSession());
-    }
-    return null;
-  }
-
   @Override
   public void toGenericStatement(StringBuilder builder) {
     throw new UnsupportedOperationException();
@@ -178,16 +158,6 @@ public class SQLInputParameter extends SimpleNode {
 
   @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    throw new UnsupportedOperationException();
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    result.setProperty("__class", getClass().getName());
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
     throw new UnsupportedOperationException();
   }
 }

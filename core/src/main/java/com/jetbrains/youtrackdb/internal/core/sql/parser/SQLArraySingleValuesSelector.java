@@ -4,7 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -260,28 +259,6 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
       return 1;
     } else {
       return 0;
-    }
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (items != null) {
-      result.setProperty(
-          "items", items.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-
-    if (fromResult.getProperty("items") != null) {
-      List<Result> ser = fromResult.getProperty("items");
-      items = new ArrayList<>();
-      for (var r : ser) {
-        var exp = new SQLArraySelector(-1);
-        exp.deserialize(r);
-        items.add(exp);
-      }
     }
   }
 

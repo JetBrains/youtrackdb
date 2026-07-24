@@ -6,6 +6,7 @@ import static org.junit.Assert.assertThrows;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.BinaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Const;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.FuncCall;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Param;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.UnaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Var;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
@@ -259,6 +260,38 @@ public class AnalyzedExprLowererTest {
         new FuncCall("asInteger", List.of(var("name"))), lower("name.asInteger()"));
   }
 
+  /// WHEN a no-arg `column.type()` is lowered, THE pass throws as out-of-subset. The AST
+  /// special-cases this exact shape (`SQLBaseExpression.isEntityPropertyType()`) to read the
+  /// DECLARED schema type via the non-validating `EntityImpl.getPropertyTypeInternal`, bypassing
+  /// the validating `getProperty`. The IR has no equivalent accessor, so a generic `FuncCall`
+  /// would evaluate the base column through the validating `getProperty` path — which crashes on
+  /// booked edge-management names (`out_`/`in_`) on vertices and returns the runtime value-type
+  /// rather than the declared type. Rejecting it forces the AST fallback, restoring exact parity
+  /// (regression guard for the `fireDatabaseMigration` `.type() <> ...` crash, YTDB-916).
+  @Test
+  public void columnTypeMethodThrows() {
+    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("name.type()"));
+  }
+
+  /// WHEN a no-arg `.type()` is applied to a non-column base (a string literal), THE pass still
+  /// lowers to a `FuncCall`. The AST's entity-property-type special case requires an identifier
+  /// base, so `'x'.type()` is NOT special-cased there and never touches the validating
+  /// `getProperty` path — the `.type()` rejection must stay narrow and not over-reject literals.
+  @Test
+  public void typeMethodOnStringLiteralStillLowersToFuncCall() {
+    assertEquals(new FuncCall("type", List.of(new Const("x"))), lower("'x'.type()"));
+  }
+
+  /// WHEN a `column.type(arg)` (a `.type` call WITH arguments) is lowered, THE pass still lowers to
+  /// a `FuncCall`. The AST's entity-property-type special case requires an empty parameter list, so
+  /// `name.type('x')` is not special-cased there either — the rejection stays narrow to the exact
+  /// no-arg `.type()` shape and must not swallow the arg-bearing variant.
+  @Test
+  public void typeMethodWithArgumentStillLowersToFuncCall() {
+    assertEquals(
+        new FuncCall("type", List.of(var("name"), new Const("x"))), lower("name.type('x')"));
+  }
+
   /// WHEN a method call carries an argument `name.append('x')` is lowered, THE IR is a {@link
   /// FuncCall} whose argument list is the lowered base followed by each lowered method argument.
   /// This exercises the argument-lowering loop a zero-argument method call leaves uncovered.
@@ -303,8 +336,8 @@ public class AnalyzedExprLowererTest {
     return new BinaryOp(operator, var("a"), var("b"));
   }
 
-  /// Parses an SQL comparison string into an {@link SQLBinaryCondition} and lowers it through the
-  /// package-visible {@link AnalyzedExprLowerer#lowerBoolean} entry. Named for the entry it
+  /// Parses an SQL comparison string into an {@link SQLBinaryCondition} and lowers it through
+  /// {@link AnalyzedExprLowerer#lowerBoolean}. Named for the entry it
   /// exercises (the boolean walk) rather than the production private {@code lowerComparison}, which
   /// it does not call directly.
   private static AnalyzedExpr lowerComparisonSql(String sql) {
@@ -347,14 +380,14 @@ public class AnalyzedExprLowererTest {
 
   /// WHEN a hand-built {@link SQLNotBlock} with its `sub` left unset (null) is lowered, THE pass
   /// throws {@link UnsupportedAnalyzedNodeException}, not a NullPointerException. The parser never
-  /// produces a null-sub NOT block, but {@code lowerBoolean} is package-visible so a same-package
-  /// caller could hold a partially-built node; the null guard keeps the boolean entry's "throw,
-  /// never anything else" contract total rather than NPEing in the recursion.
+  /// produces a null-sub NOT block, but {@code lowerBoolean} is public so any caller could hold
+  /// a partially-built node; the null guard keeps the boolean entry's "throw, never anything
+  /// else" contract total rather than NPEing in the recursion.
   @Test
   public void notBlockWithNullSubThrowsTypedExceptionNotNpe() {
     SQLNotBlock block = new SQLNotBlock(-1);
     // sub is left unset (null); negate defaults to false. Reaching the sub recursion would NPE
-    // without the guard, so this pins the typed-failure contract on the package-visible entry.
+    // without the guard, so this pins the typed-failure contract on the public entry.
     assertThrows(
         UnsupportedAnalyzedNodeException.class, () -> AnalyzedExprLowerer.lowerBoolean(block));
   }
@@ -461,14 +494,53 @@ public class AnalyzedExprLowererTest {
         () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a in [1, 2]")));
   }
 
-  /// WHEN a non-comparison boolean shape `a = 1 AND b = 2` (an `AND` block) is lowered, THE pass
-  /// throws: the IR models no `AND` / `OR` connective, so every boolean shape other than a
-  /// comparison or `NOT` hits the boolean throw-default.
+  // ---- AND / OR folding ----
+
+  /// WHEN a simple two-operand `a = 1 AND b = 2` is lowered, THE pass left-folds the
+  /// AND block into a single `BinaryOp(AND, ...)` with the two lowered comparisons.
   @Test
-  public void andBooleanShapeThrows() {
-    assertThrows(
-        UnsupportedAnalyzedNodeException.class,
-        () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a = 1 AND b = 2")));
+  public void andTwoOperandsFoldsIntoBinaryAnd() {
+    AnalyzedExpr expected = new BinaryOp(
+        BinaryOperator.AND,
+        new BinaryOp(BinaryOperator.EQ, var("a"), new Const(1)),
+        new BinaryOp(BinaryOperator.EQ, var("b"), new Const(2)));
+    assertEquals(expected, AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a = 1 AND b = 2")));
+  }
+
+  /// WHEN a three-operand AND (`a = 1 AND b = 2 AND c = 3`) is lowered, THE pass left-folds
+  /// into nested binary `AND(AND(a=1, b=2), c=3)` — the n-ary block becomes a left-associative
+  /// binary tree.
+  @Test
+  public void andThreeOperandsLeftFoldsToNestedBinary() {
+    AnalyzedExpr expected = new BinaryOp(
+        BinaryOperator.AND,
+        new BinaryOp(
+            BinaryOperator.AND,
+            new BinaryOp(BinaryOperator.EQ, var("a"), new Const(1)),
+            new BinaryOp(BinaryOperator.EQ, var("b"), new Const(2))),
+        new BinaryOp(BinaryOperator.EQ, var("c"), new Const(3)));
+    assertEquals(expected,
+        AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a = 1 AND b = 2 AND c = 3")));
+  }
+
+  /// WHEN a two-operand `a = 1 OR b = 2` is lowered, THE pass left-folds the OR block
+  /// into a single `BinaryOp(OR, ...)`.
+  @Test
+  public void orTwoOperandsFoldsIntoBinaryOr() {
+    AnalyzedExpr expected = new BinaryOp(
+        BinaryOperator.OR,
+        new BinaryOp(BinaryOperator.EQ, var("a"), new Const(1)),
+        new BinaryOp(BinaryOperator.EQ, var("b"), new Const(2)));
+    assertEquals(expected, AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a = 1 OR b = 2")));
+  }
+
+  /// WHEN a single sub-block AND is lowered, THE pass unwraps it to just the sub-block —
+  /// no wrapping BinaryOp.
+  @Test
+  public void andSingleSubBlockUnwraps() {
+    // An AND block with a single sub-block (which is a comparison) lowers to just the comparison.
+    AnalyzedExpr expected = new BinaryOp(BinaryOperator.EQ, var("a"), new Const(1));
+    assertEquals(expected, AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a = 1")));
   }
 
   /// WHEN a method call carries an out-of-subset argument `name.f(p.q)`, THE pass throws from
@@ -564,10 +636,122 @@ public class AnalyzedExprLowererTest {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("p.name"));
   }
 
-  /// WHEN a bind parameter `:p` is lowered, THE pass throws: bind parameters are not lowered in
-  /// this subset.
+  /// WHEN a three-operand OR (`a = 1 OR b = 2 OR c = 3`) is lowered, THE pass left-folds
+  /// into nested binary `OR(OR(a=1, b=2), c=3)` — symmetric with the AND three-operand test.
   @Test
-  public void bindParameterThrows() {
-    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower(":p"));
+  public void orThreeOperandsLeftFoldsToNestedBinary() {
+    AnalyzedExpr expected = new BinaryOp(
+        BinaryOperator.OR,
+        new BinaryOp(
+            BinaryOperator.OR,
+            new BinaryOp(BinaryOperator.EQ, var("a"), new Const(1)),
+            new BinaryOp(BinaryOperator.EQ, var("b"), new Const(2))),
+        new BinaryOp(BinaryOperator.EQ, var("c"), new Const(3)));
+    assertEquals(expected,
+        AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a = 1 OR b = 2 OR c = 3")));
+  }
+
+  // ---- IS NULL / IS NOT NULL ----
+
+  /// WHEN `name IS NULL` is lowered, THE pass produces `UnaryOp(IS_NULL, Var(name))`.
+  @Test
+  public void isNullLowersToUnaryIsNull() {
+    AnalyzedExpr expected = new UnaryOp(UnaryOperator.IS_NULL, var("name"));
+    assertEquals(expected, AnalyzedExprLowerer.lowerBoolean(parseOrBlock("name IS NULL")));
+  }
+
+  /// WHEN `name IS NOT NULL` is lowered, THE pass produces `NOT(IS_NULL(Var(name)))` —
+  /// the composed form, not a separate operator.
+  @Test
+  public void isNotNullLowersToNotIsNull() {
+    AnalyzedExpr expected = new UnaryOp(
+        UnaryOperator.NOT, new UnaryOp(UnaryOperator.IS_NULL, var("name")));
+    assertEquals(expected, AnalyzedExprLowerer.lowerBoolean(parseOrBlock("name IS NOT NULL")));
+  }
+
+  /// WHEN `any() IS NULL` is lowered, THE pass throws: the ANY modifier variant of IS NULL
+  /// is out of subset (property-iteration semantics the IR does not model).
+  @Test
+  public void anyIsNullThrows() {
+    assertThrows(
+        UnsupportedAnalyzedNodeException.class,
+        () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("any() IS NULL")));
+  }
+
+  /// WHEN `all() IS NULL` is lowered, THE pass throws: the ALL modifier variant of IS NULL
+  /// is out of subset.
+  @Test
+  public void allIsNullThrows() {
+    assertThrows(
+        UnsupportedAnalyzedNodeException.class,
+        () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("all() IS NULL")));
+  }
+
+  /// WHEN `any() IS NOT NULL` is lowered, THE pass throws: the ANY modifier variant of
+  /// IS NOT NULL is out of subset.
+  @Test
+  public void anyIsNotNullThrows() {
+    assertThrows(
+        UnsupportedAnalyzedNodeException.class,
+        () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("any() IS NOT NULL")));
+  }
+
+  /// WHEN `all() IS NOT NULL` is lowered, THE pass throws: the ALL modifier variant of
+  /// IS NOT NULL is out of subset.
+  @Test
+  public void allIsNotNullThrows() {
+    assertThrows(
+        UnsupportedAnalyzedNodeException.class,
+        () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("all() IS NOT NULL")));
+  }
+
+  // ---- Param lowering ----
+
+  /// WHEN a positional bind parameter `?` is lowered, THE pass produces a `Param(0, null)` —
+  /// identity-only, no resolved value.
+  @Test
+  public void positionalParamLowersToParam() {
+    assertEquals(new Param(0, null), lower("?"));
+  }
+
+  /// WHEN a named bind parameter `:myParam` is lowered, THE pass produces
+  /// `Param(0, "myParam")` carrying both the positional index and the name.
+  @Test
+  public void namedParamLowersToParam() {
+    assertEquals(new Param(0, "myParam"), lower(":myParam"));
+  }
+
+  /// WHEN a positional param appears as a comparison operand (`a = ?`), THE whole expression
+  /// lowers to `BinaryOp(EQ, Var(a), Param(0, null))`.
+  @Test
+  public void positionalParamInComparison() {
+    AnalyzedExpr expected = new BinaryOp(BinaryOperator.EQ, var("a"), new Param(0, null));
+    assertEquals(expected, lowerComparisonSql("a = ?"));
+  }
+
+  // ---- $-var rejection ----
+
+  /// WHEN a bare `$name` identifier is lowered, THE pass throws — $-prefixed context variables
+  /// are out of subset.
+  @Test
+  public void dollarVarThrows() {
+    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("$name"));
+  }
+
+  /// WHEN a `$parent.x` dotted identifier is lowered, THE pass throws — the $-prefix is
+  /// caught at the Var-construction site.
+  @Test
+  public void dollarParentDottedThrows() {
+    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("$parent.x"));
+  }
+
+  // ---- BETWEEN still throws ----
+
+  /// WHEN a `BETWEEN` condition is lowered, THE pass throws as an out-of-subset boolean shape.
+  @Test
+  public void betweenStillThrows() {
+    assertThrows(
+        UnsupportedAnalyzedNodeException.class,
+        () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a BETWEEN 1 AND 10")));
   }
 }

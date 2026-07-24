@@ -1,12 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.query.analyzed;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.BinaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Const;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.FuncCall;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Param;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.UnaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Var;
 import java.util.List;
@@ -17,10 +19,10 @@ import org.junit.Test;
 /// Two properties are checked, since this slice ships no live consumer: that
 /// {@link AnalyzedExpr#dispatch} routes each variant to the matching `visitX` (the runtime
 /// half of the exhaustive-dispatch guarantee — the compile-time half is enforced by the
-/// compiler, since a sixth
-/// variant would fail to compile against the `default`-free `switch` and the no-default base
-/// visitor), and that {@link AnalyzedExpr#transformChildren} shares unchanged structure by
-/// reference identity rather than value equality.
+/// compiler, since a seventh variant would fail to compile against the `default`-free
+/// `switch` and the no-default base visitor), and that
+/// {@link AnalyzedExpr#transformChildren} shares unchanged structure by reference identity
+/// rather than value equality.
 public class AnalyzedExprTest {
 
   /// A visitor returning a distinct sentinel string per variant, used to confirm dispatch
@@ -35,6 +37,11 @@ public class AnalyzedExprTest {
     @Override
     public String visitConst(Const constant) {
       return "const";
+    }
+
+    @Override
+    public String visitParam(Param param) {
+      return "param";
     }
 
     @Override
@@ -55,7 +62,7 @@ public class AnalyzedExprTest {
 
   // ---- Dispatch exhaustiveness ----
 
-  /// WHEN each of the five variants is dispatched through {@link AnalyzedExpr#dispatch}, THE
+  /// WHEN each of the six variants is dispatched through {@link AnalyzedExpr#dispatch}, THE
   /// matching `visitX` is invoked and its result returned — confirming the `switch` routes
   /// every variant to its own branch.
   @Test
@@ -64,6 +71,7 @@ public class AnalyzedExprTest {
 
     assertEquals("var", AnalyzedExpr.dispatch(new Var(List.of("name")), visitor));
     assertEquals("const", AnalyzedExpr.dispatch(new Const(42), visitor));
+    assertEquals("param", AnalyzedExpr.dispatch(new Param(0, null), visitor));
     assertEquals(
         "binary",
         AnalyzedExpr.dispatch(
@@ -96,17 +104,19 @@ public class AnalyzedExprTest {
     }
   }
 
-  /// (a) WHEN a leaf variant ({@link Var}, {@link Const}) is transformed by an identity pass,
-  /// THE helper returns the very same instance.
+  /// (a) WHEN a leaf variant ({@link Var}, {@link Const}, {@link Param}) is transformed by an
+  /// identity pass, THE helper returns the very same instance.
   @Test
   public void leafVariantsAreReturnedByReference() {
     IdentityTransform t = new IdentityTransform();
 
     Var var = new Var(List.of("name"));
     Const constant = new Const(7);
+    Param param = new Param(0, "p");
 
     assertSame(var, AnalyzedExpr.transformChildren(var, t));
     assertSame(constant, AnalyzedExpr.transformChildren(constant, t));
+    assertSame(param, AnalyzedExpr.transformChildren(param, t));
   }
 
   /// (b) WHEN a compound variant has no child changed, THE helper returns the parent by
@@ -374,5 +384,40 @@ public class AnalyzedExprTest {
     // dbName-carrying constructor must add a sibling test asserting the copy does not
     // double-append the "DB Name=..." suffix on top of the already-decorated source message.
     assertEquals(original.getMessage(), copy.getMessage());
+  }
+
+  // ---- Param record shape ----
+
+  /// WHEN a positional {@link Param} is created, THE record carries the parameter number and a
+  /// null name. Structural equals ensures two positional Params with the same number are equal.
+  @Test
+  public void paramPositionalRecordShape() {
+    Param p = new Param(0, null);
+    assertEquals(0, p.paramNumber());
+    assertEquals(null, p.paramName());
+    assertEquals(new Param(0, null), p);
+  }
+
+  /// WHEN a named {@link Param} is created, THE record carries both the parameter number and the
+  /// name. Structural equals checks both fields.
+  @Test
+  public void paramNamedRecordShape() {
+    Param p = new Param(1, "foo");
+    assertEquals(1, p.paramNumber());
+    assertEquals("foo", p.paramName());
+    assertEquals(new Param(1, "foo"), p);
+    assertNotEquals(new Param(1, "bar"), p); // different name -> not equal
+  }
+
+  /// WHEN the IR tree is copied (shared), immutable Param nodes are shared by reference — they
+  /// carry no mutable state and re-resolve at evaluation time.
+  @Test
+  public void paramCopySharesImmutableIr() {
+    Param p = new Param(0, "x");
+    BinaryOp tree = new BinaryOp(BinaryOperator.EQ, new Var(List.of("a")), p);
+    AnalyzedExpr copy = AnalyzedExpr.transformChildren(tree, new IdentityTransform());
+    // Identity transform: the whole tree is shared by reference.
+    assertSame(tree, copy);
+    assertSame(p, ((BinaryOp) copy).right());
   }
 }

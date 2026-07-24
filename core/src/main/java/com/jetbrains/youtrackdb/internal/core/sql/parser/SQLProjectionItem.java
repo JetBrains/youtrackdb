@@ -15,7 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.BidirectionalLinksIter
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -338,42 +337,6 @@ public class SQLProjectionItem extends SimpleNode {
       return expression.refersToParent();
     }
     return false;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("all", all);
-    if (alias != null) {
-      result.setProperty("alias", alias.serialize(session));
-    }
-    if (expression != null) {
-      result.setProperty("expression", expression.serialize(session));
-    }
-    result.setProperty("aggregate", aggregate);
-    if (nestedProjection != null) {
-      result.setProperty("nestedProjection", nestedProjection.serialize(session));
-    }
-    result.setProperty("exclude", exclude);
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    all = fromResult.getProperty("all");
-    if (fromResult.getProperty("alias") != null) {
-      alias = SQLIdentifier.deserialize(fromResult.getProperty("alias"));
-    }
-    if (fromResult.getProperty("expression") != null) {
-      expression = new SQLExpression(-1);
-      expression.deserialize(fromResult.getProperty("expression"));
-    }
-    aggregate = fromResult.getProperty("aggregate");
-    if (fromResult.getProperty("nestedProjection") != null) {
-      nestedProjection = new SQLNestedProjection(-1);
-      nestedProjection.deserialize(fromResult.getProperty("nestedProjection"));
-    }
-    if (Boolean.TRUE.equals(fromResult.getProperty("exclude"))) {
-      exclude = true;
-    }
   }
 
   public void setNestedProjection(SQLNestedProjection nestedProjection) {

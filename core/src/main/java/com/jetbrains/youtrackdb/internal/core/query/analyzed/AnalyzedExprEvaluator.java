@@ -10,9 +10,11 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.BinaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Const;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.FuncCall;
+import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Param;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.UnaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Var;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.InPlaceResult;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.method.SQLMethod;
@@ -25,15 +27,22 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression.Operator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
 import java.util.List;
+import java.util.Map;
+import java.util.OptionalInt;
 
 /// The runtime over the analyzed-expression IR ([AnalyzedExpr]): walks a lowered tree and produces
 /// the value it evaluates to against a [Result] row.
 ///
-/// `AnalyzedExprEvaluator` implements [AnalyzedExprVisitor]&lt;[Object]&gt; directly. Because the
-/// visitor has no default methods and the IR is a sealed set, the compiler forces this class to
-/// enumerate every variant; a future IR variant breaks it at compile time. It carries
-/// per-evaluation state (the row and the command context), so an instance is single-use per
-/// `evaluate` call — the public [#evaluate] entry constructs one and discards it.
+/// The evaluator is a pure-static utility class with no instance state. Per-evaluation state (the
+/// row and the command context) is threaded as method parameters through the private recursive
+/// [#eval] switch, so evaluation allocates nothing per row and incurs zero ThreadLocal overhead.
+/// Tracks 04/05 call `evaluate` per row in a hot loop, so zero-allocation and minimal state-access
+/// cost are hard constraints.
+///
+/// The private [#eval] method uses a `switch` over the sealed [AnalyzedExpr] variant set (the same
+/// sealed permits list the [AnalyzedExprVisitor] pattern-matches against). Because the switch has
+/// no `default` clause, adding a new IR variant breaks this class at compile time — the same
+/// exhaustiveness guarantee the visitor provides, without the visitor indirection.
 ///
 /// The evaluator has two reuse seams that keep it from re-deriving semantics the AST already owns,
 /// so the AST and the IR cannot drift:
@@ -43,26 +52,33 @@ import java.util.List;
 ///   IR [BinaryOperator] arithmetic constant to its [Operator] counterpart. That object-level entry
 ///   carries null-propagation, `Date ± Long`, and `String` concat — semantics a direct
 ///   `NumericOps.apply(Number, Operator, Number)` call would skip or throw on.
-/// - **Comparison** replicates [com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition]'s
-///   slow-path `evaluate(Result, ctx)` sequence: evaluate both operands, fetch the collate
-///   left-then-right, apply the collate transform when non-null, then delegate to a freshly
-///   constructed [SQLBinaryCompareOperator] of the same concrete class the AST uses for the operator.
-///   The operators are stateless, so a reconstructed instance runs the AST's exact `execute` body and
+/// - **Comparison** has two paths. The **fast path** (ported from YTDB-628) runs before the slow
+///   path for `property <op> constant` patterns where the row is an `EntityImpl`: it calls
+///   `isPropertyEqualTo` (EQ/NE) or `comparePropertyTo` (range ops) directly on the entity,
+///   avoiding deserialization. The **slow path** replicates
+///   [com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition]'s `evaluate(Result, ctx)`
+///   sequence: evaluate both operands, fetch the collate left-then-right, apply the collate transform
+///   when non-null, then delegate to a pre-built static [SQLBinaryCompareOperator] singleton. The
+///   operators are stateless, so a pre-built instance runs the AST's exact `execute` body and
 ///   reproduces both the EQ/NE session difference and the ordering `doCompare`-vs-0 mapping by class
 ///   identity.
-///
-/// This is the slow path only: the AST evaluation fast paths (in-place comparison, `AND`/`OR`
-/// short-circuit) are not mirrored here because this slice ships no live executor consumer and its
-/// only acceptance gate is round-trip parity against the AST oracle. A later slice that evaluates the
-/// IR on the hot path must add those fast paths back.
-public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> {
+/// - **AND/OR** short-circuit: LEFT is evaluated first; AND returns false immediately when left is
+///   false; OR returns true immediately when left is true; otherwise the right operand is evaluated.
+/// - **IS_NULL** is untyped: the operand is evaluated and compared to null directly (no Boolean
+///   cast), returning `operand == null`. `IS NOT NULL` composes as `NOT(IS_NULL(expr))`.
+public final class AnalyzedExprEvaluator {
 
-  private final Result row;
-  private final CommandContext ctx;
+  // Pre-built static operator singletons — the operators are stateless, so one instance per
+  // concrete class avoids per-comparison allocation. The constructor argument is the parser
+  // node id, unused at evaluate time, so -1 is the conventional "not parser-built" id.
+  private static final SQLBinaryCompareOperator OP_EQ = new SQLEqualsOperator(-1);
+  private static final SQLBinaryCompareOperator OP_NE = new SQLNeOperator(-1);
+  private static final SQLBinaryCompareOperator OP_LT = new SQLLtOperator(-1);
+  private static final SQLBinaryCompareOperator OP_LE = new SQLLeOperator(-1);
+  private static final SQLBinaryCompareOperator OP_GT = new SQLGtOperator(-1);
+  private static final SQLBinaryCompareOperator OP_GE = new SQLGeOperator(-1);
 
-  private AnalyzedExprEvaluator(Result row, CommandContext ctx) {
-    this.row = row;
-    this.ctx = ctx;
+  private AnalyzedExprEvaluator() {
   }
 
   /// Evaluates `expr` against `row` under `ctx` and returns the produced value.
@@ -70,9 +86,11 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
   /// This is the single public entry. The analyzed layer evaluates over [Result] rows only (a single
   /// overload); an `Identifiable`-only caller wraps its input in a synthetic entity-backed [Result]
   /// via [#wrap(Identifiable, DatabaseSessionEmbedded)] first, so it too evaluates through the
-  /// collation-applying path.
+  /// collation-applying path. The evaluator allocates nothing per row: `(row, ctx)` flow as method
+  /// parameters through the recursive [#eval] switch — no ThreadLocal, no instance fields, no
+  /// shared mutable state.
   public static Object evaluate(AnalyzedExpr expr, Result row, CommandContext ctx) {
-    return AnalyzedExpr.dispatch(expr, new AnalyzedExprEvaluator(row, ctx));
+    return eval(expr, row, ctx);
   }
 
   /// Wraps an [Identifiable] in a synthetic entity-backed [Result] so it can be evaluated through the
@@ -88,15 +106,33 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
     return new ResultInternal(session, identifiable);
   }
 
-  @Override
-  public Object visitVar(Var var) {
-    // Single-segment lexical name resolution, mirroring the AST's
-    // SQLSuffixIdentifier.execute(Result) column lookup: read the property when present, otherwise
-    // fall back to result metadata / temporary properties, otherwise null. The lowering pass only
-    // produces single-segment Vars (a multi-segment path throws at lowering), so path() has exactly
-    // one element here. A multi-segment Var is a lowering-contract violation, not a value to read
-    // through; throw in production rather than silently reading path.get(0) (an assert would be a
-    // no-op without -ea and let the broken invariant produce a wrong result).
+  /// Recursive evaluation switch over the sealed [AnalyzedExpr] variant set.
+  ///
+  /// This has no `default` clause: the sealed permits-list is a closed, known set, so adding a
+  /// new IR variant fails to compile here until a new `case` is added — the same exhaustiveness
+  /// guarantee the [AnalyzedExprVisitor] provides, without the visitor indirection. `(row, ctx)`
+  /// flow as direct parameters, incurring zero ThreadLocal or instance-field overhead per call.
+  private static Object eval(AnalyzedExpr expr, Result row, CommandContext ctx) {
+    return switch (expr) {
+      case AnalyzedExpr.Var v -> evalVar(v, row);
+      case AnalyzedExpr.Const c -> c.value();
+      case AnalyzedExpr.Param p -> evalParam(p, ctx);
+      case AnalyzedExpr.BinaryOp b -> evalBinaryOp(b, row, ctx);
+      case AnalyzedExpr.UnaryOp u -> evalUnaryOp(u, row, ctx);
+      case AnalyzedExpr.FuncCall f -> evalFuncCall(f, row, ctx);
+    };
+  }
+
+  /// Single-segment lexical name resolution, mirroring the AST's
+  /// SQLSuffixIdentifier.execute(Result) column lookup: read the property when present, otherwise
+  /// fall back to result metadata / temporary properties, otherwise null. The lowering pass only
+  /// produces single-segment Vars (a multi-segment path throws at lowering), so path() has exactly
+  /// one element here.
+  ///
+  /// NOTE: $-prefixed identifiers (LET / context variables) are rejected at the lowerer, so they
+  /// never reach this method. Resolution of $-vars via ctx.getVariable() is deferred to a later
+  /// slice (S17).
+  private static Object evalVar(AnalyzedExpr.Var var, Result row) {
     if (var.path().size() != 1) {
       throw new IllegalStateException("evaluator expects single-segment Var, got " + var.path());
     }
@@ -118,61 +154,73 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
     return null;
   }
 
-  @Override
-  public Object visitConst(Const constant) {
-    return constant.value();
+  /// Resolves a bind parameter at evaluation time from the command context's input-parameter map,
+  /// mirroring the AST exactly: named params try paramName first, then fall back to paramNumber;
+  /// positional params use paramNumber only. Re-resolves every execution (no value baked in).
+  private static Object evalParam(AnalyzedExpr.Param param, CommandContext ctx) {
+    if (ctx == null) {
+      return null;
+    }
+    Map<Object, Object> params = ctx.getInputParameters();
+    if (params == null) {
+      return null;
+    }
+    // Named parameter: resolve by name if present; otherwise fall through to positional index.
+    if (param.paramName() != null && params.containsKey(param.paramName())) {
+      return params.get(param.paramName());
+    }
+    return params.get(param.paramNumber());
   }
 
-  @Override
-  public Object visitBinaryOp(BinaryOp binaryOp) {
+  private static Object evalBinaryOp(BinaryOp binaryOp, Result row, CommandContext ctx) {
     return switch (binaryOp.op()) {
-      case PLUS, MINUS, STAR, SLASH -> evaluateArithmetic(binaryOp);
-      case EQ, NE, LT, LE, GT, GE -> evaluateComparison(binaryOp);
+      case PLUS, MINUS, STAR, SLASH -> evaluateArithmetic(binaryOp, row, ctx);
+      case EQ, NE, LT, LE, GT, GE -> evaluateComparison(binaryOp, row, ctx);
+      case AND -> evaluateAnd(binaryOp, row, ctx);
+      case OR -> evaluateOr(binaryOp, row, ctx);
     };
   }
 
-  @Override
-  public Object visitUnaryOp(UnaryOp unaryOp) {
+  private static Object evalUnaryOp(UnaryOp unaryOp, Result row, CommandContext ctx) {
     return switch (unaryOp.op()) {
       case NOT -> {
-        Object operand = AnalyzedExpr.dispatch(unaryOp.operand(), this);
-        // The lowering subset produces NOT only over a boolean sub-expression (a comparison or a
-        // nested NOT), so the operand is a Boolean here. Cast rather than coerce: a non-Boolean
-        // operand is a lowering-contract violation, not a value to truthiness-convert, so a
-        // ClassCastException is the right failure.
+        Object operand = eval(unaryOp.operand(), row, ctx);
+        // The lowering subset produces NOT only over a boolean sub-expression (a comparison, a
+        // nested NOT, or IS_NULL), so the operand is a Boolean here. Cast rather than coerce:
+        // a non-Boolean operand is a lowering-contract violation, not a value to
+        // truthiness-convert, so a ClassCastException is the right failure.
         yield !((Boolean) operand);
+      }
+      case IS_NULL -> {
+        // Untyped null check: evaluate the operand and test for null. No Boolean cast — this is
+        // distinct from NOT which expects a Boolean operand. IS NOT NULL composes as
+        // NOT(IS_NULL(expr)), so the two-valued engine (comparisons return false on null
+        // operands) composes correctly.
+        Object operand = eval(unaryOp.operand(), row, ctx);
+        yield operand == null;
       }
     };
   }
 
-  @Override
-  public Object visitFuncCall(FuncCall funcCall) {
-    // Method-call coercion (e.g. name.asInteger()) lowers to a FuncCall whose first argument is the
-    // target value and whose remaining arguments are the method parameters. Reproduce the AST's
-    // SQLMethodCall path: resolve the method by name, evaluate the target and parameters, then invoke
-    // SQLMethod.execute with the target as both the receiver and the ioResult (the AST passes the
-    // base value as targetObjects and ioResult). FuncCall.args() is read-only by convention, so it
-    // is read without mutation.
+  /// Evaluates a [FuncCall] (method-call coercion). The first argument is the target value;
+  /// remaining arguments are method parameters.
+  private static Object evalFuncCall(FuncCall funcCall, Result row, CommandContext ctx) {
     List<AnalyzedExpr> args = funcCall.args();
     // FuncCall always carries at least the target as args[0] (the lowering pass puts the base value
-    // there before any method parameter). An empty args list is a lowering-contract violation; throw
-    // in production rather than indexing args.get(0) out of bounds (an assert would be a no-op
-    // without -ea and let the broken invariant produce a late, opaque crash).
+    // there before any method parameter). An empty args list is a lowering-contract violation.
     if (args.isEmpty()) {
       throw new IllegalStateException("FuncCall must carry at least the target argument");
     }
-    Object target = AnalyzedExpr.dispatch(args.get(0), this);
+    Object target = eval(args.get(0), row, ctx);
 
     SQLMethod method = SQLEngine.getMethod(funcCall.name());
     if (method == null) {
-      // An unresolved method name is out of the covered subset for this slice. The lowering pass
-      // does not validate method existence, so reject it here rather than NPE on a null method.
       throw new UnsupportedAnalyzedNodeException(FuncCall.class);
     }
 
     Object[] params = new Object[args.size() - 1];
     for (int i = 1; i < args.size(); i++) {
-      params[i - 1] = AnalyzedExpr.dispatch(args.get(i), this);
+      params[i - 1] = eval(args.get(i), row, ctx);
     }
 
     // The AST's SQLModifier seeds $current with the current record before the method runs, but only
@@ -183,14 +231,34 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
     return method.execute(target, row, ctx, target, params);
   }
 
+  /// Evaluates AND with mandatory lazy short-circuit: evaluate LEFT first; if left is false,
+  /// return false WITHOUT evaluating right. Mirrors the AST's `SQLAndBlock.evaluate()`.
+  private static Object evaluateAnd(BinaryOp binaryOp, Result row, CommandContext ctx) {
+    Object left = eval(binaryOp.left(), row, ctx);
+    if (Boolean.FALSE.equals(left)) {
+      return false;
+    }
+    return eval(binaryOp.right(), row, ctx);
+  }
+
+  /// Evaluates OR with mandatory lazy short-circuit: evaluate LEFT first; if left is true,
+  /// return true WITHOUT evaluating right. Mirrors the AST's `SQLOrBlock.evaluate()`.
+  private static Object evaluateOr(BinaryOp binaryOp, Result row, CommandContext ctx) {
+    Object left = eval(binaryOp.left(), row, ctx);
+    if (Boolean.TRUE.equals(left)) {
+      return true;
+    }
+    return eval(binaryOp.right(), row, ctx);
+  }
+
   /// Evaluates an arithmetic [BinaryOp] through the AST [Operator#apply(Object, Object)] entry.
   ///
   /// Mapping the IR operator to its AST [Operator] and calling the object-level `apply` keeps every
   /// numeric-promotion rule (null-propagation, `Date ± Long`, `String` concat) in the one shared
   /// engine, so AST and IR arithmetic stay byte-for-byte identical.
-  private Object evaluateArithmetic(BinaryOp binaryOp) {
-    Object left = AnalyzedExpr.dispatch(binaryOp.left(), this);
-    Object right = AnalyzedExpr.dispatch(binaryOp.right(), this);
+  private static Object evaluateArithmetic(BinaryOp binaryOp, Result row, CommandContext ctx) {
+    Object left = eval(binaryOp.left(), row, ctx);
+    Object right = eval(binaryOp.right(), row, ctx);
     return toArithmeticOperator(binaryOp.op()).apply(left, right);
   }
 
@@ -213,29 +281,103 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
     };
   }
 
-  /// Evaluates a comparison [BinaryOp] by replicating the AST's slow-path
-  /// `SQLBinaryCondition.evaluate(Result, ctx)` sequence.
+  /// Evaluates a comparison [BinaryOp] by first attempting the YTDB-628 in-place fast path, then
+  /// falling back to the AST's slow-path sequence.
   ///
-  /// The four steps reproduce the AST exactly: evaluate both operands; fetch the collate from the
-  /// left operand, then the right if the left has none; apply the collate transform to both operands
-  /// when non-null; delegate to a freshly built operator instance of the AST's own concrete operator
-  /// class. Reconstructing the operator (the IR discarded the AST operator instance during lowering)
-  /// reproduces the EQ/NE session-threading difference and the ordering `doCompare`-vs-0 mapping by
-  /// class identity, since the operators are stateless.
-  private Object evaluateComparison(BinaryOp binaryOp) {
-    Object leftVal = AnalyzedExpr.dispatch(binaryOp.left(), this);
-    Object rightVal = AnalyzedExpr.dispatch(binaryOp.right(), this);
+  /// **Fast path** (ported from `SQLBinaryCondition.tryInPlaceComparison`): when the left operand
+  /// is a single `Var`, the right operand resolves to a value without row access (`Const` or
+  /// `Param`), and the row wraps an `EntityImpl`, the comparison is delegated directly to
+  /// `EntityImpl.isPropertyEqualTo` (EQ/NE) or `comparePropertyTo` (range ops). The mapping of
+  /// `InPlaceResult`/`OptionalInt` replicates the AST exactly, including the NE inversion
+  /// (`TRUE→false`, `FALSE→true`). Any `FALLBACK` or empty result (including non-default
+  /// collation like `ci`) falls through to the slow path which applies collation correctly.
+  ///
+  /// **Slow path**: evaluate both operands; fetch the collate from the left operand, then the right
+  /// if the left has none; apply the collate transform to both operands when non-null; delegate to
+  /// a pre-built static [SQLBinaryCompareOperator] singleton.
+  private static Object evaluateComparison(BinaryOp binaryOp, Result row, CommandContext ctx) {
+    // YTDB-628 in-place fast path: avoid deserialization for simple "property <op> constant"
+    // patterns. Guards mirror SQLBinaryCondition.evaluate(Result, ctx) exactly.
+    if (binaryOp.left() instanceof Var var && var.path().size() == 1
+        && isEarlyResolvable(binaryOp.right())
+        && row instanceof ResultInternal ri
+        && ri.asEntityOrNull() instanceof EntityImpl entityImpl) {
+      String propName = var.path().get(0);
+      Object rightVal = eval(binaryOp.right(), row, ctx);
 
-    Collate collate = collateFor(binaryOp.left());
+      Boolean fastResult = tryInPlaceComparison(
+          binaryOp.op(), entityImpl, propName, rightVal);
+      if (fastResult != null) {
+        return fastResult;
+      }
+      // FALLBACK: rightVal already computed, only need leftVal for slow path
+      Object leftVal = eval(binaryOp.left(), row, ctx);
+      return evaluateComparisonSlow(
+          binaryOp.op(), binaryOp, leftVal, rightVal, row, ctx);
+    }
+
+    // Slow path: evaluate both operands, apply collation, delegate to operator.
+    Object leftVal = eval(binaryOp.left(), row, ctx);
+    Object rightVal = eval(binaryOp.right(), row, ctx);
+    return evaluateComparisonSlow(
+        binaryOp.op(), binaryOp, leftVal, rightVal, row, ctx);
+  }
+
+  /// Whether the given IR node resolves to a value without accessing the current row —
+  /// `Const` (literal) or `Param` (resolved from the command context, not the row).
+  private static boolean isEarlyResolvable(AnalyzedExpr expr) {
+    return expr instanceof Const || expr instanceof Param;
+  }
+
+  /// Attempts in-place comparison of an entity property against a right-hand value, replicating
+  /// `SQLBinaryCondition.tryInPlaceComparison` EXACTLY. Returns the comparison result (true/false)
+  /// when in-place succeeded, or `null` when the caller must fall back to the slow path.
+  private static Boolean tryInPlaceComparison(
+      BinaryOperator op, EntityImpl entityImpl, String propName, Object rightVal) {
+    return switch (op) {
+      case EQ -> {
+        InPlaceResult r = entityImpl.isPropertyEqualTo(propName, rightVal);
+        yield r != InPlaceResult.FALLBACK ? (r == InPlaceResult.TRUE) : null;
+      }
+      case NE -> {
+        // NE inverts: TRUE means equal → NE false; FALSE means not-equal → NE true.
+        InPlaceResult r = entityImpl.isPropertyEqualTo(propName, rightVal);
+        yield r != InPlaceResult.FALLBACK ? (r == InPlaceResult.FALSE) : null;
+      }
+      case LT -> {
+        OptionalInt cmp = entityImpl.comparePropertyTo(propName, rightVal);
+        yield cmp.isPresent() ? (cmp.getAsInt() < 0) : null;
+      }
+      case LE -> {
+        OptionalInt cmp = entityImpl.comparePropertyTo(propName, rightVal);
+        yield cmp.isPresent() ? (cmp.getAsInt() <= 0) : null;
+      }
+      case GT -> {
+        OptionalInt cmp = entityImpl.comparePropertyTo(propName, rightVal);
+        yield cmp.isPresent() ? (cmp.getAsInt() > 0) : null;
+      }
+      case GE -> {
+        OptionalInt cmp = entityImpl.comparePropertyTo(propName, rightVal);
+        yield cmp.isPresent() ? (cmp.getAsInt() >= 0) : null;
+      }
+      // AND/OR/arithmetic never reach the comparison path.
+      default -> null;
+    };
+  }
+
+  /// Slow-path comparison: apply collation then delegate to the pre-built operator singleton.
+  private static Object evaluateComparisonSlow(
+      BinaryOperator op, BinaryOp binaryOp,
+      Object leftVal, Object rightVal, Result row, CommandContext ctx) {
+    Collate collate = collateFor(binaryOp.left(), row, ctx);
     if (collate == null) {
-      collate = collateFor(binaryOp.right());
+      collate = collateFor(binaryOp.right(), row, ctx);
     }
     if (collate != null) {
       leftVal = collate.transform(leftVal);
       rightVal = collate.transform(rightVal);
     }
-
-    SQLBinaryCompareOperator operator = comparisonOperator(binaryOp.op());
+    SQLBinaryCompareOperator operator = comparisonOperator(op);
     DatabaseSessionEmbedded session = ctx == null ? null : ctx.getDatabaseSession();
     return operator.execute(session, leftVal, rightVal);
   }
@@ -250,7 +392,7 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
   /// returning `null` on any miss. The guards keep a schemaless row or an absent column returning
   /// `null` collate rather than throwing — the guard-free happy path would NPE/CCE where the AST
   /// returns `null` collate, breaking parity.
-  private Collate collateFor(AnalyzedExpr operand) {
+  private static Collate collateFor(AnalyzedExpr operand, Result row, CommandContext ctx) {
     if (!(operand instanceof Var var)) {
       return null;
     }
@@ -276,28 +418,27 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
     return property.getCollate();
   }
 
-  /// Builds a fresh [SQLBinaryCompareOperator] of the concrete class the AST uses for this IR
-  /// comparison operator.
+  /// Returns the pre-built static [SQLBinaryCompareOperator] singleton for this IR comparison
+  /// operator.
   ///
-  /// The operators are stateless, so a reconstructed instance runs the identical `execute` body as
-  /// the AST's. The constructor argument is the parser node id, unused at evaluate time, so `-1` is
-  /// the conventional "not parser-built" id. `INSTANCE` is absent on `SQLNeOperator` / `SQLGeOperator`,
-  /// so a uniform shared-instance accessor would not compile; the `new SQLXxxOperator(-1)` constructor
-  /// is the uniform construction path. Both `!=` spellings (`!=`, `<>`) collapsed to NE during
-  /// lowering, so NE reconstructs the `SQLNeOperator` class for either spelling — behaviorally
-  /// identical since both AST classes share the same `execute` body.
+  /// The operators are stateless, so a single pre-built instance per concrete class avoids the
+  /// per-comparison allocation the old `new SQLXxxOperator(-1)` path incurred. Both `!=`
+  /// spellings (`!=`, `<>`) collapsed to NE during lowering, so NE uses the `SQLNeOperator`
+  /// singleton for either spelling — behaviorally identical since both AST classes share the
+  /// same `execute` body.
   private static SQLBinaryCompareOperator comparisonOperator(BinaryOperator op) {
     return switch (op) {
-      case EQ -> new SQLEqualsOperator(-1);
-      case NE -> new SQLNeOperator(-1);
-      case LT -> new SQLLtOperator(-1);
-      case LE -> new SQLLeOperator(-1);
-      case GT -> new SQLGtOperator(-1);
-      case GE -> new SQLGeOperator(-1);
-      // The arithmetic constants never reach here (visitBinaryOp dispatches them to the arithmetic
-      // path), so the default arm is an unreachable-by-construction programming-error guard.
+      case EQ -> OP_EQ;
+      case NE -> OP_NE;
+      case LT -> OP_LT;
+      case LE -> OP_LE;
+      case GT -> OP_GT;
+      case GE -> OP_GE;
+      // The arithmetic/connective constants never reach here (visitBinaryOp dispatches them to
+      // their own paths), so the default arm is an unreachable-by-construction programming-error
+      // guard.
       default -> throw new IllegalStateException(
-          "arithmetic operator routed to comparison path: " + op);
+          "non-comparison operator routed to comparison path: " + op);
     };
   }
 }

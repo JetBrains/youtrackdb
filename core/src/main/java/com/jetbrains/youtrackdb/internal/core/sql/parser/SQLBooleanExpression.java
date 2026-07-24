@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
 import java.util.Collections;
@@ -308,31 +307,6 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   public void translateLuceneOperator() {
   }
 
-  @Nullable
-  public static SQLBooleanExpression deserializeFromOResult(Result res) {
-    try {
-      var result =
-          (SQLBooleanExpression)
-              Class.forName(res.getProperty("__class"))
-                  .getConstructor(Integer.class)
-                  .newInstance(-1);
-      result.deserialize(res);
-      return result;
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
-    }
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("__class", getClass().getName());
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    throw new UnsupportedOperationException();
-  }
-
   public abstract boolean isCacheable(DatabaseSessionEmbedded session);
 
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
@@ -352,7 +326,6 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   /// Returns 'true' if the expression can be evaluated using passed in index. Only elementary
   /// expressions (eg. `=`, `>`, `<`, `in`) can be evaluated using an index.
   public abstract boolean isIndexAware(IndexSearchInfo info, CommandContext ctx);
-
 
   /// Returns true if the expression tests an interval of values instead of a single value. Range
   /// expressions are expressions like: `>`, `<` or `between`, but a non-range expression is

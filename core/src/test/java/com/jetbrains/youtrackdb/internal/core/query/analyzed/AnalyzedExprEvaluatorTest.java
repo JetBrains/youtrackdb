@@ -17,6 +17,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.junit.Test;
 
@@ -31,8 +34,8 @@ import org.junit.Test;
 /// SQLExpression#execute(Result, CommandContext)} for arithmetic and function-call fragments, {@link
 /// SQLBinaryCondition#evaluate(Result, CommandContext)} for comparison and boolean fragments — so the
 /// harness dispatches the oracle by parsed shape and lowers comparison / {@code NOT} fragments through
-/// the package-visible {@link AnalyzedExprLowerer#lowerBoolean}, which is why this suite lives in the
-/// {@code query.analyzed} package.
+/// {@link AnalyzedExprLowerer#lowerBoolean} (public since Track 04), which is why this suite lives
+/// in the {@code query.analyzed} package.
 ///
 /// Each matrix row pins a mechanism a naive implementation would get wrong: precedence and
 /// associativity in the arithmetic fold, integer-vs-double widening through the shared promotion
@@ -69,6 +72,15 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
     }
   }
 
+  /// Parses a boolean block (AND/OR/comparison) via the OrBlock production.
+  private static SQLBooleanExpression parseOrBlock(String sql) {
+    try {
+      return parser(sql).OrBlock();
+    } catch (Exception e) {
+      throw new IllegalStateException("failed to parse OR block: " + sql, e);
+    }
+  }
+
   private CommandContext context() {
     return new BasicCommandContext(session);
   }
@@ -96,6 +108,17 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
     Object irResult = AnalyzedExprEvaluator.evaluate(ir, row, ctx);
     assertTrue("comparison parity must produce a Boolean for: " + sql, irResult instanceof Boolean);
     assertEquals("comparison parity for: " + sql, oracle, irResult);
+  }
+
+  /// Asserts boolean-block parity for a boolean expression parsed via the OrBlock production
+  /// (AND/OR/IS NULL/IS NOT NULL/comparison): the IR evaluation equals the AST oracle.
+  private void assertBooleanParity(String sql, Result row) {
+    var ctx = context();
+    SQLBooleanExpression ast = parseOrBlock(sql);
+    boolean oracle = ast.evaluate(row, ctx);
+    AnalyzedExpr ir = AnalyzedExprLowerer.lowerBoolean(parseOrBlock(sql));
+    Object irResult = AnalyzedExprEvaluator.evaluate(ir, row, ctx);
+    assertEquals("boolean parity for: " + sql, oracle, irResult);
   }
 
   /// Asserts boolean-block parity for a {@code NOT} fragment: the IR evaluation equals {@link
@@ -570,6 +593,210 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
     org.junit.Assert.assertThrows(
         IllegalStateException.class,
         () -> AnalyzedExprEvaluator.evaluate(ir, row(), context()));
+  }
+
+  // ---- AND / OR short-circuit ----
+
+  /// WHEN `a = 1 AND b = 2` is evaluated with a = 1 and b = 2, THE AND evaluates to true
+  /// (both sides true). When a = 1 and b = 3, the AND evaluates to false.
+  @Test
+  public void andEvaluatesBothSides() {
+    assertBooleanParity("a = 1 AND b = 2", row("a", 1, "b", 2));
+    assertBooleanParity("a = 1 AND b = 2", row("a", 1, "b", 3));
+  }
+
+  /// WHEN the left side of an AND is false, THE right side is NOT evaluated (short-circuit).
+  @Test
+  public void andShortCircuitsOnFalseLeft() {
+    assertBooleanParity("a = 99 AND b = 2", row("a", 1, "b", 2));
+    assertBooleanParity("a = 99 AND b = 2", row("a", 1));
+  }
+
+  /// WHEN `a = 1 OR b = 2` is evaluated with a = 1, THE OR short-circuits to true.
+  @Test
+  public void orShortCircuitsOnTrueLeft() {
+    assertBooleanParity("a = 1 OR b = 2", row("a", 1, "b", 3));
+    assertBooleanParity("a = 1 OR b = 2", row("a", 1));
+  }
+
+  /// WHEN the left side of an OR is false, THE right side IS evaluated.
+  @Test
+  public void orEvaluatesRightWhenLeftFalse() {
+    assertBooleanParity("a = 1 OR b = 2", row("a", 99, "b", 2)); // false OR true -> true
+    assertBooleanParity("a = 1 OR b = 2", row("a", 99, "b", 99)); // false OR false -> false
+  }
+
+  /// WHEN AND short-circuits on a false left, THE right side must not be evaluated. Proven by
+  /// making the right side a FuncCall to an unknown method that would throw if evaluated.
+  @Test
+  public void andShortCircuitProvenBySkippingThrowingRhs() {
+    AnalyzedExpr left = new AnalyzedExpr.BinaryOp(
+        BinaryOperator.EQ, new AnalyzedExpr.Var(List.of("a")), new AnalyzedExpr.Const(99));
+    AnalyzedExpr throwingRight = new AnalyzedExpr.FuncCall(
+        "thisMethodDoesNotExist", List.of(new AnalyzedExpr.Const(1)));
+    AnalyzedExpr and = new AnalyzedExpr.BinaryOp(BinaryOperator.AND, left, throwingRight);
+    Object result = AnalyzedExprEvaluator.evaluate(and, row("a", 1), context());
+    assertEquals(false, result);
+  }
+
+  /// WHEN OR short-circuits on a true left, THE right side must not be evaluated.
+  @Test
+  public void orShortCircuitProvenBySkippingThrowingRhs() {
+    AnalyzedExpr left = new AnalyzedExpr.BinaryOp(
+        BinaryOperator.EQ, new AnalyzedExpr.Var(List.of("a")), new AnalyzedExpr.Const(1));
+    AnalyzedExpr throwingRight = new AnalyzedExpr.FuncCall(
+        "thisMethodDoesNotExist", List.of(new AnalyzedExpr.Const(1)));
+    AnalyzedExpr or = new AnalyzedExpr.BinaryOp(BinaryOperator.OR, left, throwingRight);
+    Object result = AnalyzedExprEvaluator.evaluate(or, row("a", 1), context());
+    assertEquals(true, result);
+  }
+
+  // ---- IS NULL / IS NOT NULL ----
+
+  /// WHEN `name IS NULL` / `name IS NOT NULL` is evaluated, THE IR matches the AST.
+  @Test
+  public void isNullParity() {
+    assertBooleanParity("name IS NULL", row());
+    assertBooleanParity("name IS NULL", row("name", "hello"));
+  }
+
+  @Test
+  public void isNotNullParity() {
+    assertBooleanParity("name IS NOT NULL", row());
+    assertBooleanParity("name IS NOT NULL", row("name", "hello"));
+  }
+
+  /// WHEN NOT(IS_NULL) composes with AND, THE two-valued composition is correct.
+  @Test
+  public void isNotNullWithAndComposition() {
+    assertBooleanParity("name IS NOT NULL AND val = 1", row("name", "x", "val", 1));
+    assertBooleanParity("name IS NOT NULL AND val = 1", row("val", 1));
+  }
+
+  /// WHEN AND/OR combine with null operands, THE IR matches the AST.
+  @Test
+  public void andOrWithNullOperands() {
+    assertBooleanParity("a = 1 AND b = 2", row("a", 1));
+    assertBooleanParity("a = 1 OR b = 2", row("b", 2));
+  }
+
+  // ---- Param resolution ----
+
+  /// WHEN a positional param is evaluated, THE value comes from ctx.getInputParameters().
+  @Test
+  public void paramPositionalResolution() {
+    var ctx = context();
+    Map<Object, Object> params = new HashMap<>();
+    params.put(0, 42);
+    ctx.setInputParameters(params);
+    AnalyzedExpr ir = new AnalyzedExpr.Param(0, null);
+    Object result = AnalyzedExprEvaluator.evaluate(ir, row(), ctx);
+    assertEquals(42, result);
+  }
+
+  /// WHEN a named param is evaluated, THE value comes by name first, then falls back to index.
+  @Test
+  public void paramNamedResolution() {
+    var ctx = context();
+    Map<Object, Object> params = new HashMap<>();
+    params.put("myParam", "hello");
+    ctx.setInputParameters(params);
+    AnalyzedExpr ir = new AnalyzedExpr.Param(0, "myParam");
+    Object result = AnalyzedExprEvaluator.evaluate(ir, row(), ctx);
+    assertEquals("hello", result);
+  }
+
+  /// WHEN a named param name is not found, THE evaluator falls back to positional index.
+  @Test
+  public void paramNamedFallsBackToPositional() {
+    var ctx = context();
+    Map<Object, Object> params = new HashMap<>();
+    params.put(0, "fallback");
+    ctx.setInputParameters(params);
+    AnalyzedExpr ir = new AnalyzedExpr.Param(0, "notInMap");
+    Object result = AnalyzedExprEvaluator.evaluate(ir, row(), ctx);
+    assertEquals("fallback", result);
+  }
+
+  /// WHEN a Param IR tree is evaluated twice with DIFFERENT params, THE Param re-resolves.
+  @Test
+  public void paramReResolvesAcrossExecutions() {
+    AnalyzedExpr ir = new AnalyzedExpr.BinaryOp(
+        BinaryOperator.EQ,
+        new AnalyzedExpr.Var(List.of("a")),
+        new AnalyzedExpr.Param(0, null));
+
+    var ctx1 = context();
+    Map<Object, Object> p1 = new HashMap<>();
+    p1.put(0, 5);
+    ctx1.setInputParameters(p1);
+    assertEquals(true, AnalyzedExprEvaluator.evaluate(ir, row("a", 5), ctx1));
+
+    var ctx2 = context();
+    Map<Object, Object> p2 = new HashMap<>();
+    p2.put(0, 99);
+    ctx2.setInputParameters(p2);
+    assertEquals(false, AnalyzedExprEvaluator.evaluate(ir, row("a", 5), ctx2));
+  }
+
+  // ---- YTDB-628 fast path ----
+
+  /// WHEN EQ/NE comparisons run against an EntityImpl, THE fast path fires.
+  @Test
+  public void fastPathEqNeOnEntity() {
+    session.execute("CREATE class FastEq");
+    session.begin();
+    session.execute("INSERT INTO FastEq SET name = 'foo'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM FastEq")) {
+      Result stored = rs.next();
+      assertComparisonParity("name = 'foo'", stored);
+      assertComparisonParity("name = 'bar'", stored);
+      assertComparisonParity("name != 'foo'", stored);
+      assertComparisonParity("name != 'bar'", stored);
+    }
+    session.commit();
+  }
+
+  /// WHEN range operators run against an EntityImpl, THE fast path fires.
+  @Test
+  public void fastPathRangeOnEntity() {
+    session.execute("CREATE class FastRange");
+    session.execute("CREATE PROPERTY FastRange.val INTEGER");
+    session.begin();
+    session.execute("INSERT INTO FastRange SET val = 5");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM FastRange")) {
+      Result stored = rs.next();
+      assertComparisonParity("val < 10", stored);
+      assertComparisonParity("val < 3", stored);
+      assertComparisonParity("val <= 5", stored);
+      assertComparisonParity("val > 3", stored);
+      assertComparisonParity("val > 10", stored);
+      assertComparisonParity("val >= 5", stored);
+    }
+    session.commit();
+  }
+
+  /// WHEN a ci-collated column is compared, THE fast path FALLS BACK to the slow path.
+  @Test
+  public void fastPathFallsBackOnCiCollation() {
+    session.execute("CREATE class FastCi");
+    session.execute("CREATE PROPERTY FastCi.name STRING (COLLATE ci)");
+    session.begin();
+    session.execute("INSERT INTO FastCi SET name = 'foo'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM FastCi")) {
+      Result stored = rs.next();
+      assertComparisonParity("name = 'Foo'", stored);
+    }
+    session.commit();
   }
 
   /// WHEN a `ci`-collated comparison runs on a schemaless-class entity (an entity whose class

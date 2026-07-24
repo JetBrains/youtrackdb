@@ -2,9 +2,6 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nullable;
@@ -110,22 +107,6 @@ public class SQLFloatingPoint extends SQLNumber {
     var result = sign;
     result = 31 * result + (stringValue != null ? stringValue.hashCode() : 0);
     return result;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    result.setProperty("sign", sign);
-    result.setProperty("stringValue", stringValue);
-    result.setProperty("finalValue", finalValue);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    sign = fromResult.getProperty("sign");
-    stringValue = fromResult.getProperty("stringValue");
-    finalValue = fromResult.getProperty("finalValue");
   }
 }
 /* JavaCC - OriginalChecksum=46acfb589f666717595e28f1b19611ae (do not edit this line) */

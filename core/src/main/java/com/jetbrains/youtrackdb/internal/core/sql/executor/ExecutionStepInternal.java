@@ -2,12 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -159,88 +156,6 @@ public interface ExecutionStepInternal extends ExecutionStep {
    */
   default void reset() {
     // do nothing
-  }
-
-  /**
-   * Serializes this step into a {@link Result} for plan persistence or transmission.
-   * Not all steps support serialization -- the default throws {@link UnsupportedOperationException}.
-   *
-   * @param session the database session for type resolution
-   * @return a Result containing the serialized step
-   * @throws UnsupportedOperationException if this step does not support serialization
-   */
-  default Result serialize(DatabaseSessionEmbedded session) {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Reconstructs this step's state from a previously serialized {@link Result}.
-   * Not all steps support deserialization -- the default throws {@link UnsupportedOperationException}.
-   *
-   * @param fromResult the serialized step data
-   * @param session    the database session for type resolution
-   * @throws UnsupportedOperationException if this step does not support deserialization
-   */
-  default void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Serializes the common parts of any step: its Java class name, sub-steps, and
-   * sub-execution plans. Concrete steps call this first, then append step-specific
-   * properties to the returned {@link ResultInternal}.
-   */
-  static ResultInternal basicSerialize(DatabaseSessionEmbedded session,
-      ExecutionStepInternal step) {
-    var result = new ResultInternal(session);
-    result.setProperty(InternalExecutionPlan.JAVA_TYPE, step.getClass().getName());
-    if (!step.getSubSteps().isEmpty()) {
-      List<Result> serializedSubsteps = new ArrayList<>();
-      for (var substep : step.getSubSteps()) {
-        serializedSubsteps.add(((ExecutionStepInternal) substep).serialize(session));
-      }
-      result.setProperty("subSteps", serializedSubsteps);
-    }
-
-    if (step.getSubExecutionPlans() != null && !step.getSubExecutionPlans().isEmpty()) {
-      List<Result> serializedSubPlans = new ArrayList<>();
-      for (var substep : step.getSubExecutionPlans()) {
-        serializedSubPlans.add(((InternalExecutionPlan) substep).serialize(session));
-      }
-      result.setProperty("subExecutionPlans", serializedSubPlans);
-    }
-    return result;
-  }
-
-  /**
-   * Deserializes the common parts of any step: reconstructs sub-steps and sub-execution
-   * plans from their serialized forms. Concrete steps call this first, then read their
-   * step-specific properties from the serialized result.
-   */
-  static void basicDeserialize(Result serialized, ExecutionStepInternal step,
-      DatabaseSessionEmbedded session)
-      throws ClassNotFoundException, IllegalAccessException, InstantiationException {
-    List<Result> serializedSubsteps = serialized.getProperty("subSteps");
-    if (serializedSubsteps != null) {
-      for (var serializedSub : serializedSubsteps) {
-        String className = serializedSub.getProperty(InternalExecutionPlan.JAVA_TYPE);
-        var subStep =
-            (ExecutionStepInternal) Class.forName(className).newInstance();
-        subStep.deserialize(serializedSub, session);
-        step.getSubSteps().add(subStep);
-      }
-    }
-
-    List<Result> serializedPlans = serialized.getProperty("subExecutionPlans");
-    if (serializedPlans != null) {
-      for (var serializedSub : serializedPlans) {
-        String className = serializedSub.getProperty(InternalExecutionPlan.JAVA_TYPE);
-        var subStep =
-            (InternalExecutionPlan) Class.forName(className).newInstance();
-        subStep.deserialize(serializedSub, session);
-        step.getSubExecutionPlans().add(subStep);
-      }
-    }
   }
 
   /**

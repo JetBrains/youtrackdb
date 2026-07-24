@@ -3,9 +3,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -154,40 +151,6 @@ public class SQLNestedProjectionItem extends SimpleNode {
   public Object expand(
       SQLExpression expression, String name, Object value, CommandContext ctx, int recursion) {
     return expansion.apply(expression, value, ctx);
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("exclude", exclude);
-    result.setProperty("star", star);
-    if (expression != null) {
-      result.setProperty("expression", expression.serialize(session));
-    }
-    result.setProperty("rightWildcard", rightWildcard);
-    if (expansion != null) {
-      result.setProperty("expansion", expansion.serialize(session));
-    }
-    if (alias != null) {
-      result.setProperty("alias", alias.serialize(session));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    exclude = fromResult.getProperty("exclude");
-    star = fromResult.getProperty("star");
-    if (fromResult.getProperty("field") != null) {
-      expression = new SQLExpression(-1);
-      expression.deserialize(fromResult.getProperty("expression"));
-    }
-    rightWildcard = fromResult.getProperty("rightWildcard");
-    if (fromResult.getProperty("expansion") != null) {
-      expansion = new SQLNestedProjection(-1);
-      expansion.deserialize(fromResult.getProperty("expansion"));
-    }
-    if (fromResult.getProperty("alias") != null) {
-      alias = SQLIdentifier.deserialize(fromResult.getProperty("alias"));
-    }
   }
 }
 /* JavaCC - OriginalChecksum=606b3fe37ff952934e3e2e3daa9915f2 (do not edit this line) */

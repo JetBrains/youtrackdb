@@ -3,12 +3,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -187,34 +185,6 @@ public class SQLRightBinaryCondition extends SimpleNode {
   public boolean refersToParent() {
     return right != null && right.refersToParent();
   }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("operator", operator.getClass().getName());
-    result.setProperty("not", not);
-    result.setProperty("in", inOperator != null);
-    result.setProperty("right", right.serialize(session));
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    try {
-      operator =
-          (SQLBinaryCompareOperator)
-              Class.forName(String.valueOf(fromResult.getProperty("operator"))).newInstance();
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new CommandExecutionException(fromResult.getBoundedToSession(), ""), e,
-          fromResult.getBoundedToSession());
-    }
-    not = fromResult.getProperty("not");
-    if (Boolean.TRUE.equals(fromResult.getProperty("in"))) {
-      inOperator = new SQLInOperator(-1);
-    }
-    right = new SQLExpression(-1);
-    right.deserialize(fromResult.getProperty("right"));
-  }
-
 
   public boolean varMightBeInUse(String varName) {
     return right != null && right.varMightBeInUse(varName);
