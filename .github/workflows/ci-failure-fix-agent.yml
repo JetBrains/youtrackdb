@@ -34,6 +34,16 @@ jobs:
       - image-x86-system-ubuntu-24.04
       - in-nbg1-fsn1-hel1
     timeout-minutes: ${{ contains(inputs.failed_workflow_name, 'integration') && 720 || 360 }}
+    # Job-level override (this is the only job; the broader workflow-level block
+    # is left intact but shadowed here). The single GITHUB_TOKEN consumer is the
+    # read-only "Gather CI failure context" pre-step. The "Publish fix" post-step
+    # authenticates with a minted App token, independent of GITHUB_TOKEN, so the
+    # built-in token only ever needs read scopes.
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
     env:
       FAILED_RUN_URL: ${{ inputs.failed_run_url }}
       FAILED_WORKFLOW_NAME: ${{ inputs.failed_workflow_name }}
@@ -44,7 +54,12 @@ jobs:
         with:
           ref: develop
           fetch-depth: 0
-          token: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+          # No token: the default GITHUB_TOKEN clones the repo, and
+          # persist-credentials: false keeps it out of .git/config so no
+          # credential lingers for the long, tokenless Claude step. The
+          # post-step "Publish fix" pushes with an explicitly-authenticated
+          # short-lived App token instead.
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -633,11 +648,90 @@ jobs:
 
           echo "prompt_file=/tmp/fix-agent-prompt-$$.md" >> "$GITHUB_OUTPUT"
 
+      - name: Gather CI failure context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Bracketed GitHub access (read-only): pre-fetch everything the Claude
+          # step needs into fixed-name files so the long agent run holds no
+          # token. Each fetch is resilient (|| fallback) so one missing datum
+          # cannot fail the job. Shared contract with the prompt (Part 3b) and
+          # the later gate/publish steps:
+          #   CI_FIX_CONTEXT_DIR = $RUNNER_TEMP/ci-fix-context     (input files)
+          #   CI_FIX_RESULT_DIR  = $RUNNER_TEMP/ci-fix             (agent output)
+          #   CI_FIX_RESULT_FILE = $RUNNER_TEMP/ci-fix/result.json (sentinel)
+          mkdir -p "$RUNNER_TEMP/ci-fix-context" "$RUNNER_TEMP/ci-fix"
+          {
+            echo "CI_FIX_CONTEXT_DIR=$RUNNER_TEMP/ci-fix-context"
+            echo "CI_FIX_RESULT_DIR=$RUNNER_TEMP/ci-fix"
+            echo "CI_FIX_RESULT_FILE=$RUNNER_TEMP/ci-fix/result.json"
+          } >> "$GITHUB_ENV"
+
+          CTX="$RUNNER_TEMP/ci-fix-context"
+          REPO="${{ github.repository }}"
+          # The job-level env already bridges the workflow_dispatch inputs, so we
+          # read FAILED_RUN_URL from the env instead of interpolating untrusted
+          # input directly into the shell (avoids script injection).
+          RUN_ID="${FAILED_RUN_URL##*/}"
+
+          # Run details (conclusion, event, headBranch, headSha, ...)
+          gh run view "$RUN_ID" --repo "$REPO" \
+            --json databaseId,conclusion,event,headBranch,headSha,displayTitle,workflowName,status,url \
+            > "$CTX/run.json" 2>/dev/null || echo '{}' > "$CTX/run.json"
+
+          # Jobs with per-job conclusions and step details
+          gh run view "$RUN_ID" --repo "$REPO" --json jobs \
+            > "$CTX/jobs.json" 2>/dev/null || echo '{"jobs":[]}' > "$CTX/jobs.json"
+
+          # Logs of the failed jobs only
+          gh run view "$RUN_ID" --repo "$REPO" --log-failed \
+            > "$CTX/logs.txt" 2>/dev/null || echo "No failed-job logs available." > "$CTX/logs.txt"
+
+          # Check-run annotations (exact test names + error messages) per failed job
+          : > "$CTX/annotations.ndjson"
+          for JOB_ID in $(jq -r '.jobs[]? | select(.conclusion == "failure") | .databaseId' "$CTX/jobs.json" 2>/dev/null); do
+            gh api "repos/$REPO/check-runs/$JOB_ID/annotations" >> "$CTX/annotations.ndjson" 2>/dev/null || true
+          done
+          if [ -s "$CTX/annotations.ndjson" ]; then
+            jq -s 'add' "$CTX/annotations.ndjson" > "$CTX/annotations.json" 2>/dev/null || echo '[]' > "$CTX/annotations.json"
+          else
+            echo '[]' > "$CTX/annotations.json"
+          fi
+          rm -f "$CTX/annotations.ndjson"
+
+          # PRs associated with the failing commit (headBranch/event live in run.json)
+          HEAD_SHA="$(jq -r '.headSha // empty' "$CTX/run.json" 2>/dev/null)"
+          if [ -n "$HEAD_SHA" ]; then
+            gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+              > "$CTX/associated-prs.json" 2>/dev/null || echo '[]' > "$CTX/associated-prs.json"
+          else
+            echo '[]' > "$CTX/associated-prs.json"
+          fi
+
+          # Comments on those associated PRs
+          : > "$CTX/pr-comments.ndjson"
+          for PR in $(jq -r '.[]?.number' "$CTX/associated-prs.json" 2>/dev/null); do
+            gh api "repos/$REPO/issues/$PR/comments" >> "$CTX/pr-comments.ndjson" 2>/dev/null || true
+          done
+          if [ -s "$CTX/pr-comments.ndjson" ]; then
+            jq -s 'add' "$CTX/pr-comments.ndjson" > "$CTX/pr-comments.json" 2>/dev/null || echo '[]' > "$CTX/pr-comments.json"
+          else
+            echo '[]' > "$CTX/pr-comments.json"
+          fi
+          rm -f "$CTX/pr-comments.ndjson"
+
+          # Existing OPEN fix PRs targeting develop (duplicate detection)
+          gh pr list --repo "$REPO" --base develop --state open \
+            --json number,title,headRefName,body,labels --limit 50 \
+            > "$CTX/existing-fix-prs.json" 2>/dev/null || echo '[]' > "$CTX/existing-fix-prs.json"
+
+          echo "Gathered CI failure context into $CTX:"
+          ls -l "$CTX" || true
+
       - name: Run Fix Agent
         id: run-agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
         run: |
@@ -691,6 +785,112 @@ jobs:
             echo "::warning::Claude Code exited with code $CLAUDE_EXIT"
           fi
           exit "$CLAUDE_EXIT"
+
+      - name: Read fix result
+        id: fix-result
+        if: always()
+        run: |
+          # Bridge the JSON sentinel to step outputs: an `if:` expression cannot
+          # parse JSON, so extract the fields the publish gate needs. A missing
+          # sentinel (agent produced nothing / crashed) is treated as no-fix.
+          # Sentinel schema ($CI_FIX_RESULT_FILE), written by the Claude step in 3b:
+          #   { "status": "fix-ready" | "no-fix",
+          #     "branch": "<local branch with commits>",
+          #     "pr_title": "...",
+          #     "pr_body_file": "<path>",
+          #     "existing_pr": <number|null> }
+          RESULT_FILE="${CI_FIX_RESULT_FILE:-$RUNNER_TEMP/ci-fix/result.json}"
+          if [ ! -f "$RESULT_FILE" ]; then
+            echo "No sentinel at $RESULT_FILE - treating as no-fix."
+            {
+              echo "status=no-fix"
+              echo "branch="
+              echo "existing_pr="
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          STATUS="$(jq -r '.status // "no-fix"' "$RESULT_FILE" 2>/dev/null || echo no-fix)"
+          BRANCH="$(jq -r '.branch // ""' "$RESULT_FILE" 2>/dev/null || echo "")"
+          EXISTING_PR="$(jq -r '.existing_pr // ""' "$RESULT_FILE" 2>/dev/null || echo "")"
+          # Normalize status to the two allowed values (also guards output injection).
+          if [ "$STATUS" != "fix-ready" ]; then
+            STATUS="no-fix"
+          fi
+          {
+            echo "status=$STATUS"
+            echo "branch=$BRANCH"
+            echo "existing_pr=$EXISTING_PR"
+          } >> "$GITHUB_OUTPUT"
+          echo "Fix result: status=$STATUS branch='$BRANCH' existing_pr='$EXISTING_PR'"
+
+      - name: Mint GitHub App token
+        id: app-token
+        if: steps.fix-result.outputs.status == 'fix-ready'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_APP_PRIVATE_KEY }}
+          # Downscope to exactly what publishing needs: push the fix branch
+          # (contents), open the PR (pull-requests), and allow any
+          # .github/workflows/** changes the fix might carry (workflows).
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Publish fix
+        id: publish
+        if: steps.fix-result.outputs.status == 'fix-ready'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          RESULT_FILE="${CI_FIX_RESULT_FILE:-$RUNNER_TEMP/ci-fix/result.json}"
+          BRANCH="$(jq -r '.branch // ""' "$RESULT_FILE")"
+          PR_TITLE="$(jq -r '.pr_title // ""' "$RESULT_FILE")"
+          PR_BODY_FILE="$(jq -r '.pr_body_file // ""' "$RESULT_FILE")"
+          EXISTING_PR="$(jq -r '.existing_pr // ""' "$RESULT_FILE")"
+
+          if [ -z "$BRANCH" ]; then
+            echo "::error::fix-ready sentinel is missing 'branch'"; exit 1
+          fi
+
+          # Push the agent's LOCAL fix branch with explicit App-token auth. The
+          # checkout used persist-credentials: false, so there is no stored
+          # credential; authenticate the push URL inline. An App-authored push
+          # (unlike a GITHUB_TOKEN push) lets the resulting PR trigger downstream CI.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+            "HEAD:refs/heads/${BRANCH}"
+
+          if [ -z "$EXISTING_PR" ] || [ "$EXISTING_PR" = "null" ]; then
+            # Create the PR as READY (not draft) under the App identity so the
+            # 'opened' event is not suppressed and maven-pipeline.yml runs on it.
+            if [ -n "$PR_BODY_FILE" ] && [ -f "$PR_BODY_FILE" ]; then
+              gh pr create --repo "${{ github.repository }}" --base develop \
+                --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
+            else
+              gh pr create --repo "${{ github.repository }}" --base develop \
+                --head "$BRANCH" --title "$PR_TITLE" \
+                --body "Automated CI fix. See the fix-agent run logs for details."
+            fi
+          else
+            echo "Existing PR #$EXISTING_PR updated by the branch push (synchronize); no new PR created."
+          fi
+
+      - name: Report fix-agent outcome
+        if: always()
+        env:
+          FIX_STATUS: ${{ steps.fix-result.outputs.status }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+        run: |
+          # PR creation is deferred to the publish step (no early draft PR is
+          # created), so there is nothing to clean up - this only reports outcome.
+          if [ "$FIX_STATUS" = "fix-ready" ]; then
+            echo "CI fix agent produced a fix (status=fix-ready)."
+          else
+            echo "CI fix agent produced no fix (status='${FIX_STATUS:-unknown}'). No PR published."
+          fi
+          if [ "$PUBLISH_OUTCOME" = "failure" ]; then
+            echo "::error::Publish step failed - the fix branch may not have been pushed or the PR not created. Check this run's logs."
+          fi
 
       - name: Upload agent JSON log
         if: always() && steps.run-agent.outputs.json_log != ''
