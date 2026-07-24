@@ -275,6 +275,14 @@ public enum GlobalConfiguration {
       "Amount storage collections allocated for storing blobs", Integer.class,
       8),
 
+  EXPORT_RECORD_SPILL_THRESHOLD("youtrackdb.export.recordSpillThreshold",
+      "Size in bytes above which a single record's JSON rendering spills from memory to a"
+          + " transient file during database export. Bounds the export's memory use; an"
+          + " oversized-but-healthy record is still exported whole, never shed. Operational"
+          + " tuning, not correctness.",
+      Integer.class,
+      32 * 1024 * 1024),
+
   STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD(
       "youtrackdb.storage.snapshotIndex.cleanupThreshold",
       "Number of entries in the shared snapshot index that triggers GC of stale entries",

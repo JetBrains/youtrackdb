@@ -236,6 +236,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           case "records" -> importRecords(beforeImportSchemaSnapshot);
           case "indexes" -> importIndexes();
           case "brokenRids" -> processBrokenRids();
+          // The v15 exporter's trailing manifest section (Track 8 Step 4). Consumed WITHOUT
+          // validation here so v15 dumps stay importable; Step 5's v15-strict skeleton owns
+          // the version-gated manifest verification against the importer's own consumption
+          // tallies (design M2.b-3, WI6, CN51).
+          case "manifest" -> skipManifest();
           default -> throw new DatabaseImportException(
               "Invalid format. Found unsupported tag '" + tag + "'");
         }
@@ -291,6 +296,18 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final Set<RID> brokenRids = new HashSet<>();
     processBrokenRids(brokenRids);
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
+  }
+
+  /** Consumes the v15 trailing manifest section — see the section-loop comment. */
+  private void skipManifest() throws IOException, ParseException {
+    listener.onMessage("\nSkipping the manifest section...");
+    jsonReader.readNext(JSONReader.BEGIN_OBJECT);
+    while (jsonReader.lastChar() != '}') {
+      jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
+      jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+    }
+    jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+    listener.onMessage("OK");
   }
 
   // just read collection so import process can continue
