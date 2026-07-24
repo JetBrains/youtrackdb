@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -19,6 +20,7 @@ import java.util.Set;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * End-to-end guard that the Bench-3 {@code ExpandStep} IR push-down path is genuinely taken
@@ -47,6 +49,10 @@ import org.junit.Test;
  * <p>No Mockito spy is used; the non-empty + correctly-filtered + plan-inspection +
  * {@code getAnalyzed()} assertions stand in for it.
  */
+// Runs sequentially (not in core's parallel bucket): BenchDataset.open/close mutates the global
+// GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED flag, so this test follows the module
+// convention for GlobalConfiguration-mutating tests (e.g. TxResultCacheWiringTest).
+@Category(SequentialTest.class)
 public class ExpandStepIrPathGuardTest {
 
   /** 200 leaves → ages 0..99 twice → exactly 100 leaves with age > 49. */
@@ -161,7 +167,7 @@ public class ExpandStepIrPathGuardTest {
    *   <li>The AST-fallback branch is taken — {@code ExpandStep.getAnalyzed()} is {@code null}
    *       (because {@code tryLower} catches the {@code UnsupportedAnalyzedNodeException} from IN
    *       and returns {@code null}), confirmed via the inlined {@link #innerExpandAnalyzedNonNull}
-  *       helper.</li>
+   *       helper.</li>
    * </ol>
    *
    * <p>This is the complement of {@link #expandIrPushDownIsTakenAndCorrect}: together they guard
