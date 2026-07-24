@@ -1547,7 +1547,27 @@ public abstract class SchemaShared implements CloseableInStorage {
               + " transactional");
     }
 
-    session.executeInTx(transaction -> toStream(session));
+    session.executeInTx(transaction -> {
+      // The schema records are structural, not user data: the bidirectional-link tracker is
+      // suppressed for this save exactly as it is for the schema-carry commit's serialization
+      // window (see commitSchemaCarry in AbstractStorage). The tracker is only self-consistent
+      // when both halves of a link edit run tracked, and per-class records created by a
+      // commit-time schema write are deliberately bag-less — so a tracked legacy save that
+      // drops such a class (the import's removeDefault* path dropping genesis-committed
+      // classes) would throw LinksConsistencyException on the missing back-reference bag.
+      // Suppressing both halves keeps the pairing symmetric: schema records carry no
+      // back-reference maintenance on either path. Capture-and-restore (not blanket re-enable)
+      // preserves an outer disabled window, e.g. an import.
+      final var priorLinkConsistency = session.isLinkConsistencyEnabled();
+      session.disableLinkConsistencyCheck();
+      try {
+        toStream(session);
+      } finally {
+        if (priorLinkConsistency) {
+          session.enableLinkConsistencyCheck();
+        }
+      }
+    });
 
     forceSnapshot();
   }

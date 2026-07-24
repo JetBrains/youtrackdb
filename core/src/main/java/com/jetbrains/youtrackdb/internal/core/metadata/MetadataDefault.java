@@ -40,6 +40,13 @@ public class MetadataDefault implements MetadataInternal {
   public static final String COLLECTION_INTERNAL_NAME = "internal";
 
   /**
+   * The collection id of {@link #COLLECTION_INTERNAL_NAME}: always {@code 0} — it is the first
+   * collection created inside the storage-create atomic operation, before any other collection
+   * can claim a slot, on every storage profile.
+   */
+  public static final int COLLECTION_INTERNAL_ID = 0;
+
+  /**
    * Name prefix of the storage-birth blob collections ({@code $blob0..N-1}). Shared between the
    * creator loop in {@code AbstractStorage.doCreate} and the register-only enumeration in
    * {@code SharedContext.create}, so the two sides of the name contract cannot drift apart. The

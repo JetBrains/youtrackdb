@@ -77,6 +77,17 @@ public class BTreeGetVisibleTest {
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> tree.create(
             atomicOperation, new IndexMultiValuKeySerializer(), KEY_TYPES, 2));
+
+    // Advance the storage's atomic-operation horizon past every synthetic key version the
+    // fixtures use (up to ~50): getVisible compares an entry's version component against the
+    // reading operation's snapshot timestamp, and the fixtures' absolute versions implicitly
+    // depended on the dozens of operation ids the legacy per-DDL genesis burned before the
+    // test ran. The two-phase genesis (Track 8) creates a database in a handful of operations,
+    // so the horizon is advanced explicitly to keep the fixtures genesis-layout-independent.
+    for (var i = 0; i < 100; i++) {
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      });
+    }
   }
 
   @After

@@ -39,7 +39,13 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
 
     validatePropertyName(propertyName);
-    if (session.getTransactionInternal().isActive()) {
+    // Outside the transaction-local path a property create is not transactional and still
+    // throws on an active transaction. On the transaction-local copy (reached through the
+    // proxy's resolveForWrite) the create rides the user transaction: the new property lands in
+    // the private copy's class and global-property table and commits with the schema-carry
+    // write — the same de-guard shape as dropClass/createIndex. The genesis phase-1 schema
+    // transaction is the first production consumer.
+    if (!owner.txLocal && session.getTransactionInternal().isActive()) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot create property '" + propertyName + "' inside a transaction");
     }

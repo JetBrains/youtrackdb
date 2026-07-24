@@ -8390,6 +8390,25 @@ public abstract class AbstractStorage
     }
   }
 
+  @Nullable @Override
+  public final String getProperty(final String property) {
+    stateLock.readLock().lock();
+    try {
+
+      checkOpennessAndMigration();
+
+      return configuration.getProperty(property);
+    } catch (final RuntimeException ee) {
+      throw logAndPrepareForRethrow(ee);
+    } catch (final Error ee) {
+      throw logAndPrepareForRethrow(ee);
+    } catch (final Throwable t) {
+      throw logAndPrepareForRethrow(t);
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
   @Override
   public final void setRecordSerializer(final String recordSerializer, final int version) {
     stateLock.readLock().lock();

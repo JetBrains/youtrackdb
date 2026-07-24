@@ -639,7 +639,25 @@ public abstract class IndexAbstract implements Index {
     try {
       try {
         if (indexId >= 0) {
-          session.executeInTxInternal(this::doDelete);
+          session.executeInTxInternal(transaction -> {
+            // Same explicit unlink + suppressed tracker as delete(): the old index record may
+            // be bag-less (commit-created), so the tracked deletion arm cannot auto-clean the
+            // manager's CONFIG_INDEXES link — the rebuild would otherwise leave a dangling
+            // link to the deleted record next to the fresh record it links below.
+            final var priorLinkConsistency = session.isLinkConsistencyEnabled();
+            session.disableLinkConsistencyCheck();
+            try {
+              if (identity != null) {
+                session.getSharedContext().getIndexManager()
+                    .unlinkIndexRecord(transaction, identity);
+              }
+              doDelete(transaction);
+            } finally {
+              if (priorLinkConsistency) {
+                session.enableLinkConsistencyCheck();
+              }
+            }
+          });
         }
       } catch (Exception e) {
         LogManager.instance().error(this, "Error during index '%s' delete", e, im.getName());
@@ -870,8 +888,27 @@ public abstract class IndexAbstract implements Index {
     acquireExclusiveLock();
 
     try {
-      doDelete(transaction);
       var session = transaction.getDatabaseSession();
+      // The index record is structural: its link maintenance is explicit, not tracker-driven.
+      // An index record created by a commit-time schema write carries no back-reference bag
+      // (the schema-carry commit serializes with the link tracker suppressed), so the tracked
+      // deletion arm can neither auto-clean the manager's CONFIG_INDEXES link nor validate the
+      // missing bag — it would either leave the link dangling or throw. Unlink explicitly and
+      // run the delete with the tracker suppressed, mirroring the commit-time drop half
+      // (enrollReconciledIndexRecords). Capture-and-restore preserves an outer disabled window
+      // (e.g. an import).
+      final var priorLinkConsistency = session.isLinkConsistencyEnabled();
+      session.disableLinkConsistencyCheck();
+      try {
+        if (identity != null) {
+          session.getSharedContext().getIndexManager().unlinkIndexRecord(transaction, identity);
+        }
+        doDelete(transaction);
+      } finally {
+        if (priorLinkConsistency) {
+          session.enableLinkConsistencyCheck();
+        }
+      }
       // REMOVE THE INDEX ALSO FROM CLASS MAP
       session.getSharedContext().getIndexManager()
           .removeClassPropertyIndex(session, this);
