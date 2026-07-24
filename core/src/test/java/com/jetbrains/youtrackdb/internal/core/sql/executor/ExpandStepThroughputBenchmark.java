@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.benchmarks.ldbc;
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import java.util.concurrent.TimeUnit;

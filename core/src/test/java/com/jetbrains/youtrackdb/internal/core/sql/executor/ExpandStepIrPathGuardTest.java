@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.benchmarks.ldbc;
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -7,11 +7,11 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExprLowerer;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.UnsupportedAnalyzedNodeException;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ExpandStepIrProbe;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,16 +35,17 @@ import org.junit.Test;
  *       WHERE} step) — proving push-down occurred rather than a separate FilterStep; and</li>
  *   <li>the pushed-down {@code ExpandStep} in the live plan has a non-null lowered IR
  *       ({@code getAnalyzed() != null}) — proving the IR branch of {@code ExpandStep.filterMap} is
- *       the one actually taken, not the AST fallback. This is reached via {@link ExpandStepIrProbe}
- *       (a same-package helper for the package-private {@code getAnalyzed()}); a broken
- *       {@code ExpandStep.tryLower} returning null would fail HERE even though results stay
+ *       the one actually taken, not the AST fallback. This is checked by the inlined
+ *       {@link #innerExpandAnalyzedNonNull} helper (this guard test lives in the same package as
+ *       {@code ExpandStep}, so it reads the package-private {@code getAnalyzed()} directly); a
+ *       broken {@code ExpandStep.tryLower} returning null would fail HERE even though results stay
  *       correct.</li>
  * </ol>
  * It also asserts the freshly-parsed {@code age > 49} predicate lowers to IR and the AST-fallback
  * predicate ({@code age IN [...]}) does NOT lower.
  *
- * <p>No Mockito spy is used (no such dependency in jmh-ldbc); the non-empty + correctly-filtered +
- * plan-inspection + {@code getAnalyzed()} assertions stand in for it.
+ * <p>No Mockito spy is used; the non-empty + correctly-filtered + plan-inspection +
+ * {@code getAnalyzed()} assertions stand in for it.
  */
 public class ExpandStepIrPathGuardTest {
 
@@ -96,9 +97,10 @@ public class ExpandStepIrPathGuardTest {
       ExecutionPlan plan = rs.getExecutionPlan();
       assertNotNull("execution plan must be available for plan inspection", plan);
       prettyPlan = plan.prettyPrint(0, 3);
-      // Reach the package-private ExpandStep.getAnalyzed() via the same-package probe to confirm
-      // the pushed-down filter carries a lowered IR (i.e. the IR branch of filterMap is taken).
-      irBranchActive = ExpandStepIrProbe.innerExpandAnalyzedNonNull(plan);
+      // Reach the package-private ExpandStep.getAnalyzed() via the inlined same-package helper to
+      // confirm the pushed-down filter carries a lowered IR (i.e. the IR branch of filterMap is
+      // taken).
+      irBranchActive = innerExpandAnalyzedNonNull(plan);
     }
 
     System.out.println("[EXPAND-GUARD] plan for " + IR_SQL + ":\n" + prettyPlan);
@@ -158,7 +160,8 @@ public class ExpandStepIrPathGuardTest {
    *       {@code ExpandStep.filterMap} is taken.)</li>
    *   <li>The AST-fallback branch is taken — {@code ExpandStep.getAnalyzed()} is {@code null}
    *       (because {@code tryLower} catches the {@code UnsupportedAnalyzedNodeException} from IN
-   *       and returns {@code null}), confirmed via {@link ExpandStepIrProbe}.</li>
+   *       and returns {@code null}), confirmed via the inlined {@link #innerExpandAnalyzedNonNull}
+  *       helper.</li>
    * </ol>
    *
    * <p>This is the complement of {@link #expandIrPushDownIsTakenAndCorrect}: together they guard
@@ -187,7 +190,7 @@ public class ExpandStepIrPathGuardTest {
       ExecutionPlan plan = rs.getExecutionPlan();
       assertNotNull("execution plan must be available for AST-fallback plan inspection", plan);
       prettyPlan = plan.prettyPrint(0, 3);
-      irBranchActive = ExpandStepIrProbe.innerExpandAnalyzedNonNull(plan);
+      irBranchActive = innerExpandAnalyzedNonNull(plan);
     }
 
     System.out.println("[EXPAND-GUARD] plan for " + AST_SQL + ":\n" + prettyPlan);
@@ -221,5 +224,52 @@ public class ExpandStepIrPathGuardTest {
     assertFalse(
         "ExpandStep.analyzed must be null for an unlowerable predicate (AST-fallback branch taken)",
         irBranchActive);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Inlined from the former same-package ExpandStepIrProbe (deleted when this guard test moved into
+  // core test sources). Now that the test lives in the same package as ExpandStep/SubQueryStep, it
+  // reaches the package-private ExpandStep.getAnalyzed() and SubQueryStep.subExecutionPlan directly
+  // instead of going through a separate probe class.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Navigates the plan (descending into subquery plans) to the single {@link ExpandStep} and
+   * reports whether its lowered IR ({@code analyzed}) is non-null — i.e. the IR branch is active.
+   *
+   * @throws IllegalStateException if no {@link ExpandStep} is present in the plan
+   */
+  private static boolean innerExpandAnalyzedNonNull(ExecutionPlan plan) {
+    ExpandStep expand = findExpand(plan);
+    if (expand == null) {
+      throw new IllegalStateException("no ExpandStep found in execution plan");
+    }
+    return expand.getAnalyzed() != null;
+  }
+
+  private static ExpandStep findExpand(ExecutionPlan plan) {
+    for (ExecutionStep step : plan.getSteps()) {
+      ExpandStep found = findInStep(step);
+      if (found != null) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  private static ExpandStep findInStep(ExecutionStep step) {
+    if (step instanceof ExpandStep expand) {
+      return expand;
+    }
+    // The push-down query shape wraps the expand in a subquery; descend into its plan.
+    if (step instanceof SubQueryStep subQuery) {
+      for (ExecutionStep inner : subQuery.subExecutionPlan.getSteps()) {
+        ExpandStep found = findInStep(inner);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+    return null;
   }
 }

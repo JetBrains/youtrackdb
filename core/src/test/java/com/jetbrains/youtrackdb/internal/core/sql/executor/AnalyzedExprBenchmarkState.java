@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.benchmarks.ldbc;
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExprLowerer;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.UnsupportedAnalyzedNodeException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,7 +24,7 @@ import org.openjdk.jmh.annotations.TearDown;
 /**
  * Dataset-free JMH state for the YTDB-916 predicate-evaluation microbenchmarks (Track 06, Bench 1).
  *
- * <p>Unlike {@link LdbcBenchmarkState} (which requires the SF1 CSV dataset on disk), this state
+ * <p>Unlike {@code LdbcBenchmarkState} (which requires the SF1 CSV dataset on disk), this state
  * spins up an <b>in-memory</b> embedded YouTrackDB via the public API and loads a synthetic
  * {@code Bench(age INT, name STRING, mid STRING?, nameCi STRING ci-collation)} class. It exposes,
  * for the single {@code @Param}-selected predicate case, the lowered analyzed-expression IR, the

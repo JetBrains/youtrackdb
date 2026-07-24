@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.benchmarks.ldbc;
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -19,7 +19,6 @@ import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExprEvaluator;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExprLowerer;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;

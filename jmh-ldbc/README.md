@@ -51,114 +51,16 @@ Each tier has single-threaded and multi-threaded concrete classes:
 
 Multi-threaded classes use `@Threads(Threads.MAX)` (one thread per available processor).
 
-## AnalyzedExpr Predicate-Eval Benchmarks (YTDB-916 S1)
+## AnalyzedExpr Predicate-Eval Benchmarks (YTDB-916)
 
-These are **dataset-free microbenchmarks** — independent of the LDBC SNB dataset above — that cover the predicate-evaluation code paths changed by YTDB-916 S1 (the analyzed-expression IR migration). Instead of the SF 1 CSV, they spin up an **in-memory** YouTrackDB with a small synthetic `Bench` schema, so they run anywhere with no dataset download. All three live in package `com.jetbrains.youtrackdb.benchmarks.ldbc` alongside the LDBC classes and share the same `-P bench` gate and uber-jar.
+The dataset-free predicate-evaluation microbenchmarks (Bench 1 evaluator-sensitivity A/B, Bench 2 `FilterStep` throughput, Bench 3 `ExpandStep` throughput) that exercise the YTDB-916 analyzed-expression IR paths **no longer live in this module**. They are LDBC-free — they spin up an in-memory synthetic `Bench` schema and only touch core query internals — so they now live alongside the other core JMH microbenchmarks in **`core` test sources**:
 
-The suite uses **two complementary measurement instruments**: a high-sensitivity in-branch A/B (Bench 1) and per-path absolute-throughput coverage benches (Bench 2/3).
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/`
+  - `AnalyzedExprEvaluator{,SingleThread}Benchmark`, `FilterStepThroughput{,SingleThread}Benchmark`, `ExpandStepThroughput{,SingleThread}Benchmark` (the benchmarks)
+  - `AnalyzedExprBenchmarkState`, `ThroughputBenchmarkState`, `ExpandThroughputBenchmarkState`, `BenchDataset` (JMH state + shared dataset builder)
+  - `AnalyzedExprGuardTest`, `ExpandStepIrPathGuardTest` (JUnit correctness guards, run as ordinary `core` unit tests)
 
-### The three benchmarks
-
-| # | Class (+ `SingleThread` variant) | Instrument | Mode | Methods |
-|---|----------------------------------|-----------|------|---------|
-| 1 | `AnalyzedExprEvaluatorBenchmark` / `AnalyzedExprEvaluatorSingleThreadBenchmark` | **SENSITIVITY** | `AverageTime` (ns/op) | `evalIr`, `evalAst` |
-| 2 | `FilterStepThroughputBenchmark` / `FilterStepThroughputSingleThreadBenchmark` | **COVERAGE** | `Throughput` (ops/s) | `filterStep_ir`, `filterStep_astFallback` |
-| 3 | `ExpandStepThroughputBenchmark` / `ExpandStepThroughputSingleThreadBenchmark` | **COVERAGE** | `Throughput` (ops/s) | `expandStep_ir`, `expandStep_astFallback` |
-
-JMH run configuration (from the class annotations; the `SingleThread` variants set `@Threads(1)`):
-
-| Bench | Forks | Warmup | Measurement |
-|-------|-------|--------|-------------|
-| 1 — evaluator A/B | 10 | 3×1s | 5×1s |
-| 2/3 — throughput | 3 | 3×3s | 5×3s |
-
-**Bench 1 — evaluator sensitivity (in-branch A/B).** Runs the **same** predicate through both evaluation arms:
-
-- `evalIr` → the new IR evaluator, `AnalyzedExprEvaluator.evaluate(analyzed, row, ctx)`.
-- `evalAst` → the AST path, `SQLWhereClause.matchesFilters(row, ctx)`.
-
-Because both arms evaluate the identical predicate over the identical rows, this is an apples-to-apples A/B that **cannot be masked by pipeline cost**. The predicate is selected by the `predicateCase` `@Param` axis with 9 values, each exercising a distinct evaluator path:
-
-| `predicateCase` | Predicate | Exercises |
-|-----------------|-----------|-----------|
-| `EQ_FAST` | `age = 30` (entity row) | YTDB-628 in-place equality fast path |
-| `CMP_FAST` | `age < 30` (entity row) | in-place comparison fast path |
-| `EQ_SLOW` | `age = 30` (projection row) | generic slow path |
-| `AND_OR` | `age > 20 AND age < 40` | lazy short-circuit |
-| `IS_NULL` | `mid IS NULL` | untyped null-test |
-| `IS_NOT_NULL` | `mid IS NOT NULL` | `NOT(IS_NULL)` |
-| `PARAM` | `age > :p` | per-execution `Param` resolution |
-| `CI_COLLATION` | `nameCi = 'xyz'` (ci prop) | fast-path decline → slow path |
-| `ARITH` | `age + 1 > 30` | arithmetic `BinaryOp` |
-
-**Bench 2 — `FilterStep` coverage.** Drives the real execution pipeline's `FilterStep.filterMap` branch end-to-end via two **independent, never-compared** `@Benchmark` methods:
-
-- `filterStep_ir` — `age > :p` (lowerable → IR evaluator branch).
-- `filterStep_astFallback` — `age IN [...]` (unlowerable → AST fallback branch).
-
-It is **deliberately filter-dominated**: an unindexed full sequential scan with ~50% selectivity, so the filter runs on every scanned row.
-
-**Bench 3 — `ExpandStep` coverage.** Same two-independent-method shape on a synthetic star graph (`Root` → many `Leaf`), exercising `ExpandStep.filterMap` on a pushed-down filter:
-
-- `expandStep_ir` — lowerable push-down filter (IR branch).
-- `expandStep_astFallback` — unlowerable push-down filter (AST fallback branch).
-
-### How to interpret the results
-
-- **Bench 1's `evalIr`-vs-`evalAst` A/B is the PRIMARY REGRESSION GATE for the evaluator.** It is a high-sensitivity lab measurement; the before/after signal for the S1 migration is carried by this A/B **plus** the CCX33 LDBC end-to-end run.
-- **Bench 2/3 are per-path ABSOLUTE THROUGHPUT, tracked OVER TIME** (via InfluxDB / `jmh-regression-alert.py`) to guard against future regressions. The IR and AST-fallback methods within a bench are **NEVER compared to each other** — they do semantically different work (set-membership vs comparison), so each is its own independent time series.
-- **Bench 2/3 are COVERAGE-ONLY.** `filterMap` / expand-filter cost is a minority of per-row pipeline cost (scan + entity-load dominate), so these benches **attenuate** regressions. Bench 1 is the sensitive detector; Bench 2/3 confirm the paths run end-to-end and provide a long-term throughput baseline.
-- **By design there is NO cross-branch build and NO force-AST production hook.** Both were considered and deliberately rejected (a cross-branch build is infeasible because `jmh-ldbc` will not compile on `develop` with the IR-referencing classes present; a force-AST hot-path hook cannot self-certify zero overhead in-branch). See the plan and PR for the full rationale.
-
-### How to run
-
-All commands obey the **serial-build invariant**: never run two Maven builds/tests concurrently in this worktree. The `-am` flag is required so the `core` module is rebuilt alongside `jmh-ldbc`.
-
-```bash
-# Build (core + jmh-ldbc)
-./mvnw -pl jmh-ldbc -am -DskipTests package
-
-# Bench 1 — evaluator sensitivity A/B (single-threaded)
-./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-    -Djmh.args="AnalyzedExprEvaluatorSingleThreadBenchmark.*"
-
-# Bench 2/3 — filter/expand throughput coverage
-./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-    -Djmh.args="FilterStepThroughput.*|ExpandStepThroughput.*"
-```
-
-Dataset-size overrides (JVM system properties, read by `BenchDataset` inside the forked JMH JVM):
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `analyzed.bench.rows` | `100000` | Row count of the flat `Bench` dataset (Bench 1 & 2). |
-| `analyzed.bench.expand.leaves` | `10000` | Number of `Leaf` vertices in the Bench 3 star graph. |
-
-**These properties are read in the JMH `@Fork` child JVM, not the Maven JVM.** A plain `-Danalyzed.bench.rows=...` placed on the `./mvnw ... verify -P bench` command sets the property on the Maven/`exec` JVM only — the `bench` profile forwards just `${jmh.args}` into the forked `java` process, so the property never reaches `BenchDataset` and the override silently no-ops. Pass it through to the fork via JMH's `-jvmArgsAppend`, placed inside `-Djmh.args`:
-
-```bash
-# Smaller flat dataset (Bench 1 & 2): 20k rows instead of 100k
-./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-    -Djmh.args="AnalyzedExprEvaluatorSingleThreadBenchmark.* -jvmArgsAppend -Danalyzed.bench.rows=20000"
-
-# Smaller star graph (Bench 3): 2k leaves instead of 10k
-./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-    -Djmh.args="ExpandStepThroughput.* -jvmArgsAppend -Danalyzed.bench.expand.leaves=2000"
-```
-
-### Correctness guards (JUnit, not JMH)
-
-Two JUnit tests pin the benchmark's invariants and must stay green:
-
-- `AnalyzedExprGuardTest` — asserts IR/AST **parity** over all 9 Bench-1 `predicateCase` values (IR variant lowers, and IR and AST produce identical boolean outcomes over sample rows).
-- `ExpandStepIrPathGuardTest` — verifies the push-down into `ExpandStep` actually occurs (the IR branch is genuinely taken end-to-end).
-
-```bash
-./mvnw -pl jmh-ldbc -am test -Dtest=AnalyzedExprGuardTest \
-    -Dsurefire.failIfNoSpecifiedTests=false
-./mvnw -pl jmh-ldbc -am test -Dtest=ExpandStepIrPathGuardTest \
-    -Dsurefire.failIfNoSpecifiedTests=false
-```
+Run a benchmark via its `main()` (JMH `Runner`/`OptionsBuilder`). The dataset-size overrides `-Danalyzed.bench.rows=<n>` and `-Danalyzed.bench.expand.leaves=<n>` still apply (read inside the forked JMH JVM).
 
 ## Execution Time
 
@@ -484,13 +386,8 @@ jmh-ldbc/
     LdbcMultiThread{ISUltraFast,IS,IC,ICSlow,ICUltraSlow}Benchmark.java   # @Threads(MAX)
     LdbcDatabaseTool.java              # CLI for export/import/backup/restore operations
     LdbcExplainTool.java               # EXPLAIN/PROFILE for all queries
-    BenchDataset.java                  # YTDB-916 S1: in-memory Bench schema + star-graph builder (size overrides)
-    AnalyzedExprBenchmarkState.java    # @State — Bench 1: predicate cases, IR+AST, rotating rows
-    ThroughputBenchmarkState.java      # @State — Bench 2: flat Bench dataset (FilterStep)
-    ExpandThroughputBenchmarkState.java  # @State — Bench 3: star graph (ExpandStep)
-    AnalyzedExprEvaluator{,SingleThread}Benchmark.java  # Bench 1: evalIr vs evalAst A/B (AverageTime)
-    FilterStepThroughput{,SingleThread}Benchmark.java   # Bench 2: filterStep_ir/_astFallback (Throughput)
-    ExpandStepThroughput{,SingleThread}Benchmark.java   # Bench 3: expandStep_ir/_astFallback (Throughput)
+    # NOTE: the YTDB-916 predicate-eval benches + BenchDataset moved to core test sources
+    #       (com.jetbrains.youtrackdb.internal.core.sql.executor) — see the section above.
   src/main/resources/
     ldbc-schema.sql                    # DDL: vertex/edge classes, properties, indexes
     ldbc-queries/
@@ -499,8 +396,8 @@ jmh-ldbc/
       IC4-oldpost-count.sql            # IC4 curation factor query (NOT-pattern cost)
     log4j2.xml                         # Logging configuration
   src/test/java/.../ldbc/
-    AnalyzedExprGuardTest.java         # Bench-1 IR/AST parity guard (all 9 predicate cases)
-    ExpandStepIrPathGuardTest.java     # Verifies the ExpandStep IR push-down path is taken
+    # NOTE: AnalyzedExprGuardTest + ExpandStepIrPathGuardTest moved to core test sources
+    #       (com.jetbrains.youtrackdb.internal.core.sql.executor) — see the section above.
     LdbcQueryCorrectnessTest.java      # LDBC query result-correctness checks
     LdbcQueryExplainTest.java          # LDBC EXPLAIN/PROFILE checks
 ```
