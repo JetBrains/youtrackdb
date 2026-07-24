@@ -1387,7 +1387,22 @@ public abstract class SchemaShared implements CloseableInStorage {
   public void create(final DatabaseSessionEmbedded session) {
     lock.writeLock().lock();
     try {
-      var entity = session.computeInTx(transaction -> session.newInternalInstance());
+      var entity = session.computeInTx(transaction -> {
+        var root = session.newInternalInstance();
+        // The root must be BOOTSTRAP-VALID from the instant it exists (Track 8 G2.a/FM-G1):
+        // copyForTx seeds a transaction-local schema copy from the committed root and requires
+        // it to carry the global-property table, so a schema transaction opened against a
+        // virgin database (the restructured genesis's phase 1, or any user schema tx racing
+        // it) would trip that precondition on an empty entity. The empty-schema payload
+        // (schemaVersion, empty globalProperties, collectionCounter 0, empty blobCollections)
+        // is written through toStream itself — the single serializer, no hand-rolled twin
+        // format to drift — inside this same transaction, so no crash point can expose a
+        // payload-less root. toStream loads the root by identity, so the field is assigned
+        // before the call; the transaction serves the just-created record by its provisional
+        // id, and the ChangeableRecordId promotes in place at commit.
+        identity = root.getIdentity();
+        return toStream(session);
+      });
 
       this.identity = entity.getIdentity();
       session.getStorage().setSchemaRecordId(entity.getIdentity().toString());
