@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.benchmarks.ldbc;
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
@@ -207,8 +207,8 @@ final class BenchDataset {
   }
 
   /**
-   * Parses a full SELECT and returns its WHERE clause. Reimplemented inline (jmh-ldbc has no access
-   * to core's test-jar), mirroring the parity test's {@code parseWhere}.
+   * Parses a full SELECT and returns its WHERE clause, mirroring the guard tests' {@code parseWhere}
+   * helper.
    */
   static SQLWhereClause parseWhere(String selectSql) {
     try {
