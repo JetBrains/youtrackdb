@@ -56,6 +56,9 @@ justification is in `## Interfaces and Dependencies`.
   applied or dispositioned)
 - [x] 2026-07-24T02:52Z [ctx=safe] Step 2 complete (commit 908a2374e6; red-first shown; Q-G3
   verdict: GREEN, no IM symmetric fix)
+- [x] 2026-07-24T04:15Z [ctx=safe] Step 2 review-fix iteration 1 complete (commit 1858811c1e;
+  baseline + crash-safety reviews: 0 blockers, 0 should-fix, 7 suggestions — all applied or
+  dispositioned)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -104,6 +107,14 @@ justification is in `## Interfaces and Dependencies`.
   space, so importing a blob-bearing pre-Track-8 dump into a fresh (renumbered) target
   misregisters class collections as blob collections. Design-acknowledged sequencing (FM-M16,
   pinned by M.5 #13) — do not trust blob-bearing legacy-dump imports on this branch mid-track.
+- **2026-07-24 (Step 2, review CS50):** the CS35-accepted W6 silent-reopen window is ARMED
+  in-tree from commit 908a2374e6 until Step 3's genesis-completion marker lands: a crash in the
+  K4 window (schema + IM root shells and pointers durable, BEFORE the first `security.create`
+  DDL self-commit) now reopens with ZERO signal — the bootstrap-valid root parses cleanly, so
+  the pre-fix "Database's schema is empty!" error-log breadcrumb never fires (the branch itself
+  stays in code for legacy corpses). Design-accepted trade (CS35, folded into §A1); Step 3's
+  open-time marker check closes it — `crash-safety-step2-iter1.md`'s K4/W6 row is the exact
+  state the marker must refuse.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -567,6 +578,44 @@ line (2117/2330), 83.0% branch (969/1168).
 recorded above); the WC4 design-final hand-off stays recorded, not implemented (Phase 4's
 `design-final.md` reconciliation). Surprises: none — the red-first signature and the Q-G3
 outcome both matched the design's predictions exactly.
+
+### Step 2 review-fix iteration 1 — commit 1858811c1e, 2026-07-24T04:15Z [ctx=safe]
+**What was done:** applied the two Step 2 review reports
+(`track-8/reviews/{baseline,crash-safety}-step2-iter1.md`; 0 blockers, 0 should-fix, 7
+suggestions). (1) **CQ15 (code):** `SchemaShared.create` gains an entry precondition —
+`assert !session.getTransactionInternal().isActive()` — rejecting an active outer transaction
+loudly BEFORE any mutation; the message names the brick hazard (a joined outer tx leaves the
+root's `ChangeableRecordId` provisional when `setSchemaRecordId` stringifies it, persisting a
+provisional rid into the storage config). This is the belt against Step 3 accidentally
+swallowing `schema.create` into the phase-1 genesis tx; the Step-3 reviewer must ALSO verify
+`schema.create`/`indexManager.create` stay pre-tx (obligation carried alongside the existing
+CS47/TQ12 items). (2) **BG13+CS51 (code, same root):** create's failure path now nulls the
+`identity` field (it aliased the rolled-back root's dead provisional rid; pre-change it stayed
+null), keeping the failure state identical to pre-create. Both pinned by new tests:
+`createInsideActiveTransactionIsRejected` (assert fires, message named, no root allocated) and
+`failedCreateLeavesNoDanglingIdentity` (injected `toStream` throw → rollback → identity null).
+(3) **CQ16 (test):** the two schema tests gained the repointing-containment comment the IM test
+carried. (4) **CS50 (docs):** the armed W6 silent-reopen interval recorded in §Surprises
+(908a2374e6 → Step 3's marker; K4/W6 row of `crash-safety-step2-iter1.md` is the exact state
+the marker must refuse). (5) **TQ14 (disposition):** fresh-context byte-deserialization of the
+virgin root is deferred to Step 3's reopen pin G.5 #2(b) — the same-session cache-served read
+is a fidelity MATCH to production genesis, not a gap; no code. (6) **TQ15 (disposition):**
+accepted — pin G.5 #1's red signature is `-ea`-dependent by nature (the production shape
+degrades to `fromStream`'s silent early return); `createdRootPersistsAsBootstrapValidEmptySchema`
+is the assert-independent regression net — do not delete it believing test 1 subsumes it.
+
+**Key files:** `core/.../metadata/schema/SchemaShared.java` (entry assert; failure-path
+null-out); `GenesisSchemaBootstrapTest` (+2 tests, now 5; comments); `track-8.md` (CS50
+bullet).
+
+**Verification:** targeted `GenesisSchemaBootstrapTest` → 5/5 green; `./mvnw -pl core clean
+test` → BUILD SUCCESS (17456 — +2 new tests — + 2219 sequential; 0 failures); spotless clean;
+coverage gate vs origin/develop → PASSED, 90.9% line (2126/2340), 83.0% branch (976/1176).
+**ITs deliberately not re-run:** the production diff is an entry assert (no-op on every valid
+path; assert lines are coverage-exempt and compiled out under `-da`), a failure-path null-out
+(reachable only when database creation aborts entirely), and comments — the schema-record
+format and every valid-path byte are identical to the state Step 2's full IT run (513 ITs,
+3:18 h, green) already verified.
 
 ### Step 1 review-fix iteration 1 — commit 931e264f48, 2026-07-23T23:30Z [ctx=safe]
 **What was done:** applied the two Step 1 review reports
