@@ -206,6 +206,12 @@ public class AnalyzedExprGuardTest {
       // using the same path — safe only because surefire runs classes sequentially today.
       // Dropping the owned uniquely-named DB above is the correct resource scope.
     }
+    // Null the static fixtures so the forked JVM does not retain the closed session and the
+    // captured rows for the rest of its lifetime (tidy lifecycle; no functional impact).
+    session = null;
+    db = null;
+    entityRows = null;
+    projectionRows = null;
   }
 
   /**
