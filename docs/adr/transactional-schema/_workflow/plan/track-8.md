@@ -286,8 +286,12 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    tx-local copy whose `saveInternal` returns early — design G2.b's letter. Step-3 reviewer
    obligations carried from the Step-1 reviews: re-grep that
    `STORAGE_BLOB_COLLECTIONS_COUNT` still has exactly ONE production read after the tx-wrap
-   (TQ12/CN50), and note the register loop's defensive name-snapshot (`List.copyOf`) exists
-   because each registration self-commits while iterating (CQ14)) — engaging the
+   (TQ12/CN50), note the register loop's defensive name-snapshot (`List.copyOf`) exists
+   because each registration self-commits while iterating (CQ14), and — from the Step-2
+   reviews — verify `schema.create`/`indexManager.create` remain OUTSIDE the phase-1 genesis
+   tx (CQ15: `schema.create` has the entry assert as belt — a joined outer tx would persist a
+   provisional schema record id via `setSchemaRecordId`; `indexManager.create` has NO such
+   assert — obligation-only)) — engaging the
    metadata-write mutex on
    first write and committing through the schema-carry path (engines built at commit); phase 2
    = ONE data transaction inserting default roles + users (Q-G2, supersedes today's two-tx
