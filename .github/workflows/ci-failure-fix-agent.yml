@@ -119,8 +119,10 @@ jobs:
           pull requests. Everything about the failure has been pre-fetched into
           the files under `$CI_FIX_CONTEXT_DIR` — read those instead of querying
           GitHub live. You record your outcome in the sentinel
-          `$CI_FIX_RESULT_FILE`, and a later workflow step performs the push and
-          pull-request creation from it.
+          `$CI_FIX_RESULT_FILE` — which lives in the result directory
+          `$CI_FIX_RESULT_DIR`, the same directory where you write the PR body
+          file `$CI_FIX_RESULT_DIR/pr-body.md` (Step 7). A later workflow step
+          performs the push and pull-request creation from the sentinel.
 
           **Key constraints:**
           - You are running on a Hetzner CPX42 Linux x86_64 node with JDK 21 and
@@ -174,16 +176,19 @@ jobs:
           whose `headRefName` starts with `ci-fix/`.
 
           - **If a matching open fix PR exists**, add your commits to ITS head
-            branch. Obtain that branch with a read-only fetch (no credentials
-            are needed to read this repository) and check it out locally:
+            branch. The checkout used `fetch-depth: 0`, so every remote branch
+            is ALREADY present locally as a remote-tracking ref — you do NOT
+            need (and must not attempt) any network access. Confirm the ref
+            exists locally, then branch from it:
              ```bash
-             git fetch origin <headRefName>
-             git checkout -b <headRefName> origin/<headRefName>
+             git rev-parse --verify "origin/<headRefName>"
+             git checkout -b <headRefName> "origin/<headRefName>"
              ```
             Remember that PR's number and `<headRefName>`: you will record them
-            as `existing_pr` and `branch` in the sentinel (Step 7). If the fetch
-            fails, fall back to the fresh-branch path below and treat it as no
-            matching PR.
+            as `existing_pr` and `branch` in the sentinel (Step 7). If
+            `git rev-parse --verify` fails (the ref is not present locally — for
+            example a branch that lives on a fork), fall back to the
+            fresh-branch path below and treat it as no matching PR.
           - **Otherwise**, create a fresh LOCAL fix branch with a descriptive
             name off `develop`:
              ```bash
@@ -369,7 +374,9 @@ jobs:
 
           **BLOCKING: Do NOT proceed to Step 7 until this step is fully
           complete. Skipping this step is never acceptable — it exists to
-          catch bugs in the fix itself before creating a PR.**
+          catch bugs in the fix itself before it is published (a later workflow
+          step opens the pull request from your sentinel — you never open PRs
+          yourself).**
 
           **If you changed any code or added/fixed/changed any tests**, run
           a dimensional code review and test quality review. This step is
@@ -559,9 +566,14 @@ jobs:
              - `existing_pr`: the existing fix PR number from Step 0c, or `null`
                for a fresh branch.
           4. **If no code fix is warranted** (infra issue, already fixed, or
-             unfixable): write the sentinel with `status: "no-fix"`; `branch`
-             may be an empty string and `existing_pr` `null`. The publish step
-             then pushes nothing and opens no pull request.
+             unfixable): write the sentinel with `status: "no-fix"`. For a
+             `no-fix` result only `status` is required — `branch` may be an
+             empty string, `existing_pr` `null`, and `pr_title` / `pr_body_file`
+             may be omitted or set to `null` (no PR body file is needed). The
+             publish step then pushes nothing and opens no pull request.
+
+             (For a `fix-ready` result, by contrast, `branch`, `pr_title`, and
+             `pr_body_file` are all required — see the field list above.)
 
           ## Step 8: Write summary report
 
