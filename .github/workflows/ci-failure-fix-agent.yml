@@ -19,11 +19,11 @@ concurrency:
   group: ci-failure-fix-agent
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  actions: read
-  checks: read
+# WH3/SE9: no workflow-level scopes. The only job (fix-ci-failure) declares its
+# own read-only job-level permissions, and the publish path authenticates with a
+# minted App token, so granting anything here would only be a latent footgun for
+# any future job added to this workflow.
+permissions: {}
 
 jobs:
   fix-ci-failure:
@@ -808,13 +808,33 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          STATUS="$(jq -r '.status // "no-fix"' "$RESULT_FILE" 2>/dev/null || echo no-fix)"
-          BRANCH="$(jq -r '.branch // ""' "$RESULT_FILE" 2>/dev/null || echo "")"
-          EXISTING_PR="$(jq -r '.existing_pr // ""' "$RESULT_FILE" 2>/dev/null || echo "")"
-          # Normalize status to the two allowed values (also guards output injection).
-          if [ "$STATUS" != "fix-ready" ]; then
+          # WH1/SE5: sanitize + validate every sentinel value before writing it
+          # to $GITHUB_OUTPUT. Collapse each to a single line first: an embedded
+          # newline could otherwise inject a second `status=fix-ready` line
+          # (last value wins) and spuriously trigger publishing.
+          STATUS="$(jq -r '.status // "no-fix"' "$RESULT_FILE" 2>/dev/null | tr -d '\r\n' || echo no-fix)"
+          BRANCH="$(jq -r '.branch // ""' "$RESULT_FILE" 2>/dev/null | tr -d '\r\n' || echo "")"
+          EXISTING_PR="$(jq -r '.existing_pr // ""' "$RESULT_FILE" 2>/dev/null | tr -d '\r\n' || echo "")"
+
+          # status: only the two documented values are accepted; else force no-fix.
+          if [ "$STATUS" != "fix-ready" ] && [ "$STATUS" != "no-fix" ]; then
             STATUS="no-fix"
           fi
+          # existing_pr: empty or all-digits; anything else is treated as null.
+          case "$EXISTING_PR" in
+            ''|*[!0-9]*) EXISTING_PR="" ;;
+          esac
+          # branch: must match a conservative git-ref charset when publishing; an
+          # invalid/empty branch means the fix cannot be safely pushed -> no-fix.
+          if [ "$STATUS" = "fix-ready" ]; then
+            case "$BRANCH" in
+              ''|*[!A-Za-z0-9._/-]*)
+                echo "::warning::fix-ready sentinel has an invalid branch name; forcing no-fix."
+                STATUS="no-fix"
+                ;;
+            esac
+          fi
+
           {
             echo "status=$STATUS"
             echo "branch=$BRANCH"
@@ -824,7 +844,10 @@ jobs:
 
       - name: Mint GitHub App token
         id: app-token
-        if: steps.fix-result.outputs.status == 'fix-ready'
+        # WH2: use !cancelled() rather than the implicit success() so a valid
+        # fix-ready sentinel still publishes even if the Claude step exited
+        # nonzero AFTER writing it; only a cancelled job skips.
+        if: ${{ !cancelled() && steps.fix-result.outputs.status == 'fix-ready' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.CI_BOT_APP_ID }}
@@ -838,13 +861,15 @@ jobs:
 
       - name: Publish fix
         id: publish
-        if: steps.fix-result.outputs.status == 'fix-ready'
+        # WH2: see the Mint step - publish a completed fix unless the job was cancelled.
+        if: ${{ !cancelled() && steps.fix-result.outputs.status == 'fix-ready' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           RESULT_FILE="${CI_FIX_RESULT_FILE:-$RUNNER_TEMP/ci-fix/result.json}"
           BRANCH="$(jq -r '.branch // ""' "$RESULT_FILE")"
-          PR_TITLE="$(jq -r '.pr_title // ""' "$RESULT_FILE")"
+          # SE6: collapse pr_title to a single line (defense-in-depth).
+          PR_TITLE="$(jq -r '.pr_title // ""' "$RESULT_FILE" | tr -d '\r\n')"
           PR_BODY_FILE="$(jq -r '.pr_body_file // ""' "$RESULT_FILE")"
           EXISTING_PR="$(jq -r '.existing_pr // ""' "$RESULT_FILE")"
 
@@ -852,24 +877,45 @@ jobs:
             echo "::error::fix-ready sentinel is missing 'branch'"; exit 1
           fi
 
+          # SE6: confine pr_body_file to $CI_FIX_RESULT_DIR before passing it to
+          # --body-file. An agent-written path like /proc/self/environ would
+          # otherwise leak the App token (present here as GH_TOKEN) into the PR
+          # body. Require a regular file that resolves inside the result dir;
+          # otherwise fall back to a safe default body.
+          RESULT_DIR="${CI_FIX_RESULT_DIR:-$RUNNER_TEMP/ci-fix}"
+          BODY_ARGS=(--body "Automated CI fix. See the fix-agent run logs for details.")
+          if [ -n "$PR_BODY_FILE" ]; then
+            RP="$(realpath -m "$PR_BODY_FILE")"
+            RD="$(realpath -m "$RESULT_DIR")"
+            case "$RP" in
+              "$RD"/*)
+                if [ -f "$RP" ]; then
+                  BODY_ARGS=(--body-file "$RP")
+                else
+                  echo "::warning::pr_body_file '$PR_BODY_FILE' is not a regular file; using default body."
+                fi
+                ;;
+              *)
+                echo "::warning::pr_body_file '$PR_BODY_FILE' resolves outside $RD; using default body."
+                ;;
+            esac
+          fi
+
           # Push the agent's LOCAL fix branch with explicit App-token auth. The
           # checkout used persist-credentials: false, so there is no stored
-          # credential; authenticate the push URL inline. An App-authored push
-          # (unlike a GITHUB_TOKEN push) lets the resulting PR trigger downstream CI.
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+          # credential; authenticate the push URL inline. SE7: credential.helper=''
+          # prevents a runner credential helper from caching the token.
+          # An App-authored push (unlike a GITHUB_TOKEN push) lets the resulting
+          # PR trigger downstream CI.
+          git -c credential.helper='' \
+            push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
             "HEAD:refs/heads/${BRANCH}"
 
           if [ -z "$EXISTING_PR" ] || [ "$EXISTING_PR" = "null" ]; then
             # Create the PR as READY (not draft) under the App identity so the
             # 'opened' event is not suppressed and maven-pipeline.yml runs on it.
-            if [ -n "$PR_BODY_FILE" ] && [ -f "$PR_BODY_FILE" ]; then
-              gh pr create --repo "${{ github.repository }}" --base develop \
-                --head "$BRANCH" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
-            else
-              gh pr create --repo "${{ github.repository }}" --base develop \
-                --head "$BRANCH" --title "$PR_TITLE" \
-                --body "Automated CI fix. See the fix-agent run logs for details."
-            fi
+            gh pr create --repo "${{ github.repository }}" --base develop \
+              --head "$BRANCH" --title "$PR_TITLE" "${BODY_ARGS[@]}"
           else
             echo "Existing PR #$EXISTING_PR updated by the branch push (synchronize); no new PR created."
           fi
