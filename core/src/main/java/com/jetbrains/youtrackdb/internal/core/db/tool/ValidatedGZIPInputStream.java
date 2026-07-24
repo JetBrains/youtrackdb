@@ -51,7 +51,7 @@ public final class ValidatedGZIPInputStream extends InflaterInputStream {
   /** CRC32 of the decompressed payload, verified against the trailer. */
   private final CRC32 crc = new CRC32();
 
-  private final int headerLength;
+  private final long headerLength;
 
   /** The single member's trailer has been read and verified; the stream is at end of stream. */
   private boolean trailerVerified;
@@ -68,7 +68,15 @@ public final class ValidatedGZIPInputStream extends InflaterInputStream {
 
   public ValidatedGZIPInputStream(InputStream in, int bufferSize) throws IOException {
     super(in, new Inflater(true), bufferSize);
-    headerLength = readHeader();
+    try {
+      headerLength = readHeader();
+    } catch (IOException | RuntimeException e) {
+      // The self-allocated inflater must not outlive a failed construction (the close() that
+      // would end it is unreachable) — rejection-heavy validation paths would otherwise leak
+      // native memory until GC.
+      inf.end();
+      throw e;
+    }
   }
 
   @Override
@@ -154,14 +162,18 @@ public final class ValidatedGZIPInputStream extends InflaterInputStream {
   }
 
   /** The parsed GZIP header's length in bytes. */
-  public int getHeaderLength() {
+  public long getHeaderLength() {
     return headerLength;
   }
 
-  /** Reads and validates the RFC 1952 header directly from the source; returns its length. */
-  private int readHeader() throws IOException {
+  /**
+   * Reads and validates the RFC 1952 header directly from the source; returns its length. The
+   * accounting is {@code long}: an adversarial multi-GiB FNAME/FCOMMENT must not wrap the
+   * length and corrupt the physical-size arithmetic.
+   */
+  private long readHeader() throws IOException {
     var headerCrc = new CRC32();
-    var count = 0;
+    var count = 0L;
 
     if (readHeaderUShort(headerCrc) != GZIP_MAGIC) {
       throw new ZipException("Not in GZIP format");
@@ -192,6 +204,8 @@ public final class ValidatedGZIPInputStream extends InflaterInputStream {
     if ((flags & FCOMMENT) != 0) {
       count += readHeaderZeroTerminated(headerCrc);
     }
+    // (the FEXTRA/FNAME/FCOMMENT contributions above are longs — no int wrap on adversarial
+    // oversized header fields)
     if ((flags & FHCRC) != 0) {
       final var expected = (int) (headerCrc.getValue() & 0xffff);
       final var declared = readHeaderUShort(null);
@@ -219,8 +233,8 @@ public final class ValidatedGZIPInputStream extends InflaterInputStream {
     return low | (readHeaderUByte(headerCrc) << 8);
   }
 
-  private int readHeaderZeroTerminated(CRC32 headerCrc) throws IOException {
-    var length = 0;
+  private long readHeaderZeroTerminated(CRC32 headerCrc) throws IOException {
+    var length = 0L;
     int b;
     do {
       b = readHeaderUByte(headerCrc);

@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -140,15 +141,32 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final var tempOut = Files.newOutputStream(Paths.get(tempFileName),
         StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
 
-    final var gzipOS =
-        new GZIPOutputStream(tempOut, compressionBuffer) {
-          {
-            def.setLevel(compressionLevel);
-          }
-        };
+    try {
+      final var gzipOS =
+          new GZIPOutputStream(tempOut, compressionBuffer) {
+            {
+              def.setLevel(compressionLevel);
+            }
+          };
 
-    jsonGenerator = jsonFactory.createGenerator(new OutputStreamWriter(gzipOS));
-    jsonGenerator.writeStartObject();
+      jsonGenerator = jsonFactory.createGenerator(new OutputStreamWriter(gzipOS));
+      jsonGenerator.writeStartObject();
+    } catch (IOException | RuntimeException e) {
+      // A constructor failure after the CREATE_NEW open (a full disk during the gzip header
+      // write, a generator failure) must not orphan the temp file — the caller has no export
+      // object to close.
+      try {
+        tempOut.close();
+      } catch (Exception secondary) {
+        e.addSuppressed(secondary);
+      }
+      try {
+        Files.deleteIfExists(Paths.get(tempFileName));
+      } catch (IOException secondary) {
+        e.addSuppressed(secondary);
+      }
+      throw e;
+    }
   }
 
   public DatabaseExport(
@@ -205,13 +223,15 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           "\n\nDatabase export completed in " + ((System.nanoTime() - time) / 1000000) + "ms");
 
       // Finish the stream cleanly (closing brace, generator close flushing the gzip trailer),
-      // then — and only then — mark the export completed and promote. A failure anywhere above
-      // routes through the catch: nothing is promoted and the temp file is deleted.
+      // promote, and only then mark the export completed. A failure anywhere above — including
+      // the promote itself — routes through the catch: nothing (further) is promoted, the temp
+      // file is deleted, and because the flag stays unset a later close() retries the temp
+      // cleanup (a failed promote whose inline delete also failed is not orphaned forever).
       jsonGenerator.writeEndObject();
       jsonGenerator.close();
       jsonGenerator = null;
-      completed = true;
       promote();
+      completed = true;
     } catch (Exception e) {
       LogManager.instance()
           .error(this, "Error on exporting database '%s' to: %s", e, session.getDatabaseName(),
@@ -227,6 +247,11 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                   e);
       cleanUpOnFailure(primary);
       throw primary;
+    } finally {
+      // Belt for non-Exception throwables (OOM, assertion errors): close() is completion-gated
+      // — a no-op after success, an abort (close stream, delete temp, never rename) otherwise —
+      // so the finally cannot promote and cannot mask a primary.
+      close();
     }
     return this;
   }
@@ -325,7 +350,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       if (collectionName != null) {
         RecordAbstract rec = null;
         try {
-          var it = session.browseCollection(collectionName);
+          var it = browseCollectionRecords(collectionName);
 
           while (it.hasNext()) {
             rec = it.next();
@@ -765,6 +790,15 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       return true;
     }
+  }
+
+  /**
+   * The record iteration over one collection, extracted as a protected seam so tests can
+   * inject deterministic mid-scan iterator failures into the collection-scan arm (the FM-M1
+   * remedy's rethrow path); production behavior is exactly the session browse.
+   */
+  protected Iterator<RecordAbstract> browseCollectionRecords(String collectionName) {
+    return session.browseCollection(collectionName);
   }
 
   /**

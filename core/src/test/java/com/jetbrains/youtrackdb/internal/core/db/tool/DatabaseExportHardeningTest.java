@@ -101,6 +101,80 @@ public class DatabaseExportHardeningTest extends DbTestBase {
     }
   }
 
+  /**
+   * Review TQ19 (the discriminating pin for FM-M1's remedy itself): a failure thrown BY THE
+   * RECORD ITERATION — inside the collection-scan try block — traverses the always-rethrow
+   * scan arm: the export aborts loudly with the iterator failure as the primary cause, the
+   * final name stays untouched and no temp residue remains. Reverting the scan arm to the
+   * pre-hardening log-and-continue swallow turns exactly this test red (proven during the
+   * review-fix iteration by a temporary local revert).
+   */
+  @Test
+  public void iteratorFailureInsideScanArmAbortsLoudly() throws Exception {
+    session.getMetadata().getSchema().createClass("IterFail");
+    session.executeInTx(transaction -> {
+      for (var i = 0; i < 5; i++) {
+        session.newEntity("IterFail").setInt("i", i);
+      }
+    });
+
+    var exportDir = exportDirectory();
+    var finalFile = exportDir.resolve("iterfail.json.gz");
+    Files.write(finalFile, PREVIOUS_DUMP_SENTINEL);
+
+    var injected = new IllegalStateException("injected iterator failure");
+    var export = new DatabaseExport(session, finalFile.toString(), text -> {
+    }) {
+      @Override
+      protected java.util.Iterator<RecordAbstract> browseCollectionRecords(
+          String collectionName) {
+        var delegate = super.browseCollectionRecords(collectionName);
+        return new java.util.Iterator<>() {
+          private int served;
+
+          @Override
+          public boolean hasNext() {
+            return delegate.hasNext();
+          }
+
+          @Override
+          public RecordAbstract next() {
+            // Fail mid-iteration, after some records were already exported — the genuine
+            // FM-M1 shape (a scan that dies partway through a collection).
+            if (++served == 3) {
+              throw injected;
+            }
+            return delegate.next();
+          }
+        };
+      }
+    };
+
+    DatabaseExportException thrown = null;
+    try {
+      export.exportDatabase();
+    } catch (DatabaseExportException e) {
+      thrown = e;
+    }
+    assertNotNull("a mid-iteration scan failure must abort the export loudly", thrown);
+    var causeChainCarriesInjection = false;
+    for (Throwable t = thrown; t != null; t = t.getCause()) {
+      if (t == injected) {
+        causeChainCarriesInjection = true;
+        break;
+      }
+    }
+    assertTrue("the iterator failure must be the primary cause, saw: " + thrown,
+        causeChainCarriesInjection);
+
+    assertArrayEquals("the final name must stay untouched",
+        PREVIOUS_DUMP_SENTINEL, Files.readAllBytes(finalFile));
+    try (var files = Files.list(exportDir)) {
+      var residue = files.filter(p -> !p.equals(finalFile)).toList();
+      assertTrue("no temp residue may remain, saw: " + residue, residue.isEmpty());
+    }
+  }
+
   /** A test exporter that injects a render failure for exactly one record. */
   private static final class RenderFailureExport extends DatabaseExport {
 

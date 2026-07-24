@@ -236,11 +236,20 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           case "records" -> importRecords(beforeImportSchemaSnapshot);
           case "indexes" -> importIndexes();
           case "brokenRids" -> processBrokenRids();
-          // The v15 exporter's trailing manifest section (Track 8 Step 4). Consumed WITHOUT
-          // validation here so v15 dumps stay importable; Step 5's v15-strict skeleton owns
-          // the version-gated manifest verification against the importer's own consumption
-          // tallies (design M2.b-3, WI6, CN51).
-          case "manifest" -> skipManifest();
+          // The v15 exporter's trailing manifest section (Track 8 Step 4), version-gated per
+          // WI6: only a dump DECLARING exporter version >= 15 may carry it — a declared-legacy
+          // dump with a manifest tag keeps today's unsupported-tag rejection byte-for-byte
+          // (the lenient path must not silently widen). Consumed WITHOUT validation here so
+          // v15 dumps stay importable; Step 5's v15-strict skeleton owns the manifest
+          // verification against the importer's own consumption tallies (M2.b-3, CN51).
+          case "manifest" -> {
+            if (exporterVersion >= 15) {
+              skipManifest();
+            } else {
+              throw new DatabaseImportException(
+                  "Invalid format. Found unsupported tag 'manifest'");
+            }
+          }
           default -> throw new DatabaseImportException(
               "Invalid format. Found unsupported tag '" + tag + "'");
         }

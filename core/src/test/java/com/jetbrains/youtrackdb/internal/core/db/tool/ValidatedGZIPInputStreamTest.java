@@ -148,6 +148,36 @@ public class ValidatedGZIPInputStreamTest {
     }
   }
 
+  /**
+   * Review TQ20 (the discriminating pin for CS43 step (3) ITSELF): with a one-byte decoder
+   * buffer, appended garbage is never read ahead into the decoder window — the drain succeeds
+   * and {@code verifyFullyConsumed()} passes — so the PHYSICAL-SIZE ARITHMETIC is the check
+   * that must reject the stream. Neutering the {@code consumed != physicalSize} comparison
+   * turns exactly this test red (proven during the review-fix iteration by a temporary local
+   * neutering).
+   */
+  @Test
+  public void garbageBeyondReadAheadIsRejectedByPhysicalSizeArithmeticAlone() throws Exception {
+    var compressed = gzip(PAYLOAD);
+    var garbage = Arrays.copyOf(compressed, compressed.length + 64);
+    for (var i = compressed.length; i < garbage.length; i++) {
+      garbage[i] = (byte) 0x5a;
+    }
+    try (var in = new ValidatedGZIPInputStream(new ByteArrayInputStream(garbage), 1)) {
+      assertArrayEquals(PAYLOAD, drain(in));
+      // Steps (1)+(2) pass: nothing beyond the trailer was buffered by the tiny read-ahead.
+      in.verifyFullyConsumed();
+      assertEquals("the member spans only the original bytes",
+          compressed.length, in.getCompressedBytesConsumed());
+      try {
+        in.verifyPhysicalSize(garbage.length);
+        fail("the physical-size arithmetic must reject beyond-window trailing garbage");
+      } catch (ZipException expected) {
+        assertTrue(expected.getMessage().contains("does not span the whole source"));
+      }
+    }
+  }
+
   /** A flipped CRC32 byte in the trailer fails the drain with the CRC mismatch named. */
   @Test
   public void corruptTrailerCrcFailsDuringDrain() throws Exception {
