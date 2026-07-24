@@ -142,6 +142,65 @@ java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -t 16 "LdbcMultiThread.*"
 java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -rf json -rff results.json
 ```
 
+## Epoch Ceiling Benchmark (YTDB-1203)
+
+Besides the LDBC suites, this module contains a targeted microbenchmark for the
+storage-wide `ApplyPhaseEpoch` overhead on optimistic readers:
+`com.jetbrains.youtrackdb.benchmarks.epoch.EpochReadWriteBenchmark`.
+
+It runs against a self-generated single-class embedded DISK database (no external dataset
+needed): `recordCount` small records (default 100,000) with a UNIQUE index on `key` and a
+NOTUNIQUE index on `stamp`. Readers do point lookups (record load by RID and index gets —
+the optimistic read paths); writers update the indexed `stamp` property of a random record
+in small transactions, so every commit is a multi-page apply that bumps the epoch.
+
+Benchmark shapes:
+
+| Benchmark | Shape | Threads |
+|-----------|-------|---------|
+| `readOnlyByRid` / `readOnlyByIndex` | plain (writers = 0 axis) | `-t N` |
+| `writeOnlyCommit` | plain (writer commit-throughput baseline) | `-t N` |
+| `mixedRid` / `mixedIndex` | asymmetric group: readers + writers | `-tg R,W` (default 4,1) |
+
+Parameter axes for measurement runs — readers {1,4,16} × writers {0,1,4}:
+
+```bash
+# Build the uber-jar
+./mvnw -pl jmh-ldbc -am clean package -DskipTests
+
+# writers = 0 axis (reader-only)
+java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "Epoch.*readOnly.*" -t 4
+
+# writer baseline (the <1% sort-overhead budget denominator)
+java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "Epoch.*writeOnlyCommit" -t 1
+
+# mixed axes (readers,writers)
+java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "Epoch.*mixed.*" -tg 16,4
+
+# reader latency percentiles
+java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "Epoch.*mixed.*" -tg 4,1 -bm sample
+
+# smoke run (small dataset, short iterations)
+java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "Epoch.*mixedRid" \
+    -f 1 -wi 1 -i 1 -r 3s -w 3s -p recordCount=2000 -tg 2,1
+```
+
+Evidence reported per run:
+
+- **`readAnomalies` / `writeConflicts`** — JMH secondary metrics (aux counters):
+  read-path exceptions swallowed by the harness and writer commit conflicts. On sound
+  baseline builds `readAnomalies` must be 0; on deliberately UNSOUND epoch-off
+  measurement builds (local-only patch, never committed) non-zero values are the
+  expected unsoundness evidence.
+- **`[epoch-stats]` lines** — per-iteration deltas of the optimistic-read diagnostic
+  counters (`fallbacks` / `stampAborts` / `epochAborts`) from
+  `com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadStats`, printed to
+  stdout next to JMH's iteration output. `epochAborts` shows how often the storage-wide
+  epoch (rather than per-page stamps) forced readers onto the pinned fallback path.
+
+Configuration: `-Depoch.db.path=./target/epoch-bench-db` — database directory (wiped and
+re-created every trial), `-p recordCount=N` — dataset size.
+
 ## Database Tool
 
 The `LdbcDatabaseTool` utility supports export/import and backup/restore operations on the benchmark database. This is useful for pre-building a database snapshot to share or for migrating between machines.

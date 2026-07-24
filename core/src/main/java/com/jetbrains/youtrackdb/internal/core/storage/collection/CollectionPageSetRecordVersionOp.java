@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -91,5 +92,15 @@ public final class CollectionPageSetRecordVersionOp extends PageOperation {
   @Override
   public String toString() {
     return toString("position=" + position + ", version=" + version);
+  }
+
+  /**
+   * {@link ApplyTier#PAYLOAD}: In-place version bump of an already-published record with unchanged
+   * content; page-atomic old-or-new, and old-version readers are served by the heap snapshot index
+   * (non-establishing per SC-P).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PAYLOAD;
   }
 }

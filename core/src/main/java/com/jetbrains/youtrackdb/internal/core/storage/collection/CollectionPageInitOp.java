@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -30,5 +31,15 @@ public final class CollectionPageInitOp extends PageOperation {
   @Override
   public int getId() {
     return RECORD_ID;
+  }
+
+  /**
+   * {@link ApplyTier#NEW}: Data-page initialization happens only on freshly allocated pages
+   * (allocateNewPage); published pages are never re-initialized, so a concurrent reader can never
+   * observe this write on a reachable page.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.NEW;
   }
 }

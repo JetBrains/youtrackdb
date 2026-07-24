@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -30,5 +31,15 @@ public final class CollectionPageDoDefragmentationOp extends PageOperation {
   @Override
   public int getId() {
     return RECORD_ID;
+  }
+
+  /**
+   * {@link ApplyTier#RETIRE}: Page-internal compaction of freed slots, produced exclusively in
+   * records-GC commits and always page-atomic with same-page record deletions (max-merge yields
+   * RETIRE either way); slot-index record identity keeps live references stable.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.RETIRE;
   }
 }

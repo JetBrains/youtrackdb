@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -116,5 +117,15 @@ public final class BTreeSVBucketV3UpdateKeyOp extends PageOperation {
     return toString("entryIndex=" + entryIndex
         + ", newKeyLen=" + (newKey != null ? newKey.length : "null")
         + ", oldKeySize=" + oldKeySize);
+  }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Never produced by live code: called only from the rotate paths of
+   * the unreachable balanceLeafNodeAfterItemDelete chain. UNORDERED forces the epoch-bracket
+   * fallback should the balance path ever be revived.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
   }
 }

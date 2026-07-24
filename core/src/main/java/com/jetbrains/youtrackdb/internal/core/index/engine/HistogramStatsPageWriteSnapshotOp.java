@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -197,5 +198,15 @@ public final class HistogramStatsPageWriteSnapshotOp extends PageOperation {
         + ", totalCount=" + totalCount
         + ", histDataLen=" + (histData != null ? histData.length : "null")
         + ", inlineHllLen=" + (inlineHllData != null ? inlineHllData.length : "null"));
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Single-page atomic snapshot republish of page 0, which carries the
+   * hllOnPage1 flag — the pointer to the page-1 HLL payload — and therefore must apply after that
+   * PAYLOAD write.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

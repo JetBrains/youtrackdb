@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -111,5 +112,14 @@ public final class BTreeSVBucketV3UpdateValueOp extends PageOperation {
     return toString("index=" + index
         + ", valueLen=" + (value != null ? value.length : "null")
         + ", keyLength=" + keyLength);
+  }
+
+  /**
+   * {@link ApplyTier#PAYLOAD}: In-place same-size value update of an already-published entry; page-
+   * atomic old-or-new (non-establishing per SC-P).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PAYLOAD;
   }
 }

@@ -118,7 +118,7 @@ public class EngineLocalPaginated extends EngineAbstract {
     // Otherwise, a concurrent thread in onEmbeddedFactoryInit() may see
     // isRunning()==true and skip startup, then call createStorage() while
     // readCache is still null.
-    readCache = new LockFreeReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
+    readCache = new LockFreeReadCache(diskCacheSize, pageSize);
     assert readCache != null : "readCache must be initialized before marking engine as running";
     super.startup();
   }

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -124,5 +125,16 @@ public final class BTreeSVBucketV3AddNonLeafEntryOp extends PageOperation {
         + ", leftChild=" + leftChildIndex
         + ", rightChild=" + newRightChildIndex
         + ", keyLen=" + (key != null ? key.length : "null"));
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Parent pointer insert — the primary publish that makes a new split
+   * child reachable (SC-R). Caution: in a cascading split this op can land on a parent page that
+   * also shrinks, lifting the merged tier to RETIRE; that co-location must be caught by the golden-
+   * table tier-inequality check (Tracks 04/06).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

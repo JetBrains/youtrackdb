@@ -61,6 +61,15 @@ public abstract class PageOperation extends AbstractPageWALRecord {
   }
 
   /**
+   * Returns the semantic apply tier of this operation type for tier-ordered commit application
+   * (YTDB-1203). The tier is a static property of the operation type, declared per class and
+   * audited via the golden tier-table file; see {@link ApplyTier} for the tier contract and the
+   * side conditions the classification upholds. Tier accumulation, NEW-force, and the sorted
+   * apply loop land in Track 04.
+   */
+  public abstract ApplyTier applyTier();
+
+  /**
    * Replays this operation on the given page during crash recovery. The page is constructed with
    * {@code changes == null} (direct buffer access), so all mutations go straight to the page
    * buffer. Implementations must call the same DurablePage subclass methods used during normal

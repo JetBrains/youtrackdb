@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -87,5 +88,14 @@ public final class HistogramStatsPageWriteHllToPage1Op extends PageOperation {
   @Override
   public String toString() {
     return toString("hllDataLen=" + (hllData != null ? hllData.length : "null"));
+  }
+
+  /**
+   * {@link ApplyTier#PAYLOAD}: Establishes the page-1 HLL content targeted by the same commit's
+   * page-0 snapshot publish (SC-P); the first spill allocates page 1 and is NEW-forced.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PAYLOAD;
   }
 }

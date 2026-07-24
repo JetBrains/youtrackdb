@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -114,5 +115,14 @@ public final class BTreeSVBucketV3RemoveNonLeafEntryOp extends PageOperation {
     return toString("entryIndex=" + entryIndex
         + ", keyLen=" + (key != null ? key.length : "null")
         + ", removeLeft=" + removeLeftChildPointer);
+  }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Never produced by live code: all call sites sit in the dead
+   * merge/rotate chain reachable only from the caller-less balanceLeafNodeAfterItemDelete.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
   }
 }

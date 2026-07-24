@@ -65,7 +65,7 @@ public class LockFreeReadCacheBatchingTest {
     bufferPool = new ByteBufferPool(PAGE_SIZE, allocator, 256);
     // 1024 pages = 4 MB cache
     long maxMemory = 1024L * PAGE_SIZE;
-    readCache = new LockFreeReadCache(bufferPool, maxMemory, PAGE_SIZE);
+    readCache = new LockFreeReadCache(maxMemory, PAGE_SIZE);
     writeCache = new MockedWriteCache(bufferPool);
   }
 

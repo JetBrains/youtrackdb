@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -105,5 +106,14 @@ public final class FreeSpaceMapPageUpdateOp extends PageOperation {
   @Override
   public String toString() {
     return toString("fsmPageIndex=" + fsmPageIndex + ", freeSpace=" + freeSpace);
+  }
+
+  /**
+   * {@link ApplyTier#GATE}: Free-space bookkeeping navigated only by the allocator under the
+   * component exclusive lock; never on a reader path.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.GATE;
   }
 }

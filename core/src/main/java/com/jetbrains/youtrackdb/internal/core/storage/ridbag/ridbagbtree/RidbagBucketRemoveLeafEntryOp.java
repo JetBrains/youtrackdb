@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -102,5 +103,14 @@ public final class RidbagBucketRemoveLeafEntryOp extends PageOperation {
   public String toString() {
     return toString("entryIndex=" + entryIndex
         + ", keySize=" + keySize + ", valueSize=" + valueSize);
+  }
+
+  /**
+   * {@link ApplyTier#RETIRE}: Removes a published leaf entry (remove and size-changing update
+   * paths); retire-last, must apply after all same-commit publishes.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.RETIRE;
   }
 }

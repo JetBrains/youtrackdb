@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -38,5 +39,13 @@ public final class DirtyPageBitSetPageInitOp extends PageOperation {
   @Override
   public String toString() {
     return toString("");
+  }
+
+  /**
+   * {@link ApplyTier#NEW}: Dirty-page bit-set pages are initialized only when freshly allocated.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.NEW;
   }
 }

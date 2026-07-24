@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v
 
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -98,5 +99,17 @@ public final class BTreeMVNullBucketV2RemoveValueOp extends PageOperation {
   public String toString() {
     return toString("collectionId=" + collectionId
         + ", collectionPosition=" + collectionPosition);
+  }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Legacy-dead operation of the sbtree multivalue v2 format: no live
+   * tree implementation exists (BTreeMultiValueIndexEngine wraps BTree v3; the page wrappers are
+   * referenced outside the package only by the WAL registry), so this op is never produced. It is
+   * registered solely so recovery can deserialize historical WAL records; any commit containing it
+   * takes the epoch-bracket fallback.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
   }
 }

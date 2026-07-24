@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -116,5 +117,16 @@ public final class RidbagBucketAddLeafEntryOp extends PageOperation {
     return toString("index=" + index
         + ", keyLen=" + (serializedKey != null ? serializedKey.length : "null")
         + ", valLen=" + (serializedValue != null ? serializedValue.length : "null"));
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Insert into a reachable leaf is a single-page atomic publish of the
+   * entry; on fresh split children the NEW-force override applies. For size-changing updates this
+   * publishes the reinserted copy (SC-R against the paired leaf-entry removal, page-atomic when
+   * both land on one page).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

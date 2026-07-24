@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -84,5 +85,14 @@ public final class PaginatedCollectionStateV2SetApproxRecordsCountOp extends Pag
   @Override
   public String toString() {
     return toString("count=" + count);
+  }
+
+  /**
+   * {@link ApplyTier#GATE}: Scalar statistic read as a single-page value — old-or-new either way;
+   * applied with the other end-of-commit bookkeeping.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.GATE;
   }
 }

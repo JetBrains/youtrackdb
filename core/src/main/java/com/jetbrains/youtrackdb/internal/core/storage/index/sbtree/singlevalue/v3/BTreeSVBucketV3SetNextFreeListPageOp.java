@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -84,5 +85,15 @@ public final class BTreeSVBucketV3SetNextFreeListPageOp extends PageOperation {
   @Override
   public String toString() {
     return toString("nextFreeListPage=" + nextFreeListPage);
+  }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Never produced by live code: written only by the dead
+   * addToFreeList path. UNORDERED forces the epoch-bracket fallback should free-list maintenance
+   * ever be revived.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
   }
 }

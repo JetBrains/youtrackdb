@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -83,5 +84,15 @@ public final class BTreeSVBucketV3SetRightSiblingOp extends PageOperation {
   @Override
   public String toString() {
     return toString("siblingPageIndex=" + siblingPageIndex);
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Forward-scan route redirect; in a split it is always page-atomic
+   * with the same leaf's shrink (merged tier RETIRE), and on fresh siblings the NEW-force override
+   * applies.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

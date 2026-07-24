@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -94,5 +95,15 @@ public final class CollectionPageDeleteRecordOp extends PageOperation {
   public String toString() {
     return toString("position=" + position
         + ", preserveFreeListPointer=" + preserveFreeListPointer);
+  }
+
+  /**
+   * {@link ApplyTier#RETIRE}: Physically frees dead-version record slots — removes reader-visible
+   * content, so it must apply after all same-commit publishes (retire-last). Produced only by
+   * dedicated per-page records-GC commits.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.RETIRE;
   }
 }

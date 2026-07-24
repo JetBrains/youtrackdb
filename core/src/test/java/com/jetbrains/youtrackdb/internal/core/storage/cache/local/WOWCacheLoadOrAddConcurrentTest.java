@@ -201,7 +201,7 @@ public class WOWCacheLoadOrAddConcurrentTest {
             false,
             asyncFileExecutor);
     wowCache.loadRegisteredFiles();
-    readCache = new LockFreeReadCache(bufferPool, READ_CACHE_MAX_MEMORY, PAGE_SIZE);
+    readCache = new LockFreeReadCache(READ_CACHE_MAX_MEMORY, PAGE_SIZE);
   }
 
   @After

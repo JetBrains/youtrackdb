@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -88,5 +89,17 @@ public final class SBTreeNullBucketV2SetValueOp extends PageOperation {
   @Override
   public String toString() {
     return toString("valueLen=" + (value != null ? value.length : "null"));
+  }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Legacy-dead operation of the sbtree local v2 format: no live tree
+   * implementation exists (the page wrappers are referenced outside the package only by the WAL
+   * registry and are constructed only by op redo), so this op is never produced. It is registered
+   * solely so recovery can deserialize historical WAL records; any commit containing it takes the
+   * epoch-bracket fallback.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
   }
 }

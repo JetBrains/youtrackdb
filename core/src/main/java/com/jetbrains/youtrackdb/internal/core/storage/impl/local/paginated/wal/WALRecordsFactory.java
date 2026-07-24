@@ -171,6 +171,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.c
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import net.jpountz.lz4.LZ4Factory;
 
@@ -456,5 +458,23 @@ public final class WALRecordsFactory {
           "WAL record ID " + id + " is out of range [0, " + ID_TABLE_SIZE + ")");
     }
     idToTypeTable.set(id, type);
+  }
+
+  /**
+   * Returns a snapshot of the dynamically registered WAL record types, keyed by record ID.
+   * Package-private on purpose: it exists for the apply-tier governance test
+   * ({@code ApplyTierGoldenTableTest}), which enumerates the classes registered by
+   * {@link PageOperationRegistry} — a compile-time-safe alternative to reflecting into the
+   * private lookup table.
+   */
+  Map<Integer, Class<?>> registeredRecordTypes() {
+    final var snapshot = new LinkedHashMap<Integer, Class<?>>();
+    for (var id = 0; id < ID_TABLE_SIZE; id++) {
+      final var type = idToTypeTable.get(id);
+      if (type != null) {
+        snapshot.put(id, type);
+      }
+    }
+    return snapshot;
   }
 }

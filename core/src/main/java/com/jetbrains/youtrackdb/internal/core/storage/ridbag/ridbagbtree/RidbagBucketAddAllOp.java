@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -111,5 +112,14 @@ public final class RidbagBucketAddAllOp extends PageOperation {
   @Override
   public String toString() {
     return toString("entries=" + (rawEntries != null ? rawEntries.size() : "null"));
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Bulk entry publish; occurs on freshly allocated split children (NEW-
+   * forced) or page-atomically with the same page's shrink during the in-place GC rebuild.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

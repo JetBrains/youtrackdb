@@ -50,7 +50,7 @@ public class LockFreeReadCacheFileOpsTest {
   public void setUp() {
     allocator = new DirectMemoryAllocator();
     bufferPool = new ByteBufferPool(PAGE_SIZE, allocator, 256);
-    readCache = new LockFreeReadCache(bufferPool, 1024L * PAGE_SIZE, PAGE_SIZE);
+    readCache = new LockFreeReadCache(1024L * PAGE_SIZE, PAGE_SIZE);
     writeCache = new TrackingWriteCache(bufferPool);
   }
 

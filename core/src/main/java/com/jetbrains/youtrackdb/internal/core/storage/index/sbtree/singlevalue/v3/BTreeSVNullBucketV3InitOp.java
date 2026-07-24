@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -36,5 +37,14 @@ public final class BTreeSVNullBucketV3InitOp extends PageOperation {
   @Override
   public String toString() {
     return toString("");
+  }
+
+  /**
+   * {@link ApplyTier#NEW}: The null bucket is created only on the freshly allocated first page of
+   * the null-bucket file.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.NEW;
   }
 }

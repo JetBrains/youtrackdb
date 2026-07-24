@@ -113,9 +113,9 @@ public final class PageOperationRegistry {
    * Registers all known {@link PageOperation} subclasses with the given factory. Each type is
    * registered with its unique WAL record type ID (see {@link WALRecordTypes}).
    *
-   * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238),
-   * Track 6 types (IDs 239-263), Track 7a types (IDs 264-278), and Track 7b types
-   * (IDs 279-295) — 95 types total:
+   * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238 plus
+   * the later addition 296), Track 6 types (IDs 239-263), Track 7a types (IDs 264-278), and
+   * Track 7b types (IDs 279-295) — 96 types total:
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -123,7 +123,7 @@ public final class PageOperationRegistry {
    *   <li>FreeSpaceMapPage (2 ops)</li>
    *   <li>DirtyPageBitSetPage (3 ops)</li>
    *   <li>MapEntryPoint v2 (1 op)</li>
-   *   <li>CellBTreeSingleValueEntryPointV3 (4 ops)</li>
+   *   <li>CellBTreeSingleValueEntryPointV3 (5 ops)</li>
    *   <li>CellBTreeSingleValueV3NullBucket (3 ops)</li>
    *   <li>CellBTreeSingleValueBucketV3 (13 ops: init, switchType, siblings, freeList,
    *       updateValue, add/remove leaf/nonLeaf, updateKey, addAll, shrink)</li>

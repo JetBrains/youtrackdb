@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -84,5 +85,16 @@ public final class BTreeSVEntryPointV3SetFreeListHeadOp extends PageOperation {
   @Override
   public String toString() {
     return toString("freeListHead=" + freeListHead);
+  }
+
+  /**
+   * {@link ApplyTier#UNORDERED}: Never produced by live code: written only by the dead
+   * addToFreeList path (the balance/merge chain has no callers) and by the free-list pop that
+   * cannot fire because the list is never populated. UNORDERED forces the epoch-bracket fallback
+   * should a B-tree GC revival ever produce it.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.UNORDERED;
   }
 }

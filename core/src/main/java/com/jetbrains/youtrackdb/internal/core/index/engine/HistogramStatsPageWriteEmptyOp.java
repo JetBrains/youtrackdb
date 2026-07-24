@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -82,5 +83,15 @@ public final class HistogramStatsPageWriteEmptyOp extends PageOperation {
   @Override
   public String toString() {
     return toString("serializerId=" + serializerId);
+  }
+
+  /**
+   * {@link ApplyTier#PUBLISH}: Single-page atomic republish of the empty statistics state (fresh-
+   * file creation is NEW-forced; resetOnClear rewrites published page 0). Histogram pages are read
+   * only via pinned reads today, so the tier is defense-in-depth.
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.PUBLISH;
   }
 }

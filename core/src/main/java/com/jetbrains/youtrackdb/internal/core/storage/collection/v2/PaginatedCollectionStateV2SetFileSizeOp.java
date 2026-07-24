@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.ApplyTier;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -88,5 +89,16 @@ public final class PaginatedCollectionStateV2SetFileSizeOp extends PageOperation
   @Override
   public String toString() {
     return toString("size=" + size);
+  }
+
+  /**
+   * {@link ApplyTier#GATE}: End-of-commit allocator bookkeeping: the logical data-page counter is
+   * read only at open/recovery (free-space-map rebuild bound, orphan truncation) and by the
+   * allocator under the component exclusive lock — never navigated by concurrent readers. A
+   * widening exposes only commit-created data pages (G2-compatible).
+   */
+  @Override
+  public ApplyTier applyTier() {
+    return ApplyTier.GATE;
   }
 }
