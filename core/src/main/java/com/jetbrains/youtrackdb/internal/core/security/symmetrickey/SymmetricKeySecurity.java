@@ -134,10 +134,19 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.isAllowed(session, iAllowAll, iAllowOperation);
   }
 
-
   @Override
   public SecurityUserImpl create(DatabaseSessionEmbedded session) {
     return delegate.create(session);
+  }
+
+  @Override
+  public void createSecuritySchema(DatabaseSessionEmbedded session) {
+    delegate.createSecuritySchema(session);
+  }
+
+  @Override
+  public SecurityUserImpl insertDefaultSecurity(DatabaseSessionEmbedded session) {
+    return delegate.insertDefaultSecurity(session);
   }
 
   @Override
@@ -146,8 +155,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  @Nullable
-  public SecurityUser authenticate(DatabaseSessionEmbedded session, final Token authToken) {
+  @Nullable public SecurityUser authenticate(DatabaseSessionEmbedded session, final Token authToken) {
     return null;
   }
 
@@ -321,7 +329,8 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session,
+      String resource) {
     return delegate.isReadRestrictedBySecurityPolicy(session, resource);
   }
 

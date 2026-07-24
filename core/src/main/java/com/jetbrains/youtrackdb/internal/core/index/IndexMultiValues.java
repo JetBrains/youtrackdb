@@ -84,6 +84,12 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RID> backedStream;
     acquireSharedLock();
     try {
+      if (indexId < 0) {
+        // Unbuilt, transaction-deferred index: no engine yet, so a value lookup finds nothing.
+        // Returning an empty stream keeps get()/getRids() on a deferred handle NPE-free and
+        // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
+        return Stream.empty();
+      }
       Stream<RID> stream;
       while (true) {
         try {
@@ -121,7 +127,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
                 .map((rid) -> calculateTxIndexEntry(collatedKey, rid, indexChanges))
                 .filter(Objects::nonNull)
                 .map(RawPair::second),
-            txChanges.stream().map(Identifiable::getIdentity)), session);
+            txChanges.stream().map(Identifiable::getIdentity)),
+        session);
   }
 
   @Override
@@ -195,7 +202,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
                       fromInclusive,
                       toKey,
                       toInclusive, ascOrder, MultiValuesTransformer.INSTANCE,
-                      transaction.getAtomicOperation()), session);
+                      transaction.getAtomicOperation()),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -397,8 +405,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder), session);
   }
 
-  @Nullable
-  private Stream<RawPair<Object, RID>> txStramForKey(
+  @Nullable private Stream<RawPair<Object, RID>> txStramForKey(
       final FrontendTransactionIndexChanges indexChanges, Object key) {
     final var result = calculateTxValue(getCollatingValue(key), indexChanges);
     if (result != null) {
@@ -427,8 +434,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
   }
 
-  @Nullable
-  public static Set<Identifiable> calculateTxValue(
+  @Nullable public static Set<Identifiable> calculateTxValue(
       final Object key, FrontendTransactionIndexChanges indexChanges) {
     final List<Identifiable> result = new ArrayList<>();
     final var changesPerKey = indexChanges.getChangesPerKey(key);
@@ -460,6 +466,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
     acquireSharedLock();
     long tot;
     try {
+      if (indexId < 0) {
+        // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
+        return 0;
+      }
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -496,7 +506,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
                   this, storage.getIndexStream(indexId, MultiValuesTransformer.INSTANCE,
-                      transaction.getAtomicOperation()), session);
+                      transaction.getAtomicOperation()),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -545,8 +556,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         keyComparator);
   }
 
-  @Nullable
-  private RawPair<Object, RID> calculateTxIndexEntry(
+  @Nullable private RawPair<Object, RID> calculateTxIndexEntry(
       Object key, final RID backendValue, FrontendTransactionIndexChanges indexChanges) {
     key = getCollatingValue(key);
     final var changesPerKey = indexChanges.getChangesPerKey(key);

@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBagDelegate;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -53,19 +54,49 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   @Nonnull
   private final DatabaseSessionEmbedded session;
 
-
   public EntityLinkSetImpl(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
     initThresholds(session);
     init();
   }
 
-
   public EntityLinkSetImpl(final RecordElement sourceRecord) {
-    this(sourceRecord.getSession());
+    this.session = sourceRecord.getSession();
+    initThresholds(session);
+    // Metadata-collection records keep their link sets EMBEDDED regardless of the conversion
+    // threshold — see isOwnedByMetadataRecord() for the rationale.
+    if (isMetadataRecord(sourceRecord)) {
+      delegate = new EmbeddedLinkBag(session, 1);
+    } else {
+      init();
+    }
     delegate.setOwner(sourceRecord);
   }
 
+  /**
+   * Whether the given owner is a record of the {@code internal} metadata collection (the schema
+   * root and per-class records, the index-manager root and per-index records). Their link sets
+   * are pinned EMBEDDED: (1) they are mutated INSIDE the schema-carry commit window (the
+   * commit's {@code toStream} / index enrollment), where a threshold-triggered conversion to a
+   * btree-backed bag happens mid-serialization — after the commit gathered its working set and
+   * link-bag locks — so the converted bag's btree content misses the commit and the linked
+   * records silently vanish from the re-parsed schema; (2) the schema must parse at open
+   * without depending on link-bag btree components; (3) their cardinality is bounded by the
+   * class/index count, so the embedded form is appropriate.
+   */
+  private static boolean isMetadataRecord(RecordElement owner) {
+    return owner instanceof DBRecord record
+        && record.getIdentity().getCollectionId() == MetadataDefault.COLLECTION_INTERNAL_ID;
+  }
+
+  /**
+   * The owner-side twin of {@link #isMetadataRecord} for the conversion check: a set
+   * DESERIALIZED from a metadata record's bytes takes the delegate the bytes declare, so the
+   * threshold conversion must also be suppressed on later mutations of such a set.
+   */
+  private boolean isOwnedByMetadataRecord() {
+    return delegate != null && isMetadataRecord(delegate.getOwner());
+  }
 
   public EntityLinkSetImpl(RecordElement iSourceRecord, Collection<Identifiable> source) {
     this(iSourceRecord);
@@ -92,11 +123,9 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   }
 
   private void init() {
-    delegate = topThreshold >= 0 ?
-        new EmbeddedLinkBag(session, 1) :
-        new BTreeBasedLinkBag(session, 1);
+    delegate =
+        topThreshold >= 0 ? new EmbeddedLinkBag(session, 1) : new BTreeBasedLinkBag(session, 1);
   }
-
 
   @Override
   public void addInternal(Identifiable e) {
@@ -163,7 +192,6 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   public boolean add(@Nullable final Identifiable e) {
     return delegate.add(e.getIdentity());
   }
-
 
   @Override
   public void setDirty() {
@@ -258,7 +286,8 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   }
 
   @Override
-  public MultiValueChangeTimeLine<? extends Identifiable, ? extends Identifiable> getTransactionTimeLine() {
+  public MultiValueChangeTimeLine<? extends Identifiable, ? extends Identifiable>
+      getTransactionTimeLine() {
     return delegate.getTransactionTimeLine();
   }
 
@@ -285,7 +314,6 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     return delegate.contains(rid);
   }
 
-
   @Override
   public String toString() {
     return "LinkSet[" + delegate.size() + "]";
@@ -310,7 +338,8 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   public void checkAndConvert(FrontendTransaction transaction) {
     if (isEmbedded()
         && session.getBTreeCollectionManager() != null
-        && delegate.size() >= topThreshold) {
+        && delegate.size() >= topThreshold
+        && !isOwnedByMetadataRecord()) {
       convertToTree(transaction);
     } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
       convertToEmbedded(transaction);

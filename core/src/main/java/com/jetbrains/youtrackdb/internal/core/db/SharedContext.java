@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -23,11 +24,35 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 public class SharedContext extends ListenerManger<MetadataUpdateListener> {
+
+  /**
+   * Matches the names of the storage-birth blob collections ({@code $blob0..N-1}) created by
+   * {@link AbstractStorage} inside the storage-create atomic operation. Derived from the shared
+   * {@link MetadataDefault#BLOB_COLLECTION_NAME_PREFIX} constant the creator loop uses, so the
+   * two sides of the name contract cannot drift apart. Storage collection names are stored
+   * lower-cased, so no case folding is needed here.
+   */
+  private static final Pattern BLOB_COLLECTION_NAME_PATTERN =
+      Pattern.compile(Pattern.quote(MetadataDefault.BLOB_COLLECTION_NAME_PREFIX) + "\\d+");
+
+  /**
+   * Storage-configuration property written as the LAST act of {@link #create}: its presence
+   * means "the genesis sequence ran to completion" — NOT "users exist" (it is written for the
+   * system database and under {@code CREATE_DEFAULT_USERS=false} too). The open path refuses a
+   * database that lacks it (a half-genesis crash corpse must be discarded and re-created, never
+   * silently reopened); {@code drop()} tolerates the refusal so the discard itself always works.
+   * The marker write is its own durability event, so a crash after a completed genesis but
+   * before the marker is durable yields an accepted fail-closed FALSE refusal (design W9a).
+   */
+  public static final String GENESIS_COMPLETED_PROPERTY = "genesisCompleted";
+
   protected YouTrackDBInternalEmbedded youtrackDB;
   protected AbstractStorage storage;
   protected SchemaShared schema;
@@ -46,6 +71,15 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected Map<String, Object> resources;
   protected StringCache stringCache;
   protected IndexManagerEmbedded indexManager;
+
+  /**
+   * The storage-scoped serialization point for schema- and index-changing transactions. One per
+   * storage, shared by every session on it: a schema transaction engages it on its first schema or
+   * index write and a second schema transaction blocks on it (single-writer by locking). It is not
+   * re-created across {@link #reInit}/{@link #close} because it serializes live in-flight schema
+   * transactions, which do not span a storage re-init.
+   */
+  private final MetadataWriteMutex metadataWriteMutex = new MetadataWriteMutex();
 
   private final ReentrantLock lock = new ReentrantLock();
 
@@ -173,28 +207,65 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   public void create(DatabaseSessionEmbedded session) {
     lock.lock();
     try {
+      // The root shells stay PRE-transaction (review CQ15): both creates must run as their own
+      // top-level commits — joined into an outer transaction, the deferred commit would leave
+      // their ChangeableRecordIds provisional when set{Schema,IndexMgr}RecordId stringifies
+      // them, persisting a provisional record id into the storage configuration.
       schema.create(session);
       indexManager.create(session);
-      security.create(session);
-      FunctionLibraryImpl.create(session);
-      SequenceLibraryImpl.create(session);
-      SchedulerImpl.create(session);
-      schema.forceSnapshot();
 
-      // CREATE BASE VERTEX AND EDGE CLASSES
-      schema.createClass(session, Entity.DEFAULT_CLASS_NAME);
-      schema.createClass(session, "V");
-      schema.createClass(session, "E");
+      // PHASE 1 — ONE schema transaction (D18/Q-G1) spanning every internal-class creator, the
+      // O/V/E base classes and the blob registration. Every mutation routes through the
+      // session's schema proxy (resolveForWrite → the tx-local schema copy), so the transaction
+      // engages the metadata-write mutex on its FIRST schema write (no contention at genesis —
+      // the factory monitor spans the whole create) and commits once through the schema-carry
+      // path: per-class records + root payload written, every index engine (including
+      // OUser.name) BUILT at commit, and the commit owns the single trailing forceSnapshot —
+      // the legacy mid-create forceSnapshot is gone with the per-creator self-commits.
+      session.executeInTx(transaction -> {
+        security.createSecuritySchema(session);
+        FunctionLibraryImpl.create(session);
+        SequenceLibraryImpl.create(session);
+        SchedulerImpl.create(session);
 
-      var blobCollectionsCount = storage.getContextConfiguration()
-          .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
+        // CREATE BASE VERTEX AND EDGE CLASSES
+        var sessionSchema = session.getMetadata().getSchema();
+        sessionSchema.createClass(Entity.DEFAULT_CLASS_NAME);
+        sessionSchema.createClass("V");
+        sessionSchema.createClass("E");
 
-      for (var i = 0; i < blobCollectionsCount; i++) {
-        var blobCollectionId = session.addCollection("$blob" + i);
-        schema.addBlobCollection(session, blobCollectionId);
-      }
+        // The $blob<i> collections physically exist since storage birth (created by
+        // AbstractStorage inside the storage-create atomic operation), so genesis only
+        // REGISTERS them in the schema's blob-collection set — inside this transaction a pure
+        // tx-local root-payload write picked up by the commit's root diff. The registration
+        // routes through the session's schema proxy (review CS47: the direct SchemaShared call
+        // would self-commit and throws under an active transaction). The storage's actual
+        // $blob* collections are enumerated by name — deliberately NOT re-reading
+        // STORAGE_BLOB_COLLECTIONS_COUNT: a second config read routes through the
+        // process-global mutable fallback and could observe a different value than storage
+        // birth did, registering bogus ids or leaving physical blob collections unregistered.
+        // The count is frozen at storage birth by construction. The names are snapshotted
+        // defensively (review CQ14): getCollectionNames() returns a live view of the storage's
+        // collection map — harmless today (a tx-local registration writes no record), but the
+        // copy keeps any future write-path change from turning genesis into a
+        // ConcurrentModificationException.
+        for (var collectionName : List.copyOf(storage.getCollectionNames())) {
+          if (BLOB_COLLECTION_NAME_PATTERN.matcher(collectionName).matches()) {
+            sessionSchema.addBlobCollection(storage.getCollectionIdByName(collectionName));
+          }
+        }
+      });
 
-      // create geospatial classes
+      // PHASE 2 — ONE data transaction (D18/Q-G2): the default roles and users are inserted
+      // into the now-committed classes; UNIQUE enforcement on the user inserts resolves against
+      // the real OUser.name engine built by the phase-1 commit (I-U4: schema built and
+      // committed before any user insert; the mutex is NOT engaged here — phase 2 never
+      // touches schema). The system-database skip and CREATE_DEFAULT_USERS handling live
+      // inside, as does the trailing predicate-security optimization init.
+      security.insertDefaultSecurity(session);
+
+      // create geospatial classes — stays outside the schema transaction (the lucene module is
+      // excluded from the build, so this is a no-op in practice)
       try {
         var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
             "LUCENE");
@@ -204,6 +275,12 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       } catch (IndexException x) {
         // the index does not exist
       }
+
+      // The genesis-completion marker is the LAST act of the sequence (design §A1/CS35): its
+      // own durable write, after the phase-2 commit. The open path refuses a database without
+      // it, replacing (and strictly stronger than) the old "schema is empty" open-time
+      // breadcrumb the bootstrap-valid root silenced.
+      storage.setProperty(GENESIS_COMPLETED_PROPERTY, "true");
 
       loaded = true;
     } finally {
@@ -278,6 +355,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public IndexManagerEmbedded getIndexManager() {
     return indexManager;
+  }
+
+  public MetadataWriteMutex getMetadataWriteMutex() {
+    return metadataWriteMutex;
   }
 
   public synchronized <T> T getResource(final String name, final Callable<T> factory) {

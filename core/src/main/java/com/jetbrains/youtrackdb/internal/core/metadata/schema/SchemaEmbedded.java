@@ -208,6 +208,22 @@ public class SchemaEmbedded extends SchemaShared {
 
       addCollectionClassMap(cls);
 
+      if (txLocal && !session.isSeedingTxSchemaState()) {
+        // Transaction-local create: only the tx-local schema metadata changed now. Record the
+        // created class so the commit knows to write its new per-class record (the structural
+        // collection/index allocation is reconciled at commit). The seeding guard is load-bearing:
+        // copyForTx -> fromStream re-creates every committed class through this same path while
+        // seeding the tx-local copy, so without the guard the seed would dump the entire committed
+        // schema into the changed-class set and re-enter the mutex engage. This mirrors the seeding
+        // guard the index-manager membership site already applies.
+        var txState = session.getTxSchemaState();
+        if (txState == null) {
+          throw new IllegalStateException(
+              "a tx-local create must run with a seeded tx-local schema state");
+        }
+        txState.markClassChanged(className);
+      }
+
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -337,10 +353,41 @@ public class SchemaEmbedded extends SchemaShared {
       minimumCollections = 1;
     }
 
+    // Inside a schema transaction a create does not allocate a real storage collection: that is the
+    // eager, self-committing allocation the metadata-first inversion removes, because it leaves a
+    // stray collection on disk if the transaction rolls back. Instead the class carries a provisional
+    // id (<= -2) the commit resolves to a real id once it creates the real collection inside the
+    // commit's own atomic operation. The seeding guard mirrors the create-path recording guard in
+    // createClassInternal: copyForTx -> fromStream re-creates every committed class through this same
+    // path while seeding the tx-local copy, and a committed class already owns real collection ids,
+    // so the seed must take the eager branch (it loads existing collections, it does not allocate).
+    final boolean provisional = txLocal && !session.isSeedingTxSchemaState();
+    final TxSchemaState txState;
+    if (provisional) {
+      txState = session.getTxSchemaState();
+      if (txState == null) {
+        throw new IllegalStateException(
+            "a tx-local collection allocation must run with a seeded tx-local schema state");
+      }
+    } else {
+      txState = null;
+    }
+
     var collectionIds = new int[minimumCollections];
     for (var i = 0; i < minimumCollections; i++) {
-      var collectionName = lowerName + "_" + nextCollectionIndex();
-      collectionIds[i] = session.addCollection(collectionName);
+      // The counter-only name (c_<counter>, no class-name component) still advances the tx-local
+      // collection counter so a single transaction creating several classes generates distinct
+      // names; the commit uses these names when it creates the real collections. The name is
+      // computed even on the provisional branch to keep the counter in step with the eager branch.
+      var collectionName = nextCollectionName(session);
+      if (provisional) {
+        // Carry the generated name with the provisional id: the commit creates the real collection
+        // under this name, and the tx-local counter has advanced past it by commit time, so the
+        // commit cannot regenerate it.
+        collectionIds[i] = txState.allocateProvisionalCollectionId(collectionName);
+      } else {
+        collectionIds[i] = session.addCollection(collectionName);
+      }
     }
 
     return collectionIds;
@@ -352,7 +399,9 @@ public class SchemaEmbedded extends SchemaShared {
     }
 
     for (var collectionId : iCollectionIds) {
-      if (collectionId < 0) {
+      // A provisional id (<= -2) is validated like a real id — it must not already belong to a
+      // class in the in-memory reverse map. Only the abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         continue;
       }
 
@@ -370,7 +419,11 @@ public class SchemaEmbedded extends SchemaShared {
   public void dropClass(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
-      if (session.getTransactionInternal().isActive()) {
+      // Outside the transaction-local path a class drop is not transactional and still throws on an
+      // active transaction. On the transaction-local copy the drop rides the user transaction: the
+      // metadata removal lands in the private copy and the structural reconciliation (collection
+      // and engine deletion) is computed and applied at commit.
+      if (!txLocal && session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 
@@ -398,9 +451,13 @@ public class SchemaEmbedded extends SchemaShared {
 
       doDropClass(session, className);
 
-      var localCache = session.getLocalCache();
-      for (var collectionId : cls.getCollectionIds()) {
-        localCache.freeCollection(collectionId);
+      if (!txLocal) {
+        // The shared local-collection cache is only freed on the legacy top-level path; a tx-local
+        // drop frees its collections at commit, alongside the structural reconciliation.
+        var localCache = session.getLocalCache();
+        for (var collectionId : cls.getCollectionIds()) {
+          localCache.freeCollection(collectionId);
+        }
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -414,7 +471,7 @@ public class SchemaEmbedded extends SchemaShared {
   protected void dropClassInternal(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
-      if (session.getTransactionInternal().isActive()) {
+      if (!txLocal && session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 
@@ -445,13 +502,58 @@ public class SchemaEmbedded extends SchemaShared {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
       }
-      for (var id : cls.getCollectionIds()) {
-        if (id != -1) {
-          deleteCollection(session, id);
-        }
-      }
 
-      dropClassIndexes(session, cls);
+      if (txLocal) {
+        // Transaction-local drop: only the schema metadata changes now. The collection and index
+        // deletion is structural reconciliation that the commit computes from the committed-vs-
+        // tx-local collection-id difference and applies inside the commit's own atomic operation,
+        // so a rollback leaves the shared structure and the indexes' collection membership
+        // untouched. Record the dropped class so the commit knows to delete its per-class record.
+        var txState = session.getTxSchemaState();
+        if (txState == null) {
+          throw new IllegalStateException(
+              "a tx-local drop must run with a seeded tx-local schema state");
+        }
+        txState.markClassChanged(className);
+        // Drop the class's indexes with it, mirroring the non-transactional branch's eager
+        // dropClassIndexes: each index associated with the dropped class in the transaction's
+        // view is recorded into the overlay's drop category (recordDropped cancels a pending
+        // same-tx create and records a committed drop), and the existing commit machinery then
+        // deletes the engine, the files, the entity record, and the shared-registry entries.
+        // Without this recording a dropped class's committed indexes survived the commit as
+        // fully registered orphans over deleted collections (a commit-reconciliation seam
+        // predating this recording), and a same-tx create-then-drop failed the whole commit
+        // trying to build an engine over
+        // the dropped class's collection. The overlay-aware getClassIndexes resolves the
+        // effective set — committed indexes (through the rename map when the class was renamed
+        // earlier in this transaction) plus tx-created handles minus already-dropped names —
+        // and must run BEFORE the recordClassDropped purge below, which removes the rename
+        // entry this resolution may need.
+        var indexManager = session.getSharedContext().getIndexManager();
+        var classIndexes = indexManager.getClassIndexes(session, className);
+        if (!classIndexes.isEmpty()) {
+          var overlayForDrops = txState.ensureIndexOverlay();
+          for (var index : classIndexes) {
+            overlayForDrops.recordDropped(index.getName());
+          }
+        }
+        // Keep the class-rename bookkeeping sound: a dropped class's rename entry must be
+        // purged and its committed name retired, or a later class recycling one of its names
+        // would wrongly re-associate the dropped class's committed indexes at commit. Only an
+        // existing overlay needs the hook — with no overlay there are no renames to purge.
+        var overlay = txState.getIndexOverlay();
+        if (overlay != null) {
+          overlay.recordClassDropped(className);
+        }
+      } else {
+        for (var id : cls.getCollectionIds()) {
+          if (id != -1) {
+            deleteCollection(session, id);
+          }
+        }
+
+        dropClassIndexes(session, cls);
+      }
 
       classes.remove(className);
 
@@ -476,6 +578,11 @@ public class SchemaEmbedded extends SchemaShared {
   @Override
   protected SchemaClassImpl createClassInstance(String name) {
     return new SchemaClassEmbedded(this, name);
+  }
+
+  @Override
+  protected SchemaShared newInstanceForCopy() {
+    return new SchemaEmbedded();
   }
 
   private static void dropClassIndexes(DatabaseSessionEmbedded session, final SchemaClassImpl cls) {
@@ -503,7 +610,9 @@ public class SchemaEmbedded extends SchemaShared {
 
   private void removeCollectionClassMap(final SchemaClassImpl cls) {
     for (var collectionId : cls.getCollectionIds()) {
-      if (collectionId < 0) {
+      // Remove provisional ids too so a class created-then-dropped within the same transaction
+      // leaves no pending-real entry behind. Only the abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         continue;
       }
 
@@ -519,7 +628,9 @@ public class SchemaEmbedded extends SchemaShared {
       DatabaseSessionEmbedded session, final int collectionId, final SchemaClassImpl cls) {
     acquireSchemaWriteLock(session);
     try {
-      if (collectionId < 0) {
+      // A provisional id (<= -2) is registered like a real id in the in-memory reverse map; only the
+      // abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         return;
       }
 
@@ -543,7 +654,9 @@ public class SchemaEmbedded extends SchemaShared {
   void removeCollectionForClass(DatabaseSessionEmbedded session, int collectionId) {
     acquireSchemaWriteLock(session);
     try {
-      if (collectionId < 0) {
+      // A provisional id (<= -2) is removed from the in-memory reverse map like a real id; only the
+      // abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         return;
       }
 

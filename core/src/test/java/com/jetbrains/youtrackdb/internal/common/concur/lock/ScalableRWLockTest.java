@@ -1,13 +1,20 @@
 package com.jetbrains.youtrackdb.internal.common.concur.lock;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import org.junit.Test;
 
 /**
@@ -260,5 +267,654 @@ public class ScalableRWLockTest {
     writerThread.join(5_000);
     assertTrue("Writer should have acquired the lock after reader released it",
         writerAcquired.get());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // exclusiveLockWithAbort — the abort-predicate single-acquisition primitive
+  // ---------------------------------------------------------------------------------------------
+
+  /** Bounded spin until {@code thread} reports a parked state or the timeout elapses. */
+  private static Thread.State awaitParked(final Thread thread, final long timeoutMillis) {
+    final var deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+    var state = thread.getState();
+    while (System.nanoTime() < deadline) {
+      state = thread.getState();
+      if (state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING) {
+        return state;
+      }
+      Thread.onSpinWait();
+    }
+    return state;
+  }
+
+  /** Bounded spin until {@code condition} holds or the timeout elapses; returns the last value. */
+  private static boolean awaitCondition(
+      final BooleanSupplier condition, final long timeoutMillis) {
+    final var deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+    while (System.nanoTime() < deadline) {
+      if (condition.getAsBoolean()) {
+        return true;
+      }
+      Thread.onSpinWait();
+    }
+    return condition.getAsBoolean();
+  }
+
+  /**
+   * The no-abort path acquires the write bit once and returns true; release restores the lock for
+   * both readers and later writers, and the primitive is reusable on the same instance. This is
+   * the plain round-trip contract every other scenario builds on.
+   */
+  @Test(timeout = 30_000)
+  public void abortLockPlainRoundTripWithoutAbort() {
+    final var lock = new ScalableRWLock();
+    assertTrue("the no-abort acquisition must succeed",
+        lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(10)));
+    assertTrue("the write bit must be held after a successful acquisition", lock.isWriteLocked());
+    lock.exclusiveUnlock();
+    assertFalse("the write bit must be free after release", lock.isWriteLocked());
+
+    // The lock stays fully usable through the ordinary API and the primitive is reusable.
+    lock.sharedLock();
+    lock.sharedUnlock();
+    assertTrue("the primitive must be reusable after a full round trip",
+        lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(10)));
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * Abort while parked in phase 1 (queued behind another writer holding the bit): the waiter
+   * returns false promptly after the predicate flips, holds no state (the bit still belongs to
+   * the first writer), and the primitive is immediately reusable once the holder releases.
+   */
+  @Test(timeout = 30_000)
+  public void abortWhileQueuedBehindWriterReturnsFalsePromptly() throws Exception {
+    final var lock = new ScalableRWLock();
+    lock.exclusiveLock(); // the competing writer holds the bit for the whole phase-1 park
+    final var abort = new AtomicBoolean(false);
+    final var result = new AtomicReference<Boolean>();
+    final var waiter = new Thread(
+        () -> result.set(
+            lock.exclusiveLockWithAbort(abort::get, TimeUnit.MILLISECONDS.toNanos(5))));
+    waiter.setDaemon(true);
+    waiter.start();
+    try {
+      final var state = awaitParked(waiter, 5_000);
+      assertTrue("the waiter must park in the phase-1 timed acquire, observed state " + state,
+          state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+    } finally {
+      // Failure hygiene: the abort flag flips even when the park assertion fails, so the waiter
+      // never outlives the test re-arming its timed acquire forever.
+      abort.set(true);
+    }
+    waiter.join(5_000);
+    assertFalse("the aborted waiter must exit promptly (one poll granularity)", waiter.isAlive());
+    assertEquals("the aborted acquisition must return false", Boolean.FALSE, result.get());
+    assertTrue("the competing writer's bit must be untouched by the abort", lock.isWriteLocked());
+
+    lock.exclusiveUnlock();
+    // No residual writer-intent state: the primitive succeeds immediately afterwards.
+    assertTrue("the primitive must be reusable after a phase-1 abort",
+        lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(10)));
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * Abort during the phase-2 reader drain: the acquisition holds the write bit while a residual
+   * reader is still inside, the predicate flips, and the primitive must release the bit fully and
+   * return false — backed-off readers proceed (a fresh shared acquire succeeds) and no state is
+   * left behind.
+   */
+  @Test(timeout = 30_000)
+  public void abortDuringReaderDrainReleasesBitAndReadersProceed() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var readerIn = new CountDownLatch(1);
+    final var readerMayLeave = new CountDownLatch(1);
+    final var reader = new Thread(() -> {
+      lock.sharedLock();
+      readerIn.countDown();
+      try {
+        readerMayLeave.await();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } finally {
+        lock.sharedUnlock();
+      }
+    });
+    reader.setDaemon(true);
+    reader.start();
+
+    final var abort = new AtomicBoolean(false);
+    final var result = new AtomicReference<Boolean>();
+    try {
+      assertTrue("the residual reader must be inside", readerIn.await(5, TimeUnit.SECONDS));
+
+      final var writer = new Thread(
+          () -> result.set(
+              lock.exclusiveLockWithAbort(abort::get, TimeUnit.MILLISECONDS.toNanos(5))));
+      writer.setDaemon(true);
+      writer.start();
+      // The writer acquires the bit once and enters the drain spin against the parked reader.
+      assertTrue("the writer must hold the bit while draining the residual reader",
+          awaitCondition(lock::isWriteLocked, 5_000));
+
+      abort.set(true);
+      writer.join(5_000);
+      assertFalse("the aborted drain must exit promptly", writer.isAlive());
+      assertEquals("the aborted acquisition must return false", Boolean.FALSE, result.get());
+      assertFalse("the abort must release the write bit fully", lock.isWriteLocked());
+      // Readers proceed after the abort: a fresh shared acquire succeeds while the residual
+      // reader is still inside (no reader stranded, no lost wakeup — readers poll the released
+      // bit).
+      assertTrue("a fresh reader must acquire after the abort released the bit",
+          lock.sharedTryLock());
+      lock.sharedUnlock();
+    } finally {
+      // Failure hygiene: flip the flag and release the reader even when an assertion fails, so
+      // no helper thread outlives the test.
+      abort.set(true);
+      readerMayLeave.countDown();
+    }
+    reader.join(5_000);
+    assertFalse("the residual reader must finish", reader.isAlive());
+    // The lock is fully usable afterwards.
+    lock.exclusiveLock();
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * The acquisition-success-edge re-check: a predicate that turns true exactly at the success
+   * edge — after the bit is acquired and the (empty) drain completes, before the method returns —
+   * must abort, not report a spurious success. Deterministic: on a fresh lock with no registered
+   * readers the predicate is polled exactly twice (once in phase 1 before the acquire, once at
+   * the success-edge re-check), so a count-based predicate that turns true on the second call
+   * lands precisely on the edge.
+   */
+  @Test(timeout = 30_000)
+  public void abortAtAcquisitionSuccessEdgeReturnsFalse() {
+    final var lock = new ScalableRWLock();
+    final var calls = new AtomicInteger();
+    final var result = lock.exclusiveLockWithAbort(
+        () -> calls.incrementAndGet() >= 2, TimeUnit.MILLISECONDS.toNanos(10));
+    assertFalse("a predicate turning true at the success edge must abort the acquisition",
+        result);
+    assertEquals("the edge shape must poll exactly twice (phase-1 entry + success-edge re-check);"
+        + " a different count means the scenario drifted off the edge",
+        2, calls.get());
+    assertFalse("the success-edge abort must release the write bit", lock.isWriteLocked());
+    // Reusable immediately.
+    assertTrue(lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(10)));
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * Writer preference while the bit is held: from the moment the primitive acquires the write bit
+   * (even while still draining a residual reader), new readers are refused exactly as against
+   * {@code exclusiveLock()}, and they stay refused through the completed acquisition until the
+   * release. This is the single-acquisition admission-control half of the primitive's contract
+   * (no inter-attempt release window for readers to slip through).
+   */
+  @Test(timeout = 30_000)
+  public void writerPreferenceRefusesNewReadersWhileBitHeld() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var readerIn = new CountDownLatch(1);
+    final var readerMayLeave = new CountDownLatch(1);
+    final var reader = new Thread(() -> {
+      lock.sharedLock();
+      readerIn.countDown();
+      try {
+        readerMayLeave.await();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } finally {
+        lock.sharedUnlock();
+      }
+    });
+    reader.setDaemon(true);
+    reader.start();
+
+    final var acquired = new CountDownLatch(1);
+    final var mayRelease = new CountDownLatch(1);
+    try {
+      assertTrue(readerIn.await(5, TimeUnit.SECONDS));
+
+      final var writer = new Thread(() -> {
+        if (lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(5))) {
+          acquired.countDown();
+          try {
+            mayRelease.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          } finally {
+            lock.exclusiveUnlock();
+          }
+        }
+      });
+      writer.setDaemon(true);
+      writer.start();
+      // The bit is held while the drain waits on the residual reader: new readers already
+      // refused.
+      assertTrue("the writer must hold the bit during the drain",
+          awaitCondition(lock::isWriteLocked, 5_000));
+      assertFalse("a new reader must be refused while the bit is held (drain in progress)",
+          lock.sharedTryLock());
+
+      // Let the residual reader leave: the acquisition completes; new readers still refused.
+      readerMayLeave.countDown();
+      assertTrue("the acquisition must complete once the residual reader leaves",
+          acquired.await(5, TimeUnit.SECONDS));
+      assertFalse("a new reader must be refused while the write lock is held",
+          lock.sharedTryLock());
+
+      mayRelease.countDown();
+      writer.join(5_000);
+      assertFalse(writer.isAlive());
+    } finally {
+      // Failure hygiene: release both latches even when an assertion fails, so neither helper
+      // outlives the test.
+      readerMayLeave.countDown();
+      mayRelease.countDown();
+    }
+    reader.join(5_000);
+    assertFalse(reader.isAlive());
+    assertTrue("readers must be admitted again after the release", lock.sharedTryLock());
+    lock.sharedUnlock();
+  }
+
+  /**
+   * Interrupt while parked in the phase-1 timed acquire: the primitive restores the interrupt
+   * flag and throws {@code DatabaseException} naming the wait — the waiter is killable, and the
+   * lock (still owned by the competing writer) is undisturbed and usable afterwards.
+   */
+  @Test(timeout = 30_000)
+  public void interruptDuringPhaseOneRestoresFlagAndThrows() throws Exception {
+    final var lock = new ScalableRWLock();
+    lock.exclusiveLock(); // competing writer holds the bit so the waiter parks in phase 1
+    final var thrown = new AtomicReference<Throwable>();
+    final var flagRestored = new AtomicBoolean(false);
+    final var waiter = new Thread(() -> {
+      try {
+        lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(100));
+      } catch (Throwable t) {
+        thrown.set(t);
+        flagRestored.set(Thread.currentThread().isInterrupted());
+      }
+    });
+    waiter.setDaemon(true);
+    waiter.start();
+    try {
+      final var state = awaitParked(waiter, 5_000);
+      assertTrue("the waiter must park in the timed acquire, observed state " + state,
+          state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING);
+    } finally {
+      // Failure hygiene: interrupt fires even when the park assertion fails, so the waiter
+      // never outlives the test.
+      waiter.interrupt();
+    }
+    waiter.join(5_000);
+    assertFalse("the interrupted waiter must exit", waiter.isAlive());
+    assertNotNull("the interrupted waiter must have thrown", thrown.get());
+    assertTrue("the throw must be a DatabaseException naming the interrupted wait: " + thrown.get(),
+        thrown.get() instanceof DatabaseException
+            && thrown.get().getMessage().contains("interrupted while acquiring"));
+    assertTrue("the interrupt flag must be restored before the throw", flagRestored.get());
+
+    assertTrue("the holder's bit must be undisturbed", lock.isWriteLocked());
+    lock.exclusiveUnlock();
+    assertTrue("the lock must be usable after the interrupted waiter exited",
+        lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(10)));
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * Argument validation fails fast with nothing held: a non-positive {@code pollNanos} (zero and
+   * negative) throws {@link IllegalArgumentException}, and a null predicate throws
+   * {@link NullPointerException} — in both cases before any lock state is touched.
+   */
+  @Test(timeout = 30_000)
+  public void invalidArgumentsFailFastWithNothingHeld() {
+    final var lock = new ScalableRWLock();
+    try {
+      lock.exclusiveLockWithAbort(() -> false, 0);
+      fail("pollNanos == 0 must be rejected");
+    } catch (final IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("pollNanos"));
+    }
+    try {
+      lock.exclusiveLockWithAbort(() -> false, -1);
+      fail("negative pollNanos must be rejected");
+    } catch (final IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("pollNanos"));
+    }
+    try {
+      lock.exclusiveLockWithAbort(null, TimeUnit.MILLISECONDS.toNanos(10));
+      fail("a null predicate must be rejected");
+    } catch (final NullPointerException expected) {
+      assertTrue(expected.getMessage().contains("abort predicate"));
+    }
+    assertFalse("no rejected call may leave the write bit held", lock.isWriteLocked());
+    assertTrue("the lock must be untouched by the rejected calls", lock.sharedTryLock());
+    lock.sharedUnlock();
+  }
+
+  /**
+   * Two abort-capable waiters contending for the same lock serialize cleanly: while one holds the
+   * write bit the other stays queued (no admission), and after each release the other proceeds —
+   * both eventually acquire exactly once with the lock free afterwards.
+   */
+  @Test(timeout = 30_000)
+  public void twoAbortWaitersSerializeCleanly() throws Exception {
+    final var lock = new ScalableRWLock();
+    lock.exclusiveLock(); // both waiters queue behind this initial holder
+    final var acquisitions = new AtomicInteger();
+    final var failures = new AtomicReference<Throwable>();
+    final var waiters = new ArrayList<Thread>();
+    for (var i = 0; i < 2; i++) {
+      final var t = new Thread(() -> {
+        try {
+          if (lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(5))) {
+            try {
+              acquisitions.incrementAndGet();
+            } finally {
+              lock.exclusiveUnlock();
+            }
+          }
+        } catch (Throwable t2) {
+          failures.compareAndSet(null, t2);
+        }
+      }, "abort-waiter-" + i);
+      t.setDaemon(true);
+      waiters.add(t);
+      t.start();
+    }
+    // Both waiters are queued in phase 1; neither holds anything while the initial holder does.
+    assertTrue(lock.isWriteLocked());
+    lock.exclusiveUnlock();
+    for (final var t : waiters) {
+      t.join(10_000);
+      assertFalse("waiter " + t.getName() + " must finish", t.isAlive());
+    }
+    if (failures.get() != null) {
+      throw new AssertionError("no waiter may fail", failures.get());
+    }
+    assertEquals("both waiters must acquire exactly once", 2, acquisitions.get());
+    assertFalse("the lock must be free afterwards", lock.isWriteLocked());
+    lock.exclusiveLock();
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * A throwing abort predicate at the SUCCESS-EDGE re-check (empty drain: the predicate's second
+   * call is the post-acquisition check) must not leak the held write bit: the failure propagates,
+   * but the bit is released first — an ownerless bit would wedge every reader (spinning on
+   * {@code isWriteLocked()}) and writer forever, storage-wide, in a generic primitive used by
+   * many components.
+   */
+  @Test(timeout = 30_000)
+  public void throwingPredicateAtSuccessEdgeReleasesBit() {
+    final var lock = new ScalableRWLock();
+    final var calls = new AtomicInteger();
+    final var injected = new IllegalStateException("forced predicate failure");
+    try {
+      lock.exclusiveLockWithAbort(() -> {
+        if (calls.incrementAndGet() >= 2) {
+          throw injected;
+        }
+        return false;
+      }, TimeUnit.MILLISECONDS.toNanos(10));
+      fail("the predicate failure must propagate");
+    } catch (final IllegalStateException thrown) {
+      assertTrue("the propagated failure must be the predicate's own", thrown == injected);
+    }
+    assertFalse("the write bit must be released before the predicate failure propagates",
+        lock.isWriteLocked());
+    assertTrue("readers must be admitted after the failed acquisition", lock.sharedTryLock());
+    lock.sharedUnlock();
+    assertTrue("the primitive must be reusable after the failed acquisition",
+        lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(10)));
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * A throwing abort predicate at the phase-2 DRAIN poll (a residual reader is being drained with
+   * the bit held) must equally release the bit before propagating — the second of the two held-bit
+   * predicate evaluation sites.
+   */
+  @Test(timeout = 30_000)
+  public void throwingPredicateDuringReaderDrainReleasesBit() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var readerIn = new CountDownLatch(1);
+    final var readerMayLeave = new CountDownLatch(1);
+    final var reader = new Thread(() -> {
+      lock.sharedLock();
+      readerIn.countDown();
+      try {
+        readerMayLeave.await();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } finally {
+        lock.sharedUnlock();
+      }
+    });
+    reader.setDaemon(true);
+    reader.start();
+    try {
+      assertTrue("the residual reader must be inside", readerIn.await(5, TimeUnit.SECONDS));
+
+      final var thrown = new AtomicReference<Throwable>();
+      final var writer = new Thread(() -> {
+        try {
+          // Phase 1 poll returns false; the drain poll against the parked reader throws.
+          final var calls = new AtomicInteger();
+          lock.exclusiveLockWithAbort(() -> {
+            if (calls.incrementAndGet() >= 2) {
+              throw new IllegalStateException("forced drain-poll predicate failure");
+            }
+            return false;
+          }, TimeUnit.MILLISECONDS.toNanos(10));
+        } catch (Throwable t) {
+          thrown.set(t);
+        }
+      });
+      writer.setDaemon(true);
+      writer.start();
+      writer.join(10_000);
+      assertFalse("the writer must exit via the propagated predicate failure", writer.isAlive());
+      assertNotNull("the predicate failure must propagate", thrown.get());
+      assertTrue("the propagated failure must be the predicate's own: " + thrown.get(),
+          thrown.get() instanceof IllegalStateException
+              && thrown.get().getMessage().contains("forced drain-poll predicate failure"));
+      assertFalse("the write bit must be released before the predicate failure propagates",
+          lock.isWriteLocked());
+      assertTrue("a fresh reader must be admitted after the failed acquisition",
+          lock.sharedTryLock());
+      lock.sharedUnlock();
+    } finally {
+      readerMayLeave.countDown();
+      reader.join(5_000);
+    }
+    assertFalse("the residual reader must finish", reader.isAlive());
+    // Fully usable afterwards.
+    lock.exclusiveLock();
+    lock.exclusiveUnlock();
+  }
+
+  /**
+   * The bounded-acquisition liveness guarantee under CONTINUOUS reader coverage: two readers
+   * re-acquire with zero gap, so some reader holds the lock at every instant unless the writer's
+   * held bit refuses their re-admission. The single-acquisition shape acquires within roughly one
+   * reader residence (bit held once → re-admissions refused → current holders drain); a
+   * release-on-timeout retry shape provably starves here, because every release window re-admits
+   * the spinning readers and coverage never breaks. This is the discriminating liveness test the
+   * plain finite-workload stress cannot express.
+   */
+  @Test(timeout = 60_000)
+  public void writerAcquiresUnderContinuousReaderCoverage() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var stop = new AtomicBoolean(false);
+    final var failures = new AtomicReference<Throwable>();
+    final var holds = new AtomicInteger();
+    final var readers = new ArrayList<Thread>();
+    try {
+      // Four readers with STAGGERED starts and UNEQUAL residences, each far exceeding the
+      // writer's 1ms poll, each re-acquiring through a TIGHT sharedTryLock spin (which reacts to
+      // a dropped write bit within nanoseconds, unlike sharedLock's yield park). The stagger and
+      // incommensurate residences keep the holds overlapping, so full coverage only ever breaks
+      // when the writer's HELD bit refuses every re-admission long enough for the current
+      // residences to run out — the single-acquisition writer-preference property. A
+      // release-on-timeout retry shape drops the bit between attempts, the spinners re-admit
+      // within that window, coverage never breaks, and the writer starves.
+      for (var i = 0; i < 4; i++) {
+        final var startOffsetMillis = i * 7L;
+        final var residenceMillis = 15L + i * 5L;
+        final var t = new Thread(() -> {
+          try {
+            final var offsetEnd =
+                System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(startOffsetMillis);
+            while (System.nanoTime() < offsetEnd) {
+              Thread.onSpinWait();
+            }
+            while (!stop.get()) {
+              if (!lock.sharedTryLock()) {
+                Thread.onSpinWait();
+                continue;
+              }
+              try {
+                final var end =
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(residenceMillis);
+                while (System.nanoTime() < end) {
+                  Thread.onSpinWait();
+                }
+                holds.incrementAndGet();
+              } finally {
+                lock.sharedUnlock();
+              }
+            }
+          } catch (Throwable t2) {
+            failures.compareAndSet(null, t2);
+          }
+        }, "coverage-reader-" + i);
+        t.setDaemon(true);
+        readers.add(t);
+        t.start();
+      }
+      // Continuous coverage established: every reader has completed at least one full hold.
+      assertTrue("the readers must establish continuous coverage",
+          awaitCondition(() -> holds.get() >= 8, 20_000));
+
+      final var acquireStartNanos = System.nanoTime();
+      final var acquired =
+          lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(1));
+      final var acquireMillis =
+          TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - acquireStartNanos);
+      assertTrue("the single-acquisition writer must acquire under continuous reader coverage;"
+          + " starvation here is the release-on-timeout retry regression", acquired);
+      lock.exclusiveUnlock();
+      // Generous sanity bound: expected ~one max residence (tens of ms); anything near the test
+      // timeout means admission control regressed even if acquisition finally happened.
+      assertTrue("the acquisition must complete within a bounded window, took "
+          + acquireMillis + " ms", acquireMillis < 20_000);
+    } finally {
+      stop.set(true);
+      for (final var t : readers) {
+        t.join(5_000);
+      }
+    }
+    for (final var t : readers) {
+      assertFalse("reader " + t.getName() + " must finish", t.isAlive());
+    }
+    if (failures.get() != null) {
+      throw new AssertionError("no reader may fail", failures.get());
+    }
+  }
+
+  /**
+   * Bounded stress sanity: several readers loop shared acquire/release while one writer loops the
+   * abort primitive with a predicate that flips true on every other attempt (so both the success
+   * and the abort paths run repeatedly under contention). No reader may strand, no wakeup may be
+   * lost, every thread must finish its bounded iterations, and the lock must be fully usable
+   * afterwards. All waits are bounded joins — no unbounded sleeps.
+   */
+  @Test(timeout = 60_000)
+  public void stressReadersAgainstAbortingWriterLeavesLockUsable() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var readerThreads = 4;
+    final var readerIterations = 2_000;
+    final var writerIterations = 200;
+    final var failures = new AtomicReference<Throwable>();
+    final var threads = new ArrayList<Thread>();
+
+    for (var i = 0; i < readerThreads; i++) {
+      final var t = new Thread(() -> {
+        try {
+          for (var k = 0; k < readerIterations; k++) {
+            lock.sharedLock();
+            try {
+              Thread.onSpinWait();
+            } finally {
+              lock.sharedUnlock();
+            }
+          }
+        } catch (Throwable t2) {
+          failures.compareAndSet(null, t2);
+        }
+      }, "stress-reader-" + i);
+      threads.add(t);
+    }
+
+    final var successes = new AtomicInteger();
+    final var aborts = new AtomicInteger();
+    final var writer = new Thread(() -> {
+      try {
+        for (var k = 0; k < writerIterations; k++) {
+          // Every other attempt aborts mid-flight: the predicate turns true after a few polls,
+          // exercising phase-1 aborts, drain aborts, and the success-edge re-check by timing
+          // noise; even attempts never abort, exercising the full acquisition under contention.
+          final var abortingAttempt = (k % 2) == 1;
+          final var polls = new AtomicInteger();
+          final var acquired = lock.exclusiveLockWithAbort(
+              () -> abortingAttempt && polls.incrementAndGet() > 3,
+              TimeUnit.MILLISECONDS.toNanos(1));
+          if (acquired) {
+            successes.incrementAndGet();
+            lock.exclusiveUnlock();
+          } else {
+            aborts.incrementAndGet();
+          }
+        }
+      } catch (Throwable t2) {
+        failures.compareAndSet(null, t2);
+      }
+    }, "stress-abort-writer");
+    threads.add(writer);
+
+    for (final var t : threads) {
+      // Failure hygiene: daemon threads cannot outlive a failed run's fork.
+      t.setDaemon(true);
+      t.start();
+    }
+    for (final var t : threads) {
+      t.join(50_000);
+      assertFalse("thread " + t.getName() + " must finish its bounded iterations (no stranded"
+          + " reader, no lost wakeup)", t.isAlive());
+    }
+    if (failures.get() != null) {
+      throw new AssertionError("no thread may fail under stress", failures.get());
+    }
+    // Every attempt terminates in exactly one of the two outcomes. The non-aborting (even)
+    // attempts must ALL have acquired — the bounded-acquisition guarantee under sustained
+    // readers; an "aborting" (odd) attempt may legitimately land on either side, because a
+    // lightly-contended acquisition can complete before its predicate reaches the flip
+    // threshold — the deterministic abort shapes are pinned by the dedicated tests above.
+    assertEquals("every attempt must terminate in exactly one outcome", writerIterations,
+        successes.get() + aborts.get());
+    assertTrue("every non-aborting attempt must acquire (bounded acquisition under sustained"
+        + " readers), successes=" + successes.get(),
+        successes.get() >= writerIterations / 2);
+    // The lock is fully usable afterwards in both modes.
+    lock.exclusiveLock();
+    lock.exclusiveUnlock();
+    lock.sharedLock();
+    lock.sharedUnlock();
   }
 }

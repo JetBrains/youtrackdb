@@ -3,9 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import org.junit.Test;
 
@@ -36,7 +34,13 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
 
     session.begin();
     session.newEntity("A");
-    session.load(new RecordId(1, 3));
+    // Pull an existing internal record into the transaction before the polymorphic truncate
+    // below runs. The record used to be pinned as #1:3 (a genesis security record under the
+    // pre-Track-8 fresh-DB layout); since the $blob* collections moved to the storage-birth
+    // slots 1..N, the target is resolved dynamically so the test is layout-independent.
+    try (var result = session.query("select from OSecurityPolicy limit 1")) {
+      session.load(result.next().getIdentity());
+    }
     session.commit();
 
     session.begin();

@@ -38,6 +38,23 @@ import javax.annotation.Nullable;
 public class MetadataDefault implements MetadataInternal {
 
   public static final String COLLECTION_INTERNAL_NAME = "internal";
+
+  /**
+   * The collection id of {@link #COLLECTION_INTERNAL_NAME}: always {@code 0} — it is the first
+   * collection created inside the storage-create atomic operation, before any other collection
+   * can claim a slot, on every storage profile.
+   */
+  public static final int COLLECTION_INTERNAL_ID = 0;
+
+  /**
+   * Name prefix of the storage-birth blob collections ({@code $blob0..N-1}). Shared between the
+   * creator loop in {@code AbstractStorage.doCreate} and the register-only enumeration in
+   * {@code SharedContext.create}, so the two sides of the name contract cannot drift apart. The
+   * concrete {@code $blob<i>} shape itself is a design-pinned constant (Track 8 ruling R3) —
+   * tests pin the literal independently on purpose.
+   */
+  public static final String BLOB_COLLECTION_NAME_PREFIX = "$blob";
+
   protected int schemaCollectionId;
 
   protected SchemaProxy schema;
@@ -92,6 +109,16 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
+  /**
+   * The current thread-local schema-snapshot pin depth — test observability for the commit
+   * path's single-owner pin/clear pairing (every commit escape path must return the count to its
+   * pre-commit value; a leak freezes the session's schema view, a double clear drives the count
+   * negative and poisons the next pin). Not used by production code.
+   */
+  public int getThreadLocalSchemaSnapshotPinCount() {
+    return immutableCount;
+  }
+
   public void forceClearThreadLocalSchemaSnapshot() {
     if (this.immutableCount == 0) {
       this.immutableSchema = null;
@@ -102,8 +129,29 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
-  @Nullable
-  public ImmutableSchema getImmutableSchemaSnapshot() {
+  /**
+   * Rebuilds the pinned thread-local snapshot in place, preserving the pin count. The schema-carry
+   * commit pins its snapshot once at entry and holds that pin across the whole commit; after the
+   * commit resolves provisional collection ids inside the transaction-local schema, the pinned
+   * snapshot still serves the stale provisional view, and
+   * {@link #forceClearThreadLocalSchemaSnapshot()} cannot refresh it (it throws while a pin is
+   * held, by design). This method is that refresh: it requires a held pin and swaps the pinned
+   * snapshot for a freshly built one.
+   *
+   * @throws IllegalStateException when no snapshot pin is held; with a zero count there is nothing
+   *     to rebuild, and the caller should pin normally instead.
+   */
+  public void rebuildThreadLocalSchemaSnapshot() {
+    if (this.immutableCount == 0) {
+      throw new IllegalStateException(
+          "Attempted to rebuild the thread-local schema snapshot for thread "
+              + Thread.currentThread().getName()
+              + " but no snapshot pin is held (usage count is zero)");
+    }
+    this.immutableSchema = schema.makeSnapshot();
+  }
+
+  @Nullable public ImmutableSchema getImmutableSchemaSnapshot() {
     if (immutableSchema == null) {
       if (schema == null) {
         return null;
@@ -116,7 +164,6 @@ public class MetadataDefault implements MetadataInternal {
   public Security getSecurity() {
     return security;
   }
-
 
   public SharedContext init(SharedContext shared) {
     schemaCollectionId = database.getCollectionIdByName(COLLECTION_INTERNAL_NAME);

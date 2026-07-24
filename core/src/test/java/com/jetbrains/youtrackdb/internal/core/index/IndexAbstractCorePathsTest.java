@@ -12,7 +12,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
@@ -329,11 +328,15 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
 
     assertNotNull("collections set must not be null", collections);
     assertFalse("collections set must not be empty for an automatic index", collections.isEmpty());
-    // The internal cluster name is stored as "<lowercased-class-name>_<N>". Verify that at
-    // least one collection name starts with the lowercase class-name prefix.
-    var lowerCls = clsName.toLowerCase(Locale.ENGLISH);
-    assertTrue("collections must contain a cluster name derived from the class name",
-        collections.stream().anyMatch(c -> c.startsWith(lowerCls)));
+    // Collection names are counter-only (c_<counter>, no class-name component), so the indexed
+    // class's collections are resolved via its collection ids and each must be covered by the
+    // index.
+    for (var collectionId : cls.getCollectionIds()) {
+      var collectionName = session.getCollectionNameById(collectionId);
+      assertTrue(
+          "collections must contain the indexed class's collection " + collectionName,
+          collections.contains(collectionName));
+    }
   }
 
   /**

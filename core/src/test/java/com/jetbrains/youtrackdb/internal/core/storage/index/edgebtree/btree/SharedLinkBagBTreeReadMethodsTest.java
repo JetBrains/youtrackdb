@@ -50,7 +50,7 @@ public class SharedLinkBagBTreeReadMethodsTest {
   private static final int ENTRY_COUNT = 5;
 
   @BeforeClass
-  public static void beforeClass() {
+  public static void beforeClass() throws Exception {
     buildDirectory = System.getProperty("buildDirectory");
     if (buildDirectory == null) {
       buildDirectory = "./target" + DIR_NAME;
@@ -70,6 +70,17 @@ public class SharedLinkBagBTreeReadMethodsTest {
     storage = databaseSession.getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();
     databaseSession.close();
+
+    // Advance the storage's atomic-operation horizon past the fixtures' synthetic entry
+    // timestamp (TS = 42): the read methods filter entries against the reading operation's
+    // snapshot timestamp, and the fixture's absolute value implicitly depended on the dozens
+    // of operation ids the legacy per-DDL genesis burned before the tests ran. The two-phase
+    // genesis (Track 8) creates a database in a handful of operations, so the horizon is
+    // advanced explicitly to keep the fixtures genesis-layout-independent.
+    for (var i = 0; i < 100; i++) {
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      });
+    }
   }
 
   @AfterClass

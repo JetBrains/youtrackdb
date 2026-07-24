@@ -592,12 +592,27 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   @Nullable public SecurityUserImpl create(final DatabaseSessionEmbedded session) {
+    // The guard stays FIRST and transaction-free: the import call site
+    // (DatabaseImport.removeDefaultCollections) and any repeat call must remain a cheap no-op
+    // when classes exist, without opening a transaction.
     if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
       return null;
     }
 
+    // Two-phase shape (Track 8 D18/G2.c): phase 1 commits the whole security schema — building
+    // the OUser.name UNIQUE engine at commit — before phase 2 inserts the first role or user.
+    // executeInTx joins an already-active transaction (the import-nested call site), so the DDL
+    // commits with the outer transaction there.
+    session.executeInTx(transaction -> createSecuritySchema(session));
+
+    return insertDefaultSecurity(session);
+  }
+
+  @Override
+  public void createSecuritySchema(final DatabaseSessionEmbedded session) {
+    // Suppress the per-policy predicate-security re-init while the schema is being built; the
+    // explicit init at the end of insertDefaultSecurity is the one that counts.
     skipRoleHasPredicateSecurityForClassUpdate = true;
-    SecurityUserImpl adminUser = null;
     try {
       var identityClass =
           session.getMetadata().getSchema().getClass(Identity.CLASS_NAME); // SINCE 1.2.0
@@ -610,47 +625,43 @@ public class SecurityShared implements SecurityInternal {
       var roleClass = createOrUpdateORoleClass(session, identityClass);
 
       createOrUpdateOUserClass(session, identityClass, roleClass);
+    } finally {
+      skipRoleHasPredicateSecurityForClassUpdate = false;
+    }
+  }
 
+  @Override
+  @Nullable public SecurityUserImpl insertDefaultSecurity(final DatabaseSessionEmbedded session) {
+    SecurityUserImpl adminUser = null;
+    skipRoleHasPredicateSecurityForClassUpdate = true;
+    try {
       if (!SystemDatabase.SYSTEM_DB_NAME.equals(session.getDatabaseName())) {
-        // CREATE ROLES AND USERS
-        createDefaultRoles(session);
-        adminUser = createDefaultUsers(session);
+        // ONE data transaction for the default roles AND users (Q-G2): a single all-or-nothing
+        // default-security unit. It only inserts records into the committed security classes —
+        // no schema write, so the metadata-write mutex is never engaged here (I-U4).
+        // This will return the global value if a local storage context configuration value does
+        // not exist.
+        var createDefUsers =
+            session.getConfiguration().getValueAsBoolean(GlobalConfiguration.CREATE_DEFAULT_USERS);
+        adminUser = session.computeInTx(
+            transaction -> {
+              createDefaultAdminRole(session);
+              createDefaultReaderRole(session);
+              createDefaultWriterRole(session);
+              if (createDefUsers) {
+                var admin = createUser(session, SecurityUserImpl.ADMIN, SecurityUserImpl.ADMIN,
+                    Role.ADMIN);
+                createUser(session, "reader", "reader", DEFAULT_READER_ROLE_NAME);
+                createUser(session, "writer", "writer", DEFAULT_WRITER_ROLE_NAME);
+                return admin;
+              }
+              return null;
+            });
       }
-
     } finally {
       skipRoleHasPredicateSecurityForClassUpdate = false;
     }
     initPredicateSecurityOptimizations(session);
-
-    return adminUser;
-  }
-
-  private void createDefaultRoles(final DatabaseSessionEmbedded session) {
-    session.executeInTx(
-        transaction -> {
-          createDefaultAdminRole(session);
-          createDefaultReaderRole(session);
-          createDefaultWriterRole(session);
-        });
-  }
-
-  private SecurityUserImpl createDefaultUsers(final DatabaseSessionEmbedded session) {
-    var createDefUsers =
-        session.getConfiguration().getValueAsBoolean(GlobalConfiguration.CREATE_DEFAULT_USERS);
-
-    SecurityUserImpl adminUser = null;
-    // This will return the global value if a local storage context configuration value does not
-    // exist.
-    if (createDefUsers) {
-      session.computeInTx(
-          transaction -> {
-            var admin = createUser(session, SecurityUserImpl.ADMIN, SecurityUserImpl.ADMIN,
-                Role.ADMIN);
-            createUser(session, "reader", "reader", DEFAULT_READER_ROLE_NAME);
-            createUser(session, "writer", "writer", DEFAULT_WRITER_ROLE_NAME);
-            return admin;
-          });
-    }
 
     return adminUser;
   }

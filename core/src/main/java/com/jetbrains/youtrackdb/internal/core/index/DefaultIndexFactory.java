@@ -64,7 +64,6 @@ public class DefaultIndexFactory implements IndexFactory {
     ALGORITHMS = Collections.unmodifiableSet(algorithms);
   }
 
-
   @Override
   public Set<String> getTypes() {
     return TYPES;
@@ -135,11 +134,13 @@ public class DefaultIndexFactory implements IndexFactory {
           if (data.isMultivalue()) {
             indexEngine =
                 new BTreeMultiValueIndexEngine(
-                    data.getIndexId(), data.getName(), realStorage, version);
+                    data.getIndexId(), data.getFileBaseId(), data.getName(), realStorage,
+                    version);
           } else {
             indexEngine =
                 new BTreeSingleValueIndexEngine(
-                    data.getIndexId(), data.getName(), realStorage, version);
+                    data.getIndexId(), data.getFileBaseId(), data.getName(), realStorage,
+                    version);
           }
         } else {
           throw new IllegalStateException("Invalid name of algorithm :'" + "'");

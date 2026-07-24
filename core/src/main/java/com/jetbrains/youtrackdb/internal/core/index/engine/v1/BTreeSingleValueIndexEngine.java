@@ -44,6 +44,13 @@ public final class BTreeSingleValueIndexEngine
   private final IndexesSnapshot indexesSnapshot;
   private final String name;
   private final int id;
+
+  /**
+   * The engine's stable, never-reused file base id. All storage-component names derive from it
+   * ({@code ie_<fileBaseId>}), so the logical index name ({@link #name}) never touches a file:
+   * a drop-and-recreate of a same-named index gets fresh files, and a rename never moves any.
+   */
+  private final int fileBaseId;
   private final AbstractStorage storage;
   @Nullable private volatile IndexHistogramManager histogramManager;
 
@@ -70,16 +77,22 @@ public final class BTreeSingleValueIndexEngine
   private final AtomicBoolean firstUnderflowDumped = new AtomicBoolean(false);
 
   public BTreeSingleValueIndexEngine(
-      int id, String name, AbstractStorage storage, int version) {
+      int id, int fileBaseId, String name, AbstractStorage storage, int version) {
     this.name = name;
     this.id = id;
+    this.fileBaseId = fileBaseId;
     this.storage = storage;
 
     if (version == 3 || version == 4) {
+      // The component (and therefore its files) is keyed by the stable file base id, not the
+      // index name — the single name domain for engine storage components.
       this.sbTree =
           new BTree<>(
-              name, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+              AbstractStorage.indexEngineFileStem(fileBaseId),
+              DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       this.sbTree.setEngineId(id);
+      // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
+      this.sbTree.setDisplayName(name);
       indexesSnapshot = storage.subIndexSnapshot(id);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
@@ -89,6 +102,11 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public int getId() {
     return id;
+  }
+
+  @Override
+  public int getFileBaseId() {
+    return fileBaseId;
   }
 
   @Override
@@ -183,12 +201,17 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void load(IndexEngineData data, @Nonnull AtomicOperation atomicOperation) {
-    var name = data.getName();
+    assert data.getFileBaseId() == fileBaseId
+        : "engine constructed for fileBaseId " + fileBaseId + " but loaded with "
+            + data.getFileBaseId();
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     final var sbTypes = calculateTypes(keyTypes);
 
-    sbTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
+    // Load under the file-base-id stem the component was constructed with — never the index
+    // name, which keys no file.
+    sbTree.load(AbstractStorage.indexEngineFileStem(fileBaseId), keySize + 1, sbTypes,
+        new IndexMultiValuKeySerializer(), atomicOperation);
 
     // Read persisted visible count from the BTree entry point page — O(1)
     // instead of the previous O(n) visibility-filtered scan.

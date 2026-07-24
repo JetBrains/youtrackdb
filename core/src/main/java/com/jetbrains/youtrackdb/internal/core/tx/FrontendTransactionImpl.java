@@ -81,7 +81,14 @@ public class FrontendTransactionImpl implements
 
   @Nonnull
   protected DatabaseSessionEmbedded session;
-  protected TXSTATUS status = TXSTATUS.INVALID;
+  // Volatile: the pool-teardown skip detection reads the status from a foreign thread
+  // (status == COMMITTING && storageTxThreadId != current thread), and the reads must see the
+  // last tx-boundary write in synchronization order — a plain read could observe a stale
+  // COMMITTING left over from a prior transaction on this reused object and false-skip. The
+  // volatile status write is also the owner's "commit-completion published" half of the Dekker
+  // completer handshake (owner writes status, then reads the teardown-intent mark; the pool
+  // writes the mark, then re-reads the status).
+  protected volatile TXSTATUS status = TXSTATUS.INVALID;
 
   protected final HashMap<RecordIdInternal, RecordOperation> recordOperations = new HashMap<>();
   private final IdentityHashMap<RecordIdInternal, RecordOperation> recordOperationsIdentityMap =
@@ -155,7 +162,9 @@ public class FrontendTransactionImpl implements
   // Thread that called startStorageTx() and incremented the per-thread activeTxCount.
   // Pool shutdown may close a session from a different thread than the one that began the tx;
   // in that case tsMin belongs to the originating thread's TsMinHolder and must not be reset.
-  private long storageTxThreadId;
+  // Volatile for the same reason as status: the pool-teardown skip detection compares it against
+  // the pool thread's own id from a foreign thread.
+  private volatile long storageTxThreadId;
 
   /**
    * Asserts that the current thread is the one that started this transaction. All transactional
@@ -169,6 +178,19 @@ public class FrontendTransactionImpl implements
         || storageTxThreadId == Thread.currentThread().threadId()
         : "Transaction used from thread " + Thread.currentThread().threadId()
             + " but was started on thread " + storageTxThreadId;
+  }
+
+  /**
+   * Whether this transaction is mid-commit on a thread other than the caller's — the
+   * skip-protocol detection a pool teardown runs before tearing down a checked-out session.
+   * Both fields are volatile, so a foreign reader sees the last tx-boundary writes; the residual
+   * TOCTOU is the accepted one (late-skip = the commit already finished, the owner's completer or
+   * the pool's re-validation fall-through handles teardown; late-rollback = today's behavior).
+   */
+  public boolean isCommittingOnForeignThread() {
+    return status == TXSTATUS.COMMITTING
+        && storageTxThreadId != 0
+        && storageTxThreadId != Thread.currentThread().threadId();
   }
 
   public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
@@ -1004,27 +1026,55 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void close() {
-    clear();
-
-    if (atomicOperation != null) {
-      try {
-        atomicOperation.deactivate();
-        if (storageTxThreadId == Thread.currentThread().threadId()) {
-          session.getStorage().resetTsMin();
-        }
-      } finally {
-        // Ensure atomicOperation is always nulled even if deactivate() or
-        // resetTsMin() throws. Without this, a secondary rollbackInternal()
-        // call (triggered by close-listeners in
-        // DatabaseSessionEmbedded.internalClose() after the exception is
-        // caught at its rollback() call) would observe a stale non-null
-        // atomicOperation.
-        atomicOperation = null;
-        storageTxThreadId = 0;
-      }
+    try {
+      closeInternal();
+    } finally {
+      // Owner-as-completer for the pool-teardown skip, strictly AFTER the transaction's own
+      // close (the mutex was released by closeInternal's finally, so the completer's own release
+      // pass is a no-op via the atomic claim). Runs on both the commit and rollback outcomes
+      // (close() is the common boundary) and is throw-isolated inside, so a deferred-teardown
+      // failure can never mask the commit outcome. A tx-close reached from inside internalClose's
+      // own rollback is filtered by the session's in-progress guard.
+      session.completeDeferredTeardownAfterTxClose();
     }
-    session.setNoTxMode();
-    status = TXSTATUS.INVALID;
+  }
+
+  private void closeInternal() {
+    try {
+      clear();
+
+      if (atomicOperation != null) {
+        try {
+          atomicOperation.deactivate();
+          if (storageTxThreadId == Thread.currentThread().threadId()) {
+            session.getStorage().resetTsMin();
+          }
+        } finally {
+          // Ensure atomicOperation is always nulled even if deactivate() or
+          // resetTsMin() throws. Without this, a secondary rollbackInternal()
+          // call (triggered by close-listeners in
+          // DatabaseSessionEmbedded.internalClose() after the exception is
+          // caught at its rollback() call) would observe a stale non-null
+          // atomicOperation.
+          atomicOperation = null;
+          storageTxThreadId = 0;
+        }
+      }
+      session.setNoTxMode();
+      status = TXSTATUS.INVALID;
+    } finally {
+      // Outermost transaction frame is now closed (close() is reached only at the base nesting
+      // level, from both the commit and the rollback paths, so this fires exactly once per
+      // transaction). If this transaction engaged the metadata-write mutex on its first schema/index
+      // write, release the permit now. The release sits in a finally so a throw from the teardown
+      // above (clear() or the atomicOperation.deactivate()/resetTsMin() block, whose inner finally
+      // only nulls atomicOperation and does not swallow the throwable) cannot strand the single
+      // permit and freeze every later schema writer. The release is a no-op when nothing was
+      // engaged and races any foreign teardown's release pass safely: all releasers funnel through
+      // the session-level atomic ordinal claim, and the mutex's (session, ordinal) CAS is the
+      // second belt, so the permit is never double-released.
+      session.releaseMetadataWriteMutexForTx();
+    }
   }
 
   private void clear() {
@@ -1989,7 +2039,13 @@ public class FrontendTransactionImpl implements
   }
 
   private boolean isWriteTransaction() {
-    return !recordOperations.isEmpty() || !indexEntries.isEmpty();
+    // A schema-only transaction (for example a class create with no record writes) enrols no
+    // record or index operations, because the tx-local schema mutation defers its persistence to
+    // commit-time reconciliation. The presence of a tx-local schema state is the write signal for
+    // that case, so the commit reaches storage.commit and the schema change is not dropped.
+    return !recordOperations.isEmpty()
+        || !indexEntries.isEmpty()
+        || getCustomData(DatabaseSessionEmbedded.TX_SCHEMA_STATE_KEY) != null;
   }
 
   public static long generateTxId() {

@@ -1,0 +1,1549 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.commons.io.FileUtils;
+import org.junit.Ignore;
+import org.junit.Test;
+
+/**
+ * Commit-time reconciliation coverage: a schema-changing transaction now becomes real storage
+ * structure at commit. A class created inside a transaction carries a provisional collection id
+ * during the transaction; at commit the storage creates the real collection inside the commit's own
+ * atomic operation, resolves the provisional id to its real id before any record serializes, and
+ * promotes the tx-local schema into the committed shared instances. A rolled-back schema transaction
+ * leaves no real collection. These tests assert the create/resolve/promote round trip, the rollback
+ * leaves-clean property, and the positive drop.
+ *
+ * <p>A class created inside a transaction is not yet resolvable through the immutable schema
+ * snapshot {@code session.newEntity} consults, so the record-insert tests create-and-commit the
+ * class in one transaction and insert records in a later one, matching how production code reaches a
+ * newly created class.
+ */
+public class SchemaCommitReconciliationTest extends DbTestBase {
+
+  private SchemaShared schemaShared() {
+    return session.getSharedContext().getSchema();
+  }
+
+  /**
+   * Whether the id-named link-bag B-tree component ({@code global_collection_<id>.grb}) of the
+   * given collection is present in the storage. A durable-structure probe for the failed-commit
+   * undo tests: the registry-level assertions alone cannot see a cleanup arm that durably deletes
+   * a restored collection's component while re-registering the collection in memory. The probe
+   * rides a lightweight read-only atomic operation (created and deactivated here, never applied),
+   * the same pattern the production fresh-committed-read scope uses.
+   */
+  private boolean linkBagComponentPresent(int collectionId) {
+    var storage = (AbstractStorage) session.getStorage();
+    var operation = storage.getAtomicOperationsManager().startAtomicOperation();
+    try {
+      return LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId);
+    } finally {
+      operation.deactivate();
+    }
+  }
+
+  /**
+   * Whether the link-bag component of {@code collectionId} is resolvable through the in-memory
+   * link-bag manager map — the map every link-bag operation resolves through, with no reload
+   * branch on a miss. Distinct from {@link #linkBagComponentPresent}: that probes the durable
+   * FILE, this probes the eagerly mutated in-memory registration. The failed-drop undo must
+   * restore BOTH, or the restored collection's first link-bag operation fails until a reopen
+   * rebuilds the map even though the rolled-back file is intact on disk.
+   */
+  private boolean linkBagComponentResolvable(int collectionId) {
+    var storage = (AbstractStorage) session.getStorage();
+    var manager =
+        (LinkCollectionsBTreeManagerShared) storage.getLinkCollectionsBtreeCollectionManager();
+    var operation = storage.getAtomicOperationsManager().startAtomicOperation();
+    try {
+      return manager.getComponentByCollectionId(collectionId, operation) != null;
+    } finally {
+      operation.deactivate();
+    }
+  }
+
+  /**
+   * Inserts one row into {@code className} in its own transaction and asserts it reads back — the
+   * usability half of the failed-commit restore guarantee: a restored collection must not merely
+   * be re-registered in memory but remain writable and readable.
+   */
+  private void assertClassWritableAndReadable(String className) {
+    var rid = session.computeInTx(tx -> {
+      var row = (EntityImpl) session.newEntity(className);
+      row.setProperty("probe", "alive");
+      return row.getIdentity();
+    });
+    session.executeInTx(tx -> {
+      EntityImpl loaded = session.load(rid);
+      assertEquals("the restored class must serve its rows back", "alive",
+          loaded.getProperty("probe"));
+    });
+  }
+
+  /**
+   * Reads the RID set held by the root record's {@code "classes"} link set, the persisted membership
+   * the per-class-record format relies on. Loaded inside a transaction as in production.
+   */
+  private Set<RID> rootClassLinks() {
+    return session.computeInTx(tx -> {
+      var root = session.<EntityImpl>load(schemaShared().getIdentity());
+      var links = root.getLinkSet("classes");
+      var rids = new HashSet<RID>();
+      if (links != null) {
+        for (var link : links) {
+          rids.add(link.getIdentity());
+        }
+      }
+      return rids;
+    });
+  }
+
+  /**
+   * A class created inside a transaction is promoted to the committed schema at commit, carrying a
+   * real (non-negative) collection id: the provisional id it held during the transaction is resolved
+   * to a real collection created inside the commit, and that collection exists on disk. This is the
+   * create half of the metadata-first inversion.
+   */
+  @Test
+  public void inTransactionCreateResolvesToRealCollectionAtCommit() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("CommitCreated"));
+
+    var cls = schemaShared().getClass("CommitCreated");
+    assertNotNull("the created class must be promoted to the committed schema after commit", cls);
+    var collectionIds = cls.getCollectionIds();
+    assertTrue("a committed class must own at least one collection", collectionIds.length > 0);
+    for (var collectionId : collectionIds) {
+      assertTrue(
+          "no provisional id may survive commit; every collection id must be a real (>= 0) id, was "
+              + collectionId,
+          collectionId >= 0);
+      var collectionName = session.getCollectionNameById(collectionId);
+      assertNotNull(
+          "the resolved real collection must exist in storage, id " + collectionId, collectionName);
+    }
+    // The default collection id is the class's primary real collection and must also be resolved.
+    assertTrue("the default collection id must be a resolved real id",
+        cls.getCollectionIds()[0] >= 0);
+  }
+
+  /**
+   * The committed class and its real collection survive a durable round trip: after a reload re-reads
+   * the on-disk per-class records, the class resolves to the same real collection ids, and no
+   * provisional id reached durable bytes. The reload-then-reopen forces a fromStream re-parse
+   * on every storage profile.
+   */
+  @Test
+  public void committedClassAndCollectionSurviveReload() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("DurableCreated"));
+
+    var idsBefore = schemaShared().getClass("DurableCreated").getCollectionIds();
+    assertTrue("the class must own a collection before the round trip", idsBefore.length > 0);
+    assertTrue("the bound link set must contain the created class record before reload",
+        !rootClassLinks().isEmpty());
+
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+
+    var clsAfter = schemaShared().getClass("DurableCreated");
+    assertNotNull("the created class must survive a reload", clsAfter);
+    assertEquals("the class's real collection ids must survive the round trip unchanged",
+        java.util.Arrays.toString(idsBefore),
+        java.util.Arrays.toString(clsAfter.getCollectionIds()));
+    for (var collectionId : clsAfter.getCollectionIds()) {
+      assertTrue("no provisional id may survive a reload, was " + collectionId, collectionId >= 0);
+      assertNotNull("the real collection must still exist after the reload",
+          session.getCollectionNameById(collectionId));
+    }
+  }
+
+  /**
+   * Records inserted into a committed-then-reconciled class resolve to the class's real collection:
+   * the class is created and committed in one transaction, then a record is inserted in a later one,
+   * lands in a persistent RID inside one of the class's resolved real collections, and reads back
+   * with its value. This proves the promoted class is usable for record writes and the snapshot was
+   * invalidated so the new class is visible.
+   */
+  @Test
+  public void recordInsertedIntoReconciledClassResolvesToRealCollection() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("InsertTarget"));
+
+    var classCollectionIds = schemaShared().getClass("InsertTarget").getCollectionIds();
+    var validCollectionIds = new HashSet<Integer>();
+    for (var id : classCollectionIds) {
+      validCollectionIds.add(id);
+    }
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("InsertTarget");
+    entity.setProperty("value", 7);
+    session.commit();
+
+    var recordId = entity.getIdentity();
+    assertTrue("the inserted record must hold a persistent RID after commit",
+        recordId.isPersistent());
+    assertTrue(
+        "the inserted record must land in one of the class's resolved real collections, was "
+            + recordId.getCollectionId(),
+        validCollectionIds.contains(recordId.getCollectionId()));
+
+    // Read the property inside the transaction: a record loaded through the active transaction is
+    // bound only for that transaction's lifetime, so the value must be read before the tx closes.
+    var reloadedValue =
+        session.computeInTx(
+            tx -> {
+              var reloaded = session.getActiveTransaction().<EntityImpl>load(recordId);
+              assertNotNull("the inserted record must be readable from its real collection",
+                  reloaded);
+              return reloaded.<Integer>getProperty("value");
+            });
+    assertEquals("the inserted record's value must round-trip", Integer.valueOf(7), reloadedValue);
+  }
+
+  /**
+   * A class created inside a transaction that rolls back leaves no real collection: the metadata
+   * change is discarded and storage is byte-for-byte unchanged. The provisional id never resolves to
+   * a real collection, so no collection file or registry entry is created. The committed
+   * schema also stays without the class.
+   */
+  @Test
+  public void rolledBackInTransactionCreateLeavesNoCollection() {
+    var collectionsBefore = new HashSet<>(session.getCollectionNames());
+
+    session.begin();
+    session.getMetadata().getSchema().createClass("RolledBackCommit");
+    session.rollback();
+
+    assertFalse("the rolled-back class must be absent from the committed schema",
+        schemaShared().existsClass("RolledBackCommit"));
+    assertEquals(
+        "a rolled-back schema transaction must create no real collection (storage unchanged)",
+        collectionsBefore, new HashSet<>(session.getCollectionNames()));
+  }
+
+  /**
+   * The positive drop across a commit: a class created and committed in one transaction, then
+   * dropped and committed in a second, has its real collection removed from storage and its class
+   * record unlinked from the root, confirmed after a durable reload. A drop must be detected from the
+   * collection-id set difference, not the changed-record set (a dropped class's record is deleted,
+   * so it carries no per-property change signal).
+   */
+  @Test
+  public void droppedClassRemovesItsCollectionAcrossCommit() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("ToReconcileDrop"));
+
+    var droppedClass = schemaShared().getClass("ToReconcileDrop");
+    var droppedRid = droppedClass.getRecordId();
+    var droppedCollectionIds = droppedClass.getCollectionIds();
+    assertTrue("the class must own a real collection before the drop",
+        droppedCollectionIds.length > 0 && droppedCollectionIds[0] >= 0);
+    var droppedName = session.getCollectionNameById(droppedCollectionIds[0]);
+    assertNotNull("the class's real collection must exist before the drop", droppedName);
+    assertTrue("the class record must be linked from the root before the drop",
+        rootClassLinks().contains(droppedRid));
+
+    session.executeInTx(tx -> session.getMetadata().getSchema().dropClass("ToReconcileDrop"));
+
+    assertFalse("the dropped class must be gone from the committed schema after commit",
+        schemaShared().existsClass("ToReconcileDrop"));
+    assertFalse("the dropped class record must be unlinked from the root after commit",
+        rootClassLinks().contains(droppedRid));
+
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+
+    assertFalse("the dropped class must not reappear after a reload",
+        schemaShared().existsClass("ToReconcileDrop"));
+    assertFalse("the dropped class's collection must not exist after a reload",
+        session.getCollectionNames().contains(droppedName));
+  }
+
+  /**
+   * A schema-carrying commit that fails after it has published the new collection into the in-memory
+   * registries (but before the record apply makes the commit durable) leaves no phantom registration:
+   * the failure path rolls back the atomic operation and undoes the synchronous registry publication.
+   * After the failure the collection name is absent from the registry, the class is absent from the
+   * committed schema, and the next successful create reuses the freed id (the allocator finds the
+   * slot free again). This exercises the net-new failure-path recovery — the published-but-undone
+   * branch — which no other test reaches, because the rollback test rolls back before reconciliation
+   * publishes anything.
+   *
+   * <p>The fault is injected through the storage's in-window test hook, which fires after structure
+   * is published and before the record apply (i.e. on the failure-path side, not the success-path
+   * side): a fault there routes through {@code rollback} and the registry undo, which is precisely
+   * the recovery code under test.
+   */
+  @Test
+  public void failedSchemaCommitLeavesNoPhantomRegistration() {
+    var storage = (AbstractStorage) session.getStorage();
+    var namesBefore = new HashSet<>(session.getCollectionNames());
+
+    // Inject a fault inside the commit window, after reconcileCollections published the new
+    // collection into collections/collectionMap. The throw routes to the failure finally, which runs
+    // undoReconciledCollections under the held write lock. A NeedRetryException-family fault
+    // (CommandInterruptedException) is used deliberately: moveToErrorStateIfNeeded skips the
+    // retry family, so the storage stays OPEN after the failure. That is the reachable divergence the
+    // review describes — the storage keeps serving transactions against the in-memory registry, so a
+    // phantom registration would actually be observable. A plain RuntimeException would instead poison
+    // the storage (forcing a reopen that re-syncs from config) and mask the in-memory cleanliness we
+    // are verifying.
+    storage.setCommitWindowTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected in-window commit fault");
+        });
+    try {
+      session.begin();
+      session.getMetadata().getSchema().createClass("FailAtApply");
+      try {
+        session.commit();
+        fail("the schema commit must fail when the in-window fault hook throws");
+      } catch (final RuntimeException expected) {
+        // Routed through rollback + undoReconciledCollections, as intended.
+      }
+    } finally {
+      storage.setCommitWindowTestHook(null);
+    }
+
+    // No phantom in-memory registration survives: the collection registry is unchanged and the class
+    // never reached the committed schema.
+    assertEquals(
+        "a failed schema commit must leave the collection registry unchanged (no phantom)",
+        namesBefore, new HashSet<>(session.getCollectionNames()));
+    assertFalse("the failed class must not be in the committed schema",
+        schemaShared().existsClass("FailAtApply"));
+
+    // The freed slot is reusable and nothing leaked: a subsequent successful create takes real
+    // collections, and the registry afterwards is exactly the baseline plus that new class's
+    // collections — no phantom collection from the failed commit lingers. (A create adds more than
+    // one collection, so the assertion is on the name set, not a fixed count.)
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("ReuseAfterFail"));
+    var reused = schemaShared().getClass("ReuseAfterFail");
+    assertNotNull("the post-failure create must succeed and be promoted", reused);
+    var reusedCollectionNames = new HashSet<String>();
+    for (var id : reused.getCollectionIds()) {
+      assertTrue("the reused collection id must be a real (>= 0) id, was " + id, id >= 0);
+      var collectionName = session.getCollectionNameById(id);
+      assertNotNull("the reused real collection must exist in storage, id " + id, collectionName);
+      reusedCollectionNames.add(collectionName);
+    }
+    var expectedAfter = new HashSet<>(namesBefore);
+    expectedAfter.addAll(reusedCollectionNames);
+    assertEquals(
+        "after a failed commit, the registry must be exactly baseline plus the new class's "
+            + "collections (no leaked phantom slot from the failed commit)",
+        expectedAfter, new HashSet<>(session.getCollectionNames()));
+  }
+
+  /**
+   * The drop mirror of the failed-commit registry-cleanliness guarantee: a schema-carrying commit
+   * that drops a class and then fails after reconciliation must restore the dropped collection's
+   * in-memory registration (the rolled-back atomic operation reverts the files, so the registry must
+   * not report a collection absent that is fully present on disk and in the storage configuration).
+   * The class is created and committed first, then dropped in a second commit that faults inside the
+   * window after the drop has already removed the collection from the registries. After the failure
+   * the dropped collection's name is back in the registry and the class is still in the committed
+   * schema. This directly exercises the drop-restore arm of the failure-path undo, which the
+   * create-only failed-commit test above does not reach.
+   */
+  @Test
+  public void failedSchemaCommitWithDropRestoresDroppedRegistration() {
+    var storage = (AbstractStorage) session.getStorage();
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("DropThenFail"));
+
+    var dropped = schemaShared().getClass("DropThenFail");
+    var droppedCollectionId = dropped.getCollectionIds()[0];
+    var droppedCollectionName = session.getCollectionNameById(droppedCollectionId);
+    assertNotNull("the class's real collection must exist before the failed drop",
+        droppedCollectionName);
+    var namesBeforeDrop = new HashSet<>(session.getCollectionNames());
+
+    // Fault after reconciliation removed the collection from the registries (a retry-family fault so
+    // the storage stays OPEN — see the create-case test for the rationale).
+    storage.setCommitWindowTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected in-window drop-commit fault");
+        });
+    try {
+      session.begin();
+      session.getMetadata().getSchema().dropClass("DropThenFail");
+      try {
+        session.commit();
+        fail("the drop commit must fail when the in-window fault hook throws");
+      } catch (final RuntimeException expected) {
+        // Routed through rollback + undoReconciledCollections (drop-restore arm).
+      }
+    } finally {
+      storage.setCommitWindowTestHook(null);
+    }
+
+    // The dropped collection's in-memory registration is restored: the registry is back to its
+    // pre-drop state, and the class is still present in the committed schema (the drop never
+    // committed).
+    assertEquals(
+        "a failed drop commit must restore the dropped collection's in-memory registration",
+        namesBeforeDrop, new HashSet<>(session.getCollectionNames()));
+    assertTrue("the dropped collection name must be back in the registry after the failed drop",
+        session.getCollectionNames().contains(droppedCollectionName));
+    assertNotNull("the dropped collection must resolve by id again after the failed drop",
+        session.getCollectionNameById(droppedCollectionId));
+    assertTrue("the class must still be in the committed schema after the failed drop",
+        schemaShared().existsClass("DropThenFail"));
+    // The drop removed the collection's link-bag component from the in-memory manager map
+    // EAGERLY (only the file delete was buffered and rolled back), and this pure-drop shape has
+    // no slot-reusing create to mask the gap with a replacement entry — the undo must restore
+    // the registration itself, or the restored collection's first link-bag operation fails
+    // until reopen despite the intact file.
+    assertTrue("the restored collection's link-bag component must be resolvable through the"
+        + " in-memory manager after the failed pure-drop commit",
+        linkBagComponentResolvable(droppedCollectionId));
+  }
+
+  /**
+   * Regression for the failed-commit undo when a create reused a slot the SAME commit's drop freed.
+   * A transaction drops a committed class and creates a new one; reconciliation processes the drop
+   * first (freeing the dropped collection's registry slot), and the commit-local first-null-slot
+   * allocator then hands the created class's collection that just-freed slot. When the commit fails
+   * inside the window, the failure-path undo must classify the reused slot as commit-created — not
+   * as a pre-existing committed id, even though the not-yet-promoted committed schema still lists it
+   * — so the create-undo frees the slot and the drop-restore re-registers the original collection.
+   * The old committed-id guard skipped the create-undo for the reused slot, and the drop-restore arm
+   * then hit its "drop-restore slot N is out of range or occupied" assert from the failure-path
+   * finally (an {@link AssertionError} escaping instead of the injected failure).
+   */
+  @Test
+  public void failedCommitWithDropAndSlotReusingCreateRestoresRegistry() {
+    var storage = (AbstractStorage) session.getStorage();
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("DropForSlotReuse"));
+
+    var droppedClass = schemaShared().getClass("DropForSlotReuse");
+    var droppedCollectionId = droppedClass.getCollectionIds()[0];
+    var droppedCollectionName = session.getCollectionNameById(droppedCollectionId);
+    assertNotNull("the class's real collection must exist before the failed drop+create",
+        droppedCollectionName);
+    var namesBefore = new HashSet<>(session.getCollectionNames());
+
+    // Fault after reconcileCollections ran (the drop freed the slot and the create reused it) — a
+    // retry-family fault so the storage stays OPEN and the in-memory registry stays observable (see
+    // failedSchemaCommitLeavesNoPhantomRegistration for the rationale).
+    storage.setCommitWindowTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected slot-reuse commit fault");
+        });
+    try {
+      session.begin();
+      var schema = session.getMetadata().getSchema();
+      schema.dropClass("DropForSlotReuse");
+      schema.createClass("CreateIntoFreedSlot");
+      try {
+        session.commit();
+        fail("the drop+create commit must fail when the in-window fault hook throws");
+      } catch (final RuntimeException expected) {
+        // Routed through the failure-path undo. An AssertionError escaping here instead would be
+        // the old committed-id-guard misclassification this test pins against.
+      }
+    } finally {
+      storage.setCommitWindowTestHook(null);
+    }
+
+    // The registry is exactly the pre-commit state: the phantom create is gone and the dropped
+    // collection's registration is back in its original slot.
+    assertEquals(
+        "a failed drop+create commit must restore the registry to its pre-commit state",
+        namesBefore, new HashSet<>(session.getCollectionNames()));
+    assertEquals("the dropped collection must be re-registered on its original slot",
+        droppedCollectionName, session.getCollectionNameById(droppedCollectionId));
+    assertTrue("the dropped class must still be in the committed schema",
+        schemaShared().existsClass("DropForSlotReuse"));
+    assertFalse("the failed create must not reach the committed schema",
+        schemaShared().existsClass("CreateIntoFreedSlot"));
+
+    // Durable-structure arm: the restored collection's id-named link-bag component must have
+    // survived the create-undo. The undo's structural cleanup runs in a fresh COMMITTING atomic
+    // operation, so a cleanup arm that misclassified the restored component as the failed create's
+    // orphan would delete it durably — invisible to every registry assertion above, permanent
+    // damage on reopen. Same for writability: the restored collection must stay usable, not just
+    // named.
+    assertTrue(
+        "the restored collection's link-bag component must survive the slot-reuse create-undo",
+        linkBagComponentPresent(droppedCollectionId));
+    assertTrue("the restored collection's link-bag component must be resolvable through the"
+        + " in-memory manager after the failed slot-reuse commit",
+        linkBagComponentResolvable(droppedCollectionId));
+    assertClassWritableAndReadable("DropForSlotReuse");
+  }
+
+  /**
+   * A failure thrown by {@code endTxCommit} whose {@code endAtomicOperation} converted it to an
+   * internal rollback (the lifecycle persist-hook failure shape — nothing durable,
+   * {@code isRollbackInProgress()} true) must route through the same in-memory registry
+   * undo/restore arms as a pre-endTxCommit failure. Before the routing fix the no-error branch of
+   * the commit finally called endTxCommit bare, so such a failure propagated uncaught: the phantom
+   * created collection stayed registered and the dropped collection stayed missing while the WAL
+   * had rolled the files back. The transaction here carries all four arm families in one commit —
+   * a collection drop, a collection create, an index-engine drop, and an index-engine create — so
+   * the collection undo/restore arms AND the engine undo/restore/membership arms all run through
+   * the new catch. Durability and usability of the restored structures are asserted, not just
+   * registry names.
+   */
+  @Test
+  public void endTxCommitFailureAfterReconcileRunsRegistryUndo() {
+    var storage = (AbstractStorage) session.getStorage();
+    var indexManager = session.getSharedContext().getIndexManager();
+    // An indexless class whose drop exercises the collection drop-restore arm, and an indexed
+    // class whose committed index is dropped (engine drop-restore arm) while a second index is
+    // created on it (engine create-undo arm) in the failing transaction. Setup DDL runs on the
+    // legacy top-level path, like the sibling tests.
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("EndFailDropped"));
+    var indexed = session.getMetadata().getSchema().createClass("EndFailIndexed");
+    indexed.createProperty("name", PropertyType.STRING);
+    indexed.createIndex("EndFailIndexed.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var droppedClass = schemaShared().getClass("EndFailDropped");
+    var droppedCollectionId = droppedClass.getCollectionIds()[0];
+    var droppedCollectionName = session.getCollectionNameById(droppedCollectionId);
+    assertNotNull("the class's real collection must exist before the failed commit",
+        droppedCollectionName);
+    var namesBefore = new HashSet<>(session.getCollectionNames());
+
+    // Inject the endTxCommit failure (a retry-family fault so the storage stays OPEN). The hook
+    // seam ends the atomic operation with the injected error first, reproducing the rolled-back
+    // state a real persist-hook failure leaves, then rethrows into the commit finally's catch.
+    storage.setEndTxCommitFailureTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected endTxCommit failure");
+        });
+    try {
+      session.begin();
+      var schema = session.getMetadata().getSchema();
+      schema.dropClass("EndFailDropped");
+      schema.createClass("EndFailCreated");
+      indexManager.dropIndex(session, "EndFailIndexed.name");
+      schema.getClass("EndFailIndexed")
+          .createIndex("EndFailIndexed.name2", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+      try {
+        session.commit();
+        fail("the schema commit must fail when endTxCommit fails");
+      } catch (final RuntimeException expected) {
+        // Routed through the endTxCommit catch and the registry undo/restore arms.
+      }
+    } finally {
+      storage.setEndTxCommitFailureTestHook(null);
+    }
+
+    // Collection arms: the phantom create is gone and the dropped registration is restored, so the
+    // registry equals its pre-commit state and the committed schema is untouched.
+    assertEquals(
+        "an endTxCommit failure must leave the registry exactly as before the commit",
+        namesBefore, new HashSet<>(session.getCollectionNames()));
+    assertEquals("the dropped collection must be re-registered on its original slot",
+        droppedCollectionName, session.getCollectionNameById(droppedCollectionId));
+    assertTrue("the dropped class must still be in the committed schema",
+        schemaShared().existsClass("EndFailDropped"));
+    assertFalse("the failed create must not reach the committed schema",
+        schemaShared().existsClass("EndFailCreated"));
+
+    // Engine arms: the dropped committed index is restored (engine reconstructed, still resolvable
+    // and queryable) and the tx-created index's engine publication is undone.
+    assertNotNull("the dropped committed index must be restored after the failed commit",
+        indexManager.getIndex("EndFailIndexed.name"));
+    assertNull("the failed tx-created index must not survive the failed commit",
+        indexManager.getIndex("EndFailIndexed.name2"));
+
+    // Durability/usability arms: the restored collection's link-bag component survived the undo,
+    // its rows read back, and the restored index serves lookups for a fresh row.
+    assertTrue("the restored collection's link-bag component must survive the undo",
+        linkBagComponentPresent(droppedCollectionId));
+    assertTrue("the restored collection's link-bag component must be resolvable through the"
+        + " in-memory manager after the routed endTxCommit failure",
+        linkBagComponentResolvable(droppedCollectionId));
+    assertClassWritableAndReadable("EndFailDropped");
+    session.executeInTx(tx -> {
+      var row = (EntityImpl) session.newEntity("EndFailIndexed");
+      row.setProperty("name", "afterUndo");
+    });
+    var restoredIndex = indexManager.getIndex("EndFailIndexed.name");
+    var rids = session.computeInTx(tx -> restoredIndex.getRids(session, "afterUndo").toList());
+    assertEquals("the restored index must serve lookups after the failed commit", 1, rids.size());
+
+    // The storage stays usable after the routed failure: a follow-up schema commit succeeds and
+    // is promoted, proving no lock, mutex, or freezer state leaked through the failure path.
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("EndFailAfter"));
+    assertNotNull("a follow-up schema commit must succeed after the routed endTxCommit failure",
+        schemaShared().getClass("EndFailAfter"));
+  }
+
+  /**
+   * The other endTxCommit failure shape: the failure escapes with NO internal rollback
+   * ({@code isRollbackInProgress()} false — the commitChanges-throw family), so durability is
+   * in-doubt (here, certainly durable: the test hook fires after a successful
+   * {@code endAtomicOperation}). Undoing the in-memory registry publication would de-register a
+   * durably committed collection — and the undo's structural cleanup could then durably delete its
+   * files — so the commit finally must instead leave the publication standing and move the storage
+   * to error state, forcing a reopen that rebuilds the registries from the durable truth. The test
+   * pins exactly that split: publication stands (created collection registered, dropped one gone),
+   * the storage is in error state, and the commit still failed loudly to the caller.
+   */
+  @Test
+  public void endTxCommitFailureWithoutRollbackKeepsPublicationAndPoisonsStorage() {
+    var storage = (AbstractStorage) session.getStorage();
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("PdDropped"));
+
+    var droppedCollectionId = schemaShared().getClass("PdDropped").getCollectionIds()[0];
+    var droppedCollectionName = session.getCollectionNameById(droppedCollectionId);
+    var namesBefore = new HashSet<>(session.getCollectionNames());
+
+    storage.setEndTxCommitPostDurabilityFailureTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected post-durability endTxCommit failure");
+        });
+    try {
+      session.begin();
+      var schema = session.getMetadata().getSchema();
+      schema.dropClass("PdDropped");
+      schema.createClass("PdCreated");
+      try {
+        session.commit();
+        fail("the schema commit must fail when endTxCommit fails after durability");
+      } catch (final RuntimeException expected) {
+        // The failure surfaces to the caller even though the commit is durable (in-doubt from the
+        // production shape's perspective).
+      }
+    } finally {
+      storage.setEndTxCommitPostDurabilityFailureTestHook(null);
+    }
+
+    // The registry publication STANDS — no undo ran: the dropped collection is de-registered and
+    // the created collection's registration survives (the durable state contains both changes).
+    var namesAfter = new HashSet<>(session.getCollectionNames());
+    assertFalse("the dropped collection must stay de-registered (the drop is durable)",
+        namesAfter.contains(droppedCollectionName));
+    var added = new HashSet<>(namesAfter);
+    added.removeAll(namesBefore);
+    assertFalse("the created collection's registration must stand (the create is durable)",
+        added.isEmpty());
+
+    // The storage is in error state: every later component operation fails fast until a reopen
+    // rebuilds the registries from the durable truth.
+    var errorState = false;
+    try {
+      storage.checkErrorState();
+    } catch (final RuntimeException expected) {
+      errorState = true;
+    }
+    assertTrue("the storage must be moved to error state on a no-rollback endTxCommit failure",
+        errorState);
+  }
+
+  /**
+   * The reopen-recovery half of the no-rollback endTxCommit failure contract. The poisoned
+   * shape's whole justification is "the reopen rebuilds the registries from the durable truth":
+   * the error state preserves the storage's dirty flag on close, so the next open replays the WAL
+   * and reconstructs the registries and the committed schema from the durable state — which for
+   * the post-durability hook shape certainly contains both the drop and the create the failed
+   * commit carried. This needs a real storage restart, so the test manages its own DISK-typed
+   * database in a dedicated directory (the shared test session's default in-memory storage cannot
+   * restart), poisons it, closes the whole context, reopens, and asserts the recovered state:
+   * error state cleared, the dropped class gone, the created class present and writable.
+   */
+  @Test
+  public void poisonedEndTxCommitFailureRecoversOnReopen() throws Exception {
+    var dbName = "PoisonedReopen";
+    var contextPath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-poisoned-reopen";
+    var context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+    try {
+      context.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+      String droppedCollectionName;
+      var localSession = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        localSession.executeInTx(
+            tx -> localSession.getMetadata().getSchema().createClass("ReopenDropped"));
+        droppedCollectionName = localSession.getCollectionNameById(
+            localSession.getMetadata().getSchema().getClass("ReopenDropped")
+                .getCollectionIds()[0]);
+        var storage = (AbstractStorage) localSession.getStorage();
+        storage.setEndTxCommitPostDurabilityFailureTestHook(
+            () -> {
+              throw new CommandInterruptedException(
+                  dbName, "injected post-durability endTxCommit failure");
+            });
+        try {
+          localSession.begin();
+          var schema = localSession.getMetadata().getSchema();
+          schema.dropClass("ReopenDropped");
+          schema.createClass("ReopenCreated");
+          try {
+            localSession.commit();
+            fail("the schema commit must fail when endTxCommit fails after durability");
+          } catch (final RuntimeException expected) {
+            // The in-doubt shape: publication stands, storage poisoned.
+          }
+        } finally {
+          storage.setEndTxCommitPostDurabilityFailureTestHook(null);
+        }
+        // Sanity: the storage is poisoned, so the close below must preserve the dirty flag and
+        // force the next open onto the WAL-replay recovery path.
+        var poisoned = false;
+        try {
+          storage.checkErrorState();
+        } catch (final RuntimeException expectedPoison) {
+          poisoned = true;
+        }
+        assertTrue("the storage must be poisoned before the recovery half runs", poisoned);
+      } finally {
+        localSession.activateOnCurrentThread();
+        localSession.close();
+      }
+      context.close();
+
+      // Reopen: the fresh storage instance recovers from the durable truth.
+      context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+      var reopenedSession = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        var storage = (AbstractStorage) reopenedSession.getStorage();
+        // Must not throw: the error state belonged to the discarded pre-restart instance.
+        storage.checkErrorState();
+        var schema = reopenedSession.getMetadata().getSchema();
+        assertFalse("the durably dropped class must be gone after recovery",
+            schema.existsClass("ReopenDropped"));
+        assertTrue("the durably created class must be visible after recovery",
+            schema.existsClass("ReopenCreated"));
+        assertFalse("the dropped collection must not be registered after recovery",
+            reopenedSession.getCollectionNames().contains(droppedCollectionName));
+        // Usable: a row round-trips through the recovered class.
+        var rid = reopenedSession.computeInTx(tx -> {
+          var row = (EntityImpl) reopenedSession.newEntity("ReopenCreated");
+          row.setProperty("probe", "recovered");
+          return row.getIdentity();
+        });
+        reopenedSession.executeInTx(tx -> {
+          EntityImpl loaded = reopenedSession.load(rid);
+          assertEquals("the recovered class must serve its rows back", "recovered",
+              loaded.getProperty("probe"));
+        });
+      } finally {
+        reopenedSession.activateOnCurrentThread();
+        reopenedSession.close();
+      }
+      context.drop(dbName);
+    } finally {
+      context.close();
+      FileUtils.deleteDirectory(new File(contextPath));
+    }
+  }
+
+  /**
+   * Breadcrumb for the crash-before-commit recovery of an in-transaction schema create. The rollback
+   * half (a programmatic {@code session.rollback()} leaves no collection) is covered by
+   * {@link #rolledBackInTransactionCreateLeavesNoCollection}. The crash half — stop the storage hard
+   * before commit becomes durable, restore, and assert the created collection and its files are
+   * absent — leans on the already-verified {@code ensureFileForReplay} prerequisite and the
+   * {@code LocalPaginatedStorageRestoreFromWALIT} close-copy-restore harness, which is heavier
+   * integration-test machinery deferred to the integration-test layer. Kept as a self-documenting
+   * placeholder so the gap is visible at the test surface.
+   */
+  @Test
+  @Ignore("crash-before-commit recovery of a schema create: needs the "
+      + "LocalPaginatedStorageRestoreFromWALIT close-copy-restore harness; deferred to the "
+      + "integration-test layer")
+  public void crashBeforeCommitOfSchemaCreateLeavesNoCollectionAfterRestore() {
+    // Intentionally empty: see the Javadoc breadcrumb above. The rollback half is covered by
+    // rolledBackInTransactionCreateLeavesNoCollection.
+  }
+
+  /**
+   * Schema-commit lock contract: a schema-carrying commit holds {@code stateLock.writeLock()} for its
+   * whole duration, so a concurrent pure-data commit on a second session (which takes the read lock)
+   * is serialized behind it rather than racing it. The schema commit is pinned inside its window by a
+   * latch wired through the in-window test hook; while it is pinned, a second thread starts a
+   * pure-data commit and is observed to block (it cannot complete because the write lock excludes its
+   * read lock). Releasing the schema commit lets the data commit complete. Both commits succeed with
+   * no deadlock. The {@code @Test(timeout)} is the safety net: a regression that let the schema
+   * branch fall back to the read lock (losing the exclusion) or that deadlocked would trip it.
+   *
+   * <p>Note on shape: the data commit cannot complete <em>while</em> the write lock is held — a real
+   * read/write lock excludes a reader behind a writer — so the test pins the schema commit, confirms
+   * the data commit is still blocked, then releases and confirms it completes. That serialization is
+   * exactly the guarantee under test; an "await the data commit while still holding the write lock"
+   * shape would deadlock by construction.
+   */
+  @Test(timeout = 60_000)
+  public void dataCommitSerializesBehindHeldSchemaWriteLock() throws Exception {
+    // A @Test(timeout) body runs on a JUnit watchdog thread, not the @Before thread, so the bound
+    // session must be re-activated here before any use (the session is ThreadLocal-bound).
+    session.activateOnCurrentThread();
+    // A pre-existing class for the pure-data commit to insert into (a create would itself be a
+    // schema-carry commit; we need the read-lock branch).
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("DataTarget"));
+
+    var storage = (AbstractStorage) session.getStorage();
+    var schemaInWindow = new CountDownLatch(1);
+    var releaseSchema = new CountDownLatch(1);
+    var dataCommitStarted = new CountDownLatch(1);
+    var dataCommitted = new CountDownLatch(1);
+    var errors = new AtomicReference<Throwable>();
+
+    // The schema transaction runs entirely on its own thread with its own session (the session is
+    // ThreadLocal-bound, so the main thread must never share it). The in-window hook latches it inside
+    // the held write lock until releaseSchema fires.
+    var schemaSession = openDatabase();
+    var schemaThread =
+        new Thread(
+            () -> {
+              try {
+                schemaSession.activateOnCurrentThread();
+                schemaSession.begin();
+                schemaSession.getMetadata().getSchema().createClass("SchemaWhileData");
+                schemaSession.commit();
+              } catch (final Throwable t) {
+                errors.compareAndSet(null, t);
+              } finally {
+                schemaSession.activateOnCurrentThread();
+                schemaSession.close();
+              }
+            },
+            "schema-commit-thread");
+
+    // The data thread: a pure-data commit on its own session, started once the schema commit is
+    // pinned inside its window.
+    var dataSession = openDatabase();
+    var dataThread =
+        new Thread(
+            () -> {
+              try {
+                dataSession.activateOnCurrentThread();
+                // Bounded: if the schema commit never enters its window (a regression), the data
+                // thread fails fast instead of parking forever and leaking with its session open.
+                if (!schemaInWindow.await(30, TimeUnit.SECONDS)) {
+                  throw new AssertionError("the schema commit never entered its window");
+                }
+                dataCommitStarted.countDown();
+                dataSession.begin();
+                var e = (EntityImpl) dataSession.newEntity("DataTarget");
+                e.setProperty("v", 1);
+                dataSession.commit();
+                dataCommitted.countDown();
+              } catch (final Throwable t) {
+                errors.compareAndSet(null, t);
+              } finally {
+                dataSession.activateOnCurrentThread();
+                dataSession.close();
+              }
+            },
+            "data-commit-thread");
+
+    // Pin the schema commit inside its window so the data commit demonstrably contends with the held
+    // write lock. The hook waits with a bound: if the test body never releases (an assertion above
+    // failed before releaseSchema.countDown()), the test-body finally releases it anyway, but the
+    // bound is a second backstop so the schema thread cannot park forever and leak.
+    storage.setCommitWindowTestHook(
+        () -> {
+          schemaInWindow.countDown();
+          try {
+            if (!releaseSchema.await(50, TimeUnit.SECONDS)) {
+              throw new AssertionError("the schema commit was never released from its window");
+            }
+          } catch (final InterruptedException ie) {
+            Thread.currentThread().interrupt();
+          }
+        });
+    try {
+      schemaThread.start();
+      dataThread.start();
+
+      // Wait until the schema commit is inside its window and the data thread has started its commit.
+      assertTrue("the schema commit must enter its window",
+          schemaInWindow.await(30, TimeUnit.SECONDS));
+      assertTrue("the data thread must start its commit",
+          dataCommitStarted.await(30, TimeUnit.SECONDS));
+
+      // The data commit must NOT have completed yet: it is blocked on the read lock behind the held
+      // write lock. A short bounded wait that times out is the positive signal of exclusion.
+      assertFalse("the data commit must be blocked while the schema write lock is held",
+          dataCommitted.await(1, TimeUnit.SECONDS));
+
+      // Release the schema commit; both commits must now complete with no deadlock.
+      releaseSchema.countDown();
+      schemaThread.join(30_000);
+      assertFalse("the schema commit must finish after release", schemaThread.isAlive());
+      assertTrue("the data commit must complete once the write lock is released",
+          dataCommitted.await(30, TimeUnit.SECONDS));
+    } finally {
+      // Always release the pinned schema commit and clear the hook, then interrupt-and-join both
+      // racer threads so neither leaks past the test (each closes its own session in its own
+      // finally). The join is what makes those session closes happen before teardown recreates the
+      // database for the next test, even when an assertion above failed or the @Test(timeout)
+      // interrupted the body thread.
+      releaseSchema.countDown();
+      storage.setCommitWindowTestHook(null);
+      interruptAndJoin(schemaThread, dataThread);
+    }
+
+    if (errors.get() != null) {
+      throw new AssertionError("a concurrent commit failed", errors.get());
+    }
+    session.activateOnCurrentThread();
+    assertNotNull("the schema commit must have promoted its class",
+        schemaShared().getClass("SchemaWhileData"));
+  }
+
+  /**
+   * Lock-ordering deadlock-freedom: a schema-carrying commit (which takes the four locks in the fixed
+   * acyclic order: schema write lock, index-manager exclusive lock, storage write lock), a data-path
+   * schema reload (takes the schema write lock), and an index-manager load (takes the index-manager
+   * exclusive lock) run concurrently across many rounds without an interleaving deadlock. These are
+   * the exact overlapping lock subsets that could deadlock if the acquisition order were not fixed.
+   * The four-lock order keeps acquisition acyclic; the lock order is not runtime-assertable
+   * ({@code ScalableRWLock} exposes no owner-thread query), so a timeout-bounded concurrent test is
+   * the only way to verify deadlock-freedom. The {@code @Test(timeout)} is the deadlock detector: a
+   * lock-order regression hangs and trips the timeout instead of hanging the whole suite.
+   */
+  @Test(timeout = 60_000)
+  public void schemaCommitReloadAndIndexLoadRaceWithoutDeadlock() throws Exception {
+    // A @Test(timeout) body runs on a JUnit watchdog thread, not the @Before thread, so the bound
+    // session must be re-activated here before its racer thread re-binds it.
+    session.activateOnCurrentThread();
+    final var rounds = 30;
+    var barrier = new CyclicBarrier(3);
+    var error = new AtomicReference<Throwable>();
+
+    var reloadSession = openDatabase();
+    var indexSession = openDatabase();
+
+    // Every barrier.await() is bounded and every catch block resets the barrier. If any racer throws
+    // mid-loop (the contended create/drop path can), the thrown racer never reaches the next barrier
+    // point; resetting the barrier breaks the other two out of their await with a
+    // BrokenBarrierException instead of parking them forever, so a single racer failure cannot turn
+    // into a whole-test hang that the @Test(timeout) would only catch on the test-body thread while
+    // the two racer threads leak with their sessions open. The bounded await is a second backstop.
+
+    // Thread A: schema-carrying commits (create then drop a uniquely named class each round) on the
+    // base session — the four-lock commit path.
+    var commitThread =
+        new Thread(
+            () -> {
+              try {
+                session.activateOnCurrentThread();
+                for (var i = 0; i < rounds; i++) {
+                  barrier.await(30, TimeUnit.SECONDS);
+                  var cls = "Racer" + i;
+                  session.executeInTx(tx -> session.getMetadata().getSchema().createClass(cls));
+                  session.executeInTx(tx -> session.getMetadata().getSchema().dropClass(cls));
+                }
+              } catch (final Throwable t) {
+                error.compareAndSet(null, t);
+                barrier.reset();
+              }
+            },
+            "schema-commit-racer");
+
+    // Thread B: schema reloads — takes the schema write lock.
+    var reloadThread =
+        new Thread(
+            () -> {
+              try {
+                reloadSession.activateOnCurrentThread();
+                var schema = reloadSession.getSharedContext().getSchema();
+                for (var i = 0; i < rounds; i++) {
+                  barrier.await(30, TimeUnit.SECONDS);
+                  schema.reload(reloadSession);
+                }
+              } catch (final Throwable t) {
+                error.compareAndSet(null, t);
+                barrier.reset();
+              } finally {
+                reloadSession.activateOnCurrentThread();
+                reloadSession.close();
+              }
+            },
+            "schema-reload-racer");
+
+    // Thread C: index-manager loads — takes the index-manager exclusive lock.
+    var indexThread =
+        new Thread(
+            () -> {
+              try {
+                indexSession.activateOnCurrentThread();
+                var indexManager = indexSession.getSharedContext().getIndexManager();
+                for (var i = 0; i < rounds; i++) {
+                  barrier.await(30, TimeUnit.SECONDS);
+                  indexManager.load(indexSession);
+                }
+              } catch (final Throwable t) {
+                error.compareAndSet(null, t);
+                barrier.reset();
+              } finally {
+                indexSession.activateOnCurrentThread();
+                indexSession.close();
+              }
+            },
+            "index-load-racer");
+
+    try {
+      commitThread.start();
+      reloadThread.start();
+      indexThread.start();
+
+      commitThread.join(55_000);
+      reloadThread.join(55_000);
+      indexThread.join(55_000);
+
+      assertFalse("the schema-commit racer must finish (no deadlock)", commitThread.isAlive());
+      assertFalse("the schema-reload racer must finish (no deadlock)", reloadThread.isAlive());
+      assertFalse("the index-load racer must finish (no deadlock)", indexThread.isAlive());
+      if (error.get() != null) {
+        throw new AssertionError("a concurrent racer failed", error.get());
+      }
+    } finally {
+      // Guarantee no racer thread leaks past the test, even if an assertion above fails or the
+      // @Test(timeout) interrupts the body thread mid-test. Interrupt then bounded-join all three;
+      // each racer closes its own session in its own finally (Thread B and C above), so the join is
+      // what makes those closes happen before teardown recreates the database for the next test.
+      interruptAndJoin(commitThread, reloadThread, indexThread);
+    }
+  }
+
+  /** Interrupts each thread and joins it with a bounded wait so a test never leaks a racer thread. */
+  private static void interruptAndJoin(final Thread... threads) throws InterruptedException {
+    for (final var t : threads) {
+      if (t != null) {
+        t.interrupt();
+      }
+    }
+    for (final var t : threads) {
+      if (t != null) {
+        t.join(10_000);
+      }
+    }
+  }
+
+  /**
+   * Reads the persisted version of a record by loading it fresh inside a transaction. A record's
+   * version increments each time the storage writes it, so comparing the version across a commit
+   * tells whether that commit actually wrote the record. This is the observable the selective-write
+   * tests rely on: a record left out of the commit working set keeps its version unchanged.
+   */
+  private long recordVersion(RID rid) {
+    return session.computeInTx(tx -> session.<EntityImpl>load(rid).getVersion());
+  }
+
+  /**
+   * The root-omission guard, reachable half: the collection counter. A class create advances the
+   * collection counter, which lives only on the root record. If the root were left out of the commit
+   * write set, the advanced counter would not persist; at the next open the counter would revert to
+   * its old value and hand out a suffix it had already used, so the next class's generated collection
+   * name would collide with an existing one. This test creates a class, forces a durable reload, then
+   * creates a second class and asserts no two collections share a generated name. A regression that
+   * omitted the root after the first create would revert the counter and produce the collision.
+   *
+   * <p>The other root-omission half — the global-property table, exercised by an in-transaction
+   * property-create — is not reachable yet: property-create is still throw-guarded against an active
+   * transaction (it rides the legacy non-transactional save, which always rewrites the whole schema
+   * including the root). The selective write's root-payload guard covers the global-table case in
+   * production through {@code rootPayloadDiffersFrom}; an end-to-end test of it waits for the
+   * property-operation de-guarding in a later track.
+   */
+  @Test
+  public void classCreateAdvancesCounterPersistedThroughRestartSoNamesDoNotCollide() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("CounterFirst"));
+
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+
+    // Create a second class after the restart: it draws the next counter values for its collection
+    // names. If the counter had reverted (the root-omission regression), these names would collide
+    // with the first class's persisted collection names.
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("CounterSecond"));
+
+    var collectionNames = new ArrayList<>(session.getCollectionNames());
+    assertEquals(
+        "no two collections may share a generated name after a restart; a reverted counter (the "
+            + "root-omission regression) would hand out an already-used suffix",
+        collectionNames.size(), new HashSet<>(collectionNames).size());
+    assertNotNull("the first class must survive the restart",
+        schemaShared().getClass("CounterFirst"));
+    assertNotNull("the second class created after the restart must be promoted",
+        schemaShared().getClass("CounterSecond"));
+  }
+
+  /**
+   * The write-amplification win: a commit that changes one class does not rewrite an unrelated live
+   * class's per-class record. Two classes are created and committed; then the first is dropped in a
+   * later transaction. The drop deletes the dropped class's record and rewrites the root (the class
+   * link set shrank), but the unrelated second class's per-class record must stay out of the commit
+   * write set — its version is unchanged. This is the per-class-record format killing the
+   * monolithic-schema write amplification: an unchanged class record is never rewritten.
+   */
+  @Test
+  public void changingOneClassDoesNotRewriteAnUnrelatedClassRecord() {
+    session.executeInTx(
+        tx -> {
+          session.getMetadata().getSchema().createClass("DropMe");
+          session.getMetadata().getSchema().createClass("KeepMe");
+        });
+
+    var keepRid = schemaShared().getClass("KeepMe").getRecordId();
+    assertNotNull("the kept class must have a bound per-class record", keepRid);
+    var keepVersionBefore = recordVersion(keepRid);
+
+    session.executeInTx(tx -> session.getMetadata().getSchema().dropClass("DropMe"));
+
+    assertFalse("the dropped class must be gone after commit",
+        schemaShared().existsClass("DropMe"));
+    assertEquals(
+        "an unrelated live class's per-class record must NOT be rewritten by a commit that changed "
+            + "only another class (version must be unchanged)",
+        keepVersionBefore, recordVersion(keepRid));
+  }
+
+  /**
+   * The cross-class provisional-id re-key in one committed transaction: create a superclass AND a
+   * subclass of it in the SAME transaction, then commit. Polymorphic inheritance grows the
+   * SUPERCLASS's polymorphic collection set to absorb the subclass's collection (so a polymorphic
+   * query on the parent spans the child's records). Both classes are created in the same transaction,
+   * so the child's collection is allocated as a PROVISIONAL id, and the parent's polymorphic set
+   * therefore carries that provisional id during the transaction. The commit must resolve every
+   * provisional id to its real id first, then re-key the reverse map and re-point cross-class
+   * references, so the parent ends up indexing the child's RESOLVED real collection rather than a
+   * stale provisional id. This is the multi-class resolve-then-re-key ordering: it only bites when
+   * one class's id array references an id another same-transaction class produced. The existing
+   * two-class test creates independent classes that share no collection id, so its two-pass rebuild
+   * has nothing to settle between the classes; this test forces the cross-class reference through
+   * inheritance. A regression in the ordering (rebuilding the reverse map before all classes are
+   * patched, or the polymorphic-id patch skipping the inherited id) would leave a provisional id in
+   * the parent's polymorphic set and silently misroute polymorphic reads of the subclass's records.
+   */
+  @Test
+  public void multiClassInheritanceInOneTxResolvesCrossClassProvisionalIds() {
+    session.executeInTx(
+        tx -> {
+          var schema = session.getMetadata().getSchema();
+          var parent = schema.createClass("InhParent");
+          // The subclass's (provisional) collection is absorbed into the parent's polymorphic set in
+          // the same tx, so the parent now references an id the child produced.
+          schema.createClass("InhChild", parent);
+        });
+
+    var committed = schemaShared();
+    var parent = committed.getClass("InhParent");
+    var child = committed.getClass("InhChild");
+    assertNotNull("the parent class must be promoted after commit", parent);
+    assertNotNull("the child class must be promoted after commit", child);
+
+    // Every collection id on both classes is a resolved real id; no provisional id survived the
+    // cross-class resolution.
+    for (var id : parent.getCollectionIds()) {
+      assertTrue("parent collection id must be resolved real, was " + id, id >= 0);
+      assertNotNull("the parent's real collection must exist in storage, id " + id,
+          session.getCollectionNameById(id));
+    }
+    for (var id : child.getCollectionIds()) {
+      assertTrue("child collection id must be resolved real, was " + id, id >= 0);
+      assertNotNull("the child's real collection must exist in storage, id " + id,
+          session.getCollectionNameById(id));
+    }
+
+    // The cross-class re-key settled: the parent's polymorphic set absorbed the child's resolved real
+    // own collection (the child's primary collection id), proving the inherited reference was
+    // re-pointed to the resolved id and not left as a stale provisional one. No provisional id may
+    // survive anywhere in the parent's polymorphic set.
+    var childOwnCollectionId = child.getCollectionIds()[0];
+    assertTrue("the child's own collection id must be a resolved real id",
+        childOwnCollectionId >= 0);
+    var parentPoly = new HashSet<Integer>();
+    for (var id : parent.getPolymorphicCollectionIds()) {
+      assertTrue("no provisional id may survive in the parent's polymorphic set, was " + id,
+          id >= 0);
+      parentPoly.add(id);
+    }
+    assertTrue(
+        "the parent's polymorphic collection ids must include the child's resolved real collection "
+            + "(the cross-class re-key must settle the inherited id, not leave it provisional)",
+        parentPoly.contains(childOwnCollectionId));
+
+    // The cross-class resolution reached durable bytes: after a reload re-parses the on-disk
+    // per-class records, the inheritance and the re-keyed polymorphic id survive unchanged.
+    committed.reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloaded = session.getSharedContext().getSchema();
+    var parentAfter = reloaded.getClass("InhParent");
+    var childAfter = reloaded.getClass("InhChild");
+    assertNotNull("the parent must survive a reload", parentAfter);
+    assertNotNull("the child must survive a reload", childAfter);
+    var parentPolyAfter = new HashSet<Integer>();
+    for (var id : parentAfter.getPolymorphicCollectionIds()) {
+      parentPolyAfter.add(id);
+    }
+    assertTrue(
+        "the re-keyed inherited collection id must survive the durable round trip in the parent's "
+            + "polymorphic set",
+        parentPolyAfter.contains(childAfter.getCollectionIds()[0]));
+  }
+
+  /**
+   * The root record is written on a class drop because the class link set shrank: a drop removes the
+   * dropped class's record from the root's {@code "classes"} link set and deletes that record, so the
+   * root must be rewritten for the removed link to persist — even though a drop changes none of the
+   * root's non-link payload (the counter is monotonic and is not decremented, the global-property
+   * table and blob set are untouched). This guards the link-set arm of the selective root write
+   * (writing the root when the link set changes, independent of a payload diff): without it the drop
+   * would not persist, and the dropped class would reappear at the next open. A baseline class keeps
+   * the schema non-empty so the root record exists before the drop.
+   */
+  @Test
+  public void classDropWritesRootForTheRemovedClassLink() {
+    session.executeInTx(
+        tx -> {
+          session.getMetadata().getSchema().createClass("DropBaseline");
+          session.getMetadata().getSchema().createClass("DropTarget");
+        });
+
+    var rootRid = schemaShared().getIdentity();
+    var droppedRid = schemaShared().getClass("DropTarget").getRecordId();
+    assertNotNull("the drop target must have a bound per-class record", droppedRid);
+    var rootVersionBefore = recordVersion(rootRid);
+    assertTrue("the drop target must be linked from the root before the drop",
+        rootClassLinks().contains(droppedRid));
+
+    session.executeInTx(tx -> session.getMetadata().getSchema().dropClass("DropTarget"));
+
+    assertTrue("dropping a class must rewrite the root so the removed class link persists",
+        recordVersion(rootRid) > rootVersionBefore);
+    assertFalse("the dropped class record must be unlinked from the root after commit",
+        rootClassLinks().contains(droppedRid));
+
+    // The removed link survives a durable round trip, confirming the root write reached disk.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertFalse("the dropped class must not reappear after a reload",
+        schemaShared().existsClass("DropTarget"));
+    assertTrue("the baseline class must survive the reload",
+        schemaShared().existsClass("DropBaseline"));
+  }
+
+  /**
+   * The root record is written when a class is created even if the per-class change alone would not
+   * touch the root payload: a class create adds the new class's record to the root's {@code "classes"}
+   * link set, which dirties the root, and it advances the collection counter (also on the root). This
+   * guards against an over-aggressive selective write that keys only on a payload diff and forgets the
+   * link-set change: a created class whose link never reached the persisted root would vanish at the
+   * next open. The first create establishes a baseline root version; a second create in a later
+   * transaction must increment it.
+   */
+  @Test
+  public void classCreateWritesRootForTheNewClassLink() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("LinkBaseline"));
+
+    var rootRid = schemaShared().getIdentity();
+    var rootVersionBefore = recordVersion(rootRid);
+    var linksBefore = new HashSet<>(rootClassLinks());
+
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("LinkAdded"));
+
+    assertTrue("creating a class must rewrite the root record so the new class link persists",
+        recordVersion(rootRid) > rootVersionBefore);
+    var newRid = schemaShared().getClass("LinkAdded").getRecordId();
+    var linksAfter = rootClassLinks();
+    assertTrue("the new class's record must be linked from the root", linksAfter.contains(newRid));
+    assertTrue("the previously linked class records must remain linked",
+        linksAfter.containsAll(linksBefore));
+
+    // The new class link survives a durable round trip, confirming the root write reached disk.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertTrue("the new class must survive a reload (its root link persisted)",
+        schemaShared().existsClass("LinkAdded"));
+    assertTrue("the baseline class must survive the reload too",
+        schemaShared().existsClass("LinkBaseline"));
+  }
+
+  /**
+   * White-box coverage of the root-payload-change detector the commit uses to decide whether the
+   * selective write must rewrite the root record. The detector compares a tx-local schema copy
+   * against the committed schema across the three non-link payload components that live on the root:
+   * the collection counter, the blob-collection set, and the global-property table. A copy that
+   * changed none of them reports no difference (the root stays out of the write set); a copy that
+   * advanced the counter, grew the blob set, or grew the global-property table reports a difference
+   * (the root must be rewritten). The counter and global-table arms back the commit-time decision for
+   * the operations reachable today (a class create advances the counter); the blob and global-table
+   * arms also cover the operations reachable once property and blob operations become transactional.
+   */
+  @Test
+  public void rootPayloadDiffersFromDetectsEachPayloadComponent() {
+    var committed = schemaShared();
+
+    session.computeInTx(
+        tx -> {
+          // An unmodified copy of the committed schema differs in no payload component.
+          var identical = committed.copyForTx(session);
+          assertFalse("an unmodified tx-local copy must report no root-payload difference",
+              identical.rootPayloadDiffersFrom(committed));
+
+          // Advancing the collection counter on the copy is a root-payload change.
+          // nextCollectionIndex requires the schema write lock; release without the save side effect
+          // (the way the commit path does), since the tx-local copy must not persist eagerly.
+          var counterChanged = committed.copyForTx(session);
+          counterChanged.acquireSchemaWriteLock(session);
+          try {
+            counterChanged.nextCollectionIndex();
+          } finally {
+            counterChanged.releaseSchemaWriteLock(session, false);
+          }
+          assertTrue(
+              "a copy whose collection counter advanced must report a root-payload difference",
+              counterChanged.rootPayloadDiffersFrom(committed));
+
+          // Growing the blob-collection set on the copy is a root-payload change. The abstract-class
+          // marker (-1) is accepted by the blob-add validation without needing a real collection, so
+          // it drives the blob arm in isolation.
+          var blobChanged = committed.copyForTx(session);
+          blobChanged.addBlobCollection(session, SchemaShared.ABSTRACT_COLLECTION_ID);
+          assertTrue("a copy whose blob-collection set grew must report a root-payload difference",
+              blobChanged.rootPayloadDiffersFrom(committed));
+
+          // Growing the global-property table on the copy is a root-payload change (the
+          // property-create case, here driven directly through the table since in-transaction
+          // property-create is still throw-guarded). The new id is placed past the current table size
+          // so the table both grows and gains a higher-id slot.
+          var tableChanged = committed.copyForTx(session);
+          var newId = committed.getGlobalProperties().size();
+          tableChanged.createGlobalProperty(
+              session, "whiteBoxGlobalProp", PropertyTypeInternal.STRING, newId);
+          assertTrue(
+              "a copy whose global-property table grew must report a root-payload difference",
+              tableChanged.rootPayloadDiffersFrom(committed));
+          return null;
+        });
+  }
+
+  /**
+   * Regression: an attribute-only alter on an existing committed class inside a transaction (one that
+   * does not create, drop, rename, or switch the class abstract) must survive commit. The selective
+   * per-class write rewrites only the classes the transaction recorded as changed; the change is
+   * recorded at the tx-local write choke point that every class mutation routes through, so an
+   * attribute setter like {@code setStrictMode} — which carries no dedicated mark of its own — is
+   * still recorded and its per-class record is rewritten. Without recording at the choke point, the
+   * altered class would be absent from the changed set, the selective write would skip its record,
+   * and the commit would report success while the change was lost in memory (promotion re-parses the
+   * stale record) and on disk. The test alters strict mode inside a transaction, forces a durable
+   * reload, and asserts the altered value persisted.
+   */
+  @Test
+  public void attributeAlterOutsideCreateDropRenameSurvivesCommit() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("StrictTarget"));
+
+    assertFalse("a freshly created class must start with strict mode off",
+        schemaShared().getClass("StrictTarget").isStrictMode());
+
+    var classRid = schemaShared().getClass("StrictTarget").getRecordId();
+    assertNotNull("the altered class must have a bound per-class record", classRid);
+    var classVersionBefore = recordVersion(classRid);
+
+    // setStrictMode is an attribute setter with no dedicated markClassChanged call and no
+    // active-transaction throw-guard, so it routes through the tx-local write choke point and is the
+    // exact silent-loss surface the selective write would otherwise drop.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("StrictTarget").setStrictMode(true));
+
+    assertTrue(
+        "an attribute alter inside a transaction must rewrite the altered class's per-class record",
+        recordVersion(classRid) > classVersionBefore);
+    assertTrue("the altered attribute must be visible in the committed in-memory schema",
+        schemaShared().getClass("StrictTarget").isStrictMode());
+
+    // The altered attribute survives a durable round trip: promotion re-parses the per-class record,
+    // so a skipped record write would revert strict mode here.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertTrue("the altered attribute must persist across a durable reload",
+        schemaShared().getClass("StrictTarget").isStrictMode());
+  }
+
+  /**
+   * The property-level sibling of the attribute-alter test: a property mutation on a committed class
+   * inside a transaction must survive commit through the property write choke point. Every property
+   * setter on the routing proxy resolves the write target into the tx-local copy and, at that choke
+   * point, records the property's OWNER class as changed (a property mutation is serialized inside
+   * the owner's per-class record). The class-attribute branch is covered by
+   * {@link #attributeAlterOutsideCreateDropRenameSurvivesCommit} through {@code setStrictMode}; this
+   * test drives the property branch through {@code setReadonly}. The property branch is more
+   * error-prone because it must resolve the property's owner against the tx-local class and mark that
+   * owner: a regression that resolved the wrong owner, or failed to mark it, would drop the owner
+   * class from the changed set, so the selective per-class write would skip the owner's record and
+   * the mutation would be lost both in memory (promotion re-parses the stale record) and on disk
+   * while the commit reported success. The test reads the property attribute back after a durable
+   * reload, where a skipped record write would revert it. {@code setReadonly} is chosen over a rename
+   * or retype because it changes only the per-class record and does not grow the global-property
+   * table, keeping the test focused on the per-class write path rather than the root-payload arm.
+   */
+  @Test
+  public void inTransactionPropertyAlterSurvivesCommitViaPropertyChokePoint() {
+    // Build a committed class with a property. In-transaction property CREATE on a fresh class is
+    // still throw-guarded, so the class and its property are committed at the top level first; the
+    // mutation under test is an alter of that existing property inside a transaction.
+    var schema = session.getMetadata().getSchema();
+    var target = schema.createClass("PropAlterTarget");
+    target.createProperty("p", PropertyType.STRING);
+
+    assertFalse("the property must start non-readonly",
+        schemaShared().getClass("PropAlterTarget").getProperty("p").isReadonly());
+
+    var classRid = schemaShared().getClass("PropAlterTarget").getRecordId();
+    assertNotNull("the owner class must have a bound per-class record", classRid);
+    var classVersionBefore = recordVersion(classRid);
+
+    // Alter the property inside a transaction. setReadonly routes through SchemaPropertyProxy, which
+    // resolves the write into the tx-local copy and records the owner class changed at the choke
+    // point. If the owner were not recorded, the selective write would skip the owner's per-class
+    // record and the change would be silently lost.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("PropAlterTarget").getProperty("p")
+            .setReadonly(true));
+
+    assertTrue(
+        "a property alter inside a transaction must rewrite the owner class's per-class record",
+        recordVersion(classRid) > classVersionBefore);
+    assertTrue("the property alter must be visible in the committed in-memory schema",
+        schemaShared().getClass("PropAlterTarget").getProperty("p").isReadonly());
+
+    // The property change survives a durable round trip: promotion re-parses the owner's per-class
+    // record, so an owner dropped from the changed set would revert the readonly flag here.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedProperty =
+        session.getSharedContext().getSchema().getClass("PropAlterTarget").getProperty("p");
+    assertNotNull("the altered property must survive the durable round trip", reloadedProperty);
+    assertTrue("the property alter must persist across a durable reload",
+        reloadedProperty.isReadonly());
+  }
+
+  /**
+   * The rename arm of the write-amplification win — the false branch of the selective root-write
+   * guard. A class rename is structurally inert: it changes neither the class link set (the renamed
+   * class keeps its bound record id, so no link is added or removed) nor the root non-link payload
+   * (the collection counter, global-property table, and blob set are all unchanged). So the rename
+   * rewrites only the renamed class's per-class record (under its new name) and must leave the root
+   * record entirely untouched. This is the only path through the selective root-write conditional
+   * that takes the false branch, and the positive create/drop tests cannot catch a regression that
+   * over-wrote the root on every commit. The test renames a committed class and asserts the class
+   * record version advanced while the root record version is unchanged, then confirms the rename
+   * survives a durable reload with its collection ids unchanged.
+   */
+  @Test
+  public void classRenameRewritesOnlyTheClassRecordAndLeavesTheRootUnwritten() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("RenameFrom"));
+
+    var classRid = schemaShared().getClass("RenameFrom").getRecordId();
+    assertNotNull("the class to rename must have a bound per-class record", classRid);
+    var rootRid = schemaShared().getIdentity();
+    var idsBefore = schemaShared().getClass("RenameFrom").getCollectionIds();
+    var classVersionBefore = recordVersion(classRid);
+    var rootVersionBefore = recordVersion(rootRid);
+
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("RenameFrom").setName("RenameTo"));
+
+    assertTrue("the renamed class's per-class record must be rewritten",
+        recordVersion(classRid) > classVersionBefore);
+    assertEquals(
+        "a structurally-inert rename must NOT rewrite the root record (the write-amplification win)",
+        rootVersionBefore, recordVersion(rootRid));
+
+    // The rename survives a durable round trip with its collection ids unchanged.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertNotNull("the renamed class must resolve under its new name after reload",
+        schemaShared().getClass("RenameTo"));
+    assertFalse("the old class name must not resolve after a rename",
+        schemaShared().existsClass("RenameFrom"));
+    assertEquals("a rename keeps its collection ids (structurally inert)",
+        java.util.Arrays.toString(idsBefore),
+        java.util.Arrays.toString(schemaShared().getClass("RenameTo").getCollectionIds()));
+  }
+
+  /**
+   * A schema-carry commit that suppresses the link-consistency check around schema serialization
+   * must restore the caller's prior flag rather than force the check back on. When an outer scope
+   * has already disabled the check and then triggers a schema commit, an unconditional re-enable
+   * would clobber that outer disable for the rest of the outer operation. This pins the
+   * save-and-restore: with the check disabled before the commit, it stays disabled afterward.
+   */
+  @Test
+  public void schemaCommitRestoresPriorLinkConsistencyFlag() {
+    // Simulate an outer scope that disabled the check (for example an import) before the schema
+    // commit runs.
+    session.disableLinkConsistencyCheck();
+    try {
+      assertFalse("precondition: the link-consistency check is disabled before the commit",
+          session.isLinkConsistencyEnabled());
+
+      // A class create commits through the schema-carry path, which suppresses the check around
+      // schema serialization and restores it in a finally.
+      session.executeInTx(
+          tx -> session.getMetadata().getSchema().createClass("LinkConsistencyCarry"));
+
+      assertFalse(
+          "the schema-carry commit must restore the prior (disabled) link-consistency flag, not"
+              + " force it back on",
+          session.isLinkConsistencyEnabled());
+    } finally {
+      // Leave the session as the suite expects it (the check enabled by default).
+      session.enableLinkConsistencyCheck();
+    }
+
+    // The class still committed normally despite the surrounding disabled window.
+    assertNotNull("the schema-carry create must still commit",
+        schemaShared().getClass("LinkConsistencyCarry"));
+  }
+}

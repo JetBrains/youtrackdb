@@ -39,7 +39,13 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
 
     validatePropertyName(propertyName);
-    if (session.getTransactionInternal().isActive()) {
+    // Outside the transaction-local path a property create is not transactional and still
+    // throws on an active transaction. On the transaction-local copy (reached through the
+    // proxy's resolveForWrite) the create rides the user transaction: the new property lands in
+    // the private copy's class and global-property table and commits with the schema-carry
+    // write — the same de-guard shape as dropClass/createIndex. The genesis phase-1 schema
+    // transaction is the first production consumer.
+    if (!owner.txLocal && session.getTransactionInternal().isActive()) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot create property '" + propertyName + "' inside a transaction");
     }
@@ -308,7 +314,30 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       final var oldName = this.name;
       owner.changeClassName(session, this.name, name, this);
       this.name = name;
-      renameCollection(session, oldName, this.name);
+      // A class rename is metadata-only: collection names are generated from a counter alone
+      // (c_<counter>, no class-name component) and engine files are keyed by ie_<fileBaseId>
+      // stems, so no storage file is touched. What DOES follow the rename is the index
+      // re-association: the class's indexes must re-key from the old to the new class name
+      // (classPropertyIndex + each definition's className) or they stop accelerating and stop
+      // being maintained. On the transactional path the re-association is recorded on the
+      // overlay and applied commit-only; on the legacy top-level path it applies eagerly, like
+      // every other non-transactional DDL.
+      if (owner.txLocal) {
+        // The seeding guard mirrors the create and drop sites: copyForTx re-parses committed
+        // classes through other paths and never through a rename, but the guard keeps the
+        // recording uniform.
+        if (!session.isSeedingTxSchemaState()) {
+          final var txState = session.getTxSchemaState();
+          if (txState == null) {
+            throw new IllegalStateException(
+                "a tx-local rename must run with a seeded tx-local schema state");
+          }
+          txState.ensureIndexOverlay().recordClassRenamed(oldName, name);
+        }
+      } else {
+        session.getSharedContext().getIndexManager()
+            .reassociateClassIndexesOnRename(session, oldName, name);
+      }
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -559,9 +588,34 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           return;
         }
 
-        var collectionName = name.toLowerCase(Locale.ENGLISH) + "_"
-            + ((SchemaEmbedded) owner).nextCollectionIndex();
-        var collectionId = database.addCollection(collectionName);
+        // Inside a schema transaction the abstract->concrete switch must not allocate a real
+        // storage collection eagerly: the self-committing addCollection would leave a stray
+        // collection on disk if the transaction rolls back, the same metadata-first inversion the
+        // tx-local create path applies. The class carries a provisional id (<= -2) the commit
+        // resolves to a real id once it creates the real collection inside the commit's own atomic
+        // operation. The seeding guard mirrors the create and rename sites: copyForTx -> fromStream
+        // re-creates committed classes through other paths and never through setAbstract, but the
+        // guard keeps the recording uniform. Outside a transaction (or while seeding) the legacy
+        // eager allocation is kept: there is no user transaction to defer the create to.
+        var collectionName = owner.nextCollectionName(database);
+        final boolean provisional = owner.txLocal && !database.isSeedingTxSchemaState();
+        final int collectionId;
+        if (provisional) {
+          var txState = database.getTxSchemaState();
+          if (txState == null) {
+            throw new IllegalStateException(
+                "a tx-local abstract-to-concrete alter must run with a seeded tx-local schema state");
+          }
+          // Carry the generated name with the provisional id: the commit creates the real
+          // collection under this name (the tx-local counter has advanced past it by commit time).
+          collectionId = txState.allocateProvisionalCollectionId(collectionName);
+          // Record the altered class so the commit writes its per-class record and reconciles the
+          // provisional id to a real collection. The create path records the same way after a
+          // tx-local createClass.
+          txState.markClassChanged(name);
+        } else {
+          collectionId = database.addCollection(collectionName);
+        }
 
         this.defaultCollectionId = collectionId;
         this.collectionIds[0] = this.defaultCollectionId;
@@ -648,7 +702,25 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   @Override
   protected void addCollectionIdToIndexes(DatabaseSessionEmbedded session, int iId,
       boolean requireEmpty) {
-    var collectionName = session.getCollectionNameById(iId);
+    // Provisional-aware resolution: a collection allocated in this same transaction carries a
+    // provisional id (<= -2) that resolves to the carried c_<counter> name the commit
+    // creates the real collection under (the commit's collection reconciliation runs before the
+    // membership enroll). Recording the plain getCollectionNameById null instead would persist a
+    // null placeholder into the committed index's collectionsToIndex. The shared resolver keeps
+    // this add side, the remove side (removeCollectionFromIndexes), and the deferred index create
+    // agreeing on the same name, so same-tx add/remove pairs cancel in the overlay.
+    final var collectionName = SchemaShared.resolveCollectionNameById(session, iId);
+    if (collectionName == null) {
+      // The resolver is nullable by contract (an unknown committed id answers null). Folding a
+      // null onward would persist a null placeholder into every index's covered set at commit —
+      // the silent-corruption family the tx-schema hardening rejects loudly everywhere (the
+      // same fail-loud intent as resolveDeferredCollectionNames, which throws IndexException at
+      // the manager layer). Fail loudly naming the class and the id.
+      throw new IllegalStateException(
+          "collection id " + iId + " added to class '" + name
+              + "' does not resolve to a collection name; refusing to fold an unresolved"
+              + " collection into the class's index membership");
+    }
     final List<String> indexesToAdd = new ArrayList<>();
 
     for (var index : getIndexesInternal(session)) {

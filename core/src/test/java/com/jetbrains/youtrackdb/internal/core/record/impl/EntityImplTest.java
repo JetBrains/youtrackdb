@@ -540,6 +540,16 @@ public class EntityImplTest extends DbTestBase {
    */
   @Test
   public void testSerializerDeltaRoundTripPreservesTypedProperties() {
+    // The link target must be a real committed record: getProperty lazy-loads bare RID values,
+    // so a dangling link would materialize as null. The target used to be pinned as #2:1 (a
+    // genesis record under the pre-Track-8 fresh-DB layout); since the $blob* collections moved
+    // to the storage-birth slots 1..N, the target is created here so the test is
+    // layout-independent.
+    session.begin();
+    var linkTarget = session.newEntity();
+    session.commit();
+    var linkRid = linkTarget.getIdentity();
+
     session.begin();
     try {
       var entity = (EntityImpl) session.newEntity();
@@ -549,7 +559,7 @@ public class EntityImplTest extends DbTestBase {
       entity.setBoolean("flag", Boolean.TRUE);
       entity.setBinary("bin", new byte[] {7, 8, 9});
       entity.setDecimal("dec", new BigDecimal("3.14"));
-      entity.setLink("lnk", new RecordId(2, 1));
+      entity.setLink("lnk", linkRid);
 
       var serializer = EntitySerializerDelta.instance();
       var bytes = EntitySerializerDelta.serialize(session, entity);
@@ -562,7 +572,7 @@ public class EntityImplTest extends DbTestBase {
       assertEquals("round-trip", clone.getProperty("s"));
       assertEquals(Boolean.TRUE, clone.getProperty("flag"));
       assertEquals(new BigDecimal("3.14"), clone.<BigDecimal>getProperty("dec"));
-      assertEquals(new RecordId(2, 1), clone.<RID>getProperty("lnk"));
+      assertEquals(linkRid, clone.<RID>getProperty("lnk"));
 
       assertEquals(PropertyType.INTEGER, clone.getPropertyType("i"));
       assertEquals(PropertyType.LONG, clone.getPropertyType("l"));

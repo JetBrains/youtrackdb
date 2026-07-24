@@ -58,6 +58,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -87,7 +88,12 @@ public abstract class IndexAbstract implements Index {
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
-  @Nullable protected IndexMetadata im;
+  // Volatile: the class-rename re-association swaps this reference on a LIVE, already
+  // published index (installReassociatedMetadataAtCommit), and getName()/getDefinition()/
+  // getMetadata() read it lock-free — without volatile those readers have no happens-before edge
+  // to the write-locked swap and could observe IndexMetadata's non-final fields (version,
+  // metadata) stale through a racing read of the new reference.
+  @Nullable protected volatile IndexMetadata im;
 
   @Nullable protected RID identity;
 
@@ -218,6 +224,344 @@ public abstract class IndexAbstract implements Index {
     return this;
   }
 
+  @Override
+  public void markDeferred(final IndexMetadata indexMetadata) {
+    acquireExclusiveLock();
+    try {
+      // A transaction-deferred create: record the definition so the handle answers metadata and
+      // size() queries on the public path, but do not build or load a storage engine. indexId
+      // stays -1 (unbuilt); the engine build and shared registration happen at commit. A deferred
+      // handle answers name/definition/collection queries, size() (zero), and value lookups
+      // (get()/getRids(), which short-circuit to no rids); any other engine-backed read (the range
+      // streams, statistics, the histogram) is unsupported until commit builds the engine, because
+      // indexId = -1 cannot be dereferenced by the storage layer.
+      this.im = indexMetadata;
+      var deferredCollections = indexMetadata.getCollectionsToIndex();
+      this.collectionsToIndex =
+          deferredCollections != null ? new HashSet<>(deferredCollections) : new HashSet<>();
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Writes this deferred (transaction-created) handle's metadata record into the commit transaction,
+   * so the record joins the commit working set before it is gathered. The commit-window counterpart
+   * of the {@link #save(FrontendTransaction)} the non-transactional {@link #create} path runs, kept
+   * package-visible so {@link IndexManagerEmbedded} can persist the index entity for a tx-created
+   * index without going through the {@code stateLock}-taking {@code create} path. Called by the index
+   * manager at commit, before the working set is gathered and before the engine is built (the record
+   * carries only metadata, no engine dependency); {@link #buildEngineAtCommit} builds the engine
+   * after the record apply has assigned persistent RIDs.
+   */
+  void saveRecordAtCommit(final FrontendTransaction transaction) {
+    acquireExclusiveLock();
+    try {
+      save(transaction);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Builds the replacement {@link IndexMetadata} of the commit-only class-rename re-association: a private
+   * copy of this index's metadata whose definition (recursing composites) carries
+   * {@code newClassName}. The copy's definition is rebuilt through the same reflective
+   * {@code toMap}/{@code fromMap} round trip the loader uses, so no reader-visible object is
+   * mutated — the shared definition stays untouched until the commit publishes the replacement
+   * wholesale, which is what keeps lock-free readers from ever seeing a torn {@code className}.
+   */
+  IndexMetadata buildClassReassociatedMetadata(
+      final DatabaseSessionEmbedded session, final String newClassName) {
+    acquireSharedLock();
+    try {
+      final var definition = im.getIndexDefinition();
+      IndexDefinition replacementDefinition = null;
+      if (definition != null) {
+        try {
+          replacementDefinition =
+              definition.getClass().getDeclaredConstructor().newInstance();
+          replacementDefinition.fromMap(definition.toMap(session));
+        } catch (final ReflectiveOperationException e) {
+          throw BaseException.wrapException(
+              new IndexException(session,
+                  "Error while re-associating index '" + im.getName()
+                      + "' with renamed class '" + newClassName + "'"),
+              e, session);
+        }
+        replacementDefinition.setClassName(newClassName);
+      }
+      return new IndexMetadata(
+          im.getName(),
+          replacementDefinition,
+          new HashSet<>(collectionsToIndex),
+          im.getType(),
+          im.getAlgorithm(),
+          im.getVersion(),
+          im.getMetadata());
+    } finally {
+      releaseSharedLock();
+    }
+  }
+
+  /**
+   * Writes this committed index's metadata record from the given replacement metadata into the
+   * commit transaction (the durable half of the class-rename re-association, run in the enroll
+   * phase so the record joins the working set). The in-memory metadata is NOT touched here — a
+   * failed commit's record write reverts with the rolled-back atomic operation and there is then
+   * nothing in memory to undo; the in-memory swap happens in the publish phase
+   * ({@link #installReassociatedMetadataAtCommit}) only after {@code commitChanges} succeeded.
+   */
+  void reassociateClassRecordAtCommit(
+      final FrontendTransaction transaction, final IndexMetadata replacement) {
+    acquireExclusiveLock();
+    try {
+      saveFrom(replacement, transaction);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Installs the replacement metadata built by {@link #buildClassReassociatedMetadata} — the
+   * in-memory half of the rename re-association, run in the publish phase after the records are
+   * durable. A single reference swap of a never-shared, fully-built object: readers observe
+   * either the old metadata (old class name, fully consistent) or the new one, never a torn mix.
+   */
+  void installReassociatedMetadataAtCommit(final IndexMetadata replacement) {
+    acquireExclusiveLock();
+    try {
+      this.im = replacement;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Re-associates a transaction-private DEFERRED handle's definition with a same-transaction class
+   * rename, in place: the handle is reachable only by the owning transaction — no concurrent
+   * reader exists to observe the write, so no replacement copy is needed. Called EAGERLY from
+   * {@link IndexOverlay#recordClassRenamed} at each rename event, which is what keeps a handle
+   * created at a mid-chain name (or under a recycled name, or across a swap-shaped rename)
+   * attached to the right class: at the moment a rename runs, exactly the handles naming the old
+   * name belong to the class being renamed.
+   */
+  void reassociateDeferredClassName(
+      final String oldClassName, final String newClassName) {
+    acquireExclusiveLock();
+    try {
+      final var definition = im == null ? null : im.getIndexDefinition();
+      if (definition != null && oldClassName.equals(definition.getClassName())) {
+        definition.setClassName(newClassName);
+      }
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Adds a collection to this committed index's in-memory membership and re-writes its metadata
+   * record into the commit transaction (the commit-time membership persistence, run in the enroll
+   * phase so the record joins the working set). No emptiness check and no {@code stateLock} — the
+   * caller holds the index-manager write lock and {@code stateLock.writeLock()} in the commit window.
+   * The mutation is eager (mirroring how {@link IndexManagerEmbedded#enrollReconciledIndexRecords}
+   * enrolls other index records before {@code commitChanges}) and reverted on a failed commit through
+   * {@link #removeCollectionInMemoryAtCommit}. Returns {@code true} when the collection was actually
+   * added, so the caller can record it for the failure-path revert.
+   */
+  boolean addCollectionRecordAtCommit(
+      final FrontendTransaction transaction, final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      if (!collectionsToIndex.add(collectionName)) {
+        return false;
+      }
+      try {
+        save(transaction);
+      } catch (final RuntimeException | Error e) {
+        // The shared in-memory set is mutated before the record write, but the caller records the
+        // failure-path revert entry only after this method returns true. A save that throws (for
+        // example a record-load failure) would otherwise leave the eager add in place with no
+        // revert entry reachable, so the shared committed membership would diverge from the
+        // rolled-back record write. Revert locally and rethrow.
+        collectionsToIndex.remove(collectionName);
+        throw e;
+      }
+      return true;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Removes a collection from this committed index's in-memory membership and re-writes its metadata
+   * record into the commit transaction (the remove side of the commit-time membership persistence).
+   * No emptiness check and no {@code stateLock}, for the same reason as
+   * {@link #addCollectionRecordAtCommit}. Returns {@code true} when the collection was actually
+   * removed.
+   */
+  boolean removeCollectionRecordAtCommit(
+      final FrontendTransaction transaction, final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      if (!collectionsToIndex.remove(collectionName)) {
+        return false;
+      }
+      try {
+        save(transaction);
+      } catch (final RuntimeException | Error e) {
+        // The mirror of the add-side revert: restore the eagerly-removed collection when the
+        // record write throws, so no unrecorded mutation survives on the shared committed index.
+        collectionsToIndex.add(collectionName);
+        throw e;
+      }
+      return true;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Reverts an in-memory membership add applied by {@link #addCollectionRecordAtCommit} on a failed
+   * commit, without touching the record (the failed commit's record write reverts with the atomic
+   * operation). Package-visible for {@link IndexManagerEmbedded}'s failure-path membership revert.
+   */
+  void removeCollectionInMemoryAtCommit(final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.remove(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Folds a collection-membership ripple into this deferred (transaction-created, unregistered)
+   * handle's covered-collection set — e.g. a subclass created under the indexed class in the same
+   * transaction, whose collection the commit-built index must cover. Only the live
+   * {@code collectionsToIndex} set is mutated: every commit phase reads it (the v1 emptiness
+   * bound, the population scan's coverage set, and the enroll-phase record write), while the
+   * deferred metadata's create-time collection snapshot is not re-read after {@link #markDeferred}
+   * and intentionally stays untouched. The folded name comes from the same shared resolver the
+   * create-time coverage uses, so the commit re-resolves it exactly like a create-time covered
+   * collection. Only a PROVISIONAL (same-tx-created) collection's carried name is
+   * shape-guaranteed ({@code c_<counter>}); a committed collection's name may be arbitrary — the
+   * public API accepts custom names and a database import recreates the source's names verbatim
+   * — so no name-shape assumption is made here.
+   *
+   * <p>Fail-loud guard: a null or blank name means the caller folded an unresolved collection (a
+   * resolver miss), which would otherwise persist a null placeholder into the committed index's
+   * covered set at commit — the silent-corruption family the tx-schema hardening rejects loudly
+   * everywhere. An {@code IllegalArgumentException}, not a bare assert: production runs with
+   * assertions disabled.
+   */
+  void addCollectionToDeferred(final String collectionName) {
+    if (collectionName == null || collectionName.isBlank()) {
+      throw new IllegalArgumentException(
+          "a collection folded into deferred index '" + getName()
+              + "' must carry a resolved, non-blank name; got '" + collectionName + "'");
+    }
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.add(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * The remove mirror of {@link #addCollectionToDeferred}: a same-tx detach (or subclass drop)
+   * takes the collection back out of the deferred handle's covered set before the commit builds
+   * the engine. Guarded like the add side — a null/blank name is a resolver miss that must fail
+   * loudly instead of silently no-opping against a set that never contained it.
+   */
+  void removeCollectionFromDeferred(final String collectionName) {
+    if (collectionName == null || collectionName.isBlank()) {
+      throw new IllegalArgumentException(
+          "a collection removed from deferred index '" + getName()
+              + "' must carry a resolved, non-blank name; got '" + collectionName + "'");
+    }
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.remove(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Restores an in-memory membership remove applied by {@link #removeCollectionRecordAtCommit} on a
+   * failed commit, without touching the record. Package-visible for the failure-path revert.
+   */
+  void addCollectionInMemoryAtCommit(final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.add(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Deletes this committed index's metadata record inside the commit transaction, so the record
+   * deletion joins the commit working set. The commit-window counterpart of the record-delete half of
+   * {@link #doDelete(FrontendTransaction)}, split out so the drop's engine deletion (which must run
+   * lock-free inside the window) and shared-map removal (deferred past {@code commitChanges}) happen
+   * in their own phases. Unlike {@code doDelete} it takes no {@code stateLock} and starts no nested
+   * transaction: it only enrols the index entity's deletion into the in-flight commit transaction.
+   * Called by {@link IndexManagerEmbedded} in the enroll phase; the engine is deleted in the build
+   * phase and the shared registry entry removed in the publish phase.
+   */
+  void deleteRecordAtCommit(final FrontendTransaction transaction) {
+    acquireExclusiveLock();
+    try {
+      if (identity != null) {
+        transaction.loadEntity(identity).delete();
+      }
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Builds this deferred (transaction-created) handle's storage engine inside the schema-carry commit
+   * window and binds the handle to it, so the handle stops being deferred and becomes a real,
+   * query-usable index. Called by {@link IndexManagerEmbedded} at commit, after reconciliation has
+   * created the source collections and after the record apply, with {@code stateLock.writeLock()}
+   * held and the commit window open. It creates the engine through the storage's commit-window
+   * primitive (which allocates a commit-local engine id and buffers the engine files as WAL-reverted
+   * intent), sets {@code indexId} to the built engine's id, and wires the engine.
+   *
+   * <p>The engine is created but not yet populated; {@link IndexManagerEmbedded} runs the final-state
+   * re-derivation that feeds the transaction's own records into it right after this returns.
+   *
+   * @param transaction     the in-flight commit transaction.
+   * @param atomicOperation the in-flight commit atomic operation.
+   * @param createdEngineExternalIds the plan's created-engine id list; the published engine id is
+   *                        recorded here before the engine is wired, so the failure-path undo can
+   *                        revert it even when the wiring throws.
+   */
+  void buildEngineAtCommit(
+      final FrontendTransactionImpl transaction, final AtomicOperation atomicOperation,
+      final List<Integer> createdEngineExternalIds)
+      throws IOException {
+    acquireExclusiveLock();
+    try {
+      final Map<String, String> engineProperties = new HashMap<>();
+      indexId = storage.createIndexEngineInCommitWindow(im, engineProperties, atomicOperation);
+      assert indexId >= 0;
+      // Record the published id before wiring the engine: the in-memory registries already carry
+      // it, and onIndexEngineChange can fail with an exception the build loop's
+      // InvalidIndexEngineIdException catch does not cover. The failure-path undo reverts exactly
+      // the recorded ids, so recording only after a fully-successful build would leave such a
+      // failure's engine behind as a phantom registration no revert arm ever removes.
+      createdEngineExternalIds.add(indexId);
+      onIndexEngineChange(transaction.getDatabaseSession(), indexId);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
   protected void doReloadIndexEngine() {
     indexId = storage.loadIndexEngine(im.getName());
     if (indexId < 0) {
@@ -295,7 +639,25 @@ public abstract class IndexAbstract implements Index {
     try {
       try {
         if (indexId >= 0) {
-          session.executeInTxInternal(this::doDelete);
+          session.executeInTxInternal(transaction -> {
+            // Same explicit unlink + suppressed tracker as delete(): the old index record may
+            // be bag-less (commit-created), so the tracked deletion arm cannot auto-clean the
+            // manager's CONFIG_INDEXES link — the rebuild would otherwise leave a dangling
+            // link to the deleted record next to the fresh record it links below.
+            final var priorLinkConsistency = session.isLinkConsistencyEnabled();
+            session.disableLinkConsistencyCheck();
+            try {
+              if (identity != null) {
+                session.getSharedContext().getIndexManager()
+                    .unlinkIndexRecord(transaction, identity);
+              }
+              doDelete(transaction);
+            } finally {
+              if (priorLinkConsistency) {
+                session.enableLinkConsistencyCheck();
+              }
+            }
+          });
         }
       } catch (Exception e) {
         LogManager.instance().error(this, "Error during index '%s' delete", e, im.getName());
@@ -526,8 +888,27 @@ public abstract class IndexAbstract implements Index {
     acquireExclusiveLock();
 
     try {
-      doDelete(transaction);
       var session = transaction.getDatabaseSession();
+      // The index record is structural: its link maintenance is explicit, not tracker-driven.
+      // An index record created by a commit-time schema write carries no back-reference bag
+      // (the schema-carry commit serializes with the link tracker suppressed), so the tracked
+      // deletion arm can neither auto-clean the manager's CONFIG_INDEXES link nor validate the
+      // missing bag — it would either leave the link dangling or throw. Unlink explicitly and
+      // run the delete with the tracker suppressed, mirroring the commit-time drop half
+      // (enrollReconciledIndexRecords). Capture-and-restore preserves an outer disabled window
+      // (e.g. an import).
+      final var priorLinkConsistency = session.isLinkConsistencyEnabled();
+      session.disableLinkConsistencyCheck();
+      try {
+        if (identity != null) {
+          session.getSharedContext().getIndexManager().unlinkIndexRecord(transaction, identity);
+        }
+        doDelete(transaction);
+      } finally {
+        if (priorLinkConsistency) {
+          session.enableLinkConsistencyCheck();
+        }
+      }
       // REMOVE THE INDEX ALSO FROM CLASS MAP
       session.getSharedContext().getIndexManager()
           .removeClassPropertyIndex(session, this);
@@ -716,6 +1097,23 @@ public abstract class IndexAbstract implements Index {
   }
 
   private void save(FrontendTransaction transaction) {
+    saveFrom(im, transaction);
+  }
+
+  /**
+   * The record-serialization body of {@link #save}, parameterized on the metadata to serialize so
+   * the class-rename re-association can write the record from a replacement metadata object
+   * WITHOUT installing it in memory first (the record write must revert with a failed commit
+   * while the in-memory install is deferred to the publish phase).
+   *
+   * <p>PINNED: the collection set is deliberately serialized from the live
+   * {@code collectionsToIndex} FIELD, not from {@code source} — the field is the authoritative
+   * membership carrier, and the commit's enroll ordering (membership saves before the rename
+   * re-association) relies on exactly this: the re-association's final record write picks up the
+   * membership mutations the earlier loops applied to the field, so neither write clobbers the
+   * other's axis.
+   */
+  private void saveFrom(final IndexMetadata source, FrontendTransaction transaction) {
     Entity entity;
     if (identity == null) {
       entity = transaction.getDatabaseSession().newInternalInstance();
@@ -723,22 +1121,23 @@ public abstract class IndexAbstract implements Index {
       entity = transaction.loadEntity(identity);
     }
 
-    entity.setString(CONFIG_TYPE, im.getType());
-    entity.setString(CONFIG_NAME, im.getName());
-    entity.setInt(INDEX_VERSION, im.getVersion());
+    entity.setString(CONFIG_TYPE, source.getType());
+    entity.setString(CONFIG_NAME, source.getName());
+    entity.setInt(INDEX_VERSION, source.getVersion());
 
-    if (im.getIndexDefinition() != null) {
-      final var indexDefEntity = im.getIndexDefinition().toMap(transaction.getDatabaseSession());
+    if (source.getIndexDefinition() != null) {
+      final var indexDefEntity = source.getIndexDefinition()
+          .toMap(transaction.getDatabaseSession());
       entity.setEmbeddedMap(INDEX_DEFINITION, indexDefEntity);
-      entity.setString(INDEX_DEFINITION_CLASS, im.getIndexDefinition().getClass().getName());
+      entity.setString(INDEX_DEFINITION_CLASS, source.getIndexDefinition().getClass().getName());
     }
 
     var session = transaction.getDatabaseSession();
     entity.setEmbeddedSet(CONFIG_COLLECTIONS, session.newEmbeddedSet(collectionsToIndex));
-    entity.setString(ALGORITHM, im.getAlgorithm());
+    entity.setString(ALGORITHM, source.getAlgorithm());
 
-    if (im.getMetadata() != null) {
-      entity.setEmbeddedMap(METADATA, session.newEmbeddedMap(im.getMetadata()));
+    if (source.getMetadata() != null) {
+      entity.setEmbeddedMap(METADATA, session.newEmbeddedMap(source.getMetadata()));
     }
 
     identity = entity.getIdentity();

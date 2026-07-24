@@ -151,6 +151,14 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return coll;
   }
 
+  /**
+   * Lookup of one class-owned index by (class, index) name pair. The base behaviour is the
+   * committed substrate (the shared registry and the definition's committed class name); the
+   * embedded subclass overlay-routes it to answer from the transaction's effective view —
+   * tx-created indexes visible, tx-dropped ones absent, and the class name resolved through the
+   * class-rename map — matching the sibling session-aware lookups ({@code getClassIndexes},
+   * {@code getClassInvolvedIndexes}, {@code areIndexed}, {@code existsIndex}).
+   */
   @Nullable public Index getClassIndex(
       DatabaseSessionEmbedded session, String className, String indexName) {
     final var index = indexes.get(indexName);
@@ -180,12 +188,44 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return indexes.values();
   }
 
+  /**
+   * Session-aware enumeration of every index. The base behaviour is the committed registry,
+   * identical to {@link #getIndexes()}; the embedded subclass overrides it to answer from the
+   * transaction's effective view (committed minus tx-dropped plus tx-created), so statement-level
+   * enumerations (e.g. SQL {@code DROP INDEX *}) agree with the manager's own in-tx state.
+   */
+  public Collection<? extends Index> getIndexes(DatabaseSessionEmbedded session) {
+    return getIndexes();
+  }
+
   public Index getIndex(final String iName) {
     return indexes.get(iName);
   }
 
+  /**
+   * Session-aware lookup of one index by name. The base behaviour is the committed registry,
+   * identical to {@link #getIndex(String)}; the embedded subclass overrides it to answer from
+   * the transaction's effective view (committed minus tx-dropped plus tx-created), so
+   * statement-level lookups (e.g. SQL {@code REBUILD INDEX} / {@code ANALYZE INDEX}) agree with
+   * the manager's own in-tx state.
+   */
+  @Nullable public Index getIndex(DatabaseSessionEmbedded session, final String iName) {
+    return getIndex(iName);
+  }
+
   public boolean existsIndex(final String iName) {
     return indexes.containsKey(iName);
+  }
+
+  /**
+   * Session-aware existence probe. The base behaviour is the committed registry, identical to
+   * {@link #existsIndex(String)}; the embedded subclass overrides it to answer from the
+   * transaction's effective view (committed minus tx-dropped plus tx-created), so statement-level
+   * prechecks (e.g. SQL {@code CREATE INDEX … IF NOT EXISTS}) agree with the manager's own in-tx
+   * duplicate handling.
+   */
+  public boolean existsIndex(DatabaseSessionEmbedded session, final String iName) {
+    return existsIndex(iName);
   }
 
   protected void load(FrontendTransactionImpl transaction, EntityImpl entity) {
@@ -208,6 +248,20 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   protected abstract Index createIndexInstance(FrontendTransactionImpl transaction,
       Identifiable indexIdentifiable,
       IndexMetadata newIndexMetadata);
+
+  /**
+   * Explicitly removes an index record's link from this manager's {@code CONFIG_INDEXES} link
+   * set, enrolling the manager record into the given transaction. The legacy index-delete path
+   * calls this instead of relying on the bidirectional-link tracker's referrer auto-cleanup:
+   * index records created by a commit-time schema write carry no back-reference bag (the
+   * schema-carry commit serializes with the tracker suppressed), so a tracked delete would
+   * leave the link dangling — the reopen would then fail loudly on the dead link. The
+   * commit-time drop half performs the same explicit unlink in its enroll phase.
+   */
+  void unlinkIndexRecord(FrontendTransaction transaction, RID indexRecordId) {
+    var indexManagerEntity = transaction.loadEntity(indexManagerIdentity);
+    indexManagerEntity.getOrCreateLinkSet(CONFIG_INDEXES).remove(indexRecordId);
+  }
 
   protected void addIndexInternalNoLock(final Index index, FrontendTransaction transaction,
       boolean updateEntity) {

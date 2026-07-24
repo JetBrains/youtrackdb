@@ -90,22 +90,42 @@ public class DatabaseRecordWalkerTest extends DbTestBase {
 
   /**
    * The set of system / security collections present after DbTestBase initialisation.
-   * Each user class has multiple underlying clusters named {@code <classname>_<id>},
-   * one per partition; the walker iterates clusters individually. We exclude every
-   * cluster whose name does NOT start with the lower-cased CLS_A/CLS_B prefix so
-   * only user-class clusters remain.
+   * Collection names are counter-only ({@code c_<counter>}, no class-name component), so a
+   * class's collections must be resolved through its collection ids, not by name prefix. Each
+   * user class has multiple underlying collections, one per partition; the walker iterates
+   * collections individually. We exclude every collection that is NOT owned by CLS_A/CLS_B so
+   * only user-class collections remain.
    */
   private Set<String> systemCollectionsToExclude() {
+    var userCollections = new HashSet<String>();
+    userCollections.addAll(collectionNamesOf(CLS_A));
+    userCollections.addAll(collectionNamesOf(CLS_B));
+
     var excluded = new HashSet<String>();
-    var clsAPrefix = CLS_A.toLowerCase(java.util.Locale.ROOT);
-    var clsBPrefix = CLS_B.toLowerCase(java.util.Locale.ROOT);
     for (var name : session.getCollectionNames()) {
-      var lower = name.toLowerCase(java.util.Locale.ROOT);
-      if (!lower.startsWith(clsAPrefix) && !lower.startsWith(clsBPrefix)) {
+      if (!userCollections.contains(name)) {
         excluded.add(name);
       }
     }
     return excluded;
+  }
+
+  /**
+   * Resolves the storage collection names a class owns, via its collection ids (the stable link
+   * between a class and its collections — names carry no class information). Answers the empty
+   * set for a class that does not exist (the no-fixture tests build the exclusion set before any
+   * user class is created).
+   */
+  private Set<String> collectionNamesOf(String className) {
+    var names = new HashSet<String>();
+    var cls = session.getMetadata().getSchema().getClass(className);
+    if (cls == null) {
+      return names;
+    }
+    for (var collectionId : cls.getCollectionIds()) {
+      names.add(session.getCollectionNameById(collectionId));
+    }
+    return names;
   }
 
   @Test
@@ -203,14 +223,10 @@ public class DatabaseRecordWalkerTest extends DbTestBase {
   public void excludeCollectionsDropsConfiguredClassesFromTheWalk() {
     seedFixture();
     // System / security collections plus all CLS_A partitions — leaves only CLS_B
-    // records visible to the walker.
+    // records visible to the walker. CLS_A's collections are resolved via its collection ids
+    // (counter-only names carry no class information).
     var excluded = systemCollectionsToExclude();
-    var clsAPrefix = CLS_A.toLowerCase(java.util.Locale.ROOT);
-    for (var name : session.getCollectionNames()) {
-      if (name.toLowerCase(java.util.Locale.ROOT).startsWith(clsAPrefix)) {
-        excluded.add(name);
-      }
-    }
+    excluded.addAll(collectionNamesOf(CLS_A));
     var walker = new DatabaseRecordWalker(session, excluded);
     var visited = new AtomicInteger();
 

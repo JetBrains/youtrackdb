@@ -30,17 +30,35 @@ public class SQLRebuildIndexStatement extends DDLStatement {
 
     if (all) {
       long totalIndexed = 0;
-      for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
-        if (idx.isAutomatic()) {
+      // The session-aware enumeration answers from the transaction's effective view (committed
+      // minus tx-dropped plus tx-created), so a same-tx dropped index is not rebuilt. A
+      // tx-created index is a deferred handle whose engine does not exist until commit
+      // (getIndexId() < 0), so there is nothing to rebuild yet — the commit builds it fresh
+      // from the transaction's final state; it is skipped, mirroring the isAutomatic filter.
+      for (var idx : java.util.List.copyOf(
+          session.getSharedContext().getIndexManager().getIndexes(session))) {
+        if (idx.isAutomatic() && idx.getIndexId() >= 0) {
           totalIndexed += idx.rebuild(session);
         }
       }
       result.setProperty("totalIndexed", totalIndexed);
     } else {
+      // The session-aware lookup: a tx-dropped name reads as absent (proper "not found").
       final var idx =
-          session.getSharedContext().getIndexManager().getIndex(name.getValue());
+          session.getSharedContext().getIndexManager().getIndex(session, name.getValue());
       if (idx == null) {
         throw new CommandExecutionException(session, "Index '" + name + "' not found");
+      }
+
+      if (idx.getIndexId() < 0) {
+        // A deferred (transaction-created) handle: its engine is built only at commit, from the
+        // transaction's final state, so a pre-commit rebuild is semantically impossible — and
+        // pointless, since the commit-time build IS a fresh build. Reject loudly rather than
+        // faking support.
+        throw new CommandExecutionException(session,
+            "Cannot rebuild index '" + name
+                + "' because it was created in the current transaction: its engine is built at"
+                + " commit, so there is nothing to rebuild before the transaction commits");
       }
 
       if (!idx.isAutomatic()) {

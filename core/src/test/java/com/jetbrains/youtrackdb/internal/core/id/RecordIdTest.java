@@ -370,12 +370,12 @@ public class RecordIdTest {
   }
 
   @Test
-  public void checkCollectionLimitsRejectsCollectionIdBelowMinusTwo() {
+  public void checkCollectionLimitsRejectsCollectionIdBelowTheShortFloor() {
     try {
-      RecordIdInternal.checkCollectionLimits(-3);
-      fail("Expected DatabaseException for collectionId < -2");
+      RecordIdInternal.checkCollectionLimits(Short.MIN_VALUE - 1);
+      fail("Expected DatabaseException for collectionId < Short.MIN_VALUE");
     } catch (DatabaseException expected) {
-      assertTrue(expected.getMessage().contains("negative collection id"));
+      assertTrue(expected.getMessage().contains("smaller than"));
     }
   }
 
@@ -391,7 +391,11 @@ public class RecordIdTest {
 
   @Test
   public void checkCollectionLimitsAcceptsBoundaryValues() {
-    // -2 is allowed (sentinel for "deserialize null" inside serialize/deserialize).
+    // Any id <= -2 is a provisional collection id (a class created inside a still-open
+    // transaction carries one until commit), so the whole serialized-short range is accepted.
+    RecordIdInternal.checkCollectionLimits(Short.MIN_VALUE);
+    RecordIdInternal.checkCollectionLimits(-100);
+    RecordIdInternal.checkCollectionLimits(-3);
     RecordIdInternal.checkCollectionLimits(-2);
     RecordIdInternal.checkCollectionLimits(-1);
     RecordIdInternal.checkCollectionLimits(0);

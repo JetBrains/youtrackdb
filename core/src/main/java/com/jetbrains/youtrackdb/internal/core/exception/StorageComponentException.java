@@ -15,6 +15,9 @@ public abstract class StorageComponentException extends CoreException {
 
   public StorageComponentException(String dbName, String message,
       StorageComponent component) {
-    super(dbName, message, component.getName());
+    // The display name, not the raw component name: index-engine components are keyed by
+    // internal ie_<fileBaseId> file stems that mean nothing to a user, so their owning engine
+    // installs the index's logical name as the display name and user-facing errors report it.
+    super(dbName, message, component.getDisplayName());
   }
 }

@@ -211,6 +211,8 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public IndexHistogramManager(
       @Nonnull AbstractStorage storage,
+      // The component name: the engine's ie_<fileBaseId> file stem (shared by the whole engine
+      // file family), never the index's logical name — index names key no files.
       @Nonnull String name,
       int engineId,
       boolean isSingleValue,

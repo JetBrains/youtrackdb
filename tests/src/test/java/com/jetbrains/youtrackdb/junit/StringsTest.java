@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
@@ -111,8 +112,24 @@ public class StringsTest extends BaseDBJUnit5Test {
 
     var value = document.toString();
 
+    // The expected string is built from the entities' actual provisional RIDs instead of pinning
+    // the fresh-DB collection id (it was #7:-2 under the pre-Track-8 layout and shifted when the
+    // $blob* collections moved to the storage-birth slots 1..N). The pinned intent is the
+    // rendering shape: a self-reference renders as the RID without recursing.
+    var rid = document.getIdentity();
+    var ridTwo = docTwo.getIdentity();
+    // The dynamic expected string is self-referential (both sides render through
+    // RID.toString()), so the two incidental pins the old literal carried are re-asserted
+    // explicitly: the two entities hold DISTINCT provisional RIDs, and the RID text keeps the
+    // '#collection:position' shape with a negative (provisional) position — without
+    // hard-coding any collection id.
+    assertNotEquals(rid, ridTwo, "the two entities must hold distinct provisional RIDs");
+    assertTrue(rid.toString().matches("#-?\\d+:-\\d+"),
+        "a provisional RID must render as '#collection:-position', saw: " + rid);
+    assertTrue(ridTwo.toString().matches("#-?\\d+:-\\d+"),
+        "a provisional RID must render as '#collection:-position', saw: " + ridTwo);
     assertEquals(
-        "O#7:-2{ref:#7:-3,selfref:#7:-2} v0", value);
+        "O" + rid + "{ref:" + ridTwo + ",selfref:" + rid + "} v0", value);
     session.commit();
   }
 }

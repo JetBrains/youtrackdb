@@ -84,8 +84,7 @@ public class DatabaseCompareDeadCodeTest {
       "skipRecord",
       "readRecordWithRetry",
       "setCompareIndexMetadata",
-      "setCompareEntriesForAutomaticIndexes",
-      "convertSchemaDoc"));
+      "setCompareEntriesForAutomaticIndexes"));
 
   @Test
   public void classIsPublicConcreteAndExtendsDatabaseImpExpAbstract() {

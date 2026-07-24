@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -125,7 +126,20 @@ public class AtomicOperationsManager {
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {
-    writeOperationsFreezer.startOperation();
+    startToApplyOperations(atomicOperation, false, null);
+  }
+
+  /**
+   * The schema-armed variant of {@link #startToApplyOperations(AtomicOperation)}: a
+   * schema-carrying commit's apply threads its arm signal and the shared gate-exception factory
+   * into the freezer, whose loop-top and park-decision checkpoints then abort the entrant loudly
+   * instead of parking it while an operator freeze is active. Data commits and the internal
+   * atomic-operation wrappers use the unarmed variant — their freezer semantics are byte-for-byte
+   * unchanged.
+   */
+  public void startToApplyOperations(AtomicOperation atomicOperation, final boolean schemaArmed,
+      @Nullable final Supplier<? extends BaseException> schemaGate) {
+    writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
 
     final long activeSegment;
 
@@ -265,12 +279,29 @@ public class AtomicOperationsManager {
     }
   }
 
-  public long freezeWriteOperations(@Nullable Supplier<? extends BaseException> throwException) {
-    return writeOperationsFreezer.freezeOperations(throwException);
+  public long freezeWriteOperations(final FreezeKind kind,
+      @Nullable Supplier<? extends BaseException> throwException) {
+    return writeOperationsFreezer.freezeOperations(kind, throwException);
   }
 
   public void unfreezeWriteOperations(long id) {
     writeOperationsFreezer.releaseOperations(id);
+  }
+
+  /**
+   * Whether an operator freeze is currently registered — the schema-commit gate's kind probe,
+   * consumed by the storage-level entry probe, the write-lock abort predicate, and (inside the
+   * freezer) the loop-top and park-decision checkpoints.
+   */
+  public boolean isOperatorFreezeActive() {
+    return writeOperationsFreezer.isOperatorFreezeActive();
+  }
+
+  /**
+   * Test-observability only: see {@link OperationsFreezer#registeredOperatorFreezeIdCount()}.
+   */
+  public int registeredOperatorFreezeIdCount() {
+    return writeOperationsFreezer.registeredOperatorFreezeIdCount();
   }
 
   /**

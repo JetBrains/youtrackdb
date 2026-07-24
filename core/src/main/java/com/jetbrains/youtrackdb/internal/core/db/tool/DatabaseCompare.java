@@ -26,7 +26,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -780,12 +779,6 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                     final var rec2 = (RecordAbstract) entity2;
                     rec2.fromStream(buffer2.buffer());
 
-                    if (rid1.toString().equals(schemaRecordId1)
-                        && rid1.toString().equals(schemaRecordId2)) {
-                      convertSchemaDoc(entity1);
-                      convertSchemaDoc(entity2);
-                    }
-
                     if (!EntityHelper.hasSameContentOf(
                         entity1, sessionOne, entity2, sessionTwo, ridMapper)) {
                       listener.onMessage(
@@ -942,13 +935,4 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     }
   }
 
-  private static void convertSchemaDoc(final EntityImpl entity) {
-    if (entity.getProperty("classes") != null) {
-      entity.setProperty("classes", entity.getProperty("classes"), PropertyType.EMBEDDEDSET);
-      for (var classDoc : entity.<Set<EntityImpl>>getProperty("classes")) {
-        classDoc.setProperty("properties", classDoc.getProperty("properties"),
-            PropertyType.EMBEDDEDSET);
-      }
-    }
-  }
 }

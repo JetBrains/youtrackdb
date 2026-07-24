@@ -113,6 +113,26 @@ public interface SecurityInternal {
 
   SecurityUserImpl create(DatabaseSessionEmbedded session);
 
+  /**
+   * The DDL half of {@link #create}: creates the security schema (Identity, OSecurityPolicy,
+   * ORole and OUser classes with their properties and indexes) WITHOUT inserting any role or
+   * user records. Every mutation routes through the session's schema proxy, so inside an active
+   * transaction the writes land on the transaction-local schema copy and commit with it — the
+   * genesis phase-1 schema transaction calls this from inside its single transaction.
+   */
+  void createSecuritySchema(DatabaseSessionEmbedded session);
+
+  /**
+   * The data half of {@link #create} (genesis phase 2): inserts the default roles and users in
+   * ONE transaction against the already-committed security schema, then runs the
+   * predicate-security optimization init. Skips the role/user inserts for the system database
+   * and honors {@code CREATE_DEFAULT_USERS} for the user records; the roles are always created.
+   *
+   * @return the created admin user, or {@code null} when users were not created (system
+   * database, or {@code CREATE_DEFAULT_USERS} disabled)
+   */
+  SecurityUserImpl insertDefaultSecurity(DatabaseSessionEmbedded session);
+
   void load(DatabaseSessionEmbedded session);
 
   void close();
