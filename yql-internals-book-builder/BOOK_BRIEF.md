@@ -59,3 +59,5 @@ Each chapter cites which source `match-book/` chapters it draws from. Authors mu
 5. **Revision pass** — apply beta-reader feedback to flagged chapters.
 
 A chapter is "done" only when it has cleared all five steps.
+
+Before authoring or editing a chapter, read `yql-internals-book-builder/PRODUCTION_CHECKLIST.md` for the executable version of this pipeline (including the verify-every-claim-against-source rule), and `yql-internals-book-builder/VOICE_EXEMPLAR.md` for the concrete fingerprint and anti-pattern rubric that makes the voice rules above checkable.
