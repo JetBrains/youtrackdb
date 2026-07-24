@@ -791,7 +791,10 @@ count.
    is the BACKUP's, and a mid-restore crash can leave a marker-bearing half-restored database
    that opens — the pre-existing restore crash envelope, which the marker was never specified
    to own; recorded, optional hardening (clear-then-reset around `restoreFromBackup`) left to a
-   follow-up.]**
+   follow-up; (c) gate-residual RG3 — post-relocation, W3/W4 crash corpses fail via the
+   pre-belt `SchemaNotCreatedException` (the W-table's literal signature for those states)
+   rather than `GenesisIncompleteException`; drop's corpse deletion still succeeds via its
+   finally, but CN54's drop-tolerance wording no longer literally covers W3/W4.]**
 3. **CS35 fold — the replacement completeness signal.** The marker refusal replaces (and is
    strictly stronger than) the `fromStream:887-894` breadcrumb G2.a silences; W6/W7 go from
    silent-open to loud refusal.

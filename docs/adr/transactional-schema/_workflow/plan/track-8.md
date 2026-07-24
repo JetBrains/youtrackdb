@@ -783,7 +783,10 @@ pooled via both `poolOpen*` arms) — no pinned file locks/WAL buffers; the
 LOUDLY, naming BOTH recovery routes (drop-and-recreate for corpses, open-for-migration-guidance
 for old-format) — never unconditional discard advice; the config-only boolean
 `createIfNotExists` overload keeps its `exists()` short-circuit contract (boundary recorded in
-the test javadoc — the next open refuses loudly anyway). CN56: `catch (Error)` arm added to
+the test javadoc — the next open refuses loudly anyway). Gate-residual RG4: the create-probe
+also surfaces OPEN failures for existing-but-unopenable databases (W1/W2 residue, or a healthy
+database under a mismatched configuration such as encryption) at create-time, where the old
+arm silently no-op'd — an intended fail-loud boundary change. CN56: `catch (Error)` arm added to
 `createStorage` (cleanup best-effort, Error rethrown unwrapped;
 `cleanUpFailedCreate` widened to `Throwable`). CS53/CN58: `initCustomStorage`'s create arm
 gains the same cleanup-on-exception. CS54: `doDelete` skips the dirty-flag write for a
