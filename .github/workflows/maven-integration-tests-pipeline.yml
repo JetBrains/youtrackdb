@@ -424,13 +424,19 @@ jobs:
         needs.deploy.result == 'failure'
       )
     runs-on: ubuntu-latest
+    # Job-level permissions REPLACE the broader workflow-level block (contents,
+    # packages, actions, checks: write) that other jobs in this file need. This
+    # job only dispatches the CI Fix Agent via gh workflow run (actions: write)
+    # and posts a Zulip message, so actions: write is the complete minimal set.
+    permissions:
+      actions: write
     steps:
       - name: Dispatch CI Fix Agent
         if: >-
           needs.test-linux.result == 'failure' ||
           needs.test-windows.result == 'failure'
         env:
-          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh workflow run ci-failure-fix-agent.yml \
             --repo "${{ github.repository }}" \
