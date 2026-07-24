@@ -61,6 +61,9 @@ justification is in `## Interfaces and Dependencies`.
   dispositioned)
 - [x] 2026-07-24T09:22Z [ctx=safe] Step 3 complete (commit 4d23111516; CS50/W6 window CLOSED;
   three necessary enablers surfaced — see Episodes)
+- [x] 2026-07-24T14:29Z [ctx=safe] Step 3 review-fix iteration 1 complete (commit 6b61334581;
+  baseline + crash-safety + concurrency reviews: 0 blockers, 2 should-fix (CS52, CQ17), ~15
+  suggestions — all applied or dispositioned)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -132,6 +135,27 @@ justification is in `## Interfaces and Dependencies`.
   set is ALREADY durably btree-backed (>threshold classes, created pre-pin) keep their form —
   their schema-carry commits remain exposed to the underlying commit-window/btree-bag
   interaction, which still deserves a root fix by the commit-machinery owners.
+  **Extended by the Step-3 reviews (BG17/CN57(b)/CS57):** the follow-up must also own (a) the
+  ownerless `EntityLinkSetImpl` constructors (`newLinkSet()`, the delta-serializer site) that
+  bypass the constructor half of the pin — no live path attaches such a set to a metadata
+  record today; (b) `LinkBag`'s conversion, unsuppressed — safe today only because
+  metadata-owned LinkBags are cardinality-1 tracker back-bags; (c) the btree→embedded
+  down-conversion arm — now ALSO suppressed for metadata records (commit 6b61334581), but the
+  pre-pin-btree-root exposure under a non-default bottom threshold belongs to the same root
+  fix. The follow-up issue record is being drafted by the orchestrator.
+- **2026-07-24 (Step 3 review-fix, pre-existing observation):** the storage OPEN-FAILURE path
+  leaks partially-initialized native resources (WAL/disk-cache direct-memory buffers are not
+  released when `storage.open` throws mid-initialization, e.g. on a W1/W2 corpse with only a
+  `dirty.fl` file) — under the test harness's direct-memory tracking the leak kills the JVM at
+  shutdown, which is why the CS54 never-opened-corpse discard fix carries no drop-level suite
+  test. Pre-existing (independent of Track 8); recorded for a follow-up.
+- **2026-07-24 (Step 3 review CS56, recorded boundary):** `restore(...)` is OUTSIDE the
+  genesis-marker belt — the restored database's marker state is the BACKUP's, and a mid-restore
+  crash can leave a marker-bearing half-restored database that opens silently (the pre-existing
+  restore crash envelope; the marker was never specified to gate restores). Restoring a backup
+  taken from a pre-marker build yields a refused database after a successful restore (same
+  dev-only acceptance as §A1's compatibility note). Optional hardening (clear-then-reset around
+  `restoreFromBackup`) left to a follow-up; also noted in design-drafts §A1.
 - **2026-07-24 (Step 3, new fixture-casualty class):** two storage tests
   (`BTreeGetVisibleTest`, `SharedLinkBagBTreeReadMethodsTest`) pinned absolute snapshot
   timestamps/versions (25–50) that implicitly depended on the DOZENS of atomic-operation ids
@@ -463,7 +487,10 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    rejection messages name declared vs supported values; dangling-field parse rejection.
    Author the `docs/` operator migration-procedure page (WI3, folding CS44 and the SR1
    doctrine: export-exit-status gate; fresh out-of-service target; ANY failure condemns the
-   target; import completeness = importer exit 0) and index it in `docs/README.md`. Close with
+   target; import completeness = importer exit 0; **plus, per Step-3 review CN59: the
+   genesis-incomplete refusal's operator guidance — incl. that a crashed OSystem-database
+   genesis refuses server startup loudly until the corpse directory is discarded, with no
+   automated self-heal**) and index it in `docs/README.md`. Close with
    the end-to-end rehearsal (pin #12) and the compatibility round-trips (#11). — risk: medium
    (Compatibility / validation; documentation-sync)  [ ]  commit: _pending_
    - **Goal:** every cell of the ruled Q-M2/SR2 matrix has an implemented, tested outcome; the
@@ -722,6 +749,79 @@ operation-id-horizon fixture-casualty class (both in §Surprises & Discoveries);
 was mandated for this step and none was needed — the restructure's failures were all caught
 by the existing suites plus the new pins. The CS50/W6 armed window is CLOSED as of this
 commit.
+
+### Step 3 review-fix iteration 1 — commit 6b61334581, 2026-07-24T14:29Z [ctx=safe]
+**What was done:** applied the three Step 3 review reports
+(`track-8/reviews/{baseline,crash-safety,concurrency}-step3-iter1.md`; 0 blockers, 2
+should-fix, ~15 suggestions).
+
+**Should-fix.** (1) **CS52 — mechanism chosen: belt relocation.** The genesis-completion
+refusal moved from `getAndOpenStorage` into `SharedContext.load`, immediately AFTER
+`schema.load` — so Track 2's schema-version gate (fromStream's export/reimport redirect) owns
+old-format databases FIRST, v6-format marker-less corpses are still refused on the first
+session of every context (the `loaded` flag is set only at the end, so a refused load re-runs
+and re-refuses), and marked databases open normally. Chosen over the message-fold (which would
+leave pin M.5 #10 pinning the wrong exception) and over a storage-level format discriminator
+(reading the schema version requires schema machinery unavailable at the storage seam); it
+restores §A1's compatibility clause ("every database these binaries can open passed Track 2's
+gate") to the letter. Pinned by
+`oldFormatDatabaseGetsMigrationRedirectNotGenesisRefusal` (schema root rewritten to legacy
+version 5, marker removed, fresh disk context → the ConfigurationException redirect fires and
+NO GenesisIncompleteException appears in the chain) — Step 6 pin M.5 #10's prerequisite.
+(2) **CQ17** — all three tracker-suppression comments rewritten to the true mechanism: the
+windows close before the enclosing commit; they work because
+`FrontendTransactionImpl.deleteRecord` runs before-deletion checks SYNCHRONOUSLY inside them;
+the ADD side still runs tracking-ON at commit (legacy-created records DO carry bags); a
+refactor deferring deleteRecord's callbacks must move the suppression. `SecurityShared.create`'s
+dead "joins an active transaction" claim replaced with the tx-free precondition (every live
+caller satisfies it; the import site is provably tx-free).
+
+**Code suggestions applied.** BG14/CN55/CS55: `unregisterGenesisIncompleteCorpse` closes and
+unregisters a refused corpse's storage on every open path (non-pooled via `newSessionInstance`,
+pooled via both `poolOpen*` arms) — no pinned file locks/WAL buffers; the
+`doCreate(failIfExists=false)` route probes the marker and refuses a marker-less residue
+LOUDLY, naming BOTH recovery routes (drop-and-recreate for corpses, open-for-migration-guidance
+for old-format) — never unconditional discard advice; the config-only boolean
+`createIfNotExists` overload keeps its `exists()` short-circuit contract (boundary recorded in
+the test javadoc — the next open refuses loudly anyway). CN56: `catch (Error)` arm added to
+`createStorage` (cleanup best-effort, Error rethrown unwrapped;
+`cleanUpFailedCreate` widened to `Throwable`). CS53/CN58: `initCustomStorage`'s create arm
+gains the same cleanup-on-exception. CS54: `doDelete` skips the dirty-flag write for a
+never-opened storage (drop() now deletes W1/W2 corpse files instead of failing on the missing
+startup-metadata channel); the drop-level suite test is INFEASIBLE — the corpse's failed open
+trips the pre-existing open-failure native-buffer leak (new Surprises bullet) — so the guard
+ships with the production comment and this disposition. CN57(a): the btree→embedded
+down-conversion arm gets the same metadata-record suppression (containment symmetry).
+
+**Test suggestions applied.** TQ16: `createPropertyInsideTransactionPersistsAtCommit` (commit
+half + forced re-parse of the persisted records). TQ17: the failed-create stage of
+`createIfNotExistsRecreatesAfterFailedCreate` now verifies the injected cause in the chain.
+TQ18(a): the refusal and drop-exemption pins rebuilt on DISK against a FRESH context via
+`createMarkerlessDiskCorpse` (the reopened-config read of the marker), plus the BG14
+unregistration asserted after each refusal.
+
+**Dispositions (docs/records).** CS56: restore-outside-the-belt boundary recorded (Surprises
+bullet + design-drafts §A1 as-built note). CN59: the crashed-OSystem-genesis loud-brick
+behavior (strictly better than the pre-marker silent corpse-open, but with no automated
+discard) is owed to Step 6's WI3 operator page — added to its content list in the Step 6 spec
+below. BG16: in-tx `fireDatabaseMigration` semantics documented at the de-guard (migration
+rewrites join the caller's tx, no per-batch commits; rollback discards); no guard — the
+semantics are consistent, the cost is the caller's. BG17/CN57(b)/CS57: folded into the
+extended btree-bag Surprises bullet; the follow-up issue record is the orchestrator's (not
+created here). CQ18: `dropProperty`'s in-tx throw asymmetry — pre-existing, deferred to the
+de-guard follow-up with this record. TQ18(b): the import-nested "users recreated" half stays
+delegated — the guard no-op arm is the live behavior at every real import call site (importing
+into a database with ANY class), so a named users-recreated assertion would pin a practically
+dead arm; the import suites exercise the call site end-to-end.
+
+**Verification:** targeted (GenesisFailureContainmentTest 8, TwoPhaseGenesisTest 5,
+SchemaClassOperationsTest 31, GenesisSchemaBootstrapTest 5, StorageEmbeddedBlobCollectionsTest
+6, DatabaseImportTest, DatabaseExportImportRoundTripTest, MetadataWriteMutexTest) → BUILD
+SUCCESS; `./mvnw -pl core clean test` → BUILD SUCCESS (17470 + 2219; 0 failures);
+`./mvnw -pl core,tests clean test` → BUILD SUCCESS (tests 1300); the CS52/BG14 fixes touch the
+open/create/drop lifecycle → full `./mvnw -pl core clean verify -P ci-integration-tests` →
+BUILD SUCCESS (513 ITs, 3:11 h); spotless clean; coverage gate vs origin/develop → PASSED,
+89.5% line (2192/2449), 83.1% branch (981/1180).
 
 ### Step 1 review-fix iteration 1 — commit 931e264f48, 2026-07-23T23:30Z [ctx=safe]
 **What was done:** applied the two Step 1 review reports

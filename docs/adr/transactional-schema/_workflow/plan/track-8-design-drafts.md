@@ -784,6 +784,14 @@ count.
    see the W-table). Compatibility:
    every database these binaries can open passed Track 2's schema-v6 gate; databases created by
    pre-Track-8 builds of this branch lack the marker — dev-only exposure, accepted and recorded.
+   **[As-built notes, Step-3 review iteration (2026-07-24): (a) CS52 — the check fires from
+   `SharedContext.load`, immediately AFTER the schema load, so Track 2's schema-version gate
+   owns old-format databases with its export/reimport redirect and the refusal never masks it;
+   (b) CS56 — `restore(...)` is OUTSIDE the marker belt: the restored database's marker state
+   is the BACKUP's, and a mid-restore crash can leave a marker-bearing half-restored database
+   that opens — the pre-existing restore crash envelope, which the marker was never specified
+   to own; recorded, optional hardening (clear-then-reset around `restoreFromBackup`) left to a
+   follow-up.]**
 3. **CS35 fold — the replacement completeness signal.** The marker refusal replaces (and is
    strictly stronger than) the `fromStream:887-894` breadcrumb G2.a silences; W6/W7 go from
    silent-open to loud refusal.
