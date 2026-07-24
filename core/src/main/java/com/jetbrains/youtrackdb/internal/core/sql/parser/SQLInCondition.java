@@ -424,6 +424,14 @@ public class SQLInCondition extends SQLBooleanExpression {
     this.left = left;
   }
 
+  public SQLBinaryCompareOperator getOperator() {
+    return operator;
+  }
+
+  public void setOperator(SQLBinaryCompareOperator operator) {
+    this.operator = operator;
+  }
+
   public SQLSelectStatement getRightStatement() {
     return rightStatement;
   }

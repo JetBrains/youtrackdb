@@ -1,0 +1,132 @@
+<!-- MANIFEST
+findings: 5   severity: {blocker: 0, should-fix: 2, suggestion: 3}
+index:
+  - {id: R1, sev: should-fix, loc: "MatchWhereBuilder.java:65 / GlobalConfiguration QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT", anchor: "### R1 ", cert: C2, basis: "hasLabel narrowing gated on ctx.polymorphic()==false, but polymorphic defaults to true, so the common g.V().hasLabel(L) declines the whole traversal unless subclass-inclusive narrowing is actually built"}
+  - {id: R2, sev: should-fix, loc: "SQLContainsTextCondition.java:32-102", anchor: "### R2 ", cert: C1, basis: "collate transform on the shared CONTAINSTEXT node silently flips existing SQL/GQL CONTAINSTEXT on ci-collated properties from case-sensitive to case-insensitive; acceptance criterion contradicts the intended change; 4 eval paths + legacy operator + fulltext index must stay collation-consistent"}
+  - {id: R3, sev: suggestion, loc: "SQLMatchesCondition.java:113-123 (toGenericStatement)", anchor: "### R3 ", cert: C8, basis: "the new find-mode flag must be emitted in toGenericStatement (the value-independent fingerprint), not only copy/equals/hashCode, else two conditions differing only by find-vs-match compare equal by fingerprint"}
+  - {id: R4, sev: suggestion, loc: "core/.../sql/parser/ (javacc outputDirectory=src/main/java; Spotless-excluded)", anchor: "### R4 ", cert: C7, basis: "new SQLEndsWithCondition + edits to SQLMatchesCondition/SQLContainsTextCondition land in the javacc-output, Spotless-excluded parser package; build-safety relies on the plugin's skip-existing semantics, and the new node must stay in the SQLBooleanExpression hierarchy"}
+  - {id: R5, sev: suggestion, loc: "StartStepRecogniser.java:166-244 (normaliseIds vs buildRidInExpression)", anchor: "### R5 ", cert: C6, basis: "the ~id extraction seam is imprecise: id-normalisation + duplicate-decline live in normaliseIds, not buildRidInExpression; the hasId (set-membership) branch must reuse normalisation WITHOUT the multiset duplicate-decline"}
+evidence_base: {section: "## Evidence base", certs: 9, matches: 9}
+cert_index:
+  - {id: C1, verdict: "residual HIGH", anchor: "#### C1 "}
+  - {id: C2, verdict: "residual MEDIUM", anchor: "#### C2 "}
+  - {id: C3, verdict: VALIDATED, anchor: "#### C3 "}
+  - {id: C4, verdict: VALIDATED, anchor: "#### C4 "}
+  - {id: C5, verdict: VALIDATED, anchor: "#### C5 "}
+  - {id: C6, verdict: "VALIDATED (seam caveat)", anchor: "#### C6 "}
+  - {id: C7, verdict: "VALIDATED (build caveat)", anchor: "#### C7 "}
+  - {id: C8, verdict: "VALIDATED (well-covered)", anchor: "#### C8 "}
+  - {id: T1, verdict: ACHIEVABLE, anchor: "#### T1 "}
+flags: [CONTRACT_OK]
+-->
+
+# Track 4 Risk Review — iteration 1 (narrowed predicate-only scope)
+
+Reviewed the post-A1-split track-4.md (predicate surface only; logical filters / `hasNot` / sub-walker / `GremlinPlanCache` (D5) moved to Track 5 and are out of scope here — no finding in this pass touches `manageNotPatterns`, NOT patterns, logical filters, or D5 determinism). PSI was down this session (`steroid_execute_code` timed out on every call), so every symbol audit used `find`/`grep`/`javap`-on-fork-jar; findings that depend on a caller/override/implementer search carry an explicit reference-accuracy caveat.
+
+No blockers. Two silent-wrong-result / coverage risks warrant a should-fix (R1 hasLabel polymorphic-by-default, R2 CONTAINSTEXT collate blast radius). The predicate corner-case divergences the track flags — absent-property `<>`, NULL, singleton eq, `between` right-exclusivity — all traced to VALIDATED assumptions against HEAD, so the track's mitigations are correct. Three suggestions harden the D-TEXT-OPS round-trip, the parser-package edits, and the `~id` extraction seam.
+
+## Findings
+
+### R1 [should-fix]
+**Certificate**: C2 (Exposure — folded-`hasLabel` `classEquals` gate on `ctx.polymorphic()`)
+**Location**: track-4.md `## Decision Log` (R1/T6 entry), `## Plan of Work` step 2, `## Validation and Acceptance` (hasLabel line); `MatchWhereBuilder.classEquals` (`MatchWhereBuilder.java:65`); `GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT` (`api/config/GlobalConfiguration.java`, default `true`); `YTDBStrategyUtil.isPolymorphic`.
+**Issue**: The track gates folded-`hasLabel` narrowing on `ctx.polymorphic()==false` → `classEquals` (exact `@class =`); polymorphic mode is "subclass-inclusive narrowing via the polymorphic MATCH `class:` node type **if the builder supports it, else decline to native**." But `QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT` defaults to **`true`** and `isPolymorphic` returns that default when the traversal sets no explicit `polymorphicQuery` option. So in the default configuration the common pattern `g.V().hasLabel("Person")` — and every traversal that contains a `hasLabel` — hits the *polymorphic* branch. If the subclass-inclusive `class:` re-typing is not actually built (the plan leaves it conditional: "if the builder supports it"), the branch declines, and under D3 all-or-nothing a single declining `hasLabel` forfeits MATCH for the **whole** traversal (`g.V().hasLabel("Person").has("age",30)` → no translation at all). Net effect: the track's headline capability (translating `hasLabel`) is a no-op in the default config; only the minority explicit-`polymorphicQuery=false` traversals exercise `classEquals`. This is not a correctness bug — decline is the safe fallback — but it silently guts the track's stated value, and the `## Purpose / Big Picture` claim ("property / label / id predicates … translate") over-promises for the default mode. Reference-accuracy caveat: whether the MATCH IR / `WalkerContext.addNode` can re-type an already-added node's class from `V` to a polymorphic `class: Person` filter was not confirmable with PSI down; the `classEquals` "no production caller yet" status is grep-based.
+**Proposed fix**: Make the plan commit, at decomposition, to one of two explicit outcomes rather than the open "if the builder supports it": (a) build the subclass-inclusive path — a step that re-types the boundary node's class to a polymorphic `class:` filter (MATCH `{class:L}` already matches subclasses) — so default-mode `hasLabel` translates; or (b) accept the coverage gap, document that `hasLabel`-bearing traversals decline to native in the default polymorphic config, and soften the `## Purpose / Big Picture` / BLUF claim accordingly. Either way the polymorphic-vs-non-polymorphic equivalence test must assert the *actual* default-mode behavior (translate-with-subclasses vs whole-traversal decline), not leave it unspecified.
+
+### R2 [should-fix]
+**Certificate**: C1 (Exposure — collate transform on the shared `SQLContainsTextCondition` node)
+**Location**: track-4.md `## Plan of Work` step 4, `## Interfaces and Dependencies` (modified: `SQLContainsTextCondition`), `## Validation and Acceptance` (last line); `SQLContainsTextCondition.java:32-102`; `CaseInsensitiveCollate.transform` (`:47`, `toLowerCase`); `DefaultCollate.transform` (`:40-42`, no-op); legacy `QueryOperatorContainsText.evaluateRecord:69`; fulltext-index users `FetchFromIndexStep` / `SelectExecutionPlanner`.
+**Issue**: `SQLContainsTextCondition` is the **shared** AST node for both SQL/GQL `CONTAINSTEXT` and the Gremlin `Text.containing` translation. Its four evaluate paths (`evaluate(Identifiable)`, `evaluate(Result)`, `evaluateAny`, `evaluateAllFunction`) currently do raw case-sensitive `indexOf`, applying **no** collation (unlike `SQLBinaryCondition.evaluate`, which transforms both operands via `left.getCollate(...)` at `:102-110`). Adding the collate transform makes CONTAINSTEXT collation-aware — a no-op on `default` (transform returns the object unchanged) but a real semantic change on `ci`-collated string properties: `"FOO" CONTAINSTEXT "foo"` flips from false to true. Two problems. (1) **Blast radius beyond Gremlin**: every existing production SQL/GQL query using CONTAINSTEXT on a `ci`-collated property silently changes result semantics (case-sensitive → case-insensitive). (2) **The acceptance criterion contradicts the intended change**: the `## Validation and Acceptance` line asserts "existing SQL `CONTAINSTEXT` on a `ci`-collated property **still matches its pre-change multiset**" — but the whole point of the transform is to change that multiset on `ci`. As worded the test either fails when the change works, or is written to assert the wrong expectation. Additionally the transform must be applied consistently across all four `SQLContainsTextCondition` eval paths (not just `evaluate(Result)`), and the fulltext-index path and the legacy `QueryOperatorContainsText` (`:69`, also raw case-sensitive `indexOf`, unchanged) must be checked for index-vs-scan / engine-vs-engine divergence on `ci` — a query answered by a fulltext index vs a scan could otherwise return different multisets for the same predicate. Reference-accuracy caveat: the CONTAINSTEXT caller/index-path enumeration is grep-based (PSI down); a polymorphic or reflective caller could widen the blast radius.
+**Proposed fix**: Split the acceptance criterion into (a) `default`-collated CONTAINSTEXT unchanged (true regression guard) and (b) `ci`-collated CONTAINSTEXT **now case-insensitive** (the intended change), and record an explicit decision in the `## Decision Log` acknowledging the production-facing behavior change on existing `ci` CONTAINSTEXT (or, if unintended, gate the collation on a Gremlin-only flag rather than mutating the shared node unconditionally). Add a step to apply the transform to all four eval paths and an index-backed-vs-scan-backed CONTAINSTEXT equivalence test on a `ci` property; note whether the legacy `QueryOperatorContainsText` path needs the same treatment or is confirmed dead for this surface.
+
+### R3 [suggestion]
+**Certificate**: C8 (Assumption — new `SQLMatchesCondition` find-mode field round-trips through every state-carrying site)
+**Location**: track-4.md `## Plan of Work` step 4 (R2 round-trip note); `SQLMatchesCondition.java` — `toGenericStatement:113-123`, `copy:166-173`, `splitForAggregation:276-289`, `equals:192-212`, `hashCode:215-221`.
+**Issue**: The track's R2 note enumerates the reconstruction sites well (`copy` / `toGenericStatement` / `splitForAggregation` / `equals` / `hashCode`). One nuance worth pinning: the find-mode flag changes evaluate semantics (`Matcher.matches()` full-match vs `find()` substring), so it must be emitted in `toGenericStatement` (the value-independent fingerprint) and folded into `equals`/`hashCode`, not only copied. If it is dropped from the fingerprint, two `SQLMatchesCondition` nodes differing *only* by find-mode compare equal by generic statement — a latent wrong-result path (a full-match plan served for a find-mode query). This is Track-4 AST round-trip completeness; the downstream plan-cache consumer is Track 5's concern and out of scope here.
+**Proposed fix**: In the step that adds the find-mode field, add an explicit unit assertion that `toGenericStatement` (and `equals`/`hashCode`) distinguishes find-mode from full-match — i.e. `regex(find)` and `matches(full)` on the same field/pattern are not fingerprint-equal. Same completeness bar for `SQLEndsWithCondition`.
+
+### R4 [suggestion]
+**Certificate**: C7 (Assumption — parser-package node edits are build-safe)
+**Location**: track-4.md `## Plan of Work` step 4, `## Interfaces and Dependencies`; `core/pom.xml:234-236` (`javacc-maven-plugin` `sourceDirectory=src/main/grammar`, `outputDirectory=src/main/java`); `core/.../sql/parser/` (Spotless-excluded per CLAUDE.md).
+**Issue**: The new `SQLEndsWithCondition` and the hand-edits to `SQLMatchesCondition` / `SQLContainsTextCondition` land in `internal/core/sql/parser/`, which is (a) the javacc-maven-plugin output directory and (b) Spotless-excluded, and CLAUDE.md flatly says "do not edit generated parser files." In practice the `SQL*Condition` node classes are hand-maintained skeletons (they carry custom `evaluate` logic JJTree never generates), and the plugin's skip-existing semantics preserve hand-edits to files already present — so editing the two existing nodes is build-safe, and `SQLEndsWithCondition`, having no grammar production, is never generated and sits as a pure hand-written class. The residual risk is that an implementer, reading the CLAUDE.md prohibition, either hesitates or relocates the new node out of the parser package (e.g. into `match/builder/`) to "avoid generated code" — which would break the `SQLBooleanExpression` hierarchy assumptions the planner/executor rely on. Reference-accuracy caveat: the skip-existing behavior is inferred from the pom config + the presence of custom logic in the committed node files; I did not run a clean build to confirm the plugin does not overwrite.
+**Proposed fix**: Add a one-line note in the track (or the decomposed step) that `SQLEndsWithCondition` must live in `internal/core/sql/parser/` next to the sibling `SQL*Condition` nodes, extend `SQLBooleanExpression`, and be constructed programmatically with `id = -1` (the established MatchWhereBuilder pattern); confirm on the first build that the plugin leaves the edited/new node files intact.
+
+### R5 [suggestion]
+**Certificate**: C6 (Assumption — the `~id` branch reuses the promotable RID-IN seam with the right decline semantics)
+**Location**: track-4.md `## Interfaces and Dependencies` (modified: `StartStepRecogniser` — "extract its `private static buildRidInExpression` (with id-normalisation / decline-on-unconvertible)"), `## Context and Orientation` (`~id` branch), `## Plan of Work` step 2; `StartStepRecogniser.java` — `normaliseIds:166-187`, `buildRidInExpression:228-244`.
+**Issue**: The Interfaces line attributes "id-normalisation / decline-on-unconvertible" to `buildRidInExpression`, but that method takes an already-normalised `List<RecordIdInternal>` and only builds the `@rid IN` AST (record-attribute left side — the promotable form, correctly distinguished from `MatchWhereBuilder.in`). The id-normalisation, the decline-on-unconvertible, **and** the duplicate-id decline all live in the *separate* `normaliseIds`. The track correctly notes the `hasId` (set-membership) branch must NOT inherit the duplicate-id decline (that decline exists only because `g.V(ids)` seek-semantics emit a vertex once per occurrence, which set-membership `hasId` does not) — but the named extraction target conflates the two methods, so a naive share of `normaliseIds` would wrongly decline `hasId(a,a)` / repeated-id shapes, and a naive share of only `buildRidInExpression` would skip normalisation / decline-on-unconvertible entirely. Reference-accuracy caveat: no PSI call-hierarchy was run to confirm `buildRidInExpression` / `normaliseIds` have no other callers whose semantics an extraction would perturb.
+**Proposed fix**: At decomposition, name two distinct seams: (1) share `buildRidInExpression` (AST builder) as-is between `StartStepRecogniser` and the `~id` branch; (2) extract or parameterise the id-normalisation (`toRecordId` loop + decline-on-unconvertible) into a helper that the `~id` branch calls **without** the multiset duplicate-decline. A `hasId(a,a)` / duplicate-id equivalence test pins that the branch does not inherit the seek-semantics decline.
+
+## Evidence base
+
+#### C1 Exposure — collate transform on the shared `SQLContainsTextCondition` node
+- **Track claim**: step 4 adds a collate transform to `SQLContainsTextCondition`, "making SQL `CONTAINSTEXT` collation-aware too" and "no-op on `default`."
+- **Critical path trace**:
+  1. `SQLContainsTextCondition.evaluate(Result, ctx)` @ `SQLContainsTextCondition.java:46-64` — computes `((String) leftValue).indexOf((String) rightValue) > -1`, **no collation applied**; three sibling paths (`evaluate(Identifiable):32-43`, `evaluateAny:66-83`, `evaluateAllFunction:85-102`) do the same raw `indexOf`.
+  2. Contrast `SQLBinaryCondition.evaluate(Result, ctx)` @ `:102-110` — `collate = left.getCollate(...); if (collate != null) { leftVal = collate.transform(leftVal); rightVal = collate.transform(rightVal); }`. This is the mechanism CONTAINSTEXT currently lacks and the track will add.
+  3. `CaseInsensitiveCollate.transform` @ `:47` = `s.toLowerCase(Locale.ENGLISH)`; `DefaultCollate.transform` @ `:40-42` returns the object unchanged.
+  4. Legacy second engine: `QueryOperatorContainsText.evaluateRecord` @ `:69` = raw `indexOf`, no collate. Fulltext-index path: `SQLContainsTextCondition.isFullTextIndexAware` @ `:262-269`, consumers `FetchFromIndexStep` / `SelectExecutionPlanner`.
+- **Blast radius**: every existing SQL/GQL `CONTAINSTEXT` query on a `ci`-collated string property changes result semantics (case-sensitive → case-insensitive); potential index-vs-scan and new-node-vs-legacy-operator divergence on `ci`.
+- **Existing safeguards**: `default`-collation properties unaffected (transform no-op). `MatchWhereBuilderTest` currently covers only `containsText` render (`:159-162`), no `ci`/collation execution test — no existing guard on the semantic change.
+- **Residual risk**: HIGH — silent production behavior change on `ci` CONTAINSTEXT, and the stated acceptance criterion asserts the multiset is unchanged, which contradicts the intended behavior. Reference-accuracy caveat: caller/index enumeration grep-based (PSI down).
+
+#### C2 Exposure — folded-`hasLabel` `classEquals` gate on `ctx.polymorphic()`
+- **Track claim**: `~label` → `classEquals` only when `ctx.polymorphic()==false`; polymorphic → subclass-inclusive `class:` narrowing "if the builder supports it, else decline."
+- **Critical path trace**:
+  1. `GremlinStepWalker` @ `:146-150` resolves `polymorphic = YTDBStrategyUtil.isPolymorphic(traversal)`.
+  2. `YTDBStrategyUtil.isPolymorphic` @ `:52-79` returns the explicit `polymorphicQuery` option, else `GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT`.
+  3. `QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT` @ `api/config/GlobalConfiguration.java` default = **`true`** ("True by default").
+  4. `MatchWhereBuilder.classEquals` @ `:65-76` emits exact `@class = 'className'` (SQLRecordAttribute) — excludes subclasses.
+- **Blast radius**: default-config `hasLabel` traversals take the polymorphic branch; if subclass-inclusive narrowing is unbuilt, they decline → under D3 the whole traversal forfeits MATCH.
+- **Existing safeguards**: decline is the safe fallback (native pipeline handles it); a polymorphic-vs-non-polymorphic equivalence test is planned. No safeguard against the *coverage* loss.
+- **Residual risk**: MEDIUM — no correctness bug, but the track's headline `hasLabel` translation is a no-op in the default config unless the subclass-inclusive path is committed. Reference-accuracy caveat: IR node-re-typing support and `classEquals` caller status grep-based (PSI down).
+
+#### C3 Assumption — comparison operators return false (exclude) on an absent property
+- **Track claim**: `## Context and Orientation` — only `neq` needs the `IS DEFINED` guard; `gt`/`gte`/`lt`/`lte` on an absent property "drive their operator to false, matching native's exclusion."
+- **Evidence search**: Read `GremlinPredicateAdapter.toFilter:107-118` (guard already implemented for `neq`), `SQLGtOperator.execute:24-25`, `SQLBinaryCondition.evaluate:100-110` (grep + Read; PSI down).
+- **Code evidence**: `SQLGtOperator.execute` = `var result = SQLBinaryCompareOperator.doCompare(iLeft, iRight); return result != null && result > 0;` — a null (absent-property) left → `doCompare` null → `result != null` false → **returns false**. Same shape for Ge (`>= 0`), Lt (`< 0`), Le (`<= 0`): all false on a null operand. Native `has(k, gt(v))` excludes an element lacking `k` (`HasContainer.test` returns false for an absent property), so MATCH `k > v` (false → excluded) matches.
+- **Verdict**: VALIDATED
+- **Detail**: The adapter's audit conclusion (guard only `neq`) is correct against HEAD; the five non-`neq` comparisons need no `IS DEFINED` guard.
+
+#### C4 Assumption — YTDB `SQLBetweenCondition` is a closed interval `[lo, hi]`
+- **Track claim**: `## Context and Orientation` — Gremlin `between` is right-exclusive `[lo, hi)` while `SQLBetweenCondition` is closed, so translate to `AND(>=lo, <hi)`, never `SQLBetweenCondition`.
+- **Evidence search**: Read `SQLBetweenCondition.java` (grep + Read; PSI down).
+- **Code evidence**: `evaluate` @ `:59` and `:102` = `return leftResult >= 0 && rightResult <= 0;` (inclusive both ends); `flatten` @ `:293-317` rewrites to `>= low AND <= high` (also closed).
+- **Verdict**: VALIDATED
+- **Detail**: The divergence is real; the `AND(>=lo, <hi)` mandate is correct. Residual trap: `MatchWhereBuilder.between` (`:121-127`) builds the closed `SQLBetweenCondition`, so the `between` translation must NOT call it — the track already warns "never `SQLBetweenCondition`."
+
+#### C5 Assumption — `QueryOperatorEquals` auto-unboxes singletons and short-circuits null to false
+- **Track claim**: singleton-collection eq/neq must decline (D3); `eq(null)`/`neq(null)` must rewrite to `IS NULL`/`IS NOT NULL` because `=`/`!=` return false on null operands.
+- **Evidence search**: Read `QueryOperatorEquals.equals:60-113` (grep + Read; PSI down).
+- **Code evidence**: `:63-69` — a size-1 Collection vs a non-Collection auto-unboxes the singleton (so `field=[a]` matches scalar `a`, diverging from native list-vs-scalar semantics; cardinality unknown at translate time → decline is sound). `:71-73` — `if (iLeft == null || iRight == null) return false;` (so `field = null` is false → the `IS NULL` rewrite is required).
+- **Verdict**: VALIDATED
+- **Detail**: Both the singleton decline (D3) and the NULL→`IS NULL` rewrite rest on real HEAD behavior.
+
+#### C6 Assumption — the `~id` branch reuses a promotable `@rid IN` seam with correct decline semantics
+- **Track claim**: extract `StartStepRecogniser.buildRidInExpression` (record-attribute `@rid IN`, promotable via `promoteStaticRidsFromFilters`) for the `~id` branch, without the duplicate-id decline (set-membership).
+- **Evidence search**: Read `StartStepRecogniser.java:166-244` (grep + Read; PSI down — no call-hierarchy).
+- **Code evidence**: `buildRidInExpression:228-244` builds `@rid IN [...]` with an `SQLRecordAttribute` left (the promotable form; the Javadoc contrasts it with `MatchWhereBuilder.in`'s plain-identifier left). Id-normalisation + decline-on-unconvertible + duplicate-decline all live in the *separate* `normaliseIds:166-187`, whose duplicate-decline exists for `g.V(ids)` seek multiset semantics.
+- **Verdict**: VALIDATED (seam caveat)
+- **Detail**: The promotable record-attribute form is correct (matches technical review T1), but the extraction target named in `## Interfaces and Dependencies` conflates `buildRidInExpression` (AST only) with `normaliseIds` (normalisation + decline). See R5. Reference-accuracy caveat: other callers of these private helpers not audited (PSI down).
+
+#### C7 Assumption — parser-package node edits/additions are build-safe
+- **Track claim**: add `SQLEndsWithCondition` + find-mode field on `SQLMatchesCondition` + collate on `SQLContainsTextCondition`, "AST + evaluator only, no grammar changes," reachable programmatically.
+- **Evidence search**: `core/pom.xml` javacc config (grep), `YouTrackDBSql.jjt` grammar rules (grep/sed), committed node files (Read); no clean build run (PSI down, and a build is out of scope for a risk review).
+- **Code evidence**: `javacc-maven-plugin` @ `pom.xml:234-236` sets `outputDirectory=${basedir}/src/main/java` (same tree as the committed nodes). The committed `SQLMatchesCondition` / `SQLContainsTextCondition` carry hand-written `evaluate` logic JJTree never emits — evidence the plugin seeds skeletons once and skips existing files. The `.jjt` has `ContainsTextCondition()` / `MatchesCondition()` productions but no `EndsWith` production, so a hand-added `SQLEndsWithCondition` is never generated.
+- **Verdict**: VALIDATED (build caveat)
+- **Detail**: Editing the two existing nodes and adding `SQLEndsWithCondition` is build-safe under the plugin's skip-existing behavior, but CLAUDE.md's "do not edit generated parser files" prohibition risks confusing the implementer or prompting a wrong relocation. See R4. Reference-accuracy caveat: skip-existing inferred from config + file evidence, not a build run.
+
+#### C8 Assumption — the new `SQLMatchesCondition` find-mode field round-trips completely
+- **Track claim**: the find-mode flag "must round-trip through `copy()`, `toGenericStatement()`, `splitForAggregation()`, and be reflected in `equals()` / `hashCode()`."
+- **Evidence search**: Read `SQLMatchesCondition.java` all state-carrying methods (grep + Read; PSI down).
+- **Code evidence**: state-reconstruction sites `copy:166-173`, `splitForAggregation:276-289`; fingerprint/equality sites `toGenericStatement:113-123`, `equals:192-212`, `hashCode:215-221`. Alias/subquery methods (`getMatchPatternInvolvedAliases:224-230`, `refersToParent:184-189`, `extractSubQueries:176-181`, `isCacheable:233-238`) do not touch a scalar flag and need no change. (Pre-existing latent NPE unrelated to Track 4: `needsAliases:158-163` dereferences `rightExpression` unconditionally, which is null in the literal-`right` regex form; noted as a caveat, not a Track-4 finding.)
+- **Verdict**: VALIDATED (well-covered)
+- **Detail**: The track's enumeration hits every state-carrying site. The one hardening nuance (find-mode must be in `toGenericStatement`, the fingerprint, so find≠match) is R3.
+
+#### T1 Testability — predicate-equivalence / NULL / collection / string-predicate suite
+- **Coverage target**: 85% line / 70% branch.
+- **Difficulty assessment**: The adapter and recognisers are pure translation over programmatically-reachable AST; the equivalence fixture from Track 3 (`GremlinPatternAssembler` + native-vs-MATCH multiset comparison) already exists, so corner cases (absent-property `<>`, `eq(null)`, `eq([a])` decline, `between` right-exclusivity, `ci` vs `default` string predicates) are unit-testable without new infrastructure.
+- **Existing test infrastructure**: `MatchWhereBuilderTest` (builder render assertions), the Track-3 predicate/equivalence fixture, `QueryOperatorTest` / `StandaloneComparisonOperatorsTest` for operator-level checks.
+- **Feasibility**: ACHIEVABLE
+- **Detail**: The one testability gap is R2's `ci` CONTAINSTEXT index-vs-scan equivalence (needs a `ci`-collated indexed property fixture) and R1's default-mode `hasLabel` behavior test — both are additions the findings request, not blockers.

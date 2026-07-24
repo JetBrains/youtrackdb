@@ -19,6 +19,13 @@ public class SQLPositionalParameter extends SQLInputParameter {
     super(p, id);
   }
 
+  /** Creates a positional parameter bound to slot {@code slot} ({@code 0}-based). */
+  public static SQLPositionalParameter forSlot(int slot) {
+    var param = new SQLPositionalParameter(-1);
+    param.paramNumber = slot;
+    return param;
+  }
+
   @Override
   public String toString() {
     return "?";

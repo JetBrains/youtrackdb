@@ -1,13 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
-import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -15,24 +9,17 @@ import javax.annotation.Nullable;
  * LRU cache for already prepared GQL execution plans using Guava Cache.
  * Stores itself in SharedContext as a resource and acts as an entry point for the GQL executor.
  */
-public class GqlExecutionPlanCache implements MetadataUpdateListener {
-
-  private final int capacity;
-  private final Cache<String, GqlExecutionPlan> cache;
-  private final AtomicLong lastInvalidation = new AtomicLong(-1);
+public class GqlExecutionPlanCache extends AbstractMetadataUpdateCache<String, GqlExecutionPlan> {
 
   /**
    * @param size maximum number of plans to cache; 0 means cache disabled (no storage)
    */
   public GqlExecutionPlanCache(int size) {
-    this.capacity = size;
-    this.cache = size > 0
-        ? CacheBuilder.newBuilder().maximumSize(size).build()
-        : null;
+    super(size);
   }
 
   public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
-    return instance(db).lastInvalidation.get();
+    return instance(db).getLastInvalidation();
   }
 
   /**
@@ -43,10 +30,7 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   @SuppressWarnings("unused")
   public boolean contains(@Nonnull String statement) {
-    if (capacity == 0) {
-      return false;
-    }
-    return cache.asMap().containsKey(statement);
+    return containsKey(statement);
   }
 
   /**
@@ -81,10 +65,10 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * Internal method to store a plan in cache.
    */
   public void putInternal(@Nonnull String statement, @Nonnull GqlExecutionPlan plan) {
-    if (capacity == 0) {
+    if (!cacheEnabled()) {
       return;
     }
-    cache.put(statement, plan.copy());
+    putCached(statement, plan.copy());
   }
 
   /**
@@ -96,45 +80,11 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   @SuppressWarnings("unused")
   @Nullable public GqlExecutionPlan getInternal(@Nonnull String statement, @Nonnull GqlExecutionContext ctx) {
-    if (capacity == 0) {
+    if (!cacheEnabled()) {
       return null;
     }
-    var cached = cache.getIfPresent(statement);
+    var cached = getCached(statement);
     return cached != null ? cached.copy() : null;
-  }
-
-  public void invalidate() {
-    if (cache != null) {
-      cache.invalidateAll();
-    }
-    lastInvalidation.set(System.nanoTime());
-  }
-
-  @Override
-  public void onSchemaUpdate(DatabaseSessionEmbedded session, String databaseName,
-      SchemaShared schema) {
-    invalidate();
-  }
-
-  @Override
-  public void onIndexManagerUpdate(DatabaseSessionEmbedded session, String databaseName,
-      IndexManagerAbstract indexManager) {
-    invalidate();
-  }
-
-  @Override
-  public void onFunctionLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
-    invalidate();
-  }
-
-  @Override
-  public void onSequenceLibraryUpdate(DatabaseSessionEmbedded session, String databaseName) {
-    invalidate();
-  }
-
-  @Override
-  public void onStorageConfigurationUpdate(String databaseName, StorageConfiguration update) {
-    invalidate();
   }
 
   public static @Nonnull GqlExecutionPlanCache instance(@Nonnull DatabaseSessionEmbedded db) {
