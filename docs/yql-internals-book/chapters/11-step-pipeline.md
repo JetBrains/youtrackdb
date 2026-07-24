@@ -83,7 +83,7 @@ For each edge in the scheduled order, the planner emits one `MatchStep`. This st
 a stream of rows from upstream and — for each upstream row — emits zero or more extended
 rows, each of which is the upstream row plus one new alias binding.
 
-The implementation is minimal (`MatchStep.java:86–92`):
+The implementation is minimal (`MatchStep.java:87–93`):
 
 ```java
 @Override
@@ -99,7 +99,7 @@ public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException
 stitches the resulting per-row streams into a single output stream. `createNextResultSet`
 delegates immediately to `createTraverser()`, which instantiates the appropriate traverser
 strategy based on the edge's type and scheduled direction
-(`MatchStep.java:106–116`):
+(`MatchStep.java:108–119`):
 
 ```java
 protected MatchEdgeTraverser createTraverser(Result lastUpstreamRecord) {
@@ -396,7 +396,7 @@ the target alias is already bound. Chapter 12 opens all six.
   root alias data source; data-source selection at line 102; `$matched` assignment at
   lines 110–116.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchStep.java` —
-  `internalStart` pull loop at line 86; `createTraverser` factory at line 106.
+  `internalStart` pull loop at line 87; `createTraverser` factory at line 108.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchPrefetchStep.java` —
   context variable write at line 100; `PREFETCHED_MATCH_ALIAS_PREFIX` constant at line 54.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchResultRow.java` —

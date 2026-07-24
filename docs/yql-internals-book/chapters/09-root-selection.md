@@ -36,12 +36,12 @@ where those signals first enter the picture.
 The planner needs one number per alias: a rough record count that reflects how many records
 that alias is likely to match. The method that produces these numbers is the static helper
 `estimateRootEntries()`, declared in `MatchExecutionPlanner`
-(`MatchExecutionPlanner.java:4775`):
+(`MatchExecutionPlanner.java:5192`):
 
 ```java
 static Map<String, Long> estimateRootEntries(
     Map<String, String> aliasClasses,
-    Map<String, SQLRid>  aliasRids,
+    Map<String, List<SQLRid>> aliasPinnedRids,
     Map<String, SQLWhereClause> aliasFilters,
     CommandContext ctx)
 ```
@@ -52,18 +52,21 @@ returns a `Map<String, Long>` from alias name to estimated record count.
 The method unions the keys from all three maps, then iterates every alias once. For each alias
 it applies four rules in priority order:
 
-**Rule 1: pinned RID, estimate = 1.** When an alias has a literal `@rid` constraint, the
-engine will perform a single record lookup at execution time. There is no scanning involved;
-the record either exists or it does not. The estimate is exactly 1, which is the minimum
-possible value, so a pinned alias will always win the root competition
-(`MatchExecutionPlanner.java:4791–4793`).
+**Rule 1: pinned RID, estimate = number of pinned RIDs.** When an alias carries a literal
+`@rid` constraint, the engine looks those records up directly at execution time. There is no
+scanning involved; each pinned RID either resolves to a record or it does not. The RIDs a
+query pins for an alias are held in a list, so the estimate is that list's size — exactly 1
+for a single-RID equality such as `me = #12:0`, and a small handful for a multi-RID pin such
+as `me IN [#12:0, #12:1]`. Because that count is tiny — the list holds only the RIDs the query
+named — a pinned alias is almost always the cheapest root available, and wins the root
+competition (`MatchExecutionPlanner.java:5207–5209`).
 
 **Rule 2: declared class with WHERE filter, estimate = min(filter estimate, class count).**
 When an alias has both a `class:` declaration and a WHERE clause, the method asks
 `SQLWhereClause.estimate()` how many records the filter is likely to return, then caps the
 answer against the raw class count. The cap is important: the `estimate()` heuristic can
 occasionally overshoot, and without the cap a filtered alias could accidentally score higher
-than an unfiltered one of the same class (`MatchExecutionPlanner.java:4815`):
+than an unfiltered one of the same class (`MatchExecutionPlanner.java:5232`):
 
 ```java
 upperBound = Math.min(filter.estimate(oClass, THRESHOLD, ctx), classCount);
@@ -82,7 +85,7 @@ number.
 
 **Rule 3: declared class without WHERE filter, estimate = classCount + 1.** A bare class scan
 with no filter adds a one-record bias to the class's approximate count
-(`MatchExecutionPlanner.java:4819`):
+(`MatchExecutionPlanner.java:5236`):
 
 ```java
 upperBound = classCount + 1;
@@ -97,7 +100,7 @@ than anything semantically meaningful.
 **Rule 4: no class and no RID, alias omitted.** An alias with neither a class declaration nor
 a RID pin does not appear in the returned map at all. The scheduler will still consider it as
 a root candidate — it appends all aliases from `pattern.aliasToNode.keySet()` after the
-estimated ones at line 1968 — but it will always be tried last, after every alias that has an
+estimated ones at line 1999 — but it will always be tried last, after every alias that has an
 estimate.
 
 For the opening example, the estimation pass produces roughly:
@@ -111,7 +114,7 @@ The winner is `me` — which is the intuitive answer.
 
 ```mermaid
 flowchart TD
-    A[alias has @rid?] -- yes --> B[estimate = 1]
+    A[alias has @rid?] -- yes --> B[estimate = pinned RID count]
     A -- no --> C[alias has class?]
     C -- no --> D[omit from map\nscheduler tries last]
     C -- yes --> E[alias has WHERE?]
@@ -136,12 +139,12 @@ for (var root : estimatedRootEntries.entrySet()) {
 Collections.sort(rootWeights);
 ```
 
-(`MatchExecutionPlanner.java:1956–1960`)
+(`MatchExecutionPlanner.java:1987–1991`)
 
 `PairLongObject` sorts ascending on its `long` field. The result is a list of candidate roots
 ordered from smallest to largest estimated cardinality. Aliases absent from the map — those
 with no class and no RID — are appended at the end via `remainingStarts.addAll(...)` at line
-1968. The depth-first traversal then starts from the first alias in this list whose
+1999. The depth-first traversal then starts from the first alias in this list whose
 `$matched` dependencies have already been satisfied.
 
 The picking rule is therefore: **the alias with the smallest cardinality estimate becomes the
@@ -162,7 +165,7 @@ for which this rule breaks down — aliases whose class the planner *inferred* r
 When the query does not declare a `class:` for an alias, the planner sometimes knows the
 class anyway. If the edge leading to that alias is typed — say `.out('Knows')` where
 `Knows` is a schema edge whose `in`-endpoint is declared as `Person` — then
-`inferClassFromEdgeSchema()` (`MatchExecutionPlanner.java:4558`) reads the LINK property from
+`inferClassFromEdgeSchema()` (`MatchExecutionPlanner.java:4974`) reads the LINK property from
 the edge schema and injects the class name into `aliasClasses`. This is valuable: a known
 class enables cluster-ID pre-filtering, prefetch eligibility, and accurate fan-out estimation
 for further edges. None of that works without a class name.
@@ -170,7 +173,7 @@ for further edges. None of that works without a class name.
 The inference is intentionally narrow. Aliases that appear as the origin of a recursive
 `while:` traversal — and the alias immediately associated with the `while:` path item itself
 — are collected into a protected set called `whileAliases` by
-`collectAliasesFromWhilePatterns()` (`MatchExecutionPlanner.java:4439`). Only aliases
+`collectAliasesFromWhilePatterns()` (`MatchExecutionPlanner.java:4854`). Only aliases
 *outside* that recursive zone, downstream in the same expression, are candidates for
 inference. When inference succeeds for a downstream alias, two things happen in
 `addAliases()`:
@@ -180,7 +183,7 @@ aliasClasses.put(alias, inferred);
 inferredWhileExprAliases.add(alias);
 ```
 
-(`MatchExecutionPlanner.java:4520–4521`)
+(`MatchExecutionPlanner.java:4936–4937`)
 
 The class name lands in `aliasClasses` for all the optimisations listed above. The alias name
 lands in `inferredWhileExprAliases` as a flag.
@@ -206,14 +209,14 @@ CommandExecutionException: "This query contains MATCH conditions that cannot be 
 like an undefined alias or a circular dependency on a $matched condition."
 ```
 
-(`MatchExecutionPlanner.java:1998–2000`)
+(`MatchExecutionPlanner.java:2029–2031`)
 
 In a less-detectable variant the plan builds silently and the query returns zero rows.
 
 ### 9.3.3 The inflation
 
 The fix is applied immediately after `estimateRootEntries()` returns
-(`MatchExecutionPlanner.java:503–506`):
+(`MatchExecutionPlanner.java:511–515`):
 
 ```java
 for (var alias : inferredWhileExprAliases) {
@@ -328,7 +331,7 @@ relative order in the `rootWeights` list, because `PairLongObject` sorts on the 
 only. The insertion order into `rootWeights` comes from the iteration order of
 `estimatedRootEntries`, which is a `LinkedHashMap` — the map preserves the order in which
 aliases were added during `estimateRootEntries()`. That order, in turn, reflects the union
-iteration of `aliasClasses`, `aliasFilters`, and `aliasRids` inside the method. In practice
+iteration of `aliasClasses`, `aliasFilters`, and `aliasPinnedRids` inside the method. In practice
 this means ties are broken by the order aliases were encountered during `buildPatterns()` —
 roughly the textual order of match expressions. For most real queries the estimates are
 distinct enough that tie-breaking is academic, but it is worth knowing that the planner does
@@ -350,7 +353,7 @@ for (var entry : estimatedRootEntries.entrySet()) {
 }
 ```
 
-(`MatchExecutionPlanner.java:519–523`)
+(`MatchExecutionPlanner.java:527–531`)
 
 An estimate of zero is returned by `SQLWhereClause.estimate()` only when
 `schemaClass.approximateCount()` returns zero or less — the class genuinely has no records.
@@ -400,9 +403,9 @@ assembler consumes.
 *Further reading*
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java`
-  — `estimateRootEntries()` (line 4775); inflation loop (lines 503–506);
-  `getTopologicalSortedSchedule()` (line 1945); zero-cardinality short-circuit (lines 519–523);
-  `inferClassFromEdgeSchema()` (line 4558); `collectAliasesFromWhilePatterns()` (line 4439).
+  — `estimateRootEntries()` (line 5192); inflation loop (lines 511–515);
+  `getTopologicalSortedSchedule()` (line 1976); zero-cardinality short-circuit (lines 527–531);
+  `inferClassFromEdgeSchema()` (line 4974); `collectAliasesFromWhilePatterns()` (line 4854).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLWhereClause.java`
   — `estimate()` (line 86): the three-tier index-aware estimator.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMatchPathItem.java`

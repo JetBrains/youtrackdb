@@ -103,9 +103,9 @@ classDiagram
 
 `MatchExecutionPlanner.buildPatterns()` is the method that performs this transformation. It is called at the start of phase 1, immediately after the planner is constructed.
 
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:489–490`)
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:497–498`)
 
-The method is idempotent — if `this.pattern` is already non-null, it returns immediately (line 4379). Constructor overloads that accept a pre-built `Pattern` (used by the hash join planner and GQL integration) rely on this to bypass graph construction entirely.
+The method is idempotent — if `this.pattern` is already non-null, it returns immediately (line 4601). Constructor overloads that accept a pre-built `Pattern` (used by the hash join planner and GQL integration) rely on this to bypass graph construction entirely.
 
 Construction happens in three sub-steps.
 
@@ -113,7 +113,7 @@ Construction happens in three sub-steps.
 
 Before anything else, `assignDefaultAliases()` walks every expression — both positive MATCH expressions and `NOT` expressions — and gives each nameless node a synthetic alias of the form `$YOUTRACKDB_DEFAULT_ALIAS_N`. If a node filter object is absent entirely, a blank `SQLMatchFilter` is created first.
 
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:4740–4755`)
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:5156–5171`)
 
 After this step, every node in every expression has a non-null alias string. All downstream code can rely on this invariant. These synthetic aliases are invisible to the user: the return-projection step strips them from result rows before they reach the caller.
 
@@ -197,21 +197,21 @@ using a keyed map.
 
 ### Step 3 — Populate per-alias metadata
 
-After the graph is built, `buildPatterns()` calls `addAliases(expr, ...)` for each positive expression to populate three auxiliary maps:
+After the graph is built, `buildPatterns()` calls `addAliases(expr, ...)` for each positive expression to populate its per-alias metadata maps. Three of them are retained on the planner for the later phases:
 
 - `aliasFilters` — the merged `WHERE` predicate for each alias
 - `aliasClasses` — the schema class name for each alias
-- `aliasRids` — a pinned RID for aliases declared with `{rid: #N:M}`
+- `aliasPinnedRids` — the pinned RIDs for aliases declared with `{rid: #N:M}` (a list per alias: one RID for a single `= #N:M` pin, several for a multi-RID `IN [...]` pin)
 
-These maps live on `MatchExecutionPlanner`, not inside `Pattern`. They hold information derived from `SQLMatchFilter` content rather than from graph topology, and phases 3, 4, and 5 need them in O(1) form.
+These maps live on `MatchExecutionPlanner`, not inside `Pattern`. They hold information derived from `SQLMatchFilter` content rather than from graph topology, and phases 3, 4, and 5 need them in O(1) form. `addAliases()` fills one more alias-keyed map, `aliasCollections`, at the same time, but the planner uses it only to reject an alias constrained to two different collections and then discards it — no later phase reads it, which is why it does not appear in the state snapshot below.
 
 When the same alias appears with a `WHERE` clause in multiple expressions, the predicates are AND-combined into a single `SQLAndBlock`. When the same alias appears with different `class:` declarations, the more specific subclass is kept; if neither class is a subclass of the other, a `CommandExecutionException` is thrown at planning time.
 
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:4638–4679`)
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:5054–5095`)
 
 After metadata collection, `rebindFilters()` pushes each merged predicate back into every `SQLMatchFilter` that references the alias, so traversal steps see the unified predicate rather than a partial one.
 
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:4423–4433`)
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:4838–4848`)
 
 ---
 
@@ -249,9 +249,9 @@ Pattern
   edge0: out=a, in=b, item=.out('Friend')
   edge1: out=a, in=b, item=.out('Colleague')
 
-aliasClasses: { "a" → "Person" }
-aliasFilters: (empty)
-aliasRids:    (empty)
+aliasClasses:    { "a" → "Person" }
+aliasFilters:    (empty)
+aliasPinnedRids: (empty)
 ```
 
 The pattern graph looks like this:
@@ -279,7 +279,7 @@ RETURN x, y
 
 The filter on `y` reads `$matched.x` — the record already bound to alias `x`. At the time `y`'s `WHERE` predicate is evaluated, `x` must already exist in the current row. If the scheduler were to try visiting `y` before `x`, the filter would fail or produce undefined results.
 
-`buildPatterns()` does not resolve `$matched` references itself — `WHERE` predicates are treated as opaque text during graph construction. However, the `dependsOnExecutionContext()` check in phase 1 (`MatchExecutionPlanner.java:513`) identifies aliases whose filters contain `$matched` references and marks them as ineligible for prefetching. More importantly, the scheduler in phase 5 respects these ordering constraints when it builds the traversal sequence: an alias with a `$matched.x` filter must be scheduled *after* `x`. Chapter 10 covers exactly how that ordering constraint is enforced.
+`buildPatterns()` does not resolve `$matched` references itself — `WHERE` predicates are treated as opaque text during graph construction. However, the `dependsOnExecutionContext()` check in phase 1 (`MatchExecutionPlanner.java:521`) identifies aliases whose filters contain `$matched` references and marks them as ineligible for prefetching. More importantly, the scheduler in phase 5 respects these ordering constraints when it builds the traversal sequence: an alias with a `$matched.x` filter must be scheduled *after* `x`. Chapter 10 covers exactly how that ordering constraint is enforced.
 
 For now, the key point is that `$matched` references are an implicit back-reference on the *filter* side, not the *topology* side. They do not change the pattern graph's nodes or edges — the graph reflects topology only. But they impose a happens-before ordering on the scheduler, and that ordering is only visible because the per-alias metadata (`aliasFilters`) was collected alongside the graph.
 
@@ -315,7 +315,7 @@ Pattern_1  aliases={a, b},  numOfEdges=2
 Pattern_2  aliases={c},     numOfEdges=0
 ```
 
-Each component is planned independently. When there is more than one component, `createExecutionPlan()` wraps all component plans in a `CartesianProductStep` (line 532) — meaning the result set is the cross product of every row from component 1 with every row from component 2. If component 1 produces *M* rows and component 2 produces *N* rows, the result has *M × N* rows.
+Each component is planned independently. When there is more than one component, `createExecutionPlan()` wraps all component plans in a `CartesianProductStep` (line 540) — meaning the result set is the cross product of every row from component 1 with every row from component 2. If component 1 produces *M* rows and component 2 produces *N* rows, the result has *M × N* rows.
 
 This is not an error. A disconnected MATCH pattern is the intentional mechanism for expressing an inline cross product. It is also one of the most common sources of accidental query blowup — a mistyped alias that silently disconnects two components can turn a predictable query into a combinatorial explosion. The planner does not warn about it.
 
@@ -338,4 +338,4 @@ The pattern graph is phase 1 of an eight-phase planner. Chapter 7 names all eigh
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/Pattern.java` — pattern graph container; `addExpression` at line 65, `getOrCreateNode` at line 81, `validate` at line 115, `getDisjointPatterns` at line 162.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/PatternNode.java` — per-alias node; `addEdge` at line 73, `copy` at line 105.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/PatternEdge.java` — per-step edge; syntactic direction, `executeTraversal` at line 61.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` — `buildPatterns` at line 4378; `assignDefaultAliases` at line 4740; `addAliases` (filter form) at line 4638; `splitDisjointPatterns` at line 4185; `rebindFilters` at line 4423.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` — `buildPatterns` at line 4600; `assignDefaultAliases` at line 5156; `addAliases` (filter form) at line 5054; `splitDisjointPatterns` at line 4407; `rebindFilters` at line 4838.

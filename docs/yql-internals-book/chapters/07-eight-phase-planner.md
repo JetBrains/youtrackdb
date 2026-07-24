@@ -20,11 +20,13 @@ the pattern graph is waiting. The eight phases transform it, in order, into a
 ## 7.1 Phase 1 — Building the Pattern Graph
 
 The planner opens by calling `buildPatterns()`, which walks each `SQLMatchExpression` in
-the parsed statement and populates five alias-keyed metadata maps: the unified pattern
-graph itself, `aliasClasses` (the declared `class:` constraint per alias),
-`aliasCollections` (the declared collection-name constraint per alias),
-`aliasRids` (the `@rid:` pin per alias), and `aliasFilters` (the merged WHERE clause per
-alias). Unnamed pattern nodes receive a synthetic `$YOUTRACKDB_DEFAULT_ALIAS_` prefix so
+the parsed statement and produces the unified pattern graph together with three alias-keyed
+metadata maps that it retains for the later phases: `aliasClasses` (the declared `class:`
+constraint per alias), `aliasPinnedRids` (the pinned RIDs per alias — a list holding one RID
+for a single `@rid` pin and several for a multi-RID `IN [...]` pin), and `aliasFilters` (the
+merged WHERE clause per alias). A fourth alias-keyed map, `aliasCollections` (the declared
+collection-name constraint per alias), is built at the same time but used only to validate
+collection consistency, then discarded. Unnamed pattern nodes receive a synthetic `$YOUTRACKDB_DEFAULT_ALIAS_` prefix so
 they can participate in scheduling and traversal without appearing in the final output.
 The artifact produced is the pattern graph paired with its metadata maps — the structural
 raw material that every subsequent phase reads. Chapter 6 already covered this phase in
@@ -47,7 +49,8 @@ first keeps every downstream decision — root selection, edge scheduling, step 
 Before the planner can decide where to start a traversal, it needs a rough count for
 each alias: how many records are likely to match? `estimateRootEntries()` answers this by
 inspecting each alias's constraints and returning a `Map<String, Long>` from alias name
-to estimated record count. A pinned `@rid` returns `1`; a class with a WHERE clause
+to estimated record count. A pinned `@rid` returns the number of pinned RIDs (`1` for a
+single-RID pin, more for a multi-RID `IN [...]` pin); a class with a WHERE clause
 returns the lesser of the filter's selectivity estimate and the class count; a bare class
 returns `classCount + 1`; an alias with no constraint at all is absent from the map. The
 planner also inflates cardinalities for aliases in `inferredWhileExprAliases` to
@@ -201,7 +204,7 @@ planning phases when a structurally identical query arrives a second time.
 The two caches share one configuration knob:
 
 ```java
-// core/.../api/config/GlobalConfiguration.java:952
+// core/.../api/config/GlobalConfiguration.java:1011
 STATEMENT_CACHE_SIZE(
     "youtrackdb.statement.cacheSize",
     "Number of parsed SQL statements kept in cache. Zero means cache disabled",
@@ -267,11 +270,11 @@ cache entirely:
   which walks every step in the assembled plan and returns `false` if any step signals
   non-cacheability. A plan containing a step that embeds session-specific or
   non-reproducible state cannot safely be stored as a shared template and is therefore
-  discarded rather than put into the cache (`MatchExecutionPlanner.java:627–631`).
+  discarded rather than put into the cache (`MatchExecutionPlanner.java:635–639`).
 - **Schema changed during planning.** After assembling the plan, the planner compares
   `YqlExecutionPlanCache.getLastInvalidation(session)` against the timestamp taken before
   Phase 1 began
-  (`MatchExecutionPlanner.java:627–631`).
+  (`MatchExecutionPlanner.java:635–639`).
   If the schema was modified concurrently — another session created a class, updated an
   index, or changed a function — `lastInvalidation` will be greater than `planningStart`
   and the plan is discarded rather than stored, preventing a stale plan from being served
@@ -306,6 +309,71 @@ support new query patterns, for example — plan migrations to occur during a lo
 window and warm the cache by running representative queries immediately afterward.
 
 The configuration knobs mentioned here are collected in Table 17.2 of Chapter 17.
+
+### A third cache — results, not plans
+
+Both caches so far are *compile-phase*: `YqlStatementCache` skips the parser,
+`YqlExecutionPlanCache` skips the eight planning phases. Neither touches execution. Once a
+caller holds a plan, running it — pulling rows through every step, scanning storage,
+filtering, projecting — happens in full, every time.
+
+Consider a transaction that issues the same query twice:
+
+```
+BEGIN;
+  SELECT FROM Person WHERE city = 'Berlin';   -- runs the whole pipeline
+  -- … unrelated work …
+  SELECT FROM Person WHERE city = 'Berlin';   -- runs it again, start to finish
+COMMIT;
+```
+
+The plan cache makes the second call cheap to *plan* — it copies a template instead of
+replanning — but the copied plan still executes end to end. If nothing the transaction did
+between the two calls could have changed the answer, that second execution is pure
+repetition.
+
+The *transaction-scoped query-result cache* addresses exactly this. Unlike the two
+compile-phase caches it does not live on `SharedContext` and is not shared across sessions:
+it is a single `QueryResultCache` held per transaction, a field on `FrontendTransactionImpl`
+(`core/.../tx/FrontendTransactionImpl.java:142`), and it sits *in front of* the whole
+pipeline. Before a statement reaches the planner, `DatabaseSessionEmbedded` routes it
+through `serveThroughCache()` (`core/.../db/DatabaseSessionEmbedded.java:679`), which looks
+the query up and, on a hit, returns a cached view immediately — the eight phases of this
+chapter, and every step they would have produced, are skipped.
+
+The feature is off by default. It is gated by `QUERY_TX_RESULT_CACHE_ENABLED`
+(`core/.../api/config/GlobalConfiguration.java:961`), a `Boolean` defaulting to `false`;
+while the flag is off, `getQueryResultCache()` returns `null` and `serveThroughCache()`
+falls straight through to normal execution. Enabled, the cache is bounded by
+`QUERY_TX_RESULT_CACHE_MAX_ENTRIES` (default 200, `GlobalConfiguration.java:971`) and
+evicts least-recently-used entries when full.
+
+Caching results is harder than caching plans, because a plan is inert and a result is not.
+If the transaction mutates a `Person` row between the two identical selects, replaying the
+stored rows verbatim would be wrong — so a *delta* mechanism (`DeltaBuilder`, yielding a
+`TxDeltaCursor`) reconciles a stored result against the mutations made since it was
+recorded, keeping a hit identical to what a fresh execution would return. To know what
+"the same kind of result" even means, the cache first sorts each query into a *shape* — the
+result category it knows how to store and reconcile, computed by `ShapeClassifier` into a
+`CacheableShape` (`core/.../sql/executor/cache/CacheableShape.java:30`); queries whose shape
+it does not recognise are not cached. And a query that is non-deterministic by design — one
+calling `sysdate()` or `uuid()`, or referencing a per-row `$` variable — is refused outright
+by `NonDeterministicQueryDetector`
+(`core/.../sql/executor/cache/NonDeterministicQueryDetector.java:51`), since freezing its
+output would be a bug, not an optimisation.
+
+The cache's lifetime is the transaction's: it is cleared when the transaction ends and when
+one re-begins (`FrontendTransactionImpl.clear()`, `:1038`), so nothing survives a commit or
+rollback. Because a bulk operation can invalidate more than the delta machinery can cheaply
+reconcile, `TRUNCATE CLASS` discards the whole cache in one call to
+`QueryResultCache.invalidateAll()` (`core/.../sql/executor/cache/QueryResultCache.java:318`).
+Entries whose shape makes per-mutation reconciliation impractical are retired instead by a
+strike-based scheme, gated by two threshold knobs also collected in Table 17.2.
+
+The contrast is the whole point. The compile-phase caches save the cost of *preparing* to
+run a query and are shared, long-lived, and keyed by SQL text; the query-result cache saves
+the cost of *running* one, is private to a single transaction, and is correct only because
+it actively reconciles against that transaction's own mutations.
 
 ---
 
