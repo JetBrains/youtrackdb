@@ -1385,24 +1385,44 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public void create(final DatabaseSessionEmbedded session) {
+    // create() must run as its own TOP-LEVEL transaction (review CQ15): computeInTx would merely
+    // join an already-active outer transaction, whose deferred commit leaves the root's
+    // ChangeableRecordId provisional when setSchemaRecordId stringifies it below — persisting a
+    // provisional record id into the storage configuration and bricking the database at its
+    // next open. This is the belt against the genesis restructure (Track 8 Step 3) accidentally
+    // swallowing schema.create into the phase-1 schema transaction.
+    assert !session.getTransactionInternal().isActive()
+        : "SchemaShared.create must run outside any active transaction: joining an outer"
+            + " transaction would persist a provisional schema record id into the storage"
+            + " configuration (the root's record id promotes only at the outer commit)";
     lock.writeLock().lock();
     try {
-      var entity = session.computeInTx(transaction -> {
-        var root = session.newInternalInstance();
-        // The root must be BOOTSTRAP-VALID from the instant it exists (Track 8 G2.a/FM-G1):
-        // copyForTx seeds a transaction-local schema copy from the committed root and requires
-        // it to carry the global-property table, so a schema transaction opened against a
-        // virgin database (the restructured genesis's phase 1, or any user schema tx racing
-        // it) would trip that precondition on an empty entity. The empty-schema payload
-        // (schemaVersion, empty globalProperties, collectionCounter 0, empty blobCollections)
-        // is written through toStream itself — the single serializer, no hand-rolled twin
-        // format to drift — inside this same transaction, so no crash point can expose a
-        // payload-less root. toStream loads the root by identity, so the field is assigned
-        // before the call; the transaction serves the just-created record by its provisional
-        // id, and the ChangeableRecordId promotes in place at commit.
-        identity = root.getIdentity();
-        return toStream(session);
-      });
+      EntityImpl entity;
+      try {
+        entity = session.computeInTx(transaction -> {
+          var root = session.newInternalInstance();
+          // The root must be BOOTSTRAP-VALID from the instant it exists (Track 8 G2.a/FM-G1):
+          // copyForTx seeds a transaction-local schema copy from the committed root and
+          // requires it to carry the global-property table, so a schema transaction opened
+          // against a virgin database (the restructured genesis's phase 1, or any user schema
+          // tx racing it) would trip that precondition on an empty entity. The empty-schema
+          // payload (schemaVersion, empty globalProperties, collectionCounter 0, empty
+          // blobCollections) is written through toStream itself — the single serializer, no
+          // hand-rolled twin format to drift — inside this same transaction, so no crash point
+          // can expose a payload-less root. toStream loads the root by identity, so the field
+          // is assigned before the call; the transaction serves the just-created record by its
+          // provisional id, and the ChangeableRecordId promotes in place at commit.
+          identity = root.getIdentity();
+          return toStream(session);
+        });
+      } catch (RuntimeException | Error creationFailure) {
+        // The failed transaction rolled the root back; null the aliased provisional id so the
+        // uncreated schema does not advertise a never-persisted record id (review BG13/CS51).
+        // A later load() would reassign the field from the storage configuration anyway; this
+        // just keeps the failure state identical to the pre-create state.
+        identity = null;
+        throw creationFailure;
+      }
 
       this.identity = entity.getIdentity();
       session.getStorage().setSchemaRecordId(entity.getIdentity().toString());

@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.List;
@@ -36,6 +37,9 @@ public class GenesisSchemaBootstrapTest extends DbTestBase {
    */
   @Test
   public void virginDbSchemaTransactionSeedsCleanly() {
+    // create() repoints the test database's schema record id — contained: the database is
+    // per-test and dropped afterwards, and the session's in-memory schema never re-reads the
+    // configuration pointer within the test.
     var virginSchema = new SchemaEmbedded();
     virginSchema.create(session);
 
@@ -62,6 +66,9 @@ public class GenesisSchemaBootstrapTest extends DbTestBase {
    */
   @Test
   public void createdRootPersistsAsBootstrapValidEmptySchema() {
+    // create() repoints the test database's schema record id — contained: the database is
+    // per-test and dropped afterwards, and the session's in-memory schema never re-reads the
+    // configuration pointer within the test.
     var virginSchema = new SchemaEmbedded();
     virginSchema.create(session);
 
@@ -117,5 +124,63 @@ public class GenesisSchemaBootstrapTest extends DbTestBase {
 
     assertTrue("the reopen load of an empty index-manager root shell must yield no indexes",
         reopenedIndexManager.getIndexes(session).isEmpty());
+  }
+
+  /**
+   * Review CQ15 (belt for the Step-3 genesis restructure): {@code SchemaShared.create} must run
+   * as its own top-level transaction — joining an already-active outer transaction would leave
+   * the root's record id provisional when {@code setSchemaRecordId} stringifies it, persisting a
+   * provisional id into the storage configuration and bricking the database at its next open.
+   * The entry precondition rejects that misuse loudly (assert; test builds run {@code -ea})
+   * BEFORE any mutation, so the test database stays intact.
+   */
+  @Test
+  public void createInsideActiveTransactionIsRejected() {
+    var virginSchema = new SchemaEmbedded();
+    session.begin();
+    try {
+      AssertionError rejection = null;
+      try {
+        virginSchema.create(session);
+      } catch (AssertionError e) {
+        rejection = e;
+      }
+      assertNotNull(
+          "create inside an active transaction must trip the top-level-tx precondition",
+          rejection);
+      assertTrue("the rejection must name the precondition, saw: " + rejection.getMessage(),
+          rejection.getMessage().contains("outside any active transaction"));
+      assertNull("the rejected create must not have allocated a root",
+          virginSchema.getIdentity());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Review BG13/CS51: a create whose transaction fails (injected {@code toStream} throw →
+   * rollback) must leave the schema instance WITHOUT a dangling identity — the aliased
+   * provisional record id of the rolled-back root is nulled on the failure path, so an
+   * uncreated schema never advertises a never-persisted record id.
+   */
+  @Test
+  public void failedCreateLeavesNoDanglingIdentity() {
+    var failingSchema = new SchemaEmbedded() {
+      @Override
+      public EntityImpl toStream(DatabaseSessionEmbedded session) {
+        throw new IllegalStateException("injected create failure");
+      }
+    };
+
+    IllegalStateException failure = null;
+    try {
+      failingSchema.create(session);
+    } catch (IllegalStateException e) {
+      failure = e;
+    }
+    assertNotNull("the injected create failure must propagate", failure);
+    assertEquals("injected create failure", failure.getMessage());
+    assertNull("a failed create must not leave a dangling provisional identity",
+        failingSchema.getIdentity());
   }
 }
