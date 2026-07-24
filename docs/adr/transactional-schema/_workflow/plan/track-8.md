@@ -59,6 +59,8 @@ justification is in `## Interfaces and Dependencies`.
 - [x] 2026-07-24T04:15Z [ctx=safe] Step 2 review-fix iteration 1 complete (commit 1858811c1e;
   baseline + crash-safety reviews: 0 blockers, 0 should-fix, 7 suggestions — all applied or
   dispositioned)
+- [x] 2026-07-24T09:22Z [ctx=safe] Step 3 complete (commit 4d23111516; CS50/W6 window CLOSED;
+  three necessary enablers surfaced — see Episodes)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -114,7 +116,31 @@ justification is in `## Interfaces and Dependencies`.
   the pre-fix "Database's schema is empty!" error-log breadcrumb never fires (the branch itself
   stays in code for legacy corpses). Design-accepted trade (CS35, folded into §A1); Step 3's
   open-time marker check closes it — `crash-safety-step2-iter1.md`'s K4/W6 row is the exact
-  state the marker must refuse.
+  state the marker must refuse. **CLOSED by Step 3 (commit 4d23111516):** the marker check
+  refuses exactly that state on every session-minting open.
+- **2026-07-24 (Step 3, pre-existing defect found + fixed):** the schema-carry commit SILENTLY
+  LOST committed classes when the schema root's `classes` link set was btree-backed
+  (`LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD` at/below the class count): the
+  threshold-triggered conversion fires MID-SERIALIZATION inside the commit window — after the
+  commit gathered its working set and link-bag locks — so the converted bag's btree content
+  missed the commit. Reproduced at HEAD `df7b3b2841` with a plain user schema tx (threshold=-1,
+  in-tx `createClass`, commit → class gone from the committed schema). Pre-existing since the
+  commit-time schema promotion landed (Track 4/5); the restructured genesis made it
+  deterministic in three storage-test classes that set threshold=-1. Fixed by pinning link sets
+  owned by internal-metadata-collection records EMBEDDED (`EntityLinkSetImpl`; bounded
+  cardinality; the schema must parse at open without btree components). Databases whose root
+  set is ALREADY durably btree-backed (>threshold classes, created pre-pin) keep their form —
+  their schema-carry commits remain exposed to the underlying commit-window/btree-bag
+  interaction, which still deserves a root fix by the commit-machinery owners.
+- **2026-07-24 (Step 3, new fixture-casualty class):** two storage tests
+  (`BTreeGetVisibleTest`, `SharedLinkBagBTreeReadMethodsTest`) pinned absolute snapshot
+  timestamps/versions (25–50) that implicitly depended on the DOZENS of atomic-operation ids
+  the legacy per-DDL genesis burned before the tests ran; the two-phase genesis creates a
+  database in a handful of operations, so those entries suddenly sat ABOVE the visibility
+  horizon ("in-flight future") and vanished from reads. Fixed by advancing the horizon
+  explicitly in the fixtures (100 empty atomic ops). Sweep-recipe note: operation-id-horizon
+  pinning is a third invisible-to-grep fixture class, next to Step 1's constructor-form RID
+  pins.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -304,7 +330,7 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    marker check refusing W6/W7 corpses loudly; the CN54 drop-path exemption (`drop()`'s
    internal `openNoAuthenticate` tolerates/bypasses the refusal, deletion succeeds); the CS45
    W9a fail-closed false refusal accepted and pinned. — risk: high (Crash-safety / Durability;
-   Concurrency; every-DB-creation blast radius)  [ ]  commit: _pending_
+   Concurrency; every-DB-creation blast radius)  [x]  commit: 4d23111516
    - **Goal:** I-U4 discharged (schema built and committed before any user insert; mutex in
      phase 1 only) and a half-genesis database can neither be silently reopened nor silently
      no-op'd over by create-retry.
@@ -620,6 +646,82 @@ path; assert lines are coverage-exempt and compiled out under `-da`), a failure-
 (reachable only when database creation aborts entirely), and comments — the schema-record
 format and every valid-path byte are identical to the state Step 2's full IT run (513 ITs,
 3:18 h, green) already verified.
+
+### Step 3 — commit 4d23111516, 2026-07-24T09:22Z [ctx=safe]
+**What was done:** the two-phase genesis restructure + §A1 failure containment. (1)
+`SharedContext.create`: root shells (`schema.create`/`indexManager.create`) stay PRE-tx
+(CQ15); PHASE 1 = ONE `executeInTx` spanning `security.createSecuritySchema` (the new DDL half
+on `SecurityInternal`), the OFunction/OSequence/OSchedule creators (they already route via the
+session proxy, so they join the tx unmodified — Q-G1/CN49), the O/V/E classes and the blob
+registration — re-routed through `SchemaProxy` per the CS47 seam annotation (enumeration
+mechanics + `List.copyOf` snapshot unchanged); the mid-create `forceSnapshot` is gone (the
+schema-carry commit owns the trailing one). PHASE 2 = ONE merged data tx
+(`security.insertDefaultSecurity`: roles + users, Q-G2; system-DB skip and
+`CREATE_DEFAULT_USERS` inside; `initPredicateSecurityOptimizations` after, as today).
+`SecurityShared.create` keeps the tx-free guard-first no-op and runs the same two-phase
+sequence for the import call site. (2) §A1 containment: `createStorage` cleanup-on-exception
+(`cleanUpFailedCreate` — maps purged, storage closed+deleted, `exists()` false, suppressed
+cleanup failures); the genesis-completion marker (`SharedContext.GENESIS_COMPLETED_PROPERTY`,
+written via `storage.setProperty` as the LAST act of the create sequence — its own durability
+event, so the W9a window spans up to it, incl. the no-op geospatial listener); the open-time
+check in `getAndOpenStorage` (`GenesisIncompleteException`, new exception class) gating EVERY
+session-minting open; the CN54 drop exemption (`drop()` catches the refusal via cause-chain
+walk, skips `onDrop`, deletes the corpse).
+
+**W-state test mapping (pin G.5 #9):** exception path W1-analogues —
+`failedPhaseOneCleansUpAndRetrySucceeds` / `failedPhaseTwoCleansUpAndRetrySucceeds` (REAL
+phase failures injected through the config `SessionListener.onBeforeTxCommit` seam, both
+profiles) + `createIfNotExistsRecreatesAfterFailedCreate` (the silent-no-op hazard); crash
+path W6/W7 — `markerlessDatabaseIsRefusedOnOpenAndOpenNoAuthenticate` (marker flipped off a
+complete DB — which is simultaneously the W9a shape, so the same test pins the CS45 accepted
+FALSE refusal); CN54 — `dropDiscardsCorpseWithoutSurfacingRefusal`; success —
+`markerPresentAfterSuccessfulCreateOnBothProfiles` (W9). W2–W5 fail loudly pre-marker as
+before (crash-safety-step2's K-table) and are additionally condemned by the marker.
+
+**Other pins:** G.5 #2(b) `reopenShowsGenesisPopulatedSchema` (full context close + disk
+reopen — absorbs the TQ14 byte-deserialization deferral); #3+#10
+`mutexEngagedInPhaseOneOnlyAndPhaseTwoCommitsOnce` (listener-observed: EXACTLY ONE
+mutex-engaged commit; EXACTLY ONE record-carrying commit after it); #4
+`oUserNameEngineIsBuiltBeforeFirstUserInsert` (engine BUILT at the phase-2 commit's
+`onBeforeTxCommit` + post-create indexed lookup); #5 guard half
+`repeatSecurityCreateIsTxFreeNoOp` (import path end-to-end via the green import suites); #6
+`systemDatabaseGenesisCreatesSchemaWithoutDefaultUsers` (strictly sequential — CN53/OBS-2;
+listener-count NOT pinned per the CN observations row).
+
+**Necessary enablers surfaced (deviations from the frozen in-scope list, each recorded):**
+(a) `Storage`/`AbstractStorage.getProperty` accessor (the marker check needs a config-property
+read; `doCreate` untouched — Step 1's seam respected); (b)
+`SchemaClassEmbedded.addProperty` de-guarded with the established `!owner.txLocal &&` pattern
+(the design's "every mutation routes tier-3 through resolveForWrite" premise required in-tx
+property creation, which no prior track had de-guarded; `SchemaClassOperationsTest` updated to
+the new tx-local contract); (c) structural-record link maintenance made explicit end-to-end:
+legacy `saveInternal` serializes tracker-suppressed (symmetric with the commit window — a
+tracked legacy drop of a commit-created bag-less class record threw
+`LinksConsistencyException`), and the legacy `IndexAbstract.delete`/`rebuild` paths unlink
+`CONFIG_INDEXES` explicitly (`IndexManagerAbstract.unlinkIndexRecord`) instead of relying on
+the tracker's back-bag auto-cleanup (dangling-link reopen failures on the import path);
+(d) `EntityLinkSetImpl` metadata-record embedded pin + `MetadataDefault.COLLECTION_INTERNAL_ID`
+— fixes the PRE-EXISTING silent class-loss (see Surprises).
+
+**Reviewer-obligation results:** TQ12 re-grep → `STORAGE_BLOB_COLLECTIONS_COUNT` still has
+exactly ONE production read (`AbstractStorage:1522`; the `:1534` hit is the guard message's
+`.getKey()`); CQ14 → the register loop's `List.copyOf` snapshot survives the tx-wrap (now a
+pure tx-local write, the copy stays as future-proofing); CQ15 → `schema.create` (:214) and
+`indexManager.create` (:215) remain strictly BEFORE the phase-1 `executeInTx` (:225) — belt
+assert intact.
+
+**Verification:** `./mvnw -pl core clean test` → BUILD SUCCESS (17467 — +11 new tests — +
+2219 sequential; 0 failures); `./mvnw -pl core,tests clean test` → BUILD SUCCESS (tests
+module 1300; 0 failures); `./mvnw -pl core clean verify -P ci-integration-tests` → BUILD
+SUCCESS (513 ITs, 3:10 h); spotless clean; coverage gate vs origin/develop → PASSED, 90.7%
+line (2124/2341), 83.0% branch (974/1174).
+
+**Surprises:** the pre-existing schema-carry-commit/btree-bag silent class-loss and the
+operation-id-horizon fixture-casualty class (both in §Surprises & Discoveries); the
+`createProperty` de-guard gap (the design assumed tier-3 routing covered it); no red-first pin
+was mandated for this step and none was needed — the restructure's failures were all caught
+by the existing suites plus the new pins. The CS50/W6 armed window is CLOSED as of this
+commit.
 
 ### Step 1 review-fix iteration 1 — commit 931e264f48, 2026-07-23T23:30Z [ctx=safe]
 **What was done:** applied the two Step 1 review reports
