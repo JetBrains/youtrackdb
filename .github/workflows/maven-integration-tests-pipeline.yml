@@ -254,12 +254,28 @@ jobs:
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_APP_PRIVATE_KEY }}
+          # Downscope the installation token to exactly what merge-to-main needs:
+          # push commits to main (contents) including any .github/workflows/**
+          # changes (workflows). Narrower than the App's full installation grant.
+          permission-contents: write
+          permission-workflows: write
+
       - name: Checkout Source Code
         uses: actions/checkout@v7
         with:
           ref: 'main'
           fetch-depth: 0
-          token: ${{ secrets.MAIN_UPDATE_TOKEN }}
+          # Short-lived GitHub App installation token replaces the previous PAT.
+          # persist-credentials defaults to true, so the later git push origin main
+          # reuses this credential; an App-authored push to protected main also
+          # fires downstream push-triggered workflows (a GITHUB_TOKEN push would not).
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Configure Git
         run: |
