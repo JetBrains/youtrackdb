@@ -66,6 +66,9 @@ justification is in `## Interfaces and Dependencies`.
   suggestions — all applied or dispositioned)
 - [x] 2026-07-24T19:16Z [ctx=safe] Step 4 complete (commit 2433d684ae; red-first M.5 #1 shown;
   one as-built deviation: a minimal manifest-consuming arm in DatabaseImport — see Episodes)
+- [x] 2026-07-24T20:24Z [ctx=safe] Step 4 review-fix iteration 1 complete (commit 35c461d726;
+  baseline + crash-safety reviews: 0 blockers, 3 should-fix (BG18/CS58, TQ19, TQ20), 9
+  suggestions — all applied or dispositioned; red-first record corrected — see Episodes)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -492,7 +495,10 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    target; import completeness = importer exit 0; **plus, per Step-3 review CN59: the
    genesis-incomplete refusal's operator guidance — incl. that a crashed OSystem-database
    genesis refuses server startup loudly until the corpse directory is discarded, with no
-   automated self-heal**) and index it in `docs/README.md`. Close with
+   automated self-heal; plus, per Step-4 review CS59 (FM-M18): crash-orphaned export temp
+   files (`<final>.<uuid>.tmp`) and record spill files (`ytdb-export-record-*.spill`) are
+   fail-safe residue an operator may delete at any time**) and index it in `docs/README.md`.
+   Close with
    the end-to-end rehearsal (pin #12) and the compatibility round-trips (#11). — risk: medium
    (Compatibility / validation; documentation-sync)  [ ]  commit: _pending_
    - **Goal:** every cell of the ruled Q-M2/SR2 matrix has an implemented, tested outcome; the
@@ -829,6 +835,72 @@ verified targeted.)
 FM-M1/M2/M3/M4/M5/M9/M15/M17; pins M.5 #1/#2/#8/#17 + the CS43 primitive suite. WI10a (the
 stream-ctor validation scope) stays Step 5's explicit obligation — the primitive already
 exposes steps (1)+(2) stream-only and step (3) for sizable sources.
+
+### Step 4 review-fix iteration 1 — commit 35c461d726, 2026-07-24T20:24Z [ctx=safe]
+**What was done:** applied the two Step 4 review reports
+(`track-8/reviews/{baseline,crash-safety}-step4-iter1.md`; 0 blockers, 3 should-fix, 9
+suggestions).
+
+**Should-fix.** (1) **BG18/CS58:** `FileUtils.durableAtomicMove`'s parent-dir-fsync catch
+narrowed — ONLY the directory-channel OPEN failure is the platform carve-out (Windows); a
+post-open `force(true)` IOException is a genuine fsync failure and now PROPAGATES fail-closed
+(the caller's export aborts instead of reporting an unverifiable promote durable). The
+carve-out itself is not black-box constructible on POSIX (directories open fine; a real
+force() EIO needs fault injection below the JVM) — the structural separation is review-pinned
+and the happy path remains test-pinned. (2) **TQ19(a):** the always-rethrow collection-scan
+arm (FM-M1's remedy) gained its discriminating test: a protected `browseCollectionRecords`
+seam lets `iteratorFailureInsideScanArmAbortsLoudly` throw from `next()` mid-collection —
+INSIDE the scan try — and pins loud abort + primary cause + untouched final + zero residue.
+**Discrimination proven:** with the arm temporarily reverted to log-and-continue the test
+goes RED (`AssertionError: a mid-iteration scan failure must abort the export loudly`);
+restored, green. (3) **TQ20:** `garbageBeyondReadAheadIsRejectedByPhysicalSizeArithmeticAlone`
+(one-byte decoder buffer → appended garbage never enters the read-ahead window → steps (1)+(2)
+pass → step (3) is the SOLE rejecting check). **Discrimination proven:** with
+`consumed != physicalSize` temporarily neutered the test goes RED (`AssertionError: the
+physical-size arithmetic must reject beyond-window trailing garbage`); restored, green.
+
+**TQ19(b) — red-first record CORRECTED (re-ran the experiment):** the reduced committed test
+was re-run against the parent commit bac3747535 — it IS red there, but the true signature is
+`AssertionError: the injected scan failure must be the export failure's primary cause`
+(the finally's `close()` secondary REPLACED the primary — the FM-M5 masking arm — exactly as
+the baseline review's trace predicted), NOT the Step-4 episode's recorded "swallowed into a
+success exit / must abort loudly" signature. Attribution: that recorded signature came from an
+EARLIER test revision whose injection matcher (`- Collection 'ScanFail'`, the CLASS name)
+never matched the auto-generated collection name — the injection never fired and the red was
+vacuous. The Step-4 episode's red-first paragraph is superseded by this record; the red-first
+DISCIPLINE stands (the committed test is genuinely red at the parent), the recorded mechanism
+was wrong, and the FM-M1 swallow arm itself is now separately pinned by TQ19(a)'s test.
+
+**Suggestions applied (code):** BG19 — the import's `manifest` arm is version-gated NOW
+(`exporterVersion >= 15`; a declared-legacy dump carrying the tag keeps the byte-for-byte
+unsupported-tag rejection); the Step-5 obligation to replace the skip with the validating arm
+stays recorded. CQ19 — the primitive ends its self-allocated inflater on constructor failure.
+CQ20 — header-length accounting widened to `long` (an adversarial multi-GiB FNAME/FCOMMENT
+cannot wrap the step-(3) arithmetic). CQ21 — `exportDatabase` regains `finally { close() }`
+(safe: close is completion-gated — no-op after success, abort otherwise), closing the
+Error-path temp/FD leak. CQ22/CS61 — a constructor failure after the `CREATE_NEW` open closes
+the stream and deletes the temp file (suppressed secondaries). CS62 — `completed` is set
+AFTER `promote()`: a failed promote leaves the flag unset, so the finally's close() retries
+the temp cleanup instead of being short-circuited into a permanent orphan.
+
+**Dispositions:** CS59 — crash-orphaned temp/spill files recorded as FM-M18 in the
+design-drafts failure-mode table (accepted + documented: fail-safe residue, never promoted,
+unique non-dump suffixes) and threaded into Step 6's WI3 operator-runbook content list
+(alongside CN59). CS60 — the same-directory contract documented in the helper's javadoc.
+TQ21 — accepted: `promote()`'s routing through `durableAtomicMove` is a single reviewed line;
+the fsync legs are black-box unobservable and no clean structural seam exists without
+weakening encapsulation — review-pinned.
+
+**Verification:** targeted (hardening 8, primitive 10, buffer 4, FileUtils 2, round-trip,
+import) → green; two discrimination proofs (temporary revert/neuter, never committed) → RED
+as required, restored; `./mvnw -pl core clean test` → BUILD SUCCESS (17494 — +2 new tests
+over Step 4's battery plus the 2 post-battery FileUtils tests — + 2219 sequential; 0
+failures); coverage full reactor → BUILD SUCCESS (tests module 1300 green within it); gate vs
+origin/develop → PASSED, 89.1% line (2489/2793), 81.6% branch (1099/1346); spotless clean.
+**ITs deliberately not re-run:** the delta changes failure-path handling only (fsync-error
+propagation, ctor cleanup, flag ordering, an iteration seam refactor with identical
+production behavior, a version gate on a tag no legacy dump carries) — every valid-path byte
+of export/import is identical to the state Step 4's full IT run (513 ITs, 3:10 h) verified.
 
 ### Step 3 review-fix iteration 1 — commit 6b61334581, 2026-07-24T14:29Z [ctx=safe]
 **What was done:** applied the three Step 3 review reports

@@ -454,6 +454,7 @@ rejections are scoped by SR1.
 | FM-M15 | Two concurrent exporters interleave one fixed `.tmp`; both set the completion flag; a corrupt dump is promoted over the good one | **defect of the un-amended design** — closed by the unique `CREATE_NEW` temp name (M2.a-4, pass-1 CN52); pinned by M.5 #17 |
 | FM-M16 | Dump blob-collection ids resolved raw in the R3-renumbered target — a class collection silently registered as a blob collection (`DatabaseImport.java:528-541`) | **defect at HEAD under R3** — closed by routing through `collectionToCollectionMapping` / `$blob*` name-match (Amendments §A3, pass-1 WI1); pinned by M.5 #13 |
 | FM-M17 | Manifest counts re-derived from a fresh snapshot under concurrent DDL → false fail-closed rejection of a good dump | **defect of the un-amended design** — closed by exporter-tallied / importer-tallied count provenance (M2.a-5, pass-1 CN51) |
+| FM-M18 | kill -9 / power loss mid-export orphans the per-export unique temp file (`<final>.<uuid>.tmp`) and any in-flight record spill file (`ytdb-export-record-*.spill`) | **ACCEPTED + DOCUMENTED (Step-4 review CS59):** the in-process deletion covers every non-crash path; a crash orphan is fail-safe — never promoted, never mistaken for a dump (unique non-dump suffixes), reclaimed by operator cleanup; documented in the Step-6 WI3 operator runbook |
 
 ## M.4 Invariants discharged
 
