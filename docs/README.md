@@ -9,4 +9,5 @@
 | [Fine-Grained Security](security.md) | Predicate-based security policies, per-role filtering, ALTER/REVOKE lifecycle |
 | [YQL Reference](yql/README.md) | Reference for the YouTrackDB Query Language (YQL) — commands, functions, methods, syntax, and MATCH traversals |
 | [Query Engine Internals](yql-internals-book/chapters/01-why-a-graph-database.md) | Deep-dive book on how YouTrackDB's YQL/MATCH queries compile and run — parser, pattern graph, cost-based planner, execution steps, traversers, and optimisation layers — in 17 chapters. Start at Chapter 1. |
+| [Engineering Blog](blog/README.md) | Long-form engineering articles on YouTrackDB internals — one self-contained topic per article, each recording the source commit its code citations were verified against |
 | [Project-Internal Documentation (contributors)](../docs-internal/README.md) | Documentation for people working ON YouTrackDB — development workflow, role guidelines, and the Architecture Decision Record archive |
