@@ -69,6 +69,9 @@ justification is in `## Interfaces and Dependencies`.
 - [x] 2026-07-24T20:24Z [ctx=safe] Step 4 review-fix iteration 1 complete (commit 35c461d726;
   baseline + crash-safety reviews: 0 blockers, 3 should-fix (BG18/CS58, TQ19, TQ20), 9
   suggestions — all applied or dispositioned; red-first record corrected — see Episodes)
+- [x] 2026-07-25T01:19Z [ctx=safe] Step 5 complete (commit 5173bccd10; red-first M.5 #3 AND
+  #13 both shown RED at HEAD; WI10a resolved — see Episodes; one lost-action salvage and two
+  as-built notes recorded)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -454,7 +457,7 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    InputStream ctor applies (sequence steps (1)-(2); the size arithmetic (3) requires a sizable
    source) and record the decision in this file. SR1's condemn-target doctrine governs the
    structural rejections. — risk: high (Crash-safety; compatibility blast radius on the
-   lenient path)  [ ]  commit: _pending_
+   lenient path)  [x]  commit: 5173bccd10
    - **Goal:** a v15 dump that is truncated, tampered, incomplete, or unacknowledged-best-effort
      can never import silently; ruled pre-flight rejections precede ALL target mutation; a
      declared-legacy dump behaves byte-for-byte as at HEAD.
@@ -1023,6 +1026,113 @@ iteration:** the production diff is a misconfiguration-only guard (valid-config 
 byte-identical), a same-value constant extraction, and a read-side defensive copy — none
 alters the storage-create/backup/restore behavior the `ci-integration-tests` suite exercises,
 and Step 1's full IT run (3:09h, 513 ITs green) covered the identical valid-path behavior.
+
+### Step 5 — commit 5173bccd10, 2026-07-25T01:19Z [ctx=safe]
+**What was done:** the M2.b import hardening — DatabaseImport's structural skeleton: §A2
+pre-flight deferral, SR2 trigger wiring, the v15 structural strictness (manifest verify,
+section presence/duplicates, whole-stream gzip validation), Q-M3 non-gzip rejection, the
+M2.b-4 best-effort acknowledgment gate, and the §A3/WI1 blob-collection mapping fix (closing
+the FM-M16 window armed since 6611cbf6b2).
+
+**Lost-action salvage note:** the original Step 5 dispatch was lost to an infra failure
+mid-flight, leaving uncommitted partial work at HEAD 8ca99846fc (a 117-insertion
+`DatabaseImport.java` diff + the complete red-first test file). Decision: SALVAGE — the diff
+was small enough to verify hunk-by-hunk against the binding spec (fields, framing detection,
+section-loop restructure; the four referenced helper methods were still missing, i.e.
+non-compiling), and the red-first evidence was RE-DEMONSTRATED at clean HEAD by stashing the
+production diff before completing the implementation.
+
+**Red-first (pin M.5 #3):** `truncatedGzipTrailerDumpIsRejected` written FIRST and shown RED
+at HEAD 8ca99846fc — failure signature: `AssertionError: a truncated v15 dump must be
+rejected loudly` (a dump whose 8-byte gzip trailer was cut off imported silently: the deflate
+data still decodes, the reader stops at the JSON root's closing brace, and no consumption
+check exists — FM-M6 live). Green = loud rejection whose cause chain names `Truncated GZIP
+trailer` (the matcher pins the CS43 drain as the rejecting check, not a structural accident).
+**Red-first (pin M.5 #13, assessed red-first-viable):** `crossLayoutBlobDumpRegistersBlobsByMappingNotRawId`
+shown RED at the same HEAD — failure signature: `AssertionError: blob-registered collection
+'c_8' (id 13) must be a $blob* collection` (the importer resolved the v14-layout dump's
+renumbered blob id RAW in the target id space and registered the target's E class collection
+as a blob collection — FM-M16 live). Matcher discrimination RE-PROVEN after a fixture
+refactor by temporarily reverting the production mapping fix (fails with `'c_6' (id 11)`).
+
+**Implementation per design element:** (1) §A2/CS38/WI11 — the entire preamble block
+(`removeDefaultNonSecurityClasses`, index-manager reload + auto-index rebuild snapshot, and
+the order-coupled `beforeImportSchemaSnapshot`, which moved WITH the block into a field) now
+lives in `runDeferredImportPreamble()`, unlocked only after the info section parses with a
+parseable version AND `runPreFlightChecks()` passes; `removeDefaultCollections`' two call
+sites are structurally after info via the section loop. (2) SR2 (CS46 trigger): rejection at
+the first non-`info` tag — or at end of stream — without a parseable declared version;
+malformed versions reject fail-closed via the integer-parse error. (3) v15 strictness
+(post-loop; SR1 condemns the target): required-section presence incl. duplicates (WI10c; the
+inline brokenRids consumption inside `importRecords` records its occurrence — see Surprises),
+manifest totals vs importer-tallied consumption counts (CN51: classes/indexes/records tallied
+at their parse sites, brokenRids counting only real rid tokens; the validating `importManifest`
+replaces Step 4's temporary skip-only arm, discharging that recorded obligation), and
+brokenRids-without-marker (WI10b). (4) CS43 whole-stream validation: both constructors detect
+framing through `detectFraming` (gzip arm = Step 4's `ValidatedGZIPInputStream`); after the
+section loop a v15 import drains the decoder to end of stream, then `verifyFullyConsumed()`,
+then `verifyPhysicalSize(fileSize)` for the sized source; `close()` releases the decoder.
+(5) Q-M3/M2.b-1: plain-JSON dumps declaring >= 15 on the FILE path are rejected at
+pre-flight, no override; declared-legacy dumps keep the lenient fallback byte-for-byte.
+(6) M2.b-4: the info `best-effort` marker feeds the `-acceptBestEffortDump=true`
+acknowledgment gate (pre-flight, target untouched on rejection). (7) §A3/WI1: the dump's
+blob-collection ids route through `collectionToCollectionMapping`; an unmapped id is
+warned-and-skipped, never resolved raw.
+
+**WI10a resolution (recorded as pinned):** the InputStream constructor now detects framing
+exactly like the file constructor and — when gzip-framed — applies CS43 sequence steps
+(1)-(2) (drain + single-member/trailer/read-ahead-residue verification) at the end of a v15
+import; the physical-size arithmetic (step (3)) requires a sizable source and applies ONLY to
+the file constructor (`physicalSize` stays -1 for streams). A PLAIN stream on the
+programmatic InputStream path is the caller's framing choice and is NOT rejected — the Q-M3
+non-gzip rejection is keyed on the sized (file) migration path, preserving the plain-JSON
+streaming round-trip (FM-M13).
+
+**As-built notes:** (a) the strictness arms key on `>= 15` rather than the spec-letter
+`== 15` — fail-closed for undeclared-future versions in the intermediate state, per the
+dispatch constraint; Step 6's `>= 16` reject-with-redirect short-circuits inside `importInfo`
+BEFORE these arms, making them effectively `== 15` at end-state. (b) `processBrokenRids` now
+strips the surrounding quotes the v15 exporter writes (Jackson `writeString`) before
+`RecordIdInternal.fromString` — a latent defect (any NON-empty v15 brokenRids array failed to
+parse: `For input string: ""#99"`) surfaced by the WI10b fixture; unquoted legacy tokens pass
+through unchanged. (c) the legacy gzip arm now decodes through the single-member validated
+decoder even for declared-legacy dumps (verification steps simply never run); the only
+behavioral delta is hand-crafted MULTI-member legacy concatenations, which no exporter ever
+produced.
+
+**Key files:** `core/.../db/tool/DatabaseImport.java` (all production changes);
+`core/.../db/tool/DatabaseImportHardeningTest.java` (new, 15 tests: pins M.5 #3 ×2, #4 ×2,
+#5 ×3, #6 ×2, #7 ×2, #13, WI10b legitimate direction, SR2 ×2 — #16's condemnation semantics
+asserted inside the post-mutation rejection tests: loud failure asserted, target-clean
+deliberately NOT; the pre-flight tests DO assert target-clean per CS38; the declared-v14
+lenient half of #11 = `plainJsonDeclaredV14DumpIsAccepted` + the v14-declared gzip import
+inside the #13 pin).
+
+**Verification:** targeted — the spec's verbatim suite + hardening classes
+(`DatabaseImportTest,DatabaseExportImportRoundTripTest,DatabaseImportSimpleCompatibilityTest,
+DatabaseImportHardeningTest,DatabaseExportHardeningTest,ValidatedGZIPInputStreamTest,
+SpillableRecordBufferTest`) → 46/46 green (3 pre-existing skips); `./mvnw -pl core,tests
+clean test` → BUILD SUCCESS (core 17509 — +15 new — + 2219 sequential + 18 vmlens; tests
+1300; 0 failures); full `./mvnw -pl core clean verify -P ci-integration-tests` → BUILD
+SUCCESS (513 ITs, 0 failures, ~3.5 h); coverage gate vs origin/develop → PASSED, 88.7% line
+(2517/2837), 81.4% branch (1106/1358); spotless clean.
+
+**Surprises:** (1) the dump's brokenRids section is consumed INLINE by `importRecords` (it
+directly follows records in every >= 12 dump), so its tag never passes through the section
+loop — the naive presence tracker both missed duplicates and spuriously rejected honest v15
+dumps (the truncation pin initially passed for the WRONG reason); fixed by recording the
+occurrence at the inline consumption site, re-validated by the trailer-truncation matcher
+assert. (2) the quoted-brokenRids latent defect above. (3) the #13 fixture's first shape
+(rewriting the blob id to the TARGET's E-collection id) was order-flaky: the id can collide
+with an id the SOURCE dump already uses (the internal collection is excluded from the dump's
+collections section, so `collections.size()` undercounts the max id), sending the blob into a
+class collection and tripping an unrelated `RecordBytes`→`Entity` cast in the security
+predicate init; the deterministic shape rewrites to `max(dump ids) + 1` — guaranteed unused
+in the dump, guaranteed a CLASS collection in the strictly-larger 8-blob target.
+
+**Discharges:** §A2 (CS38, WI11), §A3 (WI1 — FM-M16 window CLOSED), M2.b-1..4, WI6, WI10a
+(resolved + recorded above)/WI10b/WI10c, CN51(import), SR2+CS46 trigger wiring, SR1 scope;
+FM-M6/M7/M8/M13/M14/M16; Step 4's recorded skip-manifest replacement obligation (BG19).
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the
