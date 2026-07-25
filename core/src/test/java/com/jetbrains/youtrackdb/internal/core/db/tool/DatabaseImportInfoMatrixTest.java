@@ -431,6 +431,70 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
   }
 
   /**
+   * Builds (in-thread — the timeout rule spawns a thread) a real v15 dump and returns its
+   * decompressed JSON text plus the parsed tree, for hand-assembled truncation fixtures.
+   */
+  private Path exportInThreadDump(String sourceName) throws IOException {
+    youTrackDB.create(sourceName, dbType, "admin", ADMIN_PASSWORD, "admin");
+    try (var source = youTrackDB.open(sourceName, "admin", ADMIN_PASSWORD)) {
+      source.getMetadata().getSchema().createClass("Matrix");
+      var dump = dumpDirectory().resolve("dump.json.gz");
+      new DatabaseExport(source, dump.toString(), text -> {
+      }).exportDatabase();
+      return dump;
+    }
+  }
+
+  /**
+   * Cumulative-review finding CS80 (red-first): a dump truncated inside the RECORDS array —
+   * exactly after a record separator, the shape the crash review traced — must be rejected
+   * loudly. RED at HEAD: the unbounded records loop re-parses the SAME stale record token
+   * forever (per-iteration transactions, log flood) — the test times out.
+   */
+  @Test(timeout = 120_000)
+  public void truncatedRecordsSectionIsRejectedNotHung() throws Exception {
+    var dump = exportInThreadDump("recordsTruncSrc");
+    var mapper = new ObjectMapper();
+    var root = (ObjectNode) mapper.readTree(gunzip(dump));
+    // hand-assemble a dump that ends exactly after the first record and its separator
+    var truncated = "{\"info\":" + mapper.writeValueAsString(root.get("info"))
+        + ",\"collections\":" + mapper.writeValueAsString(root.get("collections"))
+        + ",\"schema\":" + mapper.writeValueAsString(root.get("schema"))
+        + ",\"records\":[" + mapper.writeValueAsString(root.get("records").get(0)) + ",";
+    gzipTo(dump, truncated.getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("recordsTruncTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a dump truncated inside its records section must be rejected", rejection);
+    }
+  }
+
+  /**
+   * Cumulative-review finding CS80 (red-first): a dump truncated inside an INDEXES entry —
+   * mid-object, after a field separator — must be rejected loudly. RED at HEAD: the
+   * unbounded inner field loop spins on stale reader state with no reads and no side
+   * effects (a silent CPU hang) — the test times out.
+   */
+  @Test(timeout = 120_000)
+  public void truncatedIndexesSectionIsRejectedNotHung() throws Exception {
+    var dump = exportInThreadDump("indexesTruncSrc");
+    var mapper = new ObjectMapper();
+    var root = (ObjectNode) mapper.readTree(gunzip(dump));
+    // hand-assemble a dump whose indexes section dies mid-entry after a field separator
+    var truncated = "{\"info\":" + mapper.writeValueAsString(root.get("info"))
+        + ",\"collections\":" + mapper.writeValueAsString(root.get("collections"))
+        + ",\"schema\":" + mapper.writeValueAsString(root.get("schema"))
+        + ",\"records\":" + mapper.writeValueAsString(root.get("records"))
+        + ",\"brokenRids\":[],\"indexes\":[{\"name\":\"cs80idx\",";
+    gzipTo(dump, truncated.getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("indexesTruncTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a dump truncated inside its indexes section must be rejected", rejection);
+    }
+  }
+
+  /**
    * Review finding F3 (CS75; red-first): an unknown info field with a JSON-OBJECT value,
    * placed MID-SECTION, desynced the reader (the nested closing brace was misread as the
    * info object's close), so the import passed pre-flight on a truncated capture, MUTATED
@@ -620,6 +684,9 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
         "no structural verification", "supported range (v15 dumps)",
         // WC63 (review-fix): only a KILLED/CRASHED export orphans temp files
         "killed or crashed",
+        // CN61 (cumulative review): live-export consistency envelope — quiesce DDL; an
+        // export under concurrent DDL is not a cross-section point-in-time snapshot
+        "quiesce", "point-in-time",
         // M2.b-4: the best-effort acknowledgment flag
         "-acceptBestEffortDump=true",
         // CN59: genesis-incomplete refusal guidance incl. the OSystem case

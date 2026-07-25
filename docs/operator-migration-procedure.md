@@ -24,7 +24,12 @@ exits non-zero on failure — that is the observable the gates below rely on.
 ## The procedure
 
 1. **Export with the OLD release** (the release that created the database), keeping the
-   database otherwise idle:
+   database otherwise idle. In particular, **quiesce schema changes (DDL)** for the
+   duration of the export: the records section is read from a single snapshot taken when
+   the export begins, but the schema, collection, blob-collection, and index sections are
+   read at later instants — an export taken under concurrent DDL is internally verifiable
+   (the manifest counts what was written) but is not a cross-section point-in-time
+   snapshot of the database.
 
    ```java
    import com.jetbrains.youtrackdb.api.YourTracks;
@@ -141,7 +146,7 @@ then re-create and re-import into a fresh database.
 | Manually re-compressed / gunzipped v15 dump | Rejected — only the original gzip-framed export file can be verified; there is no override |
 | Best-effort-marked dump without the acknowledgment flag | Rejected regardless of the dump's declared version (see [Best-effort dumps](#best-effort-dumps)) |
 | Tampered v15 dump (missing/duplicated sections, count mismatches, trailing data) | Rejected loudly; the target is condemned |
-| Dump truncated inside a section, damaged/dangling info fields | Rejected loudly |
+| Dump truncated inside a section, damaged/dangling info fields | Rejected loudly (v15 dumps; a truncated legacy dump is also rejected loudly for most damage shapes, but the lenient path carries no verification guarantee) |
 
 ## Best-effort dumps
 

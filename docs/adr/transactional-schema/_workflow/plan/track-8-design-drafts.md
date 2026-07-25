@@ -687,6 +687,23 @@ without re-opening them.
   an explicit operator acknowledgment, is intended fail-closed behavior, not an R1 violation
   (R1 protects honest legacy dumps' acceptance, all of which are unaffected). The previously
   unrecorded widening flagged by the Step-5 reviews is hereby the recorded ruling.
+- **CQ33 record (track-cumulative review, 2026-07-25) — the CS63 exporter-version latch is
+  version-UNGATED, an accepted fail-closed widening.** A declared-legacy dump that re-declares
+  a DIFFERENT legacy version (e.g. 14 → 12) is now rejected at parse, where the base behavior
+  was silent last-wins. No honest exporter of any generation emits a re-declaration — the only
+  affected inputs are hand-edited or damaged dumps, and version ambiguity is exactly what the
+  latch exists to refuse; same doctrinal class as SR3.
+- **CN61 record (track-cumulative review, 2026-07-25) — live-export consistency is
+  MANIFEST-ONLY, not cross-section point-in-time.** The M2.a exporter reads the records
+  section from the single MVCC snapshot its transaction begins with, but the schema,
+  collections, blob-set, and index sections are live reads at later instants; under
+  concurrent DDL the sections can mutually disagree (e.g. records carrying a class name the
+  schema section lacks, after a mid-export rename) while every Track 8 verification stays
+  green — the manifest deliberately counts what was WRITTEN (CN51), not a point-in-time
+  truth. Recorded as the as-built envelope (pass-1 E1's "single tx snapshot" wording
+  overstated it); the operator runbook now instructs quiescing DDL during a migration
+  export. A cross-section pin (schema snapshot + collection-set capture at S₀) would be a
+  design change left to a future track.
 
 ---
 

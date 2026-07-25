@@ -299,4 +299,60 @@ public class StorageEmbeddedBlobCollectionsTest {
       youTrackDB.drop(dbName);
     }
   }
+
+  /**
+   * Cumulative-review finding CN60 (red-first): {@code getCollectionNames} must return a
+   * SNAPSHOT taken under the storage state lock, not the live backing key set — the exporter
+   * iterates the returned set with NO lock held, and a concurrent DDL commit mutating the
+   * live map under the write lock is JMM-undefined (a CME at best; silently skipped entries
+   * at worst, truncating an exit-0 export whose manifest still verifies). Deterministic pin
+   * for the copy semantics: the returned set must not reflect DDL performed AFTER the call —
+   * a live view does, a snapshot cannot. (A genuine cross-thread interleaving is not
+   * deterministically constructible — the silent arm needs a HashMap resize racing an
+   * unlocked iterator — so the pin asserts the snapshot property that makes the race
+   * impossible.)
+   */
+  @Test
+  public void collectionNamesAreASnapshotNotALiveView() {
+    youTrackDB = createContext();
+    var dbName = "cn60Names";
+    youTrackDB.create(dbName, DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    try (var session = youTrackDB.open(dbName, "admin", ADMIN_PASSWORD)) {
+      var namesBefore = session.getCollectionNames();
+      session.addCollection("cn60_late_comer");
+      assertTrue("the set returned BEFORE the DDL must be a snapshot — it reflects the"
+          + " later-created collection, so it is a live view",
+          !namesBefore.contains("cn60_late_comer"));
+      assertTrue("the new collection must be visible to a FRESH call",
+          session.getCollectionNames().contains("cn60_late_comer"));
+    } finally {
+      youTrackDB.drop(dbName);
+    }
+  }
+
+  /**
+   * Cumulative-review finding CN60, second instance (red-first): the schema's
+   * blob-collection set must be COPIED under the schema read lock — the live unmodifiable
+   * view escapes the lock and is iterated unlocked by the exporter (and stored by
+   * ImmutableSchema snapshots, which were silently tracking live changes). Same
+   * deterministic snapshot pin as above.
+   */
+  @Test
+  public void blobCollectionSetIsASnapshotNotALiveView() {
+    youTrackDB = createContext();
+    var dbName = "cn60Blobs";
+    youTrackDB.create(dbName, DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
+    try (var session = youTrackDB.open(dbName, "admin", ADMIN_PASSWORD)) {
+      var blobSetBefore = session.getSharedContext().getSchema().getBlobCollections();
+      session.addBlobCollection("$blobLate");
+      var lateId = session.getCollectionIdByName("$blobLate");
+      assertTrue("the set returned BEFORE the DDL must be a snapshot — it reflects the"
+          + " later-registered blob collection, so it is a live view",
+          !blobSetBefore.contains(lateId));
+      assertTrue("the new blob collection must be visible to a FRESH call",
+          session.getSharedContext().getSchema().getBlobCollections().contains(lateId));
+    } finally {
+      youTrackDB.drop(dbName);
+    }
+  }
 }

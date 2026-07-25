@@ -76,8 +76,6 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.text.ParseException;
 import java.util.AbstractList;
 import java.util.ArrayList;
@@ -195,10 +193,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     super(database, fileName, outputListener);
     validateSessionImpl();
     collectionToCollectionMapping.defaultReturnValue(COLLECTION_NOT_FOUND_VALUE);
-    this.physicalSize = Files.size(Paths.get(this.fileName));
     // TODO: check unclosed stream?
-    final var bufferedInputStream =
-        new BufferedInputStream(new FileInputStream(this.fileName));
+    final var fileInputStream = new FileInputStream(this.fileName);
+    // CN62 (Track 8 cumulative review): the physical size is captured from the OPENED
+    // descriptor (fstat-after-open) — a path-based stat BEFORE the open races a concurrent
+    // re-export's atomic promote (old inode's size, new inode's bytes), and the step-(3)
+    // size arithmetic would falsely condemn a healthy import. Size and stream now provably
+    // refer to one inode.
+    this.physicalSize = fileInputStream.getChannel().size();
+    final var bufferedInputStream = new BufferedInputStream(fileInputStream);
     createJsonReaderDefaultListenerAndDeclareIntent(outputListener,
         detectFraming(bufferedInputStream));
   }
@@ -569,12 +572,25 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
     }
     if (jsonReader.lastChar() != '}') {
-      throw new DatabaseImportException(
-          "Import rejected: the dump ends inside its manifest section — the dump is"
-              + " truncated");
+      throw truncatedDump("its manifest section");
     }
     jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
     listener.onMessage("OK");
+  }
+
+  /**
+   * CS80 (track-cumulative review): the loud rejection every reader loop's EOF bound throws.
+   * The reader returns STALE state forever once the stream is exhausted mid-structure, so an
+   * unbounded `lastChar()`-keyed loop spins (or replays stale tokens) instead of failing —
+   * every section loop is bounded with {@code hasNext()} and converts an EOF-mid-structure
+   * exit into this rejection. Ungated by version: a mid-structure-truncated dump of ANY
+   * version could never import (it hung or desynced), so acceptance is unchanged. The checks
+   * key on the missing terminator, never on {@code hasNext()} itself, so an honestly-closed
+   * structure can never false-trip.
+   */
+  private DatabaseImportException truncatedDump(String where) {
+    return new DatabaseImportException(
+        "Import rejected: the dump ends inside " + where + " — the dump is truncated");
   }
 
   /**
@@ -676,7 +692,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         final var recordId = RecordIdInternal.fromString(value, false);
         brokenRids.add(recordId);
 
-      } while (jsonReader.lastChar() != ']');
+        // CS80: EOF-bounded — see truncatedDump
+      } while (jsonReader.lastChar() != ']' && jsonReader.hasNext());
+      if (jsonReader.lastChar() != ']') {
+        throw truncatedDump("its brokenRids section");
+      }
     }
     if (migrateLinks) {
       if (exporterVersion >= 12) {
@@ -878,8 +898,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     }
     // BG30/CS78's post-loop half: the loop exited on EOF, not on the object close.
     if (jsonReader.lastChar() != '}') {
-      throw new DatabaseImportException(
-          "Import rejected: the dump ends inside its info section — the dump is truncated");
+      throw truncatedDump("its info section");
     }
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
 
@@ -1038,7 +1057,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT).checkContent("\"type\"");
         jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-      } while (jsonReader.lastChar() == ',');
+        // CS80: EOF-bounded — see truncatedDump
+      } while (jsonReader.lastChar() == ',' && jsonReader.hasNext());
+      if (jsonReader.lastChar() == ',') {
+        throw truncatedDump("the schema's globalProperties list");
+      }
       jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
       jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
     }
@@ -1142,7 +1165,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         List<Map<String, Object>> propertiesRaw = null;
 
         String value;
-        while (jsonReader.lastChar() == ',') {
+        // CS80: EOF-bounded — see truncatedDump
+        while (jsonReader.lastChar() == ',' && jsonReader.hasNext()) {
           jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
           value = jsonReader.getValue();
 
@@ -1168,7 +1192,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
               final List<String> superClassNames = new ArrayList<>();
-              while (jsonReader.lastChar() != ']') {
+              // CS80: EOF-bounded — see truncatedDump
+              while (jsonReader.lastChar() != ']' && jsonReader.hasNext()) {
                 jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
                 final var clsName =
@@ -1183,6 +1208,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 }
               }
 
+              if (jsonReader.lastChar() != ']') {
+                throw truncatedDump("a class's super-classes list");
+              }
               if (!superClassNames.isEmpty()) {
                 superClasses.put(className, superClassNames);
               }
@@ -1193,12 +1221,16 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               // GET PROPERTIES
               jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
-              while (jsonReader.lastChar() != ']') {
+              // CS80: EOF-bounded — see truncatedDump
+              while (jsonReader.lastChar() != ']' && jsonReader.hasNext()) {
                 final var pRaw = jsonReader.readNext(JSONReader.NEXT_IN_ARRAY).getValue();
                 if (StringUtils.isNotBlank(pRaw)) {
                   final var pMap = jsonSerializer.mapFromJson(pRaw);
                   propertiesRaw.add(pMap);
                 }
+              }
+              if (jsonReader.lastChar() != ']') {
+                throw truncatedDump("a class's properties list");
               }
               jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
             }
@@ -1209,6 +1241,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               customFields = importCustomFields();
             }
           }
+        }
+        if (jsonReader.lastChar() == ',') {
+          throw truncatedDump("a class definition");
         }
 
         if (isVertex && isEdge) {
@@ -1262,7 +1297,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         classImported++;
 
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-      } while (jsonReader.lastChar() == ',');
+        // CS80: EOF-bounded — see truncatedDump
+      } while (jsonReader.lastChar() == ',' && jsonReader.hasNext());
+      if (jsonReader.lastChar() == ',') {
+        throw truncatedDump("the schema's classes list");
+      }
 
       this.rebuildCompleteClassInheritance();
       this.setLinkedClasses();
@@ -1359,11 +1398,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonReader.readNext(JSONReader.BEGIN_OBJECT);
 
-    while (jsonReader.lastChar() != '}') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
       final var key = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
       final var value = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
 
       result.put(key, value);
+    }
+    if (jsonReader.lastChar() != '}') {
+      throw truncatedDump("a class's customFields object");
     }
 
     jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
@@ -1382,7 +1425,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       removeDefaultCollections();
     }
 
-    while (jsonReader.lastChar() != ']') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
       jsonReader.readNext(JSONReader.BEGIN_OBJECT);
 
       var name =
@@ -1454,6 +1498,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       total++;
 
       jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
+    }
+    if (jsonReader.lastChar() != ']') {
+      throw truncatedDump("its collections section");
     }
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
 
@@ -1767,7 +1814,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".",
             logger);
       }
-      while (jsonReader.lastChar() != ']') {
+      // CS80: EOF-bounded — see truncatedDump (a stale-token replay here would otherwise
+      // re-import the same record forever; today's replays happen to die loudly on the
+      // rid-map unique key, but that is protection by accident, not construction)
+      while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
         rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
 
         total++;
@@ -1802,6 +1852,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           lastLapRecords = 0;
           involvedCollections.clear();
         }
+      }
+
+      if (jsonReader.lastChar() != ']') {
+        throw truncatedDump("its records section");
       }
 
       // remove all records which were absent in new database but
@@ -1848,7 +1902,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
     var numberOfCreatedIndexes = 0;
-    while (jsonReader.lastChar() != ']') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
       jsonReader.readNext(JSONReader.NEXT_OBJ_IN_ARRAY);
       if (jsonReader.lastChar() == ']') {
         break;
@@ -1867,7 +1922,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       var typeRef = new TypeReference<HashMap<String, Object>>() {
       };
 
-      while (jsonReader.lastChar() != '}') {
+      // CS80: EOF-bounded — see truncatedDump
+      while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
         final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
         switch (fieldName) {
           case "name" -> indexName = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
@@ -1892,6 +1948,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         }
 
       }
+      if (jsonReader.lastChar() != '}') {
+        throw truncatedDump("an index definition");
+      }
       jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
       numberOfCreatedIndexes =
@@ -1904,6 +1963,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               collectionsToIndex,
               indexDefinition,
               metadata);
+    }
+    if (jsonReader.lastChar() != ']') {
+      throw truncatedDump("its indexes section");
     }
     listener.onMessage("\nDone. Created " + numberOfCreatedIndexes + " indexes.");
     jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
@@ -1986,9 +2048,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
-    while (jsonReader.lastChar() != ']') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
       final var collectionToIndex = jsonReader.readString(JSONReader.NEXT_IN_ARRAY);
       collectionsToIndex.add(collectionToIndex);
+    }
+    if (jsonReader.lastChar() != ']') {
+      throw truncatedDump("an index's collectionsToIndex list");
     }
 
     jsonReader.readString(JSONReader.NEXT_IN_OBJECT);

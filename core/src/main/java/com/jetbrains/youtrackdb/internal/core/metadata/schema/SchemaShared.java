@@ -1690,7 +1690,11 @@ public abstract class SchemaShared implements CloseableInStorage {
   public IntSet getBlobCollections() {
     acquireSchemaReadLock();
     try {
-      return IntSets.unmodifiable(blobCollections);
+      // CN60 (Track 8 cumulative review): COPY under the lock — the previous unmodifiable
+      // wrapper around the LIVE set escaped the lock; the exporter iterated it unlocked
+      // against concurrent blob-collection DDL, and ImmutableSchema snapshots silently
+      // tracked live changes. The copy iterates while the read lock is held.
+      return IntSets.unmodifiable(new IntOpenHashSet(blobCollections));
     } finally {
       releaseSchemaReadLock();
     }

@@ -162,7 +162,6 @@ import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -2355,7 +2354,13 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return Collections.unmodifiableSet(collectionMap.keySet());
+        // CN60 (Track 8 cumulative review): COPY under the lock — the previously returned
+        // live keySet view escaped the lock, and callers (the exporter above all) iterated
+        // it unlocked while concurrent DDL commits mutate the backing map under the write
+        // lock: JMM-undefined — a CME at best, silently skipped entries at worst (an exit-0
+        // export missing whole collections). The copy iterates while the lock (or the
+        // commit-window write lock) is held.
+        return Set.copyOf(collectionMap.keySet());
       } finally {
         if (!lockFree) {
           stateLock.readLock().unlock();

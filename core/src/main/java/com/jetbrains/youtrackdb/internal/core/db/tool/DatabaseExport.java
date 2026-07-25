@@ -219,9 +219,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         }
       });
 
-      listener.onMessage(
-          "\n\nDatabase export completed in " + ((System.nanoTime() - time) / 1000000) + "ms");
-
       // Finish the stream cleanly (closing brace, generator close flushing the gzip trailer),
       // promote, and only then mark the export completed. A failure anywhere above — including
       // the promote itself — routes through the catch: nothing (further) is promoted, the temp
@@ -232,6 +229,12 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       jsonGenerator = null;
       promote();
       completed = true;
+
+      // CS79 (track-cumulative review): the completion message fires only AFTER the trailer
+      // flush, the durable promote, and the completion flag — a transcript can never claim
+      // completion ahead of the durability point.
+      listener.onMessage(
+          "\n\nDatabase export completed in " + ((System.nanoTime() - time) / 1000000) + "ms");
     } catch (Exception e) {
       LogManager.instance()
           .error(this, "Error on exporting database '%s' to: %s", e, session.getDatabaseName(),
