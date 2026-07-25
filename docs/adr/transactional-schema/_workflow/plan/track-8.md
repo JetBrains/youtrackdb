@@ -86,7 +86,9 @@ justification is in `## Interfaces and Dependencies`.
   baseline + crash-safety + docs reviews: 1 blocker (WI60 — the runbook's commands did not
   exist; rewritten to the real programmatic surface), merged should-fix set F1(BG29=CS76)/
   F2(BG30=CS78)/F3(CS75)/F4(TQ29)/F5(WI61)/F6(WC61)/F7(WC62)/F8(WC63)/F9(WI62) — all fixed;
-  suggestion-grade items (CQ29–32, TQ30–32, CS77, WI63/64, WS60/61) deferred — see Episodes)
+  suggestion-grade items (CQ29–32, TQ30–32, CS77, WI63/64, WS60/61) deferred — see Episodes;
+  gate verdict: integrity PASS + WI60/F1–F9/pin-coherence all VERIFIED, 0 RG findings — see
+  the episode's gate paragraph)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -1468,6 +1470,21 @@ plus documentation — every valid-dump byte of the import path is identical to 
 
 **Deferred (recorded in the reports):** CQ29–32, TQ30–32, CS77, WI63/64, WS60/61
 (suggestion-grade). Step-5 residuals (CS64 justified-deferred, CS67–CS74) unchanged.
+
+**Gate (verdict-only thread, 2026-07-25T12:14Z):** the mandated FIRST integrity check —
+that the mid-work `git checkout` mishap did not silently drop production hunks while the
+tests stayed green — PASSED: all three production fixes (F1 `stripSurroundingQuotes`, F2's
+two EOF bounds, F3's `readInfoFieldRawValue` guard) are present in commit 46b0446008 and
+the tree is byte-identical to it. WI60 + F1–F9 + pin-test coherence: all VERIFIED —
+highlights: F2's post-loop rejection keys on `lastChar() != '}'` (an honestly-closed
+section can never false-trip, and `!ready()`-as-EOF is the reader's pre-existing contract);
+F3's R1 audit confirmed by git archaeology (every exporter generation back to the earliest
+wrote scalar-only info values); F4's redirect string is emitted only by the `>= 16` arm, so
+the pin genuinely discriminates reordering; the CN54 drop exemption and the engine's
+"drop it and re-create" prescription match F9's doc binding verbatim. 0 RG findings (the RG
+ledger stands at RG4). One cosmetic nit — the runbook snippets' `adminPassword` placeholder
+was undeclared — fixed in the closeout commit (a declaration line in each `main()`; the
+content-pin test re-run green).
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the

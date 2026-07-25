@@ -33,6 +33,7 @@ exits non-zero on failure — that is the observable the gates below rely on.
 
    public class ExportMyDb {
      public static void main(String[] args) throws Exception {
+       var adminPassword = "<admin password>";
        try (var manager = (YouTrackDBImpl) YourTracks.instance("/path/to/databases")) {
          try (var session = manager.open("mydb", "admin", adminPassword)) {
            new DatabaseExport(session, "/backups/mydb.json.gz", System.out::print)
@@ -67,6 +68,7 @@ exits non-zero on failure — that is the observable the gates below rely on.
 
    public class ImportMyDb {
      public static void main(String[] args) throws Exception {
+       var adminPassword = "<admin password>";
        try (var manager = (YouTrackDBImpl) YourTracks.instance("/path/to/databases")) {
          manager.create("mydb", DatabaseType.DISK, "admin", adminPassword, "admin");
          try (var session = manager.open("mydb", "admin", adminPassword)) {
