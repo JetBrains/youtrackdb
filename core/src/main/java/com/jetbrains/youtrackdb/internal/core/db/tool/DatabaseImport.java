@@ -49,6 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -162,6 +163,29 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   private long manifestIndexes = -1;
   private long manifestRecords = -1;
   private long manifestBrokenRids = -1;
+
+  // --- Track 8 Step 6: the ruled Q-M2/R4 info-field validation matrix state ---
+
+  /**
+   * Q-M2(2): the oldest dump schema version this release can import; the upper bound is
+   * {@link SchemaShared#CURRENT_VERSION_NUMBER}. Exact equality today — expressed as a range
+   * so the next format bump is a one-constant change.
+   */
+  public static final int MIN_IMPORTABLE_SCHEMA_VERSION = 6;
+
+  /** The dump's declared schema-version; meaningful only when {@link #schemaVersionDeclared}. */
+  private long declaredSchemaVersion;
+
+  private boolean schemaVersionDeclared;
+
+  /** Non-null when the dump's schema-version failed to parse as a number (raw token kept). */
+  private String malformedSchemaVersionRaw;
+
+  /** Unknown info fields, tolerated and logged at pre-flight (Q-M2(4)). */
+  private final List<String> unknownInfoFields = new ArrayList<>();
+
+  /** Known-optional-field type violations, collected at parse, judged at pre-flight (WI12b). */
+  private final List<String> infoFieldTypeViolations = new ArrayList<>();
 
   public DatabaseImport(
       final DatabaseSessionEmbedded database,
@@ -416,11 +440,65 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
    * adds the full Q-M2 info-field validation matrix at this seam.
    */
   private void runPreFlightChecks() {
+    // Q-M2(1) version dispatch: the >= 16 reject-with-redirect fires AHEAD of every v15 arm
+    // — a dump produced by newer binaries never reaches the strictness checks, making the
+    // >= 15-keyed arms below and in the section loop effectively == 15 (the end-state the
+    // Step 5 as-built note anticipated). The message names both versions.
+    if (exporterVersion >= 16) {
+      throw new DatabaseImportException(
+          "Import rejected: the dump declares exporter version " + exporterVersion
+              + " — it was produced by newer binaries; this release imports dumps up to"
+              + " exporter version " + DatabaseExport.EXPORTER_VERSION + ". Import the dump"
+              + " with a release supporting exporter version " + exporterVersion);
+    }
+    if (exporterVersion >= 15) {
+      // Q-M2(2): schema-version is MANDATORY in a v15 dump and must sit inside the
+      // importable range; missing, malformed, or out-of-range — reject naming declared vs
+      // supported. The declared-legacy path never reaches these arms (FM-M12).
+      final var supportedRange = MIN_IMPORTABLE_SCHEMA_VERSION
+          + ".." + SchemaShared.CURRENT_VERSION_NUMBER;
+      if (malformedSchemaVersionRaw != null) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump declares an unparseable schema version '"
+                + malformedSchemaVersionRaw + "' — this release imports schema versions "
+                + supportedRange);
+      }
+      if (!schemaVersionDeclared) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump does not declare a schema version — a v15 dump always"
+                + " carries one; this release imports schema versions " + supportedRange);
+      }
+      if (declaredSchemaVersion < MIN_IMPORTABLE_SCHEMA_VERSION
+          || declaredSchemaVersion > SchemaShared.CURRENT_VERSION_NUMBER) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump declares schema version " + declaredSchemaVersion
+                + " but this release imports schema versions " + supportedRange
+                + (declaredSchemaVersion > SchemaShared.CURRENT_VERSION_NUMBER
+                    ? " — import the dump with a release supporting schema version "
+                        + declaredSchemaVersion
+                    : " — export the database again with a release producing a supported schema"
+                        + " version"));
+      }
+      // Q-M2(3)/WI12b: known optional info fields present with a wrong type.
+      if (!infoFieldTypeViolations.isEmpty()) {
+        throw new DatabaseImportException(
+            "Import rejected: " + String.join("; ", infoFieldTypeViolations)
+                + " — the dump's info section is damaged");
+      }
+      // Q-M2(4): unknown extra fields are tolerated, logged — the exporter version is the
+      // compatibility contract, not field enumeration.
+      for (final var unknownField : unknownInfoFields) {
+        listener.onMessage(
+            "\nWARNING: unknown info field '" + unknownField + "' ignored");
+      }
+    }
     // Q-M3/M2.b-1: a v15 dump is gzip-framed — on the file-based migration path, having
     // arrived via the plain-JSON fallback is a hard failure with no override (a
     // manually-gunzipped dump carries no trailer or size to verify). The InputStream
     // constructor's caller owns the framing choice on that programmatic path (WI10a), so the
-    // rejection is keyed on the sized (file) source.
+    // rejection is keyed on the sized (file) source. (The >= 16 redirect above fires first,
+    // so this arm only ever sees == 15 — the "v15" wording is exact; CQ24 resolved by
+    // ordering.)
     if (exporterVersion >= 15 && physicalSize >= 0 && !gzipFramed) {
       throw new DatabaseImportException(
           "Import rejected: the dump declares exporter version " + exporterVersion
@@ -429,6 +507,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     }
     // M2.b-4: the best-effort acknowledgment gate — a dump exported with -bestEffort=true is
     // refused unless the operator explicitly acknowledges its potential incompleteness.
+    // Ruled at Step 6 (SR3, resolving review findings BG23/CQ26/CS66): the gate is
+    // deliberately MARKER-KEYED, not version-gated — no honest legacy exporter writes the
+    // marker, so the only affected input is a hand-edited dump, and rejecting one absent an
+    // explicit acknowledgment is intended fail-closed behavior.
     if (bestEffortDump && !acceptBestEffortDump) {
       throw new DatabaseImportException(
           "Import rejected: the dump was exported in best-effort mode and may be missing"
@@ -700,35 +782,114 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     jsonReader.readNext(JSONReader.BEGIN_OBJECT);
     while (jsonReader.lastChar() != '}') {
       final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
-      if (fieldName.equals("exporter-version")) {
-        final var declaredVersion = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
-        // CS63: the FIRST declared exporter version is latched — the strictness gate reads
-        // this field only after the section loop, so a trailing re-declaration (duplicate
-        // info section or repeated field) with a DIFFERING value could otherwise disarm the
-        // whole version-keyed matrix after the strict-armed parse already ran. Reject the
-        // re-declaration the moment it parses (fail-closed); a same-value duplicate info
-        // section is still caught by the WI10c duplicate-section check under v15, and stays
-        // tolerated on the declared-legacy path as before.
-        if (exporterVersion != -1 && declaredVersion != exporterVersion) {
-          throw new DatabaseImportException(
-              "Import rejected: the dump re-declares its exporter version (" + exporterVersion
-                  + " -> " + declaredVersion + ") — refusing tampered input");
+      // R4 parse-level strictness (FM-M10): a DANGLING field — name written, value missing,
+      // the mid-write crash shape — makes the until-the-colon field-name read swallow the
+      // object close and the following section into the "name". A legal info field name
+      // never contains structural JSON characters, and no honest dump of ANY version
+      // produces one that does (the shape can never parse into a clean import — the reader
+      // desyncs), so rejecting it here only converts guaranteed parse chaos into a clean,
+      // still-pre-mutation rejection.
+      if (fieldName.isEmpty() || fieldName.chars().anyMatch(c -> "\"{}[],:".indexOf(c) >= 0)) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump's info section carries a dangling or malformed field"
+                + " (parsed as '" + fieldName + "') — the dump is damaged");
+      }
+      switch (fieldName) {
+        case "exporter-version" -> {
+          final var raw = readInfoFieldRawValue();
+          final int declaredVersion;
+          try {
+            declaredVersion = Integer.parseInt(raw);
+          } catch (final NumberFormatException e) {
+            // WI12a: an unparseable exporter-version is rejected fail-closed — the same
+            // outcome as an undeclared one (SR2): without a version there is no dispatch.
+            throw new DatabaseImportException(
+                "Import rejected: the dump declares an unparseable exporter version '" + raw
+                    + "' — refusing unverifiable input (same outcome as an undeclared"
+                    + " version)");
+          }
+          // CS63: the FIRST declared exporter version is latched — the strictness gate reads
+          // this field only after the section loop, so a trailing re-declaration (duplicate
+          // info section or repeated field) with a DIFFERING value could otherwise disarm the
+          // whole version-keyed matrix after the strict-armed parse already ran. Reject the
+          // re-declaration the moment it parses (fail-closed); a same-value duplicate info
+          // section is still caught by the WI10c duplicate-section check under v15, and stays
+          // tolerated on the declared-legacy path as before.
+          if (exporterVersion != -1 && declaredVersion != exporterVersion) {
+            throw new DatabaseImportException(
+                "Import rejected: the dump re-declares its exporter version (" + exporterVersion
+                    + " -> " + declaredVersion + ") — refusing tampered input");
+          }
+          exporterVersion = declaredVersion;
+          if (exporterVersion < 14) {
+            jsonSerializer = JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE;
+          }
         }
-        exporterVersion = declaredVersion;
-        if (exporterVersion < 14) {
-          jsonSerializer = JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE;
+        case "schema-version" -> {
+          // Q-M2(2): mandatory in v15 dumps; captured here, judged at pre-flight (the
+          // version gate keeps the declared-legacy path untouched — FM-M12).
+          final var raw = readInfoFieldRawValue();
+          try {
+            declaredSchemaVersion = Long.parseLong(raw);
+            schemaVersionDeclared = true;
+          } catch (final NumberFormatException e) {
+            malformedSchemaVersionRaw = raw;
+          }
         }
-      } else if (fieldName.equals("best-effort")) {
-        // The Step 4 exporter's best-effort marker — feeds the M2.b-4 acknowledgment gate
-        // and the WI10b brokenRids consistency check.
-        bestEffortDump = jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT);
-      } else {
-        jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+        case "best-effort" -> {
+          // The Step 4 exporter's best-effort marker — feeds the M2.b-4 acknowledgment gate
+          // and the WI10b brokenRids consistency check.
+          final var raw = readInfoFieldRawValue();
+          checkKnownInfoFieldIsBoolean(fieldName, raw);
+          bestEffortDump = Boolean.parseBoolean(raw);
+        }
+        // Q-M2(3)/WI12b: the known OPTIONAL info fields the v15 exporter writes are
+        // type-checked if present but not required; violations are collected here (the raw
+        // token keeps its quotes, so strings are distinguishable) and judged at pre-flight,
+        // v15-only.
+        case "name", "engine-version", "engine-build", "schemaRecordId", "indexMgrRecordId" ->
+            checkKnownInfoFieldIsString(fieldName, readInfoFieldRawValue());
+        case "storage-config-version" ->
+            checkKnownInfoFieldIsNumber(fieldName, readInfoFieldRawValue());
+        default -> {
+          // Q-M2(4): unknown extra fields are tolerated — the exporter version is the
+          // compatibility contract, not field enumeration — and logged at pre-flight.
+          unknownInfoFields.add(fieldName);
+          jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+        }
       }
     }
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
 
     listener.onMessage("OK");
+  }
+
+  /** Reads an info field's raw value token (quotes preserved for strings), trimmed. */
+  private String readInfoFieldRawValue() throws IOException, ParseException {
+    return jsonReader.readNext(JSONReader.NEXT_IN_OBJECT).getValue().trim();
+  }
+
+  private void checkKnownInfoFieldIsString(String fieldName, String raw) {
+    if (raw.length() < 2 || raw.charAt(0) != '"' || raw.charAt(raw.length() - 1) != '"') {
+      infoFieldTypeViolations.add(
+          "info field '" + fieldName + "' must be a string but is '" + raw + "'");
+    }
+  }
+
+  private void checkKnownInfoFieldIsNumber(String fieldName, String raw) {
+    try {
+      Long.parseLong(raw);
+    } catch (final NumberFormatException e) {
+      infoFieldTypeViolations.add(
+          "info field '" + fieldName + "' must be a number but is '" + raw + "'");
+    }
+  }
+
+  private void checkKnownInfoFieldIsBoolean(String fieldName, String raw) {
+    if (!"true".equals(raw) && !"false".equals(raw)) {
+      infoFieldTypeViolations.add(
+          "info field '" + fieldName + "' must be a boolean but is '" + raw + "'");
+    }
   }
 
   private void removeDefaultNonSecurityClasses() {
