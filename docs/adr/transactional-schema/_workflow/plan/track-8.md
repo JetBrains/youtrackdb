@@ -94,6 +94,11 @@ justification is in `## Interfaces and Dependencies`.
   1 should-fix (CN60) + CS79/CS80/CN61/CN62/CQ33 + the Step-5 Surprises internal-collection
   correction — all applied or recorded; BG31/CQ34/TQ33 deferred; full IT profile re-run
   green — see Episodes)
+- [x] 2026-07-25T19:41Z [ctx=safe] Cumulative-iteration gate PASS + RG fixes (commit
+  f37ff2990f; gate: all 8 findings VERIFIED, two minor RG findings raised and both fixed —
+  RG6 stale comment synced, RG7 legacy-schema truncation now loud via the dedicated
+  TruncatedDumpImportException rethrown through importSchema's swallow — see the Episodes
+  addendum)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -1578,6 +1583,46 @@ snapshot) → first attempt died in a surefire FORK-START failure after 9963 uni
 re-run → BUILD SUCCESS (units re-confirmed + 513 ITs, 0 failures); coverage full reactor →
 BUILD SUCCESS; gate vs origin/develop → PASSED, 88.6% line (2673/3017), 81.1% branch
 (1203/1483); spotless clean.
+
+**Gate (verdict-only thread, 2026-07-25T18:56Z): PASS** — all 8 findings VERIFIED (CN60
+incl. an 8-caller audit and the schema-snapshot-cache staleness trace; CS80 incl. a
+remaining-unbounded-loop grep coming back empty and empty-section false-trip checks; CN62;
+CS79; the three doc records; the track-file correction verified against the exporter's
+actual skip sites). The gate's full-suite side effect (the repo's surefire config ignored
+its `-Dtest` filter) corroborated that no honest dump anywhere in the corpus trips the new
+EOF bounds. Two minor RG findings raised — both fixed in the addendum below.
+
+### Cumulative-iteration RG fixes — commit f37ff2990f, 2026-07-25T19:41Z [ctx=safe]
+**RG7 (red-first) — legacy-schema truncation was exit-0.** The CS80 schema-family EOF
+bounds throw inside `importSchema`'s pre-existing legacy-tolerance `catch (Exception)`
+swallow, and the `< 15` path has no post-loop structural check — so a legacy dump truncated
+inside its schema section completed with exit 0 and an ERROR log line only. Red signature
+at parent 6bc62f019d (`truncatedLegacySchemaSectionIsRejectedLoudly`): `AssertionError: a
+legacy dump truncated inside its schema section must be rejected loudly, not completed with
+an ERROR log line` — with the swallowed `Import rejected: the dump ends inside the schema's
+classes list` visible in the transcript. Fix: the truncation rejection is a DEDICATED type
+(`TruncatedDumpImportException extends DatabaseImportException`, produced by every bounded
+loop's `truncatedDump` helper) and `importSchema`'s catch rethrows it — truncation is now
+loud on every path and version. R1 justification recorded: no honest dump of any version is
+truncated (the dangling-name-guard precedent); the rethrow costs no honest acceptance.
+**Swallow audit:** `importSchema`'s catch was the only eater among the 12 bounded loops —
+`importRecord`'s `Throwable` catch rethrows the type (it swallows only `DatabaseException`,
+which the new type is not — it is a `BaseException` sibling), `importRecords` and
+`importDatabase` wrap loudly, and the remaining catches (framing detection, `close()`, info
+type checks, index-definition reflection) enclose no bounded loop. **Doc follow-through:**
+the runbook's truncation row drops the previous iteration's v15-only scoping and now reads
+unconditionally — "Rejected loudly, on every path and for every declared version" (pin test
+fragments unaffected). **RG6:** the `SharedContext` genesis blob-registration comment
+claiming `getCollectionNames()` returns a live view synced to the post-CN60 reality (the
+defensive `List.copyOf` stays, recorded as belt-and-suspenders).
+
+**Verification:** matrix 22/22 (+1) + hardening 21/21; targeted battery 169 green (4
+pre-existing skips); `./mvnw -pl core,tests clean test` → BUILD SUCCESS (core 17539 + 2219
++ 18 vmlens; tests 1300; 0 failures); coverage gate vs origin/develop → PASSED, 88.9% line
+(2728/3069), 81.0% branch (1234/1523); spotless clean. **ITs not re-run:** the delta is a
+comment sync, an exception SUBTYPE, one rethrow arm on a rejection-only path, and a doc
+row — no accept path, storage, or WAL behavior changed (the CN60 accessor change was
+IT-verified in this iteration's main run and is untouched here).
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the
