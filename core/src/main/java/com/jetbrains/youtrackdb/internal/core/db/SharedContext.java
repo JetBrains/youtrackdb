@@ -267,10 +267,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
         // process-global mutable fallback and could observe a different value than storage
         // birth did, registering bogus ids or leaving physical blob collections unregistered.
         // The count is frozen at storage birth by construction. The names are snapshotted
-        // defensively (review CQ14): getCollectionNames() returns a live view of the storage's
-        // collection map — harmless today (a tx-local registration writes no record), but the
-        // copy keeps any future write-path change from turning genesis into a
-        // ConcurrentModificationException.
+        // defensively (review CQ14; comment synced per gate RG6): since the CN60 fix
+        // getCollectionNames() itself returns a copy taken under the storage state lock, so
+        // the List.copyOf below is belt-and-suspenders — kept so genesis stays immune even if
+        // the accessor's semantics ever regress to a live view.
         for (var collectionName : List.copyOf(storage.getCollectionNames())) {
           if (BLOB_COLLECTION_NAME_PATTERN.matcher(collectionName).matches()) {
             sessionSchema.addBlobCollection(storage.getCollectionIdByName(collectionName));

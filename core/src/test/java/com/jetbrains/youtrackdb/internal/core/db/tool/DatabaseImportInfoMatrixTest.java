@@ -470,6 +470,39 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
   }
 
   /**
+   * Gate finding RG7 (red-first): a LEGACY-declared dump truncated inside the schema's
+   * classes list must be rejected loudly like every other truncation — the schema-family
+   * truncation rejections land inside {@code importSchema}'s pre-existing legacy-tolerance
+   * swallow, and the legacy path has no post-loop structural check, so the import completed
+   * with exit 0 (an ERROR log line only). No honest dump of any version is truncated (the
+   * dangling-name-guard precedent), so the truncation type is rethrown through the swallow.
+   * RED at HEAD: the import succeeds.
+   */
+  @Test
+  public void truncatedLegacySchemaSectionIsRejectedLoudly() throws Exception {
+    var dump = exportSmallDump();
+    var mapper = new ObjectMapper();
+    var root = (ObjectNode) mapper.readTree(gunzip(dump));
+    ((ObjectNode) root.get("info")).put("exporter-version", 14);
+    var schema = (ObjectNode) root.get("schema");
+    // hand-assemble a v14 dump that dies inside the schema's classes list, right after the
+    // first class object and its separator — the cut the classes do-while's EOF bound sees
+    var truncated = "{\"info\":" + mapper.writeValueAsString(root.get("info"))
+        + ",\"collections\":" + mapper.writeValueAsString(root.get("collections"))
+        + ",\"schema\":{\"version\":" + schema.get("version").asInt()
+        + ",\"blob-collections\":" + mapper.writeValueAsString(schema.get("blob-collections"))
+        + ",\"classes\":[" + mapper.writeValueAsString(schema.get("classes").get(0)) + ",";
+    gzipTo(dump, truncated.getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("legacySchemaTruncTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a legacy dump truncated inside its schema section must be rejected"
+          + " loudly, not completed with an ERROR log line", rejection);
+      assertRejectionMentions(rejection, "truncated");
+    }
+  }
+
+  /**
    * Cumulative-review finding CS80 (red-first): a dump truncated inside an INDEXES entry —
    * mid-object, after a field separator — must be rejected loudly. RED at HEAD: the
    * unbounded inner field loop spins on stale reader state with no reads and no side

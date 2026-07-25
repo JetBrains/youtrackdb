@@ -586,10 +586,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
    * exit into this rejection. Ungated by version: a mid-structure-truncated dump of ANY
    * version could never import (it hung or desynced), so acceptance is unchanged. The checks
    * key on the missing terminator, never on {@code hasNext()} itself, so an honestly-closed
-   * structure can never false-trip.
+   * structure can never false-trip. The DEDICATED type (gate RG7) lets tolerance catches
+   * rethrow truncation — see {@link TruncatedDumpImportException}.
    */
-  private DatabaseImportException truncatedDump(String where) {
-    return new DatabaseImportException(
+  private TruncatedDumpImportException truncatedDump(String where) {
+    return new TruncatedDumpImportException(
         "Import rejected: the dump ends inside " + where + " — the dump is truncated");
   }
 
@@ -1314,6 +1315,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       listener.onMessage("OK (" + classImported + " classes)");
       jsonReader.readNext(JSONReader.END_OBJECT);
       jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
+    } catch (final TruncatedDumpImportException truncation) {
+      // RG7: a truncation rejection stays LOUD on every path and version — the schema-family
+      // EOF bounds throw inside this legacy-tolerance swallow, and the legacy (< 15) path has
+      // no post-loop structural check to catch the damage later, so swallowing here turned a
+      // truncated legacy dump into an exit-0 import with an ERROR log line. No honest dump of
+      // any version is truncated (the dangling-name-guard precedent), so rethrowing costs no
+      // honest acceptance.
+      throw truncation;
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error on importing schema", e);
       listener.onMessage("ERROR (" + classImported + " entries): " + e);

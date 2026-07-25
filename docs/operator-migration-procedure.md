@@ -146,7 +146,7 @@ then re-create and re-import into a fresh database.
 | Manually re-compressed / gunzipped v15 dump | Rejected — only the original gzip-framed export file can be verified; there is no override |
 | Best-effort-marked dump without the acknowledgment flag | Rejected regardless of the dump's declared version (see [Best-effort dumps](#best-effort-dumps)) |
 | Tampered v15 dump (missing/duplicated sections, count mismatches, trailing data) | Rejected loudly; the target is condemned |
-| Dump truncated inside a section, damaged/dangling info fields | Rejected loudly (v15 dumps; a truncated legacy dump is also rejected loudly for most damage shapes, but the lenient path carries no verification guarantee) |
+| Dump truncated inside a section, damaged/dangling info fields | Rejected loudly, on every path and for every declared version |
 
 ## Best-effort dumps
 
