@@ -46,8 +46,8 @@ justification is in `## Interfaces and Dependencies`.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
-- [ ] Track-level code review
+- [x] Step implementation
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-23T12:00Z [ctx=safe] Review + decomposition complete (6-step roster approved)
 - [x] 2026-07-23T21:31Z [ctx=safe] Step 1 complete (commit 6611cbf6b2)
@@ -99,6 +99,14 @@ justification is in `## Interfaces and Dependencies`.
   RG6 stale comment synced, RG7 legacy-schema truncation now loud via the dedicated
   TruncatedDumpImportException rethrown through importSchema's swallow — see the Episodes
   addendum)
+- [x] 2026-07-25T19:50Z [ctx=safe] RG6/RG7 micro-gate: both VERIFIED (rethrow arm present,
+  reachable, and ordered before the general catch; the red-first test discriminates; the
+  exhaustive catch-site/type-hierarchy audit found no supertype swallow anywhere on the call
+  path; the runbook's unconditional truncation row holds — the one throw site outside
+  importSchema's try propagates directly; matrix 22/22 green; NO RG8). Track-level code
+  review CLOSED — the cumulative cycle is complete (3 reviews → CN60/CS79/CS80/CN61/CN62/
+  CQ33 fixed → gate PASS → RG6/RG7 fixed → micro-gate VERIFIED); track completion pends
+  user review. Deferred-items ledger recorded in §Outcomes & Retrospective.
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -250,6 +258,43 @@ design.md D-records this track owns. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Deferred-items ledger (track-level review closed 2026-07-25)
+The canonical list of everything the Track 8 review cycles deliberately left open. Every
+item is suggestion-grade or explicitly dispositioned; full prose lives in the cited
+`track-8/reviews/*` reports.
+
+- **Cumulative-review suggestions** (`track8-cumulative-*-iter1.md`): **BG31** — best-effort
+  export classifies environmental spill-directory I/O failures (disk-full) like record
+  corruption, silently shedding a healthy oversized record into `brokenRids`; **CQ34** — the
+  export↔import wire contract (7 section tags, 4 manifest fields, the best-effort marker) is
+  duplicated as bare string literals on both sides with no shared constants; **TQ33** — no
+  test drives a GENUINE exporter-produced best-effort/spilled-record dump through the
+  importer (the ack-gate/brokenRids import tests use JSON reconstructions).
+- **Step-6 review suggestions** (`{baseline,crash-safety,docs}-step6-iter1.md`): CQ29
+  (schema-version duplicate is last-wins, unlike the CS63 latch), CQ30 (WI12a message omits
+  the supported version), CQ31 (largely superseded by the F3 scalar-only rule's clean
+  message), CQ32 (declared `-1` collides with the undeclared sentinel), TQ30–32, CS77 (the
+  dangling-name guard rejects legal-JSON quoted names containing structural chars — rationale
+  overclaim), WI63/64, WS60/61.
+- **Step-5 residuals** (`crash-safety-step5-iter1.md`; dispositions re-confirmed by the
+  Step-5 gate and the cumulative crash pass): **CS64** — `importRecord`'s `DatabaseException`
+  swallow, JUSTIFIED-DEFERRED (no v15-reachable counterexample exists in current code; the
+  operator page words exit-0 accordingly); CS67–CS74 (order-blind sections, in-member
+  post-root junk, plain-stream close, `setUser(null)`, `INDEX_IGNORE_NULL_VALUES_DEFAULT`
+  flip, `detectFraming` reset masking, tag-blind brokenRids presence — several pre-existing).
+- **CN61 future design note** (recorded in the design-drafts rulings area): a cross-section
+  point-in-time export (exporter schema-snapshot pin + collection-set capture at S₀) is a
+  design change left to a future track; today's envelope is manifest-only consistency with
+  the runbook's quiesce-DDL instruction.
+- **Out-of-scope follow-up candidates** (recorded in §Surprises & Discoveries): the
+  `SecurityShared.doInitPredicateOptimization` CCE on stale mid-import policy links resolving
+  to type-mismatched records (pre-existing product gap, surfaced by the Step-5 #13 fixture);
+  a rid-mapping-aware `DatabaseCompare` mode (pin M.5 #12's blocked DatabaseCompare letter —
+  the shipped rehearsal pins logical equivalence instead); the schema-carry/btree-bag root
+  fix and the storage open-failure buffer leak (Step-3 era, follow-ups owned by the
+  orchestrator); the legacy `DbImportExportTest`/`DbImportStreamExportTest` suites remain
+  `@Disabled` (pre-existing).
 
 ## Context and Orientation
 **Genesis:** `SecurityShared.create` and the sibling metadata creators today create
@@ -1623,6 +1668,19 @@ pre-existing skips); `./mvnw -pl core,tests clean test` → BUILD SUCCESS (core 
 comment sync, an exception SUBTYPE, one rethrow arm on a rejection-only path, and a doc
 row — no accept path, storage, or WAL behavior changed (the CN60 accessor change was
 IT-verified in this iteration's main run and is untouched here).
+
+**Micro-gate (verdict-only thread, 2026-07-25T19:50Z): RG6 and RG7 both VERIFIED, no RG8.**
+RG6: the synced comment matches the as-built lock-copy semantics. RG7, all four sub-checks:
+(a) the `TruncatedDumpImportException` rethrow arm precedes the general catch and every
+schema-family throw site is inside that try; (b) the red-first test genuinely discriminates
+(without the rethrow the legacy path exits 0); (c) the exhaustive catch-site audit — every
+`catch` in `DatabaseImport` against the full type hierarchy — found no supertype swallow
+anywhere on the call path (the type descends from `BaseException`, not `DatabaseException`,
+so `importRecord`'s swallow rethrows it); (d) the runbook's unconditional truncation row
+holds — no `truncatedDump` throw is version-gated, and the one site outside `importSchema`'s
+try (globalProperties) propagates directly. Matrix suite re-run green (22/22). With this
+verdict the track-level code review is CLOSED; the deferred-items ledger is recorded in
+§Outcomes & Retrospective.
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the
