@@ -77,6 +77,11 @@ justification is in `## Interfaces and Dependencies`.
   F1(CS63)/F2(CS64)/F3(BG25=BG24=CS65)/F4(BG20=BG27)/F5(TQ22=TQ25)/F6(TQ28); gate verdict:
   all six VERIFIED — F2 justified-deferred (the ordered rethrow proved red-first-unpinnable;
   see Episodes); suggestion-grade items deferred, several earmarked for Step 6)
+- [x] 2026-07-25T10:40Z [ctx=safe] Step 6 complete (commit 612340c91d; ten red-first matrix
+  pins shown RED at HEAD; SR3 ruling recorded (ack gate marker-keyed); WI3 operator page
+  authored + indexed + content-pinned; pin M.5 #12's literal DatabaseCompare letter recorded
+  as blocked-by-import-semantics with a logical-equivalence rehearsal shipped instead — see
+  Episodes; full-track IT run green)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -193,6 +198,20 @@ justification is in `## Interfaces and Dependencies`.
   `keeper` collection at the rewritten id, discrimination re-proven by temp-neuter); the
   product gap itself is OUTSIDE Track 8's scope — follow-up candidate for the
   security/import owners.
+- **2026-07-25 (Step 6, design-assumption discovery):** pin M.5 #12's literal
+  "`DatabaseCompare`-level equivalence" for the export→import rehearsal is structurally
+  unsatisfiable against the actual import semantics: `DatabaseCompare` is id-keyed (same-rid
+  record lookups, per-collection-id counts, collection-id-set class comparisons), while the
+  import renumbers — the fresh target's genesis + dump-collection creation scramble the
+  id↔name correspondence, entity placement is class-driven, and blob placement is RANDOM
+  among the target's blob collections. The empirical run showed 13 differences on a healthy
+  round-trip (collection counts 34 vs 44, records shifted one class-collection over, blob in
+  `$blob3` vs `$blob6`, same-rid content mismatches). The historical `DbImportExportTest`
+  that used exactly this pattern is `@Disabled` at HEAD — the pin's letter inherited an
+  id-preserving-import assumption from the OrientDB era. The shipped rehearsal pins LOGICAL
+  equivalence (schema, per-class counts, record contents + link topology, index, blob bytes);
+  the letter is recorded as blocked for the orchestrator to either amend the pin or
+  commission a rid-mapping-aware compare mode as a follow-up.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -534,7 +553,7 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    `>= 16` redirect wording); the remaining suggestion-grade Step-5 findings stay deferred as
    recorded in the three review reports. Close with
    the end-to-end rehearsal (pin #12) and the compatibility round-trips (#11). — risk: medium
-   (Compatibility / validation; documentation-sync)  [ ]  commit: _pending_
+   (Compatibility / validation; documentation-sync)  [x]  commit: 612340c91d
    - **Goal:** every cell of the ruled Q-M2/SR2 matrix has an implemented, tested outcome; the
      operator procedure the fail-closed story leans on exists and is indexed.
    - **In-scope files:** `core/.../db/tool/DatabaseImport.java` (`importInfo` validation matrix
@@ -1251,6 +1270,111 @@ byte-identical to what Step 5's full IT run (513 ITs green) verified.
 arm under v15 or (b) the legacy-`clusters` preservation arm — both code-verified by the gate;
 the Step-6 carry-forwards (exit-0 caveat; BG23/CQ26/CS66 ruling; CQ24 wording) are threaded
 into the Step 6 bullet.
+
+### Step 6 — commit 612340c91d, 2026-07-25T10:40Z [ctx=safe]
+**What was done:** the ruled Q-M2/SR2 info-validation matrix at the Step-5 pre-flight seam
+(`importInfo` capture + `runPreFlightChecks` judgment — this step's seam per the plan), the
+`>= 16` reject-with-redirect landing AHEAD of every v15 arm, the WI3 operator
+migration-procedure page (+ `docs/README.md` index), the SR3 ruling record, and the
+end-to-end rehearsal — the track's final step.
+
+**Red-first (ten pins, all shown RED at HEAD fb9867e751,
+`DatabaseImportInfoMatrixTest`):** (1) `v16DumpIsRejectedWithRedirectNamingBothVersions` —
+`AssertionError: a v16 dump must be rejected with a redirect` (a well-formed dump declaring
+16 passed every `>= 15` arm and imported SILENTLY — the exact gap the Step-5 as-built note
+anticipated); (2–5) `schemaVersionMissing/Malformed/BelowRange/AboveRange` — all four shapes
+imported silently (the field was skipped unread); (6)
+`malformedExporterVersionIsRejectedFailClosed` — loud at HEAD but as a bare
+`For input string: "fifteen"` naming nothing (message-red per WI12a's naming requirement);
+(7) `knownOptionalInfoFieldWrongTypeIsRejected` (`name: 42`) — silent; (8)
+`unknownInfoFieldIsToleratedAndLogged` — tolerated but never logged (red on the logging
+half); (9) `danglingInfoFieldIsRejected` — loud at HEAD but POST-preamble
+(`AssertionError: the pre-flight rejection must leave the target unmutated` — the
+until-the-colon field-name read swallowed the object close and desynced the reader past the
+mutation boundary before erroring); (10)
+`operatorMigrationProcedureDocExistsWithMandatedContent` — the page did not exist. Green-at-
+HEAD pins: `v14DumpWithAlienSchemaVersionStaysLenient` (the R1/FM-M12 cell — green before
+AND after, proving the version gating) and the rehearsal (see below).
+
+**Implementation:** `importInfo` now CAPTURES the matrix inputs (schema-version with raw
+token kept on parse failure; known-optional-field type violations — the raw tokens keep
+their quotes, so strings are distinguishable; unknown field names) and
+`runPreFlightChecks` JUDGES them — v15-gated so the declared-legacy path is untouched
+(FM-M12/R1), and genuinely pre-mutation (CS38/SR1; every rejection test asserts the marker
+class survived). Arms in SR1's listing order: (a) Q-M2(1) `>= 16` reject-with-redirect
+naming both versions, AHEAD of everything v15 — the `>= 15`-keyed arms (pre-flight AND
+section loop) are now effectively `== 15`, the recorded Step-5 end-state; CQ24's
+hardcoded-"v15" wording is thereby resolved by ordering (comment added at the Q-M3 arm);
+(b) WI12a — an unparseable exporter-version rejects fail-closed at parse naming the raw
+value (same outcome as undeclared/SR2); (c) Q-M2(2) — schema-version mandatory for v15,
+`MIN_IMPORTABLE_SCHEMA_VERSION (6) <= declared <= SchemaShared.CURRENT_VERSION_NUMBER (6)`
+as a one-constant-bump range, with missing/malformed/out-of-range each naming declared vs
+supported (the above-range message redirects to a newer release, the below-range one to
+re-exporting); (d) Q-M2(3)/WI12b — known optional fields (`name`, `engine-version`,
+`engine-build`, `schemaRecordId`, `indexMgrRecordId` strings; `storage-config-version`
+number; `best-effort` boolean) type-checked if present, violations judged v15-only;
+(e) Q-M2(4) — unknown fields tolerated + logged at pre-flight; (f) FM-M10 — a
+dangling/malformed info FIELD NAME rejects at parse, pre-mutation, UNGATED by version: no
+honest dump of any version produces a structural-character field name, the shape can never
+parse into a clean import (the reader desyncs), so acceptance is unchanged and the guard
+only converts guaranteed parse chaos into a clean early rejection (as-built note).
+
+**SR3 ruling recorded** (design-drafts Rulings section; discharges the BG23=CQ26=CS66
+carry-forward): the best-effort ack gate stays MARKER-KEYED, not version-gated — no honest
+legacy exporter writes the marker, the only affected input is a hand-edited dump, and
+rejecting one absent an explicit acknowledgment is intended fail-closed behavior (inline
+comment at the gate cites the ruling).
+
+**WI3 operator page** (`docs/operator-migration-procedure.md`, indexed in
+`docs/README.md`, content-pinned by the doc test): export-exit-status gate; fresh
+out-of-service target; ANY failure — including a crash during import — condemns the target,
+with the explicit warning that a condemned target REMAINS OPENABLE with no in-database
+signal (the crash-safety criterion-2 dependency); the recorded exit-0 phrasing ("exit 0 =
+every dump entry was consumed and verified against the manifest", with the two documented
+narrow consumed-but-not-applied arms per the Step-5 gate carry-forward); the
+accept/reject matrix; best-effort export + `-acceptBestEffortDump=true`; CS59/FM-M18 crash
+residue (`<final>.<uuid>.tmp`, `ytdb-export-record-*.spill` — deletable); CN59
+genesis-incomplete guidance incl. the OSystem crashed-genesis loud server-startup refusal
+with no automated self-heal. Doc-sync check: no other user-facing page under `docs/`
+references export/import (grep over `getting-started.md`, `object-oriented.md`,
+`security.md`, `yql/`) — nothing else to update.
+
+**Pin coverage:** #9 (dangling — now pre-mutation), #10 (old-format open redirect — already
+pinned by `oldFormatDatabaseGetsMigrationRedirectNotGenesisRefusal` from the Step-3
+review-fix, re-run green in the targeted battery), #11 (declared-v14 lenient half from Step
+5 + `v14DumpWithAlienSchemaVersionStaysLenient` + the streaming round-trip suite unchanged),
+#12 (see the blocked-letter record below), #14 (all version cells incl. WI12a), #15 (fields,
+unknown-field tolerance+logging, wrong-type rejection, target-unmutated asserts on every
+pre-flight rejection), #18 (doc existence + mandated content).
+
+**Pin M.5 #12 — the DatabaseCompare letter is BLOCKED (recorded in Surprises):** the
+literal id-keyed comparison is structurally unsatisfiable against the renumbering import
+(13 differences on a healthy round-trip; the historical `DbImportExportTest` using the
+pattern is `@Disabled` for the same reason). Shipped instead:
+`endToEndMigrationRehearsalPreservesLogicalContent` — a populated source (typed property,
+UNIQUE index, plain + linked records, a blob) exported and imported into a fresh target,
+asserting class set, per-class counts, record contents, link topology (`Note→Person`,
+`Person→Person`), the user index, and byte-identical blob content; import success itself
+proves the manifest verified. STOP-reported to the orchestrator rather than weakening
+`DatabaseCompare` or silently redefining the pin.
+
+**Verification:** matrix suite 12/12; targeted import/export battery + pin-#10 host suite
+(`DatabaseImportInfoMatrixTest,DatabaseImportHardeningTest,DatabaseExportHardeningTest,
+DatabaseExportImportRoundTripTest,DatabaseImportTest,DatabaseImportSimpleCompatibilityTest,
+TestSchemaImportExport,TestImportRewriteLinks,DatabaseImpExpAbstractTest,
+ValidatedGZIPInputStreamTest,SpillableRecordBufferTest,DatabaseRecordWalkerTest,
+CaseSensitiveClassNameTest,GenesisFailureContainmentTest`) → 146 green (4 pre-existing
+skips); `./mvnw -pl core,tests clean test` → BUILD SUCCESS (core 17527 — +12 new — + 2219
+sequential + 18 vmlens; tests 1300; 0 failures); the spec-mandated final full-track
+`./mvnw -pl core clean verify -P ci-integration-tests` → BUILD SUCCESS (513 ITs, 0
+failures, ~3.4 h); coverage full reactor → BUILD SUCCESS; gate vs origin/develop → PASSED,
+89.1% line (2645/2970), 81.8% branch (1165/1425); spotless clean.
+
+**Discharges:** M2.b-5; R4; Q-M2 (all four ruled items); SR2 incl. CS46 wording (Step 5's
+arms + this step's WI12a completion); WI12a/b; WC6 (the SR1-scoped "before mutation"
+contract as implemented — every pre-flight rejection test asserts it); WI3 + CS44;
+FM-M10/M11/M12; the Step-5 carry-forwards (exit-0 caveat → doc; BG23/CQ26/CS66 → SR3; CQ24
+→ resolved by ordering). Track 8's step plan is COMPLETE pending this step's review.
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the

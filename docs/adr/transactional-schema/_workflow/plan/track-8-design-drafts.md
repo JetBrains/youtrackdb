@@ -677,6 +677,16 @@ without re-opening them.
   only inputs this rejects are corrupt, truncated (e.g. the streaming crash shapes), or
   hand-damaged dumps — exactly the fail-closed set. This closes the strict matrix's bootstrapping
   hole (arming previously required the very field the missing section carries).
+- **SR3 (resolves Step-5 review findings BG23 = CQ26 = CS66; recorded at Step 6 per the
+  orchestrator's work order, discharging the Step-5 carry-forward) — the best-effort
+  acknowledgment gate is MARKER-KEYED, not version-gated.** A dump whose info section carries
+  the `best-effort` marker is refused without `-acceptBestEffortDump=true` REGARDLESS of its
+  declared exporter version. Rationale: no honest legacy exporter writes the marker (it is a
+  v15-exporter invention, M2.a-2), so the only input the un-gated check affects is a
+  hand-edited legacy dump — and rejecting a dump that CLAIMS possible incompleteness, absent
+  an explicit operator acknowledgment, is intended fail-closed behavior, not an R1 violation
+  (R1 protects honest legacy dumps' acceptance, all of which are unaffected). The previously
+  unrecorded widening flagged by the Step-5 reviews is hereby the recorded ruling.
 
 ---
 
