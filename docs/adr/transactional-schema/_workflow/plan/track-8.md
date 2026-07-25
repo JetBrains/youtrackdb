@@ -72,6 +72,11 @@ justification is in `## Interfaces and Dependencies`.
 - [x] 2026-07-25T01:19Z [ctx=safe] Step 5 complete (commit 5173bccd10; red-first M.5 #3 AND
   #13 both shown RED at HEAD; WI10a resolved — see Episodes; one lost-action salvage and two
   as-built notes recorded)
+- [x] 2026-07-25T05:24Z [ctx=safe] Step 5 review-fix iteration 1 complete (commit 7a54d32ecb;
+  two independent baseline passes + crash-safety review: 0 blockers, merged should-fix set
+  F1(CS63)/F2(CS64)/F3(BG25=BG24=CS65)/F4(BG20=BG27)/F5(TQ22=TQ25)/F6(TQ28); gate verdict:
+  all six VERIFIED — F2 justified-deferred (the ordered rethrow proved red-first-unpinnable;
+  see Episodes); suggestion-grade items deferred, several earmarked for Step 6)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -120,6 +125,9 @@ justification is in `## Interfaces and Dependencies`.
   space, so importing a blob-bearing pre-Track-8 dump into a fresh (renumbered) target
   misregisters class collections as blob collections. Design-acknowledged sequencing (FM-M16,
   pinned by M.5 #13) — do not trust blob-bearing legacy-dump imports on this branch mid-track.
+  **CLOSED by Step 5 (commit 5173bccd10):** the §A3/WI1 fix routes the dump's blob-collection
+  ids through the collections-section mapping (never the raw target id space); pinned by the
+  cross-layout M.5 #13 test.
 - **2026-07-24 (Step 2, review CS50):** the CS35-accepted W6 silent-reopen window is ARMED
   in-tree from commit 908a2374e6 until Step 3's genesis-completion marker lands: a crash in the
   K4 window (schema + IM root shells and pointers durable, BEFORE the first `security.create`
@@ -173,6 +181,18 @@ justification is in `## Interfaces and Dependencies`.
   explicitly in the fixtures (100 empty atomic ops). Sweep-recipe note: operation-id-horizon
   pinning is a third invisible-to-grep fixture class, next to Step 1's constructor-form RID
   pins.
+- **2026-07-25 (Step 5 review-fix, pre-existing product gap surfaced):**
+  `SecurityShared.doInitPredicateOptimization` dereferences role policy links mid-import
+  (fired from security-record deletes' callback chain) while those links may still be
+  unmigrated dump-space rids: it tolerates DANGLING links (`RecordNotFoundException` is
+  caught) but a stale link that RESOLVES to a type-mismatched record throws an uncaught
+  `ClassCastException` (`RecordBytes` → `Entity` at the policy load,
+  `SecurityShared.java:1277`). Surfaced as a 1-in-8 flake in the cross-layout blob fixture
+  (the imported blob's random blob-collection pick occasionally landing on a dump-linked
+  slot in the 8-blob target). The fixture was made deterministic (single-blob target + a raw
+  `keeper` collection at the rewritten id, discrimination re-proven by temp-neuter); the
+  product gap itself is OUTSIDE Track 8's scope — follow-up candidate for the
+  security/import owners.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -500,8 +520,19 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
    genesis refuses server startup loudly until the corpse directory is discarded, with no
    automated self-heal; plus, per Step-4 review CS59 (FM-M18): crash-orphaned export temp
    files (`<final>.<uuid>.tmp`) and record spill files (`ytdb-export-record-*.spill`) are
-   fail-safe residue an operator may delete at any time**) and index it in `docs/README.md`.
-   Close with
+   fail-safe residue an operator may delete at any time; plus, per the Step-5 gate (CS64
+   residual): the page must NOT equate "importer exit 0" with full import completeness — the
+   legacy `importRecord` `DatabaseException` swallow is justified-deferred (no v15-reachable
+   counterexample found, not proven impossible), and a metadata-tampered
+   SCHEMA_MANAGER/INDEX_MANAGER-marked record is deleted silently (rid = null, no exception)
+   while the consumption tally still satisfies the manifest — word the completeness claim as
+   "exit 0 = every dump entry was consumed and verified against the manifest"**) and index it
+   in `docs/README.md`. Step 6 also owes recorded dispositions for the Step-5 review
+   suggestions earmarked to its seam: BG23/CQ26/CS66 (the best-effort ack gate is
+   marker-keyed, not version-gated — needs a recorded ruling alongside the `importInfo`
+   matrix) and CQ24 (the Q-M3 rejection message hardcodes "a v15 dump" — revisit with the
+   `>= 16` redirect wording); the remaining suggestion-grade Step-5 findings stay deferred as
+   recorded in the three review reports. Close with
    the end-to-end rehearsal (pin #12) and the compatibility round-trips (#11). — risk: medium
    (Compatibility / validation; documentation-sync)  [ ]  commit: _pending_
    - **Goal:** every cell of the ruled Q-M2/SR2 matrix has an implemented, tested outcome; the
@@ -1133,6 +1164,93 @@ in the dump, guaranteed a CLASS collection in the strictly-larger 8-blob target.
 **Discharges:** §A2 (CS38, WI11), §A3 (WI1 — FM-M16 window CLOSED), M2.b-1..4, WI6, WI10a
 (resolved + recorded above)/WI10b/WI10c, CN51(import), SR2+CS46 trigger wiring, SR1 scope;
 FM-M6/M7/M8/M13/M14/M16; Step 4's recorded skip-manifest replacement obligation (BG19).
+
+### Step 5 review-fix iteration 1 — commit 7a54d32ecb, 2026-07-25T05:24Z [ctx=safe]
+**What was done:** applied the three Step 5 review reports
+(`track-8/reviews/{baseline,crash-safety}-step5-iter1.md` + the independent second-opinion
+`baseline-step5-iter1b.md`; 0 blockers) — merged should-fix set F1–F6; the verdict-only gate
+verified all six (F2 as justified-deferred).
+
+**F1 (CS63) — exporter-version latch.** Red-first: a duplicate `info` section spliced AFTER
+the manifest re-declaring `14` disarmed `verifyV15StructuralStrictness()` entirely (the gate
+reads the version only at loop end) — RED at parent `a0fadb4334` with `AssertionError: a
+trailing exporter-version downgrade must be rejected` (silent import). Fix: `importInfo`
+latches the FIRST declared version and rejects any re-declaration with a DIFFERING value the
+moment it parses (field- and section-level); a same-value duplicate info section still trips
+the WI10c occurrence check under v15 (code-verified by the gate; no dedicated test — recorded
+residual), and declared-legacy same-value duplicates stay tolerated byte-for-byte.
+
+**F3 (BG25=BG24=CS65) — `clusters` alias rejected under v15.** Red-first: a spliced
+`"clusters":[{"name":"Smuggled",...}]` section imported silently (the WI10c tracker keys on
+the raw tag; the alias dispatches to `importCollections` while counting under its own key) —
+RED with `AssertionError: a spliced 'clusters' alias section must be rejected under v15`.
+Fix: the alias is rejected OUTRIGHT for `exporterVersion >= 15` — chosen over tag
+canonicalization because the v15 exporter writes only `collections`, so accepting the
+spelling in any position merely widens the tamper surface; the declared-legacy arm keeps the
+alias byte-for-byte (gate-verified).
+
+**F4 (BG20=BG27) — manifest totals parse as longs.** Red-first: a manifest declaring
+`"records": 3000000000` rejected with a bare `For input string: "3000000000"`
+(`Integer.parseInt`) instead of the CN51 mismatch message — the false-reject shape for an
+honest >2^31-1-record dump. Fix: new `JSONReader.readLong` (exact `readNumber` sibling); all
+four manifest fields parse as longs end-to-end (fields and comparisons already were); the
+fixture now rejects with `manifest declares 3000000000`, proving the long path. (Spotless's
+ratchet reformatted the rest of `JSONReader.java` — formatting-only.)
+
+**F5 (TQ22=TQ25) — WI10a stream-ctor gzip tests added.** `gzipStreamImportRoundTrips`
+(accept: CS43 steps (1)+(2) run with `physicalSize == -1`) and `truncatedGzipStreamIsRejected`
+(reject, matcher `Truncated GZIP trailer`). **Discrimination proven:** with the drain
+temporarily gated on `physicalSize >= 0` the reject-half goes RED (`AssertionError: a
+truncated gzip stream must be rejected loudly`) while the round-trip stays green; restored.
+
+**F6 (TQ28) — SR2 end-of-stream arm pinned.** `versionlessInfoOnlyDumpIsRejectedAtEndOfStream`
+(`{"info":{"name":"x"}}`): the first tag IS `info`, so only the post-loop arm can reject —
+matcher `ended without declaring` exists only there (gate-verified); CS38 target-clean
+asserted.
+
+**F2 (CS64) — STOPPED per the work order's escape clause; gate verdict: justified-deferred.**
+The ordered version-gated rethrow of `importRecord`'s `DatabaseException` swallow was
+implemented, then could NOT be shown red-first: six natural dump-tamper families all surface
+as non-`DatabaseException` failures (loud already at HEAD) or do not throw at all — (1)
+classless record → imports as a classless entity, no throw; (2) `@schemaManager` mark →
+`SerializationException`; (3) typed-property poison (`OUser.name=42`) → schema conversion
+fails AT PARSE, wrapped; (4) invalid-position policy link → `RecordNotFoundException`
+(HighLevel); (5) nonexistent-collection policy link → `IllegalArgumentException`; (6) a rid
+spoofed into a system collection doesn't route (under `ignoreRid=true` the identity's
+collection is class-derived). The finding's silent-partial premise could not be reproduced,
+so the hunk was REVERTED and the two shaped tests removed instead of shipping an unpinnable
+change. The gate's independent audit confirmed the mechanism: `fromStringWithMetadata` wraps
+ALL parse failures into `SerializationException` (not a `DatabaseException`), the bare-
+`DatabaseException` getters reachable in the try are gated `<= 13`, and `commit()` sits
+outside the catch — no v15-reachable counterexample exists in current code. Residual threaded
+into Step 6's WI3 content list: the operator page must not equate exit 0 with completeness
+(covers both this deferred swallow and the gate-discovered arm where a metadata-tampered
+SCHEMA_MANAGER/INDEX_MANAGER-marked record is silently deleted — rid = null, no exception —
+while `parsedRecordCount` still satisfies the manifest).
+
+**Deflake (test quality, in scope):** `crossLayoutBlobDumpRegistersBlobsByMappingNotRawId`
+was order-flaky (~1/8): the dump's system-record policy-link rids (dump id space) land inside
+the 8-blob target's blob-id range, and when the imported blob's RANDOM blob-collection pick
+hit a linked slot, the mid-import security-predicate init CCE'd (`RecordBytes` → `Entity`) —
+a pre-existing product gap recorded in Surprises. The fixture now uses a single-blob target
+(dump security rids resolve to the target's own security collections — real entities) plus a
+raw non-class `keeper` collection pre-created at the rewritten blob id, keeping the pin
+discriminating — re-proven by temporarily reverting the §A3 mapping fix (RED:
+`blob-registered collection 'keeper' (id 11) must be a $blob* collection`).
+
+**Verification:** hardening suite 21/21 (15 prior + F1/F3/F4 regressions + F5×2 + F6);
+targeted import/export suites 126 green (4 pre-existing skips); `./mvnw -pl core,tests clean
+test` → BUILD SUCCESS (core 17515 — +6 net new — + 2219 sequential + 18 vmlens; tests 1300;
+0 failures); coverage full reactor → BUILD SUCCESS; gate vs origin/develop → PASSED, 88.6%
+line (2617/2953), 81.3% branch (1151/1415); spotless clean. **ITs deliberately not re-run:**
+the production delta is rejection-path-only (version latch, alias gate) plus an int→long
+parse widening equivalent for every in-range value — the valid-dump import path is
+byte-identical to what Step 5's full IT run (513 ITs green) verified.
+
+**Gate residuals recorded:** no dedicated automated test for (a) the same-value duplicate-info
+arm under v15 or (b) the legacy-`clusters` preservation arm — both code-verified by the gate;
+the Step-6 carry-forwards (exit-0 caveat; BG23/CQ26/CS66 ruling; CQ24 wording) are threaded
+into the Step 6 bullet.
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the
