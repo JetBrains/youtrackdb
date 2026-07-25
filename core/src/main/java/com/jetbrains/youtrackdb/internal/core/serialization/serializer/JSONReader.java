@@ -37,20 +37,20 @@ import javax.annotation.Nullable;
 public class JSONReader {
 
   public static final char NEW_LINE = '\n';
-  public static final char[] DEFAULT_JUMP = new char[]{' ', '\r', '\n', '\t'};
+  public static final char[] DEFAULT_JUMP = new char[] {' ', '\r', '\n', '\t'};
   // public static final char[] DEFAULT_SKIP = new char[] {'\r', '\n', '\t'};
-  public static final char[] BEGIN_OBJECT = new char[]{'{'};
-  public static final char[] END_OBJECT = new char[]{'}'};
-  public static final char[] FIELD_ASSIGNMENT = new char[]{':'};
+  public static final char[] BEGIN_OBJECT = new char[] {'{'};
+  public static final char[] END_OBJECT = new char[] {'}'};
+  public static final char[] FIELD_ASSIGNMENT = new char[] {':'};
   // public static final char[] BEGIN_STRING = new char[] {'"'};
-  public static final char[] COMMA_SEPARATOR = new char[]{','};
-  public static final char[] NEXT_IN_OBJECT = new char[]{',', '}'};
-  public static final char[] NEXT_IN_ARRAY = new char[]{',', ']'};
-  public static final char[] NEXT_OBJ_IN_ARRAY = new char[]{'{', ']'};
+  public static final char[] COMMA_SEPARATOR = new char[] {','};
+  public static final char[] NEXT_IN_OBJECT = new char[] {',', '}'};
+  public static final char[] NEXT_IN_ARRAY = new char[] {',', ']'};
+  public static final char[] NEXT_OBJ_IN_ARRAY = new char[] {'{', ']'};
   public static final char[] ANY_NUMBER =
-      new char[]{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
-  public static final char[] BEGIN_COLLECTION = new char[]{'['};
-  public static final char[] END_COLLECTION = new char[]{']'};
+      new char[] {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  public static final char[] BEGIN_COLLECTION = new char[] {'['};
+  public static final char[] END_COLLECTION = new char[] {']'};
 
   private final BufferedReader in;
   private int cursor = 0;
@@ -94,6 +94,15 @@ public class JSONReader {
     return Integer.parseInt(value.trim());
   }
 
+  /** The 64-bit sibling of {@link #readInteger(char[])} for totals that can exceed int range. */
+  public long readLong(final char[] iUntil) throws IOException, ParseException {
+    if (readNext(iUntil, false) == null) {
+      throw new ParseException("Expected long", cursor);
+    }
+
+    return Long.parseLong(value.trim());
+  }
+
   public String readString(final char[] iUntil) throws IOException, ParseException {
     return readString(iUntil, false);
   }
@@ -103,8 +112,7 @@ public class JSONReader {
     return readString(iUntil, iInclude, DEFAULT_JUMP, null);
   }
 
-  @Nullable
-  public String readString(
+  @Nullable public String readString(
       final char[] iUntil, final boolean iInclude, final char[] iJumpChars, final char[] iSkipChars)
       throws IOException, ParseException {
     if (readNext(iUntil, iInclude, iJumpChars, iSkipChars) == null) {
@@ -118,8 +126,7 @@ public class JSONReader {
     return value;
   }
 
-  @Nullable
-  public String readString(
+  @Nullable public String readString(
       final char[] iUntil,
       final boolean iInclude,
       final char[] iJumpChars,
@@ -146,8 +153,7 @@ public class JSONReader {
    * @throws IOException if an I/O error occurs while reading the JSON input
    * @throws ParseException if the JSON input is malformed
    */
-  @Nullable
-  public Pair<String, Map<String, RidSet>> readRecordString(int maxRidbagSizeLazyImport)
+  @Nullable public Pair<String, Map<String, RidSet>> readRecordString(int maxRidbagSizeLazyImport)
       throws IOException, ParseException {
     var ridbags =
         readNextRecord(
@@ -359,7 +365,7 @@ public class JSONReader {
         } else if (c == '[') {
           if (openSquare == 0
               && (lastString.toString().startsWith("out_")
-              || lastString.toString().startsWith("in_"))) {
+                  || lastString.toString().startsWith("in_"))) {
             lastCollection = new StringBuilder();
             lastFieldName = lastString.toString();
             lastFieldName = lastFieldName.substring(0, lastFieldName.length() - 1);

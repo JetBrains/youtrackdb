@@ -181,25 +181,36 @@ public class DatabaseImportHardeningTest extends DbTestBase {
       youTrackDB.drop(sourceName);
     }
 
-    try (var target = createTargetDatabase("blobTarget")) {
+    // The TARGET is created with a single blob collection too, so the layouts agree
+    // everywhere EXCEPT the deliberately renumbered blob id: the dump's system-record link
+    // rids (#2:x etc.) then resolve to the target's own security collections (real
+    // entities) instead of pointing into a multi-blob target's blob-id range — a stale
+    // mid-import link that happens to resolve to an imported blob record trips a
+    // pre-existing security-predicate-init cast outside this pin's scope (was flaky,
+    // 1-in-blob-count).
+    var targetConfig = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT, 1)
+        .build();
+    youTrackDB.create("blobTarget", dbType, targetConfig, "admin", ADMIN_PASSWORD, "admin");
+    try (var target = youTrackDB.open("blobTarget", "admin", ADMIN_PASSWORD)) {
       var mapper = new ObjectMapper();
       var root = (ObjectNode) mapper.readTree(gunzip(dump));
       ((ObjectNode) root.get("info")).put("exporter-version", 14);
       root.remove("manifest");
       // The id the blob collection is rewritten to: one above the HIGHEST id the source dump
-      // uses (so it collides with nothing inside the dump). The 8-blob target has strictly
-      // more collections than the single-blob source, so this id exists in the target — and
-      // is a CLASS collection there (target ids past the blob range are class collections),
-      // which keeps the pin discriminating: a regression to raw-id resolution registers that
-      // class collection as a blob collection.
+      // uses (so it collides with nothing inside the dump). The identically-shaped target
+      // has no collection there either, so a raw NON-blob collection named 'keeper' is
+      // pre-created at exactly that id — keeping the pin discriminating: a regression to
+      // raw-id resolution registers 'keeper' as a blob collection. (A plain collection, not
+      // a class: the deferred import preamble drops non-security CLASSES, which would
+      // otherwise remove the id before the schema section resolves it.)
       var rewrittenBlobId = 0;
       for (JsonNode collection : root.get("collections")) {
         rewrittenBlobId = Math.max(rewrittenBlobId, collection.get("id").asInt() + 1);
       }
-      var targetCollectionName = target.getCollectionNameById(rewrittenBlobId);
-      assertTrue("the rewritten id must land on a target CLASS collection but was '"
-          + targetCollectionName + "'",
-          targetCollectionName != null && !targetCollectionName.startsWith("$blob"));
+      var keeperId = target.addCollection("keeper");
+      assertTrue("the 'keeper' collection must occupy the rewritten blob id (got " + keeperId
+          + ", expected " + rewrittenBlobId + ")", keeperId == rewrittenBlobId);
       for (JsonNode collection : root.get("collections")) {
         if ("$blob0".equals(collection.get("name").asText())) {
           ((ObjectNode) collection).put("id", rewrittenBlobId);
@@ -504,6 +515,137 @@ public class DatabaseImportHardeningTest extends DbTestBase {
           target.getMetadata().getSchema().existsClass("PreFlightMarker"));
       assertTrue("no dump content may reach the target",
           !target.getMetadata().getSchema().existsClass("Hardened"));
+    }
+  }
+
+  /**
+   * Review finding CS63 (regression): a trailing duplicate info section re-declaring a
+   * LOWER exporter version — spliced after the manifest so every section parses under the
+   * v15-strict arms — must not disarm the version-keyed structural strictness. The first
+   * declared version is latched; a differing re-declaration is rejected the moment it
+   * parses, and a same-value duplicate info section still trips the WI10c duplicate check.
+   */
+  @Test
+  public void trailingInfoVersionDowngradeIsRejected() throws Exception {
+    var dump = exportSmallDump();
+    var text = new String(gunzip(dump), StandardCharsets.UTF_8);
+    var rootClose = text.lastIndexOf('}');
+    var tampered = text.substring(0, rootClose)
+        + ",\"info\":{\"exporter-version\":14}" + text.substring(rootClose);
+    gzipTo(dump, tampered.getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("downgradeTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a trailing exporter-version downgrade must be rejected", rejection);
+      assertRejectionMentions(rejection, "re-declares its exporter version");
+    }
+  }
+
+  /**
+   * Review finding BG25/BG24/CS65 (regression): the legacy "clusters" alias is not part of
+   * the v15 dump shape (the v15 exporter writes only "collections") — a spliced
+   * alias-spelled section bypassed the tag-keyed WI10c duplicate/presence tracking and
+   * imported silently, smuggling collections. Under v15 the alias is rejected outright.
+   */
+  @Test
+  public void splicedClustersAliasSectionIsRejected() throws Exception {
+    var dump = exportSmallDump();
+    var text = new String(gunzip(dump), StandardCharsets.UTF_8);
+    var spliceAt = text.lastIndexOf("\"manifest\"");
+    assertTrue("the dump must carry a manifest section to splice before", spliceAt > 0);
+    var tampered = text.substring(0, spliceAt)
+        + "\"clusters\":[{\"name\":\"Smuggled\",\"id\":90}]," + text.substring(spliceAt);
+    gzipTo(dump, tampered.getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("clustersAliasTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a spliced 'clusters' alias section must be rejected under v15", rejection);
+      assertRejectionMentions(rejection, "'clusters'");
+    }
+  }
+
+  /**
+   * Review finding BG20/BG27/CS69 (regression): manifest totals are 64-bit on the exporter
+   * side — an int-range parse would falsely reject an honest dump with more than 2^31-1
+   * records with a bare NumberFormatException. The totals must parse as longs and flow into
+   * the ordinary CN51 count comparison (which here rejects with the mismatch message naming
+   * the declared 64-bit value — proving the long-parse).
+   */
+  @Test
+  public void manifestTotalsBeyondIntRangeParseAsLong() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> ((ObjectNode) root.get("manifest")).put("records", 3000000000L));
+
+    try (var target = createTargetDatabase("longManifestTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("the count mismatch must still be rejected", rejection);
+      assertRejectionMentions(rejection, "manifest declares 3000000000");
+    }
+  }
+
+  /**
+   * Review finding TQ22/TQ25 (WI10a steps (1)+(2) on the InputStream constructor): a
+   * GZIP-FRAMED v15 dump fed through the stream constructor imports successfully — the
+   * validated decoder and the whole-stream drain/verification run with no physical size
+   * (step (3) never applies to streams).
+   */
+  @Test
+  public void gzipStreamImportRoundTrips() throws Exception {
+    var dump = exportSmallDump();
+
+    try (var target = createTargetDatabase("gzipStreamTarget")) {
+      try (var stream = java.nio.file.Files.newInputStream(dump)) {
+        new DatabaseImport(target, stream, text -> {
+        }).importDatabase();
+      }
+      assertTrue("the gzip-framed v15 stream import must round-trip",
+          target.getMetadata().getSchema().existsClass("Hardened"));
+    }
+  }
+
+  /**
+   * Review finding TQ22/TQ25 (rejecting half): the SAME gzip-framed v15 dump with its
+   * trailer truncated, fed through the InputStream constructor, must be rejected loudly by
+   * the CS43 drain — pinning that the whole-stream verification is NOT gated on having a
+   * physical size.
+   */
+  @Test
+  public void truncatedGzipStreamIsRejected() throws Exception {
+    var dump = exportSmallDump();
+    var bytes = Files.readAllBytes(dump);
+    var truncated = Arrays.copyOf(bytes, bytes.length - 8);
+
+    try (var target = createTargetDatabase("truncStreamTarget")) {
+      RuntimeException rejection = null;
+      try {
+        new DatabaseImport(target, new java.io.ByteArrayInputStream(truncated), text -> {
+        }).importDatabase();
+      } catch (DatabaseImportException | DatabaseExportException e) {
+        rejection = e;
+      }
+      assertNotNull("a truncated gzip stream must be rejected loudly", rejection);
+      assertRejectionMentions(rejection, "Truncated GZIP trailer");
+    }
+  }
+
+  /**
+   * Review finding TQ28 (SR2's end-of-stream arm): a dump that is exactly an info section
+   * WITHOUT an exporter version, with the root closing right after — the section loop exits
+   * at the root brace and only the post-loop end-of-stream arm can reject it.
+   */
+  @Test
+  public void versionlessInfoOnlyDumpIsRejectedAtEndOfStream() throws Exception {
+    var dump = dumpDirectory().resolve("info-only.json.gz");
+    gzipTo(dump, "{\"info\":{\"name\":\"x\"}}".getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("infoOnlyTarget")) {
+      target.getMetadata().getSchema().createClass("PreFlightMarker");
+
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a versionless info-only dump must be rejected", rejection);
+      assertRejectionMentions(rejection, "ended without declaring");
+      assertTrue("the SR2 rejection must precede all target mutation",
+          target.getMetadata().getSchema().existsClass("PreFlightMarker"));
     }
   }
 

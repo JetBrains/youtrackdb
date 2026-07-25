@@ -312,6 +312,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             }
           }
           case "collections", "clusters" -> {
+            // BG25/WI10c: the legacy "clusters" alias is not part of the v15 dump shape (the
+            // v15 exporter writes only "collections") — accepting it would let a spliced
+            // alias-spelled section bypass the tag-keyed duplicate/presence tracking. The
+            // declared-legacy path keeps the alias byte-for-byte.
+            if (exporterVersion >= 15 && "clusters".equals(tag)) {
+              throw new DatabaseImportException(
+                  "Invalid format. Found unsupported tag 'clusters' (a v15 dump names its"
+                      + " collections section 'collections')");
+            }
             importCollections();
             collectionsImported = true;
           }
@@ -465,11 +474,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     while (jsonReader.lastChar() != '}') {
       final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
       switch (fieldName) {
-        case "classes" -> manifestClasses = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
-        case "indexes" -> manifestIndexes = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
-        case "records" -> manifestRecords = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
+        // BG20: the exporter tallies these totals as longs — an int-range parse would
+        // falsely reject an honest dump with more than 2^31-1 entries.
+        case "classes" -> manifestClasses = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
+        case "indexes" -> manifestIndexes = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
+        case "records" -> manifestRecords = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
         case "brokenRids" ->
-            manifestBrokenRids = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
+            manifestBrokenRids = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
         default -> jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
       }
     }
@@ -690,7 +701,20 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     while (jsonReader.lastChar() != '}') {
       final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
       if (fieldName.equals("exporter-version")) {
-        exporterVersion = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
+        final var declaredVersion = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
+        // CS63: the FIRST declared exporter version is latched — the strictness gate reads
+        // this field only after the section loop, so a trailing re-declaration (duplicate
+        // info section or repeated field) with a DIFFERING value could otherwise disarm the
+        // whole version-keyed matrix after the strict-armed parse already ran. Reject the
+        // re-declaration the moment it parses (fail-closed); a same-value duplicate info
+        // section is still caught by the WI10c duplicate-section check under v15, and stays
+        // tolerated on the declared-legacy path as before.
+        if (exporterVersion != -1 && declaredVersion != exporterVersion) {
+          throw new DatabaseImportException(
+              "Import rejected: the dump re-declares its exporter version (" + exporterVersion
+                  + " -> " + declaredVersion + ") — refusing tampered input");
+        }
+        exporterVersion = declaredVersion;
         if (exporterVersion < 14) {
           jsonSerializer = JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE;
         }
