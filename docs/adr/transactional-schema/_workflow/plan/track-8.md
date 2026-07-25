@@ -89,6 +89,11 @@ justification is in `## Interfaces and Dependencies`.
   suggestion-grade items (CQ29–32, TQ30–32, CS77, WI63/64, WS60/61) deferred — see Episodes;
   gate verdict: integrity PASS + WI60/F1–F9/pin-coherence all VERIFIED, 0 RG findings — see
   the episode's gate paragraph)
+- [x] 2026-07-25T18:39Z [ctx=safe] Track-level cumulative review-fix iteration 1 complete
+  (commit 25f49426ce; three cumulative reviews (baseline/crash/concurrency): 0 blockers,
+  1 should-fix (CN60) + CS79/CS80/CN61/CN62/CQ33 + the Step-5 Surprises internal-collection
+  correction — all applied or recorded; BG31/CQ34/TQ33 deferred; full IT profile re-run
+  green — see Episodes)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -1181,11 +1186,15 @@ dumps (the truncation pin initially passed for the WRONG reason); fixed by recor
 occurrence at the inline consumption site, re-validated by the trailer-truncation matcher
 assert. (2) the quoted-brokenRids latent defect above. (3) the #13 fixture's first shape
 (rewriting the blob id to the TARGET's E-collection id) was order-flaky: the id can collide
-with an id the SOURCE dump already uses (the internal collection is excluded from the dump's
-collections section, so `collections.size()` undercounts the max id), sending the blob into a
-class collection and tripping an unrelated `RecordBytes`→`Entity` cast in the security
-predicate init; the deterministic shape rewrites to `max(dump ids) + 1` — guaranteed unused
-in the dump, guaranteed a CLASS collection in the strictly-larger 8-blob target.
+with an id the SOURCE dump already uses (`collections.size()` undercounts the max id — ids
+are 0-based while size counts entries; ~~the internal collection is excluded from the dump's
+collections section~~ CORRECTED by the cumulative reviews: the collections section exports
+EVERY named collection INCLUDING `internal` — only the records section excludes it — so the
+undercount is the off-by-one, and the fixture's max-id reasoning holds regardless), sending
+the blob into a class collection and tripping an unrelated `RecordBytes`→`Entity` cast in
+the security predicate init; the deterministic shape rewrites to `max(dump ids) + 1` —
+guaranteed unused in the dump, guaranteed a CLASS collection in the strictly-larger 8-blob
+target.
 
 **Discharges:** §A2 (CS38, WI11), §A3 (WI1 — FM-M16 window CLOSED), M2.b-1..4, WI6, WI10a
 (resolved + recorded above)/WI10b/WI10c, CN51(import), SR2+CS46 trigger wiring, SR1 scope;
@@ -1485,6 +1494,90 @@ the pin genuinely discriminates reordering; the CN54 drop exemption and the engi
 ledger stands at RG4). One cosmetic nit — the runbook snippets' `adminPassword` placeholder
 was undeclared — fixed in the closeout commit (a declaration line in each `main()`; the
 content-pin test re-run green).
+
+### Track-level cumulative review-fix iteration 1 — commit 25f49426ce, 2026-07-25T18:39Z [ctx=safe]
+**What was done:** applied the three track-level cumulative review reports
+(`track-8/reviews/track8-cumulative-{baseline,crash,concurrency}-iter1.md`; 0 blockers,
+1 should-fix) — the value-add set per-step reviews structurally miss: cross-step seams and
+composed end-state behavior.
+
+**CN60 (should-fix) — snapshot copies under the guarding locks.** Red-first, both
+instances (`StorageEmbeddedBlobCollectionsTest`): `collectionNamesAreASnapshotNotALiveView`
+and `blobCollectionSetIsASnapshotNotALiveView` — RED at parent 19ebbcbb2d with
+`AssertionError: the set returned BEFORE the DDL must be a snapshot — it reflects the
+later-created collection, so it is a live view`. `AbstractStorage.getCollectionNames` and
+`SchemaShared.getBlobCollections` returned live backing views AFTER releasing their locks;
+the exporter iterated them unlocked against concurrent DDL commits — JMM-undefined, with a
+silent arm (skipped entries under a HashMap resize) that under-reads `maxCollectionId` and
+truncates an exit-0 export whose self-consistent manifest still verifies. Both accessors now
+COPY under the lock (`Set.copyOf` / `new IntOpenHashSet`); the deterministic pins assert the
+snapshot property that makes the race impossible — a genuine interleaving test is not
+deterministically buildable (it needs a resize racing an unlocked iterator), stated per the
+work order. All 13 `getCollectionNames` callers and 4 `getBlobCollections` callers audited:
+read-only enumerations, snapshot semantics strictly safer (ImmutableSchema snapshots stop
+silently tracking live blob-set changes — a latent wrongness fixed incidentally). The
+commit-window lock-free path copies under the held write lock — safe.
+
+**CS80 — EOF bounds extended to every reader loop.** Red-first (indexes family):
+`truncatedIndexesSectionIsRejectedNotHung` — RED with `TestTimedOutException: test timed
+out after 120000 milliseconds` (the inner field loop spun on stale reader state, a silent
+CPU hang). The RECORDS family proved **protected-by-accident at HEAD** for every
+constructible cut (probed: after-separator → the stale replay dies on the rid-map unique
+key, `RecordDuplicatedException: found duplicated key '#9:0' in
+'___exportImportRIDMap_key_unique'`; array-head → `SerializationException: Start of the
+object is expected` on the stale tag token) — the crash review's records-spin arm does not
+materialize in practice, so `truncatedRecordsSectionIsRejectedNotHung` ships as a
+stays-loud pin with a timeout guard (green at HEAD by accident, green after by
+construction) — the justification the work order asked for. Fix: the `46b0446008` pattern
+(`hasNext()` bound + loud post-loop rejection keyed on the MISSING TERMINATOR, never on
+`hasNext()` itself) extended to all 12 remaining loops — collections, records, indexes
+outer/inner, collectionsToIndex, brokenRids, schema classes, class fields,
+globalProperties, super-classes, properties, customFields — via a shared `truncatedDump`
+helper. R1 audit: an honestly-closed structure cannot false-trip (terminator-keyed checks);
+truncated dumps of any version previously hung or desynced, never imported. Schema-side
+throws land inside `importSchema`'s pre-existing swallow — bounded (no hang), logged, and
+caught loudly by the v15 structural checks; the v14 lenient path keeps its documented
+no-guarantee contract (runbook row scoped accordingly).
+
+**CN62 — fstat-after-open.** The import ctor captures `physicalSize` from the OPENED
+descriptor (`FileChannel.size()`) instead of a path stat before open — the stat/open TOCTOU
+against a concurrently promoting re-export made the step-(3) arithmetic falsely condemn a
+healthy import. Not deterministically testable without filesystem interposition (stated per
+the work order; the property is structural — size and bytes now provably refer to one
+inode); the round-trip suites pin the arithmetic. Incidental: BG21's missing-file
+exception-type drift (`NoSuchFileException`) reverts to the baseline
+`FileNotFoundException`.
+
+**CS79 — completion message after the durability point.** "Database export completed" now
+fires after the trailer flush, promote, and `completed = true`; no test pinned the old
+ordering (export hardening suite 8/8 green).
+
+**Docs/records:** CN61 — the live-export consistency envelope recorded in the runbook
+(step 1: quiesce DDL; an export under concurrent DDL is manifest-verifiable but not a
+cross-section point-in-time snapshot) with new mandated-content pins ("quiesce",
+"point-in-time") and in the design-drafts rulings area (correcting pass-1 E1's "single tx
+snapshot" overstatement; a cross-section pin is recorded as a future-track design change).
+CQ33 — the version-ungated CS63 latch widening recorded in the design-drafts rulings as an
+accepted fail-closed widening (SR3 precedent). The Step-5 Surprises bullet's inaccurate
+"internal collection is excluded from the dump's collections section" claim corrected in
+place (the collections section exports every named collection including `internal`; only
+the records section excludes it — flagged by both cumulative baseline passes).
+
+**Deferred per the work order:** BG31 (best-effort spill-I/O misclassification), CQ34
+(shared wire-contract constants), TQ33 (genuine exporter-produced best-effort/spill dumps
+through the importer).
+
+**Verification:** targeted battery (matrix 21 + hardening 21 + export-hardening 8 +
+round-trip + import suites + StorageEmbeddedBlobCollections 8 + TwoPhaseGenesis 5) → 168
+green (4 pre-existing skips); `./mvnw -pl core,tests clean test` → BUILD SUCCESS (core
+17538 — +4 new — + 2219 sequential + 18 vmlens; tests 1300; 0 failures); **full IT profile
+RE-RUN for this iteration** (CN60 touches the storage collection-name accessor incl. its
+commit-window path and the schema blob-set accessor consumed by every ImmutableSchema
+snapshot) → first attempt died in a surefire FORK-START failure after 9963 unit tests
+("Error occurred in starting fork", exit 1, no dump files, no test failure — infra flake),
+re-run → BUILD SUCCESS (units re-confirmed + 513 ITs, 0 failures); coverage full reactor →
+BUILD SUCCESS; gate vs origin/develop → PASSED, 88.6% line (2673/3017), 81.1% branch
+(1203/1483); spotless clean.
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the
