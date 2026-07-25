@@ -553,7 +553,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   private void importManifest() throws IOException, ParseException {
     listener.onMessage("\nReading the manifest...");
     jsonReader.readNext(JSONReader.BEGIN_OBJECT);
-    while (jsonReader.lastChar() != '}') {
+    // BG30/CS78: EOF-bounded like the importInfo field loop — a dump truncated inside the
+    // manifest object spun forever on stale reader state; it now rejects loudly below.
+    while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
       final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
       switch (fieldName) {
         // BG20: the exporter tallies these totals as longs — an int-range parse would
@@ -565,6 +567,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             manifestBrokenRids = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
         default -> jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
       }
+    }
+    if (jsonReader.lastChar() != '}') {
+      throw new DatabaseImportException(
+          "Import rejected: the dump ends inside its manifest section — the dump is"
+              + " truncated");
     }
     jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
     listener.onMessage("OK");
@@ -780,7 +787,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage("\nImporting database info...");
 
     jsonReader.readNext(JSONReader.BEGIN_OBJECT);
-    while (jsonReader.lastChar() != '}') {
+    // BG30/CS78: the field loop is EOF-bounded — on a dump truncated mid-info the reader
+    // returns stale state forever (a silent spin, with the unknown-field list growing toward
+    // OOM); hasNext() turns false exactly when the stale returns begin, and the post-loop
+    // check below converts the truncation into a loud, still-pre-mutation rejection. Ungated
+    // by version deliberately: a mid-info-truncated dump of ANY version could never import
+    // (it hung), so acceptance is unchanged — the hang becomes a rejection.
+    while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
       final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
       // R4 parse-level strictness (FM-M10): a DANGLING field — name written, value missing,
       // the mid-write crash shape — makes the until-the-colon field-name read swallow the
@@ -796,7 +809,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
       switch (fieldName) {
         case "exporter-version" -> {
-          final var raw = readInfoFieldRawValue();
+          final var raw = readInfoFieldRawValue(fieldName);
           final int declaredVersion;
           try {
             declaredVersion = Integer.parseInt(raw);
@@ -828,7 +841,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         case "schema-version" -> {
           // Q-M2(2): mandatory in v15 dumps; captured here, judged at pre-flight (the
           // version gate keeps the declared-legacy path untouched — FM-M12).
-          final var raw = readInfoFieldRawValue();
+          final var raw = readInfoFieldRawValue(fieldName);
           try {
             declaredSchemaVersion = Long.parseLong(raw);
             schemaVersionDeclared = true;
@@ -839,34 +852,71 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         case "best-effort" -> {
           // The Step 4 exporter's best-effort marker — feeds the M2.b-4 acknowledgment gate
           // and the WI10b brokenRids consistency check.
-          final var raw = readInfoFieldRawValue();
+          final var raw = readInfoFieldRawValue(fieldName);
           checkKnownInfoFieldIsBoolean(fieldName, raw);
-          bestEffortDump = Boolean.parseBoolean(raw);
+          // BG29/CS76: the MARKER parses from the quote-stripped token (the parent's
+          // readBoolean parity) — a hand-edited QUOTED "true" on a declared-legacy dump must
+          // still arm the SR3 marker-keyed gate (fail-closed); under v15 the type check
+          // above still rejects the quoted form as a WI12b violation.
+          bestEffortDump = Boolean.parseBoolean(stripSurroundingQuotes(raw));
         }
         // Q-M2(3)/WI12b: the known OPTIONAL info fields the v15 exporter writes are
         // type-checked if present but not required; violations are collected here (the raw
         // token keeps its quotes, so strings are distinguishable) and judged at pre-flight,
         // v15-only.
         case "name", "engine-version", "engine-build", "schemaRecordId", "indexMgrRecordId" ->
-            checkKnownInfoFieldIsString(fieldName, readInfoFieldRawValue());
+            checkKnownInfoFieldIsString(fieldName, readInfoFieldRawValue(fieldName));
         case "storage-config-version" ->
-            checkKnownInfoFieldIsNumber(fieldName, readInfoFieldRawValue());
+            checkKnownInfoFieldIsNumber(fieldName, readInfoFieldRawValue(fieldName));
         default -> {
           // Q-M2(4): unknown extra fields are tolerated — the exporter version is the
           // compatibility contract, not field enumeration — and logged at pre-flight.
           unknownInfoFields.add(fieldName);
-          jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+          readInfoFieldRawValue(fieldName);
         }
       }
+    }
+    // BG30/CS78's post-loop half: the loop exited on EOF, not on the object close.
+    if (jsonReader.lastChar() != '}') {
+      throw new DatabaseImportException(
+          "Import rejected: the dump ends inside its info section — the dump is truncated");
     }
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
 
     listener.onMessage("OK");
   }
 
-  /** Reads an info field's raw value token (quotes preserved for strings), trimmed. */
-  private String readInfoFieldRawValue() throws IOException, ParseException {
-    return jsonReader.readNext(JSONReader.NEXT_IN_OBJECT).getValue().trim();
+  /**
+   * Reads an info field's raw value token (quotes preserved for strings), trimmed.
+   *
+   * <p>CS75 (recorded scalar-only rule): info-field values are SCALARS in every dump shape
+   * any exporter has ever written. A '{'- or '['-led value desyncs the reader's
+   * until-the-separator scan — a nested closing brace is indistinguishable from the info
+   * object's own close, so the field loop would exit early, pre-flight would pass on a
+   * truncated capture, and the import would mutate the target before failing (an
+   * SR1-boundary violation). A structured value is therefore rejected HERE — pre-mutation,
+   * loud, naming the field. This deliberately narrows Q-M2(4)'s unknown-field tolerance to
+   * scalar VALUES (field NAMES stay unconstrained); the version number remains the
+   * compatibility contract. Ungated by version: no honest dump of any version writes a
+   * structured info value, and the mid-section shape could never import cleanly anyway.
+   */
+  private String readInfoFieldRawValue(String fieldName) throws IOException, ParseException {
+    final var raw = jsonReader.readNext(JSONReader.NEXT_IN_OBJECT).getValue().trim();
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      throw new DatabaseImportException(
+          "Import rejected: the dump's info field '" + fieldName + "' carries a structured"
+              + " (non-scalar) value — no dump shape writes structured info fields; the dump"
+              + " is damaged or hand-edited");
+    }
+    return raw;
+  }
+
+  /** Strips one pair of surrounding double quotes from a raw token, if present. */
+  private static String stripSurroundingQuotes(String raw) {
+    if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {
+      return raw.substring(1, raw.length() - 1).trim();
+    }
+    return raw;
   }
 
   private void checkKnownInfoFieldIsString(String fieldName, String raw) {

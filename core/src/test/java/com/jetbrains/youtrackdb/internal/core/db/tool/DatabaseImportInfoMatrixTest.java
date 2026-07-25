@@ -310,6 +310,176 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
   }
 
   /**
+   * Review finding F4/TQ29 (ordering pin): a v16 dump that ALSO lacks its schema-version
+   * must produce the REDIRECT message — the `>= 16` dispatch fires ahead of every v15 arm,
+   * so no schema-version complaint (with its hardcoded supported-range wording) may surface
+   * for a dump this release cannot speak at all. Green at HEAD by construction; discriminates
+   * a reordering of the pre-flight arms.
+   */
+  @Test
+  public void v16RedirectFiresAheadOfSchemaVersionArms() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> {
+      ((ObjectNode) root.get("info")).put("exporter-version", 16);
+      ((ObjectNode) root.get("info")).remove("schema-version");
+    });
+
+    try (var target = createTargetDatabase("v16OrderingTarget")) {
+      target.getMetadata().getSchema().createClass("PreFlightMarker");
+
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("the v16 dump must be rejected", rejection);
+      assertRejectionMentions(rejection,
+          "up to exporter version " + DatabaseExport.EXPORTER_VERSION);
+      assertTargetUnmutated(target);
+    }
+  }
+
+  /**
+   * Review finding F1 (BG29=CS76; red-first): a hand-edited declared-LEGACY dump carrying
+   * the best-effort marker as a QUOTED string (`"best-effort": "true"`) must still arm the
+   * SR3 marker-keyed acknowledgment gate — the parent's quote-stripping parse refused it
+   * absent the ack flag, and the raw-token rework silently disarmed the gate (fail-open on
+   * exactly the hand-edited inputs SR3 rules must fail closed). RED at HEAD: imports
+   * silently.
+   */
+  @Test
+  public void quotedBestEffortMarkerStillArmsTheAckGateOnLegacyDumps() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> {
+      ((ObjectNode) root.get("info")).put("exporter-version", 14);
+      ((ObjectNode) root.get("info")).put("best-effort", "true");
+      root.remove("manifest");
+    });
+
+    try (var target = createTargetDatabase("quotedMarkerTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a quoted best-effort marker must still arm the ack gate", rejection);
+      assertRejectionMentions(rejection, "-acceptBestEffortDump=true");
+    }
+  }
+
+  /**
+   * Review finding F1's v15 companion (kept-as-is half): under v15 the QUOTED marker is a
+   * WI12b type violation — rejected naming the field — regardless of the gate.
+   */
+  @Test
+  public void quotedBestEffortMarkerIsATypeViolationOnV15() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> ((ObjectNode) root.get("info")).put("best-effort", "true"));
+
+    try (var target = createTargetDatabase("quotedMarkerV15Target")) {
+      target.getMetadata().getSchema().createClass("PreFlightMarker");
+
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a quoted v15 best-effort marker must be a type violation", rejection);
+      assertRejectionMentions(rejection, "'best-effort'");
+      assertTargetUnmutated(target);
+    }
+  }
+
+  /**
+   * Review finding F2 (BG30=CS78; red-first): a dump TRUNCATED inside its info section — the
+   * mid-write crash shape at the JSON level, valid gzip around it — must be rejected loudly.
+   * RED at HEAD: the guardless field loop spins forever on stale reader state (the test
+   * times out), growing the unknown-field list toward OOM.
+   */
+  @Test(timeout = 120_000)
+  public void truncatedInfoSectionIsRejectedNotHung() throws Exception {
+    var dump = dumpDirectory().resolve("truncated-info.json.gz");
+    gzipTo(dump, "{\"info\":{\"name\":\"x\",".getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("truncatedInfoTarget")) {
+      target.getMetadata().getSchema().createClass("PreFlightMarker");
+
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a dump truncated inside its info section must be rejected", rejection);
+      assertTrue("the pre-flight rejection must leave the target unmutated",
+          target.getMetadata().getSchema().existsClass("PreFlightMarker"));
+    }
+  }
+
+  /**
+   * Review finding F2's manifest companion (CS78; red-first): a v15 dump TRUNCATED inside
+   * its manifest section must be rejected loudly — the manifest field loop shared the
+   * guardless-loop shape. RED at HEAD: stale-read spin (timeout).
+   */
+  @Test(timeout = 120_000)
+  public void truncatedManifestSectionIsRejectedNotHung() throws Exception {
+    // JUnit's timeout runs the test body on a spawned thread; the DbTestBase session is
+    // bound to the main thread, so this test builds its own source database in-thread.
+    youTrackDB.create("manifestSrc", dbType, "admin", ADMIN_PASSWORD, "admin");
+    Path dump;
+    try (var source = youTrackDB.open("manifestSrc", "admin", ADMIN_PASSWORD)) {
+      source.getMetadata().getSchema().createClass("Matrix");
+      dump = dumpDirectory().resolve("dump.json.gz");
+      new DatabaseExport(source, dump.toString(), text -> {
+      }).exportDatabase();
+    }
+    var text = new String(gunzip(dump), StandardCharsets.UTF_8);
+    var cutAt = text.lastIndexOf("\"manifest\"");
+    assertTrue("the dump must carry a manifest section", cutAt > 0);
+    // keep the manifest tag and its opening brace plus one field, then cut — EOF mid-object
+    var openBrace = text.indexOf('{', cutAt);
+    var firstComma = text.indexOf(',', openBrace);
+    gzipTo(dump, text.substring(0, firstComma + 1).getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("truncatedManifestTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a dump truncated inside its manifest must be rejected", rejection);
+    }
+  }
+
+  /**
+   * Review finding F3 (CS75; red-first): an unknown info field with a JSON-OBJECT value,
+   * placed MID-SECTION, desynced the reader (the nested closing brace was misread as the
+   * info object's close), so the import passed pre-flight on a truncated capture, MUTATED
+   * the target, and rejected post-mutation — an SR1-boundary violation. The value read is
+   * now rejected at parse: pre-mutation, naming the field. RED at HEAD: the rejection is a
+   * misleading "unsupported tag" AFTER the preamble dropped the marker class.
+   */
+  @Test
+  public void objectValuedInfoFieldMidSectionIsRejectedPreMutation() throws Exception {
+    var dump = exportSmallDump();
+    var text = new String(gunzip(dump), StandardCharsets.UTF_8);
+    var tampered = text.replaceFirst("\"schemaRecordId\"",
+        "\"future-field\":\\{\"a\":1\\},\"schemaRecordId\"");
+    assertTrue("the splice must have applied", !tampered.equals(text));
+    gzipTo(dump, tampered.getBytes(StandardCharsets.UTF_8));
+
+    try (var target = createTargetDatabase("objectValueMidTarget")) {
+      target.getMetadata().getSchema().createClass("PreFlightMarker");
+
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("an object-valued info field must be rejected", rejection);
+      assertRejectionMentions(rejection, "'future-field'");
+      assertTargetUnmutated(target);
+    }
+  }
+
+  /**
+   * Review finding F3 (CS75's trailing shape; red-first): the SAME object-valued unknown
+   * field in TRAILING position was silently ACCEPTED at HEAD (the desync landed on the
+   * closing brace by luck). Under the recorded scalar-only rule it is rejected pre-mutation.
+   */
+  @Test
+  public void objectValuedTrailingInfoFieldIsRejected() throws Exception {
+    var dump = exportSmallDump();
+    // Jackson appends the new field LAST inside info — the trailing shape
+    mutateDump(dump, root -> ((ObjectNode) root.get("info")).putObject("future-field")
+        .put("a", 1));
+
+    try (var target = createTargetDatabase("objectValueTrailingTarget")) {
+      target.getMetadata().getSchema().createClass("PreFlightMarker");
+
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a trailing object-valued info field must be rejected", rejection);
+      assertRejectionMentions(rejection, "'future-field'");
+      assertTargetUnmutated(target);
+    }
+  }
+
+  /**
    * Design pin M.5 #14's lenient cell + FM-M12 (R1): a DECLARED-v14 dump is untouched by the
    * matrix — even an alien schema-version (99) rides the legacy lenient path unchanged.
    * Green at HEAD and green after the matrix lands (the pin proves the version gating).
@@ -436,10 +606,20 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
     for (var mandated : new String[] {
         // CS44/WI3: the export-exit-status gate and the fresh out-of-service target
         "exit status", "fresh", "out of service",
+        // WI60/WI61 (review-fix): the REAL invocation surface and the real observable —
+        // the programmatic tools, which signal failure by throwing
+        "DatabaseExport", "DatabaseImport", "without throwing",
         // SR1: any failure condemns the target; a condemned target carries no in-DB signal
         "condemned", "no in-database signal", "crash",
+        // WI62 (review-fix): the discard is bound to the drop surface
+        "drop(\"mydb\")",
         // the recorded exit-0 completeness phrasing (Step-5 gate carry-forward)
         "every dump entry was consumed and verified against the manifest",
+        // WC61/WC62 (review-fix): legacy dumps get NO structural verification; the
+        // schema-version rejection row is scoped to v15 dumps
+        "no structural verification", "supported range (v15 dumps)",
+        // WC63 (review-fix): only a KILLED/CRASHED export orphans temp files
+        "killed or crashed",
         // M2.b-4: the best-effort acknowledgment flag
         "-acceptBestEffortDump=true",
         // CN59: genesis-incomplete refusal guidance incl. the OSystem case
