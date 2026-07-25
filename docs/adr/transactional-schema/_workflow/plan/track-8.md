@@ -82,6 +82,11 @@ justification is in `## Interfaces and Dependencies`.
   authored + indexed + content-pinned; pin M.5 #12's literal DatabaseCompare letter recorded
   as blocked-by-import-semantics with a logical-equivalence rehearsal shipped instead — see
   Episodes; full-track IT run green)
+- [x] 2026-07-25T12:01Z [ctx=safe] Step 6 review-fix iteration 1 complete (commit 46b0446008;
+  baseline + crash-safety + docs reviews: 1 blocker (WI60 — the runbook's commands did not
+  exist; rewritten to the real programmatic surface), merged should-fix set F1(BG29=CS76)/
+  F2(BG30=CS78)/F3(CS75)/F4(TQ29)/F5(WI61)/F6(WC61)/F7(WC62)/F8(WC63)/F9(WI62) — all fixed;
+  suggestion-grade items (CQ29–32, TQ30–32, CS77, WI63/64, WS60/61) deferred — see Episodes)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -1375,6 +1380,94 @@ arms + this step's WI12a completion); WI12a/b; WC6 (the SR1-scoped "before mutat
 contract as implemented — every pre-flight rejection test asserts it); WI3 + CS44;
 FM-M10/M11/M12; the Step-5 carry-forwards (exit-0 caveat → doc; BG23/CQ26/CS66 → SR3; CQ24
 → resolved by ordering). Track 8's step plan is COMPLETE pending this step's review.
+
+### Step 6 review-fix iteration 1 — commit 46b0446008, 2026-07-25T12:01Z [ctx=safe]
+**What was done:** applied the three Step 6 review reports
+(`track-8/reviews/{baseline,crash-safety,docs}-step6-iter1.md`; 1 blocker, 8 merged
+should-fix) — code fixes F1–F3 red-first, ordering pin F4, the WI60 runbook rewrite, and
+doc corrections F5–F9 with the content-pin test kept in sync.
+
+**WI60 (BLOCKER) — the runbook's commands did not exist.** `EXPORT DATABASE`/`IMPORT
+DATABASE` exist nowhere in the product (no grammar token, no console command — the console
+is the Gremlin console — no server op, no CLI; the server exposes only binary `restore`).
+Investigated the real surface: the programmatic tools driven from a wrapper JVM —
+`YourTracks.instance(path)` → `YouTrackDBImpl.open(...)` → `DatabaseExport`/`DatabaseImport`
+— which signal every failure by THROWING. The page now carries copy-runnable snippets
+(export, create+import, drop), an honest note on the tools' internal-package status, and
+the wrapper-exit-status observable. No CLI invented or commissioned, per the fix ruling.
+
+**F1 (BG29=CS76) — quoted best-effort marker re-arms the gate.** Red-first:
+`quotedBestEffortMarkerStillArmsTheAckGateOnLegacyDumps` — RED at parent f2cebaa9c3 with
+`AssertionError: a quoted best-effort marker must still arm the ack gate` (a declared-v14
+dump hand-carrying `"best-effort": "true"` imported silently; the parent's `readBoolean`
+quote-stripped and refused it — a fail-open drift on exactly the inputs SR3 rules must
+fail closed). Fix: the marker parses from the quote-stripped token
+(`stripSurroundingQuotes`, the parent parity); the v15 WI12b type violation for the quoted
+form is kept as-is and now has its own pin (`quotedBestEffortMarkerIsATypeViolationOnV15`,
+green at parent by construction).
+
+**F2 (BG30=CS78) — EOF-bounded info/manifest field loops.** Red-first, two signatures:
+`truncatedInfoSectionIsRejectedNotHung` — RED with **`java.lang.OutOfMemoryError: Java
+heap space` in 34 s** (the guardless loop spun on stale reader state while
+`unknownInfoFields` grew unboundedly — the exact BG30 OOM shape, demonstrated live);
+`truncatedManifestSectionIsRejectedNotHung` — RED with `TestTimedOutException: test timed
+out after 120000 milliseconds` (the manifest loop's pure spin). Fix: both loops are
+bounded with `jsonReader.hasNext()` (the section loop's own pattern) plus loud post-loop
+truncation rejections ("the dump ends inside its info/manifest section"). Ungated by
+version, justified like the dangling-name guard: a mid-section-truncated dump of ANY
+version could never import — it hung — so acceptance is unchanged; the hang becomes a
+loud, pre-mutation (info) rejection. Test-harness note: `@Test(timeout)` runs the body on
+a spawned thread, so the manifest fixture builds its own source database in-thread (the
+DbTestBase session is main-thread-bound — `SessionNotActivatedException` otherwise).
+
+**F3 (CS75) — structured info-field values rejected at parse (recorded scalar-only
+rule).** Red-first, two shapes: `objectValuedInfoFieldMidSectionIsRejectedPreMutation` —
+RED (the rejection at parent was the desync's misleading `Invalid format. Found
+unsupported tag 'schemaRecordId'` AFTER the preamble dropped the marker class — the
+SR1-boundary violation live); `objectValuedTrailingInfoFieldIsRejected` — RED
+(`AssertionError: a trailing object-valued info field must be rejected` — the trailing
+shape imported silently by double-luck). Fix: `readInfoFieldRawValue` — now the single
+value-read path for ALL info arms including unknown fields — rejects a `'{'`/`'['`-led
+value pre-mutation, naming the field. **Chosen remedy recorded:** the scalar-only rule
+over a structure-aware skip — no dump shape any exporter has ever written carries
+structured info values, field-NAME tolerance (Q-M2(4)'s point) is untouched, and a
+hypothetical future structured-info exporter necessarily declares `>= 16` whose dumps are
+rejected fail-closed either way (with the non-scalar message instead of the redirect — the
+recorded trade against adding a new depth-correct JSONReader primitive). This also cleans
+CQ31's misleading-message shape as a side effect.
+
+**F4 (TQ29) — redirect-ordering pin.** `v16RedirectFiresAheadOfSchemaVersionArms` (v16
+dump ALSO missing schema-version → must get the redirect). **Discrimination proven:** with
+the redirect arm temporarily moved after the v15 block the pin fails — the v16 dump got
+`the dump does not declare a schema version … 6..6` instead of the redirect; restored,
+green. (Method note: the temp reorder was done via `git checkout` recovery of the file,
+which also reverted the uncommitted F1–F3 hunks — they were re-applied and the full suite
+re-run; the committed state was re-verified green end-to-end.)
+
+**Doc corrections (F5–F9, semantics-preserving for the four binding obligations):**
+WI61 — "exit status 0" bound to the real observable (wrapper process exit; tool returned
+WITHOUT THROWING); WC61 — the exit-0 meaning scoped: legacy dumps carry no manifest and
+receive NO structural verification (explicit migration caveat, folded into step 5 and the
+accept/reject table); WC62 — the schema-version rejection row scoped "(v15 dumps)";
+WC63 — step 2 corrected: only in-process failures clean the temp file, kill/crash leaves
+residue (cross-referenced); WI62 — discard bound to `manager.drop("mydb")` (CN54-exempted
+for genesis corpses; the OSystem case keeps directory deletion — no drop surface). The
+content-pin test grew new mandated fragments (real surface names, "without throwing",
+the drop binding, "no structural verification", "supported range (v15 dumps)", "killed or
+crashed") while keeping every previous pin verbatim.
+
+**Verification:** matrix 19/19 (+7 new tests) + hardening 21/21; targeted import/export
+battery → 153 green (4 pre-existing skips); `./mvnw -pl core,tests clean test` → BUILD
+SUCCESS (core 17534 — +7 — + 2219 sequential + 18 vmlens; tests 1300; 0 failures);
+coverage full reactor → BUILD SUCCESS; gate vs origin/develop → PASSED, 89.2% line
+(2689/3013), 82.0% branch (1214/1481); spotless clean. **ITs deliberately not re-run:**
+the production delta is rejection-path-only (quoted-marker parse, EOF bounds that fire
+only on dumps that previously HUNG, a non-scalar guard on values no dump shape writes)
+plus documentation — every valid-dump byte of the import path is identical to what Step
+6's full-track IT run (513 ITs green) verified the same day.
+
+**Deferred (recorded in the reports):** CQ29–32, TQ30–32, CS77, WI63/64, WS60/61
+(suggestion-grade). Step-5 residuals (CS64 justified-deferred, CS67–CS74) unchanged.
 
 ## Validation and Acceptance
 - A fresh database genesis builds the `OUser.name` index before any user insert; the
