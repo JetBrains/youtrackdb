@@ -145,13 +145,13 @@ pattern graph, cost-based planner, execution steps, and traversers —
 starting at
 [Chapter 1 — Why a Graph Database Has Its Own Query Engine](docs/yql-internals-book/chapters/01-why-a-graph-database.md).
 
-We develop YouTrackDB with the `pi` coding agent running our
-[ytdb-slate](https://github.com/JetBrains/ytdb-slate) extension, which
-implements Slate — a new agentic orchestration architecture where an
-orchestrator agent plans the work and delegates bounded tasks to worker
-threads. The extension also encodes this project's development
-workflow: track-based delivery, mandatory design and adversarial
-reviews before implementation, and the test and verification policy
-every change must satisfy. We strongly recommend that contributors
-use it — it is the fastest way to produce changes that match our
-conventions.
+We develop YouTrackDB with the [pi](https://github.com/earendil-works/pi)
+coding agent and strongly recommend you use it too. Our
+[ytdb-slate](https://github.com/JetBrains/ytdb-slate) extension —
+pinned in our pi settings, so a clone picks up the version we
+use — runs Slate, a new orchestration architecture from a
+Random Labs technical report: an orchestrator plans and
+delegates bounded tasks to worker threads, with mandatory
+design and adversarial reviews before implementation. Our own
+coding, test, and verification policy layers on top — see
+[docs-internal](docs-internal/README.md).
