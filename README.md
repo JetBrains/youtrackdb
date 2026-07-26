@@ -147,11 +147,10 @@ starting at
 
 We develop YouTrackDB with the [pi](https://github.com/earendil-works/pi)
 coding agent and strongly recommend you use it too. Our
-[ytdb-slate](https://github.com/JetBrains/ytdb-slate) extension —
-pinned in our pi settings, so a clone picks up the version we
-use — runs Slate, a new orchestration architecture from a
-Random Labs technical report: an orchestrator plans and
-delegates bounded tasks to worker threads, with mandatory
-design and adversarial reviews before implementation. Our own
-coding, test, and verification policy layers on top — see
-[docs-internal](docs-internal/README.md).
+[ytdb-slate](https://github.com/JetBrains/ytdb-slate) extension ships
+Slate, a new agentic orchestration architecture from a Random Labs
+technical report. An orchestrator plans while worker threads execute,
+under mandatory design and adversarial reviews before
+implementation. It is pinned in our pi settings, so a clone uses
+the version we do. Our own coding, test, and verification policy
+layers on top — see [docs-internal](docs-internal/README.md).
