@@ -144,3 +144,13 @@ compiles and runs MATCH/YQL queries — from SQL text through the parser,
 pattern graph, cost-based planner, execution steps, and traversers —
 starting at
 [Chapter 1 — Why a Graph Database Has Its Own Query Engine](docs/yql-internals-book/chapters/01-why-a-graph-database.md).
+
+We develop YouTrackDB with the [pi](https://github.com/earendil-works/pi)
+coding agent and strongly recommend you use it too. Our
+[ytdb-slate](https://github.com/JetBrains/ytdb-slate) extension ships
+Slate, a new agentic orchestration architecture from a Random Labs
+technical report. An orchestrator plans while worker threads execute,
+under mandatory design and adversarial reviews before
+implementation. It is pinned in our pi settings, so a clone uses
+the version we do. Our own coding, test, and verification policy
+layers on top — see [docs-internal](docs-internal/README.md).
