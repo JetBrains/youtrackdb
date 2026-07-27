@@ -11,8 +11,8 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 ## Progress
 - [x] Review + decomposition (1 iteration: iter1 PASS — Technical + Risk + Adversarial; 0 blockers)
 - [x] Step implementation
-- [x] Track-level code review (iter1 deeper FAIL → SF1/SF2 fixed; awaiting Approve)
-- [ ] Track completion
+- [x] Track-level code review (iter1 deeper FAIL → SF1/SF2 fixed; count-finalization cleanup reviewed)
+- [x] Track completion
 
 - [x] 2026-07-22T10:30Z [ctx=info] Review + decomposition complete (strategic trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter1; 7 steps, reconciled tag `high`)
 - [x] 2026-07-22T12:12Z [ctx=info] Step 1 complete (tip cf4698732d; WalkerContextResultShapingTest + GremlinToMatchStrategyTest + GremlinStepWalkerTest green)
@@ -25,6 +25,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T14:50Z [ctx=info] Step 7 complete (tip 985a14e1e8; boundary MAP/SINGLE_VALUE/SCALAR + ProjectionEquivalenceTest green)
 - [x] 2026-07-22T15:55Z [ctx=info] Phase C shallow PASS withdrawn (tip 1d17dc04eb)
 - [x] 2026-07-22 [ctx=info] Phase C deeper re-audit found SF1/SF2; named/by dedup fix + regression tests green
+- [x] 2026-07-27T12:24Z [ctx=info] Count finalization: dropped uncommitted WIP cruft (dead `emitZeroOnEmpty`, thin `ClassCountExecutor`, single-use `MatchBareCountRequest`); `CountFromClassStep` resolves its class by name on the runtime session; `GraphCountStrategyTest` asserts `YTDBMatchPlanStep`. 207 count tests green across YQL/GQL/Gremlin (`CountFromClassStepTest`, `CountFromIndexWithKeyStepTest`, `SQLFunctionCountTest`, `MatchStatementExecutionTest`, `GraphCountStrategyTest`, `ProjectionEquivalenceTest`, `GremlinAggregateRecogniserTest`, `MatchProjectionBuilderTest`).
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -45,6 +46,8 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - 2026-07-22 (post-Step 7, Parameter-binding reconciliation): **As-built wins over frozen `design.md` §Parameter binding on three points; sync into `design-final` / design prose in Phase 4, do not reverse the code or edit frozen `design.md` in Phase 3.** (1) RID-bearing walks (`g.V(id)` / `hasId`) inline RIDs via `MatchLiteralBuilder.toLiteral` and **bypass** `GremlinPlanCache` (`markRidBearing`) — they are not positional `?` “out of the key”. (2) The cache key is a hand-built post-walk `MatchPlanInputs` fingerprint, not “normalised traversal bytecode”. (3) `toLiteral` remains for RIDs and the null-`ParamSink` test path; production predicate values use `bindParam`. `bindParam` does not type-switch/`Supplier`-decline today — optional hardening deferred.
 - 2026-07-22 (Phase C deeper): **Named / modulated `dedup` must not rewrite RETURN under `ELEMENT`.** Accept only anonymous `dedup()` and named labels that all resolve to the current boundary alias (`returnDistinct` only). Decline `by(...)` and prior-hop named labels to native — MATCH `DISTINCT` cannot express unique-by-key / emit-current.
 - 2026-07-27 (post-Step 6, aggregate IR cleanup): **Aggregate RETURN expressions should be built as AST, not reparsed from SQL text.** `GremlinAggregateAssembler` now routes `count(*)`, `list($currentMatch)`, and property aggregates through `MatchProjectionBuilder` / `ProjectionExpressionFactories` so Gremlin stays on the translator's IR-first path and shares one projection-construction surface with other MATCH front-ends.
+- 2026-07-27 (count finalization): **`count()` is unified on one engine step across all three front-ends, and the empty-input path needs no boundary flag.** YQL `SELECT count(*)`, GQL `MATCH … RETURN count(*)`, and Gremlin `g.V()/g.E()[.hasLabel(l)].count()` all converge on `HardwiredCountOptimizations` → `CountFromClassStep` → `session.countClass(name, polymorphic)` (Gremlin and GQL share `MatchExecutionPlanner`). `CountFromClassStep` now stores `(className, polymorphic)` and resolves on the runtime session so a `GremlinPlanCache`-cached count plan is not tied to a schema object captured at plan-build time (design §"Cost and semantics"). Three WIP additions were dropped as unjustified: (1) `emitZeroOnEmpty` — MATCH `RETURN count(*)` over zero matches already emits a `0`-row (verified: `count_empty_emitsZero` passes at HEAD without it), so an aggregate-without-`GROUP BY` SCALAR stream is never empty; (2) `ClassCountExecutor` — a one-line wrapper over the existing `session.countClass` primitive that also inverted the layering (native `YTDBClassCountStep` reaching into `sql.executor`); (3) `MatchBareCountRequest` — a single-use 3-field record inlined as method parameters.
+- 2026-07-27 (count, design reconciliation for Phase 4): **Two frozen-`design.md` claims are inaccurate as-built; sync in `design-final`, do not edit frozen `design.md` in Phase 3.** (1) §"Empty input" (design.md:1799-1805) is right that MATCH `count` of empty returns a `0`-row, but the surrounding text implies `dropNullRows` is what closes the count gap; count keeps `dropNullRows = false` and relies on MATCH's native `0`-row, so no count-specific empty-input handling exists or is needed. (2) §"Plan cache is unaffected" (design.md:1778-1781) says a MATCH plan ending in `CountFromClassStep` is not cached because `canBeCached()` is false; that holds for the YQL/SQL `YqlExecutionPlanCache`, but `GremlinPlanCache` does not consult `canBeCached()` and does cache the translated count plan. It is safe: the count value is recomputed per execution and the step resolves its class by name on the runtime session. One deliberate Phase-1 asymmetry remains: the indexed-equality count fast path (`CountFromIndexWithKeyStep`) fires only for YQL `SELECT`; filtered GQL/Gremlin counts run the generic aggregate (design §"Non-fast-path counts").
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -199,6 +202,19 @@ Two semantic hazards dominate this track:
 - `ProjectionEquivalenceTest.java`
 
 **Critical context:** Track 6 step implementation is complete; next is track-level code review + track completion checkboxes.
+
+### Count finalization — 2026-07-27T12:24Z [ctx=info]
+**What was done:** Finalized `count()` as one shared engine step across all three front-ends and removed the uncommitted WIP that had accreted around it. YQL `SELECT count(*)`, GQL `MATCH … RETURN count(*)`, and Gremlin `g.V()/g.E()[.hasLabel(l)].count()` all converge on `HardwiredCountOptimizations` → `CountFromClassStep` → `session.countClass(name, polymorphic)` (Gremlin and GQL share `MatchExecutionPlanner`). `CountFromClassStep` now stores `(className, polymorphic)` and resolves on the runtime session; `HardwiredCountOptimizations` exposes one by-name `tryMatchCountFromClass`; `MatchExecutionPlanner` calls it directly; `GraphCountStrategyTest` asserts `YTDBMatchPlanStep` (the pre-translator `YTDBClassCountStep` assertions failed at HEAD because count already routes through the translator).
+
+**What was discovered:** MATCH `RETURN count(*)` over zero matches already emits a `0`-row — an aggregate-without-`GROUP BY` SCALAR stream is never empty — so the WIP's `emitZeroOnEmpty` boundary flag never fired (verified: `count_empty_emitsZero` passes at HEAD without it). `GremlinPlanCache` does cache the translated count plan (it does not consult `CountFromClassStep.canBeCached()`), which is safe because the count is recomputed per execution and the step now resolves its class by name.
+
+**What changed from plan:** Dropped three WIP additions as unjustified — `emitZeroOnEmpty` (dead), `ClassCountExecutor` (one-line wrapper over `session.countClass` that inverted the layering), and `MatchBareCountRequest` (single-use 3-field record). Net diff shrank from 13 modified + 2 new files to 4. Two design-vs-as-built reconciliation notes recorded in the Decision Log for Phase 4 (empty-input mechanism; plan-cache caching of the count plan).
+
+**Key files:**
+- `CountFromClassStep.java`, `HardwiredCountOptimizations.java`, `MatchExecutionPlanner.java`
+- `GraphCountStrategyTest.java`
+
+**Critical context:** Count is unified; the one deliberate Phase-1 asymmetry is that the indexed-equality count fast path (`CountFromIndexWithKeyStep`) fires only for YQL `SELECT` — filtered GQL/Gremlin counts run the generic aggregate (design §"Non-fast-path counts"). Not a regression: the pre-translator Gremlin filtered count enumerated index-matched records too.
 
 ## Validation and Acceptance
 - `select` / `values` / `valueMap` / `elementMap` / `project` translate and match native multisets, with the correct boundary output type per terminal step.
