@@ -421,7 +421,7 @@ hidden.
 - D-records: D1 (storage reconciles committed metadata at commit), D2
   (provisional ids, both producer sites), D3 (structure strictly before
   use; the lock-free commit-window read substrate), D6 (delta from existing
-  change tracking, completed by choke-point marking), D9 (diff over
+  change tracking through the three marking channels), D9 (diff over
   collection ids, not class names), D10 (structural revertibility rides the
   atomic-operation WAL; lazy-consult replay; create-side cache revert)
 - Invariants: a structural change is atomic with its commit and free to

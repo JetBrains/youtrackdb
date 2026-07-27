@@ -257,3 +257,17 @@ this harness); cross-artifact residue greps all clean.
 **Findings**: none remaining.
 
 **Iterations**: 1 of 3 (PASS)
+
+## Mutation 8 — 2026-07-27 — content-edit (design-final.md)
+
+**Diff summary**: One-line cosmetic fix from the final freeze gate: the D6 footer gloss in
+the reconciliation section still echoed the superseded single-channel framing ("completed by
+choke-point marking"); reworded to "through the three marking channels" to match the section
+body and the sibling adr.md record.
+
+**Mechanical checks** (target=design): PASS
+**Cold-read** (scope: bounded — footer gloss only): performed inline by the fixing thread.
+
+**Findings**: none.
+
+**Iterations**: 1 of 3 (PASS)
