@@ -21,6 +21,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - [x] 2026-07-22T12:56Z [ctx=info] Step 4 complete (tip bd45c5a6b6; ByModulatorTranslatorTest + GremlinProjectionRecogniserTest + DedupGlobalStepRecogniserTest green)
 - [x] 2026-07-22T13:20Z [ctx=info] Step 5 complete (tip 6ea1e4fb7d; OrderRangeStepRecogniserTest + GremlinStepWalkerTest green)
 - [x] 2026-07-22T13:51Z [ctx=info] Step 6 complete (tip b660e7527e; GremlinAggregateRecogniserTest + GremlinStepWalkerTest + smoke green)
+- [x] 2026-07-27T12:15Z [ctx=info] Step 6b complete (tip ecb16e3ea9; MatchProjectionBuilderTest + GremlinAggregateRecogniserTest green)
 - [x] 2026-07-22T14:50Z [ctx=info] Step 7 complete (tip 985a14e1e8; boundary MAP/SINGLE_VALUE/SCALAR + ProjectionEquivalenceTest green)
 - [x] 2026-07-22T15:55Z [ctx=info] Phase C shallow PASS withdrawn (tip 1d17dc04eb)
 - [x] 2026-07-22 [ctx=info] Phase C deeper re-audit found SF1/SF2; named/by dedup fix + regression tests green
@@ -43,6 +44,7 @@ Merges the four result-producing step families. Adds `as(label)` propagation and
 - 2026-07-22 (post-Step 7, cache congruence): **`GremlinPlanFingerprint` must include result-shaping clauses (`groupBy` / `orderBy` / `limit` / `skip` / `returnDistinct`).** Limit/skip must use `toString` (not `toGenericStatement`) — `SQLNumber` collapses every integer to `?`, which would still collide `limit(2)` with `limit(5)`. Group/order keep `toGenericStatement` (property names / directions). Extends the Track 5 “full post-walk `MatchPlanInputs`” rule past the projection-only sections Step 5 shipped.
 - 2026-07-22 (post-Step 7, Parameter-binding reconciliation): **As-built wins over frozen `design.md` §Parameter binding on three points; sync into `design-final` / design prose in Phase 4, do not reverse the code or edit frozen `design.md` in Phase 3.** (1) RID-bearing walks (`g.V(id)` / `hasId`) inline RIDs via `MatchLiteralBuilder.toLiteral` and **bypass** `GremlinPlanCache` (`markRidBearing`) — they are not positional `?` “out of the key”. (2) The cache key is a hand-built post-walk `MatchPlanInputs` fingerprint, not “normalised traversal bytecode”. (3) `toLiteral` remains for RIDs and the null-`ParamSink` test path; production predicate values use `bindParam`. `bindParam` does not type-switch/`Supplier`-decline today — optional hardening deferred.
 - 2026-07-22 (Phase C deeper): **Named / modulated `dedup` must not rewrite RETURN under `ELEMENT`.** Accept only anonymous `dedup()` and named labels that all resolve to the current boundary alias (`returnDistinct` only). Decline `by(...)` and prior-hop named labels to native — MATCH `DISTINCT` cannot express unique-by-key / emit-current.
+- 2026-07-27 (post-Step 6, aggregate IR cleanup): **Aggregate RETURN expressions should be built as AST, not reparsed from SQL text.** `GremlinAggregateAssembler` now routes `count(*)`, `list($currentMatch)`, and property aggregates through `MatchProjectionBuilder` / `ProjectionExpressionFactories` so Gremlin stays on the translator's IR-first path and shares one projection-construction surface with other MATCH front-ends.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -172,7 +174,7 @@ Two semantic hazards dominate this track:
 - `HardwiredCountOptimizations.java`, `SelectExecutionPlanner.java`, `MatchExecutionPlanner.java`
 - `GremlinAggregateRecogniserTest.java`
 
-**Critical context:** Step 7 completes `YTDBMatchPlanStep` MAP/SINGLE_VALUE/SCALAR projection and parity tests (including empty-input aggregates and absent-vs-null).
+**Critical context:** Step 7 completes `YTDBMatchPlanStep` MAP/SINGLE_VALUE/SCALAR projection and parity tests (including empty-input aggregates and absent-vs-null). Step 6b later removes the temporary SQL-text aggregate parsing helper without changing those semantics.
 
 ### Step 6b — 2026-07-27 [ctx=info]
 **What was done:** Refactored Gremlin aggregate projection building to avoid SQL-text parsing round-trips. Introduced `MatchProjectionBuilder` (MATCH `RETURN` projection factories) and `ProjectionExpressionFactories` (parser-level AST factories), removed `parseAggregate(String)` from `GremlinAggregateAssembler`, and added `MatchProjectionBuilderTest` to pin the constructed AST shapes for `count(*)`, `list($currentMatch)`, and property aggregates (e.g. `mean(age)`).
