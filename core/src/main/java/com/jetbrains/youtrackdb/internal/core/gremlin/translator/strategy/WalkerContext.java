@@ -342,6 +342,11 @@ final class WalkerContext implements RecognitionContext {
     return skip;
   }
 
+  @Override
+  public boolean returnDistinct() {
+    return returnDistinct;
+  }
+
   // --- RecognitionContext: schema-aware type gating ---------------------------------------------
 
   @Override

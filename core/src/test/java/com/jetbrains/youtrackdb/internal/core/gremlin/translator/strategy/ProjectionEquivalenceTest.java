@@ -32,6 +32,18 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Per-scenario cardinality opt-in for the anti-vacuity guard. A seeded {@code RECOGNIZED} case
+   * must return rows ({@link #NON_EMPTY}) or the translator-on / translator-off multiset equality
+   * holds vacuously over two empty lists and verifies nothing. Empty-by-design cases (empty-input
+   * {@code sum}/{@code min}/{@code max}/{@code mean}, which drop the null aggregate row) opt out
+   * with {@link #MAY_BE_EMPTY}. This is deliberately not a blanket {@code isNotEmpty}: the suite
+   * hosts empty-result {@code RECOGNIZED} cases on purpose.
+   */
+  private enum Cardinality {
+    NON_EMPTY, MAY_BE_EMPTY
+  }
+
+  /**
    * Absent vs present-null for {@code valueMap}: native and translated both omit absent keys and
    * include present-null as {@code [null]}.
    */
@@ -109,10 +121,12 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.tx().commit();
 
-    // Zero matched vertices → SQL aggregate null cell → dropNullRows drops the row.
+    // Zero matched vertices → SQL aggregate null cell → dropNullRows drops the row. Empty by design,
+    // so it opts out of the non-empty guard.
     assertEquivalent(
         "g.V().has(name, nobody).values(age).sum()",
         Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().has("name", "nobody").values("age").sum());
   }
 
@@ -335,23 +349,166 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().as("a").out("knows").as("b").dedup("a"));
   }
 
+  // ---------------------------------------------------------------------------
+  // B1 — a reducing / grouping terminator after a captured limit / skip / dedup
+  // now declines to native (MATCH applies SKIP / LIMIT / DISTINCT after the
+  // aggregate, Gremlin before it). Each case asserts the decline (no boundary
+  // step, on/off parity) and the hand-computed native answer, so the parity is
+  // not vacuous.
+  // ---------------------------------------------------------------------------
+
+  /** {@code limit(5).count()} declines to native; native counts the first 5 of 8 vertices. */
+  @Test
+  public void limit5Count_declinesToNative() {
+    seedPeople(8);
+    assertEquivalent(
+        "g.V().limit(5).count()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().limit(5).count());
+    assertThat(graph.traversal().V().limit(5).count().next()).isEqualTo(5L);
+  }
+
+  /** {@code skip(2).count()} declines to native; native counts the 6 remaining of 8 vertices. */
+  @Test
+  public void skip2Count_declinesToNative() {
+    seedPeople(8);
+    assertEquivalent(
+        "g.V().skip(2).count()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().skip(2).count());
+    assertThat(graph.traversal().V().skip(2).count().next()).isEqualTo(6L);
+  }
+
+  /** {@code range(1,3).count()} declines to native; native counts the 2 vertices in {@code [1,3)}. */
+  @Test
+  public void range1to3Count_declinesToNative() {
+    seedPeople(8);
+    assertEquivalent(
+        "g.V().range(1,3).count()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().range(1, 3).count());
+    assertThat(graph.traversal().V().range(1, 3).count().next()).isEqualTo(2L);
+  }
+
+  /**
+   * {@code out(knows).dedup().count()} declines to native. A parallel edge makes Bob reachable
+   * twice, so {@code out} yields {Bob, Bob, Carol}; native dedups to {Bob, Carol} before counting
+   * (2). A mistranslation to {@code RETURN DISTINCT count(*)} would count the duplicates (3).
+   */
+  @Test
+  public void outDedupCount_declinesToNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("knows", bob); // parallel edge → Bob reached twice by out()
+    alice.addEdge("knows", carol);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().out(knows).dedup().count()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().out("knows").dedup().count());
+    assertThat(graph.traversal().V().out("knows").dedup().count().next()).isEqualTo(2L);
+  }
+
+  /**
+   * {@code limit(2).values(age).mean()} declines to native. All four ages are 30, so the mean is a
+   * deterministic {@code 30.0} regardless of which two vertices the limit picks.
+   */
+  @Test
+  public void limit2ValuesMean_declinesToNative() {
+    for (var i = 0; i < 4; i++) {
+      graph.addVertex(T.label, "Person", "name", "P" + i, "age", 30);
+    }
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().limit(2).values(age).mean()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().limit(2).values("age").mean());
+    assertThat(graph.traversal().V().limit(2).values("age").mean().next()).isEqualTo(30.0);
+  }
+
+  // ---------------------------------------------------------------------------
+  // TC1 / TC2 — empty-input aggregate and group parity.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * TC1: empty-input {@code min()}/{@code max()}/{@code mean()} emit no traverser on both paths
+   * ({@code dropNullRows}), matching native — the companions to the already-covered empty {@code
+   * sum()}. Empty by design, so they opt out of the non-empty guard.
+   */
+  @Test
+  public void emptyInputMinMaxMean_emitNothing() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    assertEquivalent("g.V().has(name, nobody).values(age).min()", Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().has("name", "nobody").values("age").min());
+    assertEquivalent("g.V().has(name, nobody).values(age).max()", Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().has("name", "nobody").values("age").max());
+    assertEquivalent("g.V().has(name, nobody).values(age).mean()", Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().has("name", "nobody").values("age").mean());
+  }
+
+  /**
+   * TC2: empty-input {@code group().by(name)} / {@code groupCount().by(name)} emit a single empty
+   * map {@code [{}]} on both paths (the accumulate-map drain of zero GROUP BY rows), matching
+   * native. The single empty map is a non-empty result, so these keep the default non-empty guard.
+   */
+  @Test
+  public void emptyInputGroup_emitsSingleEmptyMap() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().has(name, nobody).group().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "nobody").group().by("name"));
+    assertEquivalent(
+        "g.V().has(name, nobody).groupCount().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "nobody").groupCount().by("name"));
+  }
+
+  /** Seeds {@code count} Person vertices with distinct names and ages for the B1 cardinality cases. */
+  private void seedPeople(int count) {
+    for (var i = 0; i < count; i++) {
+      graph.addVertex(T.label, "Person", "name", "P" + i, "age", 20 + i);
+    }
+    graph.tx().commit();
+  }
+
   private void assertEquivalent(
       String scenario,
       Recognition expected,
       Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    assertEquivalentInternal(scenario, expected, traversalSupplier, false);
+    assertEquivalentInternal(scenario, expected, Cardinality.NON_EMPTY, traversalSupplier, false);
+  }
+
+  private void assertEquivalent(
+      String scenario,
+      Recognition expected,
+      Cardinality cardinality,
+      Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    assertEquivalentInternal(scenario, expected, cardinality, traversalSupplier, false);
   }
 
   private void assertEquivalentOrdered(
       String scenario,
       Recognition expected,
       Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    assertEquivalentInternal(scenario, expected, traversalSupplier, true);
+    assertEquivalentInternal(scenario, expected, Cardinality.NON_EMPTY, traversalSupplier, true);
   }
 
   private void assertEquivalentInternal(
       String scenario,
       Recognition expected,
+      Cardinality cardinality,
       Supplier<GraphTraversal<?, ?>> traversalSupplier,
       boolean ordered) {
     var original =
@@ -375,6 +532,15 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must engage exactly one boundary step")
             .isEqualTo(1);
+        // Anti-vacuity guard (opt-in): a NON_EMPTY RECOGNIZED fixture must return rows, or the
+        // multiset equality below is vacuous over two empty lists (a seed regression that persisted
+        // nothing would go green while verifying nothing). Empty-by-design cases pass MAY_BE_EMPTY.
+        if (cardinality == Cardinality.NON_EMPTY) {
+          assertThat(onPayload)
+              .as(scenario + ": a NON_EMPTY RECOGNIZED fixture must return rows "
+                  + "(else the multiset equality below is vacuous)")
+              .isNotEmpty();
+        }
       } else {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must decline — no boundary step")

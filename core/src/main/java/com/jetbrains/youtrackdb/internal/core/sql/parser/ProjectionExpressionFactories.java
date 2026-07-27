@@ -8,6 +8,13 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
  */
 public final class ProjectionExpressionFactories {
 
+  /** The MATCH context variable that binds the current row's matched aliases. */
+  private static final String MATCHED_VARIABLE = "$matched";
+
+  /** Record-attribute namespace prefix ({@code @rid} / {@code @class}) — a segment starting with
+   *  this is a record attribute rather than a plain property. */
+  private static final String RECORD_ATTRIBUTE_PREFIX = "@";
+
   private ProjectionExpressionFactories() {
     // Static helper — no instances.
   }
@@ -107,6 +114,37 @@ public final class ProjectionExpressionFactories {
     requireNonBlank(alias, "alias");
     requireNonBlank(attribute, "record attribute");
     return new SQLExpression(new SQLIdentifier(alias), recordAttributeModifier(attribute));
+  }
+
+  /**
+   * {@code $matched.alias.seg1.seg2…} — the cross-alias accessor MATCH uses for {@code
+   * where(P.eq("label"))} label references. The base is the {@code $matched} context variable; the
+   * alias and each following segment chain as modifiers — a record attribute ({@code @rid} /
+   * {@code @class}) when the segment starts with {@code @}, a plain property otherwise. Built as AST
+   * (the modifier chain is assembled directly), so a Gremlin-supplied alias or segment can never be
+   * re-tokenized into extra syntax — the previous form concatenated them into a {@code SELECT}
+   * string and reparsed it.
+   */
+  public static SQLExpression matchedVariable(String alias, String... segments) {
+    requireNonBlank(alias, "alias");
+    if (segments == null || segments.length == 0) {
+      throw new IllegalArgumentException("matched access requires at least one segment");
+    }
+    var first = segmentModifier(alias);
+    var tail = first;
+    for (var segment : segments) {
+      requireNonBlank(segment, "segment");
+      var modifier = segmentModifier(segment);
+      tail.next = modifier;
+      tail = modifier;
+    }
+    return new SQLExpression(new SQLIdentifier(MATCHED_VARIABLE), first);
+  }
+
+  private static SQLModifier segmentModifier(String segment) {
+    return segment.startsWith(RECORD_ATTRIBUTE_PREFIX)
+        ? recordAttributeModifier(segment)
+        : propertyModifier(segment);
   }
 
   // --- ORDER BY items (built as AST) ------------------------------------------------------------

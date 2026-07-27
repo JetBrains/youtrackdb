@@ -26,10 +26,17 @@ public class MatchProjectionBuilderTest {
         MatchProjectionBuilder.listCurrentMatch(), "list($currentMatch)");
   }
 
+  /**
+   * The Gremlin translator maps {@code mean()} to the SQL aggregate {@code avg} (there is no {@code
+   * mean} SQL function — see {@code PropertyAggregateStepRecogniser}), so {@code avg(age)} is the
+   * shape production actually emits for a property mean. Pin the builder's {@code avg} output
+   * against the parser-emitted {@code avg(age)} AST; a raw {@code mean(...)} projection is never
+   * produced by the pipeline and would fail plan-build, so it is not worth pinning.
+   */
   @Test
-  public void propertyAggregate_mean_matchesParserShape() {
+  public void propertyAggregate_avg_matchesParserShape() {
     assertSameProjectionShape(
-        MatchProjectionBuilder.propertyAggregate("mean", "age"), "mean(age)");
+        MatchProjectionBuilder.propertyAggregate("avg", "age"), "avg(age)");
   }
 
   private static void assertSameProjectionShape(

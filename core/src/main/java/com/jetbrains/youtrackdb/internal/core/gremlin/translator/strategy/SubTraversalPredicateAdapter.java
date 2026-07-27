@@ -209,6 +209,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public boolean returnDistinct() {
+    return parent.returnDistinct();
+  }
+
+  @Override
   public boolean isDeclaredStringProperty(@Nullable String className, String propertyKey) {
     return parent.isDeclaredStringProperty(className, propertyKey);
   }

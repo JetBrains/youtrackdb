@@ -109,13 +109,33 @@ final class GremlinStepWalker {
       Set.of(NoOpBarrierStep.class, WhereStartStep.class, WhereEndStep.class);
 
   /**
-   * Production recogniser registry, keyed on the exact step class. {@link StartStepRecogniser} claims
-   * the vertex source under {@link GraphStep}; {@link VertexStepRecogniser} owns {@link VertexStep}
-   * and {@link VertexStepPlaceholder} (the latter appears on combinator child sub-traversals after
-   * {@code AdjacentToIncidentStrategy} runs recursively during {@code applyStrategies()}) and routes
-   * on {@code returnsEdge()} — a folded bare hop to {@link VertexHopRecogniser}, an edge-returning
-   * {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}, a combinator sub-walk singleton
-   * edge-returning hop to {@link CombinatorFoldedHopRecogniser}. {@link HasStepRecogniser}
+   * Production recogniser registry, keyed on the exact step class. Dispatch is O(1) on the step's
+   * runtime class, and a step whose class is not a key declines the whole traversal (all-or-nothing),
+   * so an unregistered or unexpected subclass fails safe to the native pipeline rather than being
+   * misrouted. The registered families:
+   *
+   * <ul>
+   *   <li><b>Source</b> — {@link StartStepRecogniser} claims the vertex source under {@link
+   *       GraphStep}.
+   *   <li><b>Traversal</b> — {@link VertexStepRecogniser} owns {@link VertexStep} and {@link
+   *       VertexStepPlaceholder} (the latter appears on combinator child sub-traversals after {@code
+   *       AdjacentToIncidentStrategy} runs recursively during {@code applyStrategies()}) and routes on
+   *       {@code returnsEdge()}: a folded bare hop to {@link VertexHopRecogniser}, an edge-returning
+   *       {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}, and a combinator sub-walk
+   *       singleton edge-returning hop to {@link CombinatorFoldedHopRecogniser}.
+   *   <li><b>Filter</b> — {@link HasStepRecogniser} ({@link HasStep}), {@link
+   *       TraversalFilterStepRecogniser} ({@link TraversalFilterStep}), the connectives {@link
+   *       AndStepRecogniser} / {@link OrStepRecogniser} / {@link NotStepRecogniser}, and {@link
+   *       WhereTraversalStepRecogniser} / {@link WherePredicateStepRecogniser}.
+   *   <li><b>Result shaping</b> — {@link DedupGlobalStepRecogniser}; the projections {@link
+   *       PropertiesStepRecogniser} / {@link PropertyMapStepRecogniser} / {@link
+   *       ElementMapStepRecogniser} / {@link SelectOneStepRecogniser} / {@link SelectStepRecogniser} /
+   *       {@link ProjectStepRecogniser}; and pagination {@link OrderGlobalStepRecogniser} / {@link
+   *       RangeGlobalStepRecogniser} ({@link RangeGlobalStep} and {@link RangeGlobalStepPlaceholder}).
+   *   <li><b>Aggregate</b> — {@link CountGlobalStepRecogniser}; {@link PropertyAggregateStepRecogniser}
+   *       for {@code sum} / {@code min} / {@code max} / {@code mean}; and {@link GroupStepRecogniser} /
+   *       {@link GroupCountStepRecogniser}.
+   * </ul>
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
       Map.ofEntries(

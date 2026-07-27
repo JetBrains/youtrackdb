@@ -11,8 +11,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.Mutating;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.LabelStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MaxGlobalStep;
@@ -20,6 +23,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.MeanGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MinGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SumGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectStep;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -223,15 +227,21 @@ public final class ByModulatorTranslator {
         && step.getPropertyKeys().length == 1;
   }
 
+  /**
+   * Fast-path reject for a value-side modulator that steps into the graph, produces a new source, or
+   * mutates — only pure value / token / property accumulators translate. Matches concrete TinkerPop
+   * step supertypes rather than simple-name substrings, which over-matched any future class embedding
+   * those tokens. Defence-in-depth: the shape switch in {@link #translateValueModulator} is the
+   * authoritative gate (it accepts only the four accumulator shapes), so this pre-check never changes
+   * the accepted set — it only short-circuits an obviously non-accumulator modulator early.
+   */
   private static boolean containsSideEffectOrEdge(List<?> steps) {
     for (var step : steps) {
-      if (step instanceof SideEffectStep) {
-        return true;
-      }
-      var className = step.getClass().getSimpleName();
-      if (className.contains("VertexStep")
-          || className.contains("EdgeStep")
-          || className.contains("GraphStep")) {
+      if (step instanceof SideEffectStep
+          || step instanceof Mutating
+          || step instanceof GraphStep
+          || step instanceof VertexStep
+          || step instanceof EdgeVertexStep) {
         return true;
       }
     }

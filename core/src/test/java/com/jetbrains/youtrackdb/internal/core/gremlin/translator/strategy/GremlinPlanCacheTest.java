@@ -7,6 +7,11 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -160,6 +165,63 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(fingerprint(count)).isNotEqualTo(fingerprint(groupCount));
   }
 
+  // ---------------------------------------------------------------------------
+  // SF2 / TC4 — the fingerprint discriminates result-shaping variants, and a user
+  // identifier embedding fingerprint delimiter chars ([ ] : ; ->) cannot forge
+  // another walk's key. GremlinPlanFingerprint length-prefixes every
+  // variable-length token, so no combination of user strings can collide.
+  // ---------------------------------------------------------------------------
+
+  /** {@code order().by("name", asc)} and {@code .desc} occupy distinct fingerprints (direction). */
+  @Test
+  public void orderAscVsDesc_distinctFingerprints() {
+    var asc = walk(() -> graph.traversal().V().order().by("name", Order.asc));
+    var desc = walk(() -> graph.traversal().V().order().by("name", Order.desc));
+    assertThat(fingerprint(asc)).isNotEqualTo(fingerprint(desc));
+  }
+
+  /** {@code order().by("name")} and {@code order().by("age")} differ (order key property). */
+  @Test
+  public void orderByDifferentKeys_distinctFingerprints() {
+    var byName = walk(() -> graph.traversal().V().order().by("name"));
+    var byAge = walk(() -> graph.traversal().V().order().by("age"));
+    assertThat(fingerprint(byName)).isNotEqualTo(fingerprint(byAge));
+  }
+
+  /** {@code group().by("name")} and {@code group().by("age")} differ (group key property). */
+  @Test
+  public void groupByDifferentKeys_distinctFingerprints() {
+    var byName = walk(() -> graph.traversal().V().group().by("name"));
+    var byAge = walk(() -> graph.traversal().V().group().by("age"));
+    assertThat(fingerprint(byName)).isNotEqualTo(fingerprint(byAge));
+  }
+
+  /**
+   * SF2 injection guard: a single {@code has()} key {@code "a]b:c"} that embeds the fingerprint's
+   * delimiter characters must not share a fingerprint with the two-key split {@code has("a").has(
+   * "b:c")}. Length-prefixing makes each token self-delimiting, so the delimiters inside the crafted
+   * key cannot merge/split the encoding into the split shape's key. A raw delimiter concatenation
+   * (the pre-SF2 form) is exactly the collision this pins against.
+   */
+  @Test
+  public void craftedHasKeyWithDelimiters_distinctFromSplitKeys() {
+    var crafted = walk(() -> graph.traversal().V().has("a]b:c", P.eq(1)));
+    var split = walk(() -> graph.traversal().V().has("a", P.eq(1)).has("b:c", P.eq(1)));
+    assertThat(fingerprint(crafted)).isNotEqualTo(fingerprint(split));
+  }
+
+  /**
+   * SF2 injection guard on the RETURN projection: a {@code values("x]")} key embedding a delimiter
+   * must not collide with the plain {@code values("x")} key. The trailing {@code ]} is carried
+   * verbatim inside a length-prefixed token, so it cannot forge the plain key's encoding.
+   */
+  @Test
+  public void craftedValuesKeyWithDelimiter_distinctFromPlainKey() {
+    var crafted = walk(() -> graph.traversal().V().values("x]"));
+    var plain = walk(() -> graph.traversal().V().values("x"));
+    assertThat(fingerprint(crafted)).isNotEqualTo(fingerprint(plain));
+  }
+
   /** Schema listener invalidates the cache; no live schema mutation required. */
   @Test
   public void schemaChange_invalidatesCache() {
@@ -244,6 +306,66 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
 
     assertThat(cache.getHits()).isEqualTo(hitsBefore);
     assertThat(cache.getMisses()).isEqualTo(missesBefore + 2);
+  }
+
+  /**
+   * Concurrent {@code contains()} / {@code invalidate()} against one shared {@link GremlinPlanCache}
+   * must never throw and must keep the lifetime hit/miss counters non-negative. Eight threads start
+   * together on a {@link CyclicBarrier} to maximise interleaving; two of them also invalidate
+   * periodically while the rest only read. Only the thread-safe cache is touched off-thread (Guava
+   * cache + {@code LongAdder} counters + {@code AtomicLong} timestamp) — the seed, the plan
+   * population, and the fingerprint are computed on the main thread first, because the graph session
+   * is thread-affine and cannot be driven from worker threads. This complements the {@code
+   * buildPlan} concurrent-invalidation guard by pinning that the cache structure itself is safe
+   * under a read/invalidate race. Mirrors {@code YqlExecutionPlanCacheTest#testConcurrentAccess}.
+   */
+  @Test
+  public void concurrentContainsAndInvalidate_neverThrowsAndKeepsCountersNonNegative()
+      throws InterruptedException {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    // Populate the cache so contains() has a live entry to race with invalidate().
+    apply(() -> graph.traversal().V().has("age", 30));
+    var fp = fingerprint(walk(() -> graph.traversal().V().has("age", P.eq(30))));
+
+    var threadCount = 8;
+    var iterations = 500;
+    var barrier = new CyclicBarrier(threadCount);
+    var done = new CountDownLatch(threadCount);
+    var firstError = new AtomicReference<Throwable>();
+
+    for (var t = 0; t < threadCount; t++) {
+      var invalidator = t < 2; // two threads also invalidate; the remaining six only read
+      var worker = new Thread(() -> {
+        try {
+          barrier.await(); // release all threads at once
+          for (var i = 0; i < iterations; i++) {
+            cache.contains(fp);
+            if (cache.getHits() < 0 || cache.getMisses() < 0) {
+              throw new AssertionError("cache counters went negative under concurrency");
+            }
+            if (invalidator && (i % 50) == 0) {
+              cache.invalidate();
+            }
+          }
+        } catch (Throwable e) {
+          firstError.compareAndSet(null, e);
+        } finally {
+          done.countDown();
+        }
+      });
+      worker.start();
+    }
+
+    assertThat(done.await(30, TimeUnit.SECONDS))
+        .as("all cache-concurrency workers must finish within 30s")
+        .isTrue();
+    assertThat(firstError.get())
+        .as("no worker thread may throw during concurrent contains()/invalidate()")
+        .isNull();
+    assertThat(cache.getHits()).isGreaterThanOrEqualTo(0);
+    assertThat(cache.getMisses()).isGreaterThanOrEqualTo(0);
   }
 
   // ---------------------------------------------------------------------------

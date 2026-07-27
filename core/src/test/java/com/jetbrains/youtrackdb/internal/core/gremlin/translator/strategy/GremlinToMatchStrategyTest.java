@@ -219,7 +219,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
                 consulted[0]++;
                 return fixtureTranslation();
               },
-              (s, tr) -> {
+              (s, tr, planningStart) -> {
                 neverBuilt[0]++;
                 return mock(InternalExecutionPlan.class);
               });
@@ -424,7 +424,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var strategy =
         new GremlinToMatchStrategy(
             t -> fixtureTranslation(),
-            (s, tr) -> {
+            (s, tr, planningStart) -> {
               throw new IllegalStateException("simulated planner failure");
             });
 
@@ -465,7 +465,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var translation = fixtureTranslation();
 
     var strategy =
-        new GremlinToMatchStrategy(t -> translation, (s, tr) -> stubPlan);
+        new GremlinToMatchStrategy(t -> translation, (s, tr, planningStart) -> stubPlan);
 
     strategy.apply(admin);
 

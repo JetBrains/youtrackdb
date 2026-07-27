@@ -767,7 +767,14 @@ public class MatchExecutionPlanner {
     if (!"count(*)".equalsIgnoreCase(returnItems.getFirst().toString().trim())) {
       return false;
     }
-    if (returnDistinct || groupBy != null || orderBy != null || unwind != null || skip != null) {
+    if (returnDistinct
+        || groupBy != null
+        || orderBy != null
+        || unwind != null
+        || skip != null
+        || limit != null) {
+      // A count fast path reads the whole-class count and ignores SKIP/LIMIT, so any pagination
+      // clause must stay on the generic aggregate path where SKIP/LIMIT apply after the count row.
       return false;
     }
     if (pattern == null || pattern.numOfEdges != 0 || pattern.aliasToNode.size() != 1) {
@@ -781,7 +788,11 @@ public class MatchExecutionPlanner {
     }
     var alias = pattern.aliasToNode.keySet().iterator().next();
     if (aliasFilters != null && aliasFilters.get(alias) != null) {
-      // Filtered count stays on the generic path (index short-circuit needs QueryPlanningInfo).
+      // Filtered count stays on the generic aggregate path. The indexed-equality count fast path
+      // (CountFromIndexWithKeyStep) needs QueryPlanningInfo WHERE flattening that only the SELECT
+      // planner has today, so wiring it for MATCH is a deliberate Phase-1 deferral (design
+      // §"Non-fast-path counts"). The generic path still index-scans, so this is a missed
+      // optimization on low-selectivity filters, not a full-scan regression.
       return false;
     }
     if (aliasPinnedRids != null

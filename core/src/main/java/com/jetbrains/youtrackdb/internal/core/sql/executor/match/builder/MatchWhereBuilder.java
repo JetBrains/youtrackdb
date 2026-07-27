@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseIdentifier;
@@ -26,16 +26,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStartsWithCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import javax.annotation.Nullable;
 
 /**
  * Fluent builder for {@code WHERE}-clause AST trees in the unified MATCH IR.
@@ -453,82 +448,16 @@ public final class MatchWhereBuilder {
   /**
    * Builds {@code $matched.<alias>.<segments...>} — the cross-alias accessor MATCH uses for
    * {@code where(P.eq("label"))} label references. Each segment is either a property name or a
-   * record attribute such as {@code @rid}.
+   * record attribute such as {@code @rid}. Delegates to {@link
+   * ProjectionExpressionFactories#matchedVariable}, which assembles the modifier chain as AST (no
+   * SQL-text round-trip), so a Gremlin-supplied alias or segment cannot be re-tokenized into extra
+   * syntax.
    */
   public SQLExpression matchedAccess(String alias, String... segments) {
     if (alias == null || alias.isBlank() || segments == null || segments.length == 0) {
       throw new IllegalArgumentException("matched access requires a non-blank alias and segments");
     }
-    var path = new StringBuilder("$matched.").append(alias);
-    for (var segment : segments) {
-      path.append('.').append(segment);
-    }
-    return parseMatchedRhsExpression(path.toString());
-  }
-
-  /**
-   * Parses a {@code $matched} accessor via the SQL parser so the emitted AST matches hand-written
-   * MATCH {@code WHERE} text exactly.
-   */
-  private static SQLExpression parseMatchedRhsExpression(String matchedPath) {
-    try {
-      var sql = "SELECT FROM V WHERE @rid = " + matchedPath;
-      var parser =
-          new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8)));
-      var stmt = (SQLSelectStatement) parser.parse();
-      var where = stmt.getWhereClause();
-      if (where == null || where.getBaseExpression() == null) {
-        throw new IllegalArgumentException("failed to parse matched access: " + matchedPath);
-      }
-      var bin = unwrapBinaryCondition(where.getBaseExpression());
-      if (bin == null) {
-        throw new IllegalArgumentException("failed to parse matched access: " + matchedPath);
-      }
-      return bin.getRight();
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("failed to parse matched access: " + matchedPath, e);
-    }
-  }
-
-  /**
-   * The SQL parser wraps a lone {@code WHERE} predicate in a single-element {@link SQLOrBlock}; peel
-   * that (and any parenthesis / AND wrapper) to reach the underlying {@link SQLBinaryCondition}.
-   */
-  private static @Nullable SQLBinaryCondition unwrapBinaryCondition(SQLBooleanExpression base) {
-    if (base instanceof SQLBinaryCondition bin) {
-      return bin;
-    }
-    if (base instanceof SQLOrBlock or) {
-      var subs = or.getSubBlocks();
-      if (subs == null || subs.isEmpty()) {
-        return null;
-      }
-      // Parser may emit a single OR block or flatten multiple; take the first binary leaf.
-      for (var sub : subs) {
-        var bin = unwrapBinaryCondition(sub);
-        if (bin != null) {
-          return bin;
-        }
-      }
-      return null;
-    }
-    if (base instanceof SQLAndBlock and) {
-      var subs = and.getSubBlocks();
-      if (subs == null || subs.isEmpty()) {
-        return null;
-      }
-      for (var sub : subs) {
-        var bin = unwrapBinaryCondition(sub);
-        if (bin != null) {
-          return bin;
-        }
-      }
-      return null;
-    }
-    if (base instanceof SQLNotBlock not && !not.isNegate() && not.getSub() != null) {
-      return unwrapBinaryCondition(not.getSub());
-    }
-    return null;
+    return ProjectionExpressionFactories.matchedVariable(alias, segments);
   }
 
   /**

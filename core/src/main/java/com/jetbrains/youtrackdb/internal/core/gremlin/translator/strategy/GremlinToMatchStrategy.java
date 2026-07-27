@@ -132,7 +132,10 @@ import org.slf4j.LoggerFactory;
  * Cache-eligible walks build through {@link GremlinPlanCache}, keyed by {@link
  * GremlinPlanFingerprint} on the post-walk {@link MatchPlanInputs}. RID-bearing shapes ({@code
  * g.V(ids)}, {@code hasId(...)}) bypass the cache. Per-walk predicate values bind as positional
- * parameters and are installed on the boundary step at execution time.
+ * parameters and are installed on the boundary step at execution time. A plan is stored only when
+ * no metadata invalidation landed after the {@code planningStart} captured before the walk, so a
+ * concurrent schema change during translation never leaves a stale plan in the shared per-database
+ * cache — the same guard {@code MatchExecutionPlanner} applies for the YQL/GQL plan cache.
  *
  * <h2>Testability</h2>
  *
@@ -244,11 +247,15 @@ public final class GremlinToMatchStrategy
     if (containsBoundaryStep(traversal)) {
       return;
     }
+    // Capture the planning start before the walk: the schema read that shapes the plan happens
+    // inside translate(), so the concurrent-invalidation guard in buildPlan must time from here to
+    // catch a DDL that races the walk (see the class Javadoc "Plan caching").
+    var planningStart = System.nanoTime();
     var translation = translator.translate(traversal);
     if (translation == null) {
       return;
     }
-    applyTranslation(traversal, session, translation);
+    applyTranslation(traversal, session, translation, planningStart);
   }
 
   /**
@@ -370,8 +377,9 @@ public final class GremlinToMatchStrategy
   private void applyTranslation(
       Traversal.Admin<?, ?> traversal,
       DatabaseSessionEmbedded session,
-      GremlinToMatchTranslator.TranslationResult translation) {
-    InternalExecutionPlan plan = planBuilder.buildPlan(session, translation);
+      GremlinToMatchTranslator.TranslationResult translation,
+      long planningStart) {
+    InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, planningStart);
     replaceAllStepsWithBoundary(traversal, plan, translation);
   }
 
@@ -382,7 +390,9 @@ public final class GremlinToMatchStrategy
    * shapes always build uncached.
    */
   private static InternalExecutionPlan buildPlan(
-      DatabaseSessionEmbedded session, GremlinToMatchTranslator.TranslationResult translation) {
+      DatabaseSessionEmbedded session,
+      GremlinToMatchTranslator.TranslationResult translation,
+      long planningStart) {
     if (!translation.cacheEligible()) {
       return buildPlanUncached(session, translation.inputs());
     }
@@ -393,7 +403,13 @@ public final class GremlinToMatchStrategy
       return cached;
     }
     var plan = buildPlanUncached(session, translation.inputs());
-    GremlinPlanCache.put(fingerprint, plan, session);
+    // Cache only if no metadata invalidation landed after planningStart (captured before the walk).
+    // A concurrent DDL that fires between the schema read and this put would otherwise leave a plan
+    // built against the pre-change schema in the shared per-database cache, served to every later
+    // query of this shape. Mirrors the YqlExecutionPlanCache guard in MatchExecutionPlanner.
+    if (GremlinPlanCache.getLastInvalidation(session) < planningStart) {
+      GremlinPlanCache.put(fingerprint, plan, session);
+    }
     return plan.copy(ctx);
   }
 
@@ -468,6 +484,8 @@ public final class GremlinToMatchStrategy
   @FunctionalInterface
   interface MatchPlanBuilder {
     InternalExecutionPlan buildPlan(
-        DatabaseSessionEmbedded session, GremlinToMatchTranslator.TranslationResult translation);
+        DatabaseSessionEmbedded session,
+        GremlinToMatchTranslator.TranslationResult translation,
+        long planningStart);
   }
 }

@@ -144,7 +144,8 @@ final class GremlinProjectionAssembler {
     return Outcome.ACCEPTED;
   }
 
-  /** {@code alias.propertyKey} parsed through the SQL parser so the AST matches hand-written RETURN. */
+  /** {@code alias.propertyKey} built as AST (no SQL-text round-trip) — delegates to {@link
+   *  ByModulatorTranslator#aliasProperty}. */
   static SQLExpression aliasProperty(String alias, String propertyKey) {
     return ByModulatorTranslator.aliasProperty(alias, propertyKey);
   }

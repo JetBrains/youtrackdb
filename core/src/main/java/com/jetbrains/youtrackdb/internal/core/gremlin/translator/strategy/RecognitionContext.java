@@ -250,6 +250,14 @@ interface RecognitionContext extends ParamSink {
   @Nullable SQLSkip skip();
 
   /**
+   * Whether {@code RETURN DISTINCT} has been set so far ({@code dedup()}). A reducing/grouping
+   * terminator reads it to refuse a shape that would apply the aggregate <em>after</em> the distinct
+   * — {@code out().dedup().count()} would emit {@code RETURN DISTINCT count(*)}, which counts
+   * duplicates. See {@link #limit()} / {@link #skip()} for the same pre-aggregate hazard.
+   */
+  boolean returnDistinct();
+
+  /**
    * When {@code true}, the boundary step skips entire {@code Result} rows whose primary projected
    * value is {@code null} (empty-input aggregates like {@code mean()} on an empty stream).
    */

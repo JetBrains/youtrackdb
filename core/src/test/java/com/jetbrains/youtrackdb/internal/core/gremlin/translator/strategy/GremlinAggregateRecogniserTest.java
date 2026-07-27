@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -118,6 +119,111 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(ctx.groupBy).isNotNull();
     assertThat(ctx.returnItems.get(1).toString()).containsIgnoringCase("count(*)");
     assertThat(ctx.accumulateMap).isTrue();
+  }
+
+  // ---------------------------------------------------------------------------
+  // B1 — a reducing / grouping terminator declines after a captured cardinality
+  // clause (limit / skip / dedup). MATCH applies SKIP / LIMIT / RETURN DISTINCT
+  // *after* the aggregate projection while Gremlin applies them to the reducer's
+  // input, so the two diverge; declining hands the whole traversal to the native
+  // pipeline, which orders the operations correctly. Each case seeds the context
+  // so the terminator would otherwise ACCEPT, then sets exactly one clause and
+  // asserts the gate flips the outcome to DECLINE.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code count()} declines when a {@code LIMIT} was captured earlier ({@code limit(5).count()}):
+   * MATCH would ignore the limit and count the whole class, so the walk must go native.
+   */
+  @Test
+  public void count_afterCapturedLimit_declines() {
+    var admin = graph.traversal().V().count().asAdmin();
+    var ctx = seededContext();
+    ctx.setLimit(ProjectionExpressionFactories.limit(5));
+    var cursor = cursorAt(admin, CountGlobalStep.class);
+
+    assertThat(CountGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * {@code count()} declines when a {@code SKIP} was captured earlier ({@code skip(2).count()}):
+   * SKIP after the aggregate would drop the single count row, so the walk must go native.
+   */
+  @Test
+  public void count_afterCapturedSkip_declines() {
+    var admin = graph.traversal().V().count().asAdmin();
+    var ctx = seededContext();
+    ctx.setSkip(ProjectionExpressionFactories.skip(2));
+    var cursor = cursorAt(admin, CountGlobalStep.class);
+
+    assertThat(CountGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * {@code count()} declines when {@code RETURN DISTINCT} was captured earlier (the {@code
+   * out().dedup().count()} shape): {@code RETURN DISTINCT count(*)} would count duplicates, so the
+   * walk must go native where dedup runs before the count.
+   */
+  @Test
+  public void count_afterReturnDistinct_declines() {
+    var admin = graph.traversal().V().count().asAdmin();
+    var ctx = seededContext();
+    ctx.setReturnDistinct(true);
+    var cursor = cursorAt(admin, CountGlobalStep.class);
+
+    assertThat(CountGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * A property aggregate ({@code mean}) declines when a {@code LIMIT} was captured earlier ({@code
+   * limit(2).values(age).mean()}). The preceding {@code values(age)} sets {@code
+   * lastPropertyProjection} so the aggregate would otherwise ACCEPT — proving it is the captured
+   * limit, not a missing field, that forces the decline.
+   */
+  @Test
+  public void propertyAggregateMean_afterCapturedLimit_declines() {
+    var admin = graph.traversal().V().values("age").mean().asAdmin();
+    var ctx = seededContext();
+    assertThat(PropertiesStepRecogniser.INSTANCE.recognize(cursorAt(admin, PropertiesStep.class),
+        ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    ctx.setLimit(ProjectionExpressionFactories.limit(2));
+
+    assertThat(PropertyAggregateStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, MeanGlobalStep.class), ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * {@code group().by("name").by(__.count())} declines when a {@code LIMIT} was captured earlier:
+   * the reducer runs before the limit in Gremlin but after it in MATCH, so the walk must go native.
+   */
+  @Test
+  public void group_afterCapturedLimit_declines() {
+    var admin = graph.traversal().V().group().by("name").by(__.count()).asAdmin();
+    var ctx = seededContext();
+    ctx.setLimit(ProjectionExpressionFactories.limit(5));
+    var cursor = cursorAt(admin, GroupStep.class);
+
+    assertThat(GroupStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * {@code groupCount().by("name")} declines when a {@code LIMIT} was captured earlier, for the same
+   * reducer-before-vs-after-limit divergence as {@code group()}.
+   */
+  @Test
+  public void groupCount_afterCapturedLimit_declines() {
+    var admin = graph.traversal().V().groupCount().by("name").asAdmin();
+    var ctx = seededContext();
+    ctx.setLimit(ProjectionExpressionFactories.limit(5));
+    var cursor = cursorAt(admin, GroupCountStep.class);
+
+    assertThat(GroupCountStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
   }
 
   private static WalkerContext seededContext() {

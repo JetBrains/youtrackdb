@@ -6,19 +6,30 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 
 /**
  * Synthesises a value-independent fingerprint from post-walk {@link MatchPlanInputs} for the
- * {@link GremlinPlanCache}. The key enumerates the positive pattern topology, alias classes (verbatim),
- * alias filters, detached NOT expressions, return projection, and result-shaping clauses ({@code
- * GROUP BY} / {@code ORDER BY} / {@code LIMIT} / {@code SKIP} / {@code DISTINCT}) — never {@link
+ * {@link GremlinPlanCache}. The key enumerates the positive pattern topology, alias classes, alias
+ * filters, detached NOT expressions, return projection, and result-shaping clauses ({@code GROUP
+ * BY} / {@code ORDER BY} / {@code LIMIT} / {@code SKIP} / {@code DISTINCT}) — never {@link
  * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement#toGenericStatement()}, which
  * omits {@code notMatchExpressions}. Positional parameters render as {@code ?}; structural tokens
- * (class names, {@code ~label}, RIDs) stay verbatim so distinct labels and NOT shapes do not collide.
- * Limit / skip literals stay in the key (they are not positional slots), so {@code limit(2)} and
- * {@code limit(5)} cannot share a cached plan.
+ * (class names, {@code ~label}, RIDs) stay verbatim so distinct labels and NOT shapes do not
+ * collide. Limit / skip literals stay in the key (they are not positional slots), so {@code
+ * limit(2)} and {@code limit(5)} cannot share a cached plan.
+ *
+ * <p><b>Every variable-length token is length-prefixed</b> ({@code len:content}) through {@link
+ * #appendToken} / {@link #appendRendered}. The key is shared across sessions on one database and
+ * carries untrusted identifiers (property keys, {@code as} / {@code select} labels, {@code
+ * hasLabel} classes), so a raw concatenation with fixed delimiters ({@code [ ] : ; -> AS}) would
+ * let a crafted identifier embedding those delimiters reproduce another walk's key and be served
+ * its cached plan. Length-prefixing makes each token self-delimiting, so no combination of
+ * user strings can forge a collision. Section markers ({@code P:} / {@code ;E:} / {@code ;F:} / …)
+ * stay as fixed separators between the length-prefixed runs.
  */
 final class GremlinPlanFingerprint {
 
@@ -42,24 +53,41 @@ final class GremlinPlanFingerprint {
     return sb.toString();
   }
 
+  /**
+   * Appends a variable-length token as {@code len:content} so any delimiter characters inside
+   * {@code token} cannot merge with or split from adjacent tokens. Injectivity, not readability, is
+   * the goal — the key is never parsed back, only compared.
+   */
+  private static void appendToken(StringBuilder sb, String token) {
+    sb.append(token.length()).append(':').append(token);
+  }
+
+  /**
+   * Renders {@code render} into a scratch buffer and appends the result as one length-prefixed
+   * token, so an AST fragment (a filter, a projection item, a NOT expression) that emits
+   * user-controlled identifiers cannot forge a collision through embedded delimiters.
+   */
+  private static void appendRendered(StringBuilder sb, Consumer<StringBuilder> render) {
+    var scratch = new StringBuilder();
+    render.accept(scratch);
+    appendToken(sb, scratch.toString());
+  }
+
   private static void appendPattern(StringBuilder sb, MatchPlanInputs inputs) {
     sb.append("P:");
     var pattern = inputs.pattern();
     var aliasClasses = inputs.aliasClasses();
     for (var entry : pattern.aliasToNode.entrySet()) {
-      sb.append('[').append(entry.getKey());
+      appendToken(sb, entry.getKey());
       var cls = aliasClasses.get(entry.getKey());
-      if (cls != null && !cls.isBlank()) {
-        sb.append(':').append(cls);
-      }
-      sb.append(']');
+      appendToken(sb, cls == null ? "" : cls);
     }
     sb.append(";E:");
     for (PatternNode node : pattern.aliasToNode.values()) {
       for (var edge : node.out) {
-        sb.append('[').append(edge.out.alias).append("->").append(edge.in.alias).append(':');
-        appendPathItemStructural(sb, edge.item);
-        sb.append(']');
+        appendToken(sb, edge.out.alias);
+        appendToken(sb, edge.in.alias);
+        appendRendered(sb, scratch -> appendPathItemStructural(scratch, edge.item));
       }
     }
   }
@@ -82,19 +110,16 @@ final class GremlinPlanFingerprint {
       Map<String, SQLWhereClause> aliasFilters) {
     sb.append(";F:");
     for (var entry : aliasFilters.entrySet()) {
-      sb.append('[').append(entry.getKey()).append(':');
-      entry.getValue().toGenericStatement(sb);
-      sb.append(']');
+      appendToken(sb, entry.getKey());
+      appendRendered(sb, scratch -> entry.getValue().toGenericStatement(scratch));
     }
   }
 
   private static void appendNotExpressions(StringBuilder sb,
-      java.util.List<SQLMatchExpression> notExprs) {
+      List<SQLMatchExpression> notExprs) {
     sb.append(";N:");
     for (var notExpr : notExprs) {
-      sb.append('[');
-      appendMatchExpressionStructural(sb, notExpr);
-      sb.append(']');
+      appendRendered(sb, scratch -> appendMatchExpressionStructural(scratch, notExpr));
     }
   }
 
@@ -103,14 +128,18 @@ final class GremlinPlanFingerprint {
     var items = inputs.returnItems();
     var aliases = inputs.returnAliases();
     for (int i = 0; i < items.size(); i++) {
-      sb.append('[');
-      items.get(i).toGenericStatement(sb);
+      var item = items.get(i);
       var alias = aliases.get(i);
-      if (alias != null) {
-        sb.append(" AS ");
-        alias.toGenericStatement(sb);
+      appendRendered(sb, item::toGenericStatement);
+      // Mark alias presence with a fixed byte, then length-prefix the alias itself, so a null alias
+      // and an empty-string alias stay distinct and an alias embedding delimiters cannot merge with
+      // the next item.
+      if (alias == null) {
+        sb.append('-');
+      } else {
+        sb.append('+');
+        appendRendered(sb, alias::toGenericStatement);
       }
-      sb.append(']');
     }
   }
 
@@ -124,19 +153,19 @@ final class GremlinPlanFingerprint {
   private static void appendResultShaping(StringBuilder sb, MatchPlanInputs inputs) {
     sb.append(";G:");
     if (inputs.groupBy() != null) {
-      inputs.groupBy().toGenericStatement(sb);
+      appendRendered(sb, scratch -> inputs.groupBy().toGenericStatement(scratch));
     }
     sb.append(";O:");
     if (inputs.orderBy() != null) {
-      inputs.orderBy().toGenericStatement(sb);
+      appendRendered(sb, scratch -> inputs.orderBy().toGenericStatement(scratch));
     }
     sb.append(";L:");
     if (inputs.limit() != null) {
-      inputs.limit().toString(NO_PARAMS, sb);
+      appendRendered(sb, scratch -> inputs.limit().toString(NO_PARAMS, scratch));
     }
     sb.append(";S:");
     if (inputs.skip() != null) {
-      inputs.skip().toString(NO_PARAMS, sb);
+      appendRendered(sb, scratch -> inputs.skip().toString(NO_PARAMS, scratch));
     }
     sb.append(";D:").append(inputs.returnDistinct());
   }
