@@ -66,10 +66,7 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
   }
 
   private static boolean ctxHasSkipOrLimit(RecognitionContext ctx) {
-    if (ctx instanceof WalkerContext walker) {
-      return walker.skip != null || walker.limit != null;
-    }
-    return false;
+    return ctx.skip() != null || ctx.limit() != null;
   }
 
 }

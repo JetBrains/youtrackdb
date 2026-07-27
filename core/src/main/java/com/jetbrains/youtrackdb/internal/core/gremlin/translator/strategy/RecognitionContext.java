@@ -240,6 +240,15 @@ interface RecognitionContext extends ParamSink {
   /** Sets the {@code SKIP} clause for {@code skip()} / {@code range()} terminators. */
   void setSkip(@Nullable SQLSkip skip);
 
+  /** The {@code ORDER BY} set so far, or {@code null} — lets a recogniser refuse a second order(). */
+  @Nullable SQLOrderBy orderBy();
+
+  /** The {@code LIMIT} set so far, or {@code null} — lets a recogniser refuse a second limit/range. */
+  @Nullable SQLLimit limit();
+
+  /** The {@code SKIP} set so far, or {@code null} — lets a recogniser refuse a second skip/range. */
+  @Nullable SQLSkip skip();
+
   /**
    * When {@code true}, the boundary step skips entire {@code Result} rows whose primary projected
    * value is {@code null} (empty-input aggregates like {@code mean()} on an empty stream).

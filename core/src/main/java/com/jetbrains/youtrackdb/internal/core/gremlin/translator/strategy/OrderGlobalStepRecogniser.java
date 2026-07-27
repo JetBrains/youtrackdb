@@ -77,12 +77,7 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
   }
 
   private static boolean ctxHasOrderBy(RecognitionContext ctx) {
-    // WalkerContext exposes the field for tests; RecognitionContext has only the setter — read via
-    // package-visible WalkerContext when available.
-    if (ctx instanceof WalkerContext walker) {
-      return walker.orderBy != null;
-    }
-    return false;
+    return ctx.orderBy() != null;
   }
 
 }

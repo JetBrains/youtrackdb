@@ -193,6 +193,21 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return parent.boundaryOutputType();
   }
 
+  @Nullable @Override
+  public SQLOrderBy orderBy() {
+    return parent.orderBy();
+  }
+
+  @Nullable @Override
+  public SQLLimit limit() {
+    return parent.limit();
+  }
+
+  @Nullable @Override
+  public SQLSkip skip() {
+    return parent.skip();
+  }
+
   @Override
   public boolean isDeclaredStringProperty(@Nullable String className, String propertyKey) {
     return parent.isDeclaredStringProperty(className, propertyKey);

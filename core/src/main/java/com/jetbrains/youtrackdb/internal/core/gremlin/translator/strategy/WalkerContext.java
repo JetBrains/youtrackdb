@@ -327,6 +327,21 @@ final class WalkerContext implements RecognitionContext {
     return outputType;
   }
 
+  @Nullable @Override
+  public SQLOrderBy orderBy() {
+    return orderBy;
+  }
+
+  @Nullable @Override
+  public SQLLimit limit() {
+    return limit;
+  }
+
+  @Nullable @Override
+  public SQLSkip skip() {
+    return skip;
+  }
+
   // --- RecognitionContext: schema-aware type gating ---------------------------------------------
 
   @Override
