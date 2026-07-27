@@ -2,8 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -193,45 +191,6 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   @Override
   public long getCost() {
     return 0L;
-  }
-
-  /**
-   * Serializes this plan into a {@link Result} for persistent storage or transmission.
-   * Unlike {@link #toResult}, which is for human-readable introspection (EXPLAIN),
-   * this method produces a machine-readable form that can be deserialized back into
-   * a live plan via {@link #deserialize}.
-   */
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("type", "QueryExecutionPlan");
-    result.setProperty(JAVA_TYPE, getClass().getName());
-    result.setProperty("cost", getCost());
-    result.setProperty("prettyPrint", prettyPrint(0, 2));
-    result.setProperty(
-        "steps",
-        steps == null ? null
-            : steps.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result serializedExecutionPlan, DatabaseSessionEmbedded session) {
-    List<Result> serializedSteps = serializedExecutionPlan.getProperty("steps");
-    for (var serializedStep : serializedSteps) {
-      try {
-        String className = serializedStep.getProperty(JAVA_TYPE);
-        var step =
-            (ExecutionStepInternal) Class.forName(className).newInstance();
-        step.deserialize(serializedStep, session);
-        chain(step);
-      } catch (Exception e) {
-        throw BaseException.wrapException(
-            new CommandExecutionException(session,
-                "Cannot deserialize execution step:" + serializedStep),
-            e, session);
-      }
-    }
   }
 
   @Override

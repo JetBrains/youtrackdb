@@ -799,61 +799,6 @@ public class SQLExpression extends SimpleNode {
     this.arrayConcatExpression = arrayConcatExpression;
   }
 
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("singleQuotes", singleQuotes);
-    result.setProperty("doubleQuotes", doubleQuotes);
-    result.setProperty("isNull", isNull);
-
-    if (rid != null) {
-      result.setProperty("rid", rid.serialize(session));
-    }
-    if (mathExpression != null) {
-      result.setProperty("mathExpression", mathExpression.serialize(session));
-    }
-    if (arrayConcatExpression != null) {
-      result.setProperty("arrayConcatExpression", arrayConcatExpression.serialize(session));
-    }
-    if (json != null) {
-      result.setProperty("json", json.serialize(session));
-    }
-    if (booleanExpression != null) {
-      result.setProperty("booleanExpression", booleanExpression.serialize(session));
-    }
-    result.setProperty("booleanValue", booleanValue);
-    result.setProperty("literalValue", literalValue);
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    singleQuotes = fromResult.getProperty("singleQuotes");
-    doubleQuotes = fromResult.getProperty("doubleQuotes");
-    isNull = fromResult.getProperty("isNull");
-
-    if (fromResult.getProperty("rid") != null) {
-      rid = new SQLRid(-1);
-      rid.deserialize(fromResult.getProperty("rid"));
-    }
-    if (fromResult.getProperty("mathExpression") != null) {
-      mathExpression =
-          SQLMathExpression.deserializeFromResult(fromResult.getProperty("mathExpression"));
-    }
-    if (fromResult.getProperty("arrayConcatExpression") != null) {
-      arrayConcatExpression = new SQLArrayConcatExpression(-1);
-      arrayConcatExpression.deserialize(fromResult.getProperty("arrayConcatExpression"));
-    }
-    if (fromResult.getProperty("json") != null) {
-      json = new SQLJson(-1);
-      json.deserialize(fromResult.getProperty("json"));
-    }
-    if (fromResult.getProperty("booleanExpression") != null) {
-      booleanExpression =
-          SQLBooleanExpression.deserializeFromOResult(fromResult.getProperty("booleanExpression"));
-    }
-    booleanValue = fromResult.getProperty("booleanValue");
-    literalValue = fromResult.getProperty("literalValue");
-  }
-
   public boolean isDefinedFor(Result currentRecord) {
     if (mathExpression != null) {
       return mathExpression.isDefinedFor(currentRecord);

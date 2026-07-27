@@ -567,53 +567,6 @@ public final class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = (ResultInternal) super.serialize(session);
-
-    if (number != null) {
-      result.setProperty("number", number.serialize(session));
-    }
-    if (identifier != null) {
-      result.setProperty("identifier", identifier.serialize(session));
-    }
-    if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(session));
-    }
-    if (string != null) {
-      result.setProperty("string", string);
-    }
-    if (modifier != null) {
-      result.setProperty("modifier", modifier.serialize(session));
-    }
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    super.deserialize(fromResult);
-
-    if (fromResult.getProperty("number") != null) {
-      number = new SQLNumber(-1);
-      number.deserialize(fromResult.getProperty("number"));
-    }
-    if (fromResult.getProperty("identifier") != null) {
-      identifier = new SQLBaseIdentifier(-1);
-      identifier.deserialize(fromResult.getProperty("identifier"));
-    }
-    if (fromResult.getProperty("inputParam") != null) {
-      inputParam = SQLInputParameter.deserializeFromOResult(fromResult.getProperty("inputParam"));
-    }
-
-    if (fromResult.getProperty("string") != null) {
-      string = fromResult.getProperty("string");
-    }
-    if (fromResult.getProperty("modifier") != null) {
-      modifier = new SQLModifier(-1);
-      modifier.deserialize(fromResult.getProperty("modifier"));
-    }
-  }
-
-  @Override
   public boolean isDefinedFor(Result currentRecord) {
     if (this.identifier != null) {
       if (modifier == null) {

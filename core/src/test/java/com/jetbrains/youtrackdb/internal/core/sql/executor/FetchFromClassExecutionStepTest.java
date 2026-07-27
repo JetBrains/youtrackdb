@@ -51,8 +51,8 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
   /**
    * With {@code ridOrder=null} the step leaves both ordering flags at their default {@code false}.
-   * Asserted via the serialize probe so a mutation flipping the null branch to set either
-   * {@code orderByRidAsc} or {@code orderByRidDesc} would be caught. (TB8 tightening.)
+   * Verified via direct protected-field access so a mutation flipping the null branch to set
+   * either {@code orderByRidAsc} or {@code orderByRidDesc} would be caught.
    */
   @Test
   public void constructorWithoutRidOrderLeavesOrderingFlagsFalse() {
@@ -61,15 +61,14 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
     var step = new FetchFromClassExecutionStep(className, null, ctx, null, false);
 
-    var serialized = step.serialize(session);
-    assertThat((String) serialized.getProperty("className")).isEqualTo(className);
-    assertThat((Boolean) serialized.getProperty("orderByRidAsc")).isFalse();
-    assertThat((Boolean) serialized.getProperty("orderByRidDesc")).isFalse();
+    assertThat(step.className).isEqualTo(className);
+    assertThat(step.orderByRidAsc).isFalse();
+    assertThat(step.orderByRidDesc).isFalse();
   }
 
   /**
    * {@code ridOrder=TRUE} sets {@code orderByRidAsc=true} and sorts the resolved collection IDs
-   * ascending. After round-trip via {@code serialize}, the flag is visible.
+   * ascending.
    */
   @Test
   public void constructorAscSetsOrderByRidAsc() {
@@ -78,9 +77,8 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
     var step = new FetchFromClassExecutionStep(className, null, ctx, Boolean.TRUE, false);
 
-    var serialized = step.serialize(session);
-    assertThat((Boolean) serialized.getProperty("orderByRidAsc")).isTrue();
-    assertThat((Boolean) serialized.getProperty("orderByRidDesc")).isFalse();
+    assertThat(step.orderByRidAsc).isTrue();
+    assertThat(step.orderByRidDesc).isFalse();
   }
 
   /**
@@ -93,9 +91,8 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
     var step = new FetchFromClassExecutionStep(className, null, ctx, Boolean.FALSE, false);
 
-    var serialized = step.serialize(session);
-    assertThat((Boolean) serialized.getProperty("orderByRidAsc")).isFalse();
-    assertThat((Boolean) serialized.getProperty("orderByRidDesc")).isTrue();
+    assertThat(step.orderByRidAsc).isFalse();
+    assertThat(step.orderByRidDesc).isTrue();
   }
 
   /**
@@ -427,54 +424,6 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
   }
 
   // =========================================================================
-  // serialize / deserialize
-  // =========================================================================
-
-  /**
-   * {@code serialize} captures {@code className}, {@code orderByRidAsc}, {@code orderByRidDesc}.
-   * {@code deserialize} restores them into a freshly-constructed step.
-   */
-  @Test
-  public void serializeDeserializeRoundTripPreservesFields() {
-    var className = createClassInstance().getName();
-    var ctx = newContext();
-    var original = new FetchFromClassExecutionStep(className, null, ctx, Boolean.TRUE, false);
-
-    var serialized = original.serialize(session);
-
-    // FetchFromClassExecutionStep has no zero-arg ctor, so reconstruct via the regular
-    // class-name ctor and let deserialize overwrite fields to prove round-trip fidelity.
-    var restored = new FetchFromClassExecutionStep(className, null, ctx, null, false);
-    restored.deserialize(serialized, session);
-
-    var restoredSerialized = restored.serialize(session);
-    assertThat((String) restoredSerialized.getProperty("className")).isEqualTo(className);
-    assertThat((Boolean) restoredSerialized.getProperty("orderByRidAsc")).isTrue();
-    assertThat((Boolean) restoredSerialized.getProperty("orderByRidDesc")).isFalse();
-  }
-
-  /**
-   * When {@code deserialize} encounters malformed data (a substep pointing at a non-existent
-   * class), the {@link ClassNotFoundException} is wrapped in {@link CommandExecutionException}.
-   */
-  @Test
-  public void deserializeFailureWrapsInCommandExecutionException() {
-    var className = createClassInstance().getName();
-    var ctx = newContext();
-    var step = new FetchFromClassExecutionStep(className, null, ctx, null, false);
-
-    var badResult = new ResultInternal(session);
-    var badSubStep = new ResultInternal(session);
-    badSubStep.setProperty("javaType", "com.nonexistent.Step");
-    badResult.setProperty("subSteps", List.of(badSubStep));
-
-    assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class)
-        // TB10 cause-chain pin: the wrapped exception identifies the real failure.
-        .hasRootCauseInstanceOf(ClassNotFoundException.class);
-  }
-
-  // =========================================================================
   // canBeCached
   // =========================================================================
 
@@ -518,13 +467,10 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
     assertThat(copied.isProfilingEnabled()).isTrue();
     assertThat(copied.canBeCached()).isTrue();
 
-    // TB2-style pin: verify className, orderByRidAsc, orderByRidDesc survived the copy via the
-    // serialize probe. Without this a mutation that omits any of these field assignments from
-    // copy() would slip past the prettyPrint check alone.
-    var copySerialized = copied.serialize(session);
-    assertThat((String) copySerialized.getProperty("className")).isEqualTo(className);
-    assertThat((Boolean) copySerialized.getProperty("orderByRidAsc")).isTrue();
-    assertThat((Boolean) copySerialized.getProperty("orderByRidDesc")).isFalse();
+    // Verify className, orderByRidAsc, orderByRidDesc survived the copy via direct field access.
+    assertThat(copied.className).isEqualTo(className);
+    assertThat(copied.orderByRidAsc).isTrue();
+    assertThat(copied.orderByRidDesc).isFalse();
 
     // Copy renders the same header (proxy check that className was preserved).
     var copyOutput = copied.prettyPrint(0, 2);

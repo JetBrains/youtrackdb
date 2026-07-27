@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
@@ -108,7 +107,6 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
 
     return false;
   }
-
 
   @Nullable
   public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
@@ -329,30 +327,6 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
 
   public SQLCollection getCollection() {
     return collection;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (functionCall != null) {
-      result.setProperty("functionCall", functionCall.serialize(session));
-    }
-    result.setProperty("self", self);
-    if (collection != null) {
-      result.setProperty("collection", collection.serialize(session));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("functionCall") != null) {
-      functionCall = new SQLFunctionCall(-1);
-      functionCall.deserialize(fromResult.getProperty("functionCall"));
-    }
-    self = fromResult.getProperty("self");
-    if (fromResult.getProperty("collection") != null) {
-      collection = new SQLCollection(-1);
-      collection.deserialize(fromResult.getProperty("collection"));
-    }
   }
 
   public void extractSubQueries(SQLIdentifier letAlias, SubQueryCollector collector) {

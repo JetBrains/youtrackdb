@@ -2,8 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -125,26 +123,5 @@ public class SQLJsonItem {
     result = 31 * result + (leftString != null ? leftString.hashCode() : 0);
     result = 31 * result + (right != null ? right.hashCode() : 0);
     return result;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("leftIdentifier", leftIdentifier.serialize(session));
-    result.setProperty("leftString", leftString);
-    result.setProperty("right", right.serialize(session));
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("leftIdentifier") != null) {
-      leftIdentifier = SQLIdentifier.deserialize(fromResult.getProperty("leftIdentifier"));
-    }
-    if (fromResult.getProperty("leftString") != null) {
-      leftString = fromResult.getProperty("leftString");
-    }
-    if (fromResult.getProperty("right") != null) {
-      right = new SQLExpression(-1);
-      right.deserialize(fromResult.getProperty("right"));
-    }
   }
 }

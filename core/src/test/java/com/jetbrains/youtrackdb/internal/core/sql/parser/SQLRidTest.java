@@ -6,11 +6,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.io.ByteArrayInputStream;
 import java.util.Map;
@@ -22,7 +18,7 @@ import org.junit.Test;
  *
  * <p>{@link SQLRid#toRecordId} already honours the expression guard; these tests
  * cover the observers named in the {@code setExpression} comment — {@code
- * toString}, {@code equals}, {@code copy}, and expression-branch serialization.
+ * toString}, {@code equals}, and {@code copy}.
  */
 public class SQLRidTest {
 
@@ -170,35 +166,5 @@ public class SQLRidTest {
 
     var otherRid = promoteLegacyLiteral(legacyLiteralRid(99, 9), "@rid = #13:1");
     assertNotEquals("different expressions must not compare equal", fromLegacy, otherRid);
-  }
-
-  /**
-   * A promoted node must round-trip through {@link SQLRid#serialize} /
-   * {@link SQLRid#deserialize} on the expression branch: no legacy pair in the
-   * payload, {@code legacy=false}, and the restored node still resolves the RID.
-   */
-  @Test
-  public void setExpression_promotedNode_serializesViaExpressionBranch() {
-    var rid = promoteLegacyLiteral(legacyLiteralRid(99, 9), "@rid = #12:0");
-    var session = mock(DatabaseSessionEmbedded.class);
-    when(session.assertIfNotActive()).thenReturn(true);
-
-    var payload = rid.serialize(session);
-
-    assertNull("promoted node must not serialize a collection slot", payload.getProperty("collection"));
-    assertNull("promoted node must not serialize a position slot", payload.getProperty("position"));
-    assertNotNull("expression slot must be present", payload.getProperty("expression"));
-    assertEquals(Boolean.FALSE, payload.getProperty("legacy"));
-
-    var restored = new SQLRid(-1);
-    restored.deserialize(payload);
-
-    assertNull(restored.collection);
-    assertNull(restored.position);
-    assertFalse(restored.legacy);
-    assertNotNull(restored.expression);
-    assertEquals("#12:0", restored.toRecordId((Result) null, CTX).toString());
-    assertEquals(rid, restored);
-    assertFalse(restored.toString("").contains("99:9"));
   }
 }

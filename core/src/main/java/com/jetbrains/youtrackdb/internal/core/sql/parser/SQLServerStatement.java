@@ -3,15 +3,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.ServerCommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -45,7 +42,6 @@ public class SQLServerStatement extends SimpleNode {
     toString(null, builder);
     return builder.toString();
   }
-
 
   public ResultSet execute(YouTrackDBInternal db, Object[] args, boolean usePlanCache) {
     return execute(db, args, null, usePlanCache);
@@ -106,33 +102,6 @@ public class SQLServerStatement extends SimpleNode {
 
   public boolean isIdempotent() {
     return false;
-  }
-
-  @Nullable
-  public static SQLStatement deserializeFromOResult(Result res) {
-    try {
-      var result =
-          (SQLStatement)
-              Class.forName(res.getProperty("__class"))
-                  .getConstructor(Integer.class)
-                  .newInstance(-1);
-      result.deserialize(res);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new CommandExecutionException(res.getBoundedToSession(), ""), e,
-          res.getBoundedToSession());
-    }
-    return null;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    result.setProperty("__class", getClass().getName());
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    throw new UnsupportedOperationException();
   }
 
   public boolean executinPlanCanBeCached() {

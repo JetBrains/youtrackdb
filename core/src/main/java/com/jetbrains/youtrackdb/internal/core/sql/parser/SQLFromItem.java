@@ -4,8 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -288,79 +286,6 @@ public class SQLFromItem extends SimpleNode {
 
   public void setInputParams(List<SQLInputParameter> inputParams) {
     this.inputParams = inputParams;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (rids != null) {
-      result.setProperty(
-          "rids", rids.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
-    }
-    if (inputParams != null) {
-      result.setProperty(
-          "inputParams", rids.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
-    }
-    if (metadata != null) {
-      result.setProperty("metadata", metadata.serialize(session));
-    }
-    if (statement != null) {
-      result.setProperty("statement", statement.serialize(session));
-    }
-    if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(session));
-    }
-    if (identifier != null) {
-      result.setProperty("identifier", identifier.serialize(session));
-    }
-    if (functionCall != null) {
-      result.setProperty("functionCall", functionCall.serialize(session));
-    }
-    if (modifier != null) {
-      result.setProperty("modifier", modifier.serialize(session));
-    }
-
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("rids") != null) {
-      List<Result> serRids = fromResult.getProperty("rids");
-      rids = new ArrayList<>();
-      for (var res : serRids) {
-        var rid = new SQLRid(-1);
-        rid.deserialize(res);
-        rids.add(rid);
-      }
-    }
-
-    if (fromResult.getProperty("inputParams") != null) {
-      List<Result> ser = fromResult.getProperty("inputParams");
-      inputParams = new ArrayList<>();
-      for (var res : ser) {
-        inputParams.add(SQLInputParameter.deserializeFromOResult(res));
-      }
-    }
-    if (fromResult.getProperty("metadata") != null) {
-      metadata = new SQLMetadataIdentifier(-1);
-      metadata.deserialize(fromResult.getProperty("metadata"));
-    }
-    if (fromResult.getProperty("statement") != null) {
-      statement = SQLStatement.deserializeFromOResult(fromResult.getProperty("statement"));
-    }
-    if (fromResult.getProperty("inputParam") != null) {
-      inputParam = SQLInputParameter.deserializeFromOResult(fromResult.getProperty("inputParam"));
-    }
-    if (fromResult.getProperty("identifier") != null) {
-      identifier = SQLIdentifier.deserialize(fromResult.getProperty("identifier"));
-    }
-    if (fromResult.getProperty("functionCall") != null) {
-      functionCall = new SQLFunctionCall(-1);
-      functionCall.deserialize(fromResult.getProperty("functionCall"));
-    }
-    if (fromResult.getProperty("modifier") != null) {
-      modifier = new SQLModifier(-1);
-      modifier.deserialize(fromResult.getProperty("modifier"));
-    }
   }
 
   public boolean isCacheable(DatabaseSessionEmbedded session) {

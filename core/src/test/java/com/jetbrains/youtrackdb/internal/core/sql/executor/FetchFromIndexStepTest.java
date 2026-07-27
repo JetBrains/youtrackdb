@@ -38,10 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLValueExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -993,142 +990,6 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
   }
 
   // =========================================================================
-  // serialize / deserialize
-  // =========================================================================
-
-  /**
-   * Round-trips a step with a key condition through {@code serialize} → {@code deserialize}.
-   * {@code indexName}, {@code orderAsc}, and a serialized {@code condition} property must be
-   * present on the serialized form. After {@code deserialize} the reconstituted step's
-   * {@code getIndexName()} and {@code isOrderAsc()} must match the original.
-   */
-  @Test
-  public void serializeProducesIndexNameOrderAscAndConditionProperties() {
-    var fixture = createIndexedClass();
-    var index = getIndex(fixture.indexName);
-    var ctx = newContext();
-    // Parser-produced AND block gives us fully-initialized SQLBaseExpression right-hand sides,
-    // so the nested serialize() calls (SQLBinaryCondition → SQLExpression → SQLMathExpression)
-    // succeed. Lightweight SQLValueExpression stubs would reject serialization.
-    var keyCondition = parsedKeyCondition("key = 10");
-    var original =
-        new FetchFromIndexStep(new IndexSearchDescriptor(index, keyCondition), false, ctx, true);
-
-    var serialized = original.serialize(session);
-
-    assertThat((String) serialized.getProperty("indexName")).isEqualTo(fixture.indexName);
-    assertThat((Boolean) serialized.getProperty("orderAsc")).isFalse();
-    assertThat((Object) serialized.getProperty("condition")).isNotNull();
-  }
-
-  /**
-   * Pins a pre-existing production bug: {@link
-   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression#deserializeFromOResult}
-   * calls {@code Class.forName(name).getConstructor(Integer.class)} but all concrete AST classes
-   * (SQLAndBlock, SQLOrBlock, SQLNotBlock, SQLInCondition, SQLContainsCondition, …) declare their
-   * constructor with primitive {@code int}, not boxed {@code Integer} — {@code getConstructor}
-   * does not auto-unbox, so the lookup throws {@link NoSuchMethodException}. The exception is
-   * wrapped into {@link CommandExecutionException} by {@code FetchFromIndexStep.deserialize}.
-   *
-   * <p>Practical impact: plan-cache round-trip (serialize-to-Result → deserialize) is broken for
-   * any FetchFromIndexStep whose key condition includes a wrapping AND block. This test fails
-   * the day the bug is fixed in production, prompting tightening to a round-trip-success check.
-   *
-   * <p>WHEN-FIXED: YTDB-754 — change {@code SQLBooleanExpression.deserializeFromOResult} to use
-   * {@code int.class} (primitive) in {@code getConstructor}, or provide an {@code
-   * Integer}-parameter constructor on the affected AST classes.
-   */
-  @Test
-  public void deserializingAndBlockConditionHitsIntegerConstructorBug() {
-    var fixture = createIndexedClass();
-    var index = getIndex(fixture.indexName);
-    var ctx = newContext();
-    var keyCondition = parsedKeyCondition("key = 10");
-    var original =
-        new FetchFromIndexStep(new IndexSearchDescriptor(index, keyCondition), false, ctx, true);
-    var serialized = original.serialize(session);
-    var copy = new FetchFromIndexStep(null, true, ctx, false);
-    copy.reset();
-
-    assertThatThrownBy(() -> copy.deserialize(serialized, session))
-        .isInstanceOf(CommandExecutionException.class)
-        .hasRootCauseInstanceOf(NoSuchMethodException.class)
-        .hasRootCauseMessage(
-            "com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock."
-                + "<init>(java.lang.Integer)");
-  }
-
-  /**
-   * A step with an {@code additionalRangeCondition} includes the {@code additionalRangeCondition}
-   * property in its serialized form; after deserialization the reconstituted descriptor exposes
-   * the condition again. Mutation dropping the serialization of this field would silently lose
-   * the upper bound during plan-cache round-trip.
-   */
-  @Test
-  public void serializeIncludesAdditionalRangeConditionWhenPresent() {
-    var fixture = createIndexedClass();
-    var index = getIndex(fixture.indexName);
-    var ctx = newContext();
-    var keyCondition = parsedKeyCondition("key >= 10");
-    var upper = (SQLBinaryCondition) parsedKeyCondition("key < 30").getSubBlocks().getFirst();
-    var desc = new IndexSearchDescriptor(index, keyCondition, upper, null);
-    var original = new FetchFromIndexStep(desc, true, ctx, false);
-
-    var serialized = original.serialize(session);
-
-    // additionalRangeCondition uses SQLBinaryCondition's own serialize/deserialize pair (which
-    // does NOT hit the Integer-constructor bug), so it round-trips cleanly — unlike the outer
-    // keyCondition which wraps an SQLAndBlock and fails (see
-    // deserializingAndBlockConditionHitsIntegerConstructorBug).
-    assertThat((Object) serialized.getProperty("additionalRangeCondition")).isNotNull();
-  }
-
-  /**
-   * Serialization of a step with {@code keyCondition == null} omits the {@code condition}
-   * property entirely. Pins the {@code if (desc.getKeyCondition() != null)} guard.
-   */
-  @Test
-  public void serializeOmitsConditionPropertyWhenKeyConditionIsNull() {
-    var fixture = createIndexedClass();
-    var index = getIndex(fixture.indexName);
-    var ctx = newContext();
-    var step = new FetchFromIndexStep(new IndexSearchDescriptor(index), true, ctx, false);
-
-    var serialized = step.serialize(session);
-
-    assertThat((Object) serialized.getProperty("condition")).isNull();
-    assertThat((Object) serialized.getProperty("additionalRangeCondition")).isNull();
-  }
-
-  /**
-   * A serialized form with an unknown index name causes deserialization to fail while the desc
-   * is being rebuilt ({@code indexManager.getIndex(...)} returns {@code null}, and building an
-   * {@link IndexSearchDescriptor} with a null index fails the first time the descriptor is used).
-   * The exception is wrapped into {@link CommandExecutionException} by {@code deserialize}'s
-   * catch-all.
-   */
-  @Test
-  public void deserializeWithUnknownIndexWrapsIntoCommandExecutionException() {
-    var fixture = createIndexedClass();
-    var index = getIndex(fixture.indexName);
-    var ctx = newContext();
-    var original =
-        new FetchFromIndexStep(
-            new IndexSearchDescriptor(index, parsedKeyCondition("key = 10")), true, ctx, false);
-
-    var serialized = (ResultInternal) original.serialize(session);
-    // Force a deserialization failure by replacing the condition with a String value that
-    // cannot be interpreted as a nested Result. deserialize() wraps the RuntimeException into
-    // a CommandExecutionException.
-    serialized.setProperty("condition", "not-a-valid-condition-serialization");
-    var copy = new FetchFromIndexStep(null, true, ctx, false);
-    copy.reset();
-
-    assertThatThrownBy(() -> copy.deserialize(serialized, session))
-        .isInstanceOf(CommandExecutionException.class);
-  }
-
-  // =========================================================================
   // prettyPrint
   // =========================================================================
 
@@ -1317,53 +1178,6 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     var block = new SQLAndBlock(-1);
     block.addSubBlock(sub);
     return block;
-  }
-
-  /**
-   * Parses a mini SELECT-WHERE statement and returns the WHERE clause's flattened AND block. The
-   * resulting AST has fully-initialized {@link
-   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression} right-hand sides, so
-   * both {@code serialize()} and {@code deserialize()} succeed — unlike the lightweight {@link
-   * SQLValueExpression} stubs used elsewhere in this file, which explicitly reject
-   * serialization. The parser typically wraps a WHERE clause in an OR block whose only subblock
-   * is an AND block; this helper peels both layers so callers get a ready-to-use AND block.
-   */
-  private static SQLAndBlock parsedKeyCondition(String whereSnippet) {
-    try {
-      var sql = "SELECT FROM XUnusedClass WHERE " + whereSnippet;
-      var parser = new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes()));
-      var stmt = (SQLSelectStatement) parser.parse();
-      SQLBooleanExpression where = stmt.getWhereClause().getBaseExpression();
-      // Peel the outer OR block if it has a single subblock (common for simple WHEREs).
-      if (where instanceof com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock orBlock
-          && orBlock.getSubBlocks().size() == 1) {
-        where = orBlock.getSubBlocks().getFirst();
-      }
-      // The parser's AND block contains SQLNotBlock wrappers with negate=false for each simple
-      // condition — unwrap them so downstream code sees the bare SQLBinaryCondition / SQLInCondition.
-      SQLAndBlock andBlock;
-      if (where instanceof SQLAndBlock existing) {
-        andBlock = new SQLAndBlock(-1);
-        for (var sub : existing.getSubBlocks()) {
-          andBlock.addSubBlock(unwrapNotBlock(sub));
-        }
-      } else {
-        andBlock = new SQLAndBlock(-1);
-        andBlock.addSubBlock(unwrapNotBlock(where));
-      }
-      return andBlock;
-    } catch (Exception e) {
-      throw new AssertionError("Failed to parse WHERE snippet: " + whereSnippet, e);
-    }
-  }
-
-  private static SQLBooleanExpression unwrapNotBlock(SQLBooleanExpression expr) {
-    if (expr instanceof com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock notBlock
-        && !notBlock.isNegate()
-        && notBlock.getSub() != null) {
-      return notBlock.getSub();
-    }
-    return expr;
   }
 
   private static SQLBinaryCondition binaryCondition(

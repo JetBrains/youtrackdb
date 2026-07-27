@@ -2,16 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collection;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Source step that fetches records by a pre-computed list of Record IDs (RIDs).
@@ -70,35 +64,6 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
         + ExecutionStepInternal.getIndent(depth, indent)
         + "  "
         + rids;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    if (rids != null) {
-      result.setProperty(
-          "rids", rids.stream().map(RecordIdInternal::toString).collect(Collectors.toList()));
-    }
-    result.setProperty("skipMissing", skipMissing);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      if (fromResult.getProperty("rids") != null) {
-        List<String> ser = fromResult.getProperty("rids");
-        rids = ser.stream().map(rid -> RecordIdInternal.fromString(rid, false))
-            .collect(Collectors.toList());
-      }
-      // Default to false when the property is absent (a plan serialized before this flag existed).
-      Boolean serializedSkipMissing = fromResult.getProperty("skipMissing");
-      skipMissing = Boolean.TRUE.equals(serializedSkipMissing);
-      reset();
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /**

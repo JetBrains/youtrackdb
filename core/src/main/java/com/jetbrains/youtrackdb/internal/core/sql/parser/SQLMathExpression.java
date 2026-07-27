@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
@@ -47,7 +46,6 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
     return false;
   }
-
 
   public enum Operator {
     STAR(10) {
@@ -1170,57 +1168,6 @@ public class SQLMathExpression extends SimpleNode {
       throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot apply REMOVE " + this);
     }
     childExpressions.getFirst().applyRemove(result, ctx);
-  }
-
-  public static SQLMathExpression deserializeFromResult(Result fromResult) {
-    String className = fromResult.getProperty("__class");
-    try {
-      var result =
-          (SQLMathExpression) Class.forName(className).getConstructor(Integer.class)
-              .newInstance(-1);
-      result.deserialize(fromResult);
-      return result;
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
-    }
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("__class", getClass().getName());
-    if (childExpressions != null) {
-      result.setProperty(
-          "childExpressions",
-          childExpressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
-    }
-    if (operators != null) {
-      result.setProperty(
-          "operators",
-          operators.stream().map(SQLMathExpression::serializeOperator)
-              .collect(Collectors.toList()));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("childExpressions") != null) {
-      List<Result> ser = fromResult.getProperty("childExpressions");
-      childExpressions =
-          ser.stream().map(SQLMathExpression::deserializeFromResult).collect(Collectors.toList());
-    }
-    if (fromResult.getProperty("operators") != null) {
-      List<String> ser = fromResult.getProperty("operators");
-      operators = ser.stream().map(SQLMathExpression::deserializeOperator)
-          .collect(Collectors.toList());
-    }
-  }
-
-  private static String serializeOperator(Operator x) {
-    return x.toString();
-  }
-
-  private static Operator deserializeOperator(String x) {
-    return Operator.valueOf(x);
   }
 
   public boolean varMightBeInUse(String varName) {

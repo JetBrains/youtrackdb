@@ -2,12 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
@@ -63,8 +59,7 @@ public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
     final var iter = new RecordIteratorCollection<>(
         ctx.getDatabaseSession(),
         collectionId,
-        !ORDER_DESC.equals(order)
-    );
+        !ORDER_DESC.equals(order));
 
     var set = ExecutionStream.loadIterator(iter);
 
@@ -92,28 +87,6 @@ public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
 
   public void setOrder(Object order) {
     this.order = order;
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = ExecutionStepInternal.basicSerialize(session, this);
-    result.setProperty("collectionId", collectionId);
-    result.setProperty("order", order);
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult, DatabaseSessionEmbedded session) {
-    try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
-      this.collectionId = fromResult.getProperty("collectionId");
-      var orderProp = fromResult.getProperty("order");
-      if (orderProp != null) {
-        this.order = ORDER_ASC.equals(fromResult.getProperty("order")) ? ORDER_ASC : ORDER_DESC;
-      }
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
-    }
   }
 
   /** Cacheable: collection ID is a stable numeric reference. */

@@ -21,10 +21,10 @@ import javax.annotation.Nullable;
 ///
 /// `SQLExpression.literalValue` is intentionally NOT exposed. It is `private` (unreadable even from
 /// this same-package accessor) and is never assigned on the SQL `Expression()` parse path — only
-/// the GQL lowering, deserialize, and copy paths write it. The lowering pass dispatches on the
-/// recognized typed fields and throws on everything else as its default, so a hypothetically-set
-/// `literalValue` (deserialized / GQL-originated) is covered by that throw-default. Exposing it
-/// here is deferred to the GQL-lowering slice.
+/// the GQL lowering and copy paths write it. The lowering pass dispatches on the recognized typed
+/// fields and throws on everything else as its default, so a hypothetically-set `literalValue`
+/// (GQL-originated) is covered by that throw-default. Exposing it here is deferred to the
+/// GQL-lowering slice.
 public final class AnalyzedAstAccess {
 
   private AnalyzedAstAccess() {
@@ -75,5 +75,29 @@ public final class AnalyzedAstAccess {
   @Nullable
   public static SQLStatement parenStatement(SQLParenthesisExpression parenthesis) {
     return parenthesis.statement;
+  }
+
+  /// The positional index of a positional bind parameter (`?`). The parser assigns sequential
+  /// indices starting from 0.
+  public static int positionalParamNumber(SQLPositionalParameter param) {
+    return param.paramNumber;
+  }
+
+  /// The positional index of a named bind parameter (`:name`). Named parameters also carry a
+  /// positional index assigned by the parser.
+  public static int namedParamNumber(SQLNamedParameter param) {
+    return param.paramNumber;
+  }
+
+  /// The textual name of a named bind parameter (`:name`).
+  @Nullable
+  public static String namedParamName(SQLNamedParameter param) {
+    return param.paramName;
+  }
+
+  /// The expression of an `IS NOT NULL` condition. `SQLIsNotNullCondition.expression` is
+  /// `protected` with no public getter (unlike `SQLIsNullCondition` which does have one).
+  public static SQLExpression isNotNullExpression(SQLIsNotNullCondition condition) {
+    return condition.expression;
   }
 }

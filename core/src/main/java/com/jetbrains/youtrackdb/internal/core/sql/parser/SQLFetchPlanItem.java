@@ -2,9 +2,6 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -127,40 +124,6 @@ public class SQLFetchPlanItem extends SimpleNode {
     result = 31 * result + (rightDepth != null ? rightDepth.hashCode() : 0);
     result = 31 * result + (fieldChain != null ? fieldChain.hashCode() : 0);
     return result;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    result.setProperty("star", star);
-    if (leftDepth != null) {
-      result.setProperty("leftDepth", leftDepth.serialize(db));
-    }
-    result.setProperty("leftStar", leftStar);
-    if (rightDepth != null) {
-      result.setProperty("rightDepth", rightDepth.serialize(db));
-    }
-    if (fieldChain != null) {
-      result.setProperty("rightDepth", new ArrayList<>(fieldChain));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    star = fromResult.getProperty("star");
-    if (fromResult.getProperty("leftDepth") != null) {
-      leftDepth = new SQLInteger(-1);
-      leftDepth.deserialize(fromResult.getProperty("leftDepth"));
-    }
-    leftStar = fromResult.getProperty("leftStar");
-    if (fromResult.getProperty("rightDepth") != null) {
-      rightDepth = new SQLInteger(-1);
-      rightDepth.deserialize(fromResult.getProperty("rightDepth"));
-    }
-    if (fromResult.getProperty("fieldChain") != null) {
-      List<String> ser = fromResult.getProperty("fieldChain");
-      fieldChain = new ArrayList<>();
-      fieldChain.addAll(ser);
-    }
   }
 }
 /* JavaCC - OriginalChecksum=b7f4c9a97a8f2ca3d85020e054a9ad16 (do not edit this line) */

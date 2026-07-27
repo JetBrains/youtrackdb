@@ -516,32 +516,6 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("left", left.serialize(session));
-    result.setProperty("operator", operator.getClass().getName());
-    result.setProperty("right", right.serialize(session));
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    left = new SQLExpression(-1);
-    left.deserialize(fromResult.getProperty("left"));
-    try {
-      // Typed local avoids String.valueOf(char[]) overload pitfall with generic getProperty.
-      String operatorClassName = fromResult.getProperty("operator");
-      operator =
-          (SQLBinaryCompareOperator)
-              Class.forName(operatorClassName).getConstructor(int.class).newInstance(-1);
-    } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
-    }
-    right = new SQLExpression(-1);
-    right.deserialize(fromResult.getProperty("right"));
-  }
-
-  @Override
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     return left.isCacheable(session) && right.isCacheable(session);
   }

@@ -382,6 +382,9 @@ jmh-ldbc/
       IC1.sql .. IC13.sql              # Interactive Complex queries (YouTrackDB MATCH SQL)
       IC4-oldpost-count.sql            # IC4 curation factor query (NOT-pattern cost)
     log4j2.xml                         # Logging configuration
+  src/test/java/.../ldbc/
+    LdbcQueryCorrectnessTest.java      # LDBC query result-correctness checks
+    LdbcQueryExplainTest.java          # LDBC EXPLAIN/PROFILE checks
 ```
 
 ### SQL file conventions

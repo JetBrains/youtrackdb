@@ -332,31 +332,6 @@ public class SQLProjection extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    result.setProperty("distinct", distinct);
-    if (items != null) {
-      result.setProperty(
-          "items", items.stream().map(oProjectionItem -> oProjectionItem.serialize(session))
-              .collect(Collectors.toList()));
-    }
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    distinct = fromResult.getProperty("distinct");
-    if (fromResult.getProperty("items") != null) {
-      items = new ArrayList<>();
-
-      List<Result> ser = fromResult.getProperty("items");
-      for (var x : ser) {
-        var item = new SQLProjectionItem(-1);
-        item.deserialize(x);
-        items.add(item);
-      }
-    }
-  }
-
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (items != null) {
       for (var item : items) {

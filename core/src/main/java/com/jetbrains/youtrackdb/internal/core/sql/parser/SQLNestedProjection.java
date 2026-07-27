@@ -3,7 +3,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
@@ -348,55 +347,6 @@ public class SQLNestedProjection extends SimpleNode {
       return result;
     }
     return value;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = new ResultInternal(session);
-    if (includeItems != null) {
-      result.setProperty(
-          "includeItems",
-          includeItems.stream()
-              .map(oNestedProjectionItem -> oNestedProjectionItem.serialize(session))
-              .collect(Collectors.toList()));
-    }
-    if (excludeItems != null) {
-      result.setProperty(
-          "excludeItems",
-          excludeItems.stream()
-              .map(oNestedProjectionItem -> oNestedProjectionItem.serialize(session))
-              .collect(Collectors.toList()));
-    }
-    if (starItem != null) {
-      result.setProperty("starItem", starItem.serialize(session));
-    }
-    result.setProperty("recursion", recursion);
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("includeItems") != null) {
-      includeItems = new ArrayList<>();
-      List<Result> ser = fromResult.getProperty("includeItems");
-      for (var x : ser) {
-        var item = new SQLNestedProjectionItem(-1);
-        item.deserialize(x);
-        includeItems.add(item);
-      }
-    }
-    if (fromResult.getProperty("excludeItems") != null) {
-      excludeItems = new ArrayList<>();
-      List<Result> ser = fromResult.getProperty("excludeItems");
-      for (var x : ser) {
-        var item = new SQLNestedProjectionItem(-1);
-        item.deserialize(x);
-        excludeItems.add(item);
-      }
-    }
-    if (fromResult.getProperty("starItem") != null) {
-      starItem = new SQLNestedProjectionItem(-1);
-      starItem.deserialize(fromResult.getProperty("starItem"));
-    }
-    recursion = fromResult.getProperty("recursion");
   }
 
   public void addExcludeItem(SQLNestedProjectionItem item) {

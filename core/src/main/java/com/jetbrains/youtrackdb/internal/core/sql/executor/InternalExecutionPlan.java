@@ -1,14 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import javax.annotation.Nullable;
 
 /**
- * Internal interface for execution plans that can be started, cached, serialized,
+ * Internal interface for execution plans that can be started, cached,
  * and copied.
  *
  * <p>The primary implementation is {@link SelectExecutionPlan}, which holds a chain
@@ -60,16 +58,6 @@ public interface InternalExecutionPlan extends ExecutionPlan {
    * {@link com.jetbrains.youtrackdb.internal.core.query.ExecutionStep#getCost()}.
    */
   long getCost();
-
-  /** Serializes this plan into a {@link Result} for persistent storage. The default throws {@link UnsupportedOperationException}. */
-  default Result serialize(DatabaseSessionEmbedded session) {
-    throw new UnsupportedOperationException();
-  }
-
-  /** Reconstitutes a plan from a previously serialized {@link Result}. The default throws {@link UnsupportedOperationException}. */
-  default void deserialize(Result serializedExecutionPlan, DatabaseSessionEmbedded session) {
-    throw new UnsupportedOperationException();
-  }
 
   /** Creates a deep copy of this plan for independent execution. The default throws {@link UnsupportedOperationException}. */
   default InternalExecutionPlan copy(CommandContext ctx) {

@@ -295,29 +295,6 @@ public class FetchFromVariableStepTest extends TestUtilsFixture {
   }
 
   // =========================================================================
-  // internalStart: deserialize with missing variableName property
-  // =========================================================================
-
-  /**
-   * When the serialized result does not contain a "variableName" property
-   * (e.g. from a corrupted or legacy serialized form), deserialization
-   * skips the variable name assignment, keeping the step's existing value.
-   */
-  @Test
-  public void deserializeWithMissingVariableNameKeepsExistingValue() {
-    var ctx = newContext();
-    var step = new FetchFromVariableStep("original", ctx, false);
-
-    // Serialized result without "variableName" property
-    var serialized = new ResultInternal(session);
-    step.deserialize(serialized, session);
-
-    // The step should retain its original variable name
-    var output = step.prettyPrint(0, 2);
-    assertThat(output).contains("original");
-  }
-
-  // =========================================================================
   // internalStart: null/unsupported variable
   // =========================================================================
 
@@ -482,65 +459,6 @@ public class FetchFromVariableStepTest extends TestUtilsFixture {
     assertThat(output).startsWith("    ");
     assertThat(output).contains("FETCH FROM VARIABLE");
     assertThat(output).contains("myVar");
-  }
-
-  // =========================================================================
-  // serialize / deserialize
-  // =========================================================================
-
-  /**
-   * Serialization stores the variableName under the "variableName" property
-   * key, along with the basic step metadata.
-   */
-  @Test
-  public void serializeStoresVariableName() {
-    var ctx = newContext();
-    var step = new FetchFromVariableStep("friends", ctx, false);
-
-    var serialized = step.serialize(session);
-
-    assertThat(serialized).isNotNull();
-    assertThat((String) serialized.getProperty("variableName"))
-        .isEqualTo("friends");
-  }
-
-  /**
-   * Deserialization restores the variableName from the serialized form,
-   * producing a step that renders the correct variable name in prettyPrint.
-   */
-  @Test
-  public void deserializeRestoresVariableName() {
-    var ctx = newContext();
-    var original = new FetchFromVariableStep("friends", ctx, false);
-    var serialized = original.serialize(session);
-
-    // Create a fresh step with a different variable name, then deserialize
-    var restored = new FetchFromVariableStep("placeholder", ctx, false);
-    restored.deserialize(serialized, session);
-
-    var output = restored.prettyPrint(0, 2);
-    assertThat(output).contains("friends");
-    assertThat(output).doesNotContain("placeholder");
-  }
-
-  /**
-   * When deserialization encounters invalid data, the exception is wrapped
-   * in a {@link CommandExecutionException}.
-   */
-  @Test
-  public void deserializeWithInvalidDataWrapsException() {
-    var ctx = newContext();
-    var step = new FetchFromVariableStep("x", ctx, false);
-
-    // Create an invalid serialized result that causes basicDeserialize to fail:
-    // subSteps with invalid Java class name
-    var badResult = new ResultInternal(session);
-    var badSubStep = new ResultInternal(session);
-    badSubStep.setProperty("javaType", "com.nonexistent.StepClass");
-    badResult.setProperty("subSteps", List.of(badSubStep));
-
-    assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class);
   }
 
   // =========================================================================

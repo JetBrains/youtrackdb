@@ -2,9 +2,6 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -80,18 +77,6 @@ public class SQLTimeout extends SimpleNode {
 
   public String getFailureStrategy() {
     return failureStrategy;
-  }
-
-  public Result serialize(DatabaseSessionEmbedded db) {
-    var result = new ResultInternal(db);
-    result.setProperty("val", val);
-    result.setProperty("failureStrategy", failureStrategy);
-    return result;
-  }
-
-  public void deserialize(Result fromResult) {
-    val = fromResult.getProperty("val");
-    failureStrategy = fromResult.getProperty("failureStrategy");
   }
 
   public void setVal(Number val) {

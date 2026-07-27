@@ -1,11 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -321,109 +319,6 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
 
     assertThat(output).startsWith("    +").doesNotStartWith("     +");
     assertThat(output).contains("+ FETCH FROM COLLECTION 5 ASC");
-  }
-
-  // =========================================================================
-  // serialize / deserialize
-  // =========================================================================
-
-  /**
-   * {@code serialize} captures both the collection ID and the order sentinel. When order is null
-   * (default), the serialized form has a null "order" property.
-   */
-  @Test
-  public void serializeNullOrderStoresNullProperty() {
-    var ctx = newContext();
-    var step = new FetchFromCollectionExecutionStep(10, ctx, false);
-
-    var serialized = step.serialize(session);
-
-    assertThat((Integer) serialized.getProperty("collectionId")).isEqualTo(10);
-    assertThat((Object) serialized.getProperty("order")).isNull();
-  }
-
-  /**
-   * With ASC order set, serialize/deserialize round-trips the ORDER_ASC sentinel.
-   *
-   * <p>TB2/BC2 tightening: the deserialize branch that distinguishes explicit ORDER_ASC from
-   * null ordering is pinned by re-serializing the restored step and asserting the "order"
-   * property equals ORDER_ASC — prettyPrint alone renders "ASC" for both null and ORDER_ASC,
-   * so a mutation that dropped the sentinel assignment during deserialize would not be
-   * caught by the pretty-print check.
-   */
-  @Test
-  public void serializeDeserializeAscRoundTrip() {
-    var ctx = newContext();
-    var original = new FetchFromCollectionExecutionStep(77, ctx, false);
-    original.setOrder(FetchFromCollectionExecutionStep.ORDER_ASC);
-
-    var serialized = original.serialize(session);
-    assertThat((String) serialized.getProperty("order"))
-        .isEqualTo(FetchFromCollectionExecutionStep.ORDER_ASC);
-
-    var restored = new FetchFromCollectionExecutionStep(0, ctx, false);
-    restored.deserialize(serialized, session);
-
-    // Re-serialize the restored step to observe the actual sentinel (prettyPrint would coalesce
-    // null-order with ORDER_ASC both to "ASC").
-    var restoredSerialized = restored.serialize(session);
-    assertThat((String) restoredSerialized.getProperty("order"))
-        .isEqualTo(FetchFromCollectionExecutionStep.ORDER_ASC);
-    assertThat((Integer) restoredSerialized.getProperty("collectionId")).isEqualTo(77);
-    assertThat(restored.prettyPrint(0, 2)).contains("+ FETCH FROM COLLECTION 77 ASC");
-  }
-
-  /**
-   * With DESC order set, serialize/deserialize round-trips the ORDER_DESC sentinel and the
-   * restored step renders "DESC".
-   */
-  @Test
-  public void serializeDeserializeDescRoundTrip() {
-    var ctx = newContext();
-    var original = new FetchFromCollectionExecutionStep(88, ctx, false);
-    original.setOrder(FetchFromCollectionExecutionStep.ORDER_DESC);
-
-    var serialized = original.serialize(session);
-
-    var restored = new FetchFromCollectionExecutionStep(0, ctx, false);
-    restored.deserialize(serialized, session);
-
-    assertThat(restored.prettyPrint(0, 2)).contains("+ FETCH FROM COLLECTION 88 DESC");
-  }
-
-  /**
-   * Deserialize with the "order" property left null keeps the restored step on the default ASC
-   * branch (no order sentinel set).
-   */
-  @Test
-  public void deserializeWithNullOrderLeavesStepAscending() {
-    var ctx = newContext();
-    var original = new FetchFromCollectionExecutionStep(13, ctx, false);
-    var serialized = original.serialize(session);
-
-    var restored = new FetchFromCollectionExecutionStep(0, ctx, false);
-    restored.deserialize(serialized, session);
-
-    assertThat(restored.prettyPrint(0, 2)).contains("+ FETCH FROM COLLECTION 13 ASC");
-  }
-
-  /**
-   * {@code deserialize} wraps underlying exceptions into a {@link CommandExecutionException}.
-   */
-  @Test
-  public void deserializeFailureWrapsInCommandExecutionException() {
-    var ctx = newContext();
-    var step = new FetchFromCollectionExecutionStep(1, ctx, false);
-
-    var badResult = new ResultInternal(session);
-    var badSubStep = new ResultInternal(session);
-    badSubStep.setProperty("javaType", "com.nonexistent.Step");
-    badResult.setProperty("subSteps", List.of(badSubStep));
-
-    assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class)
-        // TB10 cause-chain pin.
-        .hasRootCauseInstanceOf(ClassNotFoundException.class);
   }
 
   // =========================================================================

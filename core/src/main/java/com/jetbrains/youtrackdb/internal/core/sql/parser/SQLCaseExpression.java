@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -187,44 +186,6 @@ public class SQLCaseExpression extends SQLMathExpression {
       }
     }
     return elseExpression == null || elseExpression.isCacheable(session);
-  }
-
-  @Override
-  public Result serialize(DatabaseSessionEmbedded session) {
-    var result = (ResultInternal) super.serialize(session);
-    result.setProperty("__class", getClass().getName());
-    var whens = new ArrayList<Result>();
-    for (int i = 0; i < whenConditions.size(); i++) {
-      var pair = new ResultInternal(session);
-      pair.setProperty("condition", whenConditions.get(i).serialize(session));
-      pair.setProperty("then", thenExpressions.get(i).serialize(session));
-      whens.add(pair);
-    }
-    result.setProperty("whenClauses", whens);
-    if (elseExpression != null) {
-      result.setProperty("elseExpression", elseExpression.serialize(session));
-    }
-    return result;
-  }
-
-  @Override
-  public void deserialize(Result fromResult) {
-    super.deserialize(fromResult);
-    List<Result> whens = fromResult.getProperty("whenClauses");
-    if (whens != null) {
-      for (var pair : whens) {
-        var cond = SQLBooleanExpression.deserializeFromOResult(pair.getProperty("condition"));
-        var then = new SQLExpression(-1);
-        then.deserialize(pair.getProperty("then"));
-        if (cond != null) {
-          addWhen(cond, then);
-        }
-      }
-    }
-    if (fromResult.getProperty("elseExpression") != null) {
-      elseExpression = new SQLExpression(-1);
-      elseExpression.deserialize(fromResult.getProperty("elseExpression"));
-    }
   }
 
   @Override
