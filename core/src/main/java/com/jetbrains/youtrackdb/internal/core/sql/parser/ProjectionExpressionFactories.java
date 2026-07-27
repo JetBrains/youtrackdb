@@ -82,4 +82,90 @@ public final class ProjectionExpressionFactories {
   static SQLExpression contextVariable(String name) {
     return bareIdentifier(name);
   }
+
+  // --- Field access (alias.property / alias.@rid) built as AST, no SQL-text round-trip ----------
+  // Same AST shape the parser produces for `SELECT alias.property FROM …`; the property key is a
+  // literal SQLIdentifier, so a Gremlin-supplied key can never be re-tokenized into extra syntax.
+
+  /** {@code alias.propertyKey} — a field access on the boundary/alias node. */
+  public static SQLExpression aliasProperty(String alias, String propertyKey) {
+    requireNonBlank(alias, "alias");
+    requireNonBlank(propertyKey, "property key");
+    return new SQLExpression(new SQLIdentifier(alias), propertyModifier(propertyKey));
+  }
+
+  /** {@code alias.@rid} / {@code alias.@class} — a record-attribute access on the alias node. */
+  public static SQLExpression aliasRecordAttribute(String alias, String attribute) {
+    requireNonBlank(alias, "alias");
+    requireNonBlank(attribute, "record attribute");
+    return new SQLExpression(new SQLIdentifier(alias), recordAttributeModifier(attribute));
+  }
+
+  // --- ORDER BY items (built as AST) ------------------------------------------------------------
+
+  /** {@code ORDER BY alias.propertyKey ASC|DESC}. */
+  public static SQLOrderByItem orderByProperty(
+      String alias, String propertyKey, boolean ascending) {
+    requireNonBlank(alias, "alias");
+    requireNonBlank(propertyKey, "property key");
+    return orderByItem(alias, propertyModifier(propertyKey), ascending);
+  }
+
+  /** {@code ORDER BY alias.@rid|@class ASC|DESC}. */
+  public static SQLOrderByItem orderByRecordAttribute(
+      String alias, String attribute, boolean ascending) {
+    requireNonBlank(alias, "alias");
+    requireNonBlank(attribute, "record attribute");
+    return orderByItem(alias, recordAttributeModifier(attribute), ascending);
+  }
+
+  // --- LIMIT / SKIP (built as AST) --------------------------------------------------------------
+
+  /** {@code LIMIT value}. */
+  public static SQLLimit limit(long value) {
+    var limit = new SQLLimit(-1);
+    limit.num = integerNode(value);
+    return limit;
+  }
+
+  /** {@code SKIP value}. */
+  public static SQLSkip skip(long value) {
+    var skip = new SQLSkip(-1);
+    skip.num = integerNode(value);
+    return skip;
+  }
+
+  private static SQLOrderByItem orderByItem(String alias, SQLModifier modifier, boolean ascending) {
+    var item = new SQLOrderByItem();
+    item.setAlias(alias);
+    item.modifier = modifier;
+    item.setType(ascending ? SQLOrderByItem.ASC : SQLOrderByItem.DESC);
+    return item;
+  }
+
+  private static SQLModifier propertyModifier(String propertyKey) {
+    var modifier = new SQLModifier(-1);
+    modifier.suffix = new SQLSuffixIdentifier(new SQLIdentifier(propertyKey));
+    return modifier;
+  }
+
+  private static SQLModifier recordAttributeModifier(String attribute) {
+    var attr = new SQLRecordAttribute(-1);
+    attr.setName(attribute);
+    var modifier = new SQLModifier(-1);
+    modifier.suffix = new SQLSuffixIdentifier(attr);
+    return modifier;
+  }
+
+  private static SQLInteger integerNode(long value) {
+    var num = new SQLInteger(-1);
+    num.setValue(value);
+    return num;
+  }
+
+  private static void requireNonBlank(String value, String what) {
+    if (value == null || value.isBlank()) {
+      throw new IllegalArgumentException("blank " + what);
+    }
+  }
 }

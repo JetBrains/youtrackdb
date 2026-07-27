@@ -1,12 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract;
 
 /**
@@ -54,7 +50,7 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
         // range(0, -1) / skip(0) is a no-op — accept without clauses.
         return Outcome.ACCEPTED;
       }
-      ctx.setSkip(parseSkip(low));
+      ctx.setSkip(ProjectionExpressionFactories.skip(low));
       return Outcome.ACCEPTED;
     }
     if (high < low) {
@@ -63,9 +59,9 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     }
     long limit = high - low;
     if (low > 0) {
-      ctx.setSkip(parseSkip(low));
+      ctx.setSkip(ProjectionExpressionFactories.skip(low));
     }
-    ctx.setLimit(parseLimit(limit));
+    ctx.setLimit(ProjectionExpressionFactories.limit(limit));
     return Outcome.ACCEPTED;
   }
 
@@ -76,35 +72,4 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     return false;
   }
 
-  private static SQLSkip parseSkip(long value) {
-    try {
-      var sql = "SELECT FROM V SKIP " + value;
-      var parser =
-          new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8)));
-      var stmt = (SQLSelectStatement) parser.parse();
-      var skip = stmt.getSkip();
-      if (skip == null) {
-        throw new IllegalArgumentException("failed to parse SKIP " + value);
-      }
-      return skip;
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("failed to parse SKIP " + value, e);
-    }
-  }
-
-  private static SQLLimit parseLimit(long value) {
-    try {
-      var sql = "SELECT FROM V LIMIT " + value;
-      var parser =
-          new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8)));
-      var stmt = (SQLSelectStatement) parser.parse();
-      var limit = stmt.getLimit();
-      if (limit == null) {
-        throw new IllegalArgumentException("failed to parse LIMIT " + value);
-      }
-      return limit;
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("failed to parse LIMIT " + value, e);
-    }
-  }
 }

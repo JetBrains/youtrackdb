@@ -1,12 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -75,29 +71,78 @@ public final class ByModulatorTranslator {
    */
   public static Optional<SQLExpression> translateKeyModulator(
       String alias, Traversal.Admin<?, ?> modulator) {
-    if (alias == null || alias.isBlank() || modulator == null) {
+    if (alias == null || alias.isBlank()) {
+      return Optional.empty();
+    }
+    return classifyKey(modulator).map(field -> field.toFieldExpression(alias));
+  }
+
+  /**
+   * Same key-side classification as {@link #translateKeyModulator}, but produces an {@link
+   * SQLOrderByItem} directly (no SQL-text round-trip) for {@code order().by(...)}.
+   */
+  public static Optional<SQLOrderByItem> translateKeyModulatorOrderItem(
+      String alias, Traversal.Admin<?, ?> modulator, boolean ascending) {
+    if (alias == null || alias.isBlank()) {
+      return Optional.empty();
+    }
+    return classifyKey(modulator).map(field -> field.toOrderItem(alias, ascending));
+  }
+
+  /** Classifies a key-side modulator into a field reference, independent of the target alias. */
+  private static Optional<FieldRef> classifyKey(Traversal.Admin<?, ?> modulator) {
+    if (modulator == null) {
       return Optional.empty();
     }
     if (modulator instanceof ValueTraversal<?, ?> valueTraversal) {
-      return optionalPropertyField(alias, valueTraversal.getPropertyKey());
+      return fieldRefProperty(valueTraversal.getPropertyKey());
     }
     if (modulator instanceof TokenTraversal<?, ?> tokenTraversal) {
-      return optionalIdentityField(alias, tokenTraversal.getToken());
+      return fieldRefToken(tokenTraversal.getToken());
     }
     var steps = modulator.getSteps();
-    if (steps.isEmpty()) {
-      return Optional.empty();
-    }
     if (steps.size() == 1) {
       return switch (steps.getFirst()) {
         case PropertiesStep ps when isSingleValueProperty(ps) ->
-            optionalPropertyField(alias, ps.getPropertyKeys()[0]);
-        case IdStep ignored -> Optional.of(aliasRecordAttribute(alias, "@rid"));
-        case LabelStep ignored -> Optional.of(aliasRecordAttribute(alias, "@class"));
+            fieldRefProperty(ps.getPropertyKeys()[0]);
+        case IdStep ignored -> Optional.of(new FieldRef(true, "@rid"));
+        case LabelStep ignored -> Optional.of(new FieldRef(true, "@class"));
         default -> Optional.empty();
       };
     }
     return Optional.empty();
+  }
+
+  private static Optional<FieldRef> fieldRefProperty(String propertyKey) {
+    if (propertyKey == null || propertyKey.isBlank()) {
+      return Optional.empty();
+    }
+    return Optional.of(new FieldRef(false, propertyKey));
+  }
+
+  private static Optional<FieldRef> fieldRefToken(T token) {
+    if (T.id.equals(token)) {
+      return Optional.of(new FieldRef(true, "@rid"));
+    }
+    if (T.label.equals(token)) {
+      return Optional.of(new FieldRef(true, "@class"));
+    }
+    return Optional.empty();
+  }
+
+  /** A resolved key field: either a record attribute ({@code @rid}/{@code @class}) or a property. */
+  private record FieldRef(boolean recordAttr, String name) {
+    SQLExpression toFieldExpression(String alias) {
+      return recordAttr
+          ? ProjectionExpressionFactories.aliasRecordAttribute(alias, name)
+          : ProjectionExpressionFactories.aliasProperty(alias, name);
+    }
+
+    SQLOrderByItem toOrderItem(String alias, boolean ascending) {
+      return recordAttr
+          ? ProjectionExpressionFactories.orderByRecordAttribute(alias, name, ascending)
+          : ProjectionExpressionFactories.orderByProperty(alias, name, ascending);
+    }
   }
 
   /**
@@ -162,37 +207,14 @@ public final class ByModulatorTranslator {
     return Optional.empty();
   }
 
-  /** {@code alias.propertyKey} parsed through the SQL parser so the AST matches hand-written RETURN. */
+  /** {@code alias.propertyKey} built as AST — see {@link ProjectionExpressionFactories#aliasProperty}. */
   public static SQLExpression aliasProperty(String alias, String propertyKey) {
-    if (propertyKey == null || propertyKey.isBlank()) {
-      throw new IllegalArgumentException("blank property key");
-    }
-    return parseReturnItem(alias + "." + propertyKey);
+    return ProjectionExpressionFactories.aliasProperty(alias, propertyKey);
   }
 
-  /** {@code alias.@rid} / {@code alias.@class} for identity token modulators. */
+  /** {@code alias.@rid} / {@code alias.@class} built as AST for identity token modulators. */
   public static SQLExpression aliasRecordAttribute(String alias, String attribute) {
-    return parseReturnItem(alias + "." + attribute);
-  }
-
-  private static Optional<SQLExpression> optionalPropertyField(String alias, String propertyKey) {
-    if (propertyKey == null || propertyKey.isBlank()) {
-      return Optional.empty();
-    }
-    return Optional.of(aliasProperty(alias, propertyKey));
-  }
-
-  private static Optional<SQLExpression> optionalIdentityField(String alias, T token) {
-    if (token == null) {
-      return Optional.empty();
-    }
-    if (T.id.equals(token)) {
-      return Optional.of(aliasRecordAttribute(alias, "@rid"));
-    }
-    if (T.label.equals(token)) {
-      return Optional.of(aliasRecordAttribute(alias, "@class"));
-    }
-    return Optional.empty();
+    return ProjectionExpressionFactories.aliasRecordAttribute(alias, attribute);
   }
 
   private static boolean isSingleValueProperty(PropertiesStep<?> step) {
@@ -216,23 +238,4 @@ public final class ByModulatorTranslator {
     return false;
   }
 
-  private static SQLExpression parseReturnItem(String itemSql) {
-    try {
-      var sql = "SELECT " + itemSql + " FROM V";
-      var parser =
-          new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8)));
-      var stmt = (SQLSelectStatement) parser.parse();
-      var projection = stmt.getProjection();
-      if (projection == null || projection.getItems() == null || projection.getItems().isEmpty()) {
-        throw new IllegalArgumentException("failed to parse return item: " + itemSql);
-      }
-      var expr = projection.getItems().getFirst().getExpression();
-      if (expr == null) {
-        throw new IllegalArgumentException("failed to parse return item: " + itemSql);
-      }
-      return expr;
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("failed to parse return item: " + itemSql, e);
-    }
-  }
 }

@@ -1,13 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
@@ -53,11 +49,12 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       if (direction.isEmpty()) {
         return Outcome.DECLINE;
       }
-      var fieldSql = resolveSortFieldSql(boundary, pair.getValue0());
-      if (fieldSql == null) {
+      var ascending = SQLOrderByItem.ASC.equals(direction.get());
+      var item = resolveSortItem(boundary, pair.getValue0(), ascending);
+      if (item == null) {
         return Outcome.DECLINE;
       }
-      items.add(parseOrderByItem(fieldSql, direction.get()));
+      items.add(item);
     }
 
     var orderBy = new SQLOrderBy(-1);
@@ -68,14 +65,14 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
 
   /**
    * Identity modulators (bare {@code order()} / {@code by(Order.asc)}) sort by element RID; other
-   * shapes go through {@link ByModulatorTranslator}.
+   * shapes go through {@link ByModulatorTranslator}. Built as AST — no SQL-text round-trip.
    */
-  private static String resolveSortFieldSql(String alias, Traversal.Admin<?, ?> modulator) {
+  private static SQLOrderByItem resolveSortItem(
+      String alias, Traversal.Admin<?, ?> modulator, boolean ascending) {
     if (modulator instanceof IdentityTraversal) {
-      return alias + ".@rid";
+      return ProjectionExpressionFactories.orderByRecordAttribute(alias, "@rid", ascending);
     }
-    return ByModulatorTranslator.translateKeyModulator(alias, modulator)
-        .map(Object::toString)
+    return ByModulatorTranslator.translateKeyModulatorOrderItem(alias, modulator, ascending)
         .orElse(null);
   }
 
@@ -88,19 +85,4 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     return false;
   }
 
-  private static SQLOrderByItem parseOrderByItem(String fieldSql, String direction) {
-    try {
-      var sql = "SELECT FROM V ORDER BY " + fieldSql + " " + direction;
-      var parser =
-          new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8)));
-      var stmt = (SQLSelectStatement) parser.parse();
-      var orderBy = stmt.getOrderBy();
-      if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
-        throw new IllegalArgumentException("failed to parse ORDER BY item: " + fieldSql);
-      }
-      return orderBy.getItems().getFirst();
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("failed to parse ORDER BY item: " + fieldSql, e);
-    }
-  }
 }
