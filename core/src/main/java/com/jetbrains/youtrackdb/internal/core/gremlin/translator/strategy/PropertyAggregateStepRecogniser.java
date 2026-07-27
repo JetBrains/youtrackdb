@@ -25,7 +25,9 @@ final class PropertyAggregateStepRecogniser implements StepRecogniser {
           case SumGlobalStep<?> ignored -> "sum";
           case MinGlobalStep<?> ignored -> "min";
           case MaxGlobalStep<?> ignored -> "max";
-          case MeanGlobalStep<?, ?> ignored -> "mean";
+          // Gremlin mean maps to the YTDB SQL aggregate "avg" (there is no "mean" SQL function, so
+          // emitting mean(...) would fail plan-build and decline the whole traversal to native).
+          case MeanGlobalStep<?, ?> ignored -> "avg";
           default -> null;
         };
     if (function == null) {

@@ -29,6 +29,11 @@ public final class MatchProjectionBuilder {
     return ProjectionExpressionFactories.listCurrentMatch();
   }
 
+  /** {@code list(alias)} — collects the grouped element under {@code alias}. */
+  public static SQLExpression listAlias(String alias) {
+    return ProjectionExpressionFactories.listAlias(alias);
+  }
+
   /**
    * {@code fn(property)} for a bare property name emitted by {@code values("age").mean()} and
    * similar shapes.

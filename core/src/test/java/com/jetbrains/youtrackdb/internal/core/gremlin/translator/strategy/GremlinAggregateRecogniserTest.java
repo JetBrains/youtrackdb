@@ -69,7 +69,7 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SCALAR);
     assertThat(ctx.dropNullRows).isTrue();
-    assertThat(ctx.returnItems.getFirst().toString()).containsIgnoringCase("mean");
+    assertThat(ctx.returnItems.getFirst().toString()).containsIgnoringCase("avg");
     assertThat(ctx.returnItems.getFirst().toString()).contains("age");
   }
 

@@ -224,6 +224,28 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(warm).isEqualTo(cold);
   }
 
+  /**
+   * A count plan carries the non-cacheable {@code CountFromClassStep}, so it must never be cached:
+   * a second apply of {@code g.V().count()} records another miss, not a hit. Guards the security fix
+   * — caching the plan would replay a build-time security-policy decision on another session and
+   * disclose a class's true count past a row-hiding READ policy (see {@code CountFromClassStep}).
+   */
+  @Test
+  public void countPlan_notCached_secondApplyIsMiss() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hitsBefore = cache.getHits();
+    var missesBefore = cache.getMisses();
+
+    apply(() -> graph.traversal().V().count());
+    apply(() -> graph.traversal().V().count());
+
+    assertThat(cache.getHits()).isEqualTo(hitsBefore);
+    assertThat(cache.getMisses()).isEqualTo(missesBefore + 2);
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------

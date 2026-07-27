@@ -158,9 +158,11 @@ final class GremlinAggregateAssembler {
 
   private static SQLExpression resolveGroupValue(String alias,
       Traversal.Admin<?, ?> valueTraversal) {
-    // null / missing value-side → default fold list (matches bare group() / group().by(key)).
+    // null / missing value-side → default fold list of the grouped element (matches bare group() /
+    // group().by(key)). Collect the boundary alias itself — $currentMatch is a match-time variable
+    // and yields null in a grouped RETURN, whereas list(alias) collects the grouped vertices.
     if (valueTraversal == null || valueTraversal instanceof IdentityTraversal) {
-      return MatchProjectionBuilder.listCurrentMatch();
+      return MatchProjectionBuilder.listAlias(alias);
     }
     var accumulator = ByModulatorTranslator.translateValueModulator(alias, valueTraversal);
     if (accumulator.isEmpty()) {
@@ -170,7 +172,7 @@ final class GremlinAggregateAssembler {
       case ByModulatorTranslator.ValueAccumulator.CountStar ignored ->
           MatchProjectionBuilder.countStar();
       case ByModulatorTranslator.ValueAccumulator.FoldList ignored ->
-          MatchProjectionBuilder.listCurrentMatch();
+          MatchProjectionBuilder.listAlias(alias);
       case ByModulatorTranslator.ValueAccumulator.PropertyAggregate prop ->
           MatchProjectionBuilder.propertyAggregate(
               prop.function().name().toLowerCase(Locale.ROOT), prop.field());

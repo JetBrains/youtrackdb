@@ -354,7 +354,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
           // by the Vertex — so wrap the RID as a Vertex here, the same RID→Vertex conversion
           // elementMap columns use. Property / label key modulators are plain values and pass through.
           convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS)),
-          convertValue(row.getProperty(GROUP_VALUE_ALIAS)));
+          convertGroupValue(row.getProperty(GROUP_VALUE_ALIAS)));
     }
     state = State.DRAINED;
     releaseStream();
@@ -706,6 +706,28 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       return out;
     }
     return value;
+  }
+
+  /**
+   * Group VALUE conversion for bare {@code group()} / {@code group().by(k)}: {@code list(alias)}
+   * collects the grouped elements as a list of RIDs, so wrap each as a {@link YTDBVertexImpl} to
+   * match native (whose group values are a list of Vertex). Count values ({@code groupCount} /
+   * {@code by(__.count())}) are numbers and pass through {@link #convertValue} unchanged. Kept
+   * separate from {@link #convertValue} so a link-typed {@code values(k)} / {@code valueMap(k)}
+   * property (a legitimate RID) is not silently reinterpreted as a vertex.
+   */
+  private Object convertGroupValue(Object value) {
+    if (value instanceof RID rid) {
+      return new YTDBVertexImpl(armingGraph, rid);
+    }
+    if (value instanceof List<?> list) {
+      var out = new ArrayList<>(list.size());
+      for (Object item : list) {
+        out.add(convertGroupValue(item));
+      }
+      return out;
+    }
+    return convertValue(value);
   }
 
   /**

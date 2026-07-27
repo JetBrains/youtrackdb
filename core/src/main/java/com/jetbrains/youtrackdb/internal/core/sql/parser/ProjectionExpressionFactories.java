@@ -22,6 +22,14 @@ public final class ProjectionExpressionFactories {
     return functionCall("list", contextVariable("$currentMatch"));
   }
 
+  /** {@code list(alias)} — collects the grouped element bound to {@code alias} into a list. */
+  public static SQLExpression listAlias(String alias) {
+    if (alias == null || alias.isBlank()) {
+      throw new IllegalArgumentException("blank alias");
+    }
+    return functionCall("list", bareIdentifier(alias));
+  }
+
   /**
    * {@code fn(field)} where {@code field} is a bare property name ({@code values("age").mean()}).
    */

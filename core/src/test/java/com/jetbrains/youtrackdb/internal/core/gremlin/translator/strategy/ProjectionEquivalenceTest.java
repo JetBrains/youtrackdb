@@ -143,6 +143,103 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().groupCount().by("name"));
   }
 
+  /** Bare {@code group()} keys the map by Vertex (value = singleton vertex list), matching native. */
+  @Test
+  public void group_bare_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().group()", Recognition.RECOGNIZED, () -> graph.traversal().V().group());
+  }
+
+  /** {@code group().by(name)} keys the map by the property value, matching native. */
+  @Test
+  public void group_byName_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().group().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().group().by("name"));
+  }
+
+  /** Bare {@code groupCount()} keys the map by Vertex, matching native (guards the RID→Vertex fix). */
+  @Test
+  public void groupCount_bare_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().groupCount()", Recognition.RECOGNIZED, () -> graph.traversal().V().groupCount());
+  }
+
+  /** Seeded {@code sum}/{@code min}/{@code max}/{@code mean} match native values (exercises all arms). */
+  @Test
+  public void numericAggregates_seeded_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 10);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 20);
+    graph.addVertex(T.label, "Person", "name", "Carol", "age", 30);
+    graph.tx().commit();
+
+    assertEquivalent("g.V().values(age).sum()", Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").sum());
+    assertEquivalent("g.V().values(age).min()", Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").min());
+    assertEquivalent("g.V().values(age).max()", Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").max());
+    assertEquivalent("g.V().values(age).mean()", Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").mean());
+  }
+
+  /** Multi-label {@code select(a,b)} emits a two-entry map (unwrapSingletonMap=false), matching native. */
+  @Test
+  public void selectMultiLabel_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().as(a).as(b).select(a,b)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("a").as("b").select("a", "b"));
+  }
+
+  /**
+   * {@code dedup()} after {@code values(k)} declines to native: a RETURN DISTINCT over the boundary
+   * presence column deduped on (entity, value) and the unique entity defeated it. Native dedups the
+   * projected names; the payloads must match.
+   */
+  @Test
+  public void valuesDedup_declinesToNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().values(name).dedup()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().values("name").dedup());
+  }
+
+  /** {@code valueMap(k).dedup()} likewise declines to native (map output type, not ELEMENT). */
+  @Test
+  public void valueMapDedup_declinesToNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().valueMap(name).dedup()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().valueMap("name").dedup());
+  }
+
   /** {@code order().by("name")} matches native order for a deterministic seed. */
   @Test
   public void orderByName_matchNative() {
