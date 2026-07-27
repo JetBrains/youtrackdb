@@ -238,3 +238,22 @@ this harness); diff re-read against the review reports and the code.
 **Findings**: none remaining.
 
 **Iterations**: 1 of 3 (PASS)
+
+## Mutation 7 — 2026-07-27 — content-edit (design-final.md)
+
+**Diff summary**: Two small edits from the verification gate's regression list: the one
+97-character prose line in the Core Concepts schema-carrying-commit entry re-wrapped to the
+~80-column convention, and the migration section's operator-runbook reference now carries the
+bare filename (matching the sibling adr.md, which gained it in the previous pass — closing a
+one-sided application). The paired adr.md fixes in the same commit restate the changed-class
+marking as its three channels, correct the genesis lazy-creator sentence, disambiguate the
+serializer lock, unify the rehearsal-test citation to the class name, and drop the
+unintroduced "schema-carry" shorthand.
+
+**Mechanical checks** (target=design): PASS
+**Cold-read** (scope: whole-doc): performed inline by the fixing thread (no Agent tool in
+this harness); cross-artifact residue greps all clean.
+
+**Findings**: none remaining.
+
+**Iterations**: 1 of 3 (PASS)

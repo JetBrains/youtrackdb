@@ -94,8 +94,8 @@ metadata-only rename".
 schema or index changes, recognized at commit entry from the same signal
 that engaged the metadata-write mutex; it takes the storage state write lock
 from the start, while a pure-data commit keeps the read-lock fast path.
-Replaces "read lock with a mid-commit upgrade for structural work". → Part 3 §"The metadata-write
-mutex and lock order".
+Replaces "read lock with a mid-commit upgrade for structural work".
+→ Part 3 §"The metadata-write mutex and lock order".
 
 **Freeze-kind taxonomy.** A classification of freezes into operator
 (long-lived, admin-initiated) versus transient internal quiesce, recorded at
@@ -1036,8 +1036,9 @@ failure; the importer dispatches on the dump's declared version — strict
 fail-closed for version 15, lenient for the legacy dumps migration rides on.
 
 Opening an old-format database with new binaries is rejected on the schema
-version check with a redirect to the documented operator migration runbook
-(shipped with this change in the product documentation). Export reads the
+version check with a redirect to the documented operator migration runbook,
+shipped with this change in the product documentation
+(`operator-migration-procedure.md`). Export reads the
 logical schema and import rebuilds through the schema API, so the imported
 database is written in the current format end to end.
 

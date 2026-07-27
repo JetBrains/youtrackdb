@@ -104,9 +104,9 @@ Discovered or tightened during execution:
 - **The v1 index-build boundary settled to empty-source-only** — the planning
   alternative of "a documented size bound" was dropped in favor of a loud
   rejection (D12).
-- **The schema serializer's synchronization contract is the caller's held write
-  lock and nothing else**, asserted at entry; any future change to the schema
-  lock model must preserve or consciously revise this (D14).
+- **The schema serializer's synchronization contract is the caller's held
+  schema write lock and nothing else**, asserted at entry; any future change
+  to the schema lock model must preserve or consciously revise this (D14).
 
 ## Architecture Notes
 
@@ -149,8 +149,9 @@ flowchart TD
 - **Session side.** `SchemaProxy`, `SchemaClassProxy`, and `SchemaPropertyProxy`
   form the tx-aware routing seam (three-tier resolution: snapshot, captured
   delegate, name-binding into the tx-local copy during the session's own schema
-  transaction). `SchemaProxedResource` is the single tx-local write choke
-  point; resolving a write target there marks the owning class changed.
+  transaction). `SchemaProxedResource` is the tx-local write choke point;
+  resolving a write target there marks the owning class changed — one of the
+  three marking channels behind the commit-time delta (D6).
   `TxSchemaState` holds the tx-local `SchemaShared` copy, the changed-class
   set, the provisional-to-real id carrier, and the `IndexOverlay`.
   `SchemaImmutableClass` instances (reached through the metadata facade) form
@@ -267,18 +268,22 @@ contention-abort (optimistic schema concurrency) was explicitly ruled out.
 **D6 — Structural delta from existing change tracking.** *Refined during
 execution.*
 The commit-time structural delta reads from the transaction's existing change
-tracking — no new intent list. As built, the changed-class signal is completed
-by centralized marking at the single tx-local write choke point: resolving a
-schema write target in `SchemaProxedResource` records the write target and
-marks the owning class changed. Over-marking is correctness-safe (an unchanged
+tracking — no new intent list. As built, the changed-class signal arrives
+through three marking channels: the tx-local write choke point in
+`SchemaProxedResource` marks the resolved class (or a property's owner class)
+on every routed write; the whole-schema operations — class create, drop, and
+rename — mark their specific classes explicitly, since a whole-schema hook
+could not derive the names they touch; and root-payload writes (global
+properties, blob collections) are caught by the commit's root-payload diff
+rather than by class marking. Over-marking is correctness-safe (an unchanged
 class serializes identically) while under-marking silently drops a per-class
-record write, which is why the choke point was chosen. A rename un-marks the
-old name (an absent name reads as a drop on the write-back side), and a
-pure-data truncate stays off the schema-carry path.
+record write, which is why the choke-point channel exists. A rename un-marks
+the old name (an absent name reads as a drop on the write-back side), and a
+pure-data truncate stays off the schema-carrying path.
 *Rationale:* drops are NOT in the changed-record set — a dropped class is a
 record deletion, not a property change — so create/drop detection uses the D9
-set difference instead; the choke point closes the whole class of future
-mutator omissions. *Rejected:* a separate commit-time intent list.
+set difference instead; the choke-point channel closes the whole class of
+future mutator omissions. *Rejected:* a separate commit-time intent list.
 
 ---
 
@@ -597,9 +602,10 @@ every database create.
 (non-planner) index reads, which need a built engine; committing the schema
 phase first guarantees the index exists before any user record is inserted.
 *Rejected:* a unified single transaction — it would expose the same-transaction
-unbuilt index to the direct lookups. The remaining lazily created metadata (the
-functions and sequences libraries) stays on the legacy top-level creation path
-until that path's removal.
+unbuilt index to the direct lookups. Genesis itself creates the function and
+sequence classes inside the schema transaction; only the lazy create-if-absent
+seam those libraries keep for databases lacking the classes stays on the
+legacy top-level creation path until that path's removal.
 
 ---
 
@@ -668,8 +674,7 @@ operator migration procedure shipped with this change
 (`operator-migration-procedure.md`). Migration verification is
 logical equivalence — class set, typed properties, per-class record counts,
 record contents including link topology, user indexes, blob bytes — pinned by
-the end-to-end rehearsal test
-(`endToEndMigrationRehearsalPreservesLogicalContent`).
+the end-to-end migration rehearsal in `DatabaseImportInfoMatrixTest`.
 *Rationale:* fail-closed and whole-or-nothing; the hardening protects the NEXT
 format migration, not just this one. *Rejected:* an in-place on-open migrator
 (replaced); a two-pass import (considered and rejected — the condemned-target
@@ -779,7 +784,7 @@ points through `SchemaProxedResource` and the overlay; pinned by
 **Locking and lifecycle.**
 The four locks are taken in one acyclic order — metadata-write mutex, then the
 schema lock, then the index-manager lock, then the storage state write lock —
-by the `AbstractStorage` schema-carry commit. The mutex engages above the
+by the `AbstractStorage` schema-carrying commit. The mutex engages above the
 shared metadata locks, never from inside one, and engaging on a thread whose
 current holder is a different session fails loudly instead of deadlocking;
 enforced in the `MetadataWriteMutex` engage path. Transaction-scoped resources
@@ -840,8 +845,7 @@ rejections precede any target mutation; a record is exported whole or not at
 all, including its copy-out into the dump; the exporter promotes nothing on
 failure; structural whole-stream failures condemn the fresh target per the
 operator runbook. Enforced by `DatabaseExport` and `DatabaseImport`; pinned by
-the end-to-end migration rehearsal test
-(`endToEndMigrationRehearsalPreservesLogicalContent`).
+the end-to-end migration rehearsal in `DatabaseImportInfoMatrixTest`.
 
 **Serializer contract.**
 The schema serializer takes no lock of its own: the caller's held schema write
