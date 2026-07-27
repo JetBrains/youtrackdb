@@ -1,105 +1,46 @@
-<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
 <!-- MANIFEST
 findings: 0   severity: {blocker: 0, should-fix: 0, suggestion: 0}
 index: []
 verdicts:
   - {id: S1, verdict: VERIFIED}
-  - {id: S2, verdict: REJECTED}
-evidence_base: {section: "## Evidence base", certs: 0, matches: 0}
+  - {id: S2, verdict: VERIFIED}
 overall: PASS
+evidence_base: {section: "## Evidence base", certs: 0, matches: 0}
 flags: [CONTRACT_OK]
 -->
 
-# Structural gate-verification — iteration 1
-
-Re-check of the two findings from `structural-iter1.md` after fixes were
-applied. Plan-quality only; no codebase read. Verdict: **PASS** — S1 fix
-applied correctly and in-cap with no regression; S2 confirmed a legitimate
-user-approved leave-as-is. No new structural defect surfaced in the modified
-area.
-
 ## Verification certificates
 
-#### Verify S1: Track 6 checklist intro over the 1–3-sentence cap
-- **Original issue**: Track 6's checklist intro in `implementation-plan.md` ran
-  four substantive sentences plus the `Detail in plan/track-6.md.` pointer, over
-  the 1–3-sentence checklist-intro cap. Sentence 2 was a ~9-line class/flag
-  enumeration (`GremlinProjectionAssembler`, `EntityImpl.hasProperty(key)`,
-  `OrderGlobalStep` / `RangeGlobalStep`, the aggregate set, `SQLProjection` /
-  `SQLGroupBy`, the count short-circuit, `dropNullRows` / `dropOnAbsent`) that
-  duplicated `plan/track-6.md` and was re-paid at every `/execute-tracks`
-  session startup.
-- **Fix applied**: The intro (the `>` prose block between the Track 6 heading
-  and `**Scope:**`) was trimmed to two substantive sentences plus the
-  `Detail in plan/track-6.md.` pointer.
+Both structural findings were ACCEPTED and fixed. Both fixes are present, accurate, and internally consistent; the regression scan is clean. Overall PASS.
+
+#### Verify S1: Track 6 strategy-refresh line asserts two split-overturned premises
+- **Original issue**: The Track 6 `**Strategy refresh:** ADJUST` line, written at Track 6 completion before the 2026-07-27 split (D8 revised), still asserts two premises the split overturned — (1) `MultiPlanMatchStep` inherits the post-refactor single-`ResultShaping` `YTDBMatchPlanStep` constructor, and (2) Track 7 carries three order-less post-process flags (`unfoldOutput` / `reverseOutput` / `tailLimit`).
+- **Fix applied**: A correcting parenthetical was appended to the line; the original stale text was intentionally kept as the historical refresh record (Track 2 refresh convention).
 - **Re-check**:
-  - Plan location: `implementation-plan.md`, Track 6 checklist entry, lines
-    445–452.
-  - Current state: sentence 1 names the four families and the per-terminal
-    boundary-output-type pin ("Merges the four result-producing step families —
-    labels + dedup, projections, order / pagination, and aggregations — pinning
-    the boundary output type per terminal step."); sentence 2 names the two
-    load-bearing hazards and the shared modulator translator ("The load-bearing
-    cases are absent-vs-null (`EntityImpl.hasProperty(key)`) and the empty-input
-    aggregate divergence, handled by the `dropOnAbsent` / `dropNullRows`
-    boundary flags, with a shared `ByModulatorTranslator` serving the `by(...)`
-    modulator across the families."); then `Detail in plan/track-6.md.`
-  - Criteria met: 2 substantive sentences + pointer satisfies the TRACK
-    DESCRIPTIONS intro-length rule (1–3 sentences; the "4+ sentences has
-    expanded into track-file territory" trigger no longer fires). Consistent
-    with the other pending intros (Track 4 = 3+pointer, Track 5 = 3+pointer,
-    Track 7 = 2+pointer — all in-cap).
-- **Regression check**: No information lost. The trimmed class/flag inventory
-  survives in the Track 6 `**Scope:**` line (`implementation-plan.md` 453–458:
-  `GremlinProjectionAssembler` + projection recognisers, the shared
-  `ByModulatorTranslator`, `Order` / `Range` recognisers, aggregate recognisers
-  + the shared count short-circuit helper with the `MatchExecutionPlanner` +
-  `SelectExecutionPlanner` edits) and in `plan/track-6.md` (Purpose/Big Picture
-  line 9, Context and Orientation lines 32–35, Plan of Work lines 38–44). The
-  edit touched prose only: the dependency chain (Track 6 `**Depends on:** Track
-  4, new Track 5, Track 1`), all cross-track references, and the D11→Track 6
-  `**Implemented in**` line (line 267) are unchanged and still name one
-  consistent 7-track structure. Dropping the explicit `D11` tag from the intro
-  breaks no cross-reference — D11's Architecture-Notes entry and the count
-  short-circuit are still reachable from the Scope line and the track file. No
-  new bloat (the intro is now shorter). Checked the Checklist, Implementation
-  state, and Architecture Notes — clean.
+  - Plan location: `implementation-plan.md` § Checklist, Track 6 entry, final sentence of the `**Strategy refresh:** ADJUST` block — the parenthetical after "...applied in the Phase A track-file write." (plan lines ~512–516).
+  - Current state: "(Both premises were overturned by the 2026-07-27 split — see D8 and Tracks 7/8/9: `MultiPlanMatchStep` extends the shared boundary base Track 7 extracts, not `YTDBMatchPlanStep`, and the list-shaping post-process is an ordered `List` because order-less flags cannot encode `reverse().unfold()` vs `unfold().reverse()`.)"
+  - Criteria met: The note corrects **both** overturned premises and each correction matches the canonical source. The boundary-base clause matches D8 "Revised decision" ("Track 7 (foundation) extracts a shared boundary base ... both the single-plan step and a new `MultiPlanMatchStep` reuse projection + shaping") and D8's rejected alternative (de-finalize/subclass `YTDBMatchPlanStep`), Track 7 `## Interfaces and Dependencies` / `## Context and Orientation`, and Track 8 Purpose ("subclass of the Track 7 boundary base"). The ordered-`List` clause matches Track 7 `## Decision Log` and `## Context and Orientation` and Track 9 `## Context and Orientation`. Cross-refs (D8, Tracks 7/8/9) all resolve. The stale premises still appear, as expected — they are the superseded historical record, not a remaining uncorrected contradiction.
+- **Regression check**: Checked the Architecture Notes Component Map (boundary bullet + `Boundary` node), D7, D8, the `### Invariants` boundary-step and idempotency bullets, and Tracks 7/8/9 — all consistently describe `MultiPlanMatchStep` as reusing/extending the Track 7 boundary base and the post-process as an ordered list. No new contradiction introduced. The "extends the shared boundary base" wording tracks the plan-wide "subclass/extends the Track 7 boundary base" shorthand (Track 8, D7, Invariant #1) while D8/Track 7 leave abstract-superclass-vs-composed-row-projector open at decomposition; this is a pre-existing consistent usage, not an edit-introduced defect.
 - **Verdict**: VERIFIED
 
-#### Verify S2 (REJECTED): completed-track strategy-refresh ranges name pre-split track count
-- **Rejection reason**: The `Tracks 3–6` (line 370, Track 2 entry) and
-  `Tracks 4–6` (line 405, Track 3 entry) ranges live in **completed** (`[x]`)
-  tracks' `**Strategy refresh:**` notes and are as-of-completion (pre-A1-split)
-  historical assessments. Editing completed-track content is user-pause-gated,
-  and widening them to `…–7` would assert a broader "unchanged" claim across the
-  split boundary that the A1 restructure made false. The user resolved this as
-  leave-as-is (verbatim historical assessments the A1 split superseded).
-- **Downstream check**: The A1 split is documented in live forward-looking prose
-  — the Track 3 `**Strategy refresh:** ADJUST` note (lines 399–405), the Track 4
-  entry ("The logical filters and the cache split off to Track 5 (adversarial
-  A1)", line 414), the Implementation-state paragraph ("plan caching (D5) is
-  assigned to Track 5, split off from Track 4 by adversarial finding A1", line
-  479), and the D5→Track 5 `**Implemented in**` line (178). No live track
-  contradicts the historical ranges; they were written before Track 7 existed
-  and claim nothing about it. Checked the completed-track entries, the
-  Implementation-state prose, and the Architecture-Notes `**Implemented in**`
-  reassignments — clean, no downstream inconsistency from leaving them as-is.
-- **Verdict**: REJECTED (no action needed)
+#### Verify S2: Idempotency invariant named only `YTDBMatchPlanStep`
+- **Original issue**: The `### Invariants` idempotency bullet named only `YTDBMatchPlanStep`, while the D7-revised scan detects both boundary steps post-Track-8; the sibling boundary-step invariant (#1) already covers both, so the narrower bullet was split-introduced staleness.
+- **Fix applied**: The bullet now reads "re-applying on a traversal already containing a boundary step (`YTDBMatchPlanStep` or `MultiPlanMatchStep`) is a no-op."
+- **Re-check**:
+  - Plan location: `implementation-plan.md` § Architecture Notes → `### Invariants`, idempotency bullet (plan lines ~345–346).
+  - Current state: names both `YTDBMatchPlanStep` and `MultiPlanMatchStep`.
+  - Criteria met: Aligns with the sibling boundary-step invariant above it ("exactly one boundary step — `YTDBMatchPlanStep` (single-plan) or `MultiPlanMatchStep` (union, its sibling under the Track 7 boundary base, D8)") and with D7 Rationale ("detects both `YTDBMatchPlanStep` and the `union` `MultiPlanMatchStep`") and Track 8 `## Interfaces and Dependencies` (broadens the D7 scan to the boundary base).
+  - Regression check: Checked Invariant #1 and D7 — consistent; no over-broadening or new claim introduced.
+- **Verdict**: VERIFIED
+
+## Regression scan
+
+Re-scanned the Track 6 Checklist entry and the `### Invariants` / Architecture Notes region for contradictions the two edits might have shifted in. Clean: the Component Map, boundary bullet, D7, D8, and Tracks 7/8/9 all agree that `MultiPlanMatchStep` reuses the Track 7 boundary base and the list-shaping post-process is an ordered list. The design.md `MultiPlanMatchStep : "Track 6 — union concatenation"` class-diagram edge (design line 291) and the "`MultiPlanMatchStep` extends `YTDBMatchPlanStep`" prose (design §"`MultiPlanMatchStep` (union concatenation)") remain the frozen pre-split provenance, correctly out of scope for this plan-internal gate and reconciled at Phase 4 — not a finding.
 
 ## Findings
 
-No new findings. The re-scan of the modified area (Track 6 checklist entry) and
-its cross-references surfaced no fix-shifted defect.
+None. No new issue surfaced during verification.
 
 ## Evidence base
 
-No certificates — this review reads no codebase and produces plan-quality
-verdicts only.
-
-## Summary
-
-**PASS.** S1 (should-fix) VERIFIED — the Track 6 intro trim is in-cap (2
-sentences + pointer), lost no information (detail preserved in the Scope line
-and track-6.md), and introduced no regression to the 7-track structure. S2
-(suggestion) REJECTED — a legitimate user-approved leave-as-is with no live
-downstream contradiction. No remaining blockers. The structural PASS holds.
+No certificates — plan-internal verification pass, no codebase read. `certs: 0`.

@@ -342,8 +342,8 @@ flowchart TB
   assertion — Tracks 2–9 tests.)
 - No-mutation-on-decline: a recognizer that returns `false` leaves
   `WalkerContext` unmutated (per-recognizer unit invariant).
-- The strategy is idempotent: re-applying on a traversal already containing
-  `YTDBMatchPlanStep` is a no-op.
+- The strategy is idempotent: re-applying on a traversal already containing a
+  boundary step (`YTDBMatchPlanStep` or `MultiPlanMatchStep`) is a no-op.
 - Translator-on and translator-off produce equal result multisets for every
   `RECOGNIZED` shape (`EdgeTraversalEquivalenceTest`).
 - `GqlMatchStatement` observable behavior is unchanged after the builder
@@ -509,6 +509,11 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > individual `WalkerContext` fields), and `MultiPlanMatchStep` inherits the
   > post-refactor single-`ResultShaping` `YTDBMatchPlanStep` constructor. Scope,
   > dependencies, and ordering unchanged; applied in the Phase A track-file write.
+  > (Both premises were overturned by the 2026-07-27 split — see D8 and Tracks
+  > 7/8/9: `MultiPlanMatchStep` extends the shared boundary base Track 7
+  > extracts, not `YTDBMatchPlanStep`, and the list-shaping post-process is an
+  > ordered `List` because order-less flags cannot encode `reverse().unfold()`
+  > vs `unfold().reverse()`.)
 
 - [ ] Track 7: Boundary base extraction + ordered list-shaping infrastructure
   > Foundation refactor for the last feature slice: the original Track 7's Phase
@@ -522,8 +527,10 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > flags cannot encode `reverse().unfold()` vs `unfold().reverse()`) that
   > Track 9 drives, all behavior-neutral. Detail in plan/track-7.md.
   > **Scope:** ~10–14 files covering the base extraction from `YTDBMatchPlanStep`
-  > and its construction sites (`GremlinToMatchTranslator`, `GremlinStepWalker`,
-  > `GremlinToMatchStrategy`), the ordered post-process representation alongside
+  > and its sole boundary-step construction site (`GremlinToMatchStrategy`),
+  > rewiring the upstream `TranslationResult` producers
+  > (`GremlinToMatchTranslator`, `GremlinStepWalker.buildResult`) as the chosen
+  > base shape requires, the ordered post-process representation alongside
   > `ResultShaping`, and equivalence tests proving the single-plan boundary is
   > unchanged.
   > **Depends on:** Track 6.
