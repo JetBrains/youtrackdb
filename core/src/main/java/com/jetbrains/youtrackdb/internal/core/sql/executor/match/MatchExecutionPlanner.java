@@ -793,12 +793,6 @@ public class MatchExecutionPlanner {
     if (className == null || className.isBlank()) {
       return false;
     }
-    var session = context.getDatabaseSession();
-    var schema = session.getMetadata().getSchemaInternal();
-    var targetClass = (SchemaClassInternal) schema.getClass(className);
-    if (targetClass == null) {
-      return false;
-    }
     var resultAlias =
         returnAliases != null
             && !returnAliases.isEmpty()
@@ -806,7 +800,7 @@ public class MatchExecutionPlanner {
                 ? returnAliases.getFirst().getStringValue()
                 : "count";
     return HardwiredCountOptimizations.tryMatchCountFromClass(
-        result, targetClass, resultAlias, context, enableProfiling);
+        result, className, resultAlias, true, context, enableProfiling);
   }
 
   /**

@@ -33,22 +33,33 @@ public final class HardwiredCountOptimizations {
   }
 
   /**
-   * MATCH-side bare class count: single-node pattern with no filters. Chains {@link
-   * CountFromClassStep} when security permits.
+   * MATCH-side bare class count: a single-node pattern with no filters. Resolves the class on the
+   * runtime session's immutable snapshot and chains {@link CountFromClassStep} when no security
+   * policy on the class requires per-record filtering. The step counts by class name at execution
+   * time, so a cached MATCH plan is never tied to a schema object captured at plan-build time.
    */
   public static boolean tryMatchCountFromClass(
       SelectExecutionPlan result,
-      SchemaClassInternal targetClass,
+      String className,
       String resultAlias,
+      boolean polymorphic,
       CommandContext ctx,
       boolean profilingEnabled) {
-    if (targetClass == null || resultAlias == null) {
+    if (className == null || className.isBlank() || resultAlias == null) {
+      return false;
+    }
+    var session = ctx.getDatabaseSession();
+    var targetClass =
+        (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
+            .getClassInternal(className);
+    if (targetClass == null) {
       return false;
     }
     if (securityPoliciesExistForClass(targetClass, ctx)) {
       return false;
     }
-    result.chain(new CountFromClassStep(targetClass, resultAlias, ctx, profilingEnabled));
+    result.chain(
+        new CountFromClassStep(className, polymorphic, resultAlias, ctx, profilingEnabled));
     return true;
   }
 

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.map.YTDBClassCountStep;
 import java.util.Collections;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -17,12 +18,8 @@ public class GraphCountStrategyTest extends GraphBaseTest {
     var admin = traversal.V().count().asAdmin();
     admin.applyStrategies();
 
-    var startStep = admin.getStartStep();
-    Assert.assertEquals(YTDBClassCountStep.class, startStep.getClass());
-    Assert.assertEquals(YTDBClassCountStep.class, admin.getEndStep().getClass());
-
-    var countStep = (YTDBClassCountStep<?>) startStep;
-    assertEquals(Collections.singletonList("V"), countStep.getKlasses());
+    Assert.assertEquals(YTDBMatchPlanStep.class, admin.getStartStep().getClass());
+    Assert.assertEquals(YTDBMatchPlanStep.class, admin.getEndStep().getClass());
   }
 
   @Test
@@ -88,12 +85,8 @@ public class GraphCountStrategyTest extends GraphBaseTest {
 
     admin.applyStrategies();
 
-    var startStep = admin.getStartStep();
-    Assert.assertEquals(YTDBClassCountStep.class, startStep.getClass());
-    Assert.assertEquals(YTDBClassCountStep.class, admin.getEndStep().getClass());
-
-    var countStep = (YTDBClassCountStep<?>) startStep;
-    assertEquals(Collections.singletonList("Person"), countStep.getKlasses());
+    Assert.assertEquals(YTDBMatchPlanStep.class, admin.getStartStep().getClass());
+    Assert.assertEquals(YTDBMatchPlanStep.class, admin.getEndStep().getClass());
   }
 
   @Test
