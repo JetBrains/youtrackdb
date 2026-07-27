@@ -465,6 +465,13 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > post-completion tail, 0 failed)
   >
   > **Track file:** `plan/track-6.md`
+  >
+  > **Strategy refresh:** ADJUST — Track 7's three list-shaping post-process
+  > flags (`unfoldOutput` / `reverseOutput` / `tailLimit`) re-pointed to Track 6's
+  > `ResultShaping` record (extend the record via `withX` rather than adding
+  > individual `WalkerContext` fields), and `MultiPlanMatchStep` inherits the
+  > post-refactor single-`ResultShaping` `YTDBMatchPlanStep` constructor. Scope,
+  > dependencies, and ordering unchanged; applied in the Phase A track-file write.
 
 - [ ] Track 7: Advanced patterns + hardening — union, list-shaping terminators, Cucumber green + perf baseline
   > Completes the recognized set and hardens the whole feature:
