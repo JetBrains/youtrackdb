@@ -1,0 +1,716 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
+
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import javax.annotation.Nonnull;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
+import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
+
+/**
+ * Shared base for the boundary steps that bridge a compiled YTDB MATCH plan to TinkerPop's
+ * traverser-driven iteration. When the Gremlin-to-MATCH strategy recognises a traversal end-to-end
+ * it replaces the entire step list with a single boundary step; translation is all-or-nothing, so a
+ * boundary step is always the traversal's only step.
+ *
+ * <p>This base owns the parts that are the same whether the boundary reads one plan or several: the
+ * single-{@link ExecutionStream} open / drain / close primitives, the per-arming row projection (the
+ * graph is injected per arming, never captured at construction, so a re-armed or cloned step always
+ * projects against the graph resolved for the current pass), the {@link ResultShaping} read, and
+ * {@link AutoCloseable}. The single-vs-N-plan orchestration — which plan(s) supply the stream, how
+ * the plan is rewound, and how the plan(s) are closed — is delegated to the concrete subclasses
+ * through the {@link #planContext()} / {@link #rewindPlan(CommandContext)} / {@link
+ * #startPlanStream()} / {@link #closePlan()} hooks. {@code YTDBMatchPlanStep} is the single-plan
+ * concrete form; a multi-plan form reuses the same lifecycle without re-implementing it.
+ *
+ * <p>The step extends {@link AbstractStep} directly, mirroring the fork's own element-emitting start
+ * steps ({@code AddVertexStartStep}, {@code AddEdgeStartStep}). It is deliberately <em>not</em> a
+ * {@code GraphStep}: it carries none of that class's id / has-container / {@code Configuring}
+ * surface, and staying off the {@code GraphStep} hierarchy keeps {@code YTDBGraphStepStrategy}'s
+ * rebuild loop from ever folding the boundary into a {@code YTDBGraphStep}.
+ *
+ * <h2>Lifecycle</h2>
+ * <ul>
+ *   <li><b>Construction:</b> the strategy builds the plan and constructs the step. No execution
+ *       work runs yet.
+ *   <li><b>Iteration:</b> the first {@link #processNextStart()} opens the plan's {@link
+ *       ExecutionStream} via {@link #openArming()}. It rebinds the plan's context to the session
+ *       active on the current (iteration) thread first — the plan may have been compiled on a
+ *       different thread, and YTDB record reads require the session active on the reading thread.
+ *       Each subsequent call pulls one {@link Result} row, projects it per {@link
+ *       BoundaryOutputType}, and generates a traverser. Wrapping goes through {@link YTDBVertexImpl}
+ *       so downstream native steps see TinkerPop element types.
+ *   <li><b>Exhaustion:</b> when the stream runs dry the arming's <em>stream</em> is closed but the
+ *       plan is kept open, so a {@link #reset()} + reopen can rewind and re-run it — a closed {@link
+ *       SelectExecutionPlan} cannot be cleanly restarted (its steps' close guard is sticky, so a
+ *       re-run's cursors would leak). The plan itself is closed by the {@link #close()} TinkerPop
+ *       fires on exhaustion (via {@code DefaultTraversal.hasNext()} closing the traversal through
+ *       {@code CloseableIterator.closeIterator} once the boundary signals no more rows).
+ *   <li><b>Iteration failure:</b> when iterating it throws, the stream <em>and</em> the plan are
+ *       released immediately before the exception propagates. TinkerPop auto-closes the traversal
+ *       only on normal exhaustion, never on a thrown exception, so deferring the plan close would
+ *       leak the cursor. The iteration failure stays the primary exception; a release failure is
+ *       attached with {@code addSuppressed}.
+ *   <li><b>Close:</b> {@link #close()} (which TinkerPop invokes on exhaustion and on early
+ *       termination — e.g. a downstream limit cuts iteration short — via {@code Traversal.close()}
+ *       closing every {@link AutoCloseable} step) closes the stream first, then the plan. It is
+ *       idempotent.
+ *   <li><b>Reset:</b> {@link #reset()} re-arms the step for a fresh pass on the same instance. It
+ *       does not close the open stream directly (see the field notes); the next open closes a
+ *       lingering cursor and rewinds the plan.
+ * </ul>
+ *
+ * @param <S> upstream traverser type (always {@code Object} for a start step)
+ * @param <E> emitted payload type ({@link Vertex} for {@link BoundaryOutputType#ELEMENT}; Map /
+ *            scalar / value for the other output types — the Element bound is historical for the
+ *            ELEMENT path and is unchecked-cast for non-element payloads)
+ */
+public abstract class AbstractMatchPlanStep<S, E extends Element> extends AbstractStep<S, E>
+    implements AutoCloseable {
+
+  /**
+   * RETURN aliases for {@code group} / {@code groupCount} key and value columns — must match
+   * {@code GremlinAggregateAssembler.GROUP_KEY_ALIAS} / {@code GROUP_VALUE_ALIAS}.
+   */
+  private static final String GROUP_KEY_ALIAS = "key";
+
+  private static final String GROUP_VALUE_ALIAS = "value";
+
+  /** Sentinel from {@link #projectOrSkip} when the row must not emit a traverser. */
+  private static final Object SKIP = new Object();
+
+  private final Class<E> returnClass;
+  private final String boundaryAlias;
+  private final BoundaryOutputType outputType;
+  /** Positional-parameter values for this walk ({@code ?} slots), or empty when none. */
+  private final Map<Object, Object> inputParameters;
+
+  /**
+   * Boundary row-projection shaping — the seven flags that dictate how each MATCH row projects onto
+   * a traverser: row dropping ({@code dropNullRows} / {@code dropOnAbsent}), presence-checked
+   * property keys, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, and
+   * elementMap token keys.
+   */
+  private final ResultShaping shaping;
+
+  /** {@link ResultShaping#presencePropertyKeys()} as a set, for O(1) membership checks in {@link
+   *  #projectMap}. */
+  private final Set<String> presenceKeySet;
+
+  // The current arming's open stream, or null before the first open / after close. Single source of
+  // truth — there is no inherited iterator to shadow.
+  private ExecutionStream openStream;
+
+  // The graph resolved for the current arming; used to wrap projected vertices.
+  private YTDBGraphInternal armingGraph;
+
+  /**
+   * The lifecycle position of the boundary step. One value replaces the four interlocking booleans
+   * the step used to carry ({@code armed} / {@code everStarted} / {@code done} / {@code closed}):
+   * every transition is now a single field write, and a reader tracks one state instead of a
+   * quadruple whose legal combinations had to be inferred.
+   */
+  private enum State {
+    /**
+     * Constructed, or {@link #reset()} before the plan ever ran. The next open starts the plan
+     * WITHOUT rewinding it — there is no consumed state to rewind.
+     */
+    NEW,
+    /** The stream is open and being iterated. */
+    OPEN,
+    /**
+     * The stream drained and its cursor was closed, but the plan is left OPEN so a {@link #reset()}
+     * + reopen can rewind and re-run it. {@link #processNextStart()} ends immediately in this state;
+     * {@link #close()} closes the still-open plan.
+     */
+    DRAINED,
+    /**
+     * {@link #reset()} after at least one run. The next open closes any cursor a partial consume
+     * left open and rewinds the plan ({@code plan.reset}) before starting it.
+     */
+    REARMED,
+    /**
+     * The plan is closed for good — by {@link #close()} or the terminal iteration-failure path.
+     * Terminal: {@link #processNextStart()} ends immediately and {@link #close()} is a no-op.
+     */
+    CLOSED
+  }
+
+  private State state = State.NEW;
+
+  /**
+   * Constructs a boundary base with the projection metadata shared by every boundary step.
+   *
+   * @param traversal       the host traversal (must not be null)
+   * @param returnClass     the TinkerPop element class the step emits (currently {@link
+   *                        Vertex}{@code .class})
+   * @param boundaryAlias   the alias under which the matched element appears in each {@link Result}
+   *                        row (must not be null)
+   * @param outputType      how each row projects onto a traverser payload (must not be null)
+   * @param inputParameters positional-parameter values for this walk ({@code ?} slots)
+   * @param shaping         the row-projection shaping ({@link ResultShaping})
+   */
+  protected AbstractMatchPlanStep(
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType,
+      @Nonnull Map<Object, Object> inputParameters,
+      @Nonnull ResultShaping shaping) {
+    super(traversal);
+    this.returnClass = returnClass;
+    this.boundaryAlias = boundaryAlias;
+    this.outputType = outputType;
+    this.inputParameters = Map.copyOf(inputParameters);
+    this.shaping = shaping;
+    this.presenceKeySet = Set.copyOf(shaping.presencePropertyKeys());
+  }
+
+  /** The alias the step uses to look up the matched element in each row. */
+  public String getBoundaryAlias() {
+    return boundaryAlias;
+  }
+
+  /** The boundary output mode this step is configured for. */
+  public BoundaryOutputType getOutputType() {
+    return outputType;
+  }
+
+  /** The TinkerPop element class the step emits. */
+  public Class<E> getReturnClass() {
+    return returnClass;
+  }
+
+  /**
+   * Renders a one-line marker identifying this as a translated MATCH boundary, e.g. {@code
+   * YTDBMatchPlanStep(node,ELEMENT)}. Because the strategy replaces a recognised traversal's whole
+   * native chain with this single step, {@code traversal.explain()} shows this marker in place of
+   * the native step boxes — the visible signal that translation happened. The marker stays concise;
+   * the MATCH plan tree is reachable via YQL's EXPLAIN tooling.
+   */
+  @Override
+  public String toString() {
+    return StringFactory.stepString(this, boundaryAlias, outputType);
+  }
+
+  /**
+   * Pulls the next matched element as a traverser, opening the plan's stream on the first call.
+   * Throws {@link FastNoSuchElementException} once the stream is exhausted, closing the arming's
+   * stream as it does so; the plan stays open for a possible {@link #reset()} and is closed by the
+   * {@link #close()} TinkerPop fires on exhaustion. A failure while iterating the stream closes both
+   * the stream and the plan before propagating — TinkerPop does not auto-close on a thrown exception
+   * — so a stream that threw part-way does not leak until traversal teardown.
+   */
+  @Override
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  protected Traverser.Admin<E> processNextStart() {
+    if (state == State.DRAINED || state == State.CLOSED) {
+      // Exhausted or closed for good: no more rows.
+      throw FastNoSuchElementException.instance();
+    }
+    if (state == State.NEW || state == State.REARMED) {
+      // First open, or a reopen after reset(). openArming() rewinds the plan iff we are REARMED.
+      openStream = openArming();
+      state = State.OPEN;
+    }
+    var ctx = planContext();
+    try {
+      if (shaping.accumulateMap()) {
+        return emitAccumulatedGroupMap(ctx);
+      }
+      while (true) {
+        if (!openStream.hasNext(ctx)) {
+          state = State.DRAINED;
+          releaseStream();
+          throw FastNoSuchElementException.instance();
+        }
+        var payload = projectOrSkip(openStream.next(ctx));
+        if (payload == SKIP) {
+          continue;
+        }
+        return getTraversal().getTraverserGenerator().generate(payload, (Step) this, 1L);
+      }
+    } catch (FastNoSuchElementException e) {
+      throw e;
+    } catch (RuntimeException | Error e) {
+      // A failure while iterating the open stream (hasNext / next / projection) is terminal: release
+      // the stream AND the plan before propagating. TinkerPop auto-closes the traversal only on
+      // normal exhaustion (DefaultTraversal.hasNext -> closeIterator), never on a thrown exception,
+      // so deferring the plan close here would leak the cursor until traversal teardown. The
+      // iteration failure stays primary; a release failure is attached with addSuppressed. Moving to
+      // CLOSED both ends iteration and marks the plan closed, so the just-closed plan is never
+      // re-run.
+      state = State.CLOSED;
+      try {
+        releaseStreamAndClosePlan();
+      } catch (RuntimeException | Error suppressed) {
+        e.addSuppressed(suppressed);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Drains every GROUP BY row into one {@link LinkedHashMap} and emits a single traverser — native
+   * {@code group} / {@code groupCount} are barrier steps.
+   */
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private Traverser.Admin<E> emitAccumulatedGroupMap(CommandContext ctx) {
+    var map = new LinkedHashMap<Object, Object>();
+    while (openStream.hasNext(ctx)) {
+      var row = openStream.next(ctx);
+      map.put(
+          // Bare group()/groupCount() GROUP BY the element identity (@rid), and native keys the map
+          // by the Vertex — so wrap the RID as a Vertex here, the same RID→Vertex conversion
+          // elementMap columns use. Property / label key modulators are plain values and pass through.
+          convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS)),
+          convertGroupValue(row.getProperty(GROUP_VALUE_ALIAS)));
+    }
+    state = State.DRAINED;
+    releaseStream();
+    return getTraversal().getTraverserGenerator().generate(map, (Step) this, 1L);
+  }
+
+  /**
+   * Opens the plan's stream for a fresh arming. Closes any stream left open by a superseded arming
+   * (a reset after a partial consume), rebinds the plan to the thread-active session, rewinds the
+   * plan if it has run before, then starts it.
+   *
+   * <p>The graph is resolved before {@link #startPlanStream()} so a resolution failure leaks
+   * nothing: the plan has not been started. A missing graph throws {@link IllegalStateException}
+   * rather than the {@link java.util.NoSuchElementException} of a bare {@code orElseThrow()} — the
+   * latter is the iteration-end signal that {@link AbstractStep#hasNext()} swallows, which would
+   * turn a genuine "no attached graph" bug into a silent empty result.
+   */
+  private ExecutionStream openArming() {
+    if (openStream != null) {
+      // Stale cursor from a prior arming. Close it, but keep the plan alive — the same plan
+      // instance re-runs. Deferred from reset() (see reset()'s note) so cloning cannot tear down
+      // the original's still-aliased stream.
+      openStream.close(planContext());
+      openStream = null;
+    }
+    armingGraph =
+        (YTDBGraphInternal) getTraversal()
+            .getGraph()
+            .orElseThrow(
+                () -> new IllegalStateException(
+                    "MATCH boundary step cannot iterate: the host traversal has no attached"
+                        + " graph. The boundary step is only installed on YTDB-backed"
+                        + " traversals, so this indicates the step was driven after being"
+                        + " detached from its graph."));
+    var ctx = planContext();
+    // Rebind to the session active on THIS (iteration) thread before running. The plan may have
+    // been compiled on another thread, and each server worker thread owns its own pooled session;
+    // running against the compile-time session throws SessionNotActivatedException because YTDB
+    // record reads require the session active on the reading thread. Both sessions belong to the
+    // same database and share the schema/statistics the plan was compiled against, so the swap is
+    // execution-safe. Unconditional (every arming): a re-iteration after reset() may run on a
+    // different thread than the first pass.
+    var tx = armingGraph.tx();
+    tx.readWrite();
+    ctx.setDatabaseSession(tx.getDatabaseSession());
+    if (!inputParameters.isEmpty()) {
+      ctx.setInputParameters(inputParameters);
+    }
+    // Rewind before re-running: REARMED means the plan already ran in a prior pass and its step
+    // chain must be reset before it can execute again. A first open (NEW) has nothing to rewind.
+    if (state == State.REARMED) {
+      rewindPlan(ctx);
+    }
+    ExecutionStream stream;
+    try {
+      stream = startPlanStream();
+    } catch (RuntimeException | Error e) {
+      // A partial start may have claimed cursors before throwing — release the plan before
+      // propagating so nothing leaks. The original failure stays primary.
+      try {
+        closePlan();
+      } catch (RuntimeException | Error suppressed) {
+        e.addSuppressed(suppressed);
+      }
+      throw e;
+    }
+    return stream;
+  }
+
+  /**
+   * Closes the current arming's stream without touching the plan. Used on normal exhaustion, where
+   * the plan must stay open so a {@link #reset()} + reopen can rewind and re-run it; the plan is
+   * closed later by {@link #close()}.
+   */
+  private void releaseStream() {
+    var stream = openStream;
+    openStream = null;
+    armingGraph = null;
+    if (stream != null) {
+      stream.close(planContext());
+    }
+  }
+
+  /**
+   * Closes the current arming's stream and then the plan. The stream-close failure is the primary
+   * exception; a plan-close failure is attached with {@code addSuppressed} rather than masking it.
+   * Used on the terminal paths — an iteration failure and {@link #close()} — where the plan is not
+   * re-run.
+   */
+  private void releaseStreamAndClosePlan() {
+    var ctx = planContext();
+    var stream = openStream;
+    openStream = null;
+    armingGraph = null;
+    if (stream == null) {
+      closePlan();
+      return;
+    }
+    try {
+      stream.close(ctx);
+    } catch (RuntimeException | Error e) {
+      try {
+        closePlan();
+      } catch (RuntimeException | Error suppressed) {
+        e.addSuppressed(suppressed);
+      }
+      throw e;
+    }
+    closePlan();
+  }
+
+  /**
+   * Re-arms the step for re-iteration on the same instance, honouring TinkerPop's reset contract
+   * (a reset start step can be driven again). A started step (OPEN or DRAINED) moves to REARMED, so
+   * its next open rewinds and re-runs the plan; a NEW step that never ran stays NEW (its first open
+   * must not rewind an unstarted plan), and a CLOSED step stays CLOSED (a plan closed for good is
+   * not revived by a reset).
+   *
+   * <p>The open stream is deliberately not closed here. {@code AbstractStep.clone()} calls {@code
+   * reset()} on the freshly-cloned instance while that clone still aliases THIS stream (the clone's
+   * own references are cleared afterwards by the concrete step's {@code clone()}); closing here
+   * would tear down the original's in-flight cursor. Deferring the close to the next open (in {@link
+   * #openArming()}) removes that hazard without a guard flag.
+   */
+  @Override
+  public void reset() {
+    super.reset();
+    if (state == State.OPEN || state == State.DRAINED) {
+      state = State.REARMED;
+    }
+  }
+
+  /**
+   * Closes the plan's resources. Called by TinkerPop on stream exhaustion and on early traversal
+   * termination (both through {@code Traversal.close()}, which closes every {@link AutoCloseable}
+   * step). This is where the plan is closed on the normal path: exhaustion moves the step to DRAINED
+   * — stream closed, plan left open so a reset before close can re-iterate — and leaves the plan for
+   * this call to close. Idempotent via the CLOSED state. Gating entry on CLOSED rather than DRAINED
+   * is deliberate — DRAINED still holds an open plan, so a DRAINED-gated early return would skip the
+   * plan close and leak the cursor.
+   */
+  @Override
+  public void close() {
+    if (state == State.CLOSED) {
+      return;
+    }
+    // Any state past NEW has started the plan (the old `everStarted` guard): a NEW step never opened
+    // and holds nothing to release.
+    boolean started = state != State.NEW;
+    state = State.CLOSED;
+    if (openStream != null) {
+      // A stream is still open (partial consume, or a reset that deferred its close): release the
+      // stream and the plan.
+      releaseStreamAndClosePlan();
+    } else if (started) {
+      // Exhaustion already closed the stream; close the still-open plan now.
+      closePlan();
+    }
+    // Never opened and never started: nothing to release.
+  }
+
+  /**
+   * Resets the per-arming lifecycle fields to the NEW starting state on this instance. A concrete
+   * step's {@code clone()} calls this on the freshly-cloned instance after installing the clone's
+   * own plan copy: the clone must drop the per-arming references {@code super.clone()} copied by
+   * value (its {@code openStream} / {@code armingGraph}) and start in NEW, or a clone taken from an
+   * already-closed step would be born CLOSED and never close its own fresh plan copy. Kept in the
+   * base so the concrete step never needs to reach the private lifecycle fields or the {@code State}
+   * enum directly.
+   */
+  protected final void resetLifecycleForClone() {
+    this.openStream = null;
+    this.armingGraph = null;
+    this.state = State.NEW;
+  }
+
+  /**
+   * Projects one result row onto the configured output payload, or returns {@link #SKIP} when the
+   * row must not emit a traverser ({@code dropOnAbsent} / {@code dropNullRows}).
+   */
+  private Object projectOrSkip(Result row) {
+    return switch (outputType) {
+      case ELEMENT -> projectElement(row, armingGraph);
+      case MAP -> projectMap(row);
+      case SINGLE_VALUE -> projectSingleValue(row);
+      case SCALAR -> projectScalar(row);
+    };
+  }
+
+  /**
+   * Builds a {@link Map} from RETURN columns. The boundary-entity column (when present) is stripped
+   * from the emitted map and used only for {@link EntityImpl#hasProperty} classification of
+   * presence-checked keys. Absent keys are omitted; present-with-null keys are included.
+   */
+  private Object projectMap(Result row) {
+    var entity = resolveEntity(row);
+    var map = new LinkedHashMap<Object, Object>();
+    for (String name : row.getPropertyNames()) {
+      if (name.equals(boundaryAlias)) {
+        continue;
+      }
+      Object mapKey = mapKeyForColumn(name);
+      if (presenceKeySet.contains(name)) {
+        if (entity == null || !entity.hasProperty(name)) {
+          continue;
+        }
+        var value = convertValue(entity.getProperty(name));
+        map.put(mapKey, shaping.wrapMapValuesInLists() ? Collections.singletonList(value) : value);
+        continue;
+      }
+      map.put(mapKey, convertMapColumn(name, row.getProperty(name)));
+    }
+    if (shaping.unwrapSingletonMap() && map.size() == 1) {
+      return map.values().iterator().next();
+    }
+    return map;
+  }
+
+  /**
+   * Converts a non-presence MAP column. Select labels often arrive as bare {@link RID}s and must
+   * become TinkerPop vertices; {@code elementMap}'s {@code id} column must stay a RID (native uses
+   * {@code T.id}).
+   */
+  private Object convertMapColumn(String columnName, Object raw) {
+    if (raw instanceof RID rid) {
+      if (shaping.elementMapTokens() && "id".equals(columnName)) {
+        return rid;
+      }
+      return new YTDBVertexImpl(armingGraph, rid);
+    }
+    return convertValue(raw);
+  }
+
+  private Object mapKeyForColumn(String name) {
+    if (shaping.elementMapTokens()) {
+      // Aliases wired by GremlinProjectionAssembler.ELEMENT_MAP_KEY_ID / _LABEL.
+      if ("id".equals(name)) {
+        return org.apache.tinkerpop.gremlin.structure.T.id;
+      }
+      if ("label".equals(name)) {
+        return org.apache.tinkerpop.gremlin.structure.T.label;
+      }
+    }
+    return name;
+  }
+
+  /**
+   * Emits a single property value. With {@code dropOnAbsent}, rows whose property is absent on the
+   * entity are skipped; present-with-null still emits a {@code null} traverser.
+   */
+  private Object projectSingleValue(Result row) {
+    if (shaping.dropOnAbsent() && !shaping.presencePropertyKeys().isEmpty()) {
+      var key = shaping.presencePropertyKeys().getFirst();
+      var entity = resolveEntity(row);
+      if (entity == null || !entity.hasProperty(key)) {
+        return SKIP;
+      }
+      var value = convertValue(entity.getProperty(key));
+      if (shaping.dropNullRows() && value == null) {
+        return SKIP;
+      }
+      return value;
+    }
+    var value = primaryProjectedValue(row);
+    if (shaping.dropNullRows() && value == null) {
+      return SKIP;
+    }
+    return value;
+  }
+
+  /**
+   * Emits a scalar aggregate cell. {@code dropNullRows} drops the empty-input null cell for {@code
+   * sum}/{@code min}/{@code max}/{@code mean}; {@code count} keeps its {@code 0}.
+   */
+  private Object projectScalar(Result row) {
+    var value = primaryProjectedValue(row);
+    if (shaping.dropNullRows() && value == null) {
+      return SKIP;
+    }
+    return convertValue(value);
+  }
+
+  /**
+   * First non-boundary RETURN column value — used for {@code SINGLE_VALUE} / {@code SCALAR} when the
+   * assembler did not pin presence keys (or as a fallback).
+   */
+  private Object primaryProjectedValue(Result row) {
+    for (String name : row.getPropertyNames()) {
+      if (!name.equals(boundaryAlias)) {
+        return convertValue(row.getProperty(name));
+      }
+    }
+    return null;
+  }
+
+  private EntityImpl resolveEntity(Result row) {
+    var entity = row.getEntity(boundaryAlias);
+    if (entity instanceof EntityImpl entityImpl) {
+      return entityImpl;
+    }
+    return null;
+  }
+
+  /**
+   * Converts MATCH cell values into TinkerPop-facing payloads: entities become {@link
+   * YTDBVertexImpl}, nested lists are mapped recursively, RIDs stay as id objects.
+   */
+  private Object convertValue(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Vertex) {
+      return value;
+    }
+    if (value instanceof com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex ytdbVertex) {
+      return new YTDBVertexImpl(armingGraph, ytdbVertex);
+    }
+    if (value instanceof Entity entity) {
+      if (entity.isVertex()) {
+        return new YTDBVertexImpl(armingGraph, entity.asVertex());
+      }
+      return entity;
+    }
+    if (value instanceof List<?> list) {
+      var out = new ArrayList<>(list.size());
+      for (Object item : list) {
+        out.add(convertValue(item));
+      }
+      return out;
+    }
+    return value;
+  }
+
+  /**
+   * Group VALUE conversion for bare {@code group()} / {@code group().by(k)}: {@code list(alias)}
+   * collects the grouped elements as a list of RIDs, so wrap each as a {@link YTDBVertexImpl} to
+   * match native (whose group values are a list of Vertex). Count values ({@code groupCount} /
+   * {@code by(__.count())}) are numbers and pass through {@link #convertValue} unchanged. Kept
+   * separate from {@link #convertValue} so a link-typed {@code values(k)} / {@code valueMap(k)}
+   * property (a legitimate RID) is not silently reinterpreted as a vertex.
+   */
+  private Object convertGroupValue(Object value) {
+    if (value instanceof RID rid) {
+      return new YTDBVertexImpl(armingGraph, rid);
+    }
+    if (value instanceof List<?> list) {
+      var out = new ArrayList<>(list.size());
+      for (Object item : list) {
+        out.add(convertGroupValue(item));
+      }
+      return out;
+    }
+    return convertValue(value);
+  }
+
+  /**
+   * Projects the matched element bound to {@link #boundaryAlias}, dispatching on {@link
+   * #returnClass}: a vertex-producing prefix ({@code g.V()}, {@code .out(...)}) emits a TinkerPop
+   * {@link Vertex}, an edge-producing prefix ({@code g.E()}, {@code .outE(...)}) a {@link Edge}.
+   *
+   * <p>Only the vertex arm is wired today — the translator recognises no edge-producing prefix in
+   * the current scope, so {@code returnClass} is always {@code Vertex.class} and the edge arm is
+   * unreachable. The branch is written out anyway so the field's role (it selects the element kind,
+   * orthogonally to {@link #outputType} selecting the payload shape) is visible before the edge
+   * track lands; that track fills in edge projection in place of the throw.
+   *
+   * <p>Package-private so unit tests can exercise projection directly.
+   */
+  Object projectElement(Result row, YTDBGraphInternal graph) {
+    if (Vertex.class.isAssignableFrom(returnClass)) {
+      return projectVertex(row, graph);
+    }
+    if (Edge.class.isAssignableFrom(returnClass)) {
+      throw new UnsupportedOperationException(
+          "Gremlin-to-MATCH edge projection is not implemented yet; the translator recognises only"
+              + " vertex-producing prefixes in the current scope (returnClass="
+              + returnClass.getName() + ").");
+    }
+    throw new IllegalStateException(
+        "Boundary return class must be a Vertex or Edge subtype, but was "
+            + returnClass.getName() + ".");
+  }
+
+  /**
+   * Extracts the matched vertex from {@code row} under {@link #boundaryAlias} and wraps it as a
+   * TinkerPop {@link Vertex}. Returns {@code null} when the row does not bind the alias to a vertex
+   * (e.g. an optional node that did not match) — downstream native steps treat a null payload as
+   * "absent", the same as any other null.
+   */
+  private Vertex projectVertex(Result row, YTDBGraphInternal graph) {
+    var rawVertex = row.getVertex(boundaryAlias);
+    if (rawVertex == null) {
+      return null;
+    }
+    return new YTDBVertexImpl(graph, rawVertex);
+  }
+
+  // ---- Plan-seam hooks ----
+  //
+  // The single-vs-N-plan orchestration lives in the concrete subclass: it decides which plan
+  // supplies the stream, how the plan is rewound between passes, and how the plan(s) are closed.
+  // The lifecycle primitives above drive one live stream at a time through these four hooks.
+
+  /**
+   * The command context the current arming's stream iterates against and is closed against. For the
+   * single-plan form this is the plan's context; a multi-plan form returns the context of the plan
+   * whose stream is currently live.
+   */
+  protected abstract CommandContext planContext();
+
+  /**
+   * Rewinds the plan's step chain before a re-run. Called by {@link #openArming()} only when the
+   * step is REARMED — a plan that already ran in a prior pass must be reset before it can execute
+   * again; a first open has nothing to rewind.
+   */
+  protected abstract void rewindPlan(CommandContext ctx);
+
+  /**
+   * Starts the plan and returns its {@link ExecutionStream}. Called by {@link #openArming()} after
+   * the session rebind and any rewind; the base wraps the call so a partial start that already
+   * claimed cursors is released via {@link #closePlan()} before the failure propagates.
+   */
+  protected abstract ExecutionStream startPlanStream();
+
+  /**
+   * Closes the underlying plan (or, for a multi-plan form, every plan it owns). Called on the
+   * terminal paths — an iteration failure, a partial-start failure, and {@link #close()}.
+   */
+  protected abstract void closePlan();
+}

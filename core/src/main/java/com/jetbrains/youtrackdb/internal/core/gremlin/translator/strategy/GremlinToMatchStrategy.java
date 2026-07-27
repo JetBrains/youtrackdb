@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
@@ -71,8 +72,10 @@ import org.slf4j.LoggerFactory;
  *       time the start step is still a plain {@code GraphStep}. Keying on {@code YTDBGraphStep}
  *       would decline every recognized shape. The check is also ordering-robust, since a
  *       {@code YTDBGraphStep} <em>is</em> a {@code GraphStep}.</li>
- *   <li><b>Idempotency.</b> The traversal already contains a {@link YTDBMatchPlanStep}
- *       anywhere in its step list. A traversal's strategy chain can be applied more than once
+ *   <li><b>Idempotency.</b> The traversal already contains a boundary step ({@link
+ *       AbstractMatchPlanStep}, either the single-plan {@link YTDBMatchPlanStep} or any other
+ *       concrete boundary form) anywhere in its step list. A traversal's strategy chain can be
+ *       applied more than once
  *       (clone-for-reuse, test-harness re-application, lazy first-iteration apply); leaving an
  *       already-translated traversal alone keeps rewriting deterministic and avoids discarding
  *       a built plan.</li>
@@ -238,9 +241,10 @@ public final class GremlinToMatchStrategy
     }
     // Run the O(1) start-step gate before the O(steps) boundary scan, so a traversal that does not
     // start at a vertex GraphStep declines without walking the whole step list. Idempotency still
-    // holds: an already-translated traversal's start step is a YTDBMatchPlanStep (not a GraphStep),
-    // so hasVertexGraphStart declines it here anyway; the boundary scan below stays as the guard for
-    // the defensive case where an ordinary step is prepended in front of the boundary.
+    // holds: an already-translated traversal's start step is a boundary step (an
+    // AbstractMatchPlanStep subtype, not a GraphStep), so hasVertexGraphStart declines it here
+    // anyway; the boundary scan below stays as the guard for the defensive case where an ordinary
+    // step is prepended in front of the boundary.
     if (!hasVertexGraphStart(traversal)) {
       return;
     }
@@ -333,14 +337,17 @@ public final class GremlinToMatchStrategy
   }
 
   /**
-   * Scans the entire step list and returns {@code true} as soon as a {@link YTDBMatchPlanStep}
-   * is found (the idempotency gate). The scan covers the whole list, not just the start
-   * step, because a wrapping traversal source or test harness could place ordinary steps in
-   * front of a previously-translated boundary.
+   * Scans the entire step list and returns {@code true} as soon as a boundary step ({@link
+   * AbstractMatchPlanStep}) is found (the idempotency gate). Keying on the boundary base rather
+   * than the concrete {@link YTDBMatchPlanStep} detects every boundary form — the single-plan step
+   * and any sibling concrete step over the same base — so a re-applied strategy leaves an
+   * already-translated traversal alone regardless of which boundary form it carries. The scan
+   * covers the whole list, not just the start step, because a wrapping traversal source or test
+   * harness could place ordinary steps in front of a previously-translated boundary.
    */
   private static boolean containsBoundaryStep(Traversal.Admin<?, ?> traversal) {
     for (Step<?, ?> step : traversal.getSteps()) {
-      if (step instanceof YTDBMatchPlanStep<?, ?>) {
+      if (step instanceof AbstractMatchPlanStep<?, ?>) {
         return true;
       }
     }
