@@ -1,12 +1,12 @@
 <!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
-# Track 7: Advanced patterns + hardening — union, list-shaping terminators, Cucumber green + perf baseline
+# Track 7: Boundary base extraction + ordered list-shaping infrastructure
 
 ## Purpose / Big Picture
-After this track, `union(...)` and the four list-shaping terminators (`fold` / `unfold` / `reverse` / `tail`) translate, the full TinkerPop Cucumber suite is green with the strategy registered, and a Gremlin-on-vs-off JMH baseline measures the translator's value.
+After this track a shared **boundary base** carries the row-projection + `ResultShaping` machinery, so both the single-plan `YTDBMatchPlanStep` and the upcoming multi-plan `MultiPlanMatchStep` (Track 8) reuse it, and an **ordered list-shaping post-process** (fold / unfold / reverse / tail applied in declared order) is in place for Track 9's terminators. The track is behavior-neutral: every traversal the translator recognises today produces the exact same result multiset and output type afterward.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-Completes the recognized set and validates the whole feature. Handles `UnionStep` with N global children via `MultiPlanMatchStep` when all children share a boundary output type, declining on divergence (D8). Adds the four list-shaping terminators as last-step recognisers, introducing `BoundaryOutputType.LIST` plus the `unfoldOutput` / `reverseOutput` / `tailLimit` post-processor flags (mid-traversal use declines under D3). Final hardening: the full Cucumber suite green, a per-step scenario catalogue, and a JMH suite mirroring the LDBC SQL benchmarks.
+This is the foundation slice of the split final track (the original Track 7 was split at its Phase A review on 2026-07-27 — see plan D8 and the pre-split reviews under `reviews/pre-split/`). It fixes the structural premise those reviews falsified — `MultiPlanMatchStep extends YTDBMatchPlanStep` cannot compile — before Track 8 builds union on top.
 
 ## Progress
 - [ ] Review + decomposition
@@ -19,6 +19,9 @@ Completes the recognized set and validates the whole feature. Handles `UnionStep
 
 ## Decision Log
 <!-- Continuous-log. -->
+The canonical decision is plan D8 (revised after Track 6): the `extends YTDBMatchPlanStep` premise is dropped for a shared boundary base. Two realization choices are left to this track's decomposition:
+- **Base shape** — abstract superclass vs composed row-projector. Driven by what Track 8's `MultiPlanMatchStep` must reuse (projection, `ResultShaping` read, and the `ExecutionStream` lifecycle). Prefer the smallest surface that lets both boundary steps share projection + shaping without exposing mutable lifecycle state.
+- **Ordered post-process carrier** — an ordered `List` of list-shaping ops applied in declared order, either as a new field on `ResultShaping` or an adjacent immutable type. Order-less booleans cannot encode `reverse().unfold()` vs `unfold().reverse()`, which are both accepted and observably differ (pre-split adversarial A2).
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -26,28 +29,28 @@ Completes the recognized set and validates the whole feature. Handles `UnionStep
 <!-- Continuous-log. -->
 
 ## Context and Orientation
-MATCH's `splitDisjointPatterns` joins disconnected patterns by cartesian product, which is **not** `union`'s concatenation semantics. So `union(t1, t2, …)` is translated by building one `SelectExecutionPlan` per child and concatenating their streams in `MultiPlanMatchStep` — a `YTDBMatchPlanStep` subclass holding a `List<SelectExecutionPlan>` and iterating them in order (plan N+1 starts only after plan N drains; one live `ExecutionStream` at a time). All children must agree on output type, else the union is unrecognized and the traversal declines (D8). Changing union to cartesian would silently alter results and break the green-suite invariant.
+`YTDBMatchPlanStep` is today `public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<S, E> implements AutoCloseable` (`YTDBMatchPlanStep.java:88`), with a private lifecycle (the `plan` field, lazily-`start()`ed `ExecutionStream`, a private `State` enum) and a private projection surface (the compile-exhaustive `projectOrSkip` switch that reads the single `ResultShaping` field Track 6's tail introduced). Because the class is `final` with private machinery, a `MultiPlanMatchStep` cannot extend it, and de-finalizing would not help — a subclass inherits none of the private machinery and Java constructors are not inherited. So the reusable part (row projection + `ResultShaping` read + the `ExecutionStream` open/drain/close lifecycle) is extracted into a shared base that both the single-plan step and Track 8's multi-plan step build on.
 
-The four list-shaping terminators are accepted only as the **last** step (the boundary is the only step in a translated traversal under D3): `fold()` → `BoundaryOutputType.LIST` (drain stream → one `List<E>` traverser; empty input → empty list); `unfold()` → `unfoldOutput` flag (per-emission flat-map mirroring `UnfoldStep.flatMap`); `reverse()` → `reverseOutput` flag (per-traverser value transform mirroring `ReverseStep.map`, NOT stream-order reverse); `tail(n)` → `tailLimit` (bounded `ArrayDeque` ring buffer keeping the last `n` in arrival order; `n=0` emits nothing, `n<0` declines). Composition rules and the declared-order application are in design §"List-shaping terminators".
+Separately, Track 9's list-shaping terminators need declared-order application. `fold` / `unfold` / `reverse` / `tail` compose (`reverse().unfold()` and `unfold().reverse()` are both accepted) and produce different results depending on declared order, so three order-less `ResultShaping` booleans cannot represent them. This track adds an ordered post-process carrier — a `List` of list-shaping ops applied in the order they were declared — wired through the boundary base's projection, empty for every traversal that exists today.
 
-This is also the hardening track: the ~1900-scenario TinkerPop Cucumber suite (`YTDBGraphFeatureTest` in `core`, `EmbeddedGraphFeatureTest` in `embedded`) must be green with the strategy registered — the regression bar is that every previously-passing scenario still passes. A Gremlin-on-vs-off JMH suite mirroring the existing LDBC SQL benchmarks is the load-bearing measurement of the translator's value with the plan cache enabled.
+**Reference-accuracy note.** The class-shape facts above (the `final` modifier, the private lifecycle/projection members, the single `ResultShaping` field) are direct source reads, cross-confirmed by all three pre-split Phase A reviews and re-read at escalation time. PSI was unavailable in those review sessions (cold kotlinc index tripped the MCP timeout), so the *enumeration of construction sites* to rewire (`GremlinToMatchTranslator`, `GremlinStepWalker`, `GremlinToMatchStrategy`) rests on grep/read and must be re-verified via PSI find-usages at this track's decomposition (`## Concrete Steps` pre-write rule).
 
 ```mermaid
-flowchart LR
-    Union["UnionStep(t1..tN)"] --> PerChild["translate each child → SelectExecutionPlan"]
-    PerChild --> TypeChk{"all children\nsame output type?"}
-    TypeChk -- yes --> Multi["MultiPlanMatchStep(plans, type)"]
-    TypeChk -- no --> Decline["decline (D8 / D3)"]
-    Term["fold/unfold/reverse/tail\n(last step only)"] --> Flags["set LIST type / post-process flags"]
-    Flags --> Boundary["boundary applies in declared order"]
+flowchart TB
+    Base["boundary base\n(row projection + ResultShaping read\n+ ExecutionStream lifecycle)"]
+    Single["YTDBMatchPlanStep\n(single-plan, unchanged behavior)"]
+    Multi["MultiPlanMatchStep\n(Track 8)"]
+    Post["ordered list-shaping\npost-process (Track 9 drives)"]
+    Base --> Single
+    Base --> Multi
+    Base -. reads .-> Post
 ```
 
 ## Plan of Work
-1. **`UnionStepRecogniser`** (D8): sub-walk each child against the registry, build one `SelectExecutionPlan` per child, verify all children agree on output type, and emit `MultiPlanMatchStep`; decline if any child fails to translate or disagrees on type.
-2. **`MultiPlanMatchStep`** extending `YTDBMatchPlanStep`: `List<SelectExecutionPlan>` + a plan index; first `processNextStart` opens `plans[0].start()`, advances to the next plan on exhaustion; one live stream at a time; exception in `plans[N]` closes the current stream and re-throws without starting `plans[N+1..]`; one shared `BoundaryOutputType`.
-3. **List-shaping terminators:** `FoldStep` recogniser → `BoundaryOutputType.LIST`; `UnfoldStep` / `ReverseStep` / `TailGlobalStep` recognisers → `unfoldOutput` / `reverseOutput` / `tailLimit` flags. Boundary-step `processNextStart` gains the `LIST` materialization, the `unfold` flat-map helper, the `reverse` value-transform helper, and the `tail` ring buffer, applied in declared order. Each terminator declines mid-traversal (not the last step). Composition: `reverse().unfold()` / `unfold().reverse()` accepted (both flags); `fold().unfold()` and `fold().tail(3)` declined (two terminators / two-phase boundary not implemented in Phase 1).
-4. **`BoundaryOutputType.LIST`** + the three post-process flags on the boundary step; flags compose with `dropNullRows` / `dropOnAbsent` from Track 6.
-5. **Hardening:** run the full Cucumber suite with the strategy registered and fix any cross-track regression; add a per-step scenario catalogue; add the mirrored Gremlin JMH benchmark classes + on/off harness and capture a baseline.
+1. **Extract the shared boundary base** from `YTDBMatchPlanStep`: move the row projection, the `ResultShaping` read, and the `ExecutionStream` open/drain/close lifecycle into an abstract superclass (or a composed row-projector), leaving `YTDBMatchPlanStep` as the single-plan concrete form with byte-for-byte identical projection output. Pick abstract-base vs composition at decomposition, sized by what Track 8's `MultiPlanMatchStep` must reuse.
+2. **Rewire the single-plan construction sites** — `GremlinToMatchTranslator`, `GremlinStepWalker.buildResult`, `GremlinToMatchStrategy` — onto the extracted base with no behavior change. PSI-verify each site during decomposition before it lands in `## Concrete Steps`.
+3. **Introduce the ordered list-shaping post-process carrier** — a `List` of list-shaping ops applied in declared order — alongside `ResultShaping`, read by the boundary base's projection. No terminator recognisers here (Track 9 registers ops); this track lands only the carrier and its declared-order application, empty for every current traversal.
+4. **Prove behavior-neutrality** with equivalence tests over the element / MAP / SINGLE_VALUE / SCALAR paths, keeping the existing projection / aggregate / equivalence suites green.
 
 ## Concrete Steps
 <!-- Phase A placeholder. -->
@@ -56,12 +59,9 @@ flowchart LR
 <!-- Continuous-log. Empty at Phase 1. -->
 
 ## Validation and Acceptance
-- `union(t1, t2, …)` with children agreeing on output type translates to the concatenated multiset (not cartesian); a child that declines or disagrees on type declines the whole union (D8).
-- `MultiPlanMatchStep` iterates plans in order with one live stream; an exception in plan N does not start plan N+1.
-- `fold()` materializes the whole stream into one list traverser (empty input → empty list); `unfold()` flat-maps per emission; `reverse()` transforms the per-traverser value (string/collection) without reordering the stream; `tail(n)` keeps the last `n` in arrival order (`n=0` → nothing, `n<0` → decline). All match native.
-- `reverse().unfold()` / `unfold().reverse()` translate; `fold().unfold()`, `fold().tail(3)`, and any mid-traversal list-shaper decline.
-- The full TinkerPop Cucumber suite is green with the strategy registered (no previously-passing scenario regresses).
-- The Gremlin-on-vs-off JMH suite runs and produces a baseline comparison with the plan cache enabled.
+- Every traversal the translator recognises today yields the identical result multiset and boundary output type after the refactor — the existing projection / aggregate / equivalence suites stay green with no assertion changes.
+- The shared boundary base exposes the row-projection + `ResultShaping` machinery for reuse by a second boundary step; `YTDBMatchPlanStep` is the single-plan concrete form over it.
+- The ordered list-shaping post-process carrier applies its ops in declared order (unit-tested that `reverse`-then-`unfold` and `unfold`-then-`reverse` orderings resolve to distinct application sequences) and is a no-op when the op list is empty.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -74,11 +74,11 @@ flowchart LR
 <!-- Continuous-log (rare). Often empty. -->
 
 ## Interfaces and Dependencies
-**In scope (new):** `UnionStepRecogniser`; `MultiPlanMatchStep`; `FoldStep` / `UnfoldStep` / `ReverseStep` / `TailGlobalStep` recognisers; `BoundaryOutputType.LIST` + `unfoldOutput` / `reverseOutput` / `tailLimit` flags; the mirrored Gremlin JMH benchmark classes + on/off harness; type-compatibility + terminator-composition tests; the per-step scenario catalogue.
-**In scope (modified):** `YTDBMatchPlanStep` (`LIST` materialization, post-process helpers + flags, declared-order application); `WalkerContext` (post-process flags); `BoundaryOutputType` enum (`LIST`); Cucumber fixes if any scenario regresses.
-**Out of scope:** edge-bearing OR, `optional`, variable-depth `repeat`, and the rest of the Phase 2 long tail (design §"Out of scope"); the approximate-count mode (Phase 2).
-**Inter-track dependencies:** depends on Track 6 (all five upstream output types and the projection logic the terminators post-process). This is the last Phase 1 track; it validates every prior track via the full Cucumber re-run and the JMH baseline.
-**Signatures:** `SelectExecutionPlan.start()` (fresh `ExecutionStream` per call); `UnfoldStep.flatMap` / `ReverseStep.map` / `TailGlobalStep` (TP reference semantics); `YTDBGraphFeatureTest` / `EmbeddedGraphFeatureTest` (Cucumber runners).
+**In scope (new):** the shared boundary base (abstract superclass or composed row-projector extracted from `YTDBMatchPlanStep`); the ordered list-shaping post-process carrier; base-extraction equivalence tests.
+**In scope (modified):** `YTDBMatchPlanStep` (becomes the single-plan concrete form over the base); `GremlinToMatchTranslator`, `GremlinStepWalker`, `GremlinToMatchStrategy` (construction rewired onto the base); `ResultShaping` or an adjacent immutable type (carries / composes with the ordered post-process).
+**Out of scope:** `union` and `MultiPlanMatchStep` (Track 8); the four terminator recognisers and `BoundaryOutputType.LIST` (Track 9); any user-visible behavior change; Cucumber / JMH hardening (Track 9).
+**Inter-track dependencies:** depends on Track 6 (the `ResultShaping` record and boundary step this refactor reshapes). Supplies the boundary base that Track 8's `MultiPlanMatchStep` extends and the ordered post-process carrier that Track 9's terminators register into.
+**Signatures:** `YTDBMatchPlanStep` (`public final class … extends AbstractStep implements AutoCloseable`, single `ResultShaping` field, private `projectOrSkip`); `ResultShaping` (7-flag immutable record with `withX` builders + `NONE`); `AbstractStep` (TinkerPop base).
 
 ## Invariants & Constraints
 <!-- Combined per-track invariants + constraints (conventions-execution.md §2.1 §14).
