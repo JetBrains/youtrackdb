@@ -798,7 +798,7 @@ public class MatchExecutionPlanner {
             && !returnAliases.isEmpty()
             && returnAliases.getFirst() != null
                 ? returnAliases.getFirst().getStringValue()
-                : "count";
+                : "count(*)";
     return HardwiredCountOptimizations.tryMatchCountFromClass(
         result, className, resultAlias, true, context, enableProfiling);
   }

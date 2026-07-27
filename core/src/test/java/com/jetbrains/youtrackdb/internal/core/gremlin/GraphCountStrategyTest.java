@@ -20,6 +20,11 @@ public class GraphCountStrategyTest extends GraphBaseTest {
 
     Assert.assertEquals(YTDBMatchPlanStep.class, admin.getStartStep().getClass());
     Assert.assertEquals(YTDBMatchPlanStep.class, admin.getEndStep().getClass());
+    // Guard the target class, not just the step type: the boundary's plan must count class V.
+    var boundary = (YTDBMatchPlanStep<?, ?>) admin.getStartStep();
+    Assert.assertTrue(
+        "count boundary should target class V",
+        boundary.getPlan().prettyPrint(0, 2).contains("CALCULATE CLASS SIZE: V"));
   }
 
   @Test
@@ -87,6 +92,11 @@ public class GraphCountStrategyTest extends GraphBaseTest {
 
     Assert.assertEquals(YTDBMatchPlanStep.class, admin.getStartStep().getClass());
     Assert.assertEquals(YTDBMatchPlanStep.class, admin.getEndStep().getClass());
+    // Guard the target class, not just the step type: the boundary's plan must count class Person.
+    var boundary = (YTDBMatchPlanStep<?, ?>) admin.getStartStep();
+    Assert.assertTrue(
+        "count boundary should target class Person",
+        boundary.getPlan().prettyPrint(0, 2).contains("CALCULATE CLASS SIZE: Person"));
   }
 
   @Test

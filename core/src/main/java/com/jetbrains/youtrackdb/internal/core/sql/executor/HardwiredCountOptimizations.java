@@ -169,6 +169,13 @@ public final class HardwiredCountOptimizations {
     return false;
   }
 
+  /**
+   * Whether a class-level READ security policy applies to {@code targetClass} for this session. A
+   * hardwired count reads the record count straight from class metadata and applies no per-record
+   * filtering, so when a policy exists the count short-circuit must decline and let the generic
+   * per-record path enforce row-level security. (Rationale retained from the original
+   * {@code SelectExecutionPlanner} implementation when this helper was extracted.)
+   */
   static boolean securityPoliciesExistForClass(
       SchemaClassInternal targetClass, CommandContext ctx) {
     if (targetClass == null) {

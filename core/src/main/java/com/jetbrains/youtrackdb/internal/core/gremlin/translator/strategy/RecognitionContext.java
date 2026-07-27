@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -75,6 +74,14 @@ interface RecognitionContext extends ParamSink {
    * property key.
    */
   @Nullable String boundaryClassName();
+
+  /**
+   * The {@link BoundaryOutputType} pinned on the current boundary, or {@code null} before any step
+   * pins one. A terminator recogniser reads this to refuse a shape a prior terminator already fixed
+   * — e.g. {@code dedup()} after a value / map / scalar projection, where {@code RETURN DISTINCT}
+   * over the boundary presence column would dedup on the unique entity and remove nothing.
+   */
+  @Nullable BoundaryOutputType boundaryOutputType();
 
   // --- Schema-aware type gating -----------------------------------------------------------------
 
@@ -204,13 +211,6 @@ interface RecognitionContext extends ParamSink {
    * when the label was never surfaced by an accepted {@code as(...)} step.
    */
   @Nullable String resolveUserLabel(String userLabel);
-
-  /**
-   * Replaces the RETURN projection with one column per named dedup label ({@code dedup("a","b")}),
-   * each keyed on the internal alias bound to that user label and aliased in the RETURN clause under
-   * the user-visible name.
-   */
-  void setNamedDedupReturnProjection(Collection<String> userLabels);
 
   /** Clears the three parallel RETURN lists before a terminator replaces the projection. */
   void clearReturnProjection();

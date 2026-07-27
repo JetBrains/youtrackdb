@@ -191,35 +191,13 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       @Nonnull InternalExecutionPlan plan,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType) {
-    this(traversal, returnClass, plan, boundaryAlias, outputType, Map.of(), false, false);
-  }
-
-  /**
-   * Constructs a boundary step backed by the given execution plan and per-walk input parameters.
-   *
-   * @param traversal     the host traversal (must not be null)
-   * @param returnClass   the TinkerPop element class the step emits (currently {@link
-   *                      Vertex}{@code .class})
-   * @param plan          the compiled MATCH plan (must not be null)
-   * @param boundaryAlias the alias under which the matched element appears in each {@link Result}
-   *                      row (must not be null)
-   * @param outputType    how each row projects onto a traverser payload (must not be null)
-   * @param inputParameters positional-parameter values keyed by slot; empty when the walk bound none
-   */
-  public YTDBMatchPlanStep(
-      @Nonnull Traversal.Admin<S, E> traversal,
-      @Nonnull Class<E> returnClass,
-      @Nonnull InternalExecutionPlan plan,
-      @Nonnull String boundaryAlias,
-      @Nonnull BoundaryOutputType outputType,
-      @Nonnull Map<Object, Object> inputParameters) {
     this(
         traversal,
         returnClass,
         plan,
         boundaryAlias,
         outputType,
-        inputParameters,
+        Map.of(),
         false,
         false,
         List.of(),
@@ -272,34 +250,6 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
     this.presenceKeySet = Set.copyOf(this.presencePropertyKeys);
   }
 
-  /**
-   * Compatibility ctor used by older call sites / tests that only pass the two drop flags.
-   */
-  public YTDBMatchPlanStep(
-      @Nonnull Traversal.Admin<S, E> traversal,
-      @Nonnull Class<E> returnClass,
-      @Nonnull InternalExecutionPlan plan,
-      @Nonnull String boundaryAlias,
-      @Nonnull BoundaryOutputType outputType,
-      @Nonnull Map<Object, Object> inputParameters,
-      boolean dropNullRows,
-      boolean dropOnAbsent) {
-    this(
-        traversal,
-        returnClass,
-        plan,
-        boundaryAlias,
-        outputType,
-        inputParameters,
-        dropNullRows,
-        dropOnAbsent,
-        List.of(),
-        false,
-        false,
-        false,
-        false);
-  }
-
   /** The alias the step uses to look up the matched element in each row. */
   public String getBoundaryAlias() {
     return boundaryAlias;
@@ -318,31 +268,6 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   /** The TinkerPop element class the step emits. */
   public Class<E> getReturnClass() {
     return returnClass;
-  }
-
-  /** Whether the boundary skips rows whose primary projected value is {@code null}. */
-  public boolean isDropNullRows() {
-    return dropNullRows;
-  }
-
-  /** Whether the boundary skips rows where the projected property is absent on the entity. */
-  public boolean isDropOnAbsent() {
-    return dropOnAbsent;
-  }
-
-  /** Property keys classified via entity-layer presence checks. */
-  public List<String> getPresencePropertyKeys() {
-    return presencePropertyKeys;
-  }
-
-  /** Whether {@code valueMap} property values are wrapped in singleton lists. */
-  public boolean isWrapMapValuesInLists() {
-    return wrapMapValuesInLists;
-  }
-
-  /** Whether GROUP BY rows are accumulated into one map. */
-  public boolean isAccumulateMap() {
-    return accumulateMap;
   }
 
   /**
@@ -425,7 +350,10 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
     while (openStream.hasNext(ctx)) {
       var row = openStream.next(ctx);
       map.put(
-          convertValue(row.getProperty(GROUP_KEY_ALIAS)),
+          // Bare group()/groupCount() GROUP BY the element identity (@rid), and native keys the map
+          // by the Vertex — so wrap the RID as a Vertex here, the same RID→Vertex conversion
+          // elementMap columns use. Property / label key modulators are plain values and pass through.
+          convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS)),
           convertValue(row.getProperty(GROUP_VALUE_ALIAS)));
     }
     state = State.DRAINED;

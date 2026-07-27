@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 
 /**
@@ -31,6 +32,13 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
     }
     // by(...) needs DISTINCT-ON-style keys while still emitting the current element — not MATCH.
     if (!dedup.getLocalChildren().isEmpty()) {
+      return Outcome.DECLINE;
+    }
+    // A value / map / scalar projection has already replaced RETURN with a boundary presence column
+    // (e.g. values("k") → RETURN $b, $b.k), so RETURN DISTINCT would dedup on (entity, value); the
+    // per-row unique entity defeats it and nothing is deduplicated. Decline to native, which dedups
+    // the projected values. dedup() while still ELEMENT stays here and dedups the boundary vertices.
+    if (ctx.boundaryOutputType() != BoundaryOutputType.ELEMENT) {
       return Outcome.DECLINE;
     }
 

@@ -72,6 +72,14 @@ public final class GremlinPlanCache
       return;
     }
     var internal = (InternalExecutionPlan) plan;
+    // Honor the step-level cacheability contract, exactly as the YQL / GQL-SQL plan cache does with
+    // result.canBeCached(). A plan containing a non-cacheable step — CountFromClassStep, whose count
+    // varies per execution and whose fast path is gated by a per-session security-policy check — must
+    // never be cached and replayed on another session, or the build-time security decision leaks
+    // across users and across a later policy change. See CountFromClassStep.canBeCached().
+    if (!internal.canBeCached()) {
+      return;
+    }
     var copyCtx = new BasicCommandContext();
     copyCtx.setDatabaseSession(db);
     internal = internal.copy(copyCtx);

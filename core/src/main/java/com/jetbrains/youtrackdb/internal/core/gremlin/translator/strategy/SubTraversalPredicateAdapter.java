@@ -188,6 +188,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return parent.boundaryClassName();
   }
 
+  @Nullable @Override
+  public BoundaryOutputType boundaryOutputType() {
+    return parent.boundaryOutputType();
+  }
+
   @Override
   public boolean isDeclaredStringProperty(@Nullable String className, String propertyKey) {
     return parent.isDeclaredStringProperty(className, propertyKey);
@@ -325,11 +330,6 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Nullable @Override
   public String resolveUserLabel(String userLabel) {
     return parent.resolveUserLabel(userLabel);
-  }
-
-  @Override
-  public void setNamedDedupReturnProjection(java.util.Collection<String> userLabels) {
-    // Swallowed — see setReturnDistinct.
   }
 
   @Override

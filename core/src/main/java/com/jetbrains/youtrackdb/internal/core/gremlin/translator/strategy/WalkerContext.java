@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -323,6 +322,11 @@ final class WalkerContext implements RecognitionContext {
         : patternBuilder.registeredAliasClasses().get(boundaryAlias);
   }
 
+  @Nullable @Override
+  public BoundaryOutputType boundaryOutputType() {
+    return outputType;
+  }
+
   // --- RecognitionContext: schema-aware type gating ---------------------------------------------
 
   @Override
@@ -498,23 +502,6 @@ final class WalkerContext implements RecognitionContext {
   @Nullable @Override
   public String resolveUserLabel(String userLabel) {
     return userLabelToAlias.get(userLabel);
-  }
-
-  @Override
-  public void setNamedDedupReturnProjection(Collection<String> userLabels) {
-    returnItems.clear();
-    returnAliases.clear();
-    returnNestedProjections.clear();
-    for (String userLabel : userLabels) {
-      var internalAlias = userLabelToAlias.get(userLabel);
-      if (internalAlias == null) {
-        throw new IllegalStateException(
-            "setNamedDedupReturnProjection called with unbound label: " + userLabel);
-      }
-      returnItems.add(new SQLExpression(new SQLIdentifier(internalAlias)));
-      returnAliases.add(new SQLIdentifier(userLabel));
-      returnNestedProjections.add(null);
-    }
   }
 
   @Override
