@@ -754,8 +754,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result).isNotNull();
     assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
-    assertThat(result.dropOnAbsent()).isTrue();
-    assertThat(result.presencePropertyKeys()).containsExactly("name");
+    assertThat(result.shaping().dropOnAbsent()).isTrue();
+    assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
     assertThat(result.inputs().returnItems()).hasSize(2);
     assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
   }
@@ -769,7 +769,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result).isNotNull();
     assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SCALAR);
-    assertThat(result.dropNullRows()).isTrue();
+    assertThat(result.shaping().dropNullRows()).isTrue();
   }
 
   /** {@code g.V().as("v").select("v")} translates with {@code MAP} output and labelled RETURN. */
@@ -793,8 +793,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result).isNotNull();
     assertThat(result.outputType()).isEqualTo(BoundaryOutputType.MAP);
-    assertThat(result.wrapMapValuesInLists()).isTrue();
-    assertThat(result.presencePropertyKeys()).containsExactly("name");
+    assertThat(result.shaping().wrapMapValuesInLists()).isTrue();
+    assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
     assertThat(result.inputs().returnAliases().getFirst().getStringValue())
         .isEqualTo("$g2m_v0");
   }

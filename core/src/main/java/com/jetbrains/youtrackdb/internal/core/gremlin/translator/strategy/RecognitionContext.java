@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -258,46 +259,14 @@ interface RecognitionContext extends ParamSink {
   boolean returnDistinct();
 
   /**
-   * When {@code true}, the boundary step skips entire {@code Result} rows whose primary projected
-   * value is {@code null} (empty-input aggregates like {@code mean()} on an empty stream).
+   * Pins the boundary row-projection shaping — the seven flags a terminator sets to control how
+   * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep}
+   * projects each MATCH row (row dropping, presence checks, valueMap list wrapping, group-map
+   * accumulation, singleton-map unwrapping, elementMap token keys). A terminator builds the exact
+   * combination from {@link ResultShaping#NONE} plus its overrides and calls this once; the
+   * element-path default is {@link ResultShaping#NONE}.
    */
-  void setDropNullRows(boolean dropNullRows);
-
-  /**
-   * When {@code true}, the boundary step skips rows where the projected property is absent on the
-   * entity (distinct from present-with-null — see design §"Track 5 commitment").
-   */
-  void setDropOnAbsent(boolean dropOnAbsent);
-
-  /**
-   * Property keys the boundary checks with {@code EntityImpl.hasProperty} when projecting {@code
-   * valueMap} / {@code elementMap} / {@code values} (omit or drop when absent). Empty when unused.
-   */
-  void setPresencePropertyKeys(@Nonnull List<String> keys);
-
-  /**
-   * When {@code true}, {@code valueMap} property entries are wrapped in a singleton list to match
-   * native TinkerPop {@code valueMap} shape ({@code elementMap} leaves values unwrapped).
-   */
-  void setWrapMapValuesInLists(boolean wrap);
-
-  /**
-   * When {@code true}, the boundary drains every GROUP BY row into one accumulated {@code Map}
-   * ({@code group} / {@code groupCount}) and emits a single traverser.
-   */
-  void setAccumulateMap(boolean accumulate);
-
-  /**
-   * When {@code true}, a single-column {@code select(label)} / {@code select(label).by(…)} emits the
-   * column value directly (native {@code SelectOneStep} shape) rather than a one-entry map.
-   */
-  void setUnwrapSingletonMap(boolean unwrap);
-
-  /**
-   * When {@code true}, {@code elementMap} token columns ({@code id}/{@code label}) are emitted under
-   * TinkerPop {@code T.id} / {@code T.label} keys rather than plain strings.
-   */
-  void setElementMapTokens(boolean elementMapTokens);
+  void setResultShaping(@Nonnull ResultShaping shaping);
 
   /**
    * Records the field-access expression from the most recent single-key {@code values(key)} /

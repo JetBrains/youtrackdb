@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
-import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -67,11 +67,9 @@ final class GremlinToMatchTranslator {
    * @param inputParameters positional-parameter values keyed by slot ({@code 0}, {@code 1}, …) for
    *     this walk; installed on the boundary step before each execution
    * @param cacheEligible {@code false} when the walk is RID-bearing and must bypass the plan cache
-   * @param dropNullRows skip rows whose primary projected value is {@code null}
-   * @param dropOnAbsent skip rows where a presence-checked property is absent on the entity
-   * @param presencePropertyKeys property keys classified via {@code EntityImpl.hasProperty}
-   * @param wrapMapValuesInLists wrap {@code valueMap} property values in singleton lists
-   * @param accumulateMap drain GROUP BY rows into one map ({@code group} / {@code groupCount})
+   * @param shaping the boundary row-projection shaping the terminator pinned (row dropping, presence
+   *     checks, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, elementMap
+   *     token keys); {@link ResultShaping#NONE} for the element path
    */
   record TranslationResult(
       @Nonnull MatchPlanInputs inputs,
@@ -80,24 +78,16 @@ final class GremlinToMatchTranslator {
       @Nonnull Class<? extends Element> returnClass,
       @Nonnull Map<Object, Object> inputParameters,
       boolean cacheEligible,
-      boolean dropNullRows,
-      boolean dropOnAbsent,
-      @Nonnull List<String> presencePropertyKeys,
-      boolean wrapMapValuesInLists,
-      boolean accumulateMap,
-      boolean unwrapSingletonMap,
-      boolean elementMapTokens) {
+      @Nonnull ResultShaping shaping) {
 
-    /** ELEMENT / simple fixtures: no presence keys and no map-shaping flags. */
+    /** ELEMENT / simple fixtures: neutral row-projection shaping ({@link ResultShaping#NONE}). */
     TranslationResult(
         @Nonnull MatchPlanInputs inputs,
         @Nonnull String boundaryAlias,
         @Nonnull BoundaryOutputType outputType,
         @Nonnull Class<? extends Element> returnClass,
         @Nonnull Map<Object, Object> inputParameters,
-        boolean cacheEligible,
-        boolean dropNullRows,
-        boolean dropOnAbsent) {
+        boolean cacheEligible) {
       this(
           inputs,
           boundaryAlias,
@@ -105,13 +95,7 @@ final class GremlinToMatchTranslator {
           returnClass,
           inputParameters,
           cacheEligible,
-          dropNullRows,
-          dropOnAbsent,
-          List.of(),
-          false,
-          false,
-          false,
-          false);
+          ResultShaping.NONE);
     }
   }
 }

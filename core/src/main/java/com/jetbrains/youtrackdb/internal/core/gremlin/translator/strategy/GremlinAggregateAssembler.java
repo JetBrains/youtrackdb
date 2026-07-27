@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
-import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -60,14 +60,8 @@ final class GremlinAggregateAssembler {
     ctx.clearReturnProjection();
     ctx.appendReturnColumn(MatchProjectionBuilder.countStar(), null);
     ctx.setGroupBy(null);
-    ctx.setDropNullRows(false);
-    ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
-    ctx.setPresencePropertyKeys(List.of());
-    ctx.setWrapMapValuesInLists(false);
-    ctx.setAccumulateMap(false);
-    ctx.setUnwrapSingletonMap(false);
-    ctx.setElementMapTokens(false);
+    ctx.setResultShaping(ResultShaping.NONE);
     ctx.pinBoundary(boundary, BoundaryOutputType.SCALAR, Vertex.class);
     return Outcome.ACCEPTED;
   }
@@ -89,14 +83,9 @@ final class GremlinAggregateAssembler {
     ctx.clearReturnProjection();
     ctx.appendReturnColumn(MatchProjectionBuilder.propertyAggregate(functionName, field), null);
     ctx.setGroupBy(null);
-    ctx.setDropNullRows(true);
-    ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
-    ctx.setPresencePropertyKeys(List.of());
-    ctx.setWrapMapValuesInLists(false);
-    ctx.setAccumulateMap(false);
-    ctx.setUnwrapSingletonMap(false);
-    ctx.setElementMapTokens(false);
+    // dropNullRows so empty input (no matched vertices) emits no traverser.
+    ctx.setResultShaping(ResultShaping.NONE.withDropNullRows(true));
     ctx.pinBoundary(boundary, BoundaryOutputType.SCALAR, Vertex.class);
     return Outcome.ACCEPTED;
   }
@@ -130,14 +119,9 @@ final class GremlinAggregateAssembler {
     ctx.appendReturnColumn(keyExpr, GROUP_KEY_ALIAS);
     ctx.appendReturnColumn(valueExpr, GROUP_VALUE_ALIAS);
     ctx.setGroupBy(groupBy);
-    ctx.setDropNullRows(false);
-    ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
-    ctx.setPresencePropertyKeys(List.of());
-    ctx.setWrapMapValuesInLists(false);
-    ctx.setAccumulateMap(true);
-    ctx.setUnwrapSingletonMap(false);
-    ctx.setElementMapTokens(false);
+    // accumulateMap so the boundary drains every GROUP BY row into one map and emits one traverser.
+    ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true));
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
     return Outcome.ACCEPTED;
   }
@@ -163,14 +147,9 @@ final class GremlinAggregateAssembler {
     ctx.appendReturnColumn(keyExpr, GROUP_KEY_ALIAS);
     ctx.appendReturnColumn(MatchProjectionBuilder.countStar(), GROUP_VALUE_ALIAS);
     ctx.setGroupBy(groupBy);
-    ctx.setDropNullRows(false);
-    ctx.setDropOnAbsent(false);
     ctx.setLastPropertyProjection(null);
-    ctx.setPresencePropertyKeys(List.of());
-    ctx.setWrapMapValuesInLists(false);
-    ctx.setAccumulateMap(true);
-    ctx.setUnwrapSingletonMap(false);
-    ctx.setElementMapTokens(false);
+    // accumulateMap so the boundary drains every GROUP BY row into one map and emits one traverser.
+    ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true));
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
     return Outcome.ACCEPTED;
   }

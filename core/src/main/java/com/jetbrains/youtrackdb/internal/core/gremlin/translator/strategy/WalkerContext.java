@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
@@ -114,40 +115,15 @@ final class WalkerContext implements RecognitionContext {
   /** {@code SKIP} for {@code skip()} / {@code range()} terminators. */
   @Nullable SQLSkip skip;
 
-  /** Boundary post-processor: skip rows whose primary value is {@code null}. */
-  boolean dropNullRows;
-
-  /** Boundary post-processor: skip rows where the projected property is absent on the entity. */
-  boolean dropOnAbsent;
-
   /**
-   * Property keys checked with {@code EntityImpl.hasProperty} at the boundary for {@code values} /
-   * {@code valueMap} / {@code elementMap}. Empty when unused.
+   * Boundary row-projection shaping — the seven flags a terminator pins so {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep} knows how to
+   * project each row (row dropping, presence checks, valueMap list wrapping, group-map
+   * accumulation, singleton-map unwrapping, elementMap token keys). Defaults to {@link
+   * ResultShaping#NONE} (the element path); a terminator replaces it through {@link
+   * #setResultShaping}.
    */
-  List<String> presencePropertyKeys = List.of();
-
-  /**
-   * When {@code true}, wrap {@code valueMap} property values in a singleton list (native TinkerPop
-   * shape).
-   */
-  boolean wrapMapValuesInLists;
-
-  /**
-   * When {@code true}, drain GROUP BY rows into one accumulated map ({@code group} /
-   * {@code groupCount}).
-   */
-  boolean accumulateMap;
-
-  /**
-   * When {@code true}, single-key {@code select} emits the column value (native SelectOne shape).
-   */
-  boolean unwrapSingletonMap;
-
-  /**
-   * When {@code true}, elementMap {@code id}/{@code label} columns use {@code T.id}/{@code T.label}
-   * keys.
-   */
-  boolean elementMapTokens;
+  ResultShaping shaping = ResultShaping.NONE;
 
   /**
    * Field-access expression from the immediately preceding single-key property extraction, consumed
@@ -569,38 +545,14 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
-  public void setDropNullRows(boolean dropNullRows) {
-    this.dropNullRows = dropNullRows;
+  public void setResultShaping(@Nonnull ResultShaping shaping) {
+    this.shaping = shaping;
   }
 
-  @Override
-  public void setDropOnAbsent(boolean dropOnAbsent) {
-    this.dropOnAbsent = dropOnAbsent;
-  }
-
-  @Override
-  public void setPresencePropertyKeys(@Nonnull List<String> keys) {
-    this.presencePropertyKeys = List.copyOf(keys);
-  }
-
-  @Override
-  public void setWrapMapValuesInLists(boolean wrap) {
-    this.wrapMapValuesInLists = wrap;
-  }
-
-  @Override
-  public void setAccumulateMap(boolean accumulate) {
-    this.accumulateMap = accumulate;
-  }
-
-  @Override
-  public void setUnwrapSingletonMap(boolean unwrap) {
-    this.unwrapSingletonMap = unwrap;
-  }
-
-  @Override
-  public void setElementMapTokens(boolean elementMapTokens) {
-    this.elementMapTokens = elementMapTokens;
+  /** The boundary row-projection shaping the terminator pinned, read by the walker at result-build
+   *  time. {@link ResultShaping#NONE} until a terminator sets it. */
+  ResultShaping shaping() {
+    return shaping;
   }
 
   @Override

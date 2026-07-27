@@ -110,27 +110,16 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   /** Positional-parameter values for this walk ({@code ?} slots), or empty when none. */
   private final Map<Object, Object> inputParameters;
 
-  /** When {@code true}, skip entire rows whose primary projected value is {@code null}. */
-  private final boolean dropNullRows;
+  /**
+   * Boundary row-projection shaping — the seven flags that dictate how each MATCH row projects onto
+   * a traverser: row dropping ({@code dropNullRows} / {@code dropOnAbsent}), presence-checked
+   * property keys, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, and
+   * elementMap token keys.
+   */
+  private final ResultShaping shaping;
 
-  /** When {@code true}, skip rows where the projected property is absent on the entity. */
-  private final boolean dropOnAbsent;
-
-  /** Property keys classified via {@link EntityImpl#hasProperty} (valueMap / values / elementMap). */
-  private final List<String> presencePropertyKeys;
-
-  /** When {@code true}, wrap valueMap property values in a singleton list. */
-  private final boolean wrapMapValuesInLists;
-
-  /** When {@code true}, drain GROUP BY rows into one accumulated map. */
-  private final boolean accumulateMap;
-
-  /** When {@code true}, single-key select emits the column value instead of a one-entry map. */
-  private final boolean unwrapSingletonMap;
-
-  /** When {@code true}, elementMap id/label columns use {@code T.id}/{@code T.label} keys. */
-  private final boolean elementMapTokens;
-
+  /** {@link ResultShaping#presencePropertyKeys()} as a set, for O(1) membership checks in {@link
+   *  #projectMap}. */
   private final Set<String> presenceKeySet;
 
   // The current arming's open stream, or null before the first open / after close. Single source of
@@ -198,27 +187,15 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
         boundaryAlias,
         outputType,
         Map.of(),
-        false,
-        false,
-        List.of(),
-        false,
-        false,
-        false,
-        false);
+        ResultShaping.NONE);
   }
 
   /**
-   * Full constructor including boundary post-processor flags for result-shaping terminators.
+   * Full constructor including the boundary row-projection shaping for result-shaping terminators.
    *
-   * @param dropNullRows when {@code true}, skip entire rows whose primary projected value is
-   *     {@code null}
-   * @param dropOnAbsent when {@code true}, skip rows where the projected property is absent on the
-   *     entity
-   * @param presencePropertyKeys property keys checked with {@link EntityImpl#hasProperty}
-   * @param wrapMapValuesInLists wrap {@code valueMap} property values in singleton lists
-   * @param accumulateMap drain GROUP BY rows into one map ({@code group} / {@code groupCount})
-   * @param unwrapSingletonMap emit a single select column value instead of a one-entry map
-   * @param elementMapTokens emit elementMap id/label under {@code T.id}/{@code T.label}
+   * @param shaping the row-projection shaping ({@link ResultShaping}): row dropping ({@code
+   *     dropNullRows} / {@code dropOnAbsent}), presence-checked keys, valueMap list wrapping,
+   *     group-map accumulation, singleton-map unwrapping, and elementMap token keys
    */
   public YTDBMatchPlanStep(
       @Nonnull Traversal.Admin<S, E> traversal,
@@ -227,27 +204,15 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Map<Object, Object> inputParameters,
-      boolean dropNullRows,
-      boolean dropOnAbsent,
-      @Nonnull List<String> presencePropertyKeys,
-      boolean wrapMapValuesInLists,
-      boolean accumulateMap,
-      boolean unwrapSingletonMap,
-      boolean elementMapTokens) {
+      @Nonnull ResultShaping shaping) {
     super(traversal);
     this.returnClass = returnClass;
     this.plan = plan;
     this.boundaryAlias = boundaryAlias;
     this.outputType = outputType;
     this.inputParameters = Map.copyOf(inputParameters);
-    this.dropNullRows = dropNullRows;
-    this.dropOnAbsent = dropOnAbsent;
-    this.presencePropertyKeys = List.copyOf(presencePropertyKeys);
-    this.wrapMapValuesInLists = wrapMapValuesInLists;
-    this.accumulateMap = accumulateMap;
-    this.unwrapSingletonMap = unwrapSingletonMap;
-    this.elementMapTokens = elementMapTokens;
-    this.presenceKeySet = Set.copyOf(this.presencePropertyKeys);
+    this.shaping = shaping;
+    this.presenceKeySet = Set.copyOf(shaping.presencePropertyKeys());
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -304,7 +269,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
     }
     var ctx = plan.getContext();
     try {
-      if (accumulateMap) {
+      if (shaping.accumulateMap()) {
         return emitAccumulatedGroupMap(ctx);
       }
       while (true) {
@@ -582,12 +547,12 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
           continue;
         }
         var value = convertValue(entity.getProperty(name));
-        map.put(mapKey, wrapMapValuesInLists ? Collections.singletonList(value) : value);
+        map.put(mapKey, shaping.wrapMapValuesInLists() ? Collections.singletonList(value) : value);
         continue;
       }
       map.put(mapKey, convertMapColumn(name, row.getProperty(name)));
     }
-    if (unwrapSingletonMap && map.size() == 1) {
+    if (shaping.unwrapSingletonMap() && map.size() == 1) {
       return map.values().iterator().next();
     }
     return map;
@@ -600,7 +565,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
    */
   private Object convertMapColumn(String columnName, Object raw) {
     if (raw instanceof RID rid) {
-      if (elementMapTokens && "id".equals(columnName)) {
+      if (shaping.elementMapTokens() && "id".equals(columnName)) {
         return rid;
       }
       return new YTDBVertexImpl(armingGraph, rid);
@@ -609,7 +574,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   }
 
   private Object mapKeyForColumn(String name) {
-    if (elementMapTokens) {
+    if (shaping.elementMapTokens()) {
       // Aliases wired by GremlinProjectionAssembler.ELEMENT_MAP_KEY_ID / _LABEL.
       if ("id".equals(name)) {
         return org.apache.tinkerpop.gremlin.structure.T.id;
@@ -626,20 +591,20 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
    * entity are skipped; present-with-null still emits a {@code null} traverser.
    */
   private Object projectSingleValue(Result row) {
-    if (dropOnAbsent && !presencePropertyKeys.isEmpty()) {
-      var key = presencePropertyKeys.getFirst();
+    if (shaping.dropOnAbsent() && !shaping.presencePropertyKeys().isEmpty()) {
+      var key = shaping.presencePropertyKeys().getFirst();
       var entity = resolveEntity(row);
       if (entity == null || !entity.hasProperty(key)) {
         return SKIP;
       }
       var value = convertValue(entity.getProperty(key));
-      if (dropNullRows && value == null) {
+      if (shaping.dropNullRows() && value == null) {
         return SKIP;
       }
       return value;
     }
     var value = primaryProjectedValue(row);
-    if (dropNullRows && value == null) {
+    if (shaping.dropNullRows() && value == null) {
       return SKIP;
     }
     return value;
@@ -651,7 +616,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
    */
   private Object projectScalar(Result row) {
     var value = primaryProjectedValue(row);
-    if (dropNullRows && value == null) {
+    if (shaping.dropNullRows() && value == null) {
       return SKIP;
     }
     return convertValue(value);

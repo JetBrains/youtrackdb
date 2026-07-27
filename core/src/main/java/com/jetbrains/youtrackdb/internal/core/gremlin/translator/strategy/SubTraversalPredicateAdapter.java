@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -393,38 +394,9 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
-  public void setDropNullRows(boolean dropNullRows) {
-    // Swallowed — boundary flags are set by terminal recognisers on the outer context only.
-  }
-
-  @Override
-  public void setDropOnAbsent(boolean dropOnAbsent) {
-    // Swallowed — see setDropNullRows.
-  }
-
-  @Override
-  public void setPresencePropertyKeys(@Nonnull List<String> keys) {
-    // Swallowed — see setDropNullRows.
-  }
-
-  @Override
-  public void setWrapMapValuesInLists(boolean wrap) {
-    // Swallowed — see setDropNullRows.
-  }
-
-  @Override
-  public void setAccumulateMap(boolean accumulate) {
-    // Swallowed — see setDropNullRows.
-  }
-
-  @Override
-  public void setUnwrapSingletonMap(boolean unwrap) {
-    // Swallowed — see setDropNullRows.
-  }
-
-  @Override
-  public void setElementMapTokens(boolean elementMapTokens) {
-    // Swallowed — see setDropNullRows.
+  public void setResultShaping(@Nonnull ResultShaping shaping) {
+    // Swallowed — boundary row-projection shaping is pinned by terminal recognisers on the outer
+    // context only; a combinator filter sub-walk never shapes the parent's rows.
   }
 
   @Override

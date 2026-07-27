@@ -38,7 +38,7 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SCALAR);
     assertThat(ctx.returnItems.getFirst().toString()).containsIgnoringCase("count(*)");
-    assertThat(ctx.dropNullRows).isFalse();
+    assertThat(ctx.shaping().dropNullRows()).isFalse();
   }
 
   /** Non-polymorphic {@code count()} declines so {@code YTDBGraphCountStrategy} covers it. */
@@ -69,7 +69,7 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SCALAR);
-    assertThat(ctx.dropNullRows).isTrue();
+    assertThat(ctx.shaping().dropNullRows()).isTrue();
     assertThat(ctx.returnItems.getFirst().toString()).containsIgnoringCase("avg");
     assertThat(ctx.returnItems.getFirst().toString()).contains("age");
   }
@@ -102,7 +102,7 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
             GremlinAggregateAssembler.GROUP_KEY_ALIAS,
             GremlinAggregateAssembler.GROUP_VALUE_ALIAS);
     assertThat(ctx.returnItems.get(1).toString()).containsIgnoringCase("count(*)");
-    assertThat(ctx.accumulateMap).isTrue();
+    assertThat(ctx.shaping().accumulateMap()).isTrue();
   }
 
   /** {@code groupCount().by("name")} is GROUP BY + count(*). */
@@ -118,7 +118,7 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
     assertThat(ctx.groupBy).isNotNull();
     assertThat(ctx.returnItems.get(1).toString()).containsIgnoringCase("count(*)");
-    assertThat(ctx.accumulateMap).isTrue();
+    assertThat(ctx.shaping().accumulateMap()).isTrue();
   }
 
   // ---------------------------------------------------------------------------

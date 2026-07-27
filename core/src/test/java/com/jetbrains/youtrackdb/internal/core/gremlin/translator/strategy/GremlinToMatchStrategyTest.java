@@ -71,7 +71,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   private static GremlinToMatchTranslator.TranslationResult fixtureTranslation() {
     var inputs = MatchPlanInputs.builder(new Pattern()).build();
     return new GremlinToMatchTranslator.TranslationResult(
-        inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true, false, false);
+        inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true);
   }
 
   /** Reads/writes the kill-switch on the graph's live session. */
@@ -624,7 +624,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .build();
     var translation =
         new GremlinToMatchTranslator.TranslationResult(
-            inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true, false, false);
+            inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true);
 
     // Single-arg constructor → production plan builder (real MatchExecutionPlanner).
     var strategy = new GremlinToMatchStrategy(t -> translation);

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
@@ -52,11 +53,8 @@ final class GremlinProjectionAssembler {
       }
       ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(internalAlias)), userLabel);
     }
-    ctx.setUnwrapSingletonMap(userLabels.size() == 1);
-    ctx.setElementMapTokens(false);
-    ctx.setWrapMapValuesInLists(false);
-    ctx.setAccumulateMap(false);
-    ctx.setPresencePropertyKeys(List.of());
+    // A single-label select emits the column value directly (native SelectOneStep shape).
+    ctx.setResultShaping(ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1));
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
   }
@@ -81,12 +79,9 @@ final class GremlinProjectionAssembler {
     ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
     ctx.appendReturnColumn(expr, null);
     ctx.setLastPropertyProjection(expr);
-    ctx.setDropOnAbsent(true);
-    ctx.setPresencePropertyKeys(List.of(propertyKey));
-    ctx.setWrapMapValuesInLists(false);
-    ctx.setAccumulateMap(false);
-    ctx.setUnwrapSingletonMap(false);
-    ctx.setElementMapTokens(false);
+    // dropOnAbsent + presence key so Step 7 drops rows where the property is absent on the entity.
+    ctx.setResultShaping(
+        ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of(propertyKey)));
     ctx.pinBoundary(boundary, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
     return Outcome.ACCEPTED;
   }
@@ -134,12 +129,13 @@ final class GremlinProjectionAssembler {
       // Only the entity column — nothing to project.
       return Outcome.DECLINE;
     }
-    ctx.setPresencePropertyKeys(presenceKeys);
-    ctx.setWrapMapValuesInLists(!isElementMap);
-    ctx.setAccumulateMap(false);
-    ctx.setDropOnAbsent(false);
-    ctx.setUnwrapSingletonMap(false);
-    ctx.setElementMapTokens(isElementMap);
+    // valueMap wraps property values in singleton lists; elementMap leaves them unwrapped and emits
+    // its id/label token columns under T.id / T.label keys.
+    ctx.setResultShaping(
+        ResultShaping.NONE
+            .withPresencePropertyKeys(presenceKeys)
+            .withWrapMapValuesInLists(!isElementMap)
+            .withElementMapTokens(isElementMap));
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
   }

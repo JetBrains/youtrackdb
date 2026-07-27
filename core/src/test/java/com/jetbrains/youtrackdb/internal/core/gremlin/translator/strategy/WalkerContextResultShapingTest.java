@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import org.junit.Test;
 
 /**
@@ -19,11 +20,12 @@ public class WalkerContextResultShapingTest {
     assertThat(ctx.orderBy).isNull();
     assertThat(ctx.limit).isNull();
     assertThat(ctx.skip).isNull();
-    assertThat(ctx.dropNullRows).isFalse();
-    assertThat(ctx.dropOnAbsent).isFalse();
-    assertThat(ctx.presencePropertyKeys).isEmpty();
-    assertThat(ctx.wrapMapValuesInLists).isFalse();
-    assertThat(ctx.accumulateMap).isFalse();
+    assertThat(ctx.shaping()).isEqualTo(ResultShaping.NONE);
+    assertThat(ctx.shaping().dropNullRows()).isFalse();
+    assertThat(ctx.shaping().dropOnAbsent()).isFalse();
+    assertThat(ctx.shaping().presencePropertyKeys()).isEmpty();
+    assertThat(ctx.shaping().wrapMapValuesInLists()).isFalse();
+    assertThat(ctx.shaping().accumulateMap()).isFalse();
     assertThat(ctx.lastPropertyProjection).isNull();
   }
 
@@ -32,11 +34,10 @@ public class WalkerContextResultShapingTest {
     var ctx = new WalkerContext(true, false);
 
     ctx.setReturnDistinct(true);
-    ctx.setDropNullRows(true);
-    ctx.setDropOnAbsent(true);
+    ctx.setResultShaping(ResultShaping.NONE.withDropNullRows(true).withDropOnAbsent(true));
 
     assertThat(ctx.returnDistinct).isTrue();
-    assertThat(ctx.dropNullRows).isTrue();
-    assertThat(ctx.dropOnAbsent).isTrue();
+    assertThat(ctx.shaping().dropNullRows()).isTrue();
+    assertThat(ctx.shaping().dropOnAbsent()).isTrue();
   }
 }
