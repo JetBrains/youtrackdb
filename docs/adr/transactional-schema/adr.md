@@ -119,7 +119,7 @@ flowchart TD
         Choke["SchemaProxedResource<br/>write choke point"]
         TxState["TxSchemaState<br/>tx-local SchemaShared copy,<br/>changed classes, provisional ids"]
         Overlay["IndexOverlay<br/>committed + created − dropped"]
-        Snapshot["SchemaImmutableClass tier<br/>tx-aware snapshot (~174 call sites)"]
+        Snapshot["SchemaImmutableClass tier<br/>tx-aware snapshot (~190 call sites)"]
         Entity["EntityImpl<br/>validation / serialization"]
         Proxy --> TxState
         Choke --> TxState
@@ -154,7 +154,7 @@ flowchart TD
   `TxSchemaState` holds the tx-local `SchemaShared` copy, the changed-class
   set, the provisional-to-real id carrier, and the `IndexOverlay`.
   `SchemaImmutableClass` instances (reached through the metadata facade) form
-  the refcount-pinned snapshot tier roughly 174 call sites consume; `EntityImpl`
+  the refcount-pinned snapshot tier roughly 190 call sites consume; `EntityImpl`
   validation and serialization read it.
 - **Shared metadata.** `SchemaShared` carries the per-class records under a
   root link set, the copy-for-transaction seeding, promotion, the counter-only
@@ -476,9 +476,9 @@ standalone record per class, mirroring the index-manager pattern; a one-class
 change writes one record. The schema format version moved 4→6 with a strict
 equality gate: any other version, including the legacy version-5 form,
 rejects-and-redirects to export/import rather than risking a mis-parse. The
-schema serializer's sole synchronization is the caller's held write lock,
-asserted at entry; the root record is written exactly when its non-link payload
-changes.
+schema serializer's sole synchronization is the caller's held schema write
+lock, asserted at entry; the root record is written exactly when its non-link
+payload changes.
 *Rationale:* this is the write-amplification kill YTDB-382 exists for;
 strictness prevents silent mis-parse of legacy formats. *Rejected:* a lenient
 or range-based version gate for in-place opens.
@@ -663,8 +663,9 @@ rejections (manifest counts, gzip consumption, section presence) are inherently
 post-mutation, so the operator runbook mandates importing into a fresh database
 and discarding the target on any failure — a structurally rejected target is
 condemned, never returned to service. Opening an old-format database is
-rejected on the schema version check with a redirect to the documented operator
-migration procedure shipped with this change. Migration verification is
+rejected on the schema version check with a redirect to the documented
+operator migration procedure shipped with this change
+(`operator-migration-procedure.md`). Migration verification is
 logical equivalence — class set, typed properties, per-class record counts,
 record contents including link topology, user indexes, blob bytes — pinned by
 the end-to-end rehearsal test
@@ -687,7 +688,7 @@ design.*
 The immutable schema snapshot is tx-aware: during a schema or index
 transaction, snapshot construction on `SchemaProxy` resolves the tx-local
 structure, so `EntityImpl` validation and entity serialization — the single
-snapshot tier roughly 174 call sites consume — enforce same-transaction
+snapshot tier roughly 190 call sites consume — enforce same-transaction
 classes, property types, and constraint rules instead of silently skipping
 them. Read-your-writes previously held for schema structure but broke for the
 schema contract. The snapshot stays refcount-pinned per operation and rebuilds
@@ -843,8 +844,9 @@ the end-to-end migration rehearsal test
 (`endToEndMigrationRehearsalPreservesLogicalContent`).
 
 **Serializer contract.**
-The schema serializer takes no lock of its own: the caller's held write lock is
-its sole synchronization, asserted at entry, in `SchemaShared` serialization.
+The schema serializer takes no lock of its own: the caller's held schema write
+lock — the schema's own lock, not the storage state lock — is its sole
+synchronization, asserted at entry, in `SchemaShared` serialization.
 Any future change to the schema lock model must preserve or consciously revise
 this contract.
 
@@ -860,7 +862,7 @@ this contract.
   routing seam, skips unbuilt indexes, and extends the same skip treatment to
   classes whose collections are still provisional.
 - `EntityImpl` validation and entity serialization read the schema contract
-  through the tx-aware snapshot (roughly 174 call sites on the single snapshot
+  through the tx-aware snapshot (roughly 190 call sites on the single snapshot
   tier), so a same-transaction schema change is enforced on that transaction's
   own entities.
 - Storage open runs three gates in order: the storage-configuration format
@@ -879,8 +881,9 @@ this contract.
   `ChangeableRecordId`, so the commit resolves both through the same
   conceptual seam.
 - Migration tooling: `DatabaseExport` (format version 15) and `DatabaseImport`
-  integrate with the operator runbook shipped in the product documentation;
-  the export spill threshold is a `GlobalConfiguration` knob.
+  integrate with the operator runbook shipped in the product documentation
+  (`operator-migration-procedure.md`); the export spill threshold is a
+  `GlobalConfiguration` knob.
 
 ### Non-Goals
 
@@ -1040,6 +1043,14 @@ its deletion (verdict and status only):
 - **Mid-execution design gate:** the engine-file identity decision (D16) was
   revised after an adversarial design review (two blockers resolved) and
   re-approved before implementation.
+- **Mid-execution concurrency gate:** the concurrency-control design — the
+  metadata-write-mutex lifecycle and the freezer gate that D7 records — was
+  adversarially re-reviewed mid-execution (2026-07-21) against its agreed
+  design draft rather than the research spine, under concurrency and
+  durability lenses, over three rounds: a full-design round and a round scoped
+  to the resulting amendments each surfaced blockers, all resolved across two
+  amendment rounds, and a closing micro round on the re-amendments found no
+  blocker. The amended design was re-approved and then implemented.
 
 ## Token usage telemetry
 

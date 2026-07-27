@@ -192,3 +192,49 @@ re-audit was skipped (no further agents per the user's instruction). A trivial
 line-wrap orphan in the provisional-id paragraph was fixed by hand.
 
 **Env**: `fable` unavailable; spawns ran on the session default (opus).
+
+## Mutation 5 — 2026-07-27 — phase4-creation (design-final.md)
+
+**Diff summary**: Created `design-final.md` (1,132 lines), the as-built final design.
+Same Part structure as the frozen `design.md` (four Parts), reconciled against the
+implementation: the tx-aware snapshot got its own new section; the mutex and lock-order
+sections merged into one (flat H2 cap); genesis gained the completion-marker and
+storage-embedded blob-collection mechanisms; engine files re-keyed to the persisted
+file-base id with the storage-config version-24 gate; migration rewritten to the
+version-keyed strict import matrix. Invariants restated as prose in footers; D-codes
+confined to footers (all restated by the forthcoming adr.md). Performance folded per
+the carry-forward ledger: a write-amplification subsection plus stall-envelope
+paragraphs, no dedicated section. No mechanics-final companion (under the length
+trigger).
+
+**Mechanical checks** (target=design): PASS (round 1 and round 2)
+**Cold-read** (scope: whole-doc): performed inline by the authoring thread — no Agent
+tool available in this harness, so the author / readability-auditor / fidelity-check /
+comprehension-gate spawns were executed as sequential self-passes by one agent.
+
+**Findings**:
+- should-fix (fidelity, round 1): the schema-version gate prose called version 5 "the
+  intermediate value skipped by this change"; code shows it is the legacy 2.0-M1/M2
+  form. Rewritten; verified against the version check in `SchemaShared`.
+
+**Iterations**: 2 of 3 (PASS)
+
+## Mutation 6 — 2026-07-27 — content-edit (design-final.md)
+
+**Diff summary**: Post-review fix pass from the two fidelity reviews. Stale snapshot-tier
+figure refreshed (174 → 190; re-counted at HEAD: 98 production + 91 test call sites of the
+snapshot accessor, 189 exact); the changed-class marking rewritten as its real three channels
+(choke point / explicit create-drop-rename marking / root-payload diff); serializer-lock
+sentence disambiguated to the schema write lock; genesis lazy-creator edge case reworded to
+stop contradicting the TL;DR; test cited by class name instead of method name; "routed to
+through" pileup fixed; "schema-carry" shorthand introduced at its Core Concepts entry; all 11
+TL;DR blocks trimmed to exactly 5 lines with displaced substance moved into section bodies
+(index-manager mirroring, one-commit/one-engagement genesis facts, eager-build boundary).
+
+**Mechanical checks** (target=design): PASS
+**Cold-read** (scope: whole-doc): performed inline by the fixing thread (no Agent tool in
+this harness); diff re-read against the review reports and the code.
+
+**Findings**: none remaining.
+
+**Iterations**: 1 of 3 (PASS)

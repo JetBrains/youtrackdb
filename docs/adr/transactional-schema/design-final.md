@@ -18,7 +18,7 @@ inside the commit's own atomic operation, so the structural change is atomic
 with the record writes and recoverable from the WAL.
 
 Four primitives carry the inversion: a per-session copy-on-first-write
-tx-local `SchemaShared` routed to through `SchemaProxy`; a transaction-scoped
+tx-local `SchemaShared` routed through `SchemaProxy`; a transaction-scoped
 metadata-write mutex that serializes schema-changing transactions; per-class
 schema records that remove the whole-schema write amplification YTDB-382
 targets; and a schema-carrying commit that takes the storage write lock from
@@ -54,7 +54,7 @@ metadata follows". → Part 1 §"Commit-time reconciliation".
 
 **Tx-local schema view.** A per-session copy of `SchemaShared`, seeded on the
 transaction's first schema write by re-parsing the committed schema records
-read-only, and routed to through `SchemaProxy`. The session sees its own
+read-only, and routed through `SchemaProxy`. The session sees its own
 uncommitted schema; every other session sees committed state until commit.
 Replaces "every session shares one live `SchemaShared`, mutated in place".
 → Part 1 §"Tx-local schema view".
@@ -90,11 +90,11 @@ files from both the index name and the reused engine registry slot. Replaces
 "engine files keyed by index name". → Part 2 §"Base-keyed engine files and
 metadata-only rename".
 
-**Schema-carrying commit.** A commit that carries schema or index changes,
-recognized at commit entry from the same signal that engaged the
-metadata-write mutex; it takes the storage state write lock from the start,
-while a pure-data commit keeps the read-lock fast path. Replaces "read lock
-with a mid-commit upgrade for structural work". → Part 3 §"The metadata-write
+**Schema-carrying commit** ("schema-carry" for short). A commit that carries
+schema or index changes, recognized at commit entry from the same signal
+that engaged the metadata-write mutex; it takes the storage state write lock
+from the start, while a pure-data commit keeps the read-lock fast path.
+Replaces "read lock with a mid-commit upgrade for structural work". → Part 3 §"The metadata-write
 mutex and lock order".
 
 **Freeze-kind taxonomy.** A classification of freezes into operator
@@ -137,13 +137,14 @@ session's `TxSchemaState`. Resolution is three-tier — the snapshot, a
 captured delegate, and name-binding into the tx-local copy during the
 session's own schema transaction — so a proxy captured before the
 transaction started still lands in the tx-local view. `SchemaProxedResource`
-is the single tx-local write choke point: every schema write resolves its
-write target there, and that one site marks the class as changed, which is
-what feeds the commit-time delta. `TxSchemaState` holds the tx-local
-`SchemaShared` copy, the changed-class set, the provisional-to-real id
+is the tx-local write choke point: every routed class- and property-level
+write resolves its target there and marks the owning class changed — one of
+the three marking channels that feed the commit-time delta (the other two
+are described in §"Commit-time reconciliation"). `TxSchemaState` holds the
+tx-local `SchemaShared` copy, the changed-class set, the provisional-to-real id
 carrier, and the `IndexOverlay`. `SchemaImmutableClass` instances (reached
 through the metadata facade) form the refcount-pinned snapshot tier that
-about 174 call sites consume; `EntityImpl` validation and serialization read
+about 190 call sites consume; `EntityImpl` validation and serialization read
 it, which is why the snapshot had to become tx-aware.
 
 The storage and concurrency side carries the commit, the mutex, and the
@@ -235,14 +236,11 @@ that exercises the whole path against an empty database.
 
 ## Tx-local schema view
 
-**TL;DR.** A schema transaction mutates a per-session copy of
-`SchemaShared`, seeded on the transaction's first schema write and routed to
-through `SchemaProxy`. The shared instance stays at committed state until
-commit, so other sessions see the old schema and rollback is free. Every
-schema and index mutation entry point rides the user transaction: the
-guards that used to throw on an open transaction and the entry points that
-used to self-commit in a nested transaction were both reworked to write
-into the tx-local copy.
+**TL;DR.** A schema transaction mutates a per-session copy of `SchemaShared`,
+seeded on its first schema write and routed through `SchemaProxy`; the shared
+instance stays at committed state until commit, so other sessions see the old
+schema and rollback is free. Every schema and index mutation entry point —
+throw-guarded and self-committing alike — now rides the user transaction.
 
 Schema isolation is record-local, identical to data-record isolation: a
 transaction changes only its own copies of the metadata records, and the
@@ -270,9 +268,10 @@ write back exactly the changed classes.
 During the transaction, class and property proxies resolve their target by
 name in the tx-local copy on each call, so a proxy captured before the
 transaction started resolves to the tx-local class and can never hand a
-shared class object into the private copy. Writes go through one choke
-point: resolving a target for write records it and marks the owning class
-changed (the marking rule is developed in §"Commit-time reconciliation").
+shared class object into the private copy. Routed writes go through one
+choke point: resolving a target for write records it and marks the owning
+class changed (the full three-channel marking rule is developed in
+§"Commit-time reconciliation").
 
 Two families of entry points blocked this model and were reworked. The first
 threw on an active transaction (the schema-record save, class drop, index
@@ -309,22 +308,24 @@ a provisional id until commit.
 
 ## Commit-time reconciliation
 
-**TL;DR.** At commit, storage computes the structural delta as a set
-difference over committed versus tx-local collection ids, then drops and
-creates collections and engines inside the commit's own atomic operation.
-Provisional ids resolve to real ids before any record serializes.
-Reconciliation and every record read the commit body performs run lock-free
-under the already-held write lock. A failed commit leaves no structure, no
-registration, and no consumed ids behind; a crashed one replays from the
-WAL.
+**TL;DR.** At commit, storage diffs committed versus tx-local collection ids
+and drops/creates collections and engines inside the commit's own atomic
+operation; provisional ids resolve before any record serializes, and the
+commit's inner primitives and record reads run lock-free under the held write
+lock. A failed commit leaves nothing behind; a crash replays from the WAL.
 
 The delta reads from the transaction's existing change tracking — there is
-no separate intent list. The changed-class signal is completed by
-centralized marking at the single tx-local write choke point: resolving a
-schema write target marks the owning class changed. Over-marking is
+no separate intent list. The changed-class signal arrives through three
+marking channels: the tx-local write choke point marks the resolved class
+(or a property's owner class) on every routed write; the whole-schema
+operations — class create, drop, and rename — mark their specific classes
+explicitly, since a whole-schema hook could not derive the names they touch;
+and root-payload writes (global properties, blob collections) are caught by
+the commit's root-payload diff rather than by class marking. Over-marking is
 correctness-safe (an unchanged class serializes identically), while
-under-marking silently drops a per-class record write, so the choke point
-was chosen precisely to close the whole class of future mutator omissions.
+under-marking silently drops a per-class record write, so the choke-point
+channel exists precisely to close the whole class of future mutator
+omissions.
 A class rename un-marks the old name, because an absent name reads as a
 drop on the write-back side; a pure-data truncate stays off the schema-carry
 path entirely.
@@ -430,15 +431,15 @@ hidden.
 
 ## Per-class schema records
 
-**TL;DR.** The monolithic schema record became a root record — holding the
-global-property table, the collection counter, and the blob-collections set
-— plus a link set to one standalone record per class, mirroring the
-index-manager pattern. A one-class change writes one class record; the root
-is written exactly when its non-link payload changes. The schema format
-version moved from 4 to 6 behind a strict equality gate.
+**TL;DR.** The monolithic schema record became a root record (global-property
+table, collection counter, blob collections) plus a link set to one standalone
+record per class. A one-class change writes one class record; the root is
+written exactly when its non-link payload changes. The schema format version
+moved from 4 to 6 behind a strict equality gate.
 
-Each class binds the record id of its own record at load and serializes
-itself back into that record at commit; per-class dirty tracking limits the
+Each class binds the record id of its own record at load — mirroring the
+index-manager pattern — and serializes itself back into that record at
+commit; per-class dirty tracking limits the
 write set to the classes that changed. A new class writes a fresh record
 whose temporary id becomes permanent at commit; a dropped class deletes its
 record and removes the link from the root's link set. Inheritance needs no
@@ -458,9 +459,10 @@ the current one — the pre-bump monolithic form and the older legacy
 version-5 form alike — rejects at load and redirects
 to the export/import migration (Part 4) rather than risking a mis-parse.
 
-The schema serializer takes no lock of its own: the caller's held write
-lock is its sole synchronization, asserted at entry. Any future change to
-the schema lock model must preserve or consciously revise this contract.
+The schema serializer takes no lock of its own: the caller's held schema
+write lock — the schema's own lock, not the storage state lock — is its sole
+synchronization, asserted at entry. Any future change to the schema lock
+model must preserve or consciously revise this contract.
 
 ### Write amplification
 
@@ -492,23 +494,22 @@ this document.
   write-lock-asserted serializer)
 - Invariants: a one-class change writes one class record and the root is
   written exactly when its non-link payload changes; the serializer's sole
-  synchronization is the caller's held write lock.
+  synchronization is the caller's held schema write lock.
 
 ## The tx-aware snapshot
 
 **TL;DR.** The immutable schema snapshot is transaction-aware: during a
 schema or index transaction it resolves the tx-local structure, so entity
-validation and serialization — the single snapshot tier roughly 174 call
-sites consume — enforce same-transaction classes, property types, and
-constraint rules instead of silently skipping them. This decision was added
-after the commit machinery was complete and supersedes the committed-only
-snapshot in the original design.
+validation and serialization enforce same-transaction classes, property
+types, and constraint rules instead of silently skipping them. Added after
+the commit machinery was complete; supersedes the committed-only snapshot.
 
 The original design left the snapshot reflecting committed state during the
 transaction. Read-your-writes held for schema structure (reads routed
 through the proxies saw the tx-local view) but broke for the schema
-contract: `EntityImpl` validates and serializes against the snapshot, so a
-constraint or property type created earlier in the same transaction was
+contract: `EntityImpl` validates and serializes against the snapshot — the
+single tier about 190 call sites consume — so a constraint or property type
+created earlier in the same transaction was
 silently not enforced on records written later in that transaction. A
 completion review judged the silent skip a real developer-experience break,
 and per-field resolution through the proxies was measured as too slow for
@@ -545,12 +546,10 @@ still provisional.
 ## Genesis bootstrap
 
 **TL;DR.** Genesis is two-phase: one schema transaction spanning every
-metadata creator and the O/V/E graph classes (single commit, single mutex
-engagement, building the user-name unique index at commit), then one merged
-data transaction inserting the default roles and users. Blob collections
-are created by storage itself, letting phase 1 be a pure schema
-transaction. A completion marker written after both phases makes a crashed
-half-created database refuse to open rather than limp.
+metadata creator and the O/V/E graph classes, then one merged data
+transaction inserting the default roles and users. Storage itself creates
+the blob collections, keeping phase 1 pure schema; a completion marker
+written after both phases makes a crashed half-created database refuse to open.
 
 The two-phase shape exists because the security bootstrap looks users up
 through direct index reads, not through the query planner: a direct read
@@ -558,7 +557,9 @@ needs a built engine, and an index created in the same transaction has no
 engine until commit. Committing the schema phase first guarantees the
 `OUser` name index is built before any user record is inserted. A unified
 single transaction would have exposed the same-transaction unbuilt index to
-those direct lookups. Genesis is also the end-to-end smoke test of the
+those direct lookups. The schema phase is one commit under one mutex
+engagement, and it builds the user-name unique index at that commit.
+Genesis is also the end-to-end smoke test of the
 whole commit machinery: it exercises seeding from an empty schema,
 reconciliation, the commit-time index build, and promotion on every
 database create.
@@ -594,9 +595,10 @@ indistinguishable from corruption.
   genesis commits but before the marker's own atomic operation is durable
   makes a genesis-complete database refuse to open. Fail-closed was chosen
   over shrinking the window.
-- The remaining lazily created metadata (functions and sequences libraries)
-  stays on the legacy top-level creation path until that path's removal;
-  genesis does not cover it.
+- Genesis itself creates the function and sequence classes inside the
+  schema transaction; what stays on the legacy top-level creation path until
+  that path's removal is only the lazy create-if-absent seam those libraries
+  keep for databases that lack the classes.
 
 ### Decisions & invariants
 
@@ -615,12 +617,11 @@ by a persisted id so renames never touch storage.
 
 ## Tx-local index overlay
 
-**TL;DR.** Indexes get a tx-local overlay of definitions — the effective
-set is committed + tx-created − tx-dropped — with four tracked categories:
-created, dropped, in-place rename, and in-place collection membership. The
-overlay is consulted through a deliberately scoped routing seam, and the
-tx-local snapshot force-rebuilds lazily on every mid-transaction index
-change.
+**TL;DR.** Indexes get a tx-local overlay of definitions (committed +
+tx-created − tx-dropped) with four tracked categories: created, dropped,
+in-place rename, and in-place collection membership. The overlay is consulted
+through a deliberately scoped routing seam; the tx-local snapshot
+force-rebuilds lazily on every mid-transaction index change.
 
 An overlay suffices where the schema needed a full copy because an index is
 a thin handle over a storage-backed engine: the definition and two lookup
@@ -680,13 +681,11 @@ direction only — a tx-created index stays invisible to it until commit.
 
 ## Index build and query-usability
 
-**TL;DR.** The index build for a tx-created index runs inside the
-exclusive-locked commit as a lock-free scan feeding the engine plus a
-final-state re-derivation, emitting zero extra WAL units. Only an empty
-source collection is built eagerly; a non-empty source is a loud rejection
-naming the deferred work. Until commit, the new index is not query-usable:
-the planner skips any unbuilt index and falls through to the merged
-transaction scan, which is already correct.
+**TL;DR.** The build for a tx-created index runs inside the exclusive-locked
+commit as a lock-free scan plus a final-state re-derivation, emitting zero
+extra WAL units; only an empty source collection is built eagerly, and a
+non-empty source is rejected loudly. Until commit the new index is not
+query-usable: readers skip it and fall through to the correct merged scan.
 
 The build covers all rows exactly once from two sources: the population
 scan reads committed rows while skipping every record id in the
@@ -741,8 +740,7 @@ planner can trip over the missing engine.
 
 **TL;DR.** Every index-engine file derives its on-disk base from a
 persisted, monotonically allocated per-engine file-base id — never from the
-index name and never from the engine's registry slot, which is reused by
-design after failed-commit cleanup. Collection names are generated from a
+index name or the reused engine registry slot. Collection names come from a
 counter alone. Together these make class rename and index re-association
 pure metadata operations that touch zero storage files.
 
@@ -830,12 +828,10 @@ a read outage.
 ## The metadata-write mutex and lock order
 
 **TL;DR.** A transaction-scoped one-permit semaphore covering schema and
-index changes serializes schema-changing transactions by blocking — never
-by aborting on contention. It engages above the shared metadata locks on
-the transaction's first write and is released exactly once, in the
-outermost teardown, through a session-keyed compare-and-clear. A
-schema-carrying commit takes the storage write lock from entry and acquires
-its four locks in one fixed acyclic order.
+index changes serializes writers by blocking, never by contention-abort; it
+engages above the shared metadata locks on the first write and is released
+exactly once, in the outermost teardown, by a session-keyed compare-and-clear.
+A schema-carrying commit takes its four locks in one fixed acyclic order.
 
 `MetadataWriteMutex` is a one-permit semaphore rather than a thread-owned
 lock: teardown of a still-checked-out pooled session legitimately runs on a
@@ -932,10 +928,9 @@ session-count transition until the owner finishes.
 
 **TL;DR.** A schema commit never turns an operator freeze into a read
 outage: against an operator freeze it throws loudly with zero locks held;
-against a transient internal quiesce it parks normally. The mechanism is a
-freeze-kind taxonomy recorded at the four freeze-registration sites plus a
-kind-aware gate evaluated at four checkpoints, including an abort-predicate
-write-lock acquisition. The guarantee is deliberately one-sided.
+against a transient internal quiesce it parks normally. A freeze-kind
+taxonomy at the four registration sites plus a kind-aware gate at four
+checkpoints deliver this; the guarantee is deliberately one-sided.
 
 The freezer is the commit path's fifth synchronization object and sits
 outside the lock order, which is exactly the hazard: a schema commit parked
@@ -1034,13 +1029,11 @@ operator-driven export/import, hardened fail-closed on both sides.
 
 ## Schema-format migration
 
-**TL;DR.** Migration is operator-driven JSON export/import — the in-place
-on-open migrator was replaced by this path, so new code never parses the
-old format and no partial-migration state exists. The exporter (format
-version 15) promotes nothing on failure and writes a trailing manifest
-strictly last; the importer dispatches on the dump's declared version,
-applying a strict fail-closed matrix to version-15 dumps while keeping the
-lenient legacy path — the migration vehicle — for older ones.
+**TL;DR.** Migration is operator-driven JSON export/import — it replaced the
+in-place on-open migrator, so new code never parses the old format and no
+partial-migration state exists. The version-15 exporter promotes nothing on
+failure; the importer dispatches on the dump's declared version — strict
+fail-closed for version 15, lenient for the legacy dumps migration rides on.
 
 Opening an old-format database with new binaries is rejected on the schema
 version check with a redirect to the documented operator migration runbook
@@ -1094,8 +1087,8 @@ target on any failure: a structurally rejected target is condemned, never
 returned to service. A two-pass import was considered and rejected.
 Migration verification is logical equivalence — class set, typed
 properties, per-class record counts, record contents including link
-topology, user indexes, blob bytes — pinned by an end-to-end rehearsal test
-(`endToEndMigrationRehearsalPreservesLogicalContent`). Byte- or id-keyed
+topology, user indexes, blob bytes — pinned by the end-to-end migration
+rehearsal in `DatabaseImportInfoMatrixTest`. Byte- or id-keyed
 comparison is structurally unsatisfiable because the import renumbers
 collections and randomizes blob placement; a rid-mapping-aware comparator
 was explicitly not commissioned.
