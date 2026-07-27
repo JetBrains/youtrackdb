@@ -454,6 +454,17 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > aggregate-equivalence / empty-result tests.
   > **Depends on:** Track 4, new Track 5 (the sub-walker its `by`-value
   > accumulators reuse), and Track 1 (`hasProperty` primitive / presence check).
+  >
+  > **Track episode:** Four result-producing step families on per-terminal
+  > boundary output types; shared `ByModulatorTranslator`, count short-circuit
+  > to `CountFromClassStep`, absent-vs-null via `dropOnAbsent` / `dropNullRows`.
+  > Phase C deeper re-audit plus two further re-review passes fixed a plan-cache
+  > count disclosure, dedup-after-projection, aggregate-clause-order, and
+  > concurrent-DDL cache staleness; the seven shaping flags folded into
+  > `ResultShaping`. See `plan/track-6.md` `## Episodes`. (7 steps + 6b +
+  > post-completion tail, 0 failed)
+  >
+  > **Track file:** `plan/track-6.md`
 
 - [ ] Track 7: Advanced patterns + hardening — union, list-shaping terminators, Cucumber green + perf baseline
   > Completes the recognized set and hardens the whole feature:
@@ -472,7 +483,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 
 ## Implementation state
 
-Tracks 1–5 are executed and complete; Tracks 6–7 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites. Track 2 delivered the `GremlinToMatchStrategy` (a translator-first `ProviderOptimizationStrategy` with a kill-switch and a throw-safety net), the `GremlinStepWalker` + `StepRecogniser` registry with `StartStepRecogniser`, and the `YTDBMatchPlanStep` boundary step — translating `g.V()` / `g.V(id)` / `g.V(ids)` into a MATCH plan and surfacing it in `explain()`. Track 3 delivered edge traversal on a walker-owned step-cursor architecture: `out` / `in` / `both`, folded edge chains, and non-adjacent edge filtering via the edge-as-node form. Track 4 delivered the full Gremlin predicate surface (`GremlinPredicateAdapter`, `HasStepRecogniser`, `TraversalFilterStepRecogniser`, D-TEXT-OPS SQL nodes). Track 5 delivered logical filters (`and` / `or` / `not` / `where`), `hasNot(key)`, the sub-walker, and `GremlinPlanCache` (D5). Result shaping and advanced patterns land in Tracks 6–7.
+Tracks 1–6 are executed and complete; Track 7 is not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites. Track 2 delivered the `GremlinToMatchStrategy` (a translator-first `ProviderOptimizationStrategy` with a kill-switch and a throw-safety net), the `GremlinStepWalker` + `StepRecogniser` registry with `StartStepRecogniser`, and the `YTDBMatchPlanStep` boundary step — translating `g.V()` / `g.V(id)` / `g.V(ids)` into a MATCH plan and surfacing it in `explain()`. Track 3 delivered edge traversal on a walker-owned step-cursor architecture: `out` / `in` / `both`, folded edge chains, and non-adjacent edge filtering via the edge-as-node form. Track 4 delivered the full Gremlin predicate surface (`GremlinPredicateAdapter`, `HasStepRecogniser`, `TraversalFilterStepRecogniser`, D-TEXT-OPS SQL nodes). Track 5 delivered logical filters (`and` / `or` / `not` / `where`), `hasNot(key)`, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping — labels / dedup, projections, order / pagination, and aggregations on per-terminal boundary output types, with the shared `ByModulatorTranslator` and the count short-circuit to `CountFromClassStep`. Advanced patterns and hardening land in Track 7.
 
 | Track | Code | Notes |
 |---|---|---|
@@ -481,9 +492,9 @@ Tracks 1–5 are executed and complete; Tracks 6–7 are not started. Track 1 de
 | 3 | done | edge traversal — direction handlers, folded edge chains, non-adjacent edge filtering |
 | 4 | done | predicate surface — full `P` / `Text` / `TextP` algebra incl. D-TEXT-OPS, `has` / `hasLabel` / `hasId`, `has(key)` presence |
 | 5 | done | logical filters (`and` / `or` / `not` / `where`) + `hasNot(key)` + sub-walker + `GremlinPlanCache` (D5) |
-| 6 | not started | result shaping — labels / dedup, projections, order / pagination, aggregations |
+| 6 | done | result shaping — labels / dedup, projections, order / pagination, aggregations; shared `ByModulatorTranslator` + count short-circuit |
 | 7 | not started | union, list-shaping terminators, Cucumber re-run, JMH baseline |
 
-Decision conformance: D6 (one shared builder package serving both front-ends) and D-IS-DEFINED (the presence-operator factories) are satisfied by Track 1; the decisions tagged *Implemented in: Track 2* above (all-or-nothing decline, class-keyed dispatch, the boundary-step lifecycle, strategy idempotency, and translator-first ordering) are satisfied by Track 2; D10 (walker multi-step claims via the step cursor) is satisfied by Track 3; D5 (plan cache) is satisfied by Track 5. The decisions assigned to Tracks 6–7 — including result-shaping boundary flags (D11) assigned to Track 6 — are not yet implemented.
+Decision conformance: D6 (one shared builder package serving both front-ends) and D-IS-DEFINED (the presence-operator factories) are satisfied by Track 1; the decisions tagged *Implemented in: Track 2* above (all-or-nothing decline, class-keyed dispatch, the boundary-step lifecycle, strategy idempotency, and translator-first ordering) are satisfied by Track 2; D10 (walker multi-step claims via the step cursor) is satisfied by Track 3; D5 (plan cache) is satisfied by Track 5. D11 (result-shaping boundary flags) is satisfied by Track 6; the decisions assigned to Track 7 (D8 union via `MultiPlanMatchStep`, D3 last-step boundary) are not yet implemented.
 
 Track 1 deferral: `MatchWhereBuilder.endsWith` / `matchesRegex` are not built in this track. Their AST backing (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) is introduced by Track 4's D-TEXT-OPS work; the baseline-backed `containsText` (`SQLContainsTextCondition`) and `startsWith` (half-open range) ship in Track 1. See plan/track-1.md § Decision Log.
