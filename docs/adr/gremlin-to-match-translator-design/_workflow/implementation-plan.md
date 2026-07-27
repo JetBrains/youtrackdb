@@ -106,14 +106,12 @@ flowchart TB
 - **Shared MATCH IR builders** — language-agnostic IR assembly; both the
   translator and the refactored `GqlMatchStatement` consume them (D6).
 - **Boundary base / YTDBMatchPlanStep / MultiPlanMatchStep** — a shared boundary
-  base (abstract superclass or composed row-projector, extracted in Track 7 from
-  the `final` `YTDBMatchPlanStep`) carries the row-projection + `ResultShaping`
-  machinery that bridges YTDB's `ExecutionStream` back to TinkerPop traversers;
-  the single-plan `YTDBMatchPlanStep` and the N-plan `MultiPlanMatchStep`
-  (Track 8 — concatenates N plans for `union`, D8) both reuse it. Track 7 also
-  adds an ordered list-shaping post-process (fold / unfold / reverse / tail in
-  declared order — order-less flags cannot encode `reverse().unfold()` vs
-  `unfold().reverse()`) that Track 9's terminators drive.
+  base extracted in Track 7 carries the row-projection + `ResultShaping`
+  machinery bridging YTDB's `ExecutionStream` back to TinkerPop traversers; the
+  single-plan `YTDBMatchPlanStep` and the N-plan `MultiPlanMatchStep` (Track 8,
+  `union`, D8) both reuse it, plus an ordered list-shaping post-process that
+  Track 9's terminators drive. Mechanism detail in `plan/track-7.md`
+  `## Context and Orientation`.
 - **Existing engine** — preserved; reached through one additive constructor
   (D2). The count short-circuit is factored to a shared helper the planner
   invokes (design §"Aggregation barrier semantics").
@@ -202,11 +200,14 @@ flowchart TB
   per-traversal "translated" flag.
 - **Rationale**: strategy chains can re-apply (clone for sub-traversal reuse,
   test harness re-application, lazy first-iteration apply). A single early scan
-  of the whole step list for any `YTDBMatchPlanStep` returns immediately if
-  found — O(N) over a single-digit step count, negligible cost, absolute safety.
+  of the whole step list for any boundary step returns immediately if found —
+  O(N) over a single-digit step count, negligible cost, absolute safety. The
+  scan keys on the Track 7 boundary base (D8 revised) so it detects both
+  `YTDBMatchPlanStep` and the `union` `MultiPlanMatchStep`.
 - **Risks/Caveats**: the scan must cover the entire list, not just the start
   step, because a wrapping source can place steps before a translated boundary.
-- **Implemented in**: Track 2
+- **Implemented in**: Track 2 (against `YTDBMatchPlanStep`); broadened to the
+  boundary base in Track 8 when `MultiPlanMatchStep` lands.
 
 #### D8: Union enters the recognized set; `optional` deferred to Phase 2 (revised after Track 6)
 - **Original decision**: translate `union` by building one `SelectExecutionPlan`
@@ -334,9 +335,11 @@ flowchart TB
 - **Full design**: design.md §"Predicate translation"
 
 ### Invariants
-- A recognized traversal contains exactly one `YTDBMatchPlanStep` after
-  `applyStrategies()`; a declined traversal preserves the original step list
-  verbatim. (Boundary-step engagement assertion — Tracks 2–7 tests.)
+- A recognized traversal contains exactly one boundary step —
+  `YTDBMatchPlanStep` (single-plan) or `MultiPlanMatchStep` (union, its sibling
+  under the Track 7 boundary base, D8) — after `applyStrategies()`; a declined
+  traversal preserves the original step list verbatim. (Boundary-step engagement
+  assertion — Tracks 2–9 tests.)
 - No-mutation-on-decline: a recognizer that returns `false` leaves
   `WalkerContext` unmutated (per-recognizer unit invariant).
 - The strategy is idempotent: re-applying on a traversal already containing
@@ -508,17 +511,16 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > dependencies, and ordering unchanged; applied in the Phase A track-file write.
 
 - [ ] Track 7: Boundary base extraction + ordered list-shaping infrastructure
-  > Foundation refactor for the last feature slice, forced by the original
-  > Track 7's Phase A reviews (the `MultiPlanMatchStep extends YTDBMatchPlanStep`
-  > premise does not compile — `YTDBMatchPlanStep` is `final` with private
-  > machinery). Extracts a shared boundary base — an abstract superclass or a
-  > composed row-projector — from `YTDBMatchPlanStep` so both the single-plan
-  > step and the upcoming `MultiPlanMatchStep` (Track 8) reuse the row-projection
-  > + `ResultShaping` machinery (D8 revised). Introduces an ordered list-shaping
-  > post-process (fold / unfold / reverse / tail applied in declared order —
-  > order-less flags cannot encode `reverse().unfold()` vs `unfold().reverse()`)
-  > that Track 9 drives. Behavior-neutral: the single-plan boundary keeps its
-  > exact projection output. Detail in plan/track-7.md.
+  > Foundation refactor for the last feature slice: the original Track 7's Phase
+  > A reviews found `MultiPlanMatchStep extends YTDBMatchPlanStep` does not
+  > compile (`YTDBMatchPlanStep` is `final` with private machinery), so this
+  > track extracts a shared boundary base — abstract superclass or composed
+  > row-projector — from `YTDBMatchPlanStep` that both the single-plan step and
+  > the upcoming `MultiPlanMatchStep` (Track 8) reuse for row projection +
+  > `ResultShaping` (D8 revised). It also introduces the ordered list-shaping
+  > post-process (declared-order fold / unfold / reverse / tail — order-less
+  > flags cannot encode `reverse().unfold()` vs `unfold().reverse()`) that
+  > Track 9 drives, all behavior-neutral. Detail in plan/track-7.md.
   > **Scope:** ~10–14 files covering the base extraction from `YTDBMatchPlanStep`
   > and its construction sites (`GremlinToMatchTranslator`, `GremlinStepWalker`,
   > `GremlinToMatchStrategy`), the ordered post-process representation alongside

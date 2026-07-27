@@ -6,7 +6,7 @@ After this track a shared **boundary base** carries the row-projection + `Result
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-This is the foundation slice of the split final track (the original Track 7 was split at its Phase A review on 2026-07-27 — see plan D8 and the pre-split reviews under `reviews/pre-split/`). It fixes the structural premise those reviews falsified — `MultiPlanMatchStep extends YTDBMatchPlanStep` cannot compile — before Track 8 builds union on top.
+This is the foundation slice of the split final track (the original Track 7 was split at its Phase A review on 2026-07-27 — see plan D8 and the pre-split reviews under `track-7/reviews/pre-split/`). It fixes the structural premise those reviews falsified — `MultiPlanMatchStep extends YTDBMatchPlanStep` cannot compile — before Track 8 builds union on top.
 
 ## Progress
 - [ ] Review + decomposition
@@ -49,7 +49,7 @@ flowchart TB
 ## Plan of Work
 1. **Extract the shared boundary base** from `YTDBMatchPlanStep`: move the row projection, the `ResultShaping` read, and the `ExecutionStream` open/drain/close lifecycle into an abstract superclass (or a composed row-projector), leaving `YTDBMatchPlanStep` as the single-plan concrete form with byte-for-byte identical projection output. Pick abstract-base vs composition at decomposition, sized by what Track 8's `MultiPlanMatchStep` must reuse.
 2. **Rewire the single-plan construction sites** — `GremlinToMatchTranslator`, `GremlinStepWalker.buildResult`, `GremlinToMatchStrategy` — onto the extracted base with no behavior change. PSI-verify each site during decomposition before it lands in `## Concrete Steps`.
-3. **Introduce the ordered list-shaping post-process carrier** — a `List` of list-shaping ops applied in declared order — alongside `ResultShaping`, read by the boundary base's projection. No terminator recognisers here (Track 9 registers ops); this track lands only the carrier and its declared-order application, empty for every current traversal.
+3. **Introduce the ordered list-shaping post-process carrier** — a `List` of list-shaping ops applied in declared order — alongside `ResultShaping`, read by the boundary base's projection. This track lands only the carrier and its declared-order application framework, verified with placeholder / no-op ops; the concrete transform stages (the `unfold` flat-map, the `tail` ring buffer, the `fold` `LIST` drain) and the terminator recognisers that register real ops are Track 9's. Empty for every traversal that exists today.
 4. **Prove behavior-neutrality** with equivalence tests over the element / MAP / SINGLE_VALUE / SCALAR paths, keeping the existing projection / aggregate / equivalence suites green.
 
 ## Concrete Steps

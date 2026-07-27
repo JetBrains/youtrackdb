@@ -35,7 +35,7 @@ Two structural realities the original plan missed (pre-split A3/R2): (1) `Gremli
 
 `MultiPlanMatchStep` (subclass of the Track 7 boundary base) holds a `List<SelectExecutionPlan>` and a plan index: the first `processNextStart` opens `plans[0].start()`, advances to the next plan only after the current one drains, and keeps exactly one live `ExecutionStream` at a time. An exception in `plans[N]` closes the current stream and re-throws **without** opening `plans[N+1..]`; `close()` closes every child plan including un-run ones; each child runs against an isolated cloned context (union's multi-alias children make context bleed a real hazard — pre-split T5/R3). All children share one `BoundaryOutputType` reused from the base.
 
-**Reference-accuracy note.** The single-plan-pipeline shape, the `hasVertexGraphStart` start gate, and the child-`EndStep` presence rest on the pre-split Phase A reviews (`reviews/pre-split/`), which read source + grep/javap; PSI was unavailable then. Re-verify the child-traversal `EndStep` presence, `SelectExecutionPlan.start()` fresh-stream semantics, and `BranchStep.getGlobalChildren()` via PSI at this track's decomposition.
+**Reference-accuracy note.** The single-plan-pipeline shape, the `hasVertexGraphStart` start gate, and the child-`EndStep` presence rest on the pre-split Phase A reviews (`track-7/reviews/pre-split/`), which read source + grep/javap; PSI was unavailable then. Re-verify the child-traversal `EndStep` presence, `SelectExecutionPlan.start()` fresh-stream semantics, and `BranchStep.getGlobalChildren()` via PSI at this track's decomposition.
 
 ```mermaid
 flowchart TB
@@ -78,7 +78,7 @@ flowchart TB
 
 ## Interfaces and Dependencies
 **In scope (new):** `UnionStepRecogniser`; `MultiPlanMatchStep` (subclass of the Track 7 boundary base); the prefix-fork + `EndStep`-strip + child→`SelectExecutionPlan` path; the union cache-policy pin; concatenation / lifecycle / leak / exception / clone-isolation tests.
-**In scope (modified):** the walker / translator child-walk (`walkChild` gains a full-plan path); `TranslationResult` / the multi-plan carrier; `GremlinPlanCache` (union keying); `GremlinToMatchStrategy` (register the union recogniser).
+**In scope (modified):** the walker / translator child-walk (`walkChild` gains a full-plan path); `TranslationResult` / the multi-plan carrier; `GremlinPlanCache` (union keying); `GremlinToMatchStrategy` (register the union recogniser, and broaden the D7 idempotency scan from `YTDBMatchPlanStep` to the Track 7 boundary base so a re-applied strategy detects a `MultiPlanMatchStep` union boundary and does not re-translate).
 **Out of scope:** the boundary base extraction and ordered post-process carrier (Track 7); list-shaping terminators + `BoundaryOutputType.LIST` (Track 9); `optional`, edge-bearing OR, variable-depth `repeat` (Phase 2 — design §"Out of scope").
 **Inter-track dependencies:** depends on Track 7 (the boundary base `MultiPlanMatchStep` extends). Track 9's full Cucumber re-run validates union end to end.
 **Signatures:** `SelectExecutionPlan.start()` (fresh `ExecutionStream` per call); `BranchStep.getGlobalChildren()`; `UnionStep` (TP fork class); `hasVertexGraphStart` (`GremlinToMatchStrategy` start gate); the Track 7 boundary base (projection + `ResultShaping` + `ExecutionStream` lifecycle).
