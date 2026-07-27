@@ -438,7 +438,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   >
   > **Track file:** `plan/track-5.md`
 
-- [ ] Track 6: Result shaping — labels + dedup, projections, order/pagination, aggregations
+- [x] Track 6: Result shaping — labels + dedup, projections, order/pagination, aggregations
   > Merges the four result-producing step families — labels + dedup,
   > projections, order / pagination, and aggregations — pinning the boundary
   > output type per terminal step. The load-bearing cases are absent-vs-null

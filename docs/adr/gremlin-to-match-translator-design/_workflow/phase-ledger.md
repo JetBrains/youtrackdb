@@ -17,3 +17,4 @@
 [2026-07-20T14:55Z] [ctx=info] phase=C track=5 reconciled_tag=high substate=steps-partial
 [2026-07-21T10:17Z] [ctx=unknown] phase=C track=5 reconciled_tag=high substate=steps-partial
 [2026-07-27T12:24Z] [ctx=info] phase=C track=6 reconciled_tag=high substate=track-complete
+[2026-07-27T17:10Z] [ctx=safe] track=7 substate=decomposition-pending
