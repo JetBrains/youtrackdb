@@ -496,7 +496,10 @@ rejections are scoped by SR1.
     track's entry).
 11. *v14 round-trip + streaming round-trip* — unchanged behavior (FM-M12/M13).
 12. *End-to-end migration rehearsal* — export a populated new-format DB, import into a fresh DB,
-    `DatabaseCompare`-level equivalence; manifest verified.
+    LOGICAL equivalence verified (schema and typed properties, per-class record counts, record
+    contents including link topology, indexes, blob bytes); manifest verified. *(Letter amended
+    by ruling SR4 — the original "`DatabaseCompare`-level equivalence" is id-keyed and
+    structurally unsatisfiable against the renumbering import.)*
 13. *Cross-layout blob import (pass-1 WI1)* — a v14-layout dump WITH blob content (blobs at the
     highest source ids) imported into an R3-renumbered target: blob records classified as blobs;
     no class collection registered as a blob collection.
@@ -704,6 +707,21 @@ without re-opening them.
   overstated it); the operator runbook now instructs quiescing DDL during a migration
   export. A cross-section pin (schema snapshot + collection-set capture at S₀) would be a
   design change left to a future track.
+- **SR4 (user ruling, 2026-07-25) — pin M.5 #12's rehearsal letter is amended to LOGICAL
+  equivalence.** The original letter demanded `DatabaseCompare`-level equivalence, which is
+  structurally unsatisfiable against this track's import: the comparator is rid- and
+  collection-id-keyed (same-rid record lookups, per-collection-id counts, collection-id-set
+  class comparisons) while the import RENUMBERS — the fresh target's genesis plus
+  dump-collection creation scramble the id↔name correspondence, entity placement is
+  class-driven, and blob placement is randomized among the target's blob collections (a
+  healthy round-trip measured 13 differences; the historical `DbImportExportTest` using that
+  pattern is `@Disabled` for the same reason — the letter inherited an id-preserving-import
+  assumption from the OrientDB era). The rehearsal requirement is therefore satisfied by
+  verifying LOGICAL equivalence — class set, typed properties, per-class record counts,
+  record contents including link topology, user indexes, and blob bytes — which is what
+  `endToEndMigrationRehearsalPreservesLogicalContent` pins as-built. Building a
+  rid-mapping-aware `DatabaseCompare` mode was explicitly NOT commissioned; it stays an
+  optional out-of-scope follow-up candidate.
 
 ---
 

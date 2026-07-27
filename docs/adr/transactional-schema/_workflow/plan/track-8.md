@@ -48,7 +48,7 @@ justification is in `## Interfaces and Dependencies`.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-07-23T12:00Z [ctx=safe] Review + decomposition complete (6-step roster approved)
 - [x] 2026-07-23T21:31Z [ctx=safe] Step 1 complete (commit 6611cbf6b2)
 - [x] 2026-07-23T23:30Z [ctx=safe] Step 1 review-fix iteration 1 complete (commit 931e264f48;
@@ -107,6 +107,15 @@ justification is in `## Interfaces and Dependencies`.
   review CLOSED — the cumulative cycle is complete (3 reviews → CN60/CS79/CS80/CN61/CN62/
   CQ33 fixed → gate PASS → RG6/RG7 fixed → micro-gate VERIFIED); track completion pends
   user review. Deferred-items ledger recorded in §Outcomes & Retrospective.
+- [x] 2026-07-25T20:15Z [ctx=safe] Pin M.5 #12 ruled by the user — option (a), recorded as
+  ruling SR4: the rehearsal pin's LETTER is amended to logical-equivalence verification
+  (`DatabaseCompare`-level equivalence is id-keyed and structurally unsatisfiable against the
+  renumbering import), so the pin is discharged as-built and no longer reads as blocked; a
+  rid-mapping-aware `DatabaseCompare` mode stays an OPTIONAL, uncommissioned follow-up
+- [x] 2026-07-25T20:20Z [ctx=safe] Track completion — user-approved 2026-07-25. All 6 steps,
+  every per-step review cycle, the track-level cumulative review, and both gates are closed;
+  0 blockers and 0 open should-fix findings; the deferred-items ledger in §Outcomes &
+  Retrospective carries every remaining suggestion-grade item.
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -236,7 +245,12 @@ justification is in `## Interfaces and Dependencies`.
   id-preserving-import assumption from the OrientDB era. The shipped rehearsal pins LOGICAL
   equivalence (schema, per-class counts, record contents + link topology, index, blob bytes);
   the letter is recorded as blocked for the orchestrator to either amend the pin or
-  commission a rid-mapping-aware compare mode as a follow-up.
+  commission a rid-mapping-aware compare mode as a follow-up. **RULED 2026-07-25 (user
+  ruling SR4, option (a)): the pin's LETTER is amended — logical-equivalence verification
+  satisfies the migration-rehearsal requirement, so the pin is no longer blocked and the
+  as-built `endToEndMigrationRehearsalPreservesLogicalContent` discharges it. A
+  rid-mapping-aware `DatabaseCompare` mode was NOT commissioned — it remains an optional
+  follow-up candidate (see the ledger).**
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -258,6 +272,24 @@ design.md D-records this track owns. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Track closed — user-approved 2026-07-25
+Both units shipped: **genesis (D18)** is two-phase (one schema transaction building
+`OUser.name` at commit, then one data transaction inserting the default roles and users) on
+the R3 storage-embedded `$blob*` layout, with a genesis-completion marker that refuses a
+crashed half-created database loudly (no automated self-heal, OSystem included);
+**migration (D20)** is the operator-driven export/import, fail-closed end to end —
+`EXPORTER_VERSION` 15, rethrow-by-default with an acknowledged best-effort opt-out, a
+bounded per-record spill buffer, a completion-flag-gated durable promote, a trailing
+manifest, single-member whole-stream gzip validation, deferred pre-flight so ruled
+rejections precede every target mutation, the Q-M2/SR2 info matrix with a `>= 16`
+reject-with-redirect, EOF-bounded reader loops that make truncation loud on every path and
+version, and the operator runbook at `docs/operator-migration-procedure.md`. Six steps,
+six per-step review cycles, one track-level cumulative review (baseline + crash-safety +
+concurrency), and every gate closed with 0 blockers and 0 open should-fix findings. Four
+supplementary rulings were issued across the track (SR1–SR4). Closing verification: core
+17539 + 2219 sequential + 18 vmlens + tests 1300 green; full IT profile 513 green; coverage
+gate 88.9% line / 81.0% branch. Everything deliberately left open is in the ledger below.
 
 ### Deferred-items ledger (track-level review closed 2026-07-25)
 The canonical list of everything the Track 8 review cycles deliberately left open. Every
@@ -290,8 +322,9 @@ item is suggestion-grade or explicitly dispositioned; full prose lives in the ci
 - **Out-of-scope follow-up candidates** (recorded in §Surprises & Discoveries): the
   `SecurityShared.doInitPredicateOptimization` CCE on stale mid-import policy links resolving
   to type-mismatched records (pre-existing product gap, surfaced by the Step-5 #13 fixture);
-  a rid-mapping-aware `DatabaseCompare` mode (pin M.5 #12's blocked DatabaseCompare letter —
-  the shipped rehearsal pins logical equivalence instead); the schema-carry/btree-bag root
+  a rid-mapping-aware `DatabaseCompare` mode — **OPTIONAL, not commissioned**: pin M.5 #12's
+  letter was amended to logical equivalence by ruling SR4, so nothing depends on it; the
+  schema-carry/btree-bag root
   fix and the storage open-failure buffer leak (Step-3 era, follow-ups owned by the
   orchestrator); the legacy `DbImportExportTest`/`DbImportStreamExportTest` suites remain
   `@Disabled` (pre-existing).
@@ -626,7 +659,8 @@ promote → Step 4), pin M.5 #3 (truncated-gzip import → Step 5).
      FM-M10/M11/M12.
    - **Tests (design pins):** M.5 #9 (dangling field), #10 (old-format open → redirect — pins
      Track 2's gate as this track's entry), #11 (v14 + streaming round-trips unchanged), #12
-     (end-to-end rehearsal with `DatabaseCompare`-level equivalence + manifest verified), #14
+     (end-to-end rehearsal with LOGICAL equivalence + manifest verified — letter amended by
+     ruling SR4, superseding the original `DatabaseCompare`-level wording), #14
      (version cells incl. malformed — WI12a), #15 (fields, unknown-field tolerance, pre-flight
      leaves target unmutated — SR1 scope boundary), #18 (doc exists with the mandated content).
    - **Verification:** `./mvnw -pl core clean test -Dtest=DatabaseImportTest,<matrix test class>`;
