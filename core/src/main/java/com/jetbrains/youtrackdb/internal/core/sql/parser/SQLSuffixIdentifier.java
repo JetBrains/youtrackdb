@@ -34,6 +34,21 @@ public class SQLSuffixIdentifier extends SimpleNode {
   protected SQLRecordAttribute recordAttribute;
   protected boolean star = false;
 
+  /**
+   * Memoized hot-path eligibility of {@link #identifier}'s name for the
+   * getProperty-first dispatch in {@link #execute(Result, CommandContext)}.
+   * The name is fixed per parse node, so the shape check (out_/in_ prefix plus
+   * {@link #isSafeForGetProperty}, which scans the whole name string) is
+   * computed once here instead of on every evaluated row. Under a correlated
+   * per-record filter (e.g. LDBC IC1's LET subqueries) this method is called
+   * millions of times, so the per-call string scan was a measurable hotspot.
+   *
+   * <p>Values: {@code 0} = not yet computed, {@code 1} = eligible
+   * (getProperty-first hot path), {@code 2} = not eligible (hasProperty-first
+   * safe path).
+   */
+  private byte getPropertyFirstEligibility;
+
   public SQLSuffixIdentifier(int id) {
     super(id);
   }
@@ -207,9 +222,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
         // isSafeForGetProperty) and VertexEntityImpl/EdgeEntityImpl
         // .validatePropertyName (subclass edge rules). If those change, update
         // this guard so getProperty is only called first for accepted names.
-        if (varName.startsWith(Vertex.DIRECTION_OUT_PREFIX)
-            || varName.startsWith(Vertex.DIRECTION_IN_PREFIX)
-            || !isSafeForGetProperty(varName)) {
+        if (!isGetPropertyFirstEligible(varName)) {
           if (iCurrentRecord.hasProperty(varName)) {
             return iCurrentRecord.getProperty(varName);
           }
@@ -261,6 +274,26 @@ public class SQLSuffixIdentifier extends SimpleNode {
    * out_/in_ subclass rules (VertexEntityImpl/EdgeEntityImpl) are handled separately at the call
    * site.
    */
+  /**
+   * Returns whether {@code varName} is eligible for the getProperty-first hot
+   * path, memoizing the (name-only) decision in {@link
+   * #getPropertyFirstEligibility} so the underlying string scan runs at most
+   * once per parse node rather than once per evaluated row. Only reached for
+   * non-{@code $} names (those are short-circuited earlier).
+   */
+  private boolean isGetPropertyFirstEligible(String varName) {
+    var cached = getPropertyFirstEligibility;
+    if (cached != 0) {
+      return cached == 1;
+    }
+    var eligible =
+        !varName.startsWith(Vertex.DIRECTION_OUT_PREFIX)
+            && !varName.startsWith(Vertex.DIRECTION_IN_PREFIX)
+            && isSafeForGetProperty(varName);
+    getPropertyFirstEligibility = (byte) (eligible ? 1 : 2);
+    return eligible;
+  }
+
   private static boolean isSafeForGetProperty(String name) {
     // Empty (or whitespace-only, which trims to empty) names make
     // checkPropertyNameIfValid throw — treat them as unsafe for the hot path.
