@@ -174,6 +174,16 @@ Two semantic hazards dominate this track:
 
 **Critical context:** Step 7 completes `YTDBMatchPlanStep` MAP/SINGLE_VALUE/SCALAR projection and parity tests (including empty-input aggregates and absent-vs-null).
 
+### Step 6b — 2026-07-27 [ctx=info]
+**What was done:** Refactored Gremlin aggregate projection building to avoid SQL-text parsing round-trips. Introduced `MatchProjectionBuilder` (MATCH `RETURN` projection factories) and `ProjectionExpressionFactories` (parser-level AST factories), removed `parseAggregate(String)` from `GremlinAggregateAssembler`, and added `MatchProjectionBuilderTest` to pin the constructed AST shapes for `count(*)`, `list($currentMatch)`, and property aggregates (e.g. `mean(age)`).
+
+**What was discovered:** `SQLFunctionCall` AST nodes can be constructed directly (including the `count(*)` star argument) while keeping output parity with the parser-emitted shapes.
+
+**Key files:**
+- `GremlinAggregateAssembler.java`
+- `MatchProjectionBuilder.java`, `ProjectionExpressionFactories.java`
+- `MatchProjectionBuilderTest.java`
+
 ### Step 7 — commit 985a14e1e8, 2026-07-22T14:50Z [ctx=info]
 **What was done:** Completed `YTDBMatchPlanStep` projection for `MAP` / `SINGLE_VALUE` / `SCALAR` with `dropOnAbsent` / `dropNullRows` row loops and `group`/`groupCount` map accumulation. Assemblers now RETURN the boundary entity for presence checks; valueMap wraps property values in singleton lists; elementMap emits `T.id`/`T.label` keys; single-key `select` unwraps to the column value (native SelectOne shape). Added `ProjectionEquivalenceTest` for absent-vs-null, empty aggregates, order/limit, dedup, groupCount.
 

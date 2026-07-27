@@ -2,13 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -45,7 +41,7 @@ final class GremlinAggregateAssembler {
       return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
-    ctx.appendReturnColumn(parseAggregate("count(*)"), null);
+    ctx.appendReturnColumn(MatchProjectionBuilder.countStar(), null);
     ctx.setGroupBy(null);
     ctx.setDropNullRows(false);
     ctx.setDropOnAbsent(false);
@@ -71,7 +67,7 @@ final class GremlinAggregateAssembler {
       return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
-    ctx.appendReturnColumn(parseAggregate(functionName + "(" + field + ")"), null);
+    ctx.appendReturnColumn(MatchProjectionBuilder.propertyAggregate(functionName, field), null);
     ctx.setGroupBy(null);
     ctx.setDropNullRows(true);
     ctx.setDropOnAbsent(false);
@@ -139,7 +135,7 @@ final class GremlinAggregateAssembler {
     groupBy.addItem(keyExpr);
     ctx.clearReturnProjection();
     ctx.appendReturnColumn(keyExpr, GROUP_KEY_ALIAS);
-    ctx.appendReturnColumn(parseAggregate("count(*)"), GROUP_VALUE_ALIAS);
+    ctx.appendReturnColumn(MatchProjectionBuilder.countStar(), GROUP_VALUE_ALIAS);
     ctx.setGroupBy(groupBy);
     ctx.setDropNullRows(false);
     ctx.setDropOnAbsent(false);
@@ -164,7 +160,7 @@ final class GremlinAggregateAssembler {
       Traversal.Admin<?, ?> valueTraversal) {
     // null / missing value-side → default fold list (matches bare group() / group().by(key)).
     if (valueTraversal == null || valueTraversal instanceof IdentityTraversal) {
-      return parseAggregate("list($currentMatch)");
+      return MatchProjectionBuilder.listCurrentMatch();
     }
     var accumulator = ByModulatorTranslator.translateValueModulator(alias, valueTraversal);
     if (accumulator.isEmpty()) {
@@ -172,32 +168,12 @@ final class GremlinAggregateAssembler {
     }
     return switch (accumulator.get()) {
       case ByModulatorTranslator.ValueAccumulator.CountStar ignored ->
-          parseAggregate("count(*)");
+          MatchProjectionBuilder.countStar();
       case ByModulatorTranslator.ValueAccumulator.FoldList ignored ->
-          parseAggregate("list($currentMatch)");
+          MatchProjectionBuilder.listCurrentMatch();
       case ByModulatorTranslator.ValueAccumulator.PropertyAggregate prop ->
-          parseAggregate(
-              prop.function().name().toLowerCase(Locale.ROOT) + "(" + prop.field() + ")");
+          MatchProjectionBuilder.propertyAggregate(
+              prop.function().name().toLowerCase(Locale.ROOT), prop.field());
     };
-  }
-
-  static SQLExpression parseAggregate(String itemSql) {
-    try {
-      var sql = "SELECT " + itemSql + " FROM V";
-      var parser =
-          new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8)));
-      var stmt = (SQLSelectStatement) parser.parse();
-      var projection = stmt.getProjection();
-      if (projection == null || projection.getItems() == null || projection.getItems().isEmpty()) {
-        throw new IllegalArgumentException("failed to parse aggregate: " + itemSql);
-      }
-      var expr = projection.getItems().getFirst().getExpression();
-      if (expr == null) {
-        throw new IllegalArgumentException("failed to parse aggregate: " + itemSql);
-      }
-      return expr;
-    } catch (ParseException e) {
-      throw new IllegalArgumentException("failed to parse aggregate: " + itemSql, e);
-    }
   }
 }
