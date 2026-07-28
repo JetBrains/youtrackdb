@@ -166,8 +166,26 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     // seed none.
     var copies = new ArrayList<InternalExecutionPlan>(plans.size());
     for (var childPlan : plans) {
+      var templateContext = childPlan.getContext();
+      // Fail fast if the INVARIANT above is ever violated. The isolation only holds while the shared
+      // template (parent) context carries no per-run state: a child write propagates UP to a key the
+      // parent already holds (BasicCommandContext.setVariable / setSystemVariable), so a seeded
+      // parent would be written concurrently through its unsynchronised maps by two clones. This
+      // assert turns that silent, load-dependent corruption into an immediate failure the moment a
+      // future recogniser change starts seeding an alias / LET / $current / $matched binding onto a
+      // child's context at build time, rather than a rare fault that appears only under production
+      // concurrency. Zero cost in production (assertions disabled). getVariables() is null only for a
+      // test mock context, which carries no per-run state and is treated here as empty.
+      var templateVariables = templateContext.getVariables();
+      assert (templateVariables == null || templateVariables.isEmpty())
+          && !templateContext.hasSystemVariable(CommandContext.VAR_CURRENT)
+          && !templateContext.hasSystemVariable(CommandContext.VAR_MATCHED)
+          : "union child template context carries per-run state ($current / $matched / a normal"
+              + " variable); clone isolation cannot keep concurrent clones from racing on the shared"
+              + " parent context — the recogniser must seed no per-run binding onto a child plan"
+              + " context at build time";
       var isolatedCtx = new BasicCommandContext();
-      isolatedCtx.setParentWithoutOverridingChild(childPlan.getContext());
+      isolatedCtx.setParentWithoutOverridingChild(templateContext);
       copies.add(childPlan.copy(isolatedCtx));
     }
     // Plain field writes: both fields are non-final (see their declarations), the copies are

@@ -30,6 +30,10 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGenerator;
@@ -462,59 +466,150 @@ public class MultiPlanMatchStepTest {
   }
 
   /**
-   * Concurrency guard for clone isolation across multi-alias children under real interleaving. Two
-   * clones are driven on two threads a {@link CyclicBarrier} releases together, so their open / start
-   * / close paths overlap. Each clone deep-copied every child against its own isolated child context
-   * and got its own coordinator context, so a regression that re-shared a child plan, minted one
-   * shared child context, or shared the coordinator would surface here as a wrong per-copy start
-   * count or a live-thread hang — not a heisenbug under load. Each clone's child copies deliver empty
-   * streams, so both clones simply drain to exhaustion.
+   * Each clone — and the original — gets its OWN coordinator context. {@code clone()} mints a fresh
+   * {@link BasicCommandContext} for the coordinator so two concurrent clones never race on its
+   * {@code session} field during {@code openArming()}. The field is private with no getter, so it is
+   * read reflectively. Deleting the fresh-coordinator line in {@code clone()} makes this fail: the
+   * clones would then share the original's coordinator through the {@code super.clone()} shallow
+   * copy, which the concurrent drive below cannot catch on its own (both threads write the same
+   * session value, a benign same-value write).
    */
   @Test
-  public void clone_twoClonesDrivenConcurrently_eachRunsOwnChildCopies() throws Exception {
+  public void clone_givesEachCloneAndTheOriginalItsOwnCoordinatorContext() throws Exception {
     var c1 = child(ListStream.of());
     var c2 = child(ListStream.of());
-    // Two clone() calls copy each child twice; hand each clone its own copies so the concurrent runs
-    // touch disjoint plan mocks. Each copy delivers an empty stream against its own context.
-    var copy1A = emptyCopy();
-    var copy1B = emptyCopy();
-    var copy2A = emptyCopy();
-    var copy2B = emptyCopy();
-    when(c1.plan.copy(any())).thenReturn(copy1A.plan, copy1B.plan);
-    when(c2.plan.copy(any())).thenReturn(copy2A.plan, copy2B.plan);
+    // clone() deep-copies each child; stub copy so the copies list carries no null (List.copyOf
+    // rejects null). The returned copy is irrelevant — this test inspects only the coordinator field.
+    when(c1.plan.copy(any())).thenReturn(mock(InternalExecutionPlan.class));
+    when(c2.plan.copy(any())).thenReturn(mock(InternalExecutionPlan.class));
 
     var original = elementStep(c1, c2);
     var cloneA = original.clone();
     var cloneB = original.clone();
-    cloneA.setTraversal(traversal);
-    cloneB.setTraversal(traversal);
 
-    var barrier = new CyclicBarrier(2);
+    Field field = MultiPlanMatchStep.class.getDeclaredField("coordinatorContext");
+    field.setAccessible(true);
+    var originalCoordinator = field.get(original);
+    var cloneACoordinator = field.get(cloneA);
+    var cloneBCoordinator = field.get(cloneB);
+    assertThat(cloneACoordinator)
+        .as("clone A must get its own coordinator, not share the original's or clone B's")
+        .isNotSameAs(originalCoordinator)
+        .isNotSameAs(cloneBCoordinator);
+    assertThat(cloneBCoordinator)
+        .as("clone B must get its own coordinator, not share the original's")
+        .isNotSameAs(originalCoordinator);
+  }
+
+  /**
+   * Fail-fast guard on the clone-isolation invariant: a child's template (parent) context must carry
+   * no per-run variable, because a child write propagates up to any key the parent already holds, so
+   * a seeded parent shared across clones would be written concurrently through its unsynchronised
+   * maps. A normal variable (an alias / LET binding) seeded onto a child's context makes {@code
+   * clone()} fail its assertion instead of minting isolation that silently does not isolate.
+   */
+  @Test
+  public void clone_childTemplateContextCarriesNormalVariable_assertionFailsFast() {
+    var plan = mock(InternalExecutionPlan.class);
+    var seededContext = new BasicCommandContext();
+    seededContext.setVariable("someAlias", "bound"); // a per-run alias / LET binding
+    lenient().when(plan.getContext()).thenReturn(seededContext);
+    var step =
+        new MultiPlanMatchStep<>(
+            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(AssertionError.class)
+        .isThrownBy(step::clone)
+        .withMessageContaining("per-run state");
+  }
+
+  /**
+   * The system-variable leg of the same fail-fast guard: a {@code $current} ({@link
+   * CommandContext#VAR_CURRENT}) system variable seeded onto a child's template context also trips
+   * the {@code clone()} assertion, because it too would propagate up to a shared parent under
+   * concurrent clone execution.
+   */
+  @Test
+  public void clone_childTemplateContextCarriesCurrentSystemVariable_assertionFailsFast() {
+    var plan = mock(InternalExecutionPlan.class);
+    var seededContext = new BasicCommandContext();
+    seededContext.setSystemVariable(CommandContext.VAR_CURRENT, "bound");
+    lenient().when(plan.getContext()).thenReturn(seededContext);
+    var step =
+        new MultiPlanMatchStep<>(
+            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(AssertionError.class)
+        .isThrownBy(step::clone)
+        .withMessageContaining("per-run state");
+  }
+
+  /**
+   * Concurrency contract for clone isolation, made falsifiable. Each clone deep-copies every child
+   * against its OWN isolated child context, so two clones driven on two threads never share the
+   * per-run variable map a real child context owns. This drives that contract for real: each child
+   * copy is backed by the very isolated context {@code clone()} minted for it (echoed back from the
+   * {@code copy(...)} argument), and each clone's iteration WRITES then READS its driving thread's
+   * identity through that context many times, released together by a {@link CyclicBarrier} and
+   * repeated under a stress loop. On correctly isolated contexts every read returns the writer's own
+   * value, so the run is deterministically green; a regression that re-shared a child context between
+   * clones would let one thread observe the other's write (a recorded mismatch) or corrupt the
+   * unsynchronised {@code HashMap} (an iteration hang the timed {@code Future.get} turns into a failed
+   * test). The earlier version drove empty streams over stateless mocks, so no thread ever wrote the
+   * per-run state the isolation exists to keep disjoint.
+   */
+  @Test
+  public void clone_concurrentDrives_noCrossCloneVariableBleed() throws Exception {
+    int iterations = 200;
+    int cyclesPerProbe = 64;
+    var mismatches = new CopyOnWriteArrayList<String>();
     var errors = new CopyOnWriteArrayList<Throwable>();
-    Runnable driveA = drive(cloneA, barrier, errors);
-    Runnable driveB = drive(cloneB, barrier, errors);
-    var tA = new Thread(driveA, "union-cloneA");
-    var tB = new Thread(driveB, "union-cloneB");
-    tA.start();
-    tB.start();
-    tA.join(5_000);
-    tB.join(5_000);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      for (int i = 0; i < iterations; i++) {
+        var c1 = child(ListStream.of());
+        var c2 = child(ListStream.of());
+        // Every clone() copy call is answered by a fresh plan that wraps the isolated context passed
+        // to copy(...) and whose stream probes THAT context. thenAnswer (not thenReturn) is the whole
+        // point: it echoes back each clone's own isolated ctx, so the two clones share a context only
+        // if clone() failed to isolate them.
+        var createdCopies = new ArrayList<InternalExecutionPlan>();
+        when(c1.plan.copy(any()))
+            .thenAnswer(
+                inv -> recordProbeCopy(inv.getArgument(0), cyclesPerProbe, mismatches,
+                    createdCopies));
+        when(c2.plan.copy(any()))
+            .thenAnswer(
+                inv -> recordProbeCopy(inv.getArgument(0), cyclesPerProbe, mismatches,
+                    createdCopies));
 
-    // Both drivers must terminate, not hang: a timed join returns on either completion or timeout, so
-    // a regression that deadlocked forEachRemaining would leave errors empty (stuck, not throwing)
-    // and leak live threads while the test still went green. A completed join also establishes the
-    // happens-before edge the verify() calls below rely on.
-    assertThat(tA.isAlive()).as("driver A must terminate, not hang").isFalse();
-    assertThat(tB.isAlive()).as("driver B must terminate, not hang").isFalse();
+        var original = elementStep(c1, c2);
+        var cloneA = original.clone();
+        var cloneB = original.clone();
+        cloneA.setTraversal(traversal);
+        cloneB.setTraversal(traversal);
+
+        var barrier = new CyclicBarrier(2);
+        Future<?> futureA = pool.submit(drive(cloneA, barrier, errors));
+        Future<?> futureB = pool.submit(drive(cloneB, barrier, errors));
+        // A completed get() also establishes the happens-before edge the verify() calls rely on; a
+        // corrupted-map hang surfaces as a TimeoutException that fails the test instead of blocking.
+        futureA.get(5, TimeUnit.SECONDS);
+        futureB.get(5, TimeUnit.SECONDS);
+
+        // Originals never ran; each clone ran its own two copies exactly once.
+        verify(c1.plan, never()).start();
+        verify(c2.plan, never()).start();
+        assertThat(createdCopies).as("two clones deep-copy two children each").hasSize(4);
+        for (var copy : createdCopies) {
+          verify(copy, times(1)).start();
+        }
+      }
+    } finally {
+      pool.shutdownNow();
+    }
     assertThat(errors).as("no driver thread threw during concurrent iteration").isEmpty();
-
-    // Clone A ran copyA of each child; clone B ran copyB of each child; the originals never ran.
-    verify(copy1A.plan, times(1)).start();
-    verify(copy1B.plan, times(1)).start();
-    verify(copy2A.plan, times(1)).start();
-    verify(copy2B.plan, times(1)).start();
-    verify(c1.plan, never()).start();
-    verify(c2.plan, never()).start();
+    assertThat(mismatches).as("no clone observed another clone's per-run variable").isEmpty();
   }
 
   // ---- Constructor validation & field modifiers ----
@@ -583,9 +678,25 @@ public class MultiPlanMatchStepTest {
     return new Child(plan, ctx, stream);
   }
 
-  /** A child copy that delivers an empty stream against its own context — used by clone tests. */
-  private Child emptyCopy() {
-    return child(ListStream.of());
+  /**
+   * Answers a {@code copy(ctx)} call with a fresh plan mock that reports the isolated context {@code
+   * clone()} just passed in ({@code copy.getContext()} echoes the argument) and whose {@code start()}
+   * yields a {@link VariableProbeStream} probing THAT context. Recording each created copy lets the
+   * caller assert every clone drove its own copies. Echoing the argument back (rather than a
+   * pre-canned context) is what makes the concurrent test falsifiable: if {@code clone()} stopped
+   * minting a fresh context per child, both clones' copies would report the same shared context and
+   * the probe would observe a cross-clone write.
+   */
+  private InternalExecutionPlan recordProbeCopy(
+      CommandContext isolatedContext,
+      int cyclesPerProbe,
+      List<String> mismatches,
+      List<InternalExecutionPlan> createdCopies) {
+    var copy = mock(InternalExecutionPlan.class);
+    lenient().when(copy.getContext()).thenReturn(isolatedContext);
+    lenient().when(copy.start()).thenReturn(new VariableProbeStream(cyclesPerProbe, mismatches));
+    createdCopies.add(copy);
+    return copy;
   }
 
   private static Runnable drive(
@@ -725,6 +836,53 @@ public class MultiPlanMatchStepTest {
 
     CommandContext lastCloseContext() {
       return lastCloseContext;
+    }
+  }
+
+  /**
+   * A real (non-mock) {@link ExecutionStream} that yields no rows but, on each {@code hasNext}, stamps
+   * the driving thread's name into a per-run variable on the context it is iterated against and reads
+   * it straight back {@code cyclesPerProbe} times. On a context that is truly isolated per clone the
+   * read always returns the value the same thread just wrote; if two clones shared one context, the
+   * other thread's concurrent write surfaces either as a recorded mismatch or as a corrupted
+   * {@code HashMap} that hangs the iteration (which the caller's timed {@code Future.get} turns into a
+   * failed test). Yielding no rows keeps the probe off the row-projection path so the test isolates
+   * the context-sharing hazard, not projection.
+   */
+  private static final class VariableProbeStream implements ExecutionStream {
+
+    private static final String PROBE_KEY = "probe";
+    private final int cyclesPerProbe;
+    private final List<String> mismatches;
+
+    VariableProbeStream(int cyclesPerProbe, List<String> mismatches) {
+      this.cyclesPerProbe = cyclesPerProbe;
+      this.mismatches = mismatches;
+    }
+
+    @Override
+    public boolean hasNext(CommandContext ctx) {
+      var mine = Thread.currentThread().getName();
+      for (int i = 0; i < cyclesPerProbe; i++) {
+        ctx.setVariable(PROBE_KEY, mine);
+        Thread.onSpinWait(); // widen the interleaving window a shared context would expose
+        var seen = ctx.getVariable(PROBE_KEY);
+        if (!mine.equals(seen)) {
+          mismatches
+              .add("thread " + mine + " read back '" + seen + "' from a shared child context");
+        }
+      }
+      return false;
+    }
+
+    @Override
+    public Result next(CommandContext ctx) {
+      throw new NoSuchElementException("probe stream yields no rows");
+    }
+
+    @Override
+    public void close(CommandContext ctx) {
+      // no-op: the probe holds no resources
     }
   }
 }
