@@ -534,6 +534,14 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > `## Episodes` § Track completion. (2 steps, 0 failed)
   >
   > **Track file:** `plan/track-7.md`
+  >
+  > **Strategy refresh:** CONTINUE — Track 7 delivered the `AbstractMatchPlanStep`
+  > base (four plan-seam hooks + `resetLifecycleForClone()`) that Track 8's
+  > `MultiPlanMatchStep` extends, and already retargeted the D7 idempotency
+  > `instanceof` scan to the base. Track 8's `## Interfaces and Dependencies`
+  > "broaden the scan" sub-item is therefore a no-op the decomposer drops,
+  > keeping only union-recogniser registration on `GremlinToMatchStrategy`. No
+  > scope, dependency, or ordering change to Tracks 8–9.
 
 - [ ] Track 8: Union via `MultiPlanMatchStep`
   > Adds `union(...)` (D8): a `UnionStepRecogniser` that forks the traversal
