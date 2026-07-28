@@ -132,17 +132,14 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   @Override
   public Iterable<Vertex> getVertices(Direction direction, String... type) {
     checkForBinding();
-    if (direction == Direction.BOTH) {
-      // Chain OUT and IN; chainIterables promotes the result to PreFilterableChainedIterable when
-      // both directions are LinkBag-backed so the MATCH engine can apply index pre-filters without
-      // touching disk.
-      return chainIterables(
-          List.of(
-              getVerticesOptimized(Direction.OUT, type),
-              getVerticesOptimized(Direction.IN, type)));
-    } else {
-      return getVerticesOptimized(direction, type);
-    }
+    // For BOTH, delegate to the single flat-list path (mirroring getEdges(BOTH)/getEdgesInternal)
+    // rather than nesting two chainIterables over separate OUT/IN lists. This produces one
+    // PreFilterableChainedIterable spanning all out_/in_ properties so the MATCH engine can
+    // pre-filter even when one direction is empty (an empty OUT/IN list previously produced a
+    // non-pre-filterable result, disabling pre-filtering for asymmetric both()). Note the
+    // resulting neighbor order is out_/in_ interleaved by edge-property name, not OUT-all-then
+    // IN-all grouped; this is an intentional implementation detail (no consumer depends on order).
+    return getVerticesOptimized(direction, type);
   }
 
   /**
