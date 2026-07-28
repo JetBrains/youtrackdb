@@ -56,6 +56,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.BooleanSupplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -196,6 +197,16 @@ public abstract class SchemaShared implements CloseableInStorage {
   protected volatile ImmutableSchema snapshot;
 
   /**
+   * Runtime lock-order guard probe: answers whether the current thread holds the index-manager
+   * lock (read or write side). Wired by {@code SharedContext.init} on the COMMITTED schema
+   * instance only (see {@link #wireIndexManagerLockOrderProbe}); {@code null} on tx-local
+   * {@link #copyForTx} copies and in tests that construct a schema directly, where the guard is a
+   * no-op. Volatile because it is wired once after construction and read on every lock
+   * acquisition.
+   */
+  private volatile BooleanSupplier indexManagerLockHeldProbe;
+
+  /**
    * True only for a transaction-local copy built by {@link #copyForTx}. A tx-local copy is the
    * private working schema a schema-changing transaction mutates in isolation; its mutations defer
    * to the user transaction's commit instead of persisting eagerly. The de-guarded mutation entry
@@ -280,6 +291,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     // a transaction would auto-commit its loads instead of deferring to the user transaction.
     assert session.getTransactionInternal().isActive()
         : "copyForTx must run inside the caller's open user transaction";
+    ensureLockOrderBeforeWriteAcquisition();
     lock.writeLock().lock();
     try {
       // The whole seed reads inside a fresh-committed-read scope: the caller's transaction snapshot
@@ -644,6 +656,7 @@ public abstract class SchemaShared implements CloseableInStorage {
    *     real id ({@code >= 0}); empty when the transaction created no class.
    */
   public void resolveProvisionalCollectionIds(@Nonnull Int2IntMap resolution) {
+    ensureLockOrderBeforeWriteAcquisition();
     lock.writeLock().lock();
     try {
       if (resolution.isEmpty()) {
@@ -725,6 +738,7 @@ public abstract class SchemaShared implements CloseableInStorage {
    * tx-local view to maintain.
    */
   public void reload(DatabaseSessionEmbedded session) {
+    ensureLockOrderBeforeWriteAcquisition();
     lock.writeLock().lock();
     try {
       session.executeInTx(
@@ -776,6 +790,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public void acquireSchemaReadLock() {
+    ensureLockOrderBeforeReadAcquisition();
     lock.readLock().lock();
   }
 
@@ -784,8 +799,91 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public void acquireSchemaWriteLock(DatabaseSessionEmbedded session) {
+    ensureLockOrderBeforeWriteAcquisition();
     lock.writeLock().lock();
     modificationCounter.increment();
+  }
+
+  /**
+   * Lock-order guard for a schema read-lock acquisition: the documented four-lock order is
+   * metadata-write mutex &rarr; {@code SchemaShared.lock} &rarr; index-manager lock &rarr; storage
+   * {@code stateLock}, so a FRESH acquisition of this lock by a thread that already holds the
+   * index-manager lock inverts the order and can ABBA-deadlock against a schema-carrying commit
+   * (which holds this lock's write side and then blocks on the index-manager lock — the exact
+   * cycle the commit reconciliation's deadlock canary caught). A reentrant re-acquisition is
+   * exempt: this thread already holds this lock (read or write side), so the acquisition can never
+   * block and adds no wait-for edge — {@link ReentrantReadWriteLock} guarantees a reentrant read
+   * acquisition succeeds even with a queued writer, and a write holder may always take the read
+   * side. This is an always-on throw, not an assert, for the same reason the metadata-write
+   * mutex engage-order guard is (see
+   * {@code DatabaseSessionEmbedded.engageMetadataWriteMutexForTx}): production JVMs run with
+   * assertions disabled and the violation's alternative is a silent, non-interruptible parked
+   * deadlock. The common-path cost is one field read plus the probe's two per-thread lock queries,
+   * with no allocation; the probe is checked first so an unwired instance (a tx-local
+   * {@link #copyForTx} copy, whose lock is single-threaded by construction and has no ordering
+   * partner) pays a single null check.
+   */
+  private void ensureLockOrderBeforeReadAcquisition() {
+    final var probe = indexManagerLockHeldProbe;
+    if (probe != null
+        && probe.getAsBoolean()
+        && !lock.isWriteLockedByCurrentThread()
+        && lock.getReadHoldCount() == 0) {
+      throw new IllegalStateException(
+          "lock-order violation: the schema lock must be acquired BEFORE the index-manager lock"
+              + " (metadata-write mutex -> schema lock -> index-manager lock -> storage state"
+              + " lock), but the current thread already holds the index-manager lock and does not"
+              + " yet hold the schema lock; acquiring it here could deadlock against a"
+              + " schema-carrying commit");
+    }
+  }
+
+  /**
+   * Lock-order guard for a schema write-lock acquisition. Two always-on checks, both reachable
+   * only from broken code and both preferable as loud errors over their silent alternative:
+   * <ul>
+   *   <li>a read-to-write upgrade on this lock by the same thread — {@link ReentrantReadWriteLock}
+   *       does not support upgrades, so the acquisition self-deadlocks forever;</li>
+   *   <li>a fresh write acquisition while the thread holds the index-manager lock — the same
+   *       order inversion {@link #ensureLockOrderBeforeReadAcquisition()} rejects, on the write
+   *       side (e.g. a schema reload triggered from inside an index-manager exclusive region).</li>
+   * </ul>
+   * A reentrant write re-acquisition (the commit's promotion {@code fromStream} under the already
+   * held commit write lock) is exempt through the leading write-held check.
+   */
+  private void ensureLockOrderBeforeWriteAcquisition() {
+    if (lock.isWriteLockedByCurrentThread()) {
+      return;
+    }
+    if (lock.getReadHoldCount() > 0) {
+      throw new IllegalStateException(
+          "lock-order violation: the current thread holds the schema read lock and attempts to"
+              + " acquire the schema write lock; a read-to-write upgrade self-deadlocks on"
+              + " ReentrantReadWriteLock");
+    }
+    final var probe = indexManagerLockHeldProbe;
+    if (probe != null && probe.getAsBoolean()) {
+      throw new IllegalStateException(
+          "lock-order violation: the schema lock must be acquired BEFORE the index-manager lock"
+              + " (metadata-write mutex -> schema lock -> index-manager lock -> storage state"
+              + " lock), but the current thread already holds the index-manager lock and does not"
+              + " yet hold the schema lock; acquiring it here could deadlock against a"
+              + " schema-carrying commit");
+    }
+  }
+
+  /**
+   * Wires the runtime lock-order guard's view of the index-manager lock. Called once by
+   * {@code SharedContext.init} on the committed schema instance, right after the schema and the
+   * index manager are created; transaction-local {@link #copyForTx} copies deliberately stay
+   * unwired — their lock is private to the owning transaction's thread, so no cross-thread
+   * ordering applies to it (and the commit-time work on the copy legitimately runs under the
+   * index-manager lock). The probe answers whether the CURRENT THREAD holds the index-manager
+   * lock (either side); it relies on the lock's own per-thread accounting, so the guard adds no
+   * bookkeeping of its own to any acquisition path.
+   */
+  public void wireIndexManagerLockOrderProbe(@Nonnull BooleanSupplier probe) {
+    this.indexManagerLockHeldProbe = probe;
   }
 
   public void releaseSchemaWriteLock(DatabaseSessionEmbedded session) {
@@ -879,6 +977,7 @@ public abstract class SchemaShared implements CloseableInStorage {
    * Binds EntityImpl to POJO.
    */
   public void fromStream(DatabaseSessionEmbedded session, EntityImpl entity) {
+    ensureLockOrderBeforeWriteAcquisition();
     lock.writeLock().lock();
     modificationCounter.increment();
     try {
@@ -1365,6 +1464,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public SchemaShared load(DatabaseSessionEmbedded session) {
 
+    ensureLockOrderBeforeWriteAcquisition();
     lock.writeLock().lock();
     try {
       identity = RecordIdInternal.fromString(
@@ -1395,6 +1495,7 @@ public abstract class SchemaShared implements CloseableInStorage {
         : "SchemaShared.create must run outside any active transaction: joining an outer"
             + " transaction would persist a provisional schema record id into the storage"
             + " configuration (the root's record id promotes only at the outer commit)";
+    ensureLockOrderBeforeWriteAcquisition();
     lock.writeLock().lock();
     try {
       EntityImpl entity;

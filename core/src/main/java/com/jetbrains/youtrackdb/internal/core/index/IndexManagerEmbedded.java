@@ -59,6 +59,23 @@ import javax.annotation.Nullable;
 /**
  * Manages indexes at database level. A single instance is shared among multiple databases.
  * Contentions are managed by r/w locks.
+ *
+ * <p>Lock order: this manager's lock ranks BELOW the schema lock in the documented four-lock order
+ * (metadata-write mutex &rarr; {@code SchemaShared.lock} &rarr; this lock &rarr; storage
+ * {@code stateLock}). Every non-commit exclusive region here performs entity work (loading,
+ * (de)serializing or deleting the classless index-manager and per-index records — and, on the
+ * legacy drop path, batched deletions on a copied session), and any record work can reach a fresh
+ * schema-read acquisition frames down (a snapshot rebuild inside record (de)serialization whenever
+ * the shared snapshot cache was concurrently invalidated). Taking this lock first and the schema
+ * lock later inverts the order and ABBA-deadlocks against a schema-carrying commit, which holds
+ * the schema write lock while acquiring this lock. {@link #acquireExclusiveLock} therefore takes
+ * the committed schema READ lock before this lock and holds it for the whole region
+ * ({@link #releaseExclusiveLock} releases it after this lock): while the region runs, every nested
+ * schema-lock acquisition on this thread — at any depth, on any session — is reentrant and
+ * non-blocking, and the committed schema cannot change under the region (promotion requires the
+ * schema write lock), so the region never operates on a snapshot that goes stale mid-flight.
+ * The order is enforced at runtime by the schema lock's lock-order guard
+ * ({@code SchemaShared#wireIndexManagerLockOrderProbe}).
  */
 public class IndexManagerEmbedded extends IndexManagerAbstract {
 
@@ -77,6 +94,19 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    */
   public boolean isWriteLockHeldByCurrentThread() {
     return lock.isWriteLockedByCurrentThread();
+  }
+
+  /**
+   * Whether the current thread holds this manager's lock on EITHER side (write or read). This is
+   * the schema lock-order guard's probe (see
+   * {@code SchemaShared#wireIndexManagerLockOrderProbe}): a fresh schema-lock acquisition is an
+   * order inversion when this thread holds this lock on any side — the read side deadlocks the
+   * same way (commit: schema write held, blocked on this write lock; violator: this read lock
+   * held, blocked on the schema read lock behind the commit's write). Uses the lock's own
+   * per-thread accounting, so the probe adds no bookkeeping to any acquisition path.
+   */
+  public boolean isLockHeldByCurrentThread() {
+    return lock.isWriteLockedByCurrentThread() || lock.getReadHoldCount() > 0;
   }
 
   /**
@@ -634,9 +664,28 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     lock.readLock().unlock();
   }
 
+  /**
+   * Takes this manager's write lock for a schema-mutation region, preceded by the committed
+   * schema READ lock (see the class javadoc's lock-order rationale). The schema read lock is held
+   * for the whole exclusive region and released by {@link #releaseExclusiveLock} after the write
+   * lock, so nested schema-lock acquisitions inside the region (snapshot rebuilds during record
+   * (de)serialization, including on copied sessions of this same thread) are reentrant and cannot
+   * ABBA-deadlock against a schema-carrying commit's schema-write&rarr;index-write acquisition.
+   * Reentrant nesting is balanced: every nested acquire takes one more (reentrant) schema read
+   * hold and its matching release drops it.
+   */
   protected void acquireExclusiveLock(FrontendTransaction transaction) {
-    lock.writeLock().lock();
-    writeLockNesting.incrementAndGet();
+    final var schema = transaction.getDatabaseSession().getSharedContext().getSchema();
+    schema.acquireSchemaReadLock();
+    try {
+      lock.writeLock().lock();
+      writeLockNesting.incrementAndGet();
+    } catch (RuntimeException | Error e) {
+      // The write-lock acquisition cannot realistically throw, but a leaked schema read hold
+      // would silently block every later schema write, so release it defensively.
+      schema.releaseSchemaReadLock();
+      throw e;
+    }
   }
 
   @Override
@@ -670,7 +719,13 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         }
       }
     } finally {
-      lock.writeLock().unlock();
+      try {
+        lock.writeLock().unlock();
+      } finally {
+        // Release the schema read hold acquireExclusiveLock took, in reverse acquisition order
+        // (write lock first). In its own finally so a failed unlock cannot leak the read hold.
+        session.getSharedContext().getSchema().releaseSchemaReadLock();
+      }
     }
   }
 

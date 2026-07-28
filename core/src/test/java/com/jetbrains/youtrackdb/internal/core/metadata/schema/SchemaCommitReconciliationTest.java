@@ -23,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -944,10 +945,14 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
    * schema reload (takes the schema write lock), and an index-manager load (takes the index-manager
    * exclusive lock) run concurrently across many rounds without an interleaving deadlock. These are
    * the exact overlapping lock subsets that could deadlock if the acquisition order were not fixed.
-   * The four-lock order keeps acquisition acyclic; the lock order is not runtime-assertable
-   * ({@code ScalableRWLock} exposes no owner-thread query), so a timeout-bounded concurrent test is
-   * the only way to verify deadlock-freedom. The {@code @Test(timeout)} is the deadlock detector: a
-   * lock-order regression hangs and trips the timeout instead of hanging the whole suite.
+   * The four-lock order keeps acquisition acyclic. The schema/index-manager half of the order IS
+   * runtime-asserted now (the schema lock's lock-order guard throws on a fresh schema-lock
+   * acquisition under the index-manager lock — see the deterministic tests below), so an
+   * inversion on that pair fails loudly here instead of deadlocking; the {@code stateLock} tail of
+   * the order remains non-assertable ({@code ScalableRWLock} exposes no owner-thread query), so
+   * this timeout-bounded concurrent test stays as the stress complement covering the full
+   * four-lock interleaving. The {@code @Test(timeout)} is the deadlock detector: a lock-order
+   * regression hangs and trips the timeout instead of hanging the whole suite.
    */
   @Test(timeout = 60_000)
   public void schemaCommitReloadAndIndexLoadRaceWithoutDeadlock() throws Exception {
@@ -1066,6 +1071,194 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
         t.join(10_000);
       }
     }
+  }
+
+  /**
+   * The runtime lock-order guard, violation half: a FRESH schema-lock acquisition (read or write
+   * side) by a thread that already holds the index-manager lock must throw
+   * {@link IllegalStateException} instead of acquiring — acquiring would invert the documented
+   * four-lock order (mutex → schema lock → index-manager lock → state lock) and could
+   * ABBA-deadlock against a schema-carrying commit, which holds the schema write lock while
+   * taking the index-manager lock. This is the deterministic detector that replaces the ~2.5%
+   * stress-only reproduction of the original deadlock: any code path that regresses to
+   * index-lock-before-schema-lock now fails loudly on first execution.
+   */
+  @Test
+  public void schemaLockAcquisitionUnderIndexManagerLockThrowsLockOrderViolation() {
+    var indexManager = session.getSharedContext().getIndexManager();
+    indexManager.acquireExclusiveLockForCommit();
+    try {
+      assertTrue("the probe must report the index-manager lock as held by this thread",
+          indexManager.isLockHeldByCurrentThread());
+      // Read side: getClass acquires the schema read lock fresh (this thread holds no schema
+      // lock), which is exactly the inversion the guard must reject.
+      assertThrows(
+          "a fresh schema READ-lock acquisition under the index-manager lock must throw",
+          IllegalStateException.class,
+          () -> schemaShared().getClass("AnyName"));
+      // Write side: the same inversion through the write-acquisition guard.
+      assertThrows(
+          "a fresh schema WRITE-lock acquisition under the index-manager lock must throw",
+          IllegalStateException.class,
+          () -> schemaShared().acquireSchemaWriteLock(session));
+    } finally {
+      indexManager.releaseExclusiveLockForCommit();
+    }
+    // The guard must not have poisoned anything: a normal schema read works after release.
+    assertNull("schema reads must work normally once the index-manager lock is released",
+        schemaShared().getClass("AnyName"));
+  }
+
+  /**
+   * The runtime lock-order guard, conforming half: the schema-carrying commit's own order —
+   * schema WRITE lock first, index-manager lock second, nested schema reads afterwards — must
+   * stay permitted. A thread that already holds the schema write lock re-enters the schema read
+   * lock reentrantly (the promotion's {@code fromStream} and every under-commit snapshot rebuild
+   * do exactly this), so the guard must exempt it rather than false-positive on the canonical
+   * commit path.
+   */
+  @Test
+  public void commitOrderSchemaLockBeforeIndexManagerLockStaysPermitted() {
+    var indexManager = session.getSharedContext().getIndexManager();
+    schemaShared().acquireSchemaWriteLock(session);
+    try {
+      indexManager.acquireExclusiveLockForCommit();
+      try {
+        // A nested schema read under schema-write + index-write is the commit's own shape and
+        // must not throw.
+        assertNull("a reentrant schema read under the commit's lock order must be permitted",
+            schemaShared().getClass("AnyName"));
+      } finally {
+        indexManager.releaseExclusiveLockForCommit();
+      }
+    } finally {
+      // No schema change was made: release without the save half.
+      schemaShared().releaseSchemaWriteLock(session, false);
+    }
+  }
+
+  /**
+   * The write-acquisition guard's second check: a read-to-write upgrade on the schema lock by the
+   * same thread must throw instead of self-deadlocking ({@code ReentrantReadWriteLock} does not
+   * support upgrades — the write acquisition would park forever behind the thread's own read
+   * hold). Reachable today only from broken code (e.g. a schema reload triggered from inside a
+   * schema-read region), so the loud throw is strictly better than the silent permanent park it
+   * replaces.
+   */
+  @Test
+  public void schemaReadToWriteUpgradeThrowsInsteadOfSelfDeadlocking() {
+    schemaShared().acquireSchemaReadLock();
+    try {
+      assertThrows(
+          "a schema read-to-write upgrade must throw instead of self-deadlocking",
+          IllegalStateException.class,
+          () -> schemaShared().acquireSchemaWriteLock(session));
+    } finally {
+      schemaShared().releaseSchemaReadLock();
+    }
+  }
+
+  /**
+   * The previously-inverted index-manager entry points conform to the lock order deterministically.
+   * Each path below used to take the index-manager write lock FIRST and then reach a fresh
+   * schema-read acquisition frames down, inside record (de)serialization, whenever the shared
+   * snapshot cache had been invalidated — the I→S edge of the ABBA deadlock with the
+   * schema-carrying commit's S→I edge. The fix acquires the schema read lock before the
+   * index-manager lock in {@code IndexManagerEmbedded.acquireExclusiveLock}, and the runtime
+   * guard (previous tests) throws on the inverted order. This test force-invalidates the shared
+   * snapshot cache immediately before each entry point, so the under-lock record work provably
+   * NEEDS a snapshot rebuild: if the fix regressed (index lock taken without the schema read
+   * hold), the rebuild's fresh schema-read acquisition trips the guard and this test fails
+   * deterministically — no race, no timeout. Covered here: {@code load}, {@code reload}, the
+   * legacy top-level {@code addCollectionToIndex} / {@code removeCollectionFromIndex}, and the
+   * legacy {@code dropIndex} of an EMPTY index. (The legacy {@code createIndex} rebuilds the
+   * snapshot before taking the lock in its security precheck, so cache nullity at the under-lock
+   * moment cannot be pinned deterministically for it; it is exercised as setup here and stays
+   * covered by the runtime guard in production.)
+   */
+  @Test
+  public void previouslyInvertedIndexManagerPathsAcquireSchemaLockFirst() {
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    // Setup on the legacy top-level path: an indexed class plus a second class whose collection
+    // can be added to / removed from the index's membership.
+    var indexed = session.getMetadata().getSchema().createClass("OrderedLockIndexed");
+    indexed.createProperty("name", PropertyType.STRING);
+    indexed.createIndex("OrderedLockIndexed.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var member = session.getMetadata().getSchema().createClass("OrderedLockMember");
+    var memberCollection = session.getCollectionNameById(member.getCollectionIds()[0]);
+    assertNotNull("the member class must own a real collection", memberCollection);
+
+    // reload: re-reads and re-deserializes the index-manager entity and every index record under
+    // the exclusive lock.
+    schemaShared().forceSnapshot();
+    indexManager.reload(session);
+    assertNotNull("reload must keep the committed index registered",
+        indexManager.getIndex(session, "OrderedLockIndexed.name"));
+
+    // load: the full registry re-load from the storage's index-manager record (the exact path the
+    // CI deadlock was caught on).
+    schemaShared().forceSnapshot();
+    indexManager.load(session);
+    assertNotNull("load must rebuild the registry with the committed index",
+        indexManager.getIndex(session, "OrderedLockIndexed.name"));
+
+    // Legacy membership add/remove: rewrite the committed index's own record under the exclusive
+    // lock.
+    schemaShared().forceSnapshot();
+    indexManager.addCollectionToIndex(session, memberCollection, "OrderedLockIndexed.name", false);
+    assertTrue("the membership add must reach the committed index",
+        indexManager.getIndex(session, "OrderedLockIndexed.name").getCollections()
+            .contains(memberCollection));
+    schemaShared().forceSnapshot();
+    indexManager.removeCollectionFromIndex(session, memberCollection, "OrderedLockIndexed.name");
+    assertFalse("the membership remove must reach the committed index",
+        indexManager.getIndex(session, "OrderedLockIndexed.name").getCollections()
+            .contains(memberCollection));
+
+    // Legacy drop of an EMPTY index: deletes the engine and the index record, and unlinks it from
+    // the index-manager record, all under the exclusive lock.
+    schemaShared().forceSnapshot();
+    indexManager.dropIndex(session, "OrderedLockIndexed.name");
+    assertNull("the legacy drop must unregister the index",
+        indexManager.getIndex(session, "OrderedLockIndexed.name"));
+  }
+
+  /**
+   * The nested-session sub-path of the legacy drop: dropping a NON-EMPTY index via the legacy
+   * top-level path batch-deletes the index content on a COPIED session
+   * ({@code IndexAbstract.clearAllEntries}) while the calling thread holds the index-manager
+   * write lock. The copied session has its own thread-local snapshot state (a snapshot pin on the
+   * calling session would NOT cover it — the reason the fix holds the schema READ lock for the
+   * whole region instead of pinning), so its record reads and its batch commits rebuild the
+   * snapshot through the calling thread's held schema read lock reentrantly. With the snapshot
+   * cache force-invalidated right before the drop, a regression to the unordered acquisition
+   * makes the copied session's first rebuild trip the lock-order guard deterministically.
+   */
+  @Test
+  public void legacyDropOfNonEmptyIndexRunsNestedSessionUnderHeldSchemaReadLock() {
+    var indexManager = session.getSharedContext().getIndexManager();
+    var indexed = session.getMetadata().getSchema().createClass("NonEmptyDropIndexed");
+    indexed.createProperty("name", PropertyType.STRING);
+    indexed.createIndex("NonEmptyDropIndexed.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    // Commit rows so the index is non-empty and the drop takes the batched-deletion path.
+    session.executeInTx(tx -> {
+      for (var i = 0; i < 8; i++) {
+        var row = (EntityImpl) session.newEntity("NonEmptyDropIndexed");
+        row.setProperty("name", "row-" + i);
+      }
+    });
+
+    schemaShared().forceSnapshot();
+    indexManager.dropIndex(session, "NonEmptyDropIndexed.name");
+    assertNull("the non-empty legacy drop must unregister the index",
+        indexManager.getIndex(session, "NonEmptyDropIndexed.name"));
+    // The data survives the index drop; only the index structure is gone.
+    session.executeInTx(tx -> {
+      try (var rows = session.query("select from NonEmptyDropIndexed")) {
+        assertEquals("the rows must survive the index drop", 8, rows.stream().count());
+      }
+    });
   }
 
   /**

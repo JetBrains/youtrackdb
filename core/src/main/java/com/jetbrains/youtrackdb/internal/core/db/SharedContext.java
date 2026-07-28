@@ -104,6 +104,13 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     schema = new SchemaEmbedded();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
     indexManager = new IndexManagerEmbedded(storage);
+    // Wire the schema lock's runtime lock-order guard to the just-created index manager: the
+    // documented four-lock order puts the schema lock ABOVE the index-manager lock, and the guard
+    // turns a fresh schema-lock acquisition by a thread already holding the index-manager lock
+    // (an ABBA deadlock against a schema-carrying commit) into a loud IllegalStateException.
+    // Wired here, on the committed schema instance only, because this is the one place both
+    // shared instances are created together (tx-local schema copies stay unwired by design).
+    schema.wireIndexManagerLockOrderProbe(indexManager::isLockHeldByCurrentThread);
     functionLibrary = new FunctionLibraryImpl();
     scheduler = new SchedulerImpl(youtrackDB);
     sequenceLibrary = new SequenceLibraryImpl();
