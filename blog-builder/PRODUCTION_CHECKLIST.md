@@ -17,11 +17,12 @@ assertion** — is independently verified against the **live source** by a **fre
 before the article is accepted. The author's own assertions are never trusted. A draft can
 be perfectly on-voice, perfectly on-brief, and completely wrong about what the engine does.
 
-**ADRs and design docs are untrusted for class and method names.** They describe intent at a
-point in time; code moves past them. The concrete failure mode: a design doc names a class
-that has since been renamed or deleted, an article copies the name in good faith, and the
-citation points at nothing in the current tree. Read design docs for *why*; verify every
-*name* and every *behaviour* against the code as it exists now.
+**Secondary sources are untrusted for class and method names.** A name remembered from
+earlier work, copied from an older article, or lifted from a stale code comment may have been
+renamed or deleted since. The concrete failure mode: an article carries such a name in good
+faith, and the citation points at nothing in the current tree. The requester provides the
+code references the article is built on, and those references in the live source are the sole
+authority for every name and behaviour — verify each one against the code as it exists now.
 
 ---
 
@@ -37,8 +38,8 @@ authoring** — do not guess a voice, and do not fall back to a generic one.
 ### 1. Fill the article brief
 
 Copy [`ARTICLE_BRIEF_TEMPLATE.md`](ARTICLE_BRIEF_TEMPLATE.md) and fill every blank: audience,
-the one or two mental models, thesis, scope (in and out), source materials, known caveats,
-and target length. A blank left unfilled is undecided scope.
+the one or two mental models, thesis, scope (in and out), code references, known caveats,
+figures planned, and target read time. A blank left unfilled is undecided scope.
 
 ### 2. Confirm the voice against the tone file — BEFORE writing
 
@@ -46,11 +47,21 @@ Read the author's `tones/<handle>.md` and hold its Part A fingerprint traits and
 anti-tells in your head before drafting the first sentence. Confirming the target cadence
 before writing is what makes the tone gate in step 3 cheap.
 
-### 3. Stage authoring with a tone gate after the first section
+### 3. Author the article in its folder, with a tone gate after the first section
 
-Write the first section, then stop and check it against the author's tone file (self-check
-against Parts A and B, or a fresh voice reviewer) **before continuing**. Catching a drifted
-cadence at section one is cheap; catching it at section eight means rewriting eight sections.
+Create the article's folder `../docs/blog/articles/<slug>/` (a short, hyphenated slug from the
+title) and author the article directly inside it, so all of its sources exist before the
+render and publish steps. The per-article layout is:
+
+- `index.md` — the article prose;
+- `hero.svg` — the title card, copied from `templates/hero.svg` with its `{{TITLE}}`,
+  `{{SUBTITLE}}`, and `{{BYLINE}}` tokens filled in;
+- `diagrams/*.mmd` — the Mermaid source for each figure the brief planned.
+
+Write the first section of `index.md`, then stop and check it against the author's tone file
+(self-check against Parts A and B, or a fresh voice reviewer) **before continuing**. Catching
+a drifted cadence at section one is cheap; catching it at section eight means rewriting eight
+sections.
 
 ### 4. Run the validation gauntlet
 
@@ -80,49 +91,48 @@ go under [`reviews/`](reviews/) as `reviews/<article-slug>/<perspective>.md` (on
 perspective), and reader-persona reports under [`reader-feedback/`](reader-feedback/) as
 `reader-feedback/<article-slug>/<persona>.md` (one file per persona).
 
-### 5. Run embedme locally
-
-Run `npx embedme --verify "blog-builder/**/*.md" "docs/blog/**/*.md"` locally. This scoped
-command checks the blog machinery and article trees only, avoiding unrelated pre-existing
-fixtures elsewhere in the repo; the quoted globs go to embedme's own recursive matcher, so
-nested article files such as `docs/blog/articles/<slug>.md` are checked too. Always pass the
-path globs — a bare `npx embedme --verify` matches no files and passes vacuously. CI also runs
-an embedme verify pass over the docs.
-Fix any fence flagged as an embed target per the code-fence safety convention in
-[`BLOG_BRIEF.md`](BLOG_BRIEF.md) (never make a fence's first line a lone file-path comment —
-a `:NNN` suffix alone does not make it safe).
-
-### 6. Revise
+### 5. Revise
 
 Apply the gauntlet's findings.
 
-### 7. Reviewers find, a separate gate verifies
+### 6. Reviewers find, a separate gate verifies
 
 Reviewers **find** issues; a **separate gate thread verifies each fix** against the source or
 the rubric. **Never trust the fixer's own claim that a fix is correct** — the person who
 introduced or repaired a claim is the worst-placed to certify it. This is the same
 find/verify split that Rule 0 depends on.
 
+### 7. Render figures
+
+The article folder and its sources already exist from step 3. (Re)generate the raster figures
+by running `blog-builder/scripts/render-figures.sh docs/blog/articles/<slug>` on the populated
+folder. It renders every Mermaid diagram under `docs/blog/articles/<slug>/diagrams/*.mmd` to
+`docs/blog/articles/<slug>/images/*.png`, and the title card
+`docs/blog/articles/<slug>/hero.svg` to `docs/blog/articles/<slug>/images/hero.png`. Never
+hand-edit a PNG; change the Mermaid or `hero.svg` source and re-run the script. The generated
+PNGs are committed at publish (step 8) — they are what Medium gets and what renders in-repo.
+
 ### 8. Publish
 
-- Write the finished article to `../docs/blog/articles/<slug>.md` (a short, hyphenated slug
-  from the title).
+Finalize and index the article; its folder and sources already exist from step 3, and its
+PNGs from step 7.
+
 - Index it in [`../docs/blog/README.md`](../docs/blog/README.md): a row with the article,
   its author, the date, and the source baseline SHA.
 - Record the **Source baseline** SHA the citations were verified against, both in the article
   (per the freshness rule in [`BLOG_BRIEF.md`](BLOG_BRIEF.md)) and in the index row. An
   article that cites no code needs no baseline.
+- Commit the generated `images/*.png` alongside `index.md` — they are the Medium-facing
+  rasters and what renders in-repo.
 
 ---
 
 ## Acceptance bar
 
-An article is accepted only when **all three** hold:
+An article is accepted only when **both** hold:
 
 1. It has cleared the full validation gauntlet (step 4) — not a subset.
 2. Every code claim has been independently source-verified by a fresh reviewer (Rule 0), and
-   each applied fix verified by a separate gate (step 7).
-3. It is embedme-clean: `npx embedme --verify "blog-builder/**/*.md" "docs/blog/**/*.md"`
-   passes.
+   each applied fix verified by a separate gate (step 6).
 
 A green tone gate alone is never sufficient.

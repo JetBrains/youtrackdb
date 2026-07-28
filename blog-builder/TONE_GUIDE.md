@@ -89,7 +89,7 @@ against.
 When no tone file exists for a handle, capture one before authoring:
 
 1. **Gather material.** Collect **at least two representative writing samples** by the author
-   — blog posts, design docs, long PR descriptions, mailing-list or issue prose. If samples
+   — blog posts, long PR descriptions, issue or mailing-list prose, talk transcripts. If samples
    are scarce, interview the author: ask them to explain a recent piece of work in writing,
    and use that as a sample.
 2. **Distill into the schema.** Fill every part of the schema in (a), pulling the Part A

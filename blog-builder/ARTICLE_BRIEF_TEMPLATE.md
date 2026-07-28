@@ -1,8 +1,11 @@
 # Article Brief — Template
 
-**How to use this template.** Copy this file once per article to a working location (a
-scratch note, a draft PR description, or a temporary file — it is not itself published).
-Fill *every* blank before authoring begins: a brief with an empty blank is a scope you have
+**How to use this template.** Copy this file once per article into an untracked scratch file
+at the repository root — for example `article-brief-<slug>.md`, the same way this workflow
+keeps its `research-log.md`. The brief is a working scoping note, never published: fill it in
+before authoring, keep it beside you while you write, and delete it once the article ships
+(its scope decisions then live in the finished article). Fill *every* blank before authoring
+begins: a brief with an empty blank is a scope you have
 not decided yet, and undecided scope is the most expensive thing to discover halfway through
 a draft. Blanks are marked `______`; guidance in parentheses explains what belongs there.
 Delete the guidance as you fill each field. The brief is the contract the article and its
@@ -55,18 +58,13 @@ ______
 (What the article covers and — just as important — what it deliberately does not. "Out"
 prevents scope creep and tells reviewers not to flag an omission that was a decision.)
 
-## Source materials to read
+## Code references — the authority
 
-**Docs / ADRs (context only — untrusted for names):**
 - ______
-(Docs, ADRs, design notes that give background. Note: per [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md)
-Rule 0, ADRs and design docs are UNTRUSTED for class/method names — they may name code that
-was renamed or removed. Use them for intent, never as a citation source.)
-
-**Code areas to inspect (the authority):**
-- ______
-(The packages, classes, and files whose behaviour the article describes. Every code claim is
-verified against these in the live tree, not against the docs above.)
+(The packages, classes, and files whose behaviour the article describes, provided by the
+requester. Every code claim is verified against these in the live tree per
+[`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md) Rule 0; the live source is the sole
+authority for every name and behaviour.)
 
 ## Known caveats / traps the article must state
 
@@ -75,8 +73,18 @@ verified against these in the live tree, not against the docs above.)
 like X but is actually Y" gotchas. If a caveat is known, the article states it — omitting a
 known trap is a correctness defect, not a stylistic choice.)
 
-## Target length
+## Figures planned
 
 ______
-(A rough word or section count. Length is a budget, not a goal: the article is as long as its
-one or two mental models require and no longer.)
+(The hero title-card text — title / subtitle / byline — and each illustrative diagram the
+article will include, one line each naming the single idea it teaches. Diagrams are authored
+as Mermaid and rendered to PNG at publish; see the Figures conventions in
+[`BLOG_BRIEF.md`](BLOG_BRIEF.md).)
+
+## Target read time
+
+______
+(A range in minutes, matching how Medium reports it — e.g. "~8–10 min read". As a drafting
+proxy, reckon roughly 200 words per minute, but code blocks and diagrams read slower, so bias
+the prose shorter when the piece is code-heavy. Read time is a budget, not a goal: the article
+is as long as its one or two mental models require and no longer.)

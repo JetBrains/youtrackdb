@@ -36,10 +36,12 @@ drift is caught early rather than late. Two things are deliberately different.
 ```text
 blog-builder/
 ├── README.md                  — this file: overview, departures, workflow, doc pointers
-├── BLOG_BRIEF.md              — global house rules (structure, accuracy, embedme safety, formatting) — NOT voice
+├── BLOG_BRIEF.md              — global house rules (structure, accuracy, figures, formatting) — NOT voice
 ├── ARTICLE_BRIEF_TEMPLATE.md  — copy-per-article fill-in brief
 ├── PRODUCTION_CHECKLIST.md    — the executable pipeline for producing or editing an article
 ├── TONE_GUIDE.md              — how per-developer tone files work: schema, resolution, capture, lifecycle
+├── templates/                 — figure templates; hero.svg is the title card copied into each article folder
+├── scripts/                   — render-figures.sh: renders an article's Mermaid + hero.svg sources to PNG
 ├── tones/                     — one tone file per developer, named <github-handle>.md
 ├── reviews/                   — review reports, namespaced per article: reviews/<article-slug>/<perspective>.md
 └── reader-feedback/           — reader-persona feedback, namespaced per article: reader-feedback/<article-slug>/<persona>.md
@@ -67,7 +69,7 @@ executable version with the review gauntlet and the acceptance bar.
 5. **Run the validation gauntlet.** Non-code review perspectives, citation-accuracy against
    live source by a fresh reviewer, voice conformance to the tone file, and a reader-persona
    pass — all of it, per [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md).
-6. **Publish.** Write the article to `../docs/blog/articles/<slug>.md`, index it in
+6. **Publish.** Write the article to `../docs/blog/articles/<slug>/index.md`, index it in
    `../docs/blog/README.md`, and record the source baseline SHA its citations were verified
    against.
 
@@ -78,7 +80,7 @@ governs — not before.
 
 - [`BLOG_BRIEF.md`](BLOG_BRIEF.md) — read before authoring or editing any article. The
   global house rules: what an article is, how a single article is structured, citation and
-  freshness discipline, the embedme code-fence safety convention, and formatting.
+  freshness discipline, code-snippet and figure conventions, and formatting.
 - [`ARTICLE_BRIEF_TEMPLATE.md`](ARTICLE_BRIEF_TEMPLATE.md) — copy it at the start of every
   new article; it is the per-article scope contract.
 - [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md) — read before producing or

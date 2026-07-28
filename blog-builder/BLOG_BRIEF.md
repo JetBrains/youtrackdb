@@ -30,8 +30,8 @@ makes about the engine is checkable against that tree.
   it is out of scope.
 - **Not reference documentation.** The YQL reference and the internals book already do the
   exhaustive job. An article is an argument with a narrative arc, not a catalog of facts.
-- **Not a design doc.** Design docs and ADRs describe intent, sometimes for code that
-  changed or never shipped. An article describes what the engine *actually does today*.
+- **Not a plan or a proposal.** An article describes what the engine *actually does today*,
+  not what someone intends or once intended to build.
 
 ## Structural principles for a single article
 
@@ -57,13 +57,17 @@ makes about the engine is checkable against that tree.
 
 ## Accuracy and citation discipline
 
-- **Cite code as `ClassName.java:NNN`.** When a specific line is part of the argument, cite
-  the class and the line number, verified against the live tree. Citations are load-bearing,
-  not decoration: at most one per paragraph, and only where the exact line matters. Bulk
-  pointers belong in a closing *Further reading* section.
-- **The source is the authority, not the design doc.** ADRs and design docs are untrusted
-  for class and method names (see [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md),
-  Rule 0). Verify every name and behavioural claim against the code before it ships.
+- **Cite code as `ClassName.java:NNN`, inline and sparingly.** When a specific line is part
+  of the argument, cite the class and line number, verified against the live tree. Citations
+  are load-bearing, not decoration: at most one per paragraph, and only where the exact line
+  matters. Do not append a trailing catalog of code references — a long *Further reading*
+  list of `file:line` pointers is reference-doc behaviour and reads as out of place in a blog.
+  If a reader should go deeper, the closing paragraph points them, in prose, to a single
+  place in the source worth opening (structural principle 6).
+- **The live source is the sole authority.** Verify every name and behavioural claim against
+  the code as it exists now (see [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md),
+  Rule 0) — never from a secondary description or from memory. The requester provides the
+  code references the article is built on.
 
 ### Freshness rule — record the source baseline
 
@@ -84,62 +88,12 @@ The same SHA is recorded in the article index in
 [`../docs/blog/README.md`](../docs/blog/README.md) at publish time. An article that cites no
 code needs no baseline line.
 
-## Code-fence / embedme safety convention
+## Code snippets
 
-CI's required **CI Status** check runs `npx embedme --verify **/*.md` (see
-`.github/workflows/maven-pipeline.yml`). [embedme](https://github.com/zakhenry/embedme) is a
-documentation tool that *embeds* the contents of a source file into a code fence when the
-fence's **first line is a comment consisting of a lone file path**. In `--verify` mode it
-fails the build in two different ways:
-
-- if that path *resolves* to a file, embedme expects the fence body to be a byte-for-byte
-  copy of the file and fails when it is not;
-- if that path *does not* resolve, embedme fails with `file does not exist`.
-
-Either way the required gate goes red. So the trap is not only a *resolvable* path — it is
-**any** first-line comment that is a lone path-like token. A `java` fence whose first line is
-`// core/src/main/java/.../Foo.java` is treated as an embed target; a `java` fence whose
-first line is the lone token `// Foo.java:512` fails `--verify` with `file does not exist`.
-The `:512` suffix does **not** make embedme skip the block — it only makes the lookup fail.
-(Verified against embedme 1.22.1, the version CI resolves.)
-
-**The safe rule: never make a fence's first line a comment that is a lone file path.** Any of
-these is safe, and all are confirmed with
-`npx embedme --verify "blog-builder/**/*.md" "docs/blog/**/*.md"`:
-
-- **Omit the leading path comment.** Show the snippet with no filename comment on the first
-  line; put the `ClassName.java:NNN` citation in the surrounding prose or in the caption.
-- **Use an illustrative fence embedme does not embed.** A `text` fence has no comment syntax
-  for embedme to act on, so it is always skipped.
-- **If you want the location marked on the code itself,** keep the citation out of the
-  lone-token position by following it with a short note, e.g.
-  `// MatchExecutionPlanner.java:5192 (illustrative)`. embedme treats a first line as a
-  filename comment only when it is a lone token, so the trailing note makes it skip the block.
-
-Then **run `npx embedme --verify "blog-builder/**/*.md" "docs/blog/**/*.md"` locally before
-committing** — always pass the path globs, since a bare `npx embedme --verify` matches no
-files and passes vacuously. This scoped command checks the blog machinery and article trees
-only, avoiding unrelated pre-existing fixtures elsewhere in the repo; the quoted globs go to
-embedme's own recursive matcher, so nested article files such as `docs/blog/articles/<slug>.md`
-are checked too. CI also runs an embedme verify pass, so a clean local run keeps the required
-gate green.
-
-The two fences below demonstrate the safe forms (a `text` fence, and a `java` fence whose
-first line is not a lone path token):
-
-```text
-planner.estimateRootEntries(step)   // the citation lives in the prose, not on line 1
-```
-
-```java
-// MatchExecutionPlanner.java:5192 (illustrative) — trailing note, so embedme skips this fence
-long estimateRootEntries(MatchStep step) { ... }
-```
-
-The dangerous form to avoid is a fence whose *first* line is a lone path-like comment — a
-bare resolvable path such as `// core/src/main/java/.../MatchExecutionPlanner.java`, or a
-lone suffixed token such as `// MatchExecutionPlanner.java:5192` with nothing after it. Both
-fail `--verify`.
+Keep snippets minimal: show only the lines the argument turns on, and describe the rest in
+prose rather than pasting a whole method. A snippet stands in for an idea, not for the file it
+came from — so cite its location in the surrounding prose or the caption as `ClassName.java:NNN`
+rather than as a leading file-path comment inside the fence.
 
 ## Formatting conventions
 
@@ -148,9 +102,23 @@ fail `--verify`.
 - **Defined terms** — in *italics* on first use within the article, immediately followed by
   their plain-English meaning.
 - **Figures** — captioned below the closing fence as `**Figure N — caption.**`, numbered
-  sequentially within the article (`N` = the figure's index, starting at 1). A figure must
-  teach one idea the prose leans on; if it only restates the prose, cut one of them.
+  sequentially within the article (`N` = the figure's index, starting at 1). What a figure
+  should teach is covered in the *Figures* section below.
 - **Tables** — captioned above the table as `**Table N — caption.**`, numbered sequentially
   within the article.
 - **No bullet-point fact dumps.** Use a list when the reader is genuinely enumerating cases;
   use prose when explaining a single idea.
+
+## Figures
+
+Diagrams are authored as *Mermaid* — the versioned source of truth, which renders directly
+in-repo — and exported to *PNG* for publication. Medium renders neither Mermaid nor SVG; it
+shows only uploaded raster images, so PNG is the Medium-facing format for every figure. The
+front-page *hero* is a deterministic title card generated from the template at
+`templates/hero.svg` (the author copies it into the article folder and fills in the title,
+subtitle, and byline), not a hand-drawn image.
+
+Every figure carries alt text and a caption, and each one teaches a single idea the prose
+leans on; if a figure only restates the prose, cut one of them. Never hand-edit a generated
+PNG — it is a build artifact. Change the Mermaid or the title-card source and regenerate it
+(see the render step in [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md)).
