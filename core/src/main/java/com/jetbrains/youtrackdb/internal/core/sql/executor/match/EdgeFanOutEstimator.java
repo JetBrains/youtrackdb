@@ -6,6 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Estimates the average number of adjacent vertices reachable from one vertex of a
@@ -78,6 +80,35 @@ public final class EdgeFanOutEstimator {
       Direction direction,
       String outVertexClass,
       String inVertexClass) {
+    // Backward-compatible overload for callers with no per-plan cache in
+    // scope. A fresh map still memoizes the (edge, source) counts of this
+    // single call and yields values identical to the un-cached original.
+    return estimateFanOut(
+        session, edgeClassName, sourceClassName, direction,
+        outVertexClass, inVertexClass, new HashMap<>());
+  }
+
+  /**
+   * Cache-aware variant of
+   * {@link #estimateFanOut(DatabaseSessionEmbedded, String, String, Direction,
+   * String, String)} that memoizes each {@link SchemaClassInternal#approximateCount}
+   * lookup by class name in {@code classCountCache}. {@code approximateCount}
+   * is a deterministic O(1) read against a stable schema snapshot, so the cache
+   * is a pure memo: computed fan-out values are identical to the un-cached path,
+   * only redundant count lookups for a class already seen in the same plan are
+   * elided.
+   *
+   * @param classCountCache per-plan memo of {@code className → approximateCount};
+   *                        never {@code null}
+   */
+  public static double estimateFanOut(
+      DatabaseSessionEmbedded session,
+      String edgeClassName,
+      String sourceClassName,
+      Direction direction,
+      String outVertexClass,
+      String inVertexClass,
+      Map<String, Long> classCountCache) {
     assert MatchAssertions.checkNotNull(session, "session");
     assert MatchAssertions.checkNotNull(direction, "direction");
 
@@ -95,8 +126,8 @@ public final class EdgeFanOutEstimator {
       return defaultFanOut();
     }
 
-    long edgeCount = edgeClass.approximateCount(session);
-    long sourceCount = sourceClass.approximateCount(session);
+    long edgeCount = countFor(edgeClass, session, classCountCache);
+    long sourceCount = countFor(sourceClass, session, classCountCache);
 
     if (sourceCount == 0) {
       return 0.0;
@@ -105,7 +136,7 @@ public final class EdgeFanOutEstimator {
     if (direction == Direction.BOTH) {
       return estimateBothFanOut(
           session, schema, edgeCount, sourceCount, sourceClassName,
-          outVertexClass, inVertexClass);
+          outVertexClass, inVertexClass, classCountCache);
     }
 
     return (double) edgeCount / sourceCount;
@@ -123,7 +154,8 @@ public final class EdgeFanOutEstimator {
       long sourceCount,
       String sourceClassName,
       String outVertexClass,
-      String inVertexClass) {
+      String inVertexClass,
+      Map<String, Long> classCountCache) {
     // When neither vertex class is declared in the schema (schema-less or
     // mixed mode), fall back to a naive estimate: the source vertex can
     // appear on both sides, so fan-out ≈ 2 × edgeCount / sourceCount.
@@ -140,7 +172,7 @@ public final class EdgeFanOutEstimator {
         outVertexClass)) {
       var outClass = schema.getClassInternal(outVertexClass);
       if (outClass != null) {
-        long outCount = outClass.approximateCount(session);
+        long outCount = countFor(outClass, session, classCountCache);
         outFanOut = outCount > 0 ? (double) edgeCount / outCount : 0.0;
       }
     }
@@ -149,12 +181,26 @@ public final class EdgeFanOutEstimator {
         inVertexClass)) {
       var inClass = schema.getClassInternal(inVertexClass);
       if (inClass != null) {
-        long inCount = inClass.approximateCount(session);
+        long inCount = countFor(inClass, session, classCountCache);
         inFanOut = inCount > 0 ? (double) edgeCount / inCount : 0.0;
       }
     }
 
     return outFanOut + inFanOut;
+  }
+
+  /**
+   * Memoizes {@link SchemaClassInternal#approximateCount} by class name. Class
+   * names are unique within a schema snapshot and {@code approximateCount} is
+   * deterministic for the lifetime of one plan, so the cached value is always
+   * equal to a fresh call.
+   */
+  private static long countFor(
+      SchemaClassInternal clazz,
+      DatabaseSessionEmbedded session,
+      Map<String, Long> classCountCache) {
+    return classCountCache.computeIfAbsent(
+        clazz.getName(), k -> clazz.approximateCount(session));
   }
 
   /**

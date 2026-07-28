@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -397,11 +398,15 @@ public class MatchExecutionPlanner {
   private static final int MAX_CHAIN_FOLD_HOPS = 1000;
 
   /**
-   * Tracks the last knob value that triggered an upper-bound clamp warning,
-   * so {@link #clampChainFoldMaxHops} logs at most once per <em>unique</em>
-   * out-of-range value. The sort loop reads the knob once per plan, so for
-   * a server processing thousands of queries with a misconfigured knob we
-   * would otherwise emit thousands of duplicate WARN lines.
+   * Tracks the last out-of-range knob value that triggered an upper-bound
+   * clamp warning, so {@link #clampChainFoldMaxHops} dedupes against the
+   * <em>immediately-preceding</em> warned value only. This is last-value
+   * dedupe, not once-per-distinct-value: a steady misconfiguration on a
+   * single value warns once, and an alternating misconfiguration between
+   * two out-of-range values (e.g. {@code 5000}, {@code 6000}, {@code 5000},
+   * …) re-warns on every change because each value differs from the one
+   * stored by the previous clamp. The common case — one misconfigured value
+   * read once per plan across many queries — collapses to a single WARN.
    *
    * <p>Initialised to {@code 0} as a sentinel: {@code 0} is always in-range
    * (it is the documented "fold disabled" value) so the clamp helper never
@@ -894,11 +899,15 @@ public class MatchExecutionPlanner {
     long estimate = estimateAliasCardinality(
         originAlias, aliasClasses, aliasFilters, aliasPinnedRids, context);
     var currentClass = aliasClasses.get(originAlias);
+    // Fresh per-call memo of class-name → approximateCount: fan-out values
+    // are unchanged, only repeated counts for the same class are elided.
+    Map<String, Long> classCountCache = new HashMap<>();
     for (var item : exp.getItems()) {
       // Estimate fan-out from schema statistics (edgeCount / sourceCount)
       // or fall back to default if schema metadata is unavailable
       var method = item.getMethod();
-      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      double fanOut = estimateMethodFanOut(method, currentClass, session,
+          classCountCache);
       long fanOutLong = Math.max(1, Math.round(fanOut));
       if (estimate > Long.MAX_VALUE / fanOutLong) {
         return Long.MAX_VALUE; // overflow guard
@@ -1442,10 +1451,13 @@ public class MatchExecutionPlanner {
     // it's a filter verifying the target alias matches an already-visited node (cost 0).
     int edgeCount = Math.max(0, branchEdges.size() - 1);
     var currentClass = aliasClasses.get(branchRoot);
+    // Fresh per-call class-count memo (pure optimisation).
+    Map<String, Long> classCountCache = new HashMap<>();
     for (int i = 0; i < edgeCount; i++) {
       var edgeT = branchEdges.get(i);
       var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
-      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      double fanOut = estimateMethodFanOut(method, currentClass, session,
+          classCountCache);
       long fanOutLong = Math.max(1, Math.round(fanOut));
       if (rows > Long.MAX_VALUE / fanOutLong) {
         return Long.MAX_VALUE; // overflow guard
@@ -1502,13 +1514,16 @@ public class MatchExecutionPlanner {
         rootAlias, aliasClasses, aliasFilters, aliasPinnedRids, context);
 
     var currentClass = aliasClasses.get(rootAlias);
+    // Fresh per-call class-count memo (pure optimisation).
+    Map<String, Long> classCountCache = new HashMap<>();
     for (int i = 0; i < checkIdx; i++) {
       var edgeT = scheduledEdges.get(i);
       if (branchEdgeSet.contains(edgeT)) {
         continue; // Skip branch edges — they don't contribute to upstream
       }
       var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
-      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      double fanOut = estimateMethodFanOut(method, currentClass, session,
+          classCountCache);
       long fanOutLong = Math.max(1, Math.round(fanOut));
       if (rows > Long.MAX_VALUE / fanOutLong) {
         return Long.MAX_VALUE;
@@ -1548,10 +1563,13 @@ public class MatchExecutionPlanner {
     int edgeCount = Math.max(0, branchEdges.size() - 1);
     double fanOut = 1.0;
     var currentClass = aliasClasses.get(branchRoot);
+    // Fresh per-call class-count memo (pure optimisation).
+    Map<String, Long> classCountCache = new HashMap<>();
     for (int i = 0; i < edgeCount; i++) {
       var edgeT = branchEdges.get(i);
       var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
-      fanOut *= estimateMethodFanOut(method, currentClass, session);
+      fanOut *= estimateMethodFanOut(method, currentClass, session,
+          classCountCache);
       var target = targetAlias(edgeT);
       var targetFilter = aliasFilters.get(target);
       if (targetFilter != null) {
@@ -2030,8 +2048,16 @@ public class MatchExecutionPlanner {
     // and session, all stable for the lifetime of one plan. The visited-edge
     // check is dynamic and is performed at each call site separately, so the
     // cache stores only the structural shape. {@code containsKey} disambiguates
-    // a known-not-chain ({@code null} value) from an uncached entry.
-    Map<PatternEdge, ChainedTarget> chainShapeCache = new HashMap<>();
+    // a known-not-chain ({@code null} value) from an uncached entry. The key is
+    // a composite of (edge, neighbor-direction) because detectChainShape's
+    // answer depends on which side of the edge the neighbor is on; keying by
+    // edge alone would let one direction's result poison the other.
+    Map<ChainShapeKey, ChainedTarget> chainShapeCache = new HashMap<>();
+    // Per-plan memo of class-name → approximateCount, shared by the edge-cost
+    // estimator and the chain fold so each distinct class's O(1) count read
+    // happens once per plan. Pure memo of a deterministic call: values are
+    // identical to the un-cached path. Same lifetime/scope as chainShapeCache.
+    Map<String, Long> classCountCache = new HashMap<>();
 
     // Sort the possible root vertices in order of estimated size, since we want to start with a
     // small vertex set.
@@ -2087,7 +2113,7 @@ public class MatchExecutionPlanner {
       updateScheduleStartingAt(
           startingNode, visitedNodes, visitedEdges, remainingDependencies,
           resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
-          session, chainFoldMaxHops, chainShapeCache);
+          session, chainFoldMaxHops, chainShapeCache, classCountCache);
     }
 
     if (resultingSchedule.size() != pattern.numOfEdges) {
@@ -2112,9 +2138,12 @@ public class MatchExecutionPlanner {
    * because the operator's intent matters here: somebody who set the knob
    * to e.g. {@code 100_000} probably wanted "fold everything", and a silent
    * clamp would leave them debugging a fold depth that does not match their
-   * configuration. The warning fires at most once per unique raw value in a
-   * JVM lifetime — concurrent plans racing on the same out-of-range value
-   * agree on a single emitter via {@link AtomicInteger#getAndSet}.
+   * configuration. The warning is deduped against the immediately-preceding
+   * out-of-range value (last-value dedupe via {@link AtomicInteger#getAndSet}
+   * on {@link #lastWarnedChainFoldKnob}): a repeated single out-of-range
+   * value warns once, but alternating between two out-of-range values
+   * re-warns on each change. Concurrent plans racing on the same brand-new
+   * out-of-range value agree on a single emitter.
    *
    * @param raw the raw knob value as read from {@link GlobalConfiguration}
    * @return the clamped value, in {@code [0, MAX_CHAIN_FOLD_HOPS]}
@@ -2166,7 +2195,8 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       DatabaseSessionEmbedded session,
       int chainFoldMaxHops,
-      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+      Map<ChainShapeKey, ChainedTarget> chainShapeCache,
+      Map<String, Long> classCountCache) {
     // YouTrackDB requires the schedule to contain all edges present in the query, which is a stronger
     // condition
     // than simply visiting all nodes in the query. Consider the following example query:
@@ -2244,7 +2274,8 @@ public class MatchExecutionPlanner {
         cost = 0.0;
       } else {
         cost = estimateEdgeCost(
-            entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
+            entry.getKey(), sourceAlias, sourceRows, aliasClasses, session,
+            classCountCache);
         if (cost < Double.MAX_VALUE) {
           cost = applyTargetSelectivity(
               cost, neighbor.alias, entry.getKey(), entry.getValue(),
@@ -2262,7 +2293,7 @@ public class MatchExecutionPlanner {
             cost = applyChainFold(
                 cost, entry.getKey(), neighbor, chainFoldMaxHops, visitedEdges,
                 aliasClasses, aliasFilters, estimatedRootEntries, session,
-                chainShapeCache);
+                chainShapeCache, classCountCache);
           }
           cost = applyDepthMultiplier(cost, entry.getKey());
         }
@@ -2375,7 +2406,7 @@ public class MatchExecutionPlanner {
           updateScheduleStartingAt(
               neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
               resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
-              session, chainFoldMaxHops, chainShapeCache);
+              session, chainFoldMaxHops, chainShapeCache, classCountCache);
           progress = true;
         }
       }
@@ -2437,6 +2468,25 @@ public class MatchExecutionPlanner {
       long sourceRows,
       Map<String, String> aliasClasses,
       DatabaseSessionEmbedded session) {
+    // Backward-compatible overload for callers with no per-plan cache in
+    // scope: a fresh memo yields values identical to the un-cached path.
+    return estimateEdgeCost(
+        edge, sourceAlias, sourceRows, aliasClasses, session, new HashMap<>());
+  }
+
+  /**
+   * Cache-aware variant of {@link #estimateEdgeCost(PatternEdge, String, long,
+   * Map, DatabaseSessionEmbedded)} that threads a per-plan class-count memo
+   * into {@link EdgeFanOutEstimator#estimateFanOut}. The memo is a pure
+   * optimisation: estimated costs are identical to the un-cached path.
+   */
+  static double estimateEdgeCost(
+      PatternEdge edge,
+      String sourceAlias,
+      long sourceRows,
+      Map<String, String> aliasClasses,
+      DatabaseSessionEmbedded session,
+      Map<String, Long> classCountCache) {
     var method = edge.item.getMethod();
     if (method == null) {
       return Double.MAX_VALUE;
@@ -2476,7 +2526,7 @@ public class MatchExecutionPlanner {
 
     double fanOut = EdgeFanOutEstimator.estimateFanOut(
         session, edgeClassName, sourceClassName, direction,
-        outVertexClass, inVertexClass);
+        outVertexClass, inVertexClass, classCountCache);
 
     return CostModel.edgeTraversalCost(sourceRows, fanOut);
   }
@@ -2490,12 +2540,17 @@ public class MatchExecutionPlanner {
    * @param method         the edge's traversal method (e.g., out('KNOWS'))
    * @param sourceClassName class of the vertex we traverse FROM, or null
    * @param session        database session for schema access
+   * @param classCountCache per-call/per-plan memo of class-name →
+   *                        approximateCount, threaded into
+   *                        {@link EdgeFanOutEstimator#estimateFanOut}; a pure
+   *                        optimisation that does not change the returned value
    * @return estimated fan-out (avg neighbors per source vertex)
    */
   static double estimateMethodFanOut(
       SQLMethodCall method,
       @Nullable String sourceClassName,
-      DatabaseSessionEmbedded session) {
+      DatabaseSessionEmbedded session,
+      Map<String, Long> classCountCache) {
     if (method == null) {
       return EdgeFanOutEstimator.defaultFanOut();
     }
@@ -2524,7 +2579,7 @@ public class MatchExecutionPlanner {
     }
     return EdgeFanOutEstimator.estimateFanOut(
         session, edgeClassName, sourceClassName, direction,
-        outVertexClass, inVertexClass);
+        outVertexClass, inVertexClass, classCountCache);
   }
 
   /**
@@ -2689,12 +2744,34 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, Long> estimatedRootEntries,
       DatabaseSessionEmbedded session) {
+    // Backward-compatible overload with no class-count memo.
+    return applyTargetSelectivityWithResolvedClass(
+        baseCost, targetAlias, preResolvedTargetClass,
+        aliasFilters, estimatedRootEntries, null, session);
+  }
+
+  /**
+   * Cache-aware variant of
+   * {@link #applyTargetSelectivityWithResolvedClass(double, String, String,
+   * Map, Map, DatabaseSessionEmbedded)} that threads a per-plan class-count
+   * memo into {@link #applyClassSelectivity}. The memo is a pure optimisation
+   * (deterministic {@code approximateCount} keyed by class name); returned
+   * costs are identical to the un-cached path.
+   */
+  static double applyTargetSelectivityWithResolvedClass(
+      double baseCost,
+      String targetAlias,
+      @Nullable String preResolvedTargetClass,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      @Nullable Map<String, Long> classCountCache,
+      DatabaseSessionEmbedded session) {
     if (preResolvedTargetClass == null) {
       return baseCost;
     }
     return baseCost * applyClassSelectivity(
         targetAlias, preResolvedTargetClass,
-        aliasFilters, estimatedRootEntries, null, session);
+        aliasFilters, estimatedRootEntries, classCountCache, session);
   }
 
   /**
@@ -2882,7 +2959,8 @@ public class MatchExecutionPlanner {
 
     var method = et.edge.item.getMethod();
     String sourceClass = aliasClasses.get(sourceAlias);
-    double fanOut = estimateMethodFanOut(method, sourceClass, session);
+    double fanOut = estimateMethodFanOut(method, sourceClass, session,
+        classCountCache);
     if (!(fanOut > 0) || !Double.isFinite(fanOut)) {
       et.setForecastN(-1L);
       return;
@@ -2991,6 +3069,19 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Composite key for {@code chainShapeCache}. {@link #detectChainShape}'s
+   * answer depends not only on the first {@link PatternEdge} but also on which
+   * side of it the neighbor sits (forward: {@code neighbor == edge.in};
+   * reverse: {@code neighbor == edge.out}) — reverse traversals are rejected by
+   * the structural rule while forward ones may match. Keying by edge alone
+   * would let a cached reverse {@code null} poison the forward lookup (and vice
+   * versa); the {@code neighborIsIn} flag keeps the two directions distinct,
+   * and a {@code null} result stays cached per (edge, direction).
+   */
+  private record ChainShapeKey(PatternEdge edge, boolean neighborIsIn) {
+  }
+
+  /**
    * Detects the edge-method chain pattern {@code .outE(X).inV()} (and its
    * {@code inE→outV} / {@code bothE→bothV} variants) that appears as two
    * consecutive {@link PatternEdge}s in the pattern graph.
@@ -3043,25 +3134,45 @@ public class MatchExecutionPlanner {
    *                       {@code null} for the class field
    * @return the downstream vertex descriptor when the chain signature
    *         matches, otherwise {@code null}
+   * @apiNote Package-visible test seam. The full structural rule — including
+   *          the clause-4 intermediate-edge identity guard — covers pattern
+   *          shapes the runtime DFS cannot construct today; this seam lets
+   *          unit tests exercise those guards directly. Production folds go
+   *          through {@link #applyChainFold} / {@link #lookupOrDetectChainShape}.
    */
+  @VisibleForTesting
   @Nullable static ChainedTarget resolveChainedTarget(
       PatternEdge edge,
       PatternNode neighbor,
       Set<PatternEdge> visitedEdges,
       @Nullable Map<String, String> aliasClasses,
-      @Nullable DatabaseSessionEmbedded session) {
-    var shape = detectChainShape(edge, neighbor, aliasClasses, session);
-    if (shape == null) {
-      return null;
-    }
-    // Visited-edge check is dynamic (DFS state); kept separate from
-    // {@link #detectChainShape} so the structural answer can be cached
-    // across plan iterations. {@code detectChainShape} already verified
-    // {@code neighbor.out.size() == 1}, so the iterator access is safe.
-    if (visitedEdges.contains(neighbor.out.iterator().next())) {
+      DatabaseSessionEmbedded session) {
+    // Route through the cached path (with a throwaway per-call cache) so the
+    // test seam exercises the exact structural detection the sort loop uses,
+    // then apply the shared dynamic visited-edge rule.
+    var shape = lookupOrDetectChainShape(
+        edge, neighbor, aliasClasses, session, new HashMap<>());
+    if (shape == null || chainVertexStepVisited(neighbor, visitedEdges)) {
       return null;
     }
     return shape;
+  }
+
+  /**
+   * Shared visited-edge rule for the edge-method chain fold: the chain is only
+   * foldable while its vertex-step edge (the single edge out of {@code neighbor},
+   * guaranteed to exist by {@link #detectChainShape}'s
+   * {@code neighbor.out.size() == 1} check) has not yet been scheduled. Folding
+   * an already-visited vertex-step edge would double-count its downstream
+   * selectivity through the cached structural answer.
+   *
+   * <p>Single source of truth for the dynamic guard shared by the cached
+   * sort-loop path ({@link #applyChainFold}) and the package-visible test seam
+   * ({@link #resolveChainedTarget}).
+   */
+  private static boolean chainVertexStepVisited(
+      PatternNode neighbor, Set<PatternEdge> visitedEdges) {
+    return visitedEdges.contains(neighbor.out.iterator().next());
   }
 
   /**
@@ -3080,7 +3191,7 @@ public class MatchExecutionPlanner {
       PatternEdge edge,
       PatternNode neighbor,
       @Nullable Map<String, String> aliasClasses,
-      @Nullable DatabaseSessionEmbedded session) {
+      DatabaseSessionEmbedded session) {
     if (edge.item == null || edge.item.getMethod() == null) {
       return null;
     }
@@ -3090,7 +3201,7 @@ public class MatchExecutionPlanner {
     // allocating a lower-cased copy — String.equalsIgnoreCase short-circuits
     // on length mismatch, so .out (len 3) vs .outE (len 4) bails out before
     // any character comparison. Only on a positive match do we cache the
-    // lower-cased canonical form for `inferDownstreamVertexClassFromEdge`.
+    // lower-cased canonical form for `linkedVertexClassForVertexStep`.
     if (rawFirstName == null
         || (!"outE".equalsIgnoreCase(rawFirstName)
             && !"inE".equalsIgnoreCase(rawFirstName)
@@ -3263,9 +3374,13 @@ public class MatchExecutionPlanner {
    * layers are intentional defense-in-depth: callers may rely on either.
    *
    * <p>{@code chainShapeCache} memoizes the structural part of the chain
-   * detection per first-edge identity, so repeat sort-loop invocations of
-   * the same edge skip the lower-case method-name comparisons and the
-   * schema lookups. The dynamic visited-edge check is performed inline.
+   * detection per (first-edge, neighbor-direction) key, so repeat sort-loop
+   * invocations of the same edge skip the lower-case method-name comparisons
+   * and the schema lookups. The dynamic visited-edge check is performed inline
+   * via {@link #chainVertexStepVisited}. {@code classCountCache} is the shared
+   * per-plan memo of class-name → approximateCount; threading it here keeps the
+   * fold's fan-out and selectivity lookups in lock-step with the sort loop's
+   * edge-cost estimator so each distinct class is counted once per plan.
    *
    * @return the cost adjusted for all detected chain hops up to
    *         {@code maxHops}; equals {@code baseCost} when no chain is
@@ -3280,30 +3395,28 @@ public class MatchExecutionPlanner {
       @Nullable Map<String, String> aliasClasses,
       @Nullable Map<String, SQLWhereClause> aliasFilters,
       @Nullable Map<String, Long> estimatedRootEntries,
-      @Nullable DatabaseSessionEmbedded session,
-      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+      DatabaseSessionEmbedded session,
+      Map<ChainShapeKey, ChainedTarget> chainShapeCache,
+      Map<String, Long> classCountCache) {
     var firstHop = lookupOrDetectChainShape(
         firstEdge, firstNeighbor, aliasClasses, session, chainShapeCache);
-    if (firstHop == null) {
+    // Shared dynamic visited-edge rule (see chainVertexStepVisited): a chain
+    // whose vertex-step edge is already scheduled would double-count its
+    // selectivity through the cached structural answer.
+    if (firstHop == null || chainVertexStepVisited(firstNeighbor, visitedEdges)) {
       return baseCost;
     }
     // detectChainShape verified firstNeighbor.out.size() == 1, so this
-    // iterator yields the chain's vertex-step edge — referenced both for
-    // the visited-edge guard below and as the source of the first hop's
-    // downstream vertex when seeding the multi-hop walk.
+    // iterator yields the chain's vertex-step edge — used as the source of
+    // the first hop's downstream vertex when seeding the multi-hop walk.
     var firstHopVertexStepEdge = firstNeighbor.out.iterator().next();
-    // Visited-edge check is dynamic and intentionally not cached: a chain
-    // whose downstream edge is already scheduled would double-count its
-    // selectivity through the cached structural answer.
-    if (visitedEdges.contains(firstHopVertexStepEdge)) {
-      return baseCost;
-    }
     double cost = applyTargetSelectivityWithResolvedClass(
         baseCost,
         firstHop.effectiveTargetAlias(),
         firstHop.effectiveTargetClass(),
         aliasFilters,
         estimatedRootEntries,
+        classCountCache,
         session);
 
     if (maxHops <= 1) {
@@ -3326,7 +3439,8 @@ public class MatchExecutionPlanner {
       cost *= estimateMethodFanOut(
           hop.edgeStep().item.getMethod(),
           hop.edgeStepSourceClass(),
-          session);
+          session,
+          classCountCache);
       // Intermediate edge alias is mostly auto-generated (no WHERE), so this
       // call is typically a no-op via the no-filter short-circuit. The class
       // is the EDGE class of this hop's edge step (e.g. 'Friend' for
@@ -3339,6 +3453,7 @@ public class MatchExecutionPlanner {
           extractEdgeClassName(hop.edgeStep().item.getMethod()),
           aliasFilters,
           estimatedRootEntries,
+          classCountCache,
           session);
       cost = applyTargetSelectivityWithResolvedClass(
           cost,
@@ -3346,6 +3461,7 @@ public class MatchExecutionPlanner {
           hop.downstreamClass(),
           aliasFilters,
           estimatedRootEntries,
+          classCountCache,
           session);
     }
     return cost;
@@ -3383,6 +3499,14 @@ public class MatchExecutionPlanner {
    * @return list of additional hops (may be empty); each hop is one
    *         (edge step, vertex step) sub-chain
    */
+  // NOTE: accepted PF-residual risk. This walk only enumerates the chain's
+  // structural hops (memoized via chainShapeCache + classCountCache); it does
+  // NOT itself call estimateFilterSelectivity. The caller (applyChainFold)
+  // applies per-hop WHERE selectivity, and estimateFilterSelectivity performs
+  // uncached index/histogram lookups. At QUERY_MATCH_CHAIN_FOLD_MAX_HOPS ≈ 1000
+  // with hundreds of filtered chained hops this degrades to O(N^2) per plan.
+  // It is bounded and harmless at the default knob (10) — the realistic worst
+  // case stays under ~30 hops — so no per-hop selectivity cache is added here.
   private static List<ChainHop> walkLinearChainExtension(
       PatternNode currentVertex,
       @Nullable String currentVertexClass,
@@ -3392,7 +3516,7 @@ public class MatchExecutionPlanner {
       PatternEdge firstHopVertexStepEdge,
       @Nullable Map<String, String> aliasClasses,
       @Nullable DatabaseSessionEmbedded session,
-      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+      Map<ChainShapeKey, ChainedTarget> chainShapeCache) {
     if (remainingHops <= 0) {
       return List.of();
     }
@@ -3466,18 +3590,24 @@ public class MatchExecutionPlanner {
    * cannot be used here because we want to memoize {@code null} results
    * (known-not-chain edges) too; the {@code containsKey}/{@code put} pair
    * disambiguates a missing entry from a cached negative.
+   *
+   * <p>The cache is keyed by ({@code edge}, neighbor-direction) rather than by
+   * {@code edge} alone: {@link #detectChainShape}'s answer depends on which
+   * side of the edge the neighbor sits, so a {@code null} cached for one
+   * direction must not be returned for (or poison) the opposite direction.
    */
   @Nullable private static ChainedTarget lookupOrDetectChainShape(
       PatternEdge edge,
       PatternNode neighbor,
       @Nullable Map<String, String> aliasClasses,
       @Nullable DatabaseSessionEmbedded session,
-      Map<PatternEdge, ChainedTarget> chainShapeCache) {
-    if (chainShapeCache.containsKey(edge)) {
-      return chainShapeCache.get(edge);
+      Map<ChainShapeKey, ChainedTarget> chainShapeCache) {
+    var key = new ChainShapeKey(edge, neighbor == edge.in);
+    if (chainShapeCache.containsKey(key)) {
+      return chainShapeCache.get(key);
     }
     var shape = detectChainShape(edge, neighbor, aliasClasses, session);
-    chainShapeCache.put(edge, shape);
+    chainShapeCache.put(key, shape);
     return shape;
   }
 
@@ -5720,7 +5850,7 @@ public class MatchExecutionPlanner {
    * Defensive: returns {@code null} if the session or any link in the
    * schema-lookup chain is missing, so this is the single source of truth
    * for the "edge-class → linked-vertex-class" resolution (also used by
-   * {@link #inferDownstreamVertexClassFromEdge}).
+   * {@link #linkedVertexClassForVertexStep}).
    *
    * @param edgeClassName the edge class to look up
    * @param propName the property name to read — must be {@code "in"} or {@code "out"}
