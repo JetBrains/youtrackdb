@@ -62,7 +62,7 @@ prevents scope creep and tells reviewers not to flag an omission that was a deci
 
 - ______
 (The packages, classes, and files whose behaviour the article describes, provided by the
-requester. Every code claim is verified against these in the live tree per
+author. Every code claim is verified against these in the live tree per
 [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md) Rule 0; the live source is the sole
 authority for every name and behaviour.)
 

@@ -47,26 +47,38 @@ The output tree is [`../docs/blog/`](../docs/blog/): finished articles land in
 
 ## Producing one article, end to end
 
-The steps below are the map; [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md) is the
-executable version with the review gauntlet and the acceptance bar.
+Two roles share the work: **you** (the author) supply the judgement and the raw material; the
+**machinery** does the execution and the checking. Your inputs come first; the machinery runs
+on them; you have the final say. This is the map — [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md)
+is the executable version, with the review gauntlet and the acceptance bar.
 
-1. **Resolve the author's GitHub handle.** The tone file is keyed by it. The primary
-   resolution is `gh api user --jq .login`; the fallbacks are in [`TONE_GUIDE.md`](TONE_GUIDE.md),
-   *Handle resolution*.
-2. **Load or create the author's tone.** If `tones/<handle>.md` exists, load it. If it does
-   not, run the capture process in [`TONE_GUIDE.md`](TONE_GUIDE.md) *before* writing — never
-   guess a voice.
-3. **Fill an article brief.** Copy [`ARTICLE_BRIEF_TEMPLATE.md`](ARTICLE_BRIEF_TEMPLATE.md)
-   and fill every blank: audience, mental models, thesis, scope, sources, caveats, length.
-4. **Author against the tone.** Write the article using the brief for *what* and the tone
-   file for *how it should sound*, following the structural and accuracy rules in
-   [`BLOG_BRIEF.md`](BLOG_BRIEF.md).
-5. **Run the validation gauntlet.** Non-code review perspectives, citation-accuracy against
-   live source by a fresh reviewer, voice conformance to the tone file, and a reader-persona
-   pass — all of it, per [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md).
-6. **Publish.** Write the article to `../docs/blog/articles/<slug>/index.md`, index it in
-   `../docs/blog/README.md`, and record the source baseline SHA its citations were verified
-   against.
+**What you provide (before anything runs)**
+- The idea and its shape: the thesis, who it's for, the one or two takeaways, and what's in
+  and out of scope.
+- The **code references** the article is built on — the packages/classes/files whose
+  behaviour it describes. The machinery treats these as the authority; it does not hunt for
+  them.
+- Your identity: your GitHub handle (so your tone file can be found). If you have no tone file
+  yet, two writing samples (or a short interview) so one can be captured.
+- The **figures you want**: the hero title-card text (title, subtitle, byline), and which
+  illustrative diagrams to include and what each one should teach.
+
+**What the machinery does**
+- Resolves your handle (`gh api user --jq .login`) and loads your tone — or captures one from
+  your samples first, never guessing a voice. Details in [`TONE_GUIDE.md`](TONE_GUIDE.md).
+- Drafts the brief from your inputs ([`ARTICLE_BRIEF_TEMPLATE.md`](ARTICLE_BRIEF_TEMPLATE.md)).
+- Authors the article in your tone in its own folder; authors the diagrams as Mermaid from
+  your plan and fills the hero template; renders both to PNG via
+  [`scripts/render-figures.sh`](scripts/render-figures.sh).
+- Runs the validation gauntlet: fresh-reviewer citation-accuracy against live source, voice
+  conformance to your tone, and a reader-persona pass — per
+  [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md).
+
+**Your final say**
+- You review the finished draft and approve it; only then does the machinery publish to
+  `../docs/blog/articles/<slug>/`, index it in
+  [`../docs/blog/README.md`](../docs/blog/README.md), and record the source baseline SHA.
+  Nothing ships until you do.
 
 ## The machinery documents, and when to read each
 

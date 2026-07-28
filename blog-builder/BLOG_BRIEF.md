@@ -67,7 +67,7 @@ makes about the engine is checkable against that tree.
   place in the source worth opening (structural principle 6).
 - **The live source is the sole authority.** Verify every name and behavioural claim against
   the code as it exists now (see [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md),
-  Rule 0) — never from a secondary description or from memory. The requester provides the
+  Rule 0) — never from a secondary description or from memory. The author provides the
   code references the article is built on.
 
 ### Freshness rule — record the source baseline

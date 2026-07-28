@@ -20,7 +20,7 @@ be perfectly on-voice, perfectly on-brief, and completely wrong about what the e
 **Secondary sources are untrusted for class and method names.** A name remembered from
 earlier work, copied from an older article, or lifted from a stale code comment may have been
 renamed or deleted since. The concrete failure mode: an article carries such a name in good
-faith, and the citation points at nothing in the current tree. The requester provides the
+faith, and the citation points at nothing in the current tree. The author provides the
 code references the article is built on, and those references in the live source are the sole
 authority for every name and behaviour — verify each one against the code as it exists now.
 
@@ -28,18 +28,27 @@ authority for every name and behaviour — verify each one against the code as i
 
 ## The pipeline
 
-### 0. Resolve the author's handle and load or create their tone
+The steps below are executed by the agent working from the author's inputs. Steps that require
+those inputs are marked **(author input)**; the finished draft returns to the author for
+approval (step 8) before anything publishes.
+
+### 0. Resolve the author's handle and load or create their tone (author input)
 
 Resolve the author's GitHub handle (`gh api user --jq .login`; fallbacks in
 [`TONE_GUIDE.md`](TONE_GUIDE.md), *Handle resolution*). If `tones/<handle>.md` exists, load
 it. If it does not, **run the capture process in [`TONE_GUIDE.md`](TONE_GUIDE.md) before
-authoring** — do not guess a voice, and do not fall back to a generic one.
+authoring** — do not guess a voice, and do not fall back to a generic one. The handle — and,
+when no tone file exists yet, the writing samples the capture process distils — are supplied
+by the author.
 
-### 1. Fill the article brief
+### 1. Fill the article brief (author input)
 
 Copy [`ARTICLE_BRIEF_TEMPLATE.md`](ARTICLE_BRIEF_TEMPLATE.md) and fill every blank: audience,
 the one or two mental models, thesis, scope (in and out), code references, known caveats,
-figures planned, and target read time. A blank left unfilled is undecided scope.
+figures planned, and target read time. A blank left unfilled is undecided scope. This
+substance — the idea and thesis, the audience and scope, the code references, the hero
+title-card text, and the figures planned — is the author's; the agent drafts the brief from
+it.
 
 ### 2. Confirm the voice against the tone file — BEFORE writing
 
@@ -110,9 +119,14 @@ folder. It renders every Mermaid diagram under `docs/blog/articles/<slug>/diagra
 `docs/blog/articles/<slug>/images/*.png`, and the title card
 `docs/blog/articles/<slug>/hero.svg` to `docs/blog/articles/<slug>/images/hero.png`. Never
 hand-edit a PNG; change the Mermaid or `hero.svg` source and re-run the script. The generated
-PNGs are committed at publish (step 8) — they are what Medium gets and what renders in-repo.
+PNGs are committed at publish (step 9) — they are what Medium gets and what renders in-repo.
 
-### 8. Publish
+### 8. Author approval
+
+The finished draft returns to the author. The author reviews the fully rendered article —
+prose, figures, and hero — and approves it. Nothing publishes until they do.
+
+### 9. Publish
 
 Finalize and index the article; its folder and sources already exist from step 3, and its
 PNGs from step 7.
@@ -129,10 +143,12 @@ PNGs from step 7.
 
 ## Acceptance bar
 
-An article is accepted only when **both** hold:
+An article is accepted only when **all three** hold:
 
 1. It has cleared the full validation gauntlet (step 4) — not a subset.
 2. Every code claim has been independently source-verified by a fresh reviewer (Rule 0), and
    each applied fix verified by a separate gate (step 6).
+3. The author has reviewed and approved the finished draft (step 8) — nothing publishes
+   before that gate.
 
 A green tone gate alone is never sufficient.
