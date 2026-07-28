@@ -29,6 +29,13 @@ import java.util.Iterator;
  * preserved for the ops that do not inherently need the whole stream; {@code fold} and {@code tail}
  * are window drains by nature.
  *
+ * <p>{@link #apply} may be called more than once for the same step. The boundary base rebuilds its
+ * shaped iterator on every (re)open of an arming — after a {@code reset()} and reopen, and once per
+ * child plan for a multi-plan boundary — calling {@code apply} afresh each time. So each call must
+ * return an independent iterator and the op must hold no state across calls: an op whose buffer is
+ * allocated once outside the returned iterator (rather than per call, the way a buffering {@code
+ * fold} or {@code tail} must) would replay stale output on the second arming.
+ *
  * <p>The boundary base does not apply any op when the list is empty (the structural bypass in {@link
  * AbstractMatchPlanStep}): the projection stream flows straight through, so a traversal with no
  * list-shaping terminator keeps its per-row laziness untouched.

@@ -895,17 +895,23 @@ public class YTDBMatchPlanStepTest {
   /**
    * A parameter-bearing, cardinality-changing op proves the carrier is a stream stage, not a 1→1
    * row-mapper: {@code TagRepeatOp("X", 2)} emits two payloads for every one upstream payload, so a
-   * single projected row yields two traversers — a shape no row-mapper could produce. The op is also
-   * lazy: pulling the first of the two copies advances the underlying stream by only one row. Driven
-   * over the SCALAR path so the projected payload is a deterministic value.
+   * single projected row yields two traversers — a shape no row-mapper could produce. The stage also
+   * streams across source rows: with two rows queued, both copies of row 1 are served before row 2 is
+   * pulled. This makes the laziness falsifiable — an eager collect-apply-emit stage would drain both
+   * rows before emitting anything, so the first-pull source count (one, not two) fails for the eager
+   * shape while a single-row stream could not tell the two apart. Driven over the SCALAR path so each
+   * projected payload is a deterministic value.
    */
   @Test
-  public void listShaping_flatMapOp_oneRowYieldsTwoTraversers_lazily() {
-    var row = mock(Result.class);
-    when(stream.hasNext(ctx)).thenReturn(true, false);
-    when(stream.next(ctx)).thenReturn(row);
-    when(row.getPropertyNames()).thenReturn(List.of("c"));
-    when(row.getProperty("c")).thenReturn(5L);
+  public void listShaping_flatMapOp_expandsEachRowLazily_secondRowNotPulledUntilFirstDrained() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getPropertyNames()).thenReturn(List.of("c"));
+    when(row1.getProperty("c")).thenReturn(5L);
+    when(row2.getPropertyNames()).thenReturn(List.of("c"));
+    when(row2.getProperty("c")).thenReturn(6L);
 
     var step =
         shapedStep(
@@ -913,22 +919,21 @@ public class YTDBMatchPlanStepTest {
             BoundaryOutputType.SCALAR,
             ResultShaping.NONE.withListShapingOps(List.of(new TagRepeatOp("X", 2))));
 
-    // Read the payload through a wildcard traverser so get() returns Object: the payload is a
-    // String, not the Vertex the ELEMENT-typed generic would checkcast to.
+    // Read payloads through wildcard traversers so get() returns Object: the payload is a String,
+    // not the Vertex the ELEMENT-typed generic would checkcast to.
     Traverser.Admin<?> t1 = step.processNextStart();
-    var first = t1.get();
-    // Lazy: the first copy is available after pulling only the single source row.
+    assertThat(t1.get()).isEqualTo("X:5");
+    // Lazy across rows: the first copy is served after pulling only row 1; row 2 is untouched.
     verify(stream, times(1)).next(ctx);
 
     Traverser.Admin<?> t2 = step.processNextStart();
-    var second = t2.get();
-    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    assertThat(t2.get()).isEqualTo("X:5"); // 2nd copy served from the op buffer — no new source pull
+    verify(stream, times(1)).next(ctx);
 
-    // One source row expanded into two traversers — the cardinality change a stream stage carries
-    // and a row-mapper cannot.
-    assertThat(first).isEqualTo("X:5");
-    assertThat(second).isEqualTo("X:5");
-    verify(stream, times(1)).next(ctx); // still just the one source row across both emissions
+    Traverser.Admin<?> t3 = step.processNextStart();
+    // Only now, with row 1's expansion drained, is row 2 pulled — the stage streamed, not drained.
+    assertThat(t3.get()).isEqualTo("X:6");
+    verify(stream, times(2)).next(ctx);
   }
 
   /**
@@ -975,9 +980,133 @@ public class YTDBMatchPlanStepTest {
     var second = t2.get();
     assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
 
-    // The one accumulated map became two traversers: the op ran on the group-barrier path.
-    assertThat(first).isEqualTo(second);
-    assertThat(String.valueOf(first)).startsWith("G:{k1=7}");
+    // The one accumulated map became two traversers: the op ran on the group-barrier path. The
+    // accumulated map is fully deterministic ({k1=7}), so assert the exact payload on both copies
+    // rather than a prefix — a regression that appended trailing content or reshaped the map is
+    // caught here.
+    assertThat(first).isEqualTo("G:{k1=7}");
+    assertThat(second).isEqualTo("G:{k1=7}");
+  }
+
+  /**
+   * A null payload is a legitimate emission, not an absence: an unmatched optional element projects
+   * to a null vertex, and the projection source buffers and emits it rather than skipping it. This
+   * drives a null-projecting row ahead of a real-vertex row and asserts the null is emitted first
+   * (order preserved) and the real vertex second. The projection source distinguishes "a null is
+   * buffered" from "nothing buffered" with a separate has-buffered flag precisely because null is a
+   * valid payload; a regression to a null sentinel (treating a null payload as "not buffered") would
+   * loop past the null, dropping the optional and shifting the emitted sequence, and this test would
+   * catch it.
+   */
+  @Test
+  public void processNextStart_nullPayloadIsEmittedNotDropped_andOrderPreserved() {
+    var row1 = mock(Result.class); // optional miss → null vertex
+    var row2 = mock(Result.class); // real vertex
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getVertex("v")).thenReturn(null); // legitimate null payload
+    when(row2.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v");
+
+    var first = step.processNextStart().get(); // the null payload, not row2
+    var second = step.processNextStart().get();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    assertThat(first).isNull(); // null buffered and emitted via the has-buffered flag
+    assertThat(assertRawEntityOf(second)).isSameAs(rawVertex);
+  }
+
+  /**
+   * A partial consume followed by {@code reset()} and reopen rebuilds the shaped iterator fresh
+   * against the rewound plan rather than resuming the abandoned arming's op buffer. This consumes one
+   * of a buffering op's three copies, resets mid-buffer, then reopens: the post-reset pull must
+   * re-project from the stream (a fresh copy), not serve a leftover buffered copy. The stream pull
+   * count is the discriminator — a rebuilt iterator re-projects the row (two source pulls across the
+   * two armings), a resumed stale iterator would serve its buffer without touching the stream (one).
+   * A regression that stopped nulling the shaped iterator on reopen would keep the stale buffer and
+   * fail that count.
+   */
+  @Test
+  public void listShaping_resetAfterPartialConsume_rebuildsShapedIteratorFresh() {
+    var row = mock(Result.class);
+    // One row per arming; the buffering op fans it to three copies, of which the test consumes one.
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("c"));
+    when(row.getProperty("c")).thenReturn(5L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TagRepeatOp("X", 3))));
+
+    // Wildcard traverser so get() returns Object (the payload is a String).
+    Traverser.Admin<?> t1 = step.processNextStart();
+    assertThat(t1.get()).isEqualTo("X:5"); // 1 of 3; two copies left in the op buffer
+    step.reset(); // arming abandoned mid-buffer
+
+    Traverser.Admin<?> t2 = step.processNextStart();
+    assertThat(t2.get()).isEqualTo("X:5"); // fresh projection, not the leftover buffered copy
+    verify(stream, times(2)).next(ctx); // rebuilt re-projects (2); a resumed stale buffer would be 1
+    verify(plan, times(2)).start();
+    verify(plan, times(1)).reset(ctx);
+  }
+
+  /**
+   * An N→1 window-drain op — the cardinality class {@code fold} and {@code tail} use — collapses many
+   * source rows into one bounded payload. The op eagerly consumes the whole projection stream inside
+   * {@code processNextStart}'s try (the same eager-drain-inside-try path {@code group} / {@code
+   * groupCount} take) and emits its single result; a second pull exhausts. This exercises the drain
+   * class through the boundary base, which {@code TagRepeatOp} (1→1 and 1→N only) never reaches.
+   */
+  @Test
+  public void listShaping_drainOp_manyRowsCollapseToOnePayload() {
+    var r1 = mock(Result.class);
+    var r2 = mock(Result.class);
+    var r3 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, true, false);
+    when(stream.next(ctx)).thenReturn(r1, r2, r3);
+    for (var r : List.of(r1, r2, r3)) {
+      when(r.getPropertyNames()).thenReturn(List.of("c"));
+      when(r.getProperty("c")).thenReturn(1L);
+    }
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new DrainToSizeOp())));
+
+    // Wildcard traverser so get() returns Object (the drained payload is a Long count).
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo(3L); // three rows drained into one payload
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(stream, times(3)).next(ctx); // the whole stream was consumed to produce the one payload
+  }
+
+  /**
+   * The seven pre-existing {@code withX} builders each thread {@code listShapingOps} through as the
+   * new constructor argument, so a previously-set op list must survive every one of them. This
+   * asserts each builder carries a pre-set ops list forward unchanged — a copy-paste that passed an
+   * empty list instead of the field would silently reset the ops and corrupt a traversal that pins
+   * ops before a later flag override.
+   */
+  @Test
+  public void resultShaping_withBuilders_preserveListShapingOps() {
+    var ops = List.<ListShapingOp>of(new TagRepeatOp("X", 1));
+    var base = ResultShaping.NONE.withListShapingOps(ops);
+
+    assertThat(base.withDropNullRows(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withDropOnAbsent(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withPresencePropertyKeys(List.of("k")).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withWrapMapValuesInLists(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withAccumulateMap(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withUnwrapSingletonMap(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withElementMapTokens(true).listShapingOps()).isEqualTo(ops);
   }
 
   /**
@@ -1045,6 +1174,48 @@ public class YTDBMatchPlanStepTest {
             throw new NoSuchElementException();
           }
           return buffer.removeFirst();
+        }
+      };
+    }
+  }
+
+  /**
+   * Test-only placeholder {@link ListShapingOp} in the N→1 window-drain cardinality class — the class
+   * {@code fold} / {@code tail} use. It eagerly consumes the whole upstream on the first {@code
+   * hasNext}, then emits a single payload: the count of upstream payloads it drained. Modelling the
+   * eager drain lets that cardinality class be exercised through the boundary base without the real
+   * {@code fold} / {@code tail} ops, which arrive later.
+   */
+  private record DrainToSizeOp() implements ListShapingOp {
+
+    @Override
+    public Iterator<Object> apply(Iterator<Object> upstream) {
+      return new Iterator<>() {
+        // null until the drain runs; then false while the single payload is pending, true once served.
+        private Boolean emitted;
+        private Object value;
+
+        @Override
+        public boolean hasNext() {
+          if (emitted == null) {
+            long count = 0;
+            while (upstream.hasNext()) {
+              upstream.next();
+              count++;
+            }
+            value = count;
+            emitted = false;
+          }
+          return !emitted;
+        }
+
+        @Override
+        public Object next() {
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          emitted = true;
+          return value;
         }
       };
     }

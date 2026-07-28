@@ -7,8 +7,8 @@ import javax.annotation.Nonnull;
  * Immutable bundle of the seven boundary row-projection shaping flags plus the ordered list-shaping
  * post-process a Gremlin terminator pins on the walk. Each terminator ({@code count}, {@code
  * values}, {@code valueMap}, {@code select}, {@code group}, …) builds one instance from {@link
- * #NONE} plus the overrides its shape needs, and {@link YTDBMatchPlanStep} reads it when projecting
- * each MATCH row onto a traverser.
+ * #NONE} plus the overrides its shape needs, and {@link AbstractMatchPlanStep} reads it when
+ * projecting each MATCH row onto a traverser.
  *
  * <p>{@link #NONE} is the element-path default: no row is dropped, no property is presence-checked,
  * no map value is reshaped, and no list-shaping op runs. A terminator layers its overrides on top
