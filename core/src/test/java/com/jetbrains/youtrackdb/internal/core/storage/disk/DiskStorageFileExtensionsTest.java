@@ -4,6 +4,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.Test;
@@ -31,6 +32,21 @@ public class DiskStorageFileExtensionsTest {
         "ALL_FILE_EXTENSIONS must contain the histogram stats extension '"
             + IndexHistogramManager.IXS_EXTENSION + "'",
         extensions.contains(IndexHistogramManager.IXS_EXTENSION));
+  }
+
+  /**
+   * Verifies that the B-tree null-bucket extension (.nbt) is registered in
+   * DiskStorage's ALL_FILE_EXTENSIONS array. It was historically missing, so a
+   * database drop leaked every engine's null-bucket files on disk and left the
+   * database directory undeletable.
+   */
+  @Test
+  public void allFileExtensions_containsNullBucketExtension() {
+    var extensions = getAllFileExtensions();
+    assertTrue(
+        "ALL_FILE_EXTENSIONS must contain the B-tree null-bucket extension '"
+            + BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION + "'",
+        extensions.contains(BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION));
   }
 
   /**

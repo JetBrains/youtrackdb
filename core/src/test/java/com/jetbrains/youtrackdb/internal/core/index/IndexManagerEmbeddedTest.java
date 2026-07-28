@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -237,6 +238,174 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     // IDX belongs to CLS, not "WrongClass".
     var idx = mgr.getClassIndex(session, "WrongClass", IDX);
     assertNull("getClassIndex must return null when the class does not match", idx);
+  }
+
+  /**
+   * The deferred-handle membership mutators fail loudly on a null or blank collection
+   * name — a null reaching them means an unresolved collection (a resolver miss) that would
+   * otherwise fold a null placeholder into the covered set the commit persists. An
+   * IllegalArgumentException, not a bare assert: production runs with assertions disabled.
+   */
+  @Test
+  public void deferredMembershipMutatorsRejectNullOrBlankNames() {
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(CLS + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var overlay = session.getTxSchemaState().getIndexOverlay();
+    var handle = (IndexAbstract) overlay.getTxCreated(CLS + ".name");
+    assertNotNull("precondition: the tx-created deferred handle exists", handle);
+
+    assertThrows(IllegalArgumentException.class, () -> handle.addCollectionToDeferred(null));
+    assertThrows(IllegalArgumentException.class, () -> handle.addCollectionToDeferred("  "));
+    assertThrows(IllegalArgumentException.class,
+        () -> handle.removeCollectionFromDeferred(null));
+    assertThrows(IllegalArgumentException.class, () -> handle.removeCollectionFromDeferred(""));
+    session.rollback();
+  }
+
+  // -----------------------------------------------------------------------
+  //  getClassIndex (overlay-routed)
+  // -----------------------------------------------------------------------
+
+  /**
+   * An index created inside the open transaction is visible through getClassIndex within that
+   * transaction — the lookup answers from the tx-effective view, not the committed-only registry.
+   */
+  @Test
+  public void getClassIndex_txCreatedIndex_visibleWithinTx() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var createdName = CLS + ".name";
+
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(createdName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var inTx = mgr.getClassIndex(session, CLS, createdName);
+    assertNotNull("a tx-created index must be visible via getClassIndex within the tx", inTx);
+    assertEquals(createdName, inTx.getName());
+    assertNull("the tx-created index must not answer for a different class",
+        mgr.getClassIndex(session, "WrongClass", createdName));
+    session.rollback();
+
+    assertNull("the rolled-back create must leave nothing",
+        mgr.getClassIndex(session, CLS, createdName));
+  }
+
+  /**
+   * An index dropped inside the open transaction is invisible through getClassIndex within that
+   * transaction, even though the shared committed registry still holds it until commit.
+   */
+  @Test
+  public void getClassIndex_txDroppedIndex_invisibleWithinTx() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    mgr.dropIndex(session, IDX);
+    assertNull("a tx-dropped index must be invisible via getClassIndex within the tx",
+        mgr.getClassIndex(session, CLS, IDX));
+    session.rollback();
+
+    assertNotNull("the rolled-back drop must leave the committed index visible again",
+        mgr.getClassIndex(session, CLS, IDX));
+  }
+
+  /**
+   * The same-transaction drop-then-recreate REPLACE flow — the recreated (tx-created)
+   * index must be visible through getClassIndex, consistent with every sibling lookup
+   * (existsIndex, getIndexes, getClassIndexes). The dropped committed name stays recorded (the
+   * commit deletes the old engine) while the replacement handle shadows it in the tx view, so
+   * the tx-created probe must run BEFORE the tx-dropped one.
+   */
+  @Test
+  public void getClassIndex_replaceFlow_txRecreatedIndexVisible() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    mgr.dropIndex(session, IDX);
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(IDX, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+    var replacement = mgr.getClassIndex(session, CLS, IDX);
+    assertNotNull("the same-tx replacement must be visible via getClassIndex", replacement);
+    assertTrue("the visible handle must be the tx-created replacement (deferred engine)",
+        replacement.getIndexId() < 0);
+    session.rollback();
+
+    assertNotNull("the rolled-back replace must leave the committed index visible",
+        mgr.getClassIndex(session, CLS, IDX));
+    assertTrue("and it must be the committed engine again",
+        mgr.getClassIndex(session, CLS, IDX).getIndexId() >= 0);
+  }
+
+  /**
+   * The session-aware {@code getIndex} family member resolves the transaction's effective view:
+   * a tx-dropped name answers absent, an untouched committed name falls through to the committed
+   * registry, and outside any transaction the base (committed) behaviour serves unchanged.
+   */
+  @Test
+  public void getIndexSessionAware_resolvesEffectiveView() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var otherName = CLS + ".name";
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(otherName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    mgr.dropIndex(session, IDX);
+    assertNull("a tx-dropped name must answer absent", mgr.getIndex(session, IDX));
+    assertNotNull("an untouched committed name must fall through to the committed registry",
+        mgr.getIndex(session, otherName));
+    session.rollback();
+
+    assertNotNull("outside a transaction the committed behaviour serves unchanged",
+        mgr.getIndex(session, IDX));
+  }
+
+  /**
+   * The swap-shaped rename {X→Y, Z→X} through getClassIndex — the rename-source arm
+   * under a renamed-away class name. Committed X's index answers only under Y; the name X, though
+   * renamed away, answers for committed Z's index (Z was renamed TO X); and X's own committed
+   * index no longer answers under X.
+   */
+  @Test
+  public void getClassIndex_swapShapedRename_resolvesEachSideExactly() {
+    var otherCls = session.getMetadata().getSchema().createClass("ImeSwapZ");
+    otherCls.createProperty("zval", PropertyType.STRING);
+    otherCls.createIndex("ImeSwapZ.zval", SchemaClass.INDEX_TYPE.NOTUNIQUE, "zval");
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS).setName("ImeSwapY");
+    session.getMetadata().getSchema().getClass("ImeSwapZ").setName(CLS);
+
+    assertNotNull("committed X's index must answer under Y",
+        mgr.getClassIndex(session, "ImeSwapY", IDX));
+    assertNull("committed X's index must not answer under the vacated X",
+        mgr.getClassIndex(session, CLS, IDX));
+    assertNotNull("committed Z's index must answer under X (Z renamed TO it)",
+        mgr.getClassIndex(session, CLS, "ImeSwapZ.zval"));
+    assertNull("committed Z's index must not answer under its old name",
+        mgr.getClassIndex(session, "ImeSwapZ", "ImeSwapZ.zval"));
+    session.rollback();
+  }
+
+  /**
+   * A class renamed inside the open transaction resolves its committed index through
+   * getClassIndex under the NEW class name (the overlay's class-rename map) and no longer under
+   * the old one.
+   */
+  @Test
+  public void getClassIndex_renamedClass_resolvesUnderNewNameOnly() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS).setName("ImeRenamed");
+    var underNew = mgr.getClassIndex(session, "ImeRenamed", IDX);
+    assertNotNull("the committed index must resolve under the renamed class name", underNew);
+    assertEquals(IDX, underNew.getName());
+    assertNull("the old class name must no longer resolve the index",
+        mgr.getClassIndex(session, CLS, IDX));
+    session.rollback();
+
+    assertNotNull("the rolled-back rename must restore the old-name resolution",
+        mgr.getClassIndex(session, CLS, IDX));
   }
 
   // -----------------------------------------------------------------------

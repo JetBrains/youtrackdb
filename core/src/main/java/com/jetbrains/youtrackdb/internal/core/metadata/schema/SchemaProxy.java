@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalProperty;
@@ -41,35 +40,88 @@ import javax.annotation.Nullable;
 /**
  * Proxy class to use the shared SchemaShared instance. Before to delegate each operations it sets
  * the current database in the thread local.
+ *
+ * <p>Reads route through {@link #resolve()} and writes through {@link #resolveForWrite()} (see
+ * {@link SchemaProxedResource}), so during a schema transaction every method sees and mutates the
+ * transaction's private tx-local {@link SchemaShared} copy rather than the committed shared
+ * instance. The immutable snapshot read ({@link #makeSnapshot()}) is tx-aware too: during a schema
+ * or index transaction it builds a session-private snapshot from the tx-local copy; outside one it
+ * stays on the committed instance's shared cache.
  */
-public final class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaInternal {
+public final class SchemaProxy extends SchemaProxedResource<SchemaShared>
+    implements SchemaInternal {
 
   public SchemaProxy(final SchemaShared iDelegate, final DatabaseSessionEmbedded iDatabase) {
     super(iDelegate, iDatabase);
   }
 
   @Override
+  protected SchemaShared rebindToTxLocal(@Nonnull SchemaShared txLocalSchema) {
+    // The proxy stands for the whole schema; its tx-local resolution is the copy itself.
+    return txLocalSchema;
+  }
+
+  @Override
+  protected void recordWriteTarget(@Nonnull TxSchemaState txState,
+      @Nonnull SchemaShared resolved) {
+    // A schema-level write records nothing here. Class create / drop / rename already record the
+    // specific class(es) they touch through their own markClassChanged calls (recording the precise
+    // name a create/drop/rename needs, which a whole-schema hook could not derive). Global-property
+    // and blob-collection writes mutate only the root non-link payload, which the commit's
+    // root-payload diff detects on its own. Blanket-recording every class on any schema-level write
+    // would force the commit to rewrite every class's per-class record, defeating the selective
+    // write's write-amplification win.
+  }
+
+  @Override
   public ImmutableSchema makeSnapshot() {
     assert session.assertIfNotActive();
+    var txState = session.getTxSchemaState();
+    if (txState != null) {
+      // A schema- or index-changing transaction is in progress. Build a session-private, uncached
+      // snapshot from the tx-local SchemaShared copy: its classes, property types, and constraint
+      // rules reflect the transaction's own uncommitted schema (so validation and serialization
+      // enforce a same-tx schema change), and its per-class index list resolves against this
+      // session's index overlay through the index-manager routing seam. The snapshot is never
+      // stored in the process-shared snapshot cache, so a concurrent session still reads the
+      // committed view.
+      //
+      // Memoize the built snapshot on the transaction state for the lifetime of the current
+      // tx-local schema generation. This branch is reached unpinned per record on the same-tx
+      // DDL-then-DML path (getImmutableSchemaClass reads unpinned, executeReadRecord pins per
+      // record), so without the memo an operation touching N records would rebuild the whole
+      // ImmutableSchema up to N times. The memo stays session-scoped (it lives on TxSchemaState,
+      // never in the shared cache) and is invalidated on every mid-tx schema or index change
+      // through forceRebuildTxSchemaSnapshot, so a change still forces exactly one rebuild.
+      var memoized = txState.getOverlaySnapshot();
+      if (memoized != null) {
+        return memoized;
+      }
+      var built = txState.getTxLocalSchema().makeUncachedSnapshot(session);
+      txState.setOverlaySnapshot(built);
+      return built;
+    }
+    // The committed fast path is strictly unchanged from the pre-tx-aware behavior: outside a
+    // schema/index transaction the snapshot is taken from the committed instance's shared cache.
     return delegate.makeSnapshot(session);
   }
 
   public void create() {
     assert session.assertIfNotActive();
-    delegate.create(session);
+    resolveForWrite().create(session);
   }
 
   @Override
   public int countClasses() {
     assert session.assertIfNotActive();
-    return delegate.countClasses(session);
+    return resolve().countClasses(session);
   }
 
   @Override
   @Nonnull
   public SchemaClass createClass(final String iClassName) {
     assert session.assertIfNotActive();
-    return new SchemaClassProxy(delegate.createClass(session, iClassName), session);
+    return new SchemaClassProxy(resolveForWrite().createClass(session, iClassName), session);
   }
 
   @Override
@@ -78,19 +130,23 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   }
 
   @Override
-  @Nullable public SchemaClass getOrCreateClass(final String iClassName, final SchemaClass iSuperClass) {
+  @Nullable public SchemaClass getOrCreateClass(final String iClassName,
+      final SchemaClass iSuperClass) {
     assert session.assertIfNotActive();
     if (iClassName == null) {
       return null;
     }
 
-    var cls = delegate.getClass(iClassName);
+    var cls = resolve().getClass(iClassName);
     if (cls != null) {
       return new SchemaClassProxy(cls, session);
     }
 
-    cls = delegate.getOrCreateClass(session, iClassName,
-        iSuperClass != null ? ((SchemaClassInternal) iSuperClass).getImplementation() : null);
+    var schema = resolveForWrite();
+    cls = schema.getOrCreateClass(session, iClassName,
+        iSuperClass != null
+            ? reresolveClassImpl(schema, ((SchemaClassInternal) iSuperClass).getImplementation())
+            : null);
 
     return new SchemaClassProxy(cls, session);
   }
@@ -99,12 +155,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public SchemaClass getOrCreateClass(String iClassName, SchemaClass... superClasses) {
     assert session.assertIfNotActive();
 
+    var schema = resolveForWrite();
     var superImpls = new SchemaClassImpl[superClasses.length];
     for (var i = 0; i < superClasses.length; i++) {
-      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+      superImpls[i] = reresolveClassImpl(schema,
+          ((SchemaClassInternal) superClasses[i]).getImplementation());
     }
 
-    return new SchemaClassProxy(delegate.getOrCreateClass(session, iClassName, superImpls),
+    return new SchemaClassProxy(schema.getOrCreateClass(session, iClassName, superImpls),
         session);
   }
 
@@ -113,31 +171,38 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public SchemaClass createClass(@Nonnull final String iClassName,
       @Nonnull final SchemaClass iSuperClass) {
     assert session.assertIfNotActive();
-    var superImpl = ((SchemaClassInternal) iSuperClass).getImplementation();
+    var schema = resolveForWrite();
+    var superImpl = reresolveClassImpl(schema,
+        ((SchemaClassInternal) iSuperClass).getImplementation());
 
-    return new SchemaClassProxy(delegate.createClass(session, iClassName, superImpl, null),
+    return new SchemaClassProxy(schema.createClass(session, iClassName, superImpl, null),
         session);
   }
 
   @Override
   public SchemaClass createClass(String iClassName, SchemaClass... superClasses) {
     assert session.assertIfNotActive();
+    var schema = resolveForWrite();
     var superImpls = new SchemaClassImpl[superClasses.length];
     for (var i = 0; i < superClasses.length; i++) {
-      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+      superImpls[i] = reresolveClassImpl(schema,
+          ((SchemaClassInternal) superClasses[i]).getImplementation());
     }
 
-    return new SchemaClassProxy(delegate.createClass(session, iClassName, superImpls), session);
+    return new SchemaClassProxy(schema.createClass(session, iClassName, superImpls), session);
   }
 
   @Override
   public SchemaClass createClass(final String iClassName, final SchemaClass iSuperClass,
       final int[] iCollectionIds) {
     assert session.assertIfNotActive();
+    var schema = resolveForWrite();
     var superImpl =
-        iSuperClass != null ? ((SchemaClassInternal) iSuperClass).getImplementation() : null;
+        iSuperClass != null
+            ? reresolveClassImpl(schema, ((SchemaClassInternal) iSuperClass).getImplementation())
+            : null;
     return new SchemaClassProxy(
-        delegate.createClass(session, iClassName, superImpl, iCollectionIds),
+        schema.createClass(session, iClassName, superImpl, iCollectionIds),
         session);
   }
 
@@ -145,12 +210,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public SchemaClass createClass(String className, int[] collectionIds,
       SchemaClass... superClasses) {
     assert session.assertIfNotActive();
+    var schema = resolveForWrite();
     var superImpls = new SchemaClassImpl[superClasses.length];
     for (var i = 0; i < superClasses.length; i++) {
-      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+      superImpls[i] = reresolveClassImpl(schema,
+          ((SchemaClassInternal) superClasses[i]).getImplementation());
     }
 
-    return new SchemaClassProxy(delegate.createClass(session, className, collectionIds, superImpls),
+    return new SchemaClassProxy(schema.createClass(session, className, collectionIds, superImpls),
         session);
   }
 
@@ -158,33 +225,39 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public SchemaClass createAbstractClass(final String iClassName) {
     assert session.assertIfNotActive();
 
-    return new SchemaClassProxy(delegate.createAbstractClass(session, iClassName), session);
+    return new SchemaClassProxy(resolveForWrite().createAbstractClass(session, iClassName),
+        session);
   }
 
   @Override
   public SchemaClass createAbstractClass(final String iClassName, final SchemaClass iSuperClass) {
     assert session.assertIfNotActive();
+    var schema = resolveForWrite();
     var superImpl =
-        iSuperClass != null ? ((SchemaClassInternal) iSuperClass).getImplementation() : null;
-    return new SchemaClassProxy(delegate.createAbstractClass(session, iClassName, superImpl),
+        iSuperClass != null
+            ? reresolveClassImpl(schema, ((SchemaClassInternal) iSuperClass).getImplementation())
+            : null;
+    return new SchemaClassProxy(schema.createAbstractClass(session, iClassName, superImpl),
         session);
   }
 
   @Override
   public SchemaClass createAbstractClass(String iClassName, SchemaClass... superClasses) {
     assert session.assertIfNotActive();
+    var schema = resolveForWrite();
     var superImpls = new SchemaClassImpl[superClasses.length];
     for (var i = 0; i < superClasses.length; i++) {
-      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+      superImpls[i] = reresolveClassImpl(schema,
+          ((SchemaClassInternal) superClasses[i]).getImplementation());
     }
-    return new SchemaClassProxy(delegate.createAbstractClass(session, iClassName, superImpls),
+    return new SchemaClassProxy(schema.createAbstractClass(session, iClassName, superImpls),
         session);
   }
 
   @Override
   public void dropClass(final String iClassName) {
     assert session.assertIfNotActive();
-    delegate.dropClass(session, iClassName);
+    resolveForWrite().dropClass(session, iClassName);
   }
 
   @Override
@@ -194,7 +267,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
       return false;
     }
 
-    return delegate.existsClass(iClassName);
+    return resolve().existsClass(iClassName);
   }
 
   @Override
@@ -204,7 +277,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
       return null;
     }
 
-    var cls = delegate.getClass(iClass.getName());
+    var cls = resolve().getClass(iClass.getName());
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
@@ -215,14 +288,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     }
 
     assert session.assertIfNotActive();
-    var cls = delegate.getClass(iClassName);
+    var cls = resolve().getClass(iClassName);
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
   @Override
   public Collection<SchemaClass> getClasses() {
     assert session.assertIfNotActive();
-    var classes = delegate.getClasses(session);
+    var classes = resolve().getClasses(session);
     var result = new ArrayList<SchemaClass>(classes.size());
     for (var cls : classes) {
       result.add(new SchemaClassProxy(cls, session));
@@ -295,7 +368,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
 
   @Override
   public RecordIdInternal getIdentity() {
-    return delegate.getIdentity();
+    return resolve().getIdentity();
   }
 
   @Deprecated
@@ -313,7 +386,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public Set<SchemaClass> getClassesRelyOnCollection(final String iCollectionName,
       DatabaseSessionEmbedded session) {
     assert this.session.assertIfNotActive();
-    var classes = delegate.getClassesRelyOnCollection(this.session, iCollectionName);
+    var classes = resolve().getClassesRelyOnCollection(this.session, iCollectionName);
     var result = new HashSet<SchemaClass>(classes.size());
 
     for (var cls : classes) {
@@ -327,12 +400,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public SchemaClass createClass(@Nonnull String className, int collections,
       @Nonnull SchemaClass... superClasses) {
     assert session.assertIfNotActive();
+    var schema = resolveForWrite();
     var superImpls = new SchemaClassImpl[superClasses.length];
     for (var i = 0; i < superClasses.length; i++) {
-      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+      superImpls[i] = reresolveClassImpl(schema,
+          ((SchemaClassInternal) superClasses[i]).getImplementation());
     }
 
-    return new SchemaClassProxy(delegate.createClass(session, className, collections, superImpls),
+    return new SchemaClassProxy(schema.createClass(session, className, collections, superImpls),
         session);
   }
 
@@ -340,55 +415,55 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public SchemaClass getClassByCollectionId(int collectionId) {
     assert session.assertIfNotActive();
 
-    var cls = delegate.getClassByCollectionId(collectionId);
+    var cls = resolve().getClassByCollectionId(collectionId);
     return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
 
   @Override
   public GlobalProperty getGlobalPropertyById(int id) {
     assert session.assertIfNotActive();
-    return delegate.getGlobalPropertyById(id);
+    return resolve().getGlobalPropertyById(id);
   }
 
   @Override
   public List<GlobalProperty> getGlobalProperties() {
     assert session.assertIfNotActive();
-    return delegate.getGlobalProperties();
+    return resolve().getGlobalProperties();
   }
 
   @Override
   public GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id) {
     assert session.assertIfNotActive();
-    return delegate.createGlobalProperty(session, name,
+    return resolveForWrite().createGlobalProperty(session, name,
         PropertyTypeInternal.convertFromPublicType(type), id);
   }
 
   @Override
   public CollectionSelectionFactory getCollectionSelectionFactory() {
     assert session.assertIfNotActive();
-    return delegate.getCollectionSelectionFactory();
+    return resolve().getCollectionSelectionFactory();
   }
 
   @Nullable @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
     assert session.assertIfNotActive();
-    var cls = delegate.getClass(iClassName);
+    var cls = resolve().getClass(iClassName);
 
     return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
 
   public IntSet getBlobCollections() {
     assert session.assertIfNotActive();
-    return delegate.getBlobCollections();
+    return resolve().getBlobCollections();
   }
 
   public int addBlobCollection(final int collectionId) {
     assert session.assertIfNotActive();
-    return delegate.addBlobCollection(session, collectionId);
+    return resolveForWrite().addBlobCollection(session, collectionId);
   }
 
   public void removeBlobCollection(String collectionName) {
     assert session.assertIfNotActive();
-    delegate.removeBlobCollection(session, collectionName);
+    resolveForWrite().removeBlobCollection(session, collectionName);
   }
 }

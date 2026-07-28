@@ -109,6 +109,32 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     }
   }
 
+  /**
+   * Re-registers the id-named link-bag component of {@code collectionId} into the in-memory
+   * {@code fileIdBTreeMap} — the mirror of {@link #deleteComponentByCollectionId} for the
+   * failed-schema-commit undo. The delete removes the map entry eagerly (the map is not
+   * rollback-aware) while merely buffering the file delete on the atomic operation, so when that
+   * operation rolls back the durable {@code .grb} file survives but the map entry is gone — and
+   * every link-bag access resolves through the map with no reload branch, so the restored
+   * collection's first link-bag operation would fail until a reopen rebuilds the map. No-op when
+   * the component file is absent (a collection that never allocated a link bag). Idempotent when
+   * an equivalent entry is already present (the slot-reuse undo path, where the failed create's
+   * replacement object serves the identical resurrected file id): the tree object carries no state
+   * beyond its file id, so the re-put is a harmless replacement.
+   */
+  public void restoreComponentByCollectionId(
+      final AtomicOperation atomicOperation, final int collectionId) {
+    // lock is already acquired on storage level, during the failed-commit undo
+    final var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));
+    if (fileId < 0) {
+      return;
+    }
+    final var bTree = new SharedLinkBagBTree(storage, FILE_NAME_PREFIX + collectionId,
+        FILE_EXTENSION);
+    bTree.load(atomicOperation);
+    fileIdBTreeMap.put(AbstractWriteCache.extractFileId(fileId), bTree);
+  }
+
   private IsolatedLinkBagBTreeImpl doCreateRidBag(AtomicOperation atomicOperation,
       int collectionId) {
     var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));

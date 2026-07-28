@@ -49,6 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -87,7 +88,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.zip.GZIPInputStream;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -122,6 +122,69 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private int maxRidbagStringSizeBeforeLazyImport = 100_000_000;
 
+  // --- Track 8 Step 5: v15 structural strictness state (design M2.b) ---
+
+  /** Whether the source arrived GZIP-framed (vs the legacy plain-JSON fallback). */
+  private boolean gzipFramed;
+
+  /** The validated single-member decoder when gzip-framed; drives the whole-stream checks. */
+  private ValidatedGZIPInputStream validatedGzipStream;
+
+  /** The dump file's physical size; {@code -1} for the InputStream constructor (WI10a). */
+  private long physicalSize = -1;
+
+  /** The dump's info-section best-effort marker (written by a {@code -bestEffort} export). */
+  private boolean bestEffortDump;
+
+  /** The explicit operator acknowledgment for best-effort dumps ({@code -acceptBestEffortDump}). */
+  private boolean acceptBestEffortDump;
+
+  /** Whether the deferred import preamble (§A2/CS38) has run. */
+  private boolean preambleExecuted;
+
+  /** Captured by the deferred preamble; consumed by {@code importRecords}. */
+  private Schema beforeImportSchemaSnapshot;
+
+  /** Section-tag occurrence counts for the v15 presence/duplicate checks (WI10c). */
+  private final Map<String, Integer> sectionOccurrences = new HashMap<>();
+
+  // Importer-tallied consumption counts (CN51): what THIS import actually parsed from the
+  // dump, cross-checked against the manifest's exporter-tallied declarations — never derived
+  // from target-database queries.
+  private long parsedSchemaClassCount;
+  private long parsedIndexCount;
+  private long parsedRecordCount;
+  private long parsedBrokenRidCount;
+
+  // The manifest's declared totals; -1 = not declared.
+  private long manifestClasses = -1;
+  private long manifestIndexes = -1;
+  private long manifestRecords = -1;
+  private long manifestBrokenRids = -1;
+
+  // --- Track 8 Step 6: the ruled Q-M2/R4 info-field validation matrix state ---
+
+  /**
+   * Q-M2(2): the oldest dump schema version this release can import; the upper bound is
+   * {@link SchemaShared#CURRENT_VERSION_NUMBER}. Exact equality today — expressed as a range
+   * so the next format bump is a one-constant change.
+   */
+  public static final int MIN_IMPORTABLE_SCHEMA_VERSION = 6;
+
+  /** The dump's declared schema-version; meaningful only when {@link #schemaVersionDeclared}. */
+  private long declaredSchemaVersion;
+
+  private boolean schemaVersionDeclared;
+
+  /** Non-null when the dump's schema-version failed to parse as a number (raw token kept). */
+  private String malformedSchemaVersionRaw;
+
+  /** Unknown info fields, tolerated and logged at pre-flight (Q-M2(4)). */
+  private final List<String> unknownInfoFields = new ArrayList<>();
+
+  /** Known-optional-field type violations, collected at parse, judged at pre-flight (WI12b). */
+  private final List<String> infoFieldTypeViolations = new ArrayList<>();
+
   public DatabaseImport(
       final DatabaseSessionEmbedded database,
       final String fileName,
@@ -131,27 +194,52 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     validateSessionImpl();
     collectionToCollectionMapping.defaultReturnValue(COLLECTION_NOT_FOUND_VALUE);
     // TODO: check unclosed stream?
-    final var bufferedInputStream =
-        new BufferedInputStream(new FileInputStream(this.fileName));
-    bufferedInputStream.mark(1024);
-    InputStream inputStream;
-    try {
-      inputStream = new GZIPInputStream(bufferedInputStream, 16384); // 16KB
-    } catch (final Exception ignore) {
-      bufferedInputStream.reset();
-      inputStream = bufferedInputStream;
-    }
-    createJsonReaderDefaultListenerAndDeclareIntent(outputListener, inputStream);
+    final var fileInputStream = new FileInputStream(this.fileName);
+    // CN62 (Track 8 cumulative review): the physical size is captured from the OPENED
+    // descriptor (fstat-after-open) — a path-based stat BEFORE the open races a concurrent
+    // re-export's atomic promote (old inode's size, new inode's bytes), and the step-(3)
+    // size arithmetic would falsely condemn a healthy import. Size and stream now provably
+    // refer to one inode.
+    this.physicalSize = fileInputStream.getChannel().size();
+    final var bufferedInputStream = new BufferedInputStream(fileInputStream);
+    createJsonReaderDefaultListenerAndDeclareIntent(outputListener,
+        detectFraming(bufferedInputStream));
   }
 
   public DatabaseImport(
       final DatabaseSessionEmbedded database,
       final InputStream inputStream,
-      final CommandOutputListener outputListener) {
+      final CommandOutputListener outputListener) throws IOException {
     super(database, "streaming", outputListener);
     validateSessionImpl();
     collectionToCollectionMapping.defaultReturnValue(COLLECTION_NOT_FOUND_VALUE);
-    createJsonReaderDefaultListenerAndDeclareIntent(outputListener, inputStream);
+    // WI10a: the InputStream constructor detects the framing exactly like the file constructor
+    // (a gzip-framed stream gets the validated single-member decoder and the CS43 steps (1)+(2)
+    // at the end of a v15 import); the physical-size arithmetic (step (3)) requires a sizable
+    // source and never applies here. A plain stream is the CALLER's framing choice on this
+    // programmatic path — the non-gzip rejection (Q-M3) guards the file-based migration path.
+    createJsonReaderDefaultListenerAndDeclareIntent(outputListener,
+        detectFraming(new BufferedInputStream(inputStream)));
+  }
+
+  /**
+   * Opens the source as GZIP when it is gzip-framed — through the validated single-member
+   * decoder ({@link ValidatedGZIPInputStream}), which a v15 import later drives through the
+   * CS43 whole-stream checks — falling back to the plain stream otherwise. Which arm was taken
+   * is recorded: a v15 dump that arrived via the plain fallback is rejected at pre-flight
+   * (Q-M3/M2.b-1); a declared-legacy dump keeps the lenient fallback behavior.
+   */
+  private InputStream detectFraming(BufferedInputStream bufferedInputStream) throws IOException {
+    bufferedInputStream.mark(1024);
+    try {
+      validatedGzipStream = new ValidatedGZIPInputStream(bufferedInputStream, 16384); // 16KB
+      gzipFramed = true;
+      return validatedGzipStream;
+    } catch (final Exception ignore) {
+      bufferedInputStream.reset();
+      gzipFramed = false;
+      return bufferedInputStream;
+    }
   }
 
   private void validateSessionImpl() {
@@ -190,6 +278,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       migrateLinks = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-rebuildIndexes")) {
       rebuildIndexes = Boolean.parseBoolean(items.getFirst());
+    } else if (option.equalsIgnoreCase("-acceptBestEffortDump")) {
+      // M2.b-4: the operator's explicit acknowledgment that a best-effort dump may be
+      // missing records; without it a best-effort-marked dump is rejected at pre-flight.
+      acceptBestEffortDump = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-backwardCompatMode")) {
       jsonSerializer = Boolean.parseBoolean(items.getFirst())
           ? JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE
@@ -211,24 +303,51 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       session.setValidationEnabled(false);
       session.setUser(null);
 
-      removeDefaultNonSecurityClasses();
-      session.getSharedContext().getIndexManager().reload(session);
-
-      for (final var index : session.getSharedContext().getIndexManager().getIndexes()) {
-        if (index.isAutomatic()) {
-          indexesToRebuild.add(index.getName());
-        }
-      }
-
-      var beforeImportSchemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+      // The import preamble (the target mutations that used to run HERE, before anything of
+      // the dump was read) is DEFERRED until the info section has parsed and the pre-flight
+      // checks passed (§A2/CS38, block boundary pinned by WI11) — see
+      // runDeferredImportPreamble. The `< 15` path defers identically: nothing between the old
+      // block and the first section consumed the dropped classes, so this is
+      // behavior-preserving for declared-legacy dumps.
 
       var collectionsImported = false;
       while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
         final var tag = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
 
+        // SR2 (trigger precise per gate-1 CS46): the rejection fires at the first non-`info`
+        // section tag — or at end of stream, checked after the loop — if no parseable
+        // exporter-version has been declared by then. Every legitimate exporter writes `info`
+        // first, so this rejects only corrupt, truncated or hand-damaged dumps, BEFORE any
+        // deferred preamble mutation can be unlocked (closing the loop with CS38).
+        if (exporterVersion == -1 && !"info".equals(tag)) {
+          throw new DatabaseImportException(
+              "Import rejected: the dump reached its '" + tag + "' section without declaring"
+                  + " an exporter version — refusing unverifiable input (a legitimate dump"
+                  + " always begins with its info section)");
+        }
+        sectionOccurrences.merge(tag, 1, Integer::sum);
+
         switch (tag) {
-          case "info" -> importInfo();
+          case "info" -> {
+            importInfo();
+            // The deferred preamble is unlocked only by a PARSEABLE declared version (SR2):
+            // an info section without one leaves the target untouched, and the next tag (or
+            // end of stream) rejects the dump.
+            if (exporterVersion != -1) {
+              runPreFlightChecks();
+              runDeferredImportPreamble();
+            }
+          }
           case "collections", "clusters" -> {
+            // BG25/WI10c: the legacy "clusters" alias is not part of the v15 dump shape (the
+            // v15 exporter writes only "collections") — accepting it would let a spliced
+            // alias-spelled section bypass the tag-keyed duplicate/presence tracking. The
+            // declared-legacy path keeps the alias byte-for-byte.
+            if (exporterVersion >= 15 && "clusters".equals(tag)) {
+              throw new DatabaseImportException(
+                  "Invalid format. Found unsupported tag 'clusters' (a v15 dump names its"
+                      + " collections section 'collections')");
+            }
             importCollections();
             collectionsImported = true;
           }
@@ -236,9 +355,33 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           case "records" -> importRecords(beforeImportSchemaSnapshot);
           case "indexes" -> importIndexes();
           case "brokenRids" -> processBrokenRids();
+          // The v15 exporter's trailing manifest section, version-gated per WI6: only a dump
+          // DECLARING exporter version >= 15 may carry it — a declared-legacy dump with a
+          // manifest tag keeps today's unsupported-tag rejection byte-for-byte.
+          case "manifest" -> {
+            if (exporterVersion >= 15) {
+              importManifest();
+            } else {
+              throw new DatabaseImportException(
+                  "Invalid format. Found unsupported tag 'manifest'");
+            }
+          }
           default -> throw new DatabaseImportException(
               "Invalid format. Found unsupported tag '" + tag + "'");
         }
+      }
+      // SR2's end-of-stream arm: a dump that ended without ever declaring a version.
+      if (exporterVersion == -1) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump ended without declaring an exporter version — refusing"
+                + " unverifiable input");
+      }
+      // The v15 structural strictness (M2.b-2/3, SR1's condemn-target doctrine): these checks
+      // run after the section loop — inherently post-mutation — and a rejection here CONDEMNS
+      // the target (the operator procedure mandates import-into-a-fresh-database and
+      // discard-on-any-failure).
+      if (exporterVersion >= 15) {
+        verifyV15StructuralStrictness();
       }
       if (rebuildIndexes) {
         rebuildIndexes();
@@ -293,6 +436,234 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
   }
 
+  /**
+   * The pre-flight checks a dump must pass BEFORE any target mutation is unlocked — they run
+   * right after the info section parses, ahead of the deferred preamble, so a rejection here
+   * leaves the target byte-for-byte untouched (CS38; SR1's genuinely pre-mutation set). Step 6
+   * adds the full Q-M2 info-field validation matrix at this seam.
+   */
+  private void runPreFlightChecks() {
+    // Q-M2(1) version dispatch: the >= 16 reject-with-redirect fires AHEAD of every v15 arm
+    // — a dump produced by newer binaries never reaches the strictness checks, making the
+    // >= 15-keyed arms below and in the section loop effectively == 15 (the end-state the
+    // Step 5 as-built note anticipated). The message names both versions.
+    if (exporterVersion >= 16) {
+      throw new DatabaseImportException(
+          "Import rejected: the dump declares exporter version " + exporterVersion
+              + " — it was produced by newer binaries; this release imports dumps up to"
+              + " exporter version " + DatabaseExport.EXPORTER_VERSION + ". Import the dump"
+              + " with a release supporting exporter version " + exporterVersion);
+    }
+    if (exporterVersion >= 15) {
+      // Q-M2(2): schema-version is MANDATORY in a v15 dump and must sit inside the
+      // importable range; missing, malformed, or out-of-range — reject naming declared vs
+      // supported. The declared-legacy path never reaches these arms (FM-M12).
+      final var supportedRange = MIN_IMPORTABLE_SCHEMA_VERSION
+          + ".." + SchemaShared.CURRENT_VERSION_NUMBER;
+      if (malformedSchemaVersionRaw != null) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump declares an unparseable schema version '"
+                + malformedSchemaVersionRaw + "' — this release imports schema versions "
+                + supportedRange);
+      }
+      if (!schemaVersionDeclared) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump does not declare a schema version — a v15 dump always"
+                + " carries one; this release imports schema versions " + supportedRange);
+      }
+      if (declaredSchemaVersion < MIN_IMPORTABLE_SCHEMA_VERSION
+          || declaredSchemaVersion > SchemaShared.CURRENT_VERSION_NUMBER) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump declares schema version " + declaredSchemaVersion
+                + " but this release imports schema versions " + supportedRange
+                + (declaredSchemaVersion > SchemaShared.CURRENT_VERSION_NUMBER
+                    ? " — import the dump with a release supporting schema version "
+                        + declaredSchemaVersion
+                    : " — export the database again with a release producing a supported schema"
+                        + " version"));
+      }
+      // Q-M2(3)/WI12b: known optional info fields present with a wrong type.
+      if (!infoFieldTypeViolations.isEmpty()) {
+        throw new DatabaseImportException(
+            "Import rejected: " + String.join("; ", infoFieldTypeViolations)
+                + " — the dump's info section is damaged");
+      }
+      // Q-M2(4): unknown extra fields are tolerated, logged — the exporter version is the
+      // compatibility contract, not field enumeration.
+      for (final var unknownField : unknownInfoFields) {
+        listener.onMessage(
+            "\nWARNING: unknown info field '" + unknownField + "' ignored");
+      }
+    }
+    // Q-M3/M2.b-1: a v15 dump is gzip-framed — on the file-based migration path, having
+    // arrived via the plain-JSON fallback is a hard failure with no override (a
+    // manually-gunzipped dump carries no trailer or size to verify). The InputStream
+    // constructor's caller owns the framing choice on that programmatic path (WI10a), so the
+    // rejection is keyed on the sized (file) source. (The >= 16 redirect above fires first,
+    // so this arm only ever sees == 15 — the "v15" wording is exact; CQ24 resolved by
+    // ordering.)
+    if (exporterVersion >= 15 && physicalSize >= 0 && !gzipFramed) {
+      throw new DatabaseImportException(
+          "Import rejected: the dump declares exporter version " + exporterVersion
+              + " but is not GZIP-framed — a v15 dump is always gzip-framed and a manually"
+              + " re-compressed copy cannot be verified; use the original export file");
+    }
+    // M2.b-4: the best-effort acknowledgment gate — a dump exported with -bestEffort=true is
+    // refused unless the operator explicitly acknowledges its potential incompleteness.
+    // Ruled at Step 6 (SR3, resolving review findings BG23/CQ26/CS66): the gate is
+    // deliberately MARKER-KEYED, not version-gated — no honest legacy exporter writes the
+    // marker, so the only affected input is a hand-edited dump, and rejecting one absent an
+    // explicit acknowledgment is intended fail-closed behavior.
+    if (bestEffortDump && !acceptBestEffortDump) {
+      throw new DatabaseImportException(
+          "Import rejected: the dump was exported in best-effort mode and may be missing"
+              + " records. Re-run the import with -acceptBestEffortDump=true to acknowledge"
+              + " the possible incompleteness and proceed");
+    }
+  }
+
+  /**
+   * The import preamble deferred by §A2 (CS38; block boundary pinned by WI11): every target
+   * mutation that used to run before anything of the dump was read — the default-class drop,
+   * the index-manager reload with the auto-index rebuild snapshot, and the order-coupled
+   * before-import schema snapshot, which must move WITH the drop it is taken after (the
+   * record import classifies leftover system records against it). Runs exactly once, only
+   * after the info section parsed and the pre-flight checks passed.
+   */
+  private void runDeferredImportPreamble() {
+    if (preambleExecuted) {
+      return;
+    }
+    preambleExecuted = true;
+
+    removeDefaultNonSecurityClasses();
+    session.getSharedContext().getIndexManager().reload(session);
+
+    for (final var index : session.getSharedContext().getIndexManager().getIndexes()) {
+      if (index.isAutomatic()) {
+        indexesToRebuild.add(index.getName());
+      }
+    }
+
+    beforeImportSchemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+  }
+
+  /**
+   * Parses the v15 trailing manifest section's declared totals for the post-loop cross-check
+   * against the importer's own consumption tallies (M2.b-3, CN51). Unknown manifest fields
+   * are skipped — the exporter version is the compatibility contract, not the field set.
+   */
+  private void importManifest() throws IOException, ParseException {
+    listener.onMessage("\nReading the manifest...");
+    jsonReader.readNext(JSONReader.BEGIN_OBJECT);
+    // BG30/CS78: EOF-bounded like the importInfo field loop — a dump truncated inside the
+    // manifest object spun forever on stale reader state; it now rejects loudly below.
+    while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
+      final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
+      switch (fieldName) {
+        // BG20: the exporter tallies these totals as longs — an int-range parse would
+        // falsely reject an honest dump with more than 2^31-1 entries.
+        case "classes" -> manifestClasses = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
+        case "indexes" -> manifestIndexes = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
+        case "records" -> manifestRecords = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
+        case "brokenRids" ->
+            manifestBrokenRids = jsonReader.readLong(JSONReader.NEXT_IN_OBJECT);
+        default -> jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+      }
+    }
+    if (jsonReader.lastChar() != '}') {
+      throw truncatedDump("its manifest section");
+    }
+    jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+    listener.onMessage("OK");
+  }
+
+  /**
+   * CS80 (track-cumulative review): the loud rejection every reader loop's EOF bound throws.
+   * The reader returns STALE state forever once the stream is exhausted mid-structure, so an
+   * unbounded `lastChar()`-keyed loop spins (or replays stale tokens) instead of failing —
+   * every section loop is bounded with {@code hasNext()} and converts an EOF-mid-structure
+   * exit into this rejection. Ungated by version: a mid-structure-truncated dump of ANY
+   * version could never import (it hung or desynced), so acceptance is unchanged. The checks
+   * key on the missing terminator, never on {@code hasNext()} itself, so an honestly-closed
+   * structure can never false-trip. The DEDICATED type (gate RG7) lets tolerance catches
+   * rethrow truncation — see {@link TruncatedDumpImportException}.
+   */
+  private TruncatedDumpImportException truncatedDump(String where) {
+    return new TruncatedDumpImportException(
+        "Import rejected: the dump ends inside " + where + " — the dump is truncated");
+  }
+
+  /**
+   * The v15 structural whole-stream strictness (M2.b-2/3). These checks run after the section
+   * loop — inherently post-mutation — so per SR1's condemn-target doctrine a rejection here
+   * condemns the partially imported target (the operator procedure mandates
+   * import-into-a-fresh-database and discard-on-any-failure). Checks: section presence
+   * including duplicates (WI10c), manifest totals vs the importer's own consumption tallies
+   * (CN51), non-empty brokenRids without the best-effort marker (WI10b — an honest
+   * default-mode v15 export aborts instead of producing broken RIDs, so the combination
+   * proves tampering or corruption), and the CS43 gzip full-consumption sequence.
+   */
+  private void verifyV15StructuralStrictness() throws IOException {
+    for (final var required : List.of(
+        "info", "collections", "schema", "records", "indexes", "brokenRids", "manifest")) {
+      final var occurrences = sectionOccurrences.getOrDefault(required, 0);
+      if (occurrences == 0) {
+        throw new DatabaseImportException(
+            "Import rejected: the v15 dump is missing its '" + required + "' section — the"
+                + " dump is incomplete; the partially imported target database is condemned");
+      }
+      if (occurrences > 1) {
+        throw new DatabaseImportException(
+            "Import rejected: the v15 dump carries its '" + required + "' section "
+                + occurrences + " times — the dump is malformed; the partially imported target"
+                + " database is condemned");
+      }
+    }
+
+    verifyManifestCount("classes", manifestClasses, parsedSchemaClassCount);
+    verifyManifestCount("indexes", manifestIndexes, parsedIndexCount);
+    verifyManifestCount("records", manifestRecords, parsedRecordCount);
+    verifyManifestCount("brokenRids", manifestBrokenRids, parsedBrokenRidCount);
+
+    if (parsedBrokenRidCount > 0 && !bestEffortDump) {
+      throw new DatabaseImportException(
+          "Import rejected: the v15 dump carries " + parsedBrokenRidCount + " broken RID(s)"
+              + " without the best-effort marker — an honest fail-fast export cannot produce"
+              + " this combination; the dump is inconsistent and the partially imported target"
+              + " database is condemned");
+    }
+
+    if (validatedGzipStream != null) {
+      // CS43 step (1): drain the DECOMPRESSED stream to end of stream. The JSON reader
+      // stopped at the dump root's closing brace, and the single member's trailer (CRC32 +
+      // ISIZE) is only read and verified by driving the decoder to its end.
+      final var buffer = new byte[8192];
+      //noinspection StatementWithEmptyBody
+      while (validatedGzipStream.read(buffer) != -1) {
+        // draining
+      }
+      // CS43 step (2): the single member must be fully consumed with no in-window residue.
+      validatedGzipStream.verifyFullyConsumed();
+      // CS43 step (3): the physical-size arithmetic — only the sized file source can assert
+      // that nothing trails the member on disk (WI10a: never applies to the InputStream
+      // constructor).
+      if (physicalSize >= 0) {
+        validatedGzipStream.verifyPhysicalSize(physicalSize);
+      }
+    }
+  }
+
+  /** One CN51 manifest-vs-tally cross-check; a mismatch condemns the target (SR1). */
+  private void verifyManifestCount(String entry, long declared, long consumed) {
+    if (declared != consumed) {
+      throw new DatabaseImportException(
+          "Import rejected: the v15 dump's manifest declares " + declared + " " + entry
+              + " but the import consumed " + consumed + " — the dump is truncated or"
+              + " tampered; the partially imported target database is condemned");
+    }
+  }
+
   // just read collection so import process can continue
   private void processBrokenRids(final Set<RID> brokenRids) throws IOException, ParseException {
     if (exporterVersion >= 12) {
@@ -304,10 +675,29 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       do {
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
-        final var recordId = RecordIdInternal.fromString(jsonReader.getValue(), false);
+        var value = jsonReader.getValue();
+        if (value != null) {
+          // The v15 exporter writes the rids as QUOTED JSON strings and the reader keeps the
+          // quotes in the raw token — strip them (an unquoted legacy token passes through).
+          value = value.trim();
+          if (value.length() >= 2 && value.charAt(0) == '"'
+              && value.charAt(value.length() - 1) == '"') {
+            value = value.substring(1, value.length() - 1).trim();
+          }
+        }
+        if (value != null && !value.isEmpty()) {
+          // CN51 consumption tally: only real rid tokens count — an EMPTY brokenRids array
+          // still parses as one empty token (which fromString maps to a placeholder rid).
+          parsedBrokenRidCount++;
+        }
+        final var recordId = RecordIdInternal.fromString(value, false);
         brokenRids.add(recordId);
 
-      } while (jsonReader.lastChar() != ']');
+        // CS80: EOF-bounded — see truncatedDump
+      } while (jsonReader.lastChar() != ']' && jsonReader.hasNext());
+      if (jsonReader.lastChar() != ']') {
+        throw truncatedDump("its brokenRids section");
+      }
     }
     if (migrateLinks) {
       if (exporterVersion >= 12) {
@@ -353,6 +743,16 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   }
 
   public void close() {
+    // Releases the validated decoder's native inflater; the plain fallback stream keeps the
+    // historical lifecycle (owned by the reader until the process lets it go).
+    if (validatedGzipStream != null) {
+      try {
+        validatedGzipStream.close();
+      } catch (final IOException ignore) {
+        // closing a fully drained (or condemned) source — nothing to recover
+      }
+      validatedGzipStream = null;
+    }
   }
 
   @SuppressWarnings("unused")
@@ -408,20 +808,158 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage("\nImporting database info...");
 
     jsonReader.readNext(JSONReader.BEGIN_OBJECT);
-    while (jsonReader.lastChar() != '}') {
+    // BG30/CS78: the field loop is EOF-bounded — on a dump truncated mid-info the reader
+    // returns stale state forever (a silent spin, with the unknown-field list growing toward
+    // OOM); hasNext() turns false exactly when the stale returns begin, and the post-loop
+    // check below converts the truncation into a loud, still-pre-mutation rejection. Ungated
+    // by version deliberately: a mid-info-truncated dump of ANY version could never import
+    // (it hung), so acceptance is unchanged — the hang becomes a rejection.
+    while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
       final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
-      if (fieldName.equals("exporter-version")) {
-        exporterVersion = jsonReader.readInteger(JSONReader.NEXT_IN_OBJECT);
-        if (exporterVersion < 14) {
-          jsonSerializer = JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE;
-        }
-      } else {
-        jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
+      // R4 parse-level strictness (FM-M10): a DANGLING field — name written, value missing,
+      // the mid-write crash shape — makes the until-the-colon field-name read swallow the
+      // object close and the following section into the "name". A legal info field name
+      // never contains structural JSON characters, and no honest dump of ANY version
+      // produces one that does (the shape can never parse into a clean import — the reader
+      // desyncs), so rejecting it here only converts guaranteed parse chaos into a clean,
+      // still-pre-mutation rejection.
+      if (fieldName.isEmpty() || fieldName.chars().anyMatch(c -> "\"{}[],:".indexOf(c) >= 0)) {
+        throw new DatabaseImportException(
+            "Import rejected: the dump's info section carries a dangling or malformed field"
+                + " (parsed as '" + fieldName + "') — the dump is damaged");
       }
+      switch (fieldName) {
+        case "exporter-version" -> {
+          final var raw = readInfoFieldRawValue(fieldName);
+          final int declaredVersion;
+          try {
+            declaredVersion = Integer.parseInt(raw);
+          } catch (final NumberFormatException e) {
+            // WI12a: an unparseable exporter-version is rejected fail-closed — the same
+            // outcome as an undeclared one (SR2): without a version there is no dispatch.
+            throw new DatabaseImportException(
+                "Import rejected: the dump declares an unparseable exporter version '" + raw
+                    + "' — refusing unverifiable input (same outcome as an undeclared"
+                    + " version)");
+          }
+          // CS63: the FIRST declared exporter version is latched — the strictness gate reads
+          // this field only after the section loop, so a trailing re-declaration (duplicate
+          // info section or repeated field) with a DIFFERING value could otherwise disarm the
+          // whole version-keyed matrix after the strict-armed parse already ran. Reject the
+          // re-declaration the moment it parses (fail-closed); a same-value duplicate info
+          // section is still caught by the WI10c duplicate-section check under v15, and stays
+          // tolerated on the declared-legacy path as before.
+          if (exporterVersion != -1 && declaredVersion != exporterVersion) {
+            throw new DatabaseImportException(
+                "Import rejected: the dump re-declares its exporter version (" + exporterVersion
+                    + " -> " + declaredVersion + ") — refusing tampered input");
+          }
+          exporterVersion = declaredVersion;
+          if (exporterVersion < 14) {
+            jsonSerializer = JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE;
+          }
+        }
+        case "schema-version" -> {
+          // Q-M2(2): mandatory in v15 dumps; captured here, judged at pre-flight (the
+          // version gate keeps the declared-legacy path untouched — FM-M12).
+          final var raw = readInfoFieldRawValue(fieldName);
+          try {
+            declaredSchemaVersion = Long.parseLong(raw);
+            schemaVersionDeclared = true;
+          } catch (final NumberFormatException e) {
+            malformedSchemaVersionRaw = raw;
+          }
+        }
+        case "best-effort" -> {
+          // The Step 4 exporter's best-effort marker — feeds the M2.b-4 acknowledgment gate
+          // and the WI10b brokenRids consistency check.
+          final var raw = readInfoFieldRawValue(fieldName);
+          checkKnownInfoFieldIsBoolean(fieldName, raw);
+          // BG29/CS76: the MARKER parses from the quote-stripped token (the parent's
+          // readBoolean parity) — a hand-edited QUOTED "true" on a declared-legacy dump must
+          // still arm the SR3 marker-keyed gate (fail-closed); under v15 the type check
+          // above still rejects the quoted form as a WI12b violation.
+          bestEffortDump = Boolean.parseBoolean(stripSurroundingQuotes(raw));
+        }
+        // Q-M2(3)/WI12b: the known OPTIONAL info fields the v15 exporter writes are
+        // type-checked if present but not required; violations are collected here (the raw
+        // token keeps its quotes, so strings are distinguishable) and judged at pre-flight,
+        // v15-only.
+        case "name", "engine-version", "engine-build", "schemaRecordId", "indexMgrRecordId" ->
+            checkKnownInfoFieldIsString(fieldName, readInfoFieldRawValue(fieldName));
+        case "storage-config-version" ->
+            checkKnownInfoFieldIsNumber(fieldName, readInfoFieldRawValue(fieldName));
+        default -> {
+          // Q-M2(4): unknown extra fields are tolerated — the exporter version is the
+          // compatibility contract, not field enumeration — and logged at pre-flight.
+          unknownInfoFields.add(fieldName);
+          readInfoFieldRawValue(fieldName);
+        }
+      }
+    }
+    // BG30/CS78's post-loop half: the loop exited on EOF, not on the object close.
+    if (jsonReader.lastChar() != '}') {
+      throw truncatedDump("its info section");
     }
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
 
     listener.onMessage("OK");
+  }
+
+  /**
+   * Reads an info field's raw value token (quotes preserved for strings), trimmed.
+   *
+   * <p>CS75 (recorded scalar-only rule): info-field values are SCALARS in every dump shape
+   * any exporter has ever written. A '{'- or '['-led value desyncs the reader's
+   * until-the-separator scan — a nested closing brace is indistinguishable from the info
+   * object's own close, so the field loop would exit early, pre-flight would pass on a
+   * truncated capture, and the import would mutate the target before failing (an
+   * SR1-boundary violation). A structured value is therefore rejected HERE — pre-mutation,
+   * loud, naming the field. This deliberately narrows Q-M2(4)'s unknown-field tolerance to
+   * scalar VALUES (field NAMES stay unconstrained); the version number remains the
+   * compatibility contract. Ungated by version: no honest dump of any version writes a
+   * structured info value, and the mid-section shape could never import cleanly anyway.
+   */
+  private String readInfoFieldRawValue(String fieldName) throws IOException, ParseException {
+    final var raw = jsonReader.readNext(JSONReader.NEXT_IN_OBJECT).getValue().trim();
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      throw new DatabaseImportException(
+          "Import rejected: the dump's info field '" + fieldName + "' carries a structured"
+              + " (non-scalar) value — no dump shape writes structured info fields; the dump"
+              + " is damaged or hand-edited");
+    }
+    return raw;
+  }
+
+  /** Strips one pair of surrounding double quotes from a raw token, if present. */
+  private static String stripSurroundingQuotes(String raw) {
+    if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {
+      return raw.substring(1, raw.length() - 1).trim();
+    }
+    return raw;
+  }
+
+  private void checkKnownInfoFieldIsString(String fieldName, String raw) {
+    if (raw.length() < 2 || raw.charAt(0) != '"' || raw.charAt(raw.length() - 1) != '"') {
+      infoFieldTypeViolations.add(
+          "info field '" + fieldName + "' must be a string but is '" + raw + "'");
+    }
+  }
+
+  private void checkKnownInfoFieldIsNumber(String fieldName, String raw) {
+    try {
+      Long.parseLong(raw);
+    } catch (final NumberFormatException e) {
+      infoFieldTypeViolations.add(
+          "info field '" + fieldName + "' must be a number but is '" + raw + "'");
+    }
+  }
+
+  private void checkKnownInfoFieldIsBoolean(String fieldName, String raw) {
+    if (!"true".equals(raw) && !"false".equals(raw)) {
+      infoFieldTypeViolations.add(
+          "info field '" + fieldName + "' must be a boolean but is '" + raw + "'");
+    }
   }
 
   private void removeDefaultNonSecurityClasses() {
@@ -520,7 +1058,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT).checkContent("\"type\"");
         jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-      } while (jsonReader.lastChar() == ',');
+        // CS80: EOF-bounded — see truncatedDump
+      } while (jsonReader.lastChar() == ',' && jsonReader.hasNext());
+      if (jsonReader.lastChar() == ',') {
+        throw truncatedDump("the schema's globalProperties list");
+      }
       jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
       jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
     }
@@ -531,12 +1073,26 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       blobCollectionIds = blobCollectionIds.substring(1, blobCollectionIds.length() - 1);
 
       if (!blobCollectionIds.isEmpty()) {
-        // READ BLOB COLLECTION IDS
+        // READ BLOB COLLECTION IDS. The ids live in the DUMP's id space: resolve them through
+        // the collections-section mapping (dump id -> target id) built by importCollections
+        // (§A3/WI1) — resolving them raw in the TARGET id space misclassifies under the R3
+        // layout change (a legacy dump's high blob id lands on a target class collection,
+        // registering it as a blob collection — FM-M16).
         for (var i : StringSerializerHelper.split(
             blobCollectionIds, StringSerializerHelper.RECORD_SEPARATOR)) {
-          var collection = Integer.parseInt(i.trim());
-          if (!ArrayUtils.contains(session.getBlobCollectionIds(), collection)) {
-            var name = session.getCollectionNameById(collection);
+          var dumpCollectionId = Integer.parseInt(i.trim());
+          var targetCollectionId = collectionToCollectionMapping.get(dumpCollectionId);
+          if (targetCollectionId == COLLECTION_NOT_FOUND_VALUE) {
+            // No collections-section entry maps this id — nothing safe to register (never
+            // fall back to the raw id: that is exactly the FM-M16 misclassification).
+            listener.onMessage(
+                "\nWARNING: blob collection with dump id " + dumpCollectionId
+                    + " has no matching entry in the dump's collections section;"
+                    + " its registration is skipped");
+            continue;
+          }
+          if (!ArrayUtils.contains(session.getBlobCollectionIds(), targetCollectionId)) {
+            var name = session.getCollectionNameById(targetCollectionId);
             session.addBlobCollection(name);
           }
         }
@@ -569,6 +1125,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 .readNext(JSONReader.FIELD_ASSIGNMENT)
                 .checkContent("\"name\"")
                 .readString(JSONReader.COMMA_SEPARATOR);
+        // CN51 consumption tally: every class OBJECT parsed from the dump counts.
+        parsedSchemaClassCount++;
 
         final var collectionIdsTag =
             exporterVersion >= 14 ? "\"collection-ids\"" : "\"cluster-ids\"";
@@ -608,7 +1166,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         List<Map<String, Object>> propertiesRaw = null;
 
         String value;
-        while (jsonReader.lastChar() == ',') {
+        // CS80: EOF-bounded — see truncatedDump
+        while (jsonReader.lastChar() == ',' && jsonReader.hasNext()) {
           jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
           value = jsonReader.getValue();
 
@@ -634,7 +1193,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
               final List<String> superClassNames = new ArrayList<>();
-              while (jsonReader.lastChar() != ']') {
+              // CS80: EOF-bounded — see truncatedDump
+              while (jsonReader.lastChar() != ']' && jsonReader.hasNext()) {
                 jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
                 final var clsName =
@@ -649,6 +1209,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 }
               }
 
+              if (jsonReader.lastChar() != ']') {
+                throw truncatedDump("a class's super-classes list");
+              }
               if (!superClassNames.isEmpty()) {
                 superClasses.put(className, superClassNames);
               }
@@ -659,12 +1222,16 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               // GET PROPERTIES
               jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
-              while (jsonReader.lastChar() != ']') {
+              // CS80: EOF-bounded — see truncatedDump
+              while (jsonReader.lastChar() != ']' && jsonReader.hasNext()) {
                 final var pRaw = jsonReader.readNext(JSONReader.NEXT_IN_ARRAY).getValue();
                 if (StringUtils.isNotBlank(pRaw)) {
                   final var pMap = jsonSerializer.mapFromJson(pRaw);
                   propertiesRaw.add(pMap);
                 }
+              }
+              if (jsonReader.lastChar() != ']') {
+                throw truncatedDump("a class's properties list");
               }
               jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
             }
@@ -675,6 +1242,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               customFields = importCustomFields();
             }
           }
+        }
+        if (jsonReader.lastChar() == ',') {
+          throw truncatedDump("a class definition");
         }
 
         if (isVertex && isEdge) {
@@ -728,7 +1298,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         classImported++;
 
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-      } while (jsonReader.lastChar() == ',');
+        // CS80: EOF-bounded — see truncatedDump
+      } while (jsonReader.lastChar() == ',' && jsonReader.hasNext());
+      if (jsonReader.lastChar() == ',') {
+        throw truncatedDump("the schema's classes list");
+      }
 
       this.rebuildCompleteClassInheritance();
       this.setLinkedClasses();
@@ -741,6 +1315,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       listener.onMessage("OK (" + classImported + " classes)");
       jsonReader.readNext(JSONReader.END_OBJECT);
       jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
+    } catch (final TruncatedDumpImportException truncation) {
+      // RG7: a truncation rejection stays LOUD on every path and version — the schema-family
+      // EOF bounds throw inside this legacy-tolerance swallow, and the legacy (< 15) path has
+      // no post-loop structural check to catch the damage later, so swallowing here turned a
+      // truncated legacy dump into an exit-0 import with an ERROR log line. No honest dump of
+      // any version is truncated (the dangling-name-guard precedent), so rethrowing costs no
+      // honest acceptance.
+      throw truncation;
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error on importing schema", e);
       listener.onMessage("ERROR (" + classImported + " entries): " + e);
@@ -825,11 +1407,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonReader.readNext(JSONReader.BEGIN_OBJECT);
 
-    while (jsonReader.lastChar() != '}') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
       final var key = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
       final var value = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
 
       result.put(key, value);
+    }
+    if (jsonReader.lastChar() != '}') {
+      throw truncatedDump("a class's customFields object");
     }
 
     jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
@@ -848,7 +1434,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       removeDefaultCollections();
     }
 
-    while (jsonReader.lastChar() != ']') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
       jsonReader.readNext(JSONReader.BEGIN_OBJECT);
 
       var name =
@@ -921,6 +1508,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
     }
+    if (jsonReader.lastChar() != ']') {
+      throw truncatedDump("its collections section");
+    }
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
 
     listener.onMessage("\nRebuilding indexes of truncated collections ...");
@@ -991,6 +1581,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       if (recordJson.isEmpty()) {
         return null;
       }
+      // CN51 consumption tally: every record ENTRY parsed from the dump's array counts,
+      // whatever the import later decides about it (the empty token above is the array end).
+      parsedRecordCount++;
       RawPair<RecordAbstract, RecordMetadata> parsed;
       parsed = jsonSerializer.fromStringWithMetadata(session, recordJson, null, true);
       final var record = parsed.first();
@@ -1230,7 +1823,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".",
             logger);
       }
-      while (jsonReader.lastChar() != ']') {
+      // CS80: EOF-bounded — see truncatedDump (a stale-token replay here would otherwise
+      // re-import the same record forever; today's replays happen to die loudly on the
+      // rid-map unique key, but that is protection by accident, not construction)
+      while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
         rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
 
         total++;
@@ -1267,6 +1863,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         }
       }
 
+      if (jsonReader.lastChar() != ']') {
+        throw truncatedDump("its records section");
+      }
+
       // remove all records which were absent in new database but
       // exist in old database
       session.executeInTx(transaction -> {
@@ -1284,6 +1884,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     session.getMetadata().reload();
 
     final Set<RID> brokenRids = new HashSet<>();
+    // This consumes the dump's brokenRids SECTION inline — it directly follows the records
+    // section in every >= 12 dump, so its tag never passes through the section loop. Record
+    // the occurrence here for the v15 presence/duplicate tracking (WI10c); a SECOND
+    // brokenRids section spliced elsewhere in the dump goes through the loop and trips the
+    // duplicate check.
+    if (exporterVersion >= 12) {
+      sectionOccurrences.merge("brokenRids", 1, Integer::sum);
+    }
     processBrokenRids(brokenRids);
 
     listener.onMessage(
@@ -1303,11 +1911,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
     var numberOfCreatedIndexes = 0;
-    while (jsonReader.lastChar() != ']') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
       jsonReader.readNext(JSONReader.NEXT_OBJ_IN_ARRAY);
       if (jsonReader.lastChar() == ']') {
         break;
       }
+      // CN51 consumption tally: every index OBJECT parsed from the dump's array counts,
+      // whatever the import later decides about it.
+      parsedIndexCount++;
 
       String indexName = null;
       String indexType = null;
@@ -1319,7 +1931,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       var typeRef = new TypeReference<HashMap<String, Object>>() {
       };
 
-      while (jsonReader.lastChar() != '}') {
+      // CS80: EOF-bounded — see truncatedDump
+      while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
         final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
         switch (fieldName) {
           case "name" -> indexName = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
@@ -1344,6 +1957,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         }
 
       }
+      if (jsonReader.lastChar() != '}') {
+        throw truncatedDump("an index definition");
+      }
       jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
       numberOfCreatedIndexes =
@@ -1356,6 +1972,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               collectionsToIndex,
               indexDefinition,
               metadata);
+    }
+    if (jsonReader.lastChar() != ']') {
+      throw truncatedDump("its indexes section");
     }
     listener.onMessage("\nDone. Created " + numberOfCreatedIndexes + " indexes.");
     jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
@@ -1438,9 +2057,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
-    while (jsonReader.lastChar() != ']') {
+    // CS80: EOF-bounded — see truncatedDump
+    while (jsonReader.hasNext() && jsonReader.lastChar() != ']') {
       final var collectionToIndex = jsonReader.readString(JSONReader.NEXT_IN_ARRAY);
       collectionsToIndex.add(collectionToIndex);
+    }
+    if (jsonReader.lastChar() != ']') {
+      throw truncatedDump("an index's collectionsToIndex list");
     }
 
     jsonReader.readString(JSONReader.NEXT_IN_OBJECT);

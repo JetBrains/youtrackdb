@@ -77,6 +77,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
@@ -85,6 +86,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryI
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.TxSchemaState;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -171,6 +174,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
@@ -204,6 +208,8 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -271,9 +277,118 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private final LocalRecordCache localCache = new LocalRecordCache();
   private final CurrentStorageComponentsFactory componentsFactory;
   private boolean initialized = false;
-  private FrontendTransaction currentTx;
+  // Volatile for the pool-teardown skip detection: hasInFlightForeignCommit() reads the
+  // CURRENT transaction object from a foreign thread before consulting its volatile
+  // status/storageTxThreadId fields. With a plain field the foreign read could return a stale
+  // pre-begin placeholder (or a prior borrow's transaction object) with no happens-before edge to
+  // the owner's begin(), false-no-skipping a genuinely in-flight commit and tearing its live
+  // transaction object down — the exact hazard the skip protocol exists to prevent. The volatile
+  // read pairs with the owner's volatile write here at every tx-boundary assignment, and the
+  // subsequent volatile status read then observes that same transaction's current state. Owner-
+  // thread reads are unaffected (program order); the write is tx-boundary-rare, so the cost is nil.
+  private volatile FrontendTransaction currentTx;
 
   private SharedContext sharedContext;
+
+  /**
+   * The acquire ordinal of this session's currently engaged metadata-write-mutex permit, 0 when
+   * none is engaged. It is a session field rather than transaction custom data on purpose: the
+   * custom-data map is wiped by the transaction's {@code clear()} before the outermost teardown
+   * runs the release, so a record living there would be gone by release time; this session-side
+   * record survives that wipe. It is an {@link AtomicLong} because the release gate is an atomic
+   * claim: every releaser — the owner's tx-close finally, a foreign teardown's release pass (pool
+   * shutdown), and the engage-path Dekker self-release — funnels through one
+   * {@code getAndSet(0)} in {@link #releaseMetadataWriteMutexForTx()}, so exactly one of any
+   * number of racing teardowns harvests the ordinal and presents it to the mutex; the mutex's
+   * {@code (session, ordinal)}-keyed CAS is the independent second belt.
+   */
+  private final AtomicLong engagedMutexOrdinal = new AtomicLong();
+
+  /**
+   * The mutex instance the current (or last) engage acquired, captured at engage time so the
+   * release funnel never needs {@link #sharedContext} — which {@code internalClose} nulls before
+   * its outer finally runs the widened release pass. Never cleared: a session binds to one storage
+   * for its lifetime, so the reference stays valid and a stale read is impossible. Volatile so a
+   * foreign teardown that harvests the ordinal (whose {@code AtomicLong} read gives the
+   * happens-before edge from the engage) also reads the mutex reference the engage published.
+   */
+  @Nullable private volatile MetadataWriteMutex engagedMutex;
+
+  /**
+   * The Dekker teardown-intent mark: volatile, set by every teardown that actually tears (after
+   * {@code internalClose}'s one-shot guard passes — a guard-returning no-op close must not plant a
+   * stale mark) and by the pool-teardown entry ({@code realClose}) before it re-validates the
+   * pool-teardown skip condition. The engage path stores its acquire ordinal FIRST and then re-reads this
+   * mark (ordinal-store-before-mark-read): with the teardown writing the mark before its release
+   * pass, at least one side always sees the other — a teardown that missed a mid-flight engage is
+   * seen by the engage's re-check (which self-releases and throws), and an engage the teardown
+   * did see is harvested by the teardown's release pass. Cleared on every pooled {@code reuse()}
+   * (the second belt against a stale mark surviving into a fresh borrow).
+   */
+  private volatile boolean teardownIntent;
+
+  /**
+   * True while an {@code internalClose} body is running on this session. Read by the
+   * owner-as-completer seam ({@link #completeDeferredTeardownAfterTxClose()}) to distinguish a
+   * tx-close reached from a user commit/rollback (where a marked session means the pool skipped
+   * its teardown and the owner must complete it) from a tx-close reached from inside
+   * {@code internalClose}'s own rollback (where re-entering {@code internalClose} would recurse).
+   * Deliberately a plain field: the guard only needs same-stack reentrance detection (program
+   * order); a cross-thread overlap between an owner completer and a pool teardown is contained by
+   * the atomic {@link #teardownClaim} (exactly one full teardown proceeds) and the atomic release
+   * claim (exactly one permit release).
+   */
+  private boolean internalCloseInProgress;
+
+  /**
+   * The atomic one-shot teardown claim: exactly one {@code internalClose} teardown may proceed
+   * per open cycle of this session. The plain {@code status != OPEN} guard alone is a
+   * check-then-act — two racing teardowns (the pool close's fall-through and the owner's deferred
+   * completer, or a pool close racing the borrower's own close) could BOTH pass it while the
+   * status is still OPEN and both run the full body, double-firing the close listeners and
+   * double-decrementing the storage session count (risking a premature storage auto-close under a
+   * live session, or a permanently skewed count). The CAS makes the overlap race-free: the loser
+   * no-ops. A teardown that THROWS before reaching {@code status = CLOSED} releases the claim on
+   * unwind, preserving the pre-existing retry semantics for a broken session's cleanup close; a
+   * completed teardown keeps it (the status guard blocks re-entry anyway). Reset on pooled
+   * {@code reuse()} alongside the status flip back to OPEN.
+   */
+  private final AtomicBoolean teardownClaim = new AtomicBoolean();
+
+  /**
+   * True only while {@code ensureTxSchemaState} is building the tx-local schema copy (the
+   * {@link SchemaShared#copyForTx} re-parse). The re-parse rebuilds the committed inheritance tree,
+   * which ripples a subclass's collection into a superclass index and routes back into the
+   * index-manager's tx-local seam. That seam consults this flag and treats any membership ripple
+   * raised during seeding as a no-op: the copy's polymorphic ids are being reconstructed from the
+   * already-committed shared index, so re-recording them into the tx-local changed-class set would
+   * both pollute the set with unchanged committed classes and re-enter {@code ensureTxSchemaState}
+   * before its marker is written -- re-engaging the single-permit mutex on the same thread and
+   * self-deadlocking (or, with assertions on, tripping the engage-order check because the seed holds
+   * the committed schema write lock). Thread-confined to the seeding thread.
+   */
+  private boolean seedingTxSchemaState = false;
+
+  /**
+   * True only while {@link SchemaShared#reload} is re-parsing the committed schema on this session
+   * (the {@code runReloadingCommittedSchema} scope). The index-manager tx-local seam reads this to
+   * treat the membership ripples the reload's {@code fromStream} inheritance rebuild raises as
+   * handled no-ops, exactly as it does for the {@code copyForTx} seed via
+   * {@link #isSeedingTxSchemaState()}: a reload reconstructs already-committed state, so the
+   * ripples are not schema writes and must not seed a tx-local schema state (whose mutex engage
+   * would run under the schema write lock the reload holds, tripping the engage-order guard).
+   * Thread-confined to the reloading thread.
+   */
+  private boolean reloadingSchema = false;
+
+  /**
+   * Non-null only while a {@link #computeWithFreshCommittedReads} scope is running on this
+   * session's thread. While set, {@link #executeReadRecord} bypasses the session's local record
+   * cache and reads through this dedicated read-only atomic operation instead of the active
+   * transaction's, so the reads observe the latest committed state rather than the transaction's
+   * begin-time snapshot. Session state is thread-confined, so the field needs no volatile.
+   */
+  private AtomicOperation freshCommittedReadOperation;
 
   private boolean prefetchRecords;
 
@@ -2122,12 +2237,32 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
       var record = getTransactionInternal().getRecord(rid);
+      var localCacheHit = false;
       if (record == null) {
         record = localCache.findRecord(rid);
+        localCacheHit = record != null;
       }
       if (record != null && record.isUnloaded()) {
         throw new IllegalStateException(
             "Unloaded record with rid " + rid + " was found in local cache");
+      }
+      if (localCacheHit && freshCommittedReadOperation != null) {
+        // Inside a fresh-committed-read scope a cached instance may be stale: it was read at the
+        // transaction's begin-time snapshot, which can predate the committed state the scope must
+        // observe. The session's one-instance-per-rid invariant (assertIfAlreadyLoaded) forbids
+        // materializing a second instance for the same rid, so the cached instance is refreshed in
+        // place from a fresh committed read. A tx-enrolled record (the branch above) is the
+        // transaction's own working copy and is never refreshed.
+        if (!refreshRecordFromFreshCommittedRead(record)) {
+          // The record no longer exists in the latest committed state: evict the stale instance
+          // and report not-found, exactly as a fresh-scope storage-read miss below would. The
+          // eviction removes the cache entry without unloading the instance, so a caller still
+          // holding the stale reference keeps a usable (if outdated) record while a later load
+          // materializes a fresh instance — a deliberate, bounded relaxation of the
+          // one-instance-per-rid invariant for a record the committed state no longer contains.
+          localCache.deleteRecord(rid);
+          return createRecordNotFoundResult(rid, throwExceptionIfRecordNotFound);
+        }
       }
 
       if (record != null) {
@@ -2159,8 +2294,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         readResult = prefetchedBuffer;
       } else {
         try {
-          var tx = getActiveTransaction();
-          readResult = storage.readRecord(rid, tx.getAtomicOperation());
+          readResult = storage.readRecord(rid, getEffectiveReadAtomicOperation());
         } catch (RecordNotFoundException e) {
           if (throwExceptionIfRecordNotFound) {
             throw e;
@@ -2219,7 +2353,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           // toRawBuffer() validates the stamp after byte extraction and throws
           // OptimisticReadFailedException if the page was modified. Retry until
           // we get a consistent byte[] copy.
-          var tx = getActiveTransaction();
           var currentResult = (StorageReadResult) pageBuffer;
           while (true) {
             try {
@@ -2228,7 +2361,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               record.fromStream(rawBuffer.buffer());
               break;
             } catch (OptimisticReadFailedException e) {
-              currentResult = storage.readRecord(rid, tx.getAtomicOperation());
+              currentResult = storage.readRecord(rid, getEffectiveReadAtomicOperation());
             }
           }
         }
@@ -3230,10 +3363,30 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
+      // Fast-path guard. A guard-returning no-op close must NOT plant the teardown-intent mark: a
+      // stale mark surviving into a later pooled borrow would make that borrower's first engage
+      // self-abort ("session was closed while engaging") on a healthy session.
       return;
     }
-
+    // The assert sits BEFORE the claim and the flag writes: a misuse detected under -ea must not
+    // consume the teardown claim nor strand internalCloseInProgress/teardownIntent on a session
+    // whose teardown never actually started.
     assert assertIfNotActive();
+    if (!teardownClaim.compareAndSet(false, true)) {
+      // Another teardown of this open cycle is running (or completed): the pool fall-through
+      // racing the owner's completer, or a pool close racing the borrower's own close. Exactly
+      // one full teardown may proceed — the loser no-ops here, leaving the winner's listener
+      // firing and session-count decrement single.
+      return;
+    }
+    // Every teardown that actually tears marks first (both the recycle and the full arm), set
+    // strictly AFTER the guards passed. The mark is the teardown side of the Dekker pair with the
+    // mutex engage: mark-write before the release pass in the outer finally below, so a
+    // mid-flight engage this teardown's release pass cannot see will see the mark in its own
+    // post-acquire re-check and self-release.
+    teardownIntent = true;
+    internalCloseInProgress = true;
+
     try {
       closeActiveQueries();
       localCache.shutdown();
@@ -3258,6 +3411,25 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
     } finally {
+      if (status != STATUS.CLOSED) {
+        // The teardown unwound before completing (a throw escaped the body — e.g. an Error from
+        // a close listener — or a pre-rollback failure): release the teardown claim so a later
+        // cleanup close can retry this broken session's teardown, preserving the pre-claim retry
+        // semantics. A completed teardown keeps the claim; re-entry is then blocked by the
+        // status guard anyway.
+        teardownClaim.set(false);
+      }
+      // Widened release pass: the belt that keeps the mutex permit from stranding when this
+      // teardown throws BEFORE the transaction's own close() finally could release it — including
+      // the pre-rollback throw points (closeActiveQueries/localCache.shutdown), a rollback that
+      // threw before reaching tx.close(), and the storage-already-closed early return above. A
+      // no-op when nothing is engaged (the atomic claim returns 0) and idempotent against the
+      // normal tx-close release (the claim makes exactly one releaser proceed). The pool-teardown
+      // skip path returns from realClose() before ever entering this method, so this pass can
+      // never release
+      // a live foreign commit's permit. releaseMetadataWriteMutexForTx never throws by contract.
+      releaseMetadataWriteMutexForTx();
+      internalCloseInProgress = false;
       // ALWAYS RESET TL
       activeSession.remove();
     }
@@ -3404,6 +3576,448 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     return metadata;
+  }
+
+  /**
+   * The transaction-scoped key under which the tx-local schema state is stashed in the active
+   * transaction's custom data. The state lives only as long as the transaction object, so it is
+   * dropped automatically when the outermost transaction frame closes.
+   *
+   * <p>Public so {@link com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl} can
+   * treat the presence of a tx-local schema state as a write signal: a schema-only transaction (a
+   * class create with no records) enrols no record or index operations, so without this signal the
+   * commit would be skipped and the schema change silently dropped.
+   */
+  public static final String TX_SCHEMA_STATE_KEY = "txSchemaState";
+
+  /**
+   * Returns the tx-local schema write-view seeded for the current transaction, or {@code null}
+   * when no schema write has been routed in this transaction yet (or no transaction is active). A
+   * non-null result is the signal that the proxy routing seam must resolve schema reads and writes
+   * against the tx-local copy (tier 3) rather than the committed shared instance (tier 2). This is
+   * a read-only probe: it never seeds the state.
+   */
+  @Nullable public TxSchemaState getTxSchemaState() {
+    assert assertIfNotActive();
+    var tx = getTransactionInternal();
+    if (!tx.isActive()) {
+      return null;
+    }
+    return (TxSchemaState) tx.getCustomData(TX_SCHEMA_STATE_KEY);
+  }
+
+  /**
+   * Returns the tx-local schema write-view for the current transaction, seeding it on the first
+   * call. Seeding builds a private {@link SchemaShared} copy of the committed schema
+   * ({@link SchemaShared#copyForTx}) and stashes it in the transaction's custom data, so the copy
+   * is built at most once per transaction and discarded when the transaction object is. The caller
+   * must have an open transaction; seeding loads records that ride the open user transaction.
+   */
+  public TxSchemaState ensureTxSchemaState() {
+    assert assertIfNotActive();
+    var tx = getTransactionInternal();
+    assert tx.isActive()
+        : "ensureTxSchemaState requires an open transaction to seed the tx-local schema copy";
+    var existing = (TxSchemaState) tx.getCustomData(TX_SCHEMA_STATE_KEY);
+    if (existing != null) {
+      return existing;
+    }
+
+    // First schema/index write of this transaction. Engage the metadata-write mutex strictly above
+    // any shared metadata lock and before the tx-local copy is seeded, so a second schema-changing
+    // transaction blocks here rather than racing. This is the single seam every de-guarded write
+    // path funnels through (the proxy resolveForWrite and the index-manager paths all reach seeding
+    // here), so engaging here covers every write path with one placement.
+    engageMetadataWriteMutex();
+    try {
+      SchemaShared committed = getSharedContext().getSchema();
+      // Guard the copyForTx re-parse: its inheritance rebuild ripples committed index membership back
+      // through the index-manager tx-local seam, which would otherwise re-enter this method before
+      // the marker below is set (re-engaging the mutex and self-deadlocking) and pollute the
+      // changed-class set with committed classes the seed merely reconstructs. The seam no-ops every
+      // ripple raised while this flag is set; the finally clears it even when the re-parse throws.
+      seedingTxSchemaState = true;
+      final TxSchemaState state;
+      try {
+        state = new TxSchemaState(committed.copyForTx(this));
+      } finally {
+        seedingTxSchemaState = false;
+      }
+      tx.setCustomData(TX_SCHEMA_STATE_KEY, state);
+      return state;
+    } catch (RuntimeException | Error e) {
+      // The seed loads and re-parses records and can throw (record-not-found, I/O, a malformed
+      // per-class record, a non-persistent linked id). The custom-data marker that records "the seed
+      // exists" has not been written yet, so undo the engage before rethrowing: otherwise the permit
+      // would be stranded if the transaction is later abandoned, and a same-tx retry of the schema
+      // write would re-enter here with no seed recorded and trip the engage's same-session
+      // stranded-holder throw. releaseMetadataWriteMutexForTx clears
+      // the marker and the permit and is idempotent, so the normal teardown release that still fires
+      // on close() is a no-op.
+      releaseMetadataWriteMutexForTx();
+      throw e;
+    }
+  }
+
+  /**
+   * Whether this session is mid-seed of the tx-local schema copy (the {@link SchemaShared#copyForTx}
+   * re-parse running inside {@code ensureTxSchemaState}). The index-manager tx-local seam reads this
+   * to skip the membership-ripple recording the seed's inheritance rebuild raises against the
+   * already-committed shared index, which would otherwise re-enter {@code ensureTxSchemaState} and
+   * self-deadlock on the single-permit mutex.
+   */
+  public boolean isSeedingTxSchemaState() {
+    return seedingTxSchemaState;
+  }
+
+  /**
+   * Whether this session is mid-reload of the committed schema (the {@link SchemaShared#reload}
+   * re-parse running inside {@link #runReloadingCommittedSchema}). The index-manager tx-local seam
+   * reads this to skip the membership-ripple recording the reload's inheritance rebuild raises
+   * against the already-committed shared index — the reload holds the schema write lock, so seeding
+   * the tx-local state from that ripple would engage the metadata-write mutex under
+   * {@code SchemaShared.lock} and trip the engage-order guard.
+   */
+  public boolean isReloadingSchema() {
+    return reloadingSchema;
+  }
+
+  /**
+   * Runs {@code reloadBody} (the {@link SchemaShared#reload} re-parse) with the schema-reload guard
+   * set, so the index-manager membership seam treats the inheritance-rebuild ripples raised inside
+   * as reconstructions of committed state rather than schema writes (see {@link
+   * #isReloadingSchema()}). Exception-safe: the guard clears even when the reload body throws. Not
+   * reentrant — a reload never runs inside another reload, and the assert pins that so a future
+   * nesting cannot silently clear the guard early.
+   */
+  public void runReloadingCommittedSchema(Runnable reloadBody) {
+    assert !reloadingSchema : "schema-reload guard scopes must not nest";
+    reloadingSchema = true;
+    try {
+      reloadBody.run();
+    } finally {
+      reloadingSchema = false;
+    }
+  }
+
+  /**
+   * Runs {@code reads} in a fresh-committed-read scope: every record load inside the scope reads
+   * the latest committed state through a dedicated read-only atomic operation (whose snapshot is
+   * taken now) instead of the active transaction's begin-time snapshot, and bypasses this session's
+   * local record cache (whose entries were read at that begin-time snapshot and may be stale).
+   * Loaded records still bind to this session and refresh the local cache, so later reads of the
+   * same records — including the commit-time schema serialization — serve the fresh state.
+   *
+   * <p>The consumers are the tx-local schema seed ({@link SchemaShared#copyForTx}) and the
+   * schema-carry commit's serialization, enrollment, and promotion loads: the metadata-write mutex
+   * serializes schema-changing transactions, so a transaction that parked on the mutex behind a
+   * concurrent schema commit resumes with a begin-time snapshot that predates that commit. Reading
+   * through the transaction's snapshot would re-parse or rewrite the pre-commit schema state (for
+   * example a phantom collection drop in the commit-time set-diff, or a root write at a stale
+   * record version). The scope is not reentrant and throws on nesting — always-on rather than an
+   * assert, because a silently nested scope would strand the outer scope on the stale snapshot in
+   * production where asserts are disabled.
+   *
+   * <p>Vacuum-safety premise: the dedicated read-only operation registers no {@code tsMin} of its
+   * own. Its snapshot is taken while the calling thread's transaction is active, so it is strictly
+   * newer than the transaction's begin-time snapshot, whose {@code tsMin} pin (held from
+   * {@code begin()} to the transaction's close) is what keeps every snapshot-index entry the fresh
+   * snapshot could need from being vacuumed. The scope must therefore only ever run inside an
+   * active transaction on this session — which its consumers guarantee.
+   */
+  public <T> T computeWithFreshCommittedReads(Supplier<T> reads) {
+    if (freshCommittedReadOperation != null) {
+      // Always-on (not an assert): a nested scope's finally would clear the field and deactivate
+      // its operation mid-outer-scope, silently reverting the outer scope's remaining reads to the
+      // transaction's stale begin-time snapshot — the exact corruption the scope exists to prevent.
+      throw new IllegalStateException("fresh-committed-read scopes must not nest");
+    }
+    // A lightweight read-only atomic operation: startAtomicOperation only captures a snapshot of
+    // the operations table (nothing registers thread- or table-side until an apply starts, which
+    // never happens here), so deactivating it after the reads is the complete teardown. Mirrors
+    // the read-only-operation pattern IndexHistogramManager uses for its rebalance scan.
+    final var freshReadOperation = storage.getAtomicOperationsManager().startAtomicOperation();
+    freshCommittedReadOperation = freshReadOperation;
+    try {
+      return reads.get();
+    } finally {
+      freshCommittedReadOperation = null;
+      freshReadOperation.deactivate();
+    }
+  }
+
+  /**
+   * The atomic operation record reads ride: the fresh-committed-read operation while a
+   * {@link #computeWithFreshCommittedReads} scope is active on this session, otherwise the active
+   * transaction's operation. Public because the {@code EntityImpl} page-frame fallback re-read
+   * resolves its read operation through this seam too — a stamp-invalidated re-read inside the
+   * scope must not silently fall back to the transaction's stale begin-time snapshot.
+   */
+  public AtomicOperation getEffectiveReadAtomicOperation() {
+    if (freshCommittedReadOperation != null) {
+      return freshCommittedReadOperation;
+    }
+    return getActiveTransaction().getAtomicOperation();
+  }
+
+  /**
+   * Re-fills a locally cached record instance in place from a fresh committed read, so a
+   * fresh-committed-read scope observes the latest committed record state through the SAME instance
+   * (the session's one-instance-per-rid invariant forbids materializing a second instance for a
+   * cached rid). No-op when the fresh read carries the version the instance already has, and for a
+   * dirty instance (a dirty record is this transaction's own working copy; {@code fill()} rejects
+   * dirty records). Returns {@code false} when the record no longer exists in the latest committed
+   * state, so the caller can evict the stale instance and report not-found.
+   *
+   * <p>The retry loop below deliberately does not repeat the initial read's
+   * {@link RecordNotFoundException} handling: a retry re-read happens only after the initial read
+   * already answered (the record existed in the fresh snapshot), and the snapshot is immutable, so
+   * a not-found on the re-read of the SAME snapshot is impossible by construction — were it ever
+   * thrown, it would signal a snapshot-stability bug and should escape loudly rather than be
+   * silently converted to an eviction.
+   */
+  private boolean refreshRecordFromFreshCommittedRead(RecordAbstract record) {
+    assert freshCommittedReadOperation != null
+        : "refreshRecordFromFreshCommittedRead requires an active fresh-committed-read scope";
+    if (record.isDirty()) {
+      return true;
+    }
+    var rid = record.getIdentity();
+    StorageReadResult readResult;
+    try {
+      readResult = storage.readRecord(rid, freshCommittedReadOperation);
+    } catch (RecordNotFoundException e) {
+      return false;
+    }
+    // toRawBuffer() validates the optimistic-read stamp after byte extraction; retry on
+    // invalidation until a consistent copy is read, mirroring the blob re-read loop in
+    // executeReadRecord.
+    while (true) {
+      try {
+        var rawBuffer = readResult.toRawBuffer();
+        if (rawBuffer.version() != record.getVersion()) {
+          record.fill(rawBuffer.version(), rawBuffer.buffer(), false);
+          record.fromStream(rawBuffer.buffer());
+        }
+        return true;
+      } catch (OptimisticReadFailedException e) {
+        readResult = storage.readRecord(rid, freshCommittedReadOperation);
+      }
+    }
+  }
+
+  /**
+   * Force-rebuilds this session's schema snapshot after a mid-transaction schema or index change so
+   * the next read re-materializes the classes, property constraint rules, and per-class index lists
+   * against the tx-local schema state. The immutable snapshot materializes once and is then reused;
+   * without this rebuild a validation, serialization, insert, or query later in the same
+   * transaction reads the stale snapshot and silently misses a class, rule, or index the
+   * transaction changed. Invalidation is lazy: it discards the cached snapshot so the next snapshot
+   * read rebuilds on demand, at O(1) cost here.
+   *
+   * <p>It clears only this session's thread-local pinned snapshot, not the process-shared
+   * {@code SchemaShared} snapshot. The tx-local state is session-scoped, so a tx-dependent view must
+   * not be cached process-wide where a concurrent session would read it; {@link SchemaProxy#makeSnapshot()}
+   * builds a session-private uncached snapshot while a schema/index transaction is active, so
+   * clearing the shared cache is both unnecessary and incorrect here (it would let this session's
+   * tx-local view leak into the shared snapshot a concurrent reader picks up). The thread-local
+   * clear is guarded on a zero pin count. On the supported paths the count is expected to be zero
+   * because a schema or index DDL change is not issued from inside a pinned read-record operation;
+   * the force-clear itself throws when the count is non-zero, surfacing a misplaced call (a DDL
+   * issued while a read pin is held) rather than treating such a call as impossible.
+   *
+   * <p>It also invalidates the session-private snapshot memoized on {@code TxSchemaState}
+   * (see {@link TxSchemaState#invalidateOverlaySnapshot()}), so the next snapshot read on the
+   * tx-aware branch of {@link SchemaProxy#makeSnapshot()} rebuilds once against the changed
+   * tx-local state while intervening unpinned reads between changes reuse the built snapshot.
+   */
+  public void forceRebuildTxSchemaSnapshot() {
+    getMetadata().forceClearThreadLocalSchemaSnapshot();
+    var txState = getTxSchemaState();
+    if (txState != null) {
+      txState.invalidateOverlaySnapshot();
+    }
+  }
+
+  /**
+   * Engages the storage's metadata-write mutex for the current transaction, throwing first when a
+   * shared metadata lock is already held by this thread. That runtime check proves the engage sits
+   * strictly above {@link SchemaShared#isWriteLockHeldByCurrentThread() the schema write lock} and
+   * the {@link IndexManagerEmbedded#isWriteLockHeldByCurrentThread() index-manager write lock}:
+   * engaging from inside a shared-lock acquisition would let a second transaction park on the mutex
+   * while holding a shared write lock, freezing lock-based reads and deadlocking against a
+   * commit-side lock acquisition. The de-guarded index-manager membership and create/drop paths are
+   * the dangerous placements because they themselves take those locks, so the check guards every
+   * write path, not just the canonical proxy path. It is an always-on guard rather than an assert
+   * because production JVMs run with assertions disabled, where a silent park is the worst outcome.
+   * The engage itself throws loudly when the current thread already holds the permit through a
+   * different session (a same-thread embedded session).
+   */
+  private void engageMetadataWriteMutex() {
+    var sharedCtx = getSharedContext();
+    // Enforce the engage-order invariant at runtime, not by assert alone: production JVMs run with
+    // assertions disabled, and the one invariant whose violation produces a cross-session deadlock
+    // (a second transaction parking on the permit while holding a shared write lock, freezing
+    // lock-based reads and deadlocking against the commit-side lock acquisition) must not vanish
+    // under -da. Throwing fails fast and turns a silent production hang into a diagnosable error.
+    if (sharedCtx.getSchema().isWriteLockHeldByCurrentThread()) {
+      throw new IllegalStateException(
+          "the metadata-write mutex must engage above SchemaShared.lock, but the current thread"
+              + " already holds the schema write lock");
+    }
+    if (sharedCtx.getIndexManager().isWriteLockHeldByCurrentThread()) {
+      throw new IllegalStateException(
+          "the metadata-write mutex must engage above the index-manager lock, but the current thread"
+              + " already holds the index-manager write lock");
+    }
+    final var mutex = sharedCtx.getMetadataWriteMutex();
+    final long ordinal = mutex.engage(this);
+    engagedMutex = mutex;
+    // Mandatory ordering (the Dekker pair's formal soundness depends on it): store the acquire
+    // ordinal STRICTLY BEFORE reading the teardown-intent mark. The teardown side writes the mark
+    // and then runs its release pass; with these orders, either the teardown's getAndSet harvests
+    // the ordinal we just stored (the teardown releases), or its claim returned 0 — in which case
+    // its mark-write precedes our ordinal-store in synchronization order, so the mark-read below
+    // sees the mark and this engage self-releases. No interleaving leaves the permit without a
+    // releaser.
+    engagedMutexOrdinal.set(ordinal);
+    if (teardownIntent) {
+      // Dekker post-acquire re-check: the session was marked for teardown while this engage was
+      // mid-flight (permit acquired, ordinal not yet visible to the teardown's release pass).
+      // Self-release through the same atomic claim every releaser uses, then fail loudly — the
+      // session is being torn down, so the transaction cannot proceed.
+      releaseMetadataWriteMutexForTx();
+      throw new DatabaseException(getDatabaseName(),
+          "the session was closed while engaging the metadata-write mutex");
+    }
+  }
+
+  /**
+   * Releases the metadata-write mutex permit this session engaged for the current transaction, if
+   * any — the SINGLE release funnel all three release sites go through: the owner's tx-close
+   * finally ({@code FrontendTransactionImpl.close()}), the teardown release pass in
+   * {@code internalClose}'s outer finally (which a pool shutdown can drive cross-thread), and the
+   * engage-path Dekker self-release. The gate is an atomic claim: {@code getAndSet(0)} on the
+   * session-side ordinal record makes exactly one of any number of racing releasers harvest the
+   * ordinal; the harvester presents {@code (session, ordinal)} to the mutex, whose keyed CAS is
+   * the independent second belt (it also warn-noops a stale ordinal from a recycled session's
+   * earlier acquisition). Never throws: it runs inside teardown finallys where a throw would mask
+   * the real exception, and {@code releaseFor} is warn-noop by contract. Uses the engage-captured
+   * mutex reference rather than {@link #getSharedContext()}, because {@code internalClose} nulls
+   * {@code sharedContext} before its outer finally runs this pass.
+   */
+  public void releaseMetadataWriteMutexForTx() {
+    final long ordinal = engagedMutexOrdinal.getAndSet(0);
+    if (ordinal == 0) {
+      return;
+    }
+    final var mutex = engagedMutex;
+    if (mutex == null) {
+      // Unreachable by construction (the engage publishes the mutex reference before the ordinal);
+      // log rather than throw — this runs in teardown finallys.
+      LogManager.instance()
+          .error(this,
+              "metadata-write mutex release claimed ordinal %d but no mutex reference was"
+                  + " recorded; the permit may be stranded",
+              null, ordinal);
+      return;
+    }
+    mutex.releaseFor(this, ordinal);
+  }
+
+  /**
+   * Whether this session has been marked for teardown (the Dekker teardown-intent mark). Read by
+   * the mutex engage path: the wait loop aborts a waiter whose session is being torn down, and the
+   * post-acquire re-check self-releases an engage the teardown's release pass could not see.
+   */
+  public boolean isTeardownIntentMarked() {
+    return teardownIntent;
+  }
+
+  /** Sets the Dekker teardown-intent mark; see {@link #isTeardownIntentMarked()}. */
+  protected void markTeardownIntent() {
+    teardownIntent = true;
+  }
+
+  /**
+   * Clears the Dekker teardown-intent mark on a pooled session's re-open ({@code reuse()}). For a
+   * recycled borrow this clear is the ONLY belt: the recycle teardown legitimately marks (it
+   * tears), so every returned session arrives at {@code reuse()} marked, and without the clear the
+   * borrower's first engage would self-abort forever.
+   */
+  protected void clearTeardownIntent() {
+    teardownIntent = false;
+  }
+
+  /**
+   * Resets the atomic one-shot teardown claim on a pooled session's re-open ({@code reuse()}): the
+   * recycle teardown consumed it, and the next close of the fresh borrow must be able to claim its
+   * own teardown.
+   */
+  protected void resetTeardownClaim() {
+    teardownClaim.set(false);
+  }
+
+  /**
+   * The current transaction's status for diagnostics, readable lock-free from any thread (both
+   * {@code currentTx} and the transaction status are volatile). Never throws; answers
+   * {@code "<none>"} when no transaction object exists.
+   */
+  protected String getTransactionStatusForDiagnostics() {
+    final var tx = currentTx;
+    return tx == null ? "<none>" : String.valueOf(tx.getStatus());
+  }
+
+  /**
+   * Owner-as-completer for the pool-teardown skip: called at the transaction-close boundary
+   * (the tail finally of {@code FrontendTransactionImpl.close()}, after the mutex release), on
+   * both the commit and rollback outcomes. If a pool teardown skipped this session because our
+   * commit was in flight (it set the teardown-intent mark and deferred), the owner — the sole
+   * legitimate completer — now runs the full {@code internalClose} on the owning thread. The
+   * Dekker completer handshake makes at least one side act: the pool writes the mark FIRST and
+   * then re-validates the skip condition (falling through to a full teardown itself when the
+   * commit already finished); the owner publishes its commit-completion state (the volatile tx
+   * status write inside {@code close()}) FIRST and then reads the mark here. Throw-isolated: a
+   * teardown failure is logged and never masks the commit outcome (a durable commit must never be
+   * reported failed because a close listener threw — the client would retry a durably applied
+   * commit). The {@code internalCloseInProgress} guard keeps the tx-close reached from inside
+   * {@code internalClose}'s own rollback from re-entering {@code internalClose} recursively; a
+   * cross-thread overlap with a pool teardown is contained by the atomic teardown claim inside
+   * {@code internalClose} (exactly one full teardown proceeds).
+   */
+  public void completeDeferredTeardownAfterTxClose() {
+    if (!teardownIntent || internalCloseInProgress || status != STATUS.OPEN) {
+      return;
+    }
+    try {
+      internalClose(false);
+    } catch (final Throwable deferredTeardownFailure) {
+      LogManager.instance()
+          .warn(this,
+              String.format(
+                  "Deferred teardown of session %08X of database '%s' after a pool-close skip"
+                      + " failed; the session may leak resources until the storage closes",
+                  System.identityHashCode(this), getDatabaseName()),
+              deferredTeardownFailure);
+    }
+  }
+
+  /**
+   * Whether this session's current transaction is COMMITTING on a thread other than the caller's
+   * — the skip-protocol detection a pool teardown runs before tearing down a checked-out
+   * session. Reads only the transaction's volatile {@code status}/{@code storageTxThreadId}, so it
+   * is safe from a foreign thread; the residual TOCTOU is the accepted one (late-skip = the commit
+   * already finished and the owner completes; late-rollback = today's behavior).
+   */
+  protected boolean hasInFlightForeignCommit() {
+    // Happens-before chain: currentTx is volatile, so this foreign read observes the owner's
+    // tx-boundary assignment (never a stale prior borrow's object), and the subsequent volatile
+    // status/storageTxThreadId reads inside isCommittingOnForeignThread observe that same
+    // transaction's current state. The residual is only the accepted TOCTOU: late-skip = the
+    // commit already finished (owner completer / pool re-validation handles teardown);
+    // late-rollback = today's behavior.
+    final var tx = currentTx;
+    return tx instanceof FrontendTransactionImpl impl && impl.isCommittingOnForeignThread();
   }
 
   public boolean isRetainRecords() {
@@ -3828,6 +4442,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                     + " and cannot be saved");
           }
 
+          // For a class created inside this still-open transaction the id below is provisional
+          // (<= -2): it backs no physical collection until commit. The record id carries the
+          // provisional id anyway. The transaction keys its record operations under it, so a
+          // same-transaction scan of the tx-created class serves the rows from the transaction
+          // phase, and the commit rewrites every provisional record-collection id to the
+          // reconciled real id before any record locks a collection, allocates a position, or
+          // serializes.
           return schemaClass.getCollectionForNewInstance(entity);
         } else {
           throw new DatabaseException(getDatabaseName(),
@@ -5491,6 +6112,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void enableLinkConsistencyCheck() {
     this.ensureLinkConsistency = true;
+  }
+
+  /**
+   * Whether the bidirectional-link-consistency check is currently enabled. A caller that disables
+   * the check around a nested operation reads this first and restores the captured value afterward
+   * rather than forcing the check back on, so a nested disable inside an outer disabled window is
+   * preserved.
+   */
+  public boolean isLinkConsistencyEnabled() {
+    return this.ensureLinkConsistency;
   }
 
   // --- Default methods migrated from DatabaseSessionEmbedded ---

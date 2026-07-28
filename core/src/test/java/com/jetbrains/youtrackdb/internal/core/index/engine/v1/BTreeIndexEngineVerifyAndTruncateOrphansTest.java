@@ -125,7 +125,7 @@ public class BTreeIndexEngineVerifyAndTruncateOrphansTest {
   private BTreeSingleValueIndexEngine newSingleValueEngineWithSbTree(
       CellBTreeSingleValue<CompositeKey> sbTree) throws Exception {
     var mockStorage = newStorageWithFactoryStub();
-    var engine = new BTreeSingleValueIndexEngine(1, "testEngine", mockStorage, 3);
+    var engine = new BTreeSingleValueIndexEngine(1, 1, "testEngine", mockStorage, 3);
     setField(engine, "sbTree", sbTree);
     return engine;
   }
@@ -138,7 +138,7 @@ public class BTreeIndexEngineVerifyAndTruncateOrphansTest {
     // shapes that no longer exist); only version 4 is accepted in the current
     // codebase. Use 4 so construction proceeds, then swap inner trees via
     // reflection.
-    var engine = new BTreeMultiValueIndexEngine(2, "testMvEngine", mockStorage, 4);
+    var engine = new BTreeMultiValueIndexEngine(2, 2, "testMvEngine", mockStorage, 4);
     setField(engine, "svTree", svTree);
     setField(engine, "nullTree", nullTree);
     return engine;

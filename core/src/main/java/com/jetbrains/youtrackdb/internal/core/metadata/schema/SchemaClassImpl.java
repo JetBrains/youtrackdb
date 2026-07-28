@@ -42,8 +42,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
 import java.util.ArrayList;
@@ -59,6 +59,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -77,6 +78,14 @@ public abstract class SchemaClassImpl {
   protected int[] collectionIds;
   protected List<SchemaClassImpl> superClasses = new ArrayList<>();
   protected int[] polymorphicCollectionIds;
+  /**
+   * RID of the standalone record that persists this class under the per-class-record schema
+   * format. Bound at load from the schema root record's class link set, the same way
+   * {@code IndexManagerAbstract.load} binds each index to its own record. {@code null} for a
+   * class that has not been persisted yet; a new class is allocated a fresh record at save and
+   * its temporary RID becomes permanent at commit.
+   */
+  @Nullable protected RID recordId;
   protected List<SchemaClassImpl> subclasses;
   protected float overSize = 0f;
   protected boolean strictMode = false; // @SINCE v1.0rc8
@@ -566,8 +575,29 @@ public abstract class SchemaClassImpl {
 
   protected abstract SchemaPropertyImpl createPropertyInstance();
 
-  public Entity toStream(DatabaseSessionEmbedded session) {
-    var entity = session.newEmbeddedEntity();
+  @Nullable public RID getRecordId() {
+    return recordId;
+  }
+
+  public void setRecordId(@Nullable RID recordId) {
+    this.recordId = recordId;
+  }
+
+  /**
+   * Serializes this class into the supplied standalone record. The caller (the schema root's
+   * {@code toStream}) owns the record's identity and link-set membership; this method only writes
+   * the class fields into it. Properties stay embedded within the class record.
+   */
+  public Entity toStream(DatabaseSessionEmbedded session, EntityImpl entity) {
+    // No provisional collection id (<= -2) may reach durable bytes: the commit resolves every
+    // provisional id to its real id before serializing, so a provisional id here means a
+    // reconciliation/resolution regression (a missed patch site, or serialization ordered before
+    // resolution). Caught at the serialization boundary during testing rather than as a "class lost
+    // its collections" symptom at the next database open. Zero production cost (asserts disabled).
+    assert noProvisionalCollectionId()
+        : "a provisional collection id reached toStream for class " + name
+            + " (defaultCollectionId=" + defaultCollectionId
+            + ", collectionIds=" + Arrays.toString(collectionIds) + ")";
     entity.setProperty("name", name);
     entity.setProperty("description", description);
     entity.setProperty("defaultCollectionId", defaultCollectionId);
@@ -604,6 +634,29 @@ public abstract class SchemaClassImpl {
         PropertyType.EMBEDDEDMAP);
 
     return entity;
+  }
+
+  /**
+   * Whether no collection id this class carries is provisional ({@code <= -2}) — the precondition
+   * {@link #toStream} asserts before writing the ids to durable bytes. Extracted to a helper so the
+   * multi-id scan does not report phantom JaCoCo branches inside the asserted expression (per the
+   * project's JaCoCo+assert guidance). Test-time guard only; never consulted in production.
+   */
+  private boolean noProvisionalCollectionId() {
+    if (SchemaShared.isProvisionalCollectionId(defaultCollectionId)) {
+      return false;
+    }
+    for (final var id : collectionIds) {
+      if (SchemaShared.isProvisionalCollectionId(id)) {
+        return false;
+      }
+    }
+    for (final var id : polymorphicCollectionIds) {
+      if (SchemaShared.isProvisionalCollectionId(id)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public int[] getCollectionIds() {
@@ -1383,47 +1436,6 @@ public abstract class SchemaClassImpl {
     hashCode = result;
   }
 
-  /**
-   * Renames collections belonging to this class when the class is renamed.
-   * For each collection, replaces the old lowercase class name prefix with
-   * the new one, preserving any counter suffix (e.g., {@code oldname_3}
-   * becomes {@code newname_3}).
-   */
-  protected void renameCollection(DatabaseSessionEmbedded session, String oldName, String newName) {
-    var oldPrefix = oldName.toLowerCase(Locale.ENGLISH);
-    var newPrefix = newName.toLowerCase(Locale.ENGLISH);
-
-    for (var collectionId : getCollectionIds()) {
-      if (collectionId < 0) {
-        continue;
-      }
-      var currentName = session.getCollectionNameById(collectionId);
-      if (currentName == null) {
-        continue;
-      }
-
-      String renamedName;
-      if (currentName.equals(oldPrefix)) {
-        // Legacy collection name (no counter suffix)
-        renamedName = newPrefix;
-      } else if (currentName.startsWith(oldPrefix + "_")) {
-        // Counter-based collection name — replace prefix, keep suffix
-        renamedName = newPrefix + currentName.substring(oldPrefix.length());
-      } else {
-        // Collection was not created by the class naming convention — leave unchanged
-        continue;
-      }
-
-      // Skip if a collection with the target name already exists
-      if (session.getCollectionIdByName(renamedName) != -1) {
-        continue;
-      }
-
-      session.getStorage()
-          .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, renamedName);
-    }
-  }
-
   protected abstract SchemaPropertyImpl addProperty(
       DatabaseSessionEmbedded session, final String propertyName,
       final PropertyTypeInternal type,
@@ -1567,9 +1579,29 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  private void removeCollectionFromIndexes(DatabaseSessionEmbedded session, final int iId) {
+  // Package-visible so the unresolvable-id guard below is directly testable (the add-side
+  // sibling, addCollectionIdToIndexes, is protected already).
+  void removeCollectionFromIndexes(DatabaseSessionEmbedded session, final int iId) {
     if (session.getStorage() instanceof AbstractStorage) {
-      final var collectionName = session.getCollectionNameById(iId);
+      // Provisional-aware mirror of the add-side ripple (addCollectionIdToIndexes): a subclass
+      // created in this same transaction carries a provisional id, whose committed name lookup
+      // answers null. Resolving through the shared resolver returns the carried c_<counter>
+      // name — the same name the add side recorded — so a same-tx create-then-drop (or detach) of
+      // the subclass cancels the pending membership add in the overlay. A null here instead would
+      // fail to cancel, and the commit would persist a phantom collection name into the committed
+      // index's collectionsToIndex (naming, on the drop path, a collection the reconciliation
+      // never creates).
+      final var collectionName = SchemaShared.resolveCollectionNameById(session, iId);
+      if (collectionName == null) {
+        // The resolver is nullable by contract (an unknown committed id answers null). Passing a
+        // null onward would either silently fail to cancel a pending membership add or record a
+        // phantom (index, null) entry — exactly the hazard the comment above names. Same
+        // fail-loud intent as the add side's guard (addCollectionIdToIndexes).
+        throw new IllegalStateException(
+            "collection id " + iId + " removed from class '" + name
+                + "' does not resolve to a collection name; refusing to ripple an unresolved"
+                + " collection through the class's index membership");
+      }
       final List<String> indexesToRemove = new ArrayList<>();
 
       final Set<Index> indexes = new HashSet<>();
@@ -1600,6 +1632,13 @@ public abstract class SchemaClassImpl {
       if (collections.add(collectionId)) {
         try {
           addCollectionIdToIndexes(session, collectionId, validateIndexes);
+        } catch (IllegalStateException e) {
+          // An invariant violation from the provisional-name resolution (a provisional collection
+          // id with no tx-local schema state, or no recorded name) must fail the ripple loudly.
+          // The warn-and-skip below exists to tolerate historical index-add validation failures;
+          // degrading an invariant break to a warning would silently drop the collection from the
+          // polymorphic set and skip its membership recording.
+          throw e;
         } catch (RuntimeException e) {
           LogManager.instance()
               .warn(
@@ -1629,6 +1668,39 @@ public abstract class SchemaClassImpl {
   protected void setCollectionIds(final int[] iCollectionIds) {
     collectionIds = iCollectionIds;
     Arrays.sort(collectionIds);
+  }
+
+  /**
+   * Replaces every provisional collection id this class carries ({@code collectionIds},
+   * {@code defaultCollectionId}, {@code polymorphicCollectionIds}) with the real id the commit
+   * resolved it to. A provisional id this class does not carry, or an id already real, is left
+   * untouched. The caller (the tx-local schema's commit-time resolution) holds the schema write
+   * lock and rebuilds the reverse map after patching every class, so this method touches only the
+   * per-class arrays. Called only on a tx-local copy at commit, before any record serializes.
+   *
+   * @param resolution maps each provisional id ({@code <= -2}) to its real id ({@code >= 0}).
+   */
+  protected void replaceProvisionalCollectionIds(@Nonnull Int2IntMap resolution) {
+    if (SchemaShared.isProvisionalCollectionId(defaultCollectionId)
+        && resolution.containsKey(defaultCollectionId)) {
+      defaultCollectionId = resolution.get(defaultCollectionId);
+    }
+    for (var i = 0; i < collectionIds.length; i++) {
+      if (SchemaShared.isProvisionalCollectionId(collectionIds[i])
+          && resolution.containsKey(collectionIds[i])) {
+        collectionIds[i] = resolution.get(collectionIds[i]);
+      }
+    }
+    Arrays.sort(collectionIds);
+    final var resolvedPolymorphic = new int[polymorphicCollectionIds.length];
+    for (var i = 0; i < polymorphicCollectionIds.length; i++) {
+      final var id = polymorphicCollectionIds[i];
+      resolvedPolymorphic[i] =
+          SchemaShared.isProvisionalCollectionId(id) && resolution.containsKey(id)
+              ? resolution.get(id)
+              : id;
+    }
+    setPolymorphicCollectionIds(resolvedPolymorphic);
   }
 
   @Nullable public static String decodeClassName(String s) {

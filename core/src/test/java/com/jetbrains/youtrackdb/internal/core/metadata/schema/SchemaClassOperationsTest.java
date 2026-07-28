@@ -715,26 +715,56 @@ public class SchemaClassOperationsTest extends DbTestBase {
   }
 
   @Test
-  public void createPropertyInsideTransactionIsRejected() {
-    // SchemaClassEmbedded.addProperty rejects creation inside an active transaction — pin the
-    // SchemaException arm.
+  public void createPropertyInsideTransactionIsTxLocal() {
+    // De-guarded for the genesis phase-1 schema transaction (Track 8 Step 3): an in-transaction
+    // property create routes through the proxy's resolveForWrite to the transaction-local class
+    // copy — it no longer throws, is visible inside the transaction, and a rollback discards it
+    // (the same contract as the dropClass/createIndex de-guards pinned by SchemaDeguardTest).
     Schema schema = session.getMetadata().getSchema();
     var cls = schema.createClass("PropInTx");
 
     session.begin();
     try {
       cls.createProperty("p", PropertyType.STRING);
-      fail("createProperty must throw inside a transaction");
-    } catch (SchemaException expected) {
-      assertTrue("error must mention the inside-transaction case",
-          expected.getMessage().toLowerCase().contains("transaction"));
+      assertNotNull("the tx-local property must be visible inside the transaction",
+          schema.getClass("PropInTx").getProperty("p"));
     } finally {
       session.rollback();
     }
 
-    // Creation succeeds outside the transaction.
+    assertNull("the rolled-back property must not survive into the committed schema",
+        schema.getClass("PropInTx").getProperty("p"));
+
+    // Creation still succeeds outside a transaction (the legacy top-level path).
     cls.createProperty("p", PropertyType.STRING);
     assertNotNull(cls.getProperty("p"));
+  }
+
+  /**
+   * The COMMIT half of the de-guarded in-transaction property create (review TQ16): a property
+   * created inside a user transaction survives the commit into the committed schema — with its
+   * declared type — and survives a forced re-parse of the persisted schema records (the
+   * byte-level pin; genesis covers this only transitively through phase 1).
+   */
+  @Test
+  public void createPropertyInsideTransactionPersistsAtCommit() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("PropInTxCommit");
+
+    session.begin();
+    schema.getClass("PropInTxCommit").createProperty("p", PropertyType.STRING);
+    session.commit();
+
+    var committed = schema.getClass("PropInTxCommit").getProperty("p");
+    assertNotNull("the committed property must be visible after the transaction", committed);
+    assertEquals(PropertyType.STRING, committed.getType());
+
+    // Force a fromStream re-parse of the persisted schema records so the pin covers the
+    // durable bytes, not just the in-memory promotion.
+    session.getSharedContext().getSchema().reload(session);
+    var reparsed = schema.getClass("PropInTxCommit").getProperty("p");
+    assertNotNull("the committed property must survive a schema re-parse", reparsed);
+    assertEquals(PropertyType.STRING, reparsed.getType());
   }
 
   @Test

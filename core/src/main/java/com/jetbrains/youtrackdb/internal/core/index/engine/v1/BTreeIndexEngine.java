@@ -12,6 +12,14 @@ public interface BTreeIndexEngine extends V1IndexEngine {
 
   int VERSION = 4;
 
+  /**
+   * The engine's stable, never-reused file base id: every storage-component name of the engine's
+   * file family derives from it ({@code ie_<fileBaseId>}), so the logical index name keys no
+   * file. Used by the storage's failed-commit cleanup arms to locate surviving engine files
+   * without parsing names.
+   */
+  int getFileBaseId();
+
   /** Returns the histogram manager, or null if not yet initialized. */
   @Nullable IndexHistogramManager getHistogramManager();
 

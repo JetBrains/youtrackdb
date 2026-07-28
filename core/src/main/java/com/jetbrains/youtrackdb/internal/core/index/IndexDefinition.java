@@ -64,6 +64,16 @@ public interface IndexDefinition extends IndexCallback {
   String getClassName();
 
   /**
+   * Re-associates this definition with a renamed class (the commit-only class-rename
+   * re-association), recursing into composed sub-definitions. Must only be called on objects no
+   * concurrent reader can observe — a freshly built replacement copy about to be published, or a
+   * transaction-private deferred handle's definition — never on a definition already reachable
+   * from the shared index manager, whose lock-free readers must never see a torn or shifting
+   * {@code className}. Class-less definitions (manual indexes) ignore the call.
+   */
+  void setClassName(String className);
+
+  /**
    * {@inheritDoc}
    */
   @Override
@@ -91,8 +101,7 @@ public interface IndexDefinition extends IndexCallback {
    * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
-  @Nullable
-  Object createValue(FrontendTransaction transaction, List<?> params);
+  @Nullable Object createValue(FrontendTransaction transaction, List<?> params);
 
   /**
    * Calculates key value by passed in parameters.
@@ -104,8 +113,7 @@ public interface IndexDefinition extends IndexCallback {
    * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
-  @Nullable
-  Object createValue(FrontendTransaction transaction, Object... params);
+  @Nullable Object createValue(FrontendTransaction transaction, Object... params);
 
   /**
    * Returns amount of parameters that are used to calculate key value. It does not mean that all

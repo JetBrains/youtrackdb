@@ -125,6 +125,12 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   // -1 means not set (GC will skip snapshot-entry checks).
   private volatile long engineId = -1;
 
+  // Whether this tree is a multi-value engine's dedicated null-key tree. Explicit identity set
+  // by the owning engine via setNullTree() — the component name is a file key
+  // (ie_<fileBaseId>$null) and must not be parsed for identity. False for single-value trees,
+  // the config b-tree, and any other non-engine use.
+  private volatile boolean nullTree;
+
   public BTree(
       @Nonnull final String name,
       final String dataFileExtension,
@@ -164,6 +170,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   @Override
   public void setEngineId(long engineId) {
     this.engineId = engineId;
+  }
+
+  @Override
+  public void setNullTree(final boolean nullTree) {
+    this.nullTree = nullTree;
   }
 
   @Override
@@ -670,12 +681,15 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
               final var serializedKey =
                   keySerializer.serializeNativeAsWhole(serializerFactory, key, (Object[]) keyTypes);
               if (maxKeySize > 0 && serializedKey.length > maxKeySize) {
+                // The display name (the index's logical name), not the internal ie_<fileBaseId>
+                // component stem — this exception is user-facing.
                 throw new TooBigIndexKeyException(storage.getName(),
-                    "Key size is more than allowed, operation was canceled. Current key size "
+                    "Key size is more than allowed for index '" + getDisplayName()
+                        + "', operation was canceled. Current key size "
                         + serializedKey.length
                         + ", allowed  "
                         + maxKeySize,
-                    getName());
+                    getDisplayName());
               }
               var bucketSearchResult =
                   findBucketForUpdate(key, serializedKey, atomicOperation);
@@ -2922,7 +2936,14 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       if (lwm < 0) {
         lwm = storage.computeGlobalLowWaterMark();
         assert lwm >= 0 : "Global LWM must be non-negative, got " + lwm;
-        isNullTree = getName().endsWith(AbstractStorage.NULL_TREE_SUFFIX);
+        // Explicit identity declared by the owning engine (setNullTree), never inferred from
+        // the component name. The null tree's name does still end in $null, but that is the
+        // engine's private file-key convention (ie_<fileBaseId>$null), not an identity contract:
+        // before the file-key change the name embedded the user-chosen index name, where '$' is
+        // legal, so the old getName().endsWith("$null") parse misclassified the MAIN tree of an
+        // index literally named "*$null". Owner-declared identity also survives any future change
+        // to the file-key scheme.
+        isNullTree = nullTree;
       }
 
       final var key = keyBucket.getKey(i, keySerializer, serializerFactory);

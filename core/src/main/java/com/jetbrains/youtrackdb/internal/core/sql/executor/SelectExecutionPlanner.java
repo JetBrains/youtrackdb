@@ -3418,6 +3418,18 @@ public class SelectExecutionPlanner {
   }
 
   /**
+   * Whether an index has a built engine and so is usable to accelerate a query. An index created
+   * inside the still-open transaction that is now querying has no engine yet: its engine id is
+   * negative until the commit builds it, and reading an engine-less index throws. Skipping it here
+   * lets the WHERE block fall through to a full class scan, which returns the correct merged
+   * transaction view (committed rows plus the transaction's own updates minus its deletes). Once the
+   * transaction commits and the engine is built the same query accelerates through the index.
+   */
+  private static boolean isIndexBuilt(Index index) {
+    return index.getIndexId() >= 0;
+  }
+
+  /**
    * Selects the best index from the given candidates to satisfy as many conditions
    * as possible within the AND block. The selection algorithm works in four stages:
    *
@@ -3438,6 +3450,10 @@ public class SelectExecutionPlanner {
    *    - Among equal-cost candidates, pick the one covering the most fields
    * </pre>
    *
+   * <p>An index whose engine is not built yet (a transaction-created index queried inside the same
+   * transaction) is excluded up front through {@link #isIndexBuilt}, so a query inside the creating
+   * transaction falls through to a full class scan rather than reading an engine-less index.
+   *
    * @param indexes all indexes defined on the target class
    * @param block   a single AND block from the flattened WHERE clause
    * @param clazz   the target schema class
@@ -3448,6 +3464,7 @@ public class SelectExecutionPlanner {
     // get all valid index descriptors
     var descriptors =
         indexes.stream()
+            .filter(SelectExecutionPlanner::isIndexBuilt)
             .filter(Index::canBeUsedInEqualityOperators)
             .map(index -> buildIndexSearchDescriptor(ctx, index, block, clazz))
             .filter(Objects::nonNull)
@@ -3457,6 +3474,7 @@ public class SelectExecutionPlanner {
 
     var fullTextIndexDescriptors =
         indexes.stream()
+            .filter(SelectExecutionPlanner::isIndexBuilt)
             .filter(idx -> idx.getType().equalsIgnoreCase("FULLTEXT"))
             .filter(idx -> !idx.getAlgorithm().equalsIgnoreCase("LUCENE"))
             .map(idx -> buildIndexSearchDescriptorForFulltext(idx, block))

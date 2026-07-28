@@ -84,6 +84,15 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   private volatile String name;
   private volatile String fullName;
 
+  /**
+   * Optional user-facing name for diagnostics, {@code null} when the component ({@code file})
+   * name doubles as the user-facing identity. Index-engine components are keyed by internal
+   * {@code ie_<fileBaseId>} stems that mean nothing to a user, so the owning engine installs the
+   * index's logical name here and user-facing errors report it instead of the stem. Never used
+   * for file or lock identity — those stay on {@link #name}.
+   */
+  @Nullable private volatile String displayName;
+
   private final String extension;
 
   private final String lockName;
@@ -146,6 +155,23 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
   public String getFullName() {
     return fullName;
+  }
+
+  /**
+   * Installs the user-facing name reported by diagnostics (see {@link #getDisplayName()}).
+   */
+  public void setDisplayName(final String displayName) {
+    this.displayName = displayName;
+  }
+
+  /**
+   * The name user-facing errors should report for this component: the installed display name
+   * when one exists (index-engine components report their index's logical name, not the internal
+   * {@code ie_<fileBaseId>} file stem), otherwise the component name itself.
+   */
+  public String getDisplayName() {
+    final var installed = displayName;
+    return installed != null ? installed : name;
   }
 
   public String getExtension() {

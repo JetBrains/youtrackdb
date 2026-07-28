@@ -24,6 +24,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.CopyOption;
 import java.nio.file.FileSystems;
@@ -33,6 +34,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Locale;
 import javax.annotation.Nullable;
@@ -161,8 +163,7 @@ public class FileUtils {
     }
   }
 
-  @Nullable
-  public static String getPath(final String iPath) {
+  @Nullable public static String getPath(final String iPath) {
     if (iPath == null) {
       return null;
     }
@@ -316,6 +317,60 @@ public class FileUtils {
               source,
               target);
       Files.move(source, target);
+    }
+  }
+
+  /**
+   * Durably promotes {@code source} to {@code target} (the CS40 promote recipe of Track 8's
+   * export hardening): (1) the source file's content is fsynced through a freshly opened
+   * channel — the writing stream is already closed, so the sync needs its own channel; (2) the
+   * file is renamed with {@code ATOMIC_MOVE} + {@code REPLACE_EXISTING}, so a pre-existing
+   * target is replaced only by this whole, durable file and a crash can never leave a torn
+   * target; (3) the target's parent directory is fsynced (POSIX rename durability — without it
+   * a crash after the rename can lose the directory entry itself).
+   *
+   * <p>Deliberately FAIL-CLOSED: unlike {@link #atomicMoveWithFallback} there is NO regular-move
+   * fallback — a filesystem that cannot perform the atomic replace fails the promote rather
+   * than silently degrading to a copy that can tear the target. The parent-directory fsync
+   * carve-out is NARROW: only the directory-channel OPEN failure is tolerated (platforms like
+   * Windows cannot open directory channels, and the POSIX directory-entry hazard does not
+   * apply there in the same form); an I/O failure from {@code force(true)} on a successfully
+   * opened directory channel is a GENUINE fsync failure and propagates — reporting success
+   * over it would let a crash revert the rename after the caller already reported the promote
+   * durable.
+   *
+   * <p>Contract note: only the TARGET's parent directory is fsynced. The current callers move
+   * within a single directory (the export temp file sits next to its final name); a future
+   * CROSS-directory caller would additionally need the SOURCE's parent fsynced, or the
+   * source-entry removal may not be durable.
+   */
+  public static void durableAtomicMove(Path source, Path target, Object requester)
+      throws IOException {
+    try (var channel = FileChannel.open(source, StandardOpenOption.WRITE)) {
+      channel.force(true);
+    }
+    Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    final var parent = target.toAbsolutePath().getParent();
+    if (parent != null) {
+      FileChannel directoryChannel = null;
+      try {
+        directoryChannel = FileChannel.open(parent, StandardOpenOption.READ);
+      } catch (IOException e) {
+        // The documented platform carve-out: the directory cannot be opened as a channel
+        // (e.g. Windows). Only the OPEN failure is tolerated — see the javadoc.
+        LogManager.instance()
+            .warn(requester,
+                "Cannot open the parent directory of '%s' for fsync after the atomic move;"
+                    + " continuing (the platform does not support directory channels)",
+                e, target);
+      }
+      if (directoryChannel != null) {
+        // A failure from force(true) here is a genuine fsync failure and MUST propagate
+        // (fail-closed): the rename's durability cannot be vouched for.
+        try (var openedDirectoryChannel = directoryChannel) {
+          openedDirectoryChannel.force(true);
+        }
+      }
     }
   }
 }

@@ -23,6 +23,8 @@
  */
 package com.jetbrains.youtrackdb.internal.common.concur.lock;
 
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.lang.ref.Cleaner;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +34,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.StampedLock;
+import java.util.function.BooleanSupplier;
 
 /**
  * <h1>Scalable Read-Write Lock </h1>
@@ -273,6 +276,17 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   @Override
   public Lock writeLock() {
     return writerLock;
+  }
+
+  /**
+   * Whether the exclusive (write) lock is currently held by some thread. The underlying
+   * {@link StampedLock} tracks no owner, so this cannot distinguish the current thread from
+   * another holder; it exists for assertions that a code path runs inside an exclusive-lock
+   * window (a caller that must itself hold the lock cannot be foiled by another holder anyway,
+   * because that holder would have blocked it).
+   */
+  public boolean isWriteLocked() {
+    return stampedLock.isWriteLocked();
   }
 
   /**
@@ -604,5 +618,149 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     return true;
+  }
+
+  /**
+   * Acquires the write lock ONCE with an abort predicate, for a waiter that must give way to an
+   * external condition (an operator freeze engaging) without ever spuriously failing on
+   * contention alone.
+   *
+   * <p>The two-guarantee contract this primitive exists for (both load-bearing for the freezer
+   * gate's third checkpoint; see the correctness comments inline):
+   *
+   * <ul>
+   *   <li><b>Bounded acquisition under sustained readers.</b> The write bit is acquired exactly
+   *       once and then HELD through the reader drain — writer preference: from the moment the
+   *       bit is set, new readers observe {@code isWriteLocked()} and back off exactly as they do
+   *       against {@link #exclusiveLock()}. There is no inter-attempt release window (unlike an
+   *       {@link #exclusiveTryLockNanos} retry loop, which releases the bit on every drain
+   *       timeout and forfeits admission to slip-in readers), so the acquisition completes within
+   *       the maximum residual reader residence — deterministic, no starvation, no retry storm.
+   *   <li><b>Abort within one poll granularity.</b> The predicate is polled between phase-1
+   *       {@code tryWriteLock} attempts (each bounded by {@code pollNanos}) and on every yield
+   *       iteration of the phase-2 reader-drain spin (the tightest granularity available; the
+   *       intended predicate is a single atomic-counter read, so per-iteration polling costs
+   *       less than the yield beside it). On abort the write bit is released fully — no queue
+   *       entry, no held bit, no residual writer-intent state — so no reader or writer is
+   *       stranded (parked readers spin on {@code isWriteLocked()} and proceed; there is no
+   *       wait/notify channel to lose a wakeup on) and the primitive is immediately reusable.
+   * </ul>
+   *
+   * <p>The predicate is additionally re-checked immediately after the drain completes (which is
+   * also immediately after bit acquisition when there are no residual readers to drain), BEFORE
+   * returning {@code true}: a condition arriving exactly at the acquisition-success edge aborts
+   * here rather than being missed and caught only by later downstream gates with the lock held.
+   *
+   * <p>No new deadlock edge: the method blocks only on the same two waits {@link #exclusiveLock()}
+   * already performs (the stamped writer queue and the reader-drain spin), both now bounded by the
+   * abort predicate; the abort path releases everything before returning, and a queued phase-1
+   * candidate holds nothing at all (readers never consult the stamped writer queue — they poll
+   * only {@code isWriteLocked()}).
+   *
+   * <p>Interruption: an interrupt while parked in the phase-1 timed acquire restores the interrupt
+   * flag and throws {@link DatabaseException} naming the lock state. The phase-2 drain is a yield
+   * spin, uninterruptible exactly like {@link #exclusiveLock()}'s.
+   *
+   * <p>All other methods of this class are byte-for-byte unaffected; readers pay nothing new.
+   *
+   * <p>Fairness note: a phase-1 timeout re-enters the stamped writer queue at its tail, so under
+   * sustained contention from plain {@link #exclusiveLock()} writers this waiter can lose its
+   * queue position once per {@code pollNanos} — phase 1 is unbounded in theory under a permanent
+   * writer storm. Acceptable for the intended consumer (storage state locks have rare, short
+   * writers); a fairness-sensitive consumer would need a different phase-1 shape.
+   *
+   * <p>A predicate that THROWS is propagated — but never with the write bit held: a phase-1 throw
+   * happens with nothing acquired, and the phase-2 evaluation sites are guarded so the bit is
+   * released before the failure escapes (an ownerless write bit would wedge every reader and
+   * writer of this lock forever).
+   *
+   * @param abort     polled condition; when it returns {@code true} the acquisition is abandoned
+   *                  and this method returns {@code false} with no lock state held. Must be cheap
+   *                  (it is polled per drain iteration) and must not itself touch this lock.
+   * @param pollNanos the phase-1 per-attempt park bound; also the coarsest abort-detection
+   *                  latency while queued against another writer. Must be positive.
+   * @return {@code true} when the write lock was acquired (caller releases via
+   * {@link #exclusiveUnlock()}); {@code false} when the abort predicate turned true first.
+   */
+  public boolean exclusiveLockWithAbort(final BooleanSupplier abort, final long pollNanos) {
+    java.util.Objects.requireNonNull(abort, "abort predicate must not be null");
+    if (pollNanos <= 0) {
+      throw new IllegalArgumentException("pollNanos must be positive, got " + pollNanos);
+    }
+    // Phase 1: queue against writers only. A parked tryWriteLock candidate blocks no readers:
+    // readers poll isWriteLocked(), which stays false until an acquisition actually succeeds,
+    // so aborting from this phase leaves no trace at all.
+    long stamp = 0;
+    while (stamp == 0) {
+      if (abort.getAsBoolean()) {
+        return false;
+      }
+      try {
+        stamp = stampedLock.tryWriteLock(pollNanos, TimeUnit.NANOSECONDS);
+      } catch (final InterruptedException e) {
+        // Restore the flag and fail loudly naming the state: a swallowed interrupt would turn
+        // into an unbounded uninterruptible wait. The message stays generic (this is a shared
+        // primitive, not a storage-only one) and reports only what is certain: the write bit was
+        // not acquired by this call. The holder snapshot is best-effort — it can name a free lock
+        // when a pre-interrupted thread never actually parked (StampedLock checks the interrupt
+        // flag before attempting) or when the holder released concurrently.
+        Thread.currentThread().interrupt();
+        throw BaseException.wrapException(
+            new DatabaseException(
+                "interrupted while acquiring the write lock with an abort predicate (write bit"
+                    + " not acquired by this call; "
+                    + (stampedLock.isWriteLocked()
+                        ? "another writer currently holds the write bit"
+                        : "no writer currently holds the write bit")
+                    + ")"),
+            e, (String) null);
+      }
+    }
+
+    // Phase 2: the write bit is HELD from here on — writer preference engaged exactly like
+    // exclusiveLock (new readers observe isWriteLocked() and back off). Drain the residual
+    // readers, polling the abort predicate on every yield iteration. The whole phase is guarded:
+    // a THROW from the predicate (or any phase-2 failure) must release the bit before
+    // propagating — an ownerless write bit would wedge every reader (spinning on isWriteLocked)
+    // and writer of this lock forever. No double-unlock is possible: the two abort branches
+    // below unlock and RETURN immediately, so any throw reaching the catch arrives with the bit
+    // still held.
+    try {
+      var localReadersStateArray = readersStateArrayRef.get();
+      if (localReadersStateArray == null) {
+        // Set to dummyArray before scanning the readersStateList to impose
+        // a linearizability condition
+        readersStateArrayRef.set(dummyArray);
+        // Copy readersStateList to an array
+        localReadersStateArray =
+            readersStateList.toArray(new AtomicInteger[readersStateList.size()]);
+        readersStateArrayRef.compareAndSet(dummyArray, localReadersStateArray);
+      }
+
+      for (var readerState : localReadersStateArray) {
+        while (readerState != null && readerState.get() == SRWL_STATE_READING) {
+          if (abort.getAsBoolean()) {
+            // Full release: the bit drops, backed-off readers spinning on isWriteLocked() proceed
+            // (no lost wakeup possible — there is no parking channel, only the polled bit), and
+            // the primitive is immediately reusable.
+            stampedLock.asWriteLock().unlock();
+            return false;
+          }
+          Thread.yield();
+        }
+      }
+
+      // Predicate re-check at the acquisition-success edge, before returning true. This closes
+      // the window where the condition arrives exactly as the drain completes — including the
+      // zero-residual-readers case, where the drain loop body never ran and so never polled.
+      if (abort.getAsBoolean()) {
+        stampedLock.asWriteLock().unlock();
+        return false;
+      }
+      return true;
+    } catch (final Throwable phaseTwoFailure) {
+      stampedLock.asWriteLock().unlock();
+      throw phaseTwoFailure;
+    }
   }
 }

@@ -96,6 +96,12 @@ public class YqlExecutionPlanCache implements MetadataUpdateListener {
     if (capacity == 0) {
       return;
     }
+    if (db.getTxSchemaState() != null) {
+      // The mirror of the getInternal bypass: a plan built during a schema- or index-changing
+      // transaction is shaped by the tx-local schema view and must not be published to other
+      // sessions through the shared cache.
+      return;
+    }
 
     // Copy the plan outside the cache data structure — no lock contention on copy()
     var internal = (InternalExecutionPlan) plan;
@@ -129,6 +135,15 @@ public class YqlExecutionPlanCache implements MetadataUpdateListener {
       return null;
     }
     if (capacity == 0) {
+      return null;
+    }
+    if (db.getTxSchemaState() != null) {
+      // An open schema- or index-changing transaction plans against its tx-local schema view
+      // (tx-created classes with provisional collection ids, tx-dropped classes and indexes).
+      // A plan cached from committed state can be stale against that view (for example a
+      // pre-cached polymorphic scan that misses a tx-created subclass), so the shared cache is
+      // bypassed for the transaction's duration. Schema transactions are rare, so the extra
+      // planning cost is negligible.
       return null;
     }
 

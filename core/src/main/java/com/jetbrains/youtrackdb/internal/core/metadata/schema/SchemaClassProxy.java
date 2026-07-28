@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -17,7 +16,14 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> implements
+/**
+ * Proxy over a {@link SchemaClassImpl}. Reads route through {@link #resolve()} and writes through
+ * {@link #resolveForWrite()} (see {@link SchemaProxedResource}), so during a schema transaction the
+ * proxy operates on the transaction's tx-local class object rather than the committed shared one,
+ * and impl-typed arguments (superclasses, linked classes) are re-resolved by name into the tx-local
+ * copy before they are linked.
+ */
+public final class SchemaClassProxy extends SchemaProxedResource<SchemaClassImpl> implements
     SchemaClassInternal {
 
   private int hashCode = 0;
@@ -28,28 +34,54 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
+  protected SchemaClassImpl rebindToTxLocal(@Nonnull SchemaShared txLocalSchema) {
+    if (delegate.getOwner() == txLocalSchema) {
+      // Already a tx-local object (e.g. a class created earlier in the same transaction).
+      return delegate;
+    }
+    var resolved = txLocalSchema.getClass(delegate.getName());
+    if (resolved == null) {
+      throw new IllegalStateException(
+          "Class '" + delegate.getName() + "' is not present in the transaction-local schema view;"
+              + " it may have been dropped earlier in this transaction");
+    }
+    return resolved;
+  }
+
+  @Override
+  protected void recordWriteTarget(@Nonnull TxSchemaState txState,
+      @Nonnull SchemaClassImpl resolved) {
+    // A class-level write mutates this class's serialized per-class record, so the commit must
+    // rewrite it: record the class under its tx-local name. markClassChanged is idempotent, so the
+    // mutators that already record (create / drop / rename / abstract->concrete alter) are harmless
+    // duplicates here.
+    txState.markClassChanged(resolved.getName());
+  }
+
+  @Override
   public CollectionSelectionStrategy getCollectionSelection() {
     assert this.session.assertIfNotActive();
-    return delegate.getCollectionSelection();
+    return resolve().getCollectionSelection();
   }
 
   @Override
   public int getCollectionForNewInstance(EntityImpl entity) {
     assert this.session.assertIfNotActive();
-    return delegate.getCollectionSelection().getCollection(this.session, this, entity);
+    var cls = resolve();
+    return cls.getCollectionSelection().getCollection(this.session, this, entity);
   }
 
   @Override
   public Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getInvolvedIndexesInternal(this.session, fields);
+    return resolve().getInvolvedIndexesInternal(this.session, fields);
   }
 
   @Override
   public Set<Index> getInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getInvolvedIndexesInternal(this.session, fields);
+    return resolve().getInvolvedIndexesInternal(this.session, fields);
   }
 
   @Override
@@ -57,65 +89,73 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
       PropertyTypeInternal iType, PropertyTypeInternal iLinkedType, boolean unsafe) {
     assert this.session.assertIfNotActive();
     return new SchemaPropertyProxy(
-        delegate.createProperty(session, iPropertyName, iType, iLinkedType, unsafe), session);
+        resolveForWrite().createProperty(session, iPropertyName, iType, iLinkedType, unsafe),
+        session);
   }
 
   @Override
   public SchemaProperty createProperty(String iPropertyName,
       PropertyTypeInternal iType, SchemaClass iLinkedClass, boolean unsafe) {
     assert this.session.assertIfNotActive();
-    return new SchemaPropertyProxy(delegate.createProperty(session, iPropertyName, iType,
-        iLinkedClass != null ? ((SchemaClassInternal) iLinkedClass).getImplementation() : null,
-        unsafe), session);
+    var cls = resolveForWrite();
+    var linkedImpl = iLinkedClass != null
+        ? reresolveClassImpl(cls.getOwner(),
+            ((SchemaClassInternal) iLinkedClass).getImplementation())
+        : null;
+    return new SchemaPropertyProxy(
+        cls.createProperty(session, iPropertyName, iType, linkedImpl, unsafe), session);
   }
 
   @Override
   public Set<Index> getIndexesInternal() {
     assert this.session.assertIfNotActive();
-    return delegate.getIndexesInternal(session);
+    return resolve().getIndexesInternal(session);
   }
 
   @Override
   public void getIndexesInternal(DatabaseSessionEmbedded session, Collection<Index> indices) {
     assert this.session.assertIfNotActive();
-    delegate.getIndexesInternal(this.session, indices);
+    resolve().getIndexesInternal(this.session, indices);
   }
 
   @Override
   public long count(DatabaseSessionEmbedded session) {
     assert this.session.assertIfNotActive();
-    return delegate.count(this.session);
+    return resolve().count(this.session);
   }
 
   @Override
   public void truncate() {
     assert this.session.assertIfNotActive();
-    delegate.truncate(session);
+    // truncate empties a class's records and changes no schema, so it routes through the read
+    // resolver: it must not mark the class changed or seed a tx-local schema state, which would
+    // route a truncate-only transaction onto the heavier schema-carry commit path. The record
+    // deletions it performs already make the transaction a write transaction on their own.
+    resolve().truncate(session);
   }
 
   @Override
   public long count(DatabaseSessionEmbedded session, boolean isPolymorphic) {
     assert this.session.assertIfNotActive();
-    return delegate.count(this.session, isPolymorphic);
+    return resolve().count(this.session, isPolymorphic);
   }
 
   @Override
   public long approximateCount(DatabaseSessionEmbedded session) {
     assert this.session.assertIfNotActive();
-    return delegate.approximateCount(this.session);
+    return resolve().approximateCount(this.session);
   }
 
   @Override
   public long approximateCount(DatabaseSessionEmbedded session, boolean isPolymorphic) {
     assert this.session.assertIfNotActive();
-    return delegate.approximateCount(this.session, isPolymorphic);
+    return resolve().approximateCount(this.session, isPolymorphic);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaPropertyInternal getPropertyInternal(String propertyName) {
     assert this.session.assertIfNotActive();
-    var result = delegate.getPropertyInternal(propertyName);
+    var result = resolve().getPropertyInternal(propertyName);
     return result != null ? new SchemaPropertyProxy(result, session) : null;
   }
 
@@ -123,33 +163,33 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       String... fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassInvolvedIndexesInternal(this.session, fields);
+    return resolve().getClassInvolvedIndexesInternal(this.session, fields);
   }
 
   @Override
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassInvolvedIndexesInternal(this.session, fields);
+    return resolve().getClassInvolvedIndexesInternal(this.session, fields);
   }
 
   @Override
   public Set<Index> getClassIndexesInternal() {
     assert this.session.assertIfNotActive();
-    return delegate.getClassIndexesInternal(session);
+    return resolve().getClassIndexesInternal(session);
   }
 
   @Override
   public Index getClassIndex(DatabaseSessionEmbedded session, String name) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassIndex(this.session, name);
+    return resolve().getClassIndex(this.session, name);
   }
 
   @Override
   public SchemaClass set(ATTRIBUTES attribute,
       Object value) {
     assert session.assertIfNotActive();
-    delegate.set(session, attribute, value);
+    resolveForWrite().set(session, attribute, value);
     return this;
   }
 
@@ -157,98 +197,101 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   public Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getInvolvedIndexes(this.session, fields);
+    return resolve().getInvolvedIndexes(this.session, fields);
   }
 
   @Override
   public Set<String> getInvolvedIndexes(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getInvolvedIndexes(this.session, fields);
+    return resolve().getInvolvedIndexes(this.session, fields);
   }
 
   @Override
   public Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session,
       Collection<String> fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassInvolvedIndexes(this.session, fields);
+    return resolve().getClassInvolvedIndexes(this.session, fields);
   }
 
   @Override
   public Set<String> getClassInvolvedIndexes(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassInvolvedIndexes(this.session, fields);
+    return resolve().getClassInvolvedIndexes(this.session, fields);
   }
 
   @Override
   public boolean areIndexed(DatabaseSessionEmbedded session, Collection<String> fields) {
     assert this.session.assertIfNotActive();
-    return delegate.areIndexed(this.session, fields);
+    return resolve().areIndexed(this.session, fields);
   }
 
   @Override
   public boolean areIndexed(DatabaseSessionEmbedded session, String... fields) {
     assert this.session.assertIfNotActive();
-    return delegate.areIndexed(this.session, fields);
+    return resolve().areIndexed(this.session, fields);
   }
 
   @Override
   public Set<String> getClassIndexes() {
     assert session.assertIfNotActive();
-    return delegate.getClassIndexes(session);
+    return resolve().getClassIndexes(session);
   }
 
   @Override
   public Set<String> getIndexes() {
     assert session.assertIfNotActive();
-    return delegate.getIndexes(session);
+    return resolve().getIndexes(session);
   }
 
   @Override
   public SchemaClassImpl getImplementation() {
+    // Unwrap primitive: returns the captured delegate. Write methods that link an impl re-resolve
+    // it by name into the tx-local copy (reresolveClassImpl), so handing back the captured object
+    // here cannot leak shared state into the private graph.
     return delegate;
   }
 
   @Override
   public boolean isAbstract() {
     assert session.assertIfNotActive();
-    return delegate.isAbstract();
+    return resolve().isAbstract();
   }
 
   @Override
   public SchemaClass setAbstract(boolean iAbstract) {
     assert session.assertIfNotActive();
-    delegate.setAbstract(session, iAbstract);
+    resolveForWrite().setAbstract(session, iAbstract);
     return this;
   }
 
   @Override
   public boolean isStrictMode() {
     assert session.assertIfNotActive();
-    return delegate.isStrictMode();
+    return resolve().isStrictMode();
   }
 
   @Override
   public void setStrictMode(boolean iMode) {
     assert session.assertIfNotActive();
-    delegate.setStrictMode(session, iMode);
+    resolveForWrite().setStrictMode(session, iMode);
   }
 
   @Override
   public boolean hasSuperClasses() {
     assert session.assertIfNotActive();
-    return delegate.hasSuperClasses();
+    return resolve().hasSuperClasses();
   }
 
   @Override
   public List<String> getSuperClassesNames() {
     assert session.assertIfNotActive();
-    return delegate.getSuperClassesNames();
+    return resolve().getSuperClassesNames();
   }
 
   @Override
   public List<SchemaClass> getSuperClasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getSuperClasses();
+    var result = resolve().getSuperClasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -263,11 +306,14 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   public SchemaClass setSuperClasses(List<? extends SchemaClass> classes) {
     assert session.assertIfNotActive();
 
+    var cls = resolveForWrite();
+    var owner = cls.getOwner();
     var classesImpl = new ArrayList<SchemaClassImpl>(classes.size());
     for (var schemaClass : classes) {
-      classesImpl.add(((SchemaClassInternal) schemaClass).getImplementation());
+      classesImpl.add(
+          reresolveClassImpl(owner, ((SchemaClassInternal) schemaClass).getImplementation()));
     }
-    delegate.setSuperClasses(session, classesImpl);
+    cls.setSuperClasses(session, classesImpl);
 
     return this;
   }
@@ -275,27 +321,30 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public SchemaClass addSuperClass(SchemaClass superClass) {
     assert session.assertIfNotActive();
-    delegate.addSuperClass(session,
-        ((SchemaClassInternal) superClass).getImplementation());
+    var cls = resolveForWrite();
+    cls.addSuperClass(session,
+        reresolveClassImpl(cls.getOwner(), ((SchemaClassInternal) superClass).getImplementation()));
     return this;
   }
 
   @Override
   public void removeSuperClass(SchemaClass superClass) {
     assert session.assertIfNotActive();
-    delegate.removeSuperClass(this.session, ((SchemaClassInternal) superClass).getImplementation());
+    var cls = resolveForWrite();
+    cls.removeSuperClass(this.session,
+        reresolveClassImpl(cls.getOwner(), ((SchemaClassInternal) superClass).getImplementation()));
   }
 
   @Override
   public String getName() {
     assert this.session.assertIfNotActive();
-    return delegate.getName();
+    return resolve().getName();
   }
 
   @Override
   public SchemaClass setName(String iName) {
     assert this.session.assertIfNotActive();
-    delegate.setName(this.session, iName);
+    resolveForWrite().setName(this.session, iName);
     hashCode = 0;
     return this;
   }
@@ -303,26 +352,26 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public String getDescription() {
     assert this.session.assertIfNotActive();
-    return delegate.getDescription();
+    return resolve().getDescription();
   }
 
   @Override
   public SchemaClass setDescription(String iDescription) {
     assert this.session.assertIfNotActive();
-    delegate.setDescription(this.session, iDescription);
+    resolveForWrite().setDescription(this.session, iDescription);
     return this;
   }
 
   @Override
   public String getStreamableName() {
     assert this.session.assertIfNotActive();
-    return delegate.getStreamableName();
+    return resolve().getStreamableName();
   }
 
   @Override
   public Collection<SchemaProperty> getDeclaredProperties() {
     assert this.session.assertIfNotActive();
-    var result = delegate.declaredProperties();
+    var result = resolve().declaredProperties();
 
     var resultProxy = new ArrayList<SchemaProperty>(result.size());
     for (var schemaProperty : result) {
@@ -335,7 +384,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaProperty> getProperties() {
     assert this.session.assertIfNotActive();
-    var result = delegate.properties();
+    var result = resolve().properties();
 
     var resultProxy = new ArrayList<SchemaProperty>(result.size());
     for (var schemaProperty : result) {
@@ -348,7 +397,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Map<String, SchemaProperty> getPropertiesMap() {
     assert session.assertIfNotActive();
-    var result = delegate.propertiesMap(session);
+    var result = resolve().propertiesMap(session);
 
     var resultProxy = new HashMap<String, SchemaProperty>(result.size());
     for (var entry : result.entrySet()) {
@@ -358,11 +407,10 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     return resultProxy;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaProperty getProperty(String iPropertyName) {
     assert session.assertIfNotActive();
-    var result = delegate.getProperty(iPropertyName);
+    var result = resolve().getProperty(iPropertyName);
     return result != null ? new SchemaPropertyProxy(result, session) : null;
   }
 
@@ -370,7 +418,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   public SchemaProperty createProperty(String iPropertyName,
       PropertyType iType) {
     assert session.assertIfNotActive();
-    var result = delegate.createProperty(session, iPropertyName, iType);
+    var result = resolveForWrite().createProperty(session, iPropertyName, iType);
     return new SchemaPropertyProxy(result, session);
   }
 
@@ -379,8 +427,12 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
       PropertyType iType, SchemaClass iLinkedClass) {
     assert session.assertIfNotActive();
 
-    var result = delegate.createProperty(session, iPropertyName, iType,
-        iLinkedClass != null ? ((SchemaClassInternal) iLinkedClass).getImplementation() : null);
+    var cls = resolveForWrite();
+    var linkedImpl = iLinkedClass != null
+        ? reresolveClassImpl(cls.getOwner(),
+            ((SchemaClassInternal) iLinkedClass).getImplementation())
+        : null;
+    var result = cls.createProperty(session, iPropertyName, iType, linkedImpl);
     return new SchemaPropertyProxy(result, session);
   }
 
@@ -388,38 +440,38 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   public SchemaProperty createProperty(String iPropertyName,
       PropertyType iType, PropertyType iLinkedType) {
     assert session.assertIfNotActive();
-    var result = delegate.createProperty(session, iPropertyName, iType, iLinkedType);
+    var result = resolveForWrite().createProperty(session, iPropertyName, iType, iLinkedType);
     return new SchemaPropertyProxy(result, session);
   }
 
   @Override
   public void dropProperty(String iPropertyName) {
     assert session.assertIfNotActive();
-    delegate.dropProperty(session, iPropertyName);
+    resolveForWrite().dropProperty(session, iPropertyName);
   }
 
   @Override
   public boolean existsProperty(String iPropertyName) {
     assert session.assertIfNotActive();
-    return delegate.existsProperty(iPropertyName);
+    return resolve().existsProperty(iPropertyName);
   }
 
   @Override
   public int[] getCollectionIds() {
     assert session.assertIfNotActive();
-    return delegate.getCollectionIds();
+    return resolve().getCollectionIds();
   }
 
   @Override
   public int[] getPolymorphicCollectionIds() {
     assert session.assertIfNotActive();
-    return delegate.getPolymorphicCollectionIds();
+    return resolve().getPolymorphicCollectionIds();
   }
 
   @Override
   public Collection<SchemaClass> getSubclasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getSubclasses();
+    var result = resolve().getSubclasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -432,7 +484,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaClass> getAllSubclasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getAllSubclasses();
+    var result = resolve().getAllSubclasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -446,7 +498,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaClass> getAllSuperClasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getAllSuperClasses();
+    var result = resolve().getAllSuperClasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -459,39 +511,50 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isSubClassOf(String iClassName) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(iClassName);
+    return resolve().isSubClassOf(iClassName);
   }
 
   @Override
   public boolean isSubClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(((SchemaClassInternal) iClass).getImplementation());
+    var cls = resolve();
+    // Read predicate: tolerate an argument class absent from the resolved (tx-local or committed)
+    // schema by re-resolving it through the read-tolerant helper, which yields null for an absent
+    // class; isSubClassOf(null) answers false, preserving the historical total-read contract.
+    return cls.isSubClassOf(
+        reresolveClassImplForRead(
+            cls.getOwner(), ((SchemaClassInternal) iClass).getImplementation()));
   }
 
   @Override
   public boolean isSuperClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSuperClassOf(((SchemaClassInternal) iClass).getImplementation());
+    var cls = resolve();
+    // Read predicate: an absent argument class re-resolves to null and isSuperClassOf(null) answers
+    // false, so an unrelated or dropped argument never raises rather than returning false.
+    return cls.isSuperClassOf(
+        reresolveClassImplForRead(
+            cls.getOwner(), ((SchemaClassInternal) iClass).getImplementation()));
   }
 
   @Override
   public void createIndex(String iName, INDEX_TYPE iType,
       String... fields) {
     assert session.assertIfNotActive();
-    delegate.createIndex(session, iName, iType, fields);
+    resolveForWrite().createIndex(session, iName, iType, fields);
   }
 
   @Override
   public void createIndex(String iName, String iType, String... fields) {
     assert session.assertIfNotActive();
-    delegate.createIndex(session, iName, iType, fields);
+    resolveForWrite().createIndex(session, iName, iType, fields);
   }
 
   @Override
   public void createIndex(String iName, INDEX_TYPE iType,
       ProgressListener iProgressListener, String... fields) {
     assert session.assertIfNotActive();
-    delegate.createIndex(session, iName, iType, iProgressListener, fields);
+    resolveForWrite().createIndex(session, iName, iType, iProgressListener, fields);
   }
 
   @Override
@@ -499,69 +562,70 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
       ProgressListener iProgressListener, Map<String, Object> metadata, String algorithm,
       String... fields) {
     assert session.assertIfNotActive();
-    delegate.createIndex(session, iName, iType, iProgressListener, metadata, algorithm, fields);
+    resolveForWrite().createIndex(session, iName, iType, iProgressListener, metadata, algorithm,
+        fields);
   }
 
   @Override
   public void createIndex(String iName, String iType,
       ProgressListener iProgressListener, Map<String, Object> metadata, String... fields) {
     assert session.assertIfNotActive();
-    delegate.createIndex(session, iName, iType, iProgressListener, metadata, fields);
+    resolveForWrite().createIndex(session, iName, iType, iProgressListener, metadata, fields);
   }
 
   @Override
   public boolean isEdgeType() {
     assert session.assertIfNotActive();
-    return delegate.isEdgeType();
+    return resolve().isEdgeType();
   }
 
   @Override
   public boolean isVertexType() {
     assert session.assertIfNotActive();
-    return delegate.isVertexType();
+    return resolve().isVertexType();
   }
 
   @Override
   public String getCustom(String iName) {
     assert session.assertIfNotActive();
-    return delegate.getCustom(iName);
+    return resolve().getCustom(iName);
   }
 
   @Override
   public SchemaClass setCustom(String iName, String iValue) {
     assert session.assertIfNotActive();
-    delegate.setCustom(session, iName, iValue);
+    resolveForWrite().setCustom(session, iName, iValue);
     return this;
   }
 
   @Override
   public void removeCustom(String iName) {
     assert session.assertIfNotActive();
-    delegate.removeCustom(session, iName);
+    resolveForWrite().removeCustom(session, iName);
   }
 
   @Override
   public void clearCustom() {
     assert session.assertIfNotActive();
-    delegate.clearCustom(session);
+    resolveForWrite().clearCustom(session);
   }
 
   @Override
   public Set<String> getCustomKeys() {
     assert session.assertIfNotActive();
-    return delegate.getCustomKeys();
+    return resolve().getCustomKeys();
   }
 
   @Override
   public boolean hasCollectionId(int collectionId) {
     assert session.assertIfNotActive();
-    return delegate.hasCollectionId(collectionId);
+    return resolve().hasCollectionId(collectionId);
   }
 
   @Override
   public boolean hasPolymorphicCollectionId(int collectionId) {
     assert session.assertIfNotActive();
-    return delegate.hasPolymorphicCollectionId(collectionId);
+    return resolve().hasPolymorphicCollectionId(collectionId);
   }
 
   @Override
@@ -580,8 +644,8 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     }
 
     if (obj instanceof SchemaClassInternal schemaClass) {
-      return session == schemaClass.getBoundToSession() && delegate.getName().
-          equals(schemaClass.getName());
+      return session == schemaClass.getBoundToSession()
+          && delegate.getName().equals(schemaClass.getName());
     }
 
     return false;
