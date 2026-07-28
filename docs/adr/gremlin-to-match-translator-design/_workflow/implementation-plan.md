@@ -515,7 +515,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > ordered `List` because order-less flags cannot encode `reverse().unfold()`
   > vs `unfold().reverse()`.)
 
-- [ ] Track 7: Boundary base extraction + ordered list-shaping infrastructure
+- [x] Track 7: Boundary base extraction + ordered list-shaping infrastructure
   > Foundation refactor for the last feature slice: the original Track 7's Phase
   > A reviews found `MultiPlanMatchStep extends YTDBMatchPlanStep` does not
   > compile (`YTDBMatchPlanStep` is `final` with private machinery), so this
@@ -526,14 +526,14 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > post-process (declared-order fold / unfold / reverse / tail — order-less
   > flags cannot encode `reverse().unfold()` vs `unfold().reverse()`) that
   > Track 9 drives, all behavior-neutral. Detail in plan/track-7.md.
-  > **Scope:** ~10–14 files covering the base extraction from `YTDBMatchPlanStep`
-  > and its sole boundary-step construction site (`GremlinToMatchStrategy`),
-  > rewiring the upstream `TranslationResult` producers
-  > (`GremlinToMatchTranslator`, `GremlinStepWalker.buildResult`) as the chosen
-  > base shape requires, the ordered post-process representation alongside
-  > `ResultShaping`, and equivalence tests proving the single-plan boundary is
-  > unchanged.
-  > **Depends on:** Track 6.
+  >
+  > **Track episode:** Extracted the `AbstractMatchPlanStep` base and added the
+  > `ListShapingOp` ordered list-shaping carrier — behavior-neutral
+  > infrastructure for Track 8 (multi-plan advance-on-drain over the base) and
+  > Track 9 (fold/tail ops registered into the carrier) — see `plan/track-7.md`
+  > `## Episodes` § Track completion. (2 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-7.md`
 
 - [ ] Track 8: Union via `MultiPlanMatchStep`
   > Adds `union(...)` (D8): a `UnionStepRecogniser` that forks the traversal
