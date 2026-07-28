@@ -22,12 +22,17 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.lang.reflect.Field;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGenerator;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -857,11 +862,205 @@ public class YTDBMatchPlanStepTest {
         .isFalse();
   }
 
+  // ---- Ordered list-shaping post-process ----
+
+  /**
+   * The empty-op case (every traversal that exists today) is a structural bypass, not a no-op stage
+   * wrapped around the projection stream: pulling the first traverser advances the underlying stream
+   * by exactly one row. This pins first-result latency — a collect-apply-emit stage would drain the
+   * whole stream before emitting even with no op, passing every behaviour-neutral assertion while
+   * destroying laziness and bounded memory. The stream has three rows available; only the first is
+   * pulled.
+   */
+  @Test
+  public void listShaping_emptyOps_firstPullAdvancesStreamByOneRow_notDrained() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    var row3 = mock(Result.class);
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2, row3);
+    when(row1.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v"); // ResultShaping.NONE — empty listShapingOps
+
+    step.processNextStart(); // pull exactly one traverser
+
+    // First result cost one row, not the whole (3-row) stream: the empty-op bypass stays lazy.
+    verify(stream, times(1)).next(ctx);
+    verify(stream, times(1)).hasNext(ctx);
+  }
+
+  /**
+   * A parameter-bearing, cardinality-changing op proves the carrier is a stream stage, not a 1→1
+   * row-mapper: {@code TagRepeatOp("X", 2)} emits two payloads for every one upstream payload, so a
+   * single projected row yields two traversers — a shape no row-mapper could produce. The op is also
+   * lazy: pulling the first of the two copies advances the underlying stream by only one row. Driven
+   * over the SCALAR path so the projected payload is a deterministic value.
+   */
+  @Test
+  public void listShaping_flatMapOp_oneRowYieldsTwoTraversers_lazily() {
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("c"));
+    when(row.getProperty("c")).thenReturn(5L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TagRepeatOp("X", 2))));
+
+    // Read the payload through a wildcard traverser so get() returns Object: the payload is a
+    // String, not the Vertex the ELEMENT-typed generic would checkcast to.
+    Traverser.Admin<?> t1 = step.processNextStart();
+    var first = t1.get();
+    // Lazy: the first copy is available after pulling only the single source row.
+    verify(stream, times(1)).next(ctx);
+
+    Traverser.Admin<?> t2 = step.processNextStart();
+    var second = t2.get();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    // One source row expanded into two traversers — the cardinality change a stream stage carries
+    // and a row-mapper cannot.
+    assertThat(first).isEqualTo("X:5");
+    assertThat(second).isEqualTo("X:5");
+    verify(stream, times(1)).next(ctx); // still just the one source row across both emissions
+  }
+
+  /**
+   * Ops apply in declared order, left to right: {@code [A, B]} nests as {@code B:A:…} while the
+   * reversed {@code [B, A]} nests as {@code A:B:…}, so the two orderings resolve to observably
+   * distinct application sequences. This is why the carrier is an ordered list — order-less flags
+   * could not tell {@code reverse().unfold()} from {@code unfold().reverse()}. Driven over the SCALAR
+   * path so the projected payload is a deterministic value the tags wrap.
+   */
+  @Test
+  public void listShaping_opsApplyInDeclaredOrder_leftToRight() {
+    assertThat(runSingleScalarThroughOps(new TagRepeatOp("A", 1), new TagRepeatOp("B", 1)))
+        .isEqualTo("B:A:5");
+    assertThat(runSingleScalarThroughOps(new TagRepeatOp("B", 1), new TagRepeatOp("A", 1)))
+        .isEqualTo("A:B:5");
+  }
+
+  /**
+   * The list-shaping stage is the single seam both projection paths reach — including the
+   * group-barrier {@code group} / {@code groupCount} path, which drains the stream into one map and
+   * returns before per-row projection. A cardinality-changing op over that path expands the single
+   * accumulated map into several traversers, so ops registered by {@code fold} / {@code unfold} /
+   * {@code reverse} / {@code tail} after a {@code group} would not silently no-op.
+   */
+  @Test
+  public void listShaping_appliesOnGroupBarrierPath() {
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getProperty("key")).thenReturn("k1");
+    when(row.getProperty("value")).thenReturn(7L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.MAP,
+            ResultShaping.NONE.withAccumulateMap(true).withListShapingOps(
+                List.of(new TagRepeatOp("G", 2))));
+
+    // Read payloads through wildcard traversers so get() returns Object (the payload is a String).
+    Traverser.Admin<?> t1 = step.processNextStart();
+    var first = t1.get();
+    Traverser.Admin<?> t2 = step.processNextStart();
+    var second = t2.get();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    // The one accumulated map became two traversers: the op ran on the group-barrier path.
+    assertThat(first).isEqualTo(second);
+    assertThat(String.valueOf(first)).startsWith("G:{k1=7}");
+  }
+
+  /**
+   * Drives a single deterministic SCALAR payload ({@code 5}) through the given ops in order and
+   * returns the sole emitted payload as a string. Used to assert declared-order composition without
+   * a real graph.
+   */
+  private String runSingleScalarThroughOps(ListShapingOp... ops) {
+    var localPlan = mock(InternalExecutionPlan.class);
+    var localCtx = mock(CommandContext.class);
+    var localStream = mock(ExecutionStream.class);
+    lenient().when(localPlan.getContext()).thenReturn(localCtx);
+    lenient().when(localPlan.start()).thenReturn(localStream);
+    var row = mock(Result.class);
+    when(localStream.hasNext(localCtx)).thenReturn(true, false);
+    when(localStream.next(localCtx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("c"));
+    when(row.getProperty("c")).thenReturn(5L);
+
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal,
+            Vertex.class,
+            localPlan,
+            "v",
+            BoundaryOutputType.SCALAR,
+            java.util.Map.of(),
+            ResultShaping.NONE.withListShapingOps(List.of(ops)));
+
+    var payloads = new ArrayList<>();
+    step.forEachRemaining(t -> payloads.add(t.get()));
+    assertThat(payloads).hasSize(1);
+    return String.valueOf(payloads.getFirst());
+  }
+
+  /**
+   * Test-only placeholder {@link ListShapingOp}: a parameter-bearing, cardinality-changing stream
+   * stage. For each upstream payload {@code p} it emits {@code times} copies of {@code tag + ":" +
+   * p}, so it is a 1→N flat-map that no 1→1 row-mapper could express. It stays lazy — {@code
+   * hasNext} pulls at most one upstream payload to refill its buffer — so it exercises the
+   * framework's laziness as well as its cardinality contract. The real {@code fold} / {@code unfold}
+   * / {@code reverse} / {@code tail} ops replace it later; the framework carries them unchanged.
+   */
+  private record TagRepeatOp(String tag, int times) implements ListShapingOp {
+
+    @Override
+    public Iterator<Object> apply(Iterator<Object> upstream) {
+      return new Iterator<>() {
+        private final ArrayDeque<Object> buffer = new ArrayDeque<>();
+
+        @Override
+        public boolean hasNext() {
+          while (buffer.isEmpty() && upstream.hasNext()) {
+            var payload = upstream.next();
+            for (int i = 0; i < times; i++) {
+              buffer.add(tag + ":" + payload);
+            }
+          }
+          return !buffer.isEmpty();
+        }
+
+        @Override
+        public Object next() {
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          return buffer.removeFirst();
+        }
+      };
+    }
+  }
+
   // ---- Test helpers ----
 
   private YTDBMatchPlanStep<Object, Vertex> elementStep(String alias) {
     return new YTDBMatchPlanStep<>(
         traversal, Vertex.class, plan, alias, BoundaryOutputType.ELEMENT);
+  }
+
+  private YTDBMatchPlanStep<Object, Vertex> shapedStep(
+      String alias, BoundaryOutputType outputType, ResultShaping shaping) {
+    return new YTDBMatchPlanStep<>(
+        traversal, Vertex.class, plan, alias, outputType, java.util.Map.of(), shaping);
   }
 
   /**

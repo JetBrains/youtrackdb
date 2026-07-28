@@ -11,9 +11,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -105,10 +107,12 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   private final Map<Object, Object> inputParameters;
 
   /**
-   * Boundary row-projection shaping — the seven flags that dictate how each MATCH row projects onto
-   * a traverser: row dropping ({@code dropNullRows} / {@code dropOnAbsent}), presence-checked
+   * Boundary shaping — the seven row-projection flags that dictate how each MATCH row projects onto
+   * a traverser (row dropping via {@code dropNullRows} / {@code dropOnAbsent}, presence-checked
    * property keys, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, and
-   * elementMap token keys.
+   * elementMap token keys) plus the ordered list-shaping ops applied to the projected payload stream
+   * afterward ({@link ResultShaping#listShapingOps()}, empty for every traversal that has no
+   * list-shaping terminator).
    */
   private final ResultShaping shaping;
 
@@ -119,6 +123,14 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   // The current arming's open stream, or null before the first open / after close. Single source of
   // truth — there is no inherited iterator to shadow.
   private ExecutionStream openStream;
+
+  // The current arming's shaped payload iterator: the projected rows (or the drained group map) fed
+  // through the ordered list-shaping stage. Built lazily on the first pull of an arming and rebuilt
+  // fresh on every (re)open; null before the first build and after the stream is released. One
+  // traverser is emitted per payload this iterator yields, so a cardinality-changing op emits more
+  // or fewer traversers than the source produced — the exhaustion signal is this iterator running
+  // dry, not the underlying stream.
+  private Iterator<Object> shapedPayloads;
 
   // The graph resolved for the current arming; used to wrap projected vertices.
   private YTDBGraphInternal armingGraph;
@@ -224,41 +236,44 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   @SuppressWarnings({"unchecked", "rawtypes"})
   protected Traverser.Admin<E> processNextStart() {
     if (state == State.DRAINED || state == State.CLOSED) {
-      // Exhausted or closed for good: no more rows.
+      // Exhausted or closed for good: no more payloads.
       throw FastNoSuchElementException.instance();
     }
     if (state == State.NEW || state == State.REARMED) {
       // First open, or a reopen after reset(). openArming() rewinds the plan iff we are REARMED.
       openStream = openArming();
       state = State.OPEN;
+      // Drop any shaped iterator a superseded arming left behind so the pull below rebuilds it
+      // against the freshly opened stream. openArming() is outside the try below because a plan-start
+      // failure is released by openArming() itself (closePlan, not the stream — none was opened).
+      shapedPayloads = null;
     }
-    var ctx = planContext();
     try {
-      if (shaping.accumulateMap()) {
-        return emitAccumulatedGroupMap(ctx);
+      if (shapedPayloads == null) {
+        // Build the shared list-shaping stage on first pull of this arming — inside the try because
+        // the group-barrier source drains the stream eagerly, and a drain failure must release the
+        // plan through the terminal handler below.
+        shapedPayloads = openShapedPayloads();
       }
-      while (true) {
-        if (!openStream.hasNext(ctx)) {
-          state = State.DRAINED;
-          releaseStream();
-          throw FastNoSuchElementException.instance();
-        }
-        var payload = projectOrSkip(openStream.next(ctx));
-        if (payload == SKIP) {
-          continue;
-        }
-        return getTraversal().getTraverserGenerator().generate(payload, (Step) this, 1L);
+      if (!shapedPayloads.hasNext()) {
+        // The shaped stream is dry (the underlying stream is exhausted and every op has emitted all
+        // it will). Close the arming's stream, keep the plan open for a possible reset + reopen.
+        state = State.DRAINED;
+        releaseStream();
+        throw FastNoSuchElementException.instance();
       }
+      return getTraversal().getTraverserGenerator().generate(shapedPayloads.next(), (Step) this,
+          1L);
     } catch (FastNoSuchElementException e) {
       throw e;
     } catch (RuntimeException | Error e) {
-      // A failure while iterating the open stream (hasNext / next / projection) is terminal: release
-      // the stream AND the plan before propagating. TinkerPop auto-closes the traversal only on
-      // normal exhaustion (DefaultTraversal.hasNext -> closeIterator), never on a thrown exception,
-      // so deferring the plan close here would leak the cursor until traversal teardown. The
-      // iteration failure stays primary; a release failure is attached with addSuppressed. Moving to
-      // CLOSED both ends iteration and marks the plan closed, so the just-closed plan is never
-      // re-run.
+      // A failure while producing the next payload (stream hasNext / next, projection, or an op) is
+      // terminal: release the stream AND the plan before propagating. TinkerPop auto-closes the
+      // traversal only on normal exhaustion (DefaultTraversal.hasNext -> closeIterator), never on a
+      // thrown exception, so deferring the plan close here would leak the cursor until traversal
+      // teardown. The iteration failure stays primary; a release failure is attached with
+      // addSuppressed. Moving to CLOSED both ends iteration and marks the plan closed, so the
+      // just-closed plan is never re-run.
       state = State.CLOSED;
       try {
         releaseStreamAndClosePlan();
@@ -270,11 +285,88 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * Drains every GROUP BY row into one {@link LinkedHashMap} and emits a single traverser — native
-   * {@code group} / {@code groupCount} are barrier steps.
+   * Builds this arming's shaped payload iterator: the projection source (per-row for element / value
+   * / map paths, or the drained group map for {@code group} / {@code groupCount}) with the ordered
+   * list-shaping ops threaded through it. This is the single stage both projection paths reach, so a
+   * list-shaping op composes over the group-barrier map exactly as it does over the per-row stream.
    */
-  @SuppressWarnings({"unchecked", "rawtypes"})
-  private Traverser.Admin<E> emitAccumulatedGroupMap(CommandContext ctx) {
+  private Iterator<Object> openShapedPayloads() {
+    Iterator<Object> source =
+        shaping.accumulateMap() ? accumulatedGroupMapSource() : rowProjectionSource();
+    return applyListShaping(source);
+  }
+
+  /**
+   * Threads the ordered list-shaping ops over {@code source}, or returns {@code source} untouched
+   * when there is no op. The empty-list case is a structural bypass, not a no-op stage wrapped around
+   * the source: the projection stream flows straight through, so a traversal with no list-shaping
+   * terminator keeps its per-row laziness — the first pull produces the first payload without
+   * draining the stream. Wrapping even an empty op chain in a collect-apply-emit stage would pass
+   * every behaviour-neutral test while destroying first-result latency and bounded memory.
+   */
+  private Iterator<Object> applyListShaping(Iterator<Object> source) {
+    var ops = shaping.listShapingOps();
+    if (ops.isEmpty()) {
+      return source;
+    }
+    var shaped = source;
+    for (ListShapingOp op : ops) {
+      shaped = op.apply(shaped);
+    }
+    return shaped;
+  }
+
+  /**
+   * A lazy iterator over the per-row projection payloads: each pull advances the underlying stream
+   * to the next row that projects to a non-{@link #SKIP} payload, so {@code dropNullRows} / {@code
+   * dropOnAbsent} rows are consumed but never emitted. Nulls are legitimate payloads (an unmatched
+   * optional element projects to {@code null}), so emission is tracked by a separate flag rather
+   * than a null sentinel.
+   */
+  private Iterator<Object> rowProjectionSource() {
+    var ctx = planContext();
+    var stream = openStream;
+    return new Iterator<>() {
+      private Object bufferedPayload;
+      private boolean hasBuffered;
+
+      @Override
+      public boolean hasNext() {
+        if (hasBuffered) {
+          return true;
+        }
+        while (stream.hasNext(ctx)) {
+          var payload = projectOrSkip(stream.next(ctx));
+          if (payload != SKIP) {
+            bufferedPayload = payload;
+            hasBuffered = true;
+            return true;
+          }
+        }
+        return false;
+      }
+
+      @Override
+      public Object next() {
+        if (!hasBuffered && !hasNext()) {
+          throw new NoSuchElementException();
+        }
+        var payload = bufferedPayload;
+        bufferedPayload = null;
+        hasBuffered = false;
+        return payload;
+      }
+    };
+  }
+
+  /**
+   * The group-barrier source: drains every GROUP BY row into one {@link LinkedHashMap} and yields it
+   * as a single payload — native {@code group} / {@code groupCount} are barrier steps, so the whole
+   * stream must be consumed before the one map emits. Eager by nature; called inside {@link
+   * #processNextStart()}'s try so a drain failure releases the plan.
+   */
+  private Iterator<Object> accumulatedGroupMapSource() {
+    var ctx = planContext();
     var map = new LinkedHashMap<Object, Object>();
     while (openStream.hasNext(ctx)) {
       var row = openStream.next(ctx);
@@ -285,9 +377,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
           convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS)),
           convertGroupValue(row.getProperty(GROUP_VALUE_ALIAS)));
     }
-    state = State.DRAINED;
-    releaseStream();
-    return getTraversal().getTraverserGenerator().generate(map, (Step) this, 1L);
+    return List.<Object>of(map).iterator();
   }
 
   /**
@@ -362,6 +452,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     var stream = openStream;
     openStream = null;
     armingGraph = null;
+    // Drop the shaped iterator with the stream it read from — a re-arm rebuilds it against the fresh
+    // stream, so a stale iterator must never outlive its source.
+    shapedPayloads = null;
     if (stream != null) {
       stream.close(planContext());
     }
@@ -378,6 +471,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     var stream = openStream;
     openStream = null;
     armingGraph = null;
+    // Drop the shaped iterator with the stream it read from (see releaseStream()).
+    shapedPayloads = null;
     if (stream == null) {
       closePlan();
       return;
@@ -457,6 +552,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   protected final void resetLifecycleForClone() {
     this.openStream = null;
     this.armingGraph = null;
+    this.shapedPayloads = null;
     this.state = State.NEW;
   }
 
