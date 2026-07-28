@@ -159,11 +159,13 @@ flowchart TD
   validation and serialization read it.
 - **Shared metadata.** `SchemaShared` carries the per-class records under a
   root link set, the copy-for-transaction seeding, promotion, the counter-only
-  collection naming, and the write-lock-asserted serializer. `SchemaClassImpl`
+  collection naming, the write-lock-asserted serializer, and the always-on
+  runtime lock-order guard (D24; probe wired by `SharedContext`). `SchemaClassImpl`
   / `SchemaClassEmbedded` bind each class to its own record and produce
   provisional ids at the two producer sites. `IndexManagerEmbedded` is the
   per-session index routing seam and publishes the overlay at commit as
-  replacement objects under its write lock; `ClassIndexManager` maintains
+  replacement objects under its write lock — its non-commit exclusive regions
+  take the committed schema read lock first, per the fixed lock order (D24); `ClassIndexManager` maintains
   automatic indexes from the snapshot's index sets; `IndexDefinition` carries
   the class-name re-key on rename.
 - **Storage / commit.** `AbstractStorage` owns the schema-carrying commit:
@@ -744,6 +746,58 @@ ids in the target id space.
 be a pure schema transaction, with no structural side channel outside the
 commit machinery.
 
+---
+
+**D24 — Runtime lock-order guard on the schema lock.** *Added after the
+ready-for-review flip, fixing a live deadlock.*
+A real ABBA inversion shipped despite the documented four-lock order: the
+schema-carrying commit holds the schema write lock and then blocks on the
+index-manager write lock, while every non-commit exclusive region of
+`IndexManagerEmbedded` held the index-manager write lock and could reach a
+FRESH schema read acquisition frames down inside record (de)serialization —
+the immutable-snapshot rebuild that runs whenever the shared snapshot cache
+was concurrently invalidated. The cycle parks non-interruptibly, so CI
+surfaced it only as rare forked-JVM deadlock kills. The fix funnels every
+non-commit exclusive region through one ordered acquire: take the committed
+schema READ lock first, then the index-manager write lock, hold both across
+the whole region, release in reverse. The commit path keeps its separate,
+deliberately exempt acquire — it already holds the schema write lock,
+conforming to the same order. Holding the read lock was chosen over pinning a
+snapshot because the legacy drop of a non-empty index batch-deletes entries on
+a copied session whose separate snapshot state a pin on the calling session
+would not cover, while a held read lock makes every nested schema-lock
+acquisition on the thread — any depth, any session — reentrant and
+non-blocking. Enforcement is no longer review discipline alone: `SchemaShared`
+carries an always-on runtime lock-order guard, wired to the index manager by
+`SharedContext` at initialization, throwing on a fresh schema-lock acquisition
+while the thread holds the index-manager lock and on a schema read-to-write
+upgrade (which self-deadlocks on a reentrant read-write lock). Always-on
+rather than assert-only, because production runs with assertions disabled and
+the silent alternative is a non-interruptible parked deadlock; the guard
+reuses the locks' own per-thread accounting (no allocation) and measures
+within noise of a bare acquisition. Deterministic regression tests pin the
+previously inverted paths with the snapshot cache force-invalidated.
+*Rationale:* the four-lock order was enforced by review discipline alone,
+which is exactly how the inversion survived the branch's adversarial reviews —
+a runtime guard turns this silent deadlock class into a loud first-execution
+failure.
+*Known limitations (deliberately stated):* the guard covers the
+schema-before-index-manager pair only. The storage-state-lock tier is not
+runtime-assertable — `ScalableRWLock` exposes no per-thread owner query. And
+the documented four-lock order itself is incomplete: the per-index lock inside
+`IndexAbstract` sits outside it and is taken above the ordered tiers on the
+index rebuild, index fill, and standalone index delete paths — those paths do
+not hold the index-manager lock while blocking, so nothing serializes them
+away — a pre-existing latent inversion family the order does not cover and the
+guard does not see; tracked in the issue tracker.
+*Accepted trade-off:* an index-manager exclusive region now holds the schema
+read lock for its whole duration, so non-commit schema writers (tx-local
+seeding, schema reload, legacy top-level DDL) queue behind such a region even
+when no commit overlaps — including the legacy drop of a large index, whose
+entry deletion is unbounded I/O. With an overlapping schema-carrying commit
+the same serialization already existed; without one this stall edge is
+genuinely new, accepted on the same low-schema-change-rate premise as D19.
+
 ### Invariants & Contracts
 
 The guarantees below are stated as prose contracts; each names what it
@@ -784,7 +838,13 @@ points through `SchemaProxedResource` and the overlay; pinned by
 **Locking and lifecycle.**
 The four locks are taken in one acyclic order — metadata-write mutex, then the
 schema lock, then the index-manager lock, then the storage state write lock —
-by the `AbstractStorage` schema-carrying commit. The mutex engages above the
+by the `AbstractStorage` schema-carrying commit, and every non-commit
+exclusive region of `IndexManagerEmbedded` conforms by taking the committed
+schema read lock before the index-manager lock. The schema-before-index-manager
+pair is enforced at runtime by the always-on lock-order guard on `SchemaShared`
+(D24); the storage-state tier is not runtime-assertable, and the per-index
+lock inside `IndexAbstract` sits outside the ordering contract altogether —
+D24 states both limits. The mutex engages above the
 shared metadata locks, never from inside one, and engaging on a thread whose
 current holder is a different session fails loudly instead of deadlocking;
 enforced in the `MetadataWriteMutex` engage path. Transaction-scoped resources

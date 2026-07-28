@@ -831,7 +831,7 @@ a read outage.
 index changes serializes writers by blocking, never by contention-abort; it
 engages above the shared metadata locks on the first write and is released
 exactly once, in the outermost teardown, by a session-keyed compare-and-clear.
-A schema-carrying commit takes its four locks in one fixed acyclic order.
+A schema-carrying commit takes its four locks in one guarded acyclic order.
 
 `MetadataWriteMutex` is a one-permit semaphore rather than a thread-owned
 lock: teardown of a still-checked-out pooled session legitimately runs on a
@@ -867,6 +867,30 @@ write-lock branch — an index-only transaction takes it too — eliminating
 the mid-commit read-to-write upgrade and its interleaving window. Pure-data
 commits keep the read-lock fast path unchanged.
 
+The ordering contract is enforced at runtime rather than by review
+discipline alone. After the ready-for-review flip, a real inversion surfaced
+as rare CI deadlock kills: every non-commit exclusive region of the index
+manager held its write lock while record work deep inside the region could
+take a fresh schema read lock — the snapshot rebuild on a concurrently
+invalidated cache — closing an ABBA cycle against the commit's
+schema-write-then-index-manager-write sequence. The fix funnels every
+non-commit exclusive region of `IndexManagerEmbedded` through one ordered
+acquire that takes the committed schema read lock before the index-manager
+write lock and holds it across the whole region, releasing in reverse; the
+commit path keeps its separate, deliberately exempt acquire, since it
+already holds the schema write lock. `SchemaShared` now carries an always-on
+lock-order guard, wired to the index manager at shared-context
+initialization, that throws on a fresh schema acquisition under a held
+index-manager lock and on a schema read-to-write upgrade (a self-deadlock on
+a reentrant read-write lock); its overhead measures within noise of a bare
+acquisition. Two limits are deliberate and known: the storage-state tier is
+not runtime-assertable (the state lock exposes no per-thread owner query),
+and the per-index lock inside `IndexAbstract` sits outside the documented
+order entirely — the index rebuild, index fill, and standalone index delete
+paths take it above these tiers without holding the index-manager lock
+while blocking, a pre-existing latent inversion family the guard does not
+see; tracked in the issue tracker.
+
 The write lock held for the commit's whole duration means lock-based schema
 reads stall behind a schema commit. The two hot read sites that still took
 locks — per-record class resolution on the vertex-creation path and
@@ -878,6 +902,13 @@ is the design's one deliberate throughput trade-off, accepted on the
 premise that the schema-change rate is low. That premise bounds the stall
 envelope: rare schema commits, each doing metadata writes plus bounded
 structural work (Part 1) and an empty-source-bounded index build (Part 2).
+One stall edge is new with the lock-order fix: an index-manager exclusive
+region holds the schema read lock for its whole duration, so a non-commit
+schema writer (tx-local seeding, schema reload, legacy top-level DDL) queues
+behind such a region even when no commit overlaps — including the legacy
+drop of a large index, whose entry deletion is unbounded I/O. With an
+overlapping commit the same serialization already existed; the acceptance
+rests on the same low-schema-change-rate premise.
 
 Teardown of every transaction-scoped resource runs only on the owning
 thread. The one legitimate cross-thread caller — pool shutdown of a
@@ -910,6 +941,10 @@ session-count transition until the owner finishes.
 - One thread cannot hold two simultaneously open schema transactions over
   two sessions (the engage-side loud rejection); sequential schema and data
   transactions alongside a held mutex remain legal.
+- The per-index lock family remains outside the ordering contract: the
+  index rebuild, index fill, and standalone index delete paths take the
+  per-index lock above the schema and index-manager tiers — an open,
+  pre-existing latent deadlock family, tracked in the issue tracker.
 
 ### Decisions & invariants
 
@@ -917,12 +952,16 @@ session-count transition until the owner finishes.
   D7 (the metadata-write mutex: engagement, ownership record, release
   protocol, teardown handshake, pool-close skip), D19 (write lock from
   entry for schema-carrying commits; snapshot-first conversion of the two
-  hot lock-based read sites)
-- Invariants: the four locks are taken in one acyclic order; the mutex
-  engages above the shared metadata locks and fails loudly on same-thread
-  cross-session engagement; the permit has exactly one releaser and never
-  wedges; transaction-scoped resources are torn down only on the owning
-  thread.
+  hot lock-based read sites), D24 (the runtime lock-order guard; ordered
+  index-manager exclusive regions; the per-index-lock and state-lock
+  coverage limits)
+- Invariants: the four locks are taken in one acyclic order, with the
+  schema-before-index-manager pair enforced by an always-on runtime guard —
+  the per-index lock sits outside the contract and the state-lock tier is
+  not assertable; the mutex engages above the shared metadata locks and
+  fails loudly on same-thread cross-session engagement; the permit has
+  exactly one releaser and never wedges; transaction-scoped resources are
+  torn down only on the owning thread.
 
 ## The freezer gate
 
