@@ -88,6 +88,20 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
   /**
+   * The committed {@link SchemaShared} instance whose read lock the current non-commit exclusive
+   * region holds — captured by the outermost {@link #acquireExclusiveLock} and reused by nested
+   * acquires and every {@link #releaseExclusiveLock}, so the region always locks and unlocks the
+   * exact same instance. A fresh per-release resolve through the shared context would release a
+   * DIFFERENT instance's lock if the context were ever re-initialized mid-region (leaking the
+   * original read hold, which parks every later schema write forever). Guarded by {@link #lock}'s
+   * write lock: written only by the outermost acquire immediately after taking the write lock,
+   * cleared by the outermost release before dropping it, and read only while the current thread
+   * holds the write lock. {@code null} whenever no non-commit exclusive region is active —
+   * including under {@link #acquireExclusiveLockForCommit}, which takes no schema hold.
+   */
+  private SchemaShared lockedSchema;
+
+  /**
    * Whether the current thread holds the index manager's write lock. Used by the metadata-write
    * mutex engage-order assertion to prove the mutex is engaged strictly above this shared metadata
    * lock (never from inside its acquisition), which is what keeps the four-lock order acyclic.
@@ -672,14 +686,42 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * (de)serialization, including on copied sessions of this same thread) are reentrant and cannot
    * ABBA-deadlock against a schema-carrying commit's schema-write&rarr;index-write acquisition.
    * Reentrant nesting is balanced: every nested acquire takes one more (reentrant) schema read
-   * hold and its matching release drops it.
+   * hold and its matching release drops it. The outermost frame captures the locked instance in
+   * {@link #lockedSchema}; nested acquires and every release reuse that capture, so the region
+   * locks and unlocks one and the same instance end to end.
    */
   protected void acquireExclusiveLock(FrontendTransaction transaction) {
-    final var schema = transaction.getDatabaseSession().getSharedContext().getSchema();
+    final SchemaShared schema;
+    if (lock.isWriteLockedByCurrentThread()) {
+      // Nested region on the owner thread: reuse the exact instance the outermost frame captured
+      // and read-locked, so every nested hold targets the same lock object regardless of what a
+      // fresh shared-context resolve would return now. Reading the field is safe here: this
+      // thread holds the write lock that guards it.
+      schema = lockedSchema;
+      if (schema == null) {
+        // The write lock is held through acquireExclusiveLockForCommit, which captures no schema:
+        // a non-commit exclusive region must never be entered from inside the commit-path
+        // acquisition (the commit already holds the schema WRITE lock and performs its index
+        // work through the dedicated commit seams). Fail loudly instead of NPE-ing on the null.
+        throw new IllegalStateException(
+            "a non-commit index-manager exclusive region was entered while the index-manager"
+                + " lock is held through the commit-path acquisition; the commit must use its"
+                + " dedicated seams instead of the schema-mutation entry points");
+      }
+    } else {
+      schema = transaction.getDatabaseSession().getSharedContext().getSchema();
+    }
     schema.acquireSchemaReadLock();
     try {
       lock.writeLock().lock();
       writeLockNesting.incrementAndGet();
+      if (lockedSchema == null) {
+        // Outermost frame: record the instance whose read lock this region holds, under the
+        // just-acquired write lock that guards the field. The matching outermost release clears
+        // it. The assignment cannot throw, so the catch below still only ever fires with no
+        // write hold taken.
+        lockedSchema = schema;
+      }
     } catch (RuntimeException | Error e) {
       // The write-lock acquisition cannot realistically throw, but a leaked schema read hold
       // would silently block every later schema write, so release it defensively.
@@ -697,13 +739,15 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   protected void releaseExclusiveLock(DatabaseSessionEmbedded session, boolean notifyChanges) {
+    // Use the instance the region's acquire actually read-locked (captured under this write
+    // lock), never a fresh shared-context resolve: a resolve here could name a different
+    // SchemaShared than the one holding our read lock and leak the original hold. Reading the
+    // field is safe: this thread still holds the write lock that guards it.
+    final var schema = lockedSchema;
     var val = writeLockNesting.decrementAndGet();
     try {
       if (val == 0) {
-        session
-            .getSharedContext()
-            .getSchema()
-            .forceSnapshot();
+        schema.forceSnapshot();
         session.getMetadata().forceClearThreadLocalSchemaSnapshot();
 
         if (notifyChanges) {
@@ -719,12 +763,17 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         }
       }
     } finally {
+      if (val == 0) {
+        // Outermost release: clear the capture while the write lock is still held (the field is
+        // guarded by it); the read hold itself is dropped after the write lock below.
+        lockedSchema = null;
+      }
       try {
         lock.writeLock().unlock();
       } finally {
         // Release the schema read hold acquireExclusiveLock took, in reverse acquisition order
         // (write lock first). In its own finally so a failed unlock cannot leak the read hold.
-        session.getSharedContext().getSchema().releaseSchemaReadLock();
+        schema.releaseSchemaReadLock();
       }
     }
   }

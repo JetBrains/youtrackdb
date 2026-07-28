@@ -1082,9 +1082,18 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
    * taking the index-manager lock. This is the deterministic detector that replaces the ~2.5%
    * stress-only reproduction of the original deadlock: any code path that regresses to
    * index-lock-before-schema-lock now fails loudly on first execution.
+   *
+   * <p>The timeout is the safety net for the regression case: with the guard gone the probes
+   * acquire real locks, and any unexpected blocking on the non-interruptible lock acquisitions
+   * must surface as a bounded test failure rather than as a silent forked-JVM death — the exact
+   * failure mode the guard exists to eliminate. Sixty seconds matches the sibling stress test
+   * and is ~80x this test's observed runtime, so it cannot flake under CI load.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void schemaLockAcquisitionUnderIndexManagerLockThrowsLockOrderViolation() {
+    // A @Test(timeout) body runs on a JUnit watchdog thread, not the @Before thread, so the
+    // bound session must be re-activated here before use (mirroring the stress test above).
+    session.activateOnCurrentThread();
     var indexManager = session.getSharedContext().getIndexManager();
     indexManager.acquireExclusiveLockForCommit();
     try {
@@ -1144,9 +1153,19 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
    * hold). Reachable today only from broken code (e.g. a schema reload triggered from inside a
    * schema-read region), so the loud throw is strictly better than the silent permanent park it
    * replaces.
+   *
+   * <p>The timeout is load-bearing: if the upgrade guard regresses, the write acquisition below
+   * parks forever on the non-interruptible ReentrantReadWriteLock — without a timeout this test
+   * would BECOME the silent forked-JVM death it exists to prevent, leaving no surefire failure
+   * record. With it, the regression reports as a bounded, named test failure. Sixty seconds
+   * matches the sibling stress test and is ~80x this test's observed runtime, so it cannot
+   * flake under CI load.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void schemaReadToWriteUpgradeThrowsInsteadOfSelfDeadlocking() {
+    // A @Test(timeout) body runs on a JUnit watchdog thread, not the @Before thread, so the
+    // bound session must be re-activated here before use (mirroring the stress test above).
+    session.activateOnCurrentThread();
     schemaShared().acquireSchemaReadLock();
     try {
       assertThrows(
