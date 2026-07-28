@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
@@ -59,9 +60,19 @@ public class PreFilterableChainedIterable
   @Nonnull
   @Override
   public PreFilterableChainedIterable withRidFilter(@Nonnull Set<RID> ridSet) {
+    return withRidFilter(ridSet, Ratio.NOOP);
+  }
+
+  @Nonnull
+  @Override
+  public PreFilterableChainedIterable withRidFilter(
+      @Nonnull Set<RID> ridSet, @Nonnull Ratio effectivenessMetric) {
     var filtered = new PreFilterableLinkBagIterable[subs.length];
     for (var i = 0; i < subs.length; i++) {
-      filtered[i] = subs[i].withRidFilter(ridSet);
+      // Pass the SAME effectivenessMetric instance to every sub: the underlying Meter accumulates
+      // across record() calls, so each direction's iterator independently flushes its own
+      // (filtered, probed) pair into the shared metric.
+      filtered[i] = subs[i].withRidFilter(ridSet, effectivenessMetric);
     }
     return new PreFilterableChainedIterable(filtered);
   }
