@@ -767,10 +767,10 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
         .close();
     session.commit();
 
-    session.begin();
     // hub.both('PFHub') = {out1(40), out2(20), in1(50), in2(15)}; filter
     // age > 30 keeps out1 and in1 (one survivor per direction) and excludes
-    // out2 and in2 (one excluded per direction).
+    // out2 and in2 (one excluded per direction). Read-only query needs no tx,
+    // matching the sibling read-only tests in this class.
     var query =
         "MATCH {class: PFHubNode, as: h, where: (name = 'hub')}"
             + ".both('PFHub'){as: n, where: (age > 30)}"
@@ -803,7 +803,6 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
             + "property should produce an intersection pre-filter, but plan "
             + "was:\n" + plan,
         plan.contains("intersection:"));
-    session.commit();
   }
 
   /**
