@@ -46,6 +46,17 @@ final class LdbcQuerySql {
   static final String BOTH_E_KNOWS = loadResource("ldbc-queries/both-e-knows.sql");
 
   /**
+   * Named KNOWS neighbors via vertex-to-vertex {@code both('KNOWS')} — targets
+   * the {@code PreFilterableChainedIterable} vertex path
+   * ({@code VertexEntityImpl.getVertices(BOTH)}) introduced/fixed by YTDB-646.
+   * KNOWS is bidirectional in LDBC, so both {@code out_KNOWS} and
+   * {@code in_KNOWS} bags are populated — the two-direction shape that actually
+   * builds the chained iterable. Requires the {@code Person.firstName} index.
+   */
+  static final String BOTH_KNOWS_VERTEX =
+      loadResource("ldbc-queries/both-knows-vertex.sql");
+
+  /**
    * Forum recent-joiners via bothE(HAS_MEMBER) — hub-shape variant of the
    * pre-filter benchmark, targeting Forums with thousands of members. Requires
    * {@code HAS_MEMBER.joinDate} index (present in {@code ldbc-schema.sql}).
