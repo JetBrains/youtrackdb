@@ -253,13 +253,34 @@ jobs:
     needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Every GitHub operation here authenticates with the minted App token
+    # (checkout + persisted push credential); no step uses GITHUB_TOKEN, so the
+    # built-in token carries no scopes (defense-in-depth over the broad
+    # workflow-level grant).
+    permissions: {}
     steps:
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_APP_PRIVATE_KEY }}
+          # Downscope the installation token to exactly what merge-to-main needs:
+          # push commits to main (contents) including any .github/workflows/**
+          # changes (workflows). Narrower than the App's full installation grant.
+          permission-contents: write
+          permission-workflows: write
+
       - name: Checkout Source Code
         uses: actions/checkout@v7
         with:
           ref: 'main'
           fetch-depth: 0
-          token: ${{ secrets.MAIN_UPDATE_TOKEN }}
+          # Short-lived GitHub App installation token replaces the previous PAT.
+          # persist-credentials defaults to true, so the later git push origin main
+          # reuses this credential; an App-authored push to protected main also
+          # fires downstream push-triggered workflows (a GITHUB_TOKEN push would not).
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Configure Git
         run: |
@@ -424,13 +445,19 @@ jobs:
         needs.deploy.result == 'failure'
       )
     runs-on: ubuntu-latest
+    # Job-level permissions REPLACE the broader workflow-level block (contents,
+    # packages, actions, checks: write) that other jobs in this file need. This
+    # job only dispatches the CI Fix Agent via gh workflow run (actions: write)
+    # and posts a Zulip message, so actions: write is the complete minimal set.
+    permissions:
+      actions: write
     steps:
       - name: Dispatch CI Fix Agent
         if: >-
           needs.test-linux.result == 'failure' ||
           needs.test-windows.result == 'failure'
         env:
-          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh workflow run ci-failure-fix-agent.yml \
             --repo "${{ github.repository }}" \

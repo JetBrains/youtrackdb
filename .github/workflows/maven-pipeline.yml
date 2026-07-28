@@ -410,6 +410,16 @@ jobs:
       - image-x86-system-ubuntu-24.04
       - volume-cache
     timeout-minutes: 120
+    # Job-level permissions REPLACE the workflow-level block, so enumerate every
+    # scope this job uses: checkout (contents: read), publish-unit-test-result
+    # (checks: write), and the gh workflow run dispatch below (actions: write).
+    # actions: write is required because GITHUB_TOKEN now dispatches the fix agent
+    # (workflow_dispatch is exempt from the "GITHUB_TOKEN can't trigger workflows"
+    # rule); the workflow-level default of actions: read is insufficient.
+    permissions:
+      contents: read
+      checks: write
+      actions: write
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
@@ -452,7 +462,7 @@ jobs:
       - name: Dispatch CI Fix Agent
         if: failure()
         env:
-          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILED_RUN_URL: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILED_WORKFLOW_NAME: ${{ github.workflow }}
           TRIGGER_SHA: ${{ github.sha }}
@@ -795,6 +805,11 @@ jobs:
       github.event_name == 'push' &&
       contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
     runs-on: ubuntu-latest
+    # Job-level permissions REPLACE the workflow-level block. This job only
+    # dispatches the CI Fix Agent via gh workflow run (actions: write) and posts
+    # a Zulip message, so actions: write is the complete minimal set.
+    permissions:
+      actions: write
     steps:
       - name: Determine Branch Name
         id: branch_name
@@ -802,7 +817,7 @@ jobs:
       - name: Dispatch CI Fix Agent
         if: github.ref_name == 'develop'
         env:
-          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh workflow run ci-failure-fix-agent.yml \
             --repo "${{ github.repository }}" \
