@@ -28,8 +28,9 @@ makes about the engine is checkable against that tree.
 - **Not release notes or marketing.** No feature announcements dressed as teaching, no
   comparative or promotional language, no superlatives. If it reads like a launch post,
   it is out of scope.
-- **Not reference documentation.** The YQL reference and the internals book already do the
-  exhaustive job. An article is an argument with a narrative arc, not a catalog of facts.
+- **Not reference documentation.** An article is an argument with a narrative arc, not a
+  catalog of facts. Exhaustive, lookup-oriented material belongs in the reference docs, not
+  here.
 - **Not a plan or a proposal.** An article describes what the engine *actually does today*,
   not what someone intends or once intended to build.
 
@@ -74,14 +75,11 @@ makes about the engine is checkable against that tree.
 Any article that cites code **must** record the git commit SHA its citations were verified
 against, as a **Source baseline** line near the top or bottom of the article. Line numbers
 drift; the baseline is what lets a future reader (or a maintenance pass) tell whether a
-citation is still valid or merely was valid once.
-
-This mirrors the **Source-tree baseline** table in
-[`../docs/yql-internals-book/README.md`](../docs/yql-internals-book/README.md). A minimal
-form is enough for a single article:
+citation is still valid or merely was valid once. A minimal form is enough for a single
+article:
 
 ```text
-Source baseline: citations verified against commit a9b05e3f56 (develop), 2026-07-21.
+Source baseline: citations verified against commit <SHA> (<branch>), <date>
 ```
 
 The same SHA is recorded in the article index in

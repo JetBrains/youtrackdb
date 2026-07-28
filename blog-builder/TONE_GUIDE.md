@@ -111,8 +111,8 @@ When no tone file exists for a handle, capture one before authoring:
 
 ## (e) How the pipeline consumes it
 
-The tone file replaces the single global voice spec the book builder uses. In the production
-pipeline ([`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md)):
+Each article is authored against its author's tone file rather than a single global voice
+spec. In the production pipeline ([`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md)):
 
 - **During authoring** it is a **positive checklist** — the author writes *toward* the Part A
   fingerprint, the prose portrait, and the signature diction.

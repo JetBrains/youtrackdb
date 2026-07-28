@@ -6,36 +6,31 @@ finished article. Such an article reads like the developer who wrote it and is a
 about the live source. It reaches that state only after clearing a review gauntlet.
 
 The articles this machinery produces live in a separate tree at
-[`../docs/blog/`](../docs/blog/). This tree holds only the machinery: the house rules, the
-per-article brief template, the production pipeline, the per-developer tone system, and the
-review and reader-feedback artifacts.
+[`../docs/blog/`](../docs/blog/). This directory (`blog-builder/`) holds only the machinery:
+the house rules, the per-article brief template, the production pipeline, the per-developer
+tone system, and the review and reader-feedback artifacts.
 
-It is modeled on the book builder at [`../yql-internals-book-builder/`](../yql-internals-book-builder/)
-and inherits its discipline: every code claim is verified against the live tree, and voice
-drift is caught early rather than late. Two things are deliberately different.
+Its discipline is simple: every code claim is verified against the live tree, and voice drift
+is caught early rather than late. Two properties shape everything else.
 
-## Two deliberate departures from the book builder
+## Two defining properties
 
-1. **Article-oriented, not chapter-oriented.** The book is one long argument with a fixed
-   gradual ramp; a chapter can assume everything before it. A blog article stands alone.
-   Each article carries its own brief (see [`ARTICLE_BRIEF_TEMPLATE.md`](ARTICLE_BRIEF_TEMPLATE.md))
-   naming its own audience, its own one or two takeaway mental models, and its own scope —
-   because there is no preceding chapter to lean on.
+1. **Article-oriented.** Every article stands alone — there is no preceding chapter to lean
+   on. Each carries its own brief (see [`ARTICLE_BRIEF_TEMPLATE.md`](ARTICLE_BRIEF_TEMPLATE.md))
+   naming its own audience, its own one or two takeaway mental models, and its own scope.
 
-2. **Per-developer pluggable tone, not one global voice.** The book has a single
-   `VOICE_EXEMPLAR.md` that every chapter must sound like. The blog does not flatten its
-   authors into one house voice. Each developer has a tone file at
-   [`tones/<handle>.md`](tones/), keyed by their GitHub handle, distilled from their own
-   writing. An article is authored *against its author's tone* and reviewed for conformance
-   to *that* tone — not to a single global spec. The global rules that remain
-   (structure, accuracy, formatting) live in [`BLOG_BRIEF.md`](BLOG_BRIEF.md); they are
+2. **Per-developer pluggable tone.** The machinery does not flatten authors into one house
+   voice. Each developer has a tone file at [`tones/<handle>.md`](tones/), keyed by their
+   GitHub handle and distilled from their own writing. An article is authored *against its
+   author's tone* and reviewed for conformance to *that* tone. The global rules that remain —
+   structure, accuracy, formatting — live in [`BLOG_BRIEF.md`](BLOG_BRIEF.md); they are
    explicitly *not* voice.
 
 ## Directory map
 
 ```text
 blog-builder/
-├── README.md                  — this file: overview, departures, workflow, doc pointers
+├── README.md                  — this file: overview, defining properties, workflow, doc pointers
 ├── BLOG_BRIEF.md              — global house rules (structure, accuracy, figures, formatting) — NOT voice
 ├── ARTICLE_BRIEF_TEMPLATE.md  — copy-per-article fill-in brief
 ├── PRODUCTION_CHECKLIST.md    — the executable pipeline for producing or editing an article

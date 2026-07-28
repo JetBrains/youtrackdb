@@ -43,9 +43,9 @@ and the matching SHA in the table above. That baseline is what lets a reader tel
 citation is still valid against the current tree or was merely valid once. An article that
 cites no code has no baseline.
 
-This mirrors the **Source-tree baseline** table in
-[`../yql-internals-book/README.md`](../yql-internals-book/README.md); the freshness rule
-itself is defined in [`../../blog-builder/BLOG_BRIEF.md`](../../blog-builder/BLOG_BRIEF.md).
+The **Source baseline** line takes the shape
+`Source baseline: citations verified against commit <SHA> (<branch>), <date>`. The full
+freshness rule is defined in [`../../blog-builder/BLOG_BRIEF.md`](../../blog-builder/BLOG_BRIEF.md).
 
 ## Start here
 
