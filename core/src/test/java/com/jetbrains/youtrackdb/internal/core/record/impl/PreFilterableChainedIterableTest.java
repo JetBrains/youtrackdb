@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -274,6 +275,7 @@ public class PreFilterableChainedIterableTest {
     private final boolean sizeable;
     IntSet lastClassFilter;
     Set<RID> lastRidFilter;
+    Ratio lastRatio;
 
     StubSub(String name, List<Object> elements, int declaredSize, boolean sizeable) {
       this.name = name;
@@ -291,8 +293,10 @@ public class PreFilterableChainedIterableTest {
 
     @Nonnull
     @Override
-    public PreFilterableLinkBagIterable withRidFilter(@Nonnull Set<RID> ridSet) {
+    public PreFilterableLinkBagIterable withRidFilter(
+        @Nonnull Set<RID> ridSet, @Nonnull Ratio effectivenessMetric) {
       lastRidFilter = ridSet;
+      lastRatio = effectivenessMetric;
       return new StubSub("filtered:" + name, elements, declaredSize, sizeable);
     }
 

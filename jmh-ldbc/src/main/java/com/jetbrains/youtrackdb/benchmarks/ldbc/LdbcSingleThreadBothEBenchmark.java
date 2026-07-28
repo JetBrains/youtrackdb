@@ -94,6 +94,37 @@ public class LdbcSingleThreadBothEBenchmark {
   }
 
   /**
+   * Both-KNOWS (vertex): named KNOWS neighbors via vertex-to-vertex
+   * {@code both('KNOWS')}. Unlike {@link #bothEKnows_recentConnections} (which
+   * traverses edge records via {@code bothE}), this exercises the
+   * <em>vertex</em> {@code both()} path
+   * ({@code VertexEntityImpl.getVertices(BOTH)}) fixed by YTDB-646, which builds
+   * a single {@code PreFilterableChainedIterable} over the {@code out_KNOWS} and
+   * {@code in_KNOWS} link bags.
+   *
+   * <p>Because KNOWS is stored bidirectionally in LDBC, a Person's out_KNOWS and
+   * in_KNOWS bags are BOTH populated — the two-direction shape that actually
+   * constructs the chained iterable (single-direction shapes collapse to a
+   * single bag). KNOWS is symmetric (out=Person, in=Person), so the planner
+   * infers the target class Person and, with the {@code Person.firstName}
+   * index, intersects both bags against the index RID set before loading any
+   * neighbor vertex. A regression in the chained vertex path (broken per-sub
+   * pre-filter delegation, or reintroduction of the BG1/PF2 empty-direction
+   * fallback) would show up here as a throughput drop rather than silently
+   * degrading to unfiltered iteration.
+   */
+  @Benchmark
+  public List<Map<String, Object>> bothKnowsVertex_namedFriends(
+      LdbcBenchmarkState state) {
+    long i = state.nextIndex();
+    return state.executeSql(
+        LdbcQuerySql.BOTH_KNOWS_VERTEX,
+        "personId", state.bothEKnowsPersonId(i),
+        "firstName", state.bothKnowsFirstName(i),
+        "limit", LIMIT);
+  }
+
+  /**
    * BothE-HAS_MEMBER: recent joiners of a popular Forum — hub-shape variant of
    * the pre-filter benchmark. Traverses {@code HAS_MEMBER} edges of a Forum in
    * the top-100 by bag size (thousands of members) with a selective

@@ -662,6 +662,12 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
         "CREATE VERTEX PFKnownPerson set name = 'bob', age = 35").close();
     session.execute(
         "CREATE VERTEX PFKnownPerson set name = 'carol', age = 45").close();
+    // dave has age 28 (<= 30) so the age > 30 filter MUST exclude him. This
+    // guards against a pre-filter that fails to exclude non-matching neighbors
+    // (a filter that returned all neighbors would still pass a bob/carol-only
+    // assertion if dave were absent from the graph).
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'dave', age = 28").close();
     session.execute(
         "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
             + " to (select from PFKnownPerson where name='bob')")
@@ -669,6 +675,10 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     session.execute(
         "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
             + " to (select from PFKnownPerson where name='carol')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
+            + " to (select from PFKnownPerson where name='dave')")
         .close();
     session.commit();
 
@@ -678,8 +688,8 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
             + " RETURN p.name";
     var result = session.query(query).toList();
 
-    // alice.both(PFKnows) = {bob (age=35), carol (age=45)}; filter age > 30
-    // keeps both.
+    // alice.both(PFKnows) = {bob (age=35), carol (age=45), dave (age=28)};
+    // filter age > 30 keeps bob and carol and EXCLUDES dave.
     assertEquals(2, result.size());
     Set<String> names = new HashSet<>();
     for (var r : result) {
@@ -687,6 +697,8 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     }
     assertTrue("Expected bob in results", names.contains("bob"));
     assertTrue("Expected carol in results", names.contains("carol"));
+    assertFalse("dave (age=28) must be excluded by age > 30",
+        names.contains("dave"));
 
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
@@ -696,6 +708,102 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
             + "should produce an intersection pre-filter on PFKnownPerson.age, "
             + "but plan was:\n" + plan,
         plan.contains("intersection:"));
+  }
+
+  /**
+   * Regression guard for the {@link
+   * com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableChainedIterable
+   * PreFilterableChainedIterable} two-bag path: a vertex that has the SAME edge
+   * label populated in BOTH directions (some OUT neighbors AND some IN
+   * neighbors), so {@code both('LABEL')} builds a real chained iterable over two
+   * non-empty LinkBags at runtime (all other fixtures are one-directional and
+   * collapse to a single iterable).
+   *
+   * <p>Setup: a symmetric {@code PFHub} edge (both endpoints {@code PFHubNode},
+   * {@code age} indexed). A central {@code hub} vertex has OUT edges to
+   * {@code out1}(age=40)/{@code out2}(age=20) and IN edges from
+   * {@code in1}(age=50)/{@code in2}(age=15). {@code both('PFHub'){age > 30}}
+   * must return exactly {@code out1} and {@code in1} — excluding one neighbor
+   * on EACH side. If the chained {@code withClassFilter}/{@code withRidFilter}
+   * delegation dropped a valid neighbor in either sub-iterable (over-exclusion),
+   * or the {@code ChainedIterator} failed to drain both bags, this assertion
+   * would fail.
+   */
+  @Test
+  public void testBothTwoPopulatedDirectionsChainedPreFilter() {
+    session.execute("CREATE class PFHubNode extends V").close();
+    session.execute("CREATE property PFHubNode.name STRING").close();
+    session.execute("CREATE property PFHubNode.age INTEGER").close();
+    session.execute(
+        "CREATE index PFHubNode_age on PFHubNode (age) NOTUNIQUE").close();
+
+    session.execute("CREATE class PFHub extends E").close();
+    session.execute("CREATE property PFHub.out LINK PFHubNode").close();
+    session.execute("CREATE property PFHub.in LINK PFHubNode").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PFHubNode set name = 'hub', age = 33").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'out1', age = 40").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'out2', age = 20").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'in1', age = 50").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'in2', age = 15").close();
+    // OUT edges: hub -> out1, hub -> out2  (populates out_PFHub on hub)
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='hub')"
+            + " to (select from PFHubNode where name='out1')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='hub')"
+            + " to (select from PFHubNode where name='out2')")
+        .close();
+    // IN edges: in1 -> hub, in2 -> hub  (populates in_PFHub on hub)
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='in1')"
+            + " to (select from PFHubNode where name='hub')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='in2')"
+            + " to (select from PFHubNode where name='hub')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // hub.both('PFHub') = {out1(40), out2(20), in1(50), in2(15)}; filter
+    // age > 30 keeps out1 and in1 (one survivor per direction) and excludes
+    // out2 and in2 (one excluded per direction).
+    var query =
+        "MATCH {class: PFHubNode, as: h, where: (name = 'hub')}"
+            + ".both('PFHub'){as: n, where: (age > 30)}"
+            + " RETURN n.name";
+    var result = session.query(query).toList();
+
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("n.name"));
+    }
+    assertEquals("Exactly one survivor per direction expected: " + names,
+        2, result.size());
+    assertTrue("out-direction survivor out1 (age=40) must be present",
+        names.contains("out1"));
+    assertTrue("in-direction survivor in1 (age=50) must be present",
+        names.contains("in1"));
+    assertFalse("out-direction out2 (age=20) must be excluded",
+        names.contains("out2"));
+    assertFalse("in-direction in2 (age=15) must be excluded",
+        names.contains("in2"));
+
+    // Symmetric edge -> target class PFHubNode inferred; indexed age -> the
+    // planner attaches an intersection pre-filter that flows into the
+    // PreFilterableChainedIterable spanning both directions.
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "both('PFHub') over two populated directions with an indexed target "
+            + "property should produce an intersection pre-filter, but plan "
+            + "was:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
   }
 
   /**

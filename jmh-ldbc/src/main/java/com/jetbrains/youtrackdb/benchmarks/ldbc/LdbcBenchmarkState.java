@@ -251,6 +251,17 @@ public class LdbcBenchmarkState {
     return curatedParams.dates()[(int) (idx % curatedParams.dates().length)];
   }
 
+  /**
+   * Target-vertex {@code firstName} filter for the vertex {@code both('KNOWS')}
+   * benchmark. Reuses the IC1 curated first-name pool (real first names present
+   * in the dataset, backed by the {@code Person.firstName} index) so the
+   * pre-filter engages across both link-bag directions.
+   */
+  public String bothKnowsFirstName(long idx) {
+    var p = curatedParams.ic1()[(int) (idx % curatedParams.ic1().length)];
+    return p.firstName();
+  }
+
   // -- BothE-HAS_MEMBER (hub) extension parameters --
 
   /**
