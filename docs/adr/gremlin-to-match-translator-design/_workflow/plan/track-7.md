@@ -10,7 +10,7 @@ This is the foundation slice of the split final track (the original Track 7 was 
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-27T20:15Z [ctx=safe] Review + decomposition complete (strategic trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter1; 12 findings all accepted; 2 steps, reconciled tag `high`)
