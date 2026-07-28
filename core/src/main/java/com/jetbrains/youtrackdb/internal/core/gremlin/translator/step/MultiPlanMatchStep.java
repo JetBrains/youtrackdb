@@ -1,0 +1,312 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
+
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import javax.annotation.Nonnull;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+
+/**
+ * Multi-plan boundary step: the concrete {@link AbstractMatchPlanStep} that concatenates the result
+ * streams of N compiled MATCH plans, one per {@code union(...)} child. The Gremlin-to-MATCH strategy
+ * builds this step when a recognised traversal translates to a {@code union} whose children each
+ * become their own {@link SelectExecutionPlan}; the shared open / drain / close lifecycle and the
+ * row projection live in the base, and this class supplies the N plans through the plan-seam hooks.
+ *
+ * <h2>Concatenation, not cartesian product</h2>
+ * The children are concatenated: {@code union(c1, …, cN)} emits every row of {@code c1}, then every
+ * row of {@code c2}, and so on, so the result multiset is {@code |c1| + … + |cN|}. This is the
+ * opposite of MATCH's {@code splitDisjointPatterns}, which joins disconnected patterns by cartesian
+ * product; union must therefore build one full plan per child and concatenate rather than ride a
+ * single multi-pattern MATCH.
+ *
+ * <h2>One live stream at a time</h2>
+ * {@link #startPlanStream()} realizes the base's single-stream hook as one {@link
+ * MultipleExecutionStream} over an {@link ExecutionStreamProducer} that opens each child plan
+ * <em>lazily</em>: child {@code i+1} is opened only after child {@code i} has drained and been
+ * closed. Two consequences fall out of that laziness for free:
+ * <ul>
+ *   <li><b>Exception stops the advance.</b> A failure while iterating child {@code i} propagates up
+ *       through the concatenator into the base's {@link #processNextStart()} terminal handler before
+ *       child {@code i+1} is ever opened — so the children after the failing one never start.
+ *   <li><b>Bounded footprint.</b> Only one child plan holds an open stream at any instant; the base
+ *       projects the concatenation as if it were one stream, so row projection and the ordered
+ *       list-shaping post-process apply once over the whole union (this is what lets a later {@code
+ *       union().fold()} fold the whole union into one list rather than one list per child).
+ * </ul>
+ *
+ * <h2>Per-child isolated, session-rebound context</h2>
+ * Each child plan carries its own {@link CommandContext} (with its own positional parameters,
+ * installed at build time — the base's shared parameter map is deliberately empty here). The base
+ * rebinds the coordinator context ({@link #planContext()}) to the iteration-thread session in {@code
+ * openArming()}; the producer reads that session back and rebinds each child's own context before
+ * opening it, then iterates and closes the child stream against that child's own context via {@link
+ * ChildContextStream}. Each child therefore executes exactly as it would under the single-plan
+ * {@link YTDBMatchPlanStep} — start-time context and iteration-time context are the same, so a step
+ * that resolves the session or reads {@code $current} / {@code $matched} at iteration time (e.g.
+ * {@code LoaderExecutionStream}) never sees its state split across two contexts. No edit to {@link
+ * AbstractMatchPlanStep} is needed: pre-binding each child stream this way is sufficient.
+ *
+ * <h2>Close-all, including un-run children</h2>
+ * {@link #closePlan()} closes <em>every</em> child plan, not only those the producer opened. When an
+ * exception stops the advance at child {@code i}, children {@code i+1 …} were never started but their
+ * step chains still exist and must be released; closing an un-run {@link SelectExecutionPlan} is safe
+ * (its close simply propagates backward through an unstarted chain). A single child's close failure
+ * never masks the others — the first failure stays primary and the rest attach with {@code
+ * addSuppressed}.
+ *
+ * <h2>Clone</h2>
+ * {@link #clone()} gives the clone its own deep copy of <em>each</em> child plan against its own
+ * isolated child context, mirroring {@link YTDBMatchPlanStep#clone()} per child. Union's multi-alias
+ * children make cross-execution context bleed a real hazard (each child owns unsynchronised {@code
+ * $current} / {@code $matched} / statistics maps), so every child is isolated independently. The
+ * clone also gets a fresh coordinator context so two concurrent clones never race on the coordinator.
+ *
+ * @param <S> upstream traverser type (always {@code Object} for a start step)
+ * @param <E> emitted payload type ({@link Vertex} for {@link BoundaryOutputType#ELEMENT}; Map /
+ *            scalar / value for the other output types — the Element bound is historical for the
+ *            ELEMENT path and is unchecked-cast for non-element payloads)
+ */
+public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatchPlanStep<S, E> {
+
+  // The ordered child plans, concatenated in declared union order. Non-final for the same JMM reason
+  // as YTDBMatchPlanStep.plan: clone() installs the clone's own child-plan copies with a plain field
+  // write before the clone is published, avoiding a post-super.clone() reflective write to a final
+  // field (which would void the final-field publication guarantee).
+  private List<InternalExecutionPlan> plans;
+
+  // The coordinator context: the single context the base's planContext() seam returns. The base
+  // rebinds THIS context's session to the iteration thread in openArming(); the producer reads that
+  // session back (through the ctx MultipleExecutionStream threads to it) and rebinds each child's own
+  // context before opening it. It carries only the session — never positional parameters, which live
+  // on each child's own context. Non-final so clone() hands each clone its own coordinator; a shared
+  // coordinator would let two concurrent clones race on setDatabaseSession.
+  private CommandContext coordinatorContext;
+
+  /**
+   * Constructs a multi-plan boundary step over the given ordered child plans with no result shaping.
+   *
+   * @param traversal     the host traversal (must not be null)
+   * @param returnClass   the TinkerPop element class the step emits (currently {@link Vertex}{@code
+   *                      .class})
+   * @param plans         the ordered child plans to concatenate (must not be null or empty)
+   * @param boundaryAlias the canonical alias under which the matched element appears in every child's
+   *                      result rows (must not be null)
+   * @param outputType    how each row projects onto a traverser payload (must not be null)
+   */
+  public MultiPlanMatchStep(
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull List<InternalExecutionPlan> plans,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType) {
+    this(traversal, returnClass, plans, boundaryAlias, outputType, ResultShaping.NONE);
+  }
+
+  /**
+   * Full constructor including the boundary row-projection shaping for result-shaping terminators.
+   *
+   * @param shaping the row-projection shaping ({@link ResultShaping}) applied once over the whole
+   *     concatenation
+   */
+  public MultiPlanMatchStep(
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull List<InternalExecutionPlan> plans,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType,
+      @Nonnull ResultShaping shaping) {
+    // The base takes an EMPTY positional-parameter map: union installs each child's parameters into
+    // that child's own context at build time. Handing the base a shared parameter map would push it
+    // onto the coordinator context, which the base is not the right owner for — per-child parameters
+    // must stay on per-child contexts so two children with different `?`-slot values do not collide.
+    super(traversal, returnClass, boundaryAlias, outputType, Map.of(), shaping);
+    // Defensive copy pins the child order and immutability; List.copyOf rejects a null element.
+    this.plans = List.copyOf(plans);
+    if (this.plans.isEmpty()) {
+      throw new IllegalArgumentException(
+          "MultiPlanMatchStep requires at least one child plan; a union with no children should have"
+              + " been declined at recognition time.");
+    }
+    this.coordinatorContext = new BasicCommandContext();
+  }
+
+  /** The ordered child execution plans this step concatenates. */
+  public List<InternalExecutionPlan> getPlans() {
+    return plans;
+  }
+
+  @Override
+  public MultiPlanMatchStep<S, E> clone() {
+    var cloned = (MultiPlanMatchStep<S, E>) super.clone();
+    // Give the clone its own deep copy of EVERY child plan, each against its OWN isolated child
+    // context — a fresh BasicCommandContext parented to that child's original context — mirroring
+    // YTDBMatchPlanStep.clone() per child. Union's multi-alias children make cross-execution context
+    // bleed a real hazard: each child's SelectExecutionPlan carries mutable per-run state ($current /
+    // $matched / statistics, all plain HashMaps), so the original's and the clone's executions must
+    // not share it. Copying a child against its shared original context would leave both plans on the
+    // same context, defeating the isolation this clone exists to provide.
+    //
+    // INVARIANT the isolation depends on (see YTDBMatchPlanStep.clone()): each child's parent
+    // (template) context must stay free of per-run variables, because a child write propagates UP to
+    // the parent only for a key the parent already holds. A union child pattern that seeded alias /
+    // LET bindings onto its plan's context at BUILD time would break it; the recognised union shapes
+    // seed none.
+    var copies = new ArrayList<InternalExecutionPlan>(plans.size());
+    for (var childPlan : plans) {
+      var isolatedCtx = new BasicCommandContext();
+      isolatedCtx.setParentWithoutOverridingChild(childPlan.getContext());
+      copies.add(childPlan.copy(isolatedCtx));
+    }
+    // Plain field writes: both fields are non-final (see their declarations), the copies are
+    // independent, and the writes happen before the clone is published to any other thread.
+    cloned.plans = List.copyOf(copies);
+    // Fresh coordinator so two clones never share one; a shared coordinator would let concurrent
+    // armings race on its unsynchronised session field.
+    cloned.coordinatorContext = new BasicCommandContext();
+    // Drop the per-arming references super.clone() copied by value and put the clone in its NEW
+    // starting state — without this a clone taken from an already-closed step would be born CLOSED
+    // and never close its own fresh plan copies.
+    cloned.resetLifecycleForClone();
+    return cloned;
+  }
+
+  // ---- Plan-seam hooks: N child plans, one live stream at a time. ----
+
+  @Override
+  protected CommandContext planContext() {
+    return coordinatorContext;
+  }
+
+  @Override
+  protected void rewindPlan(CommandContext ctx) {
+    // Rewind EVERY child's step chain so a re-armed union re-runs all children from the first. The
+    // base calls this only when REARMED (the step already ran at least once). Reset each child
+    // against its own context; SelectExecutionPlan.reset ignores the argument, but passing the
+    // child's own context keeps the seam faithful to the single-plan path.
+    for (var childPlan : plans) {
+      childPlan.reset(childPlan.getContext());
+    }
+  }
+
+  @Override
+  protected ExecutionStream startPlanStream() {
+    // One MultipleExecutionStream over a FRESH producer per arming, so each (re)open restarts from
+    // the first child. Children open lazily, one live stream at a time: the producer opens child i+1
+    // only when the concatenator has drained and closed child i, so an exception in child i never
+    // opens child i+1.
+    final var childPlans = plans;
+    var producer =
+        new ExecutionStreamProducer() {
+          private final Iterator<InternalExecutionPlan> iter = childPlans.iterator();
+
+          @Override
+          public boolean hasNext(CommandContext ctx) {
+            return iter.hasNext();
+          }
+
+          @Override
+          public ExecutionStream next(CommandContext ctx) {
+            var childPlan = iter.next();
+            // Rebind the child's OWN context to the iteration-thread session before opening it. The
+            // base rebound the coordinator context (threaded here as ctx) in openArming(); propagate
+            // that same session down so each child's record reads run against the active session —
+            // the per-child equivalent of the single-plan openArming() rebind. Without it a child
+            // compiled on another thread throws SessionNotActivatedException at its first record read.
+            var childContext = childPlan.getContext();
+            childContext.setDatabaseSession(ctx.getDatabaseSession());
+            // Iterate and close the child stream against its OWN context, not the coordinator's,
+            // through ChildContextStream — so each child behaves exactly as under the single-plan
+            // YTDBMatchPlanStep (start-time context == iteration-time context). Otherwise
+            // MultipleExecutionStream would thread the coordinator context to the child stream,
+            // splitting the child's session / variable reads across two contexts.
+            return new ChildContextStream(childPlan.start(), childContext);
+          }
+
+          @Override
+          public void close(CommandContext ctx) {
+            // No-op: the plans are released by closePlan() (which closes ALL children, including any
+            // this producer never opened), not by the producer. MultipleExecutionStream.close()
+            // already closes the current live child stream.
+          }
+        };
+    return new MultipleExecutionStream(producer);
+  }
+
+  @Override
+  protected void closePlan() {
+    // Close EVERY child plan, including children the producer never opened: an exception stops the
+    // advance at child i, so children i+1 … were never started, but their step chains still exist
+    // and must be released. Closing an un-run SelectExecutionPlan is safe — close propagates backward
+    // through the (unstarted) chain and is idempotent. Keep closing the rest even if one throws: the
+    // first failure stays primary and the rest attach with addSuppressed, so a single child's close
+    // failure never leaks the other children's resources.
+    Throwable first = null;
+    for (var childPlan : plans) {
+      try {
+        childPlan.close();
+      } catch (RuntimeException | Error e) {
+        if (first == null) {
+          first = e;
+        } else {
+          first.addSuppressed(e);
+        }
+      }
+    }
+    if (first instanceof Error error) {
+      throw error;
+    }
+    if (first instanceof RuntimeException runtime) {
+      throw runtime;
+    }
+    // first is either null or a checked Throwable, which plan.close() cannot throw (its signature is
+    // unchecked-only); the two rethrows above cover every reachable case.
+    assert first == null : "plan.close() threw a checked exception, which its signature forbids";
+  }
+
+  /**
+   * Wraps a child plan's {@link ExecutionStream} so it iterates and closes against the child's OWN
+   * {@link CommandContext} rather than the coordinator context {@link MultipleExecutionStream}
+   * threads through it. This keeps every child byte-identical to the single-plan {@link
+   * YTDBMatchPlanStep} path, where the iteration context is always the plan's own context — a step
+   * that resolves the session or reads {@code $current} / {@code $matched} at iteration time (e.g.
+   * {@code LoaderExecutionStream}) must see the same context it was started with.
+   */
+  private static final class ChildContextStream implements ExecutionStream {
+
+    private final ExecutionStream delegate;
+    private final CommandContext childContext;
+
+    ChildContextStream(@Nonnull ExecutionStream delegate, @Nonnull CommandContext childContext) {
+      this.delegate = Objects.requireNonNull(delegate, "child stream");
+      this.childContext = Objects.requireNonNull(childContext, "child context");
+    }
+
+    @Override
+    public boolean hasNext(CommandContext ignored) {
+      return delegate.hasNext(childContext);
+    }
+
+    @Override
+    public Result next(CommandContext ignored) {
+      return delegate.next(childContext);
+    }
+
+    @Override
+    public void close(CommandContext ignored) {
+      delegate.close(childContext);
+    }
+  }
+}
