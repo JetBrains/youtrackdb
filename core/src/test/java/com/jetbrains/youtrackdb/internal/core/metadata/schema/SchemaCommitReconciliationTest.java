@@ -90,12 +90,19 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
    */
   private static final long HOOK_GRACE_MILLIS = 15_000L;
 
+  /**
+   * The slack the bound ordering below must keep, so "below" cannot degrade into "below by a
+   * millisecond": taking the thread dump between the two expiries happens inside that slack.
+   */
+  private static final long INVARIANT_MARGIN_MILLIS = 2_000L;
+
   static {
     // Enforced rather than merely documented, like the listener-hold invariant in
     // MetadataWriteMutexTest: core tests run with -ea, so this fires at class-init time.
-    assert CLEANUP_JOIN_MILLIS < HOOK_GRACE_MILLIS
-        : "the observer's trailing grace must expire while the schema commit is still pinned:"
-            + " CLEANUP_JOIN_MILLIS must stay below HOOK_GRACE_MILLIS";
+    assert CLEANUP_JOIN_MILLIS + INVARIANT_MARGIN_MILLIS <= HOOK_GRACE_MILLIS
+        : "the observer's trailing grace must expire while the schema commit is still pinned, with"
+            + " room for the dump: CLEANUP_JOIN_MILLIS + INVARIANT_MARGIN_MILLIS must stay at or"
+            + " below HOOK_GRACE_MILLIS";
   }
 
   private SchemaShared schemaShared() {

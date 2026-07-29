@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics.dumpThrea
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -16,7 +17,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -107,13 +107,19 @@ public class MetadataWriteMutexTest extends DbTestBase {
   /// bound.
   private static final long LISTENER_HOLD_SECONDS = 10L;
 
+  /// The slack a bound-ordering invariant must keep, so "below" cannot degrade into "below by a
+  /// millisecond": spawning the loser and scheduling its thread happens inside that slack.
+  private static final long INVARIANT_MARGIN_MILLIS = 2_000L;
+
   static {
     // Enforced rather than merely documented: the units differ (millis vs seconds), so prose alone
     // was one careless edit away from a vacuously passing racing-teardown test.
     // Core tests run with -ea, so this fires at class-init time.
-    assert NOOP_TEARDOWN_JOIN_MILLIS < TimeUnit.SECONDS.toMillis(LISTENER_HOLD_SECONDS)
+    assert NOOP_TEARDOWN_JOIN_MILLIS + INVARIANT_MARGIN_MILLIS
+        <= TimeUnit.SECONDS.toMillis(LISTENER_HOLD_SECONDS)
         : "the losing teardown must be joined while the winner is still pinned in its close"
-            + " listener: NOOP_TEARDOWN_JOIN_MILLIS must stay below LISTENER_HOLD_SECONDS";
+            + " listener: NOOP_TEARDOWN_JOIN_MILLIS must stay below LISTENER_HOLD_SECONDS by at"
+            + " least INVARIANT_MARGIN_MILLIS";
   }
 
   private final List<Thread> spawnedWorkers = new CopyOnWriteArrayList<>();
@@ -131,19 +137,25 @@ public class MetadataWriteMutexTest extends DbTestBase {
   //       self.openSession() / self.openSessionForTest(), called from inside the body, so a throw
   //       while opening one is recorded exactly like any other failure.
   //   (b) The worker ALWAYS has an error holder and it is ALWAYS populated: the runner catches
-  //       Throwable around the whole body. There is no path on which a throwable is dropped.
-  //   (c) Latches a waiter awaits are declared with signalling(...) and counted down in the
-  //       runner's finally, so no waiter can stall on a worker that died — and since they are per
-  //       worker, the latch released on the failure path is by construction the one the waiter
-  //       awaits. Waits go through worker.awaitSignal(...), which reports the worker's throwable
-  //       rather than the missing signal.
+  //       Throwable around the whole body AND around its own cleanup, so no throwable is dropped.
+  //       A cleanup failure that arrives second is attached to the first as a suppressed exception,
+  //       so a failing close() can neither be lost nor displace the body's failure.
+  //   (c) Latches a waiter awaits are passed to startWorker BEFORE the thread starts and counted
+  //       down in the runner's finally, so no waiter can stall on a worker that died — and since
+  //       they are per worker, the latch released on the failure path is by construction the one
+  //       the waiter awaits. Waits go through worker.awaitSignal(...), which reports the worker's
+  //       throwable rather than the missing signal, and which asserts the latch was declared.
   //   (d) Completion is observable: the runner counts a done latch down after the body AND its
-  //       cleanup. The authoritative error read is worker.failIfErrored(...), which ASSERTS that
-  //       completion edge — so no test can read the holder before the worker's own teardown could
-  //       have written to it, which is the defect that let a late close() failure pass green.
+  //       cleanup, unconditionally. The authoritative error read is worker.failIfErrored(...),
+  //       which ASSERTS that completion edge — so no test can read the holder before the worker's
+  //       own teardown could have written to it, the defect that let a late close() failure pass
+  //       green.
   //   (e) Sessions are closed on every path: worker-owned ones in the runner's finally, and
   //       test-owned ones there too whenever the worker failed, because a failing test will not
-  //       reach its own close.
+  //       reach its own close. Sessions borrowed from the shared SessionPool are the exception:
+  //       they belong to the pool and are torn down by the pool.close() those tests perform
+  //       themselves, so closing them from the worker would break the very pool-close protocol
+  //       under test. The two sites that borrow one say so at the borrow.
   // ---------------------------------------------------------------------------------------------
 
   /** The body of a worker started by {@link #startWorker}. It may throw anything. */
@@ -159,22 +171,32 @@ public class MetadataWriteMutexTest extends DbTestBase {
    * for the bounded join in {@code @After}; it is a daemon so a leaked worker (a stuck mutex
    * acquire the test cannot unblock) cannot keep the forked JVM alive.
    */
-  private Worker startWorker(final String name, final WorkerBody body) {
-    final var worker = new Worker(name);
+  private Worker startWorker(final String name, final WorkerBody body,
+      final CountDownLatch... signals) {
+    // (c): the signals are fixed before the thread exists, so a peer can never await a latch this
+    // runner does not yet know to release.
+    final var worker = new Worker(name, signals);
     final var thread = new Thread(() -> {
       try {
         body.run(worker);
       } catch (final Throwable t) {
-        // (b): the single sink for every throwable this worker can produce.
-        worker.error.compareAndSet(null, t);
+        // (b): one sink for every throwable this worker can produce, body or cleanup.
+        worker.recordFailure(t);
       } finally {
-        // (e) then (c) then (d), in that order: clean up, release anyone waiting on this worker,
-        // and only then publish completion, so a test observing completion sees the final error.
-        worker.closeSessions();
-        for (final var signal : worker.signals) {
-          signal.countDown();
+        try {
+          // (e) then (c): clean up, then release anyone waiting on this worker.
+          worker.closeSessions();
+          for (final var signal : worker.signals) {
+            signal.countDown();
+          }
+        } catch (final Throwable cleanupFailure) {
+          worker.recordFailure(cleanupFailure);
+        } finally {
+          // (d) published unconditionally and last: a test blocked on the completion edge must
+          // never hang because cleanup itself failed, and a test that observes completion must see
+          // the final error.
+          worker.done.countDown();
         }
-        worker.done.countDown();
       }
     }, name);
     thread.setDaemon(true);
@@ -191,24 +213,20 @@ public class MetadataWriteMutexTest extends DbTestBase {
     private final String name;
     private final AtomicReference<Throwable> error = new AtomicReference<>();
     private final CountDownLatch done = new CountDownLatch(1);
-    private final List<CountDownLatch> signals = new CopyOnWriteArrayList<>();
+    private final List<CountDownLatch> signals;
     private final List<DatabaseSessionEmbedded> ownedSessions = new CopyOnWriteArrayList<>();
     private final List<DatabaseSessionEmbedded> testOwnedSessions = new CopyOnWriteArrayList<>();
     private Thread thread;
 
-    private Worker(final String name) {
-      this.name = name;
-    }
-
     /**
-     * (c) Declares the latches some waiter awaits on this worker. They are counted down on EVERY
-     * exit path, including a failure before the body would have signalled them, so a waiter can
-     * never stall on a dead worker. Declare a latch here even when the body (or a production hook)
-     * signals it on the happy path — double counting down is a no-op.
+     * @param signals (c) the latches some waiter awaits on this worker. They are counted down on
+     *     EVERY exit path, including a failure before the body would have signalled them, so a
+     *     waiter can never stall on a dead worker. Declare a latch even when the body (or a
+     *     production hook) signals it on the happy path — counting down twice is a no-op.
      */
-    Worker signalling(final CountDownLatch... latches) {
-      signals.addAll(Arrays.asList(latches));
-      return this;
+    private Worker(final String name, final CountDownLatch... signals) {
+      this.name = name;
+      this.signals = List.of(signals);
     }
 
     /** (a)+(e) A session this worker owns: opened inside the body, closed by the runner. */
@@ -242,6 +260,16 @@ public class MetadataWriteMutexTest extends DbTestBase {
     }
 
     /**
+     * A NON-AUTHORITATIVE peek at the error holder: the worker may still write to it. Only for
+     * disambiguating a negative assertion ("this must not have happened yet") from a dead worker,
+     * which would satisfy such an assertion for the wrong reason. The authoritative read is
+     * {@link #failIfErrored}.
+     */
+    Throwable errorSoFar() {
+      return error.get();
+    }
+
+    /**
      * (c) Waits until {@code signal} fires, and fails as soon as this worker records a throwable
      * instead.
      *
@@ -253,6 +281,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
      */
     void awaitSignal(final CountDownLatch signal, final long seconds, final String message)
         throws InterruptedException {
+      // (c) A latch this worker never declared would not be released when it dies, so awaiting one
+      // is a test bug - catch the typo here instead of as a mysterious stall.
+      assertTrue("test bug: worker '" + name + "' does not declare the awaited latch",
+          signals.contains(signal));
       final var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
       var fired = signal.await(SIGNAL_POLL_MILLIS, TimeUnit.MILLISECONDS);
       while (!fired && error.get() == null) {
@@ -271,8 +303,13 @@ public class MetadataWriteMutexTest extends DbTestBase {
      * session close that throws) only just before it counts down.
      */
     void awaitDone(final long seconds, final String message) throws InterruptedException {
-      assertTrue(message + " (worker '" + name + "' must finish)",
-          done.await(seconds, TimeUnit.SECONDS));
+      if (!done.await(seconds, TimeUnit.SECONDS)) {
+        // A worker can record a failure and then hang in its own cleanup. Report the failure first:
+        // it explains the missing completion, whereas the bound alone does not.
+        reportErrorIfAny(message + " (worker '" + name + "' did not finish within " + seconds
+            + "s after failing)");
+        fail(message + " (worker '" + name + "' must finish within " + seconds + "s)");
+      }
       reportErrorIfAny(message);
     }
 
@@ -287,9 +324,28 @@ public class MetadataWriteMutexTest extends DbTestBase {
      * the worker may still write to it.
      */
     void failIfErrored(final String message) {
-      assertTrue("test bug: worker '" + name + "' error read before its completion edge",
-          isFinished());
+      if (!isFinished()) {
+        // Test bug: this read is unordered with respect to the worker's own teardown. Report the
+        // misuse, but carry whatever the worker has recorded so far as the cause, so the guard
+        // cannot hide a genuine failure.
+        throw new AssertionError("test bug: worker '" + name + "' error read before its completion"
+            + " edge (while checking: " + message + ")", error.get());
+      }
       reportErrorIfAny(message);
+    }
+
+    /**
+     * (b) Records {@code failure}, keeping the first one as the primary and attaching any later one
+     * to it as suppressed. Nothing this worker throws — body or cleanup — is ever dropped, and a
+     * cleanup failure never displaces the body failure that probably caused it.
+     */
+    private void recordFailure(final Throwable failure) {
+      if (!error.compareAndSet(null, failure)) {
+        final var primary = error.get();
+        if (primary != failure) {
+          primary.addSuppressed(failure);
+        }
+      }
     }
 
     private void reportErrorIfAny(final String message) {
@@ -301,7 +357,14 @@ public class MetadataWriteMutexTest extends DbTestBase {
       }
     }
 
-    /** (e) Closes what this worker owns, plus test-owned sessions when the worker failed. */
+    /**
+     * (e) Closes what this worker owns, plus test-owned sessions when the worker failed.
+     *
+     * <p>A close that throws is RECORDED, not printed: six of these workers used to close inside a
+     * guarded try-with-resources, where the language captured such a failure (JLS 14.20.3.2), so
+     * swallowing it here would have made a failing close pass green - the exact defect class this
+     * idiom exists to remove.
+     */
     private void closeSessions() {
       final var toClose = new ArrayList<>(ownedSessions);
       if (error.get() != null) {
@@ -316,10 +379,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
             opened.close();
           }
         } catch (final Throwable cleanupFailure) {
-          // Reported, never rethrown: cleanup must not replace the worker's own failure.
-          System.err.println(
-              "worker '" + name + "' could not close its session: " + cleanupFailure);
-          System.err.flush();
+          recordFailure(cleanupFailure);
         }
       }
     }
@@ -466,7 +526,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
       firstHoldsMutex.countDown();
       firstMayCommit.await();
       first.commit();
-    }).signalling(firstHoldsMutex);
+    }, firstHoldsMutex);
 
     // Declared here so the authoritative error read after the try can reach it.
     Worker secondWriter = null;
@@ -497,7 +557,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
           secondAborted.set(true);
           throw txError;
         }
-      }).signalling(secondAboutToEngage);
+      }, secondAboutToEngage);
 
       // Wait until the second worker is about to make its blocking schema write, then observe it
       // actually park on the permit (WAITING/TIMED_WAITING, inside the mutex's engage frame) rather
@@ -591,7 +651,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
       mutexHeld.countDown();
       holderMayFinish.await();
       holderSession.rollback();
-    }).signalling(mutexHeld);
+    }, mutexHeld);
 
     try {
       // Inside the try because the holder parks on an unbounded holderMayFinish.await(): if THIS
@@ -653,7 +713,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
       mutexHeld.countDown();
       schemaTxMayCommit.await();
       holderSession.rollback();
-    }).signalling(mutexHeld);
+    }, mutexHeld);
 
     var snapshotReadSawDataClass = new AtomicBoolean(false);
     Worker dataWorker = null;
@@ -767,7 +827,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
         // Blocks here until the test thread releases the permit.
         foreignOrdinal.set(mutex.engage(other));
         foreignEngaged.countDown();
-      }).signalling(foreignAboutToEngage, foreignEngaged);
+      }, foreignAboutToEngage, foreignEngaged);
 
       // While the test thread holds the permit, the foreign thread must park on it. Observe the
       // parked thread state deterministically rather than inferring parking from a negative await.
@@ -778,8 +838,12 @@ public class MetadataWriteMutexTest extends DbTestBase {
       var observedPark = awaitParkedOnMutex(parker.thread(), PARK_OBSERVATION_MILLIS);
       assertTrue("a foreign thread must park on the held mutex, observed " + observedPark,
           observedPark.parkedOnMutex());
-      assertFalse("the foreign engage must not have completed while the permit is held",
-          foreignEngaged.getCount() == 0);
+      // Probes the ORDINAL, not the latch: foreignEngaged is also released when the worker dies, so
+      // a latch-count assertion here could only ever go red, never distinguish "engage completed
+      // early" (the regression) from "the worker failed". The ordinal is written only by a
+      // successful engage, and 0 is not a valid ordinal (MetadataWriteMutex numbers from 1).
+      assertEquals("the foreign engage must not have completed while the permit is held",
+          0L, foreignOrdinal.get());
     } finally {
       mutex.releaseFor(session, ownOrdinal);
     }
@@ -1136,7 +1200,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
       owner.getMetadata().getSchema().createClass("ForeignTeardownClass", 1);
       engaged.countDown();
       ownerMayFinish.await();
-    }).signalling(engaged);
+    }, engaged);
 
     try {
       ownerWorker.awaitSignal(engaged, HANDSHAKE_SECONDS, "the owner must engage the mutex");
@@ -1203,7 +1267,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
         victimSession.clearTeardownIntent();
         victimSession.close();
       }
-    }).signalling(victimReady);
+    }, victimReady);
 
     try {
       victim.awaitSignal(victimReady, HANDSHAKE_SECONDS,
@@ -1271,7 +1335,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var first = startWorker("teardown-first", self -> {
       victim.activateOnCurrentThread();
       victim.internalClose(false);
-    }).signalling(firstInListener);
+    }, firstInListener);
     Worker second = null;
     try {
       // LIVENESS, not a short bound: the hold clock starts when the winner ENTERS the listener,
@@ -1358,7 +1422,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
       proberReady.countDown();
       secondOrdinal.set(mutex.engage(other));
       acquired.countDown();
-    }).signalling(proberReady, acquired);
+    }, proberReady, acquired);
 
     try {
       // LIVENESS: the prober signals only after opening its own session, which is real disk work,
@@ -1369,8 +1433,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
       assertTrue("a second engager must park on the single permit (a double release would have"
           + " admitted it immediately), observed " + observedPark,
           observedPark.parkedOnMutex());
-      assertFalse("the prober must not have acquired while the permit is held",
-          acquired.getCount() == 0);
+      // Probes the ORDINAL for the same reason as the foreign parker above: `acquired` is released
+      // on the failure path too, while the ordinal is written only by a successful engage.
+      assertEquals("the prober must not have acquired while the permit is held",
+          0L, secondOrdinal.get());
     } finally {
       // Unconditional, same reason as the latch releases elsewhere in this class: the prober parks
       // on this permit, so a failed assertion above must still free it. Otherwise the prober is
@@ -1449,15 +1515,16 @@ public class MetadataWriteMutexTest extends DbTestBase {
     Worker owner = null;
     Worker poolCloser = null;
     try {
-      // The pooled session belongs to the pool, which pool.close() below tears down, so it is
-      // neither worker- nor test-owned here.
       owner = startWorker("pool-skip-owner", self -> {
+        // (e) exemption: a borrowed pool session is the POOL's to close, and pool.close() below is
+        // what this test drives. Closing it from the worker would pre-empt the skip protocol under
+        // test, so it is deliberately neither worker- nor test-owned.
         var pooled = pool.acquire();
         pooledRef.set(pooled);
         pooled.begin();
         pooled.getMetadata().getSchema().createClass("PoolSkipClass", 1);
         pooled.commit();
-      }).signalling(inWindow);
+      }, inWindow);
 
       // inWindow is signalled by the commit-window hook, so an owner that fails before reaching the
       // window never signals it on its own; declaring it releases this wait on that path too.
@@ -1484,6 +1551,11 @@ public class MetadataWriteMutexTest extends DbTestBase {
           DatabaseSessionEmbedded.STATUS.OPEN, pooled.getStatus());
       assertTrue("the skip must not release the live commit's permit",
           mutex.isEngagedBy(pooled));
+      // A worker that DIED also reads "finished" here, so the non-authoritative error peek is what
+      // separates the regression this catches (the commit completed early, i.e. the skip did not
+      // defer) from an owner that simply failed - the latter is reported with its cause by the
+      // awaitDone/failIfErrored pair once the window is released.
+      assertNull("the owner must not have failed inside the commit window", owner.errorSoFar());
       assertFalse("the commit must still be parked in the window", owner.isFinished());
     } finally {
       releaseWindow.countDown();
@@ -1520,16 +1592,16 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var engaged = new CountDownLatch(1);
     var ownerMayFinish = new CountDownLatch(1);
     var pooledRef = new AtomicReference<DatabaseSessionEmbedded>();
-    // The pooled session is the pool's to close (pool.close() below); the owner's throwable used to
-    // be swallowed here, leaving the body to fail on a null pooled session with no hint of why.
     var owner = startWorker("pool-fallthrough-owner", self -> {
+      // (e) exemption, as in poolCloseDuringCommitDefersTeardownToOwner: the borrowed session is
+      // the pool's to close, and the pool.close() below is the teardown this test is about.
       var pooled = pool.acquire();
       pooledRef.set(pooled);
       pooled.begin();
       pooled.getMetadata().getSchema().createClass("PoolFallThroughClass", 1);
       engaged.countDown();
       ownerMayFinish.await();
-    }).signalling(engaged);
+    }, engaged);
 
     try {
       owner.awaitSignal(engaged, HANDSHAKE_SECONDS, "the owner must engage the mutex");
@@ -1629,7 +1701,7 @@ public class MetadataWriteMutexTest extends DbTestBase {
         } finally {
           Thread.interrupted();
         }
-      }).signalling(waiterStarted);
+      }, waiterStarted);
 
       waiter.awaitSignal(waiterStarted, HANDSHAKE_SECONDS, "the waiter must start");
       // Deliberately short: the waiter's next call after the start latch is the engage itself.
