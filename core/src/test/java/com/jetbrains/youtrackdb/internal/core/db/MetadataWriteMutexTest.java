@@ -15,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -65,13 +67,13 @@ public class MetadataWriteMutexTest extends DbTestBase {
 
   /// LIVENESS: a spawned worker must reach a handshake point — engaging the mutex, publishing its
   /// thread, entering a commit window. Costs milliseconds locally, so only a genuine hang exhausts
-  /// it: a worker that THROWS on the way to its handshake would never count its latch down, which
-  /// is why every such wait goes through [#awaitSignalOrWorkerError] and reports the worker's own
-  /// throwable as soon as it appears instead of waiting this bound out.
+  /// it: a worker that THROWS on the way to its handshake is reported at once instead, since every
+  /// such wait goes through [Worker#awaitSignal] and every worker declares the latches its waiters
+  /// await (see the canonical worker idiom below).
   private static final long HANDSHAKE_SECONDS = 60L;
 
-  /// Poll interval of [#awaitSignalOrWorkerError]. Short enough that a worker failure is reported
-  /// within a fraction of a second rather than after [#HANDSHAKE_SECONDS].
+  /// Poll interval of [Worker#awaitSignal]. Short enough that a worker failure is reported within a
+  /// fraction of a second rather than after [#HANDSHAKE_SECONDS].
   private static final long SIGNAL_POLL_MILLIS = 50L;
 
   /// LIVENESS: once the blocking condition is lifted (permit released, commit window opened) the
@@ -116,18 +118,211 @@ public class MetadataWriteMutexTest extends DbTestBase {
 
   private final List<Thread> spawnedWorkers = new CopyOnWriteArrayList<>();
 
+  // ---------------------------------------------------------------------------------------------
+  // THE CANONICAL WORKER IDIOM — read this before adding a worker to this class.
+  //
+  // Every test here drives its scenario from spawned worker threads, and every one of them needs
+  // the same five guarantees. Hand-rolling them per test is what repeatedly made a worker's failure
+  // vanish, or surface as a 60 s stall blamed on a latch instead of on the throwable behind it.
+  // So there is exactly ONE way to spawn a worker in this class: startWorker(name, body). Never use
+  // `new Thread` directly, and never hand-roll an error holder or a done latch.
+  //
+  //   (a) EVERY resource acquisition happens INSIDE the worker's try. Sessions come from
+  //       self.openSession() / self.openSessionForTest(), called from inside the body, so a throw
+  //       while opening one is recorded exactly like any other failure.
+  //   (b) The worker ALWAYS has an error holder and it is ALWAYS populated: the runner catches
+  //       Throwable around the whole body. There is no path on which a throwable is dropped.
+  //   (c) Latches a waiter awaits are declared with signalling(...) and counted down in the
+  //       runner's finally, so no waiter can stall on a worker that died — and since they are per
+  //       worker, the latch released on the failure path is by construction the one the waiter
+  //       awaits. Waits go through worker.awaitSignal(...), which reports the worker's throwable
+  //       rather than the missing signal.
+  //   (d) Completion is observable: the runner counts a done latch down after the body AND its
+  //       cleanup. The authoritative error read is worker.failIfErrored(...), which ASSERTS that
+  //       completion edge — so no test can read the holder before the worker's own teardown could
+  //       have written to it, which is the defect that let a late close() failure pass green.
+  //   (e) Sessions are closed on every path: worker-owned ones in the runner's finally, and
+  //       test-owned ones there too whenever the worker failed, because a failing test will not
+  //       reach its own close.
+  // ---------------------------------------------------------------------------------------------
+
+  /** The body of a worker started by {@link #startWorker}. It may throw anything. */
+  @FunctionalInterface
+  private interface WorkerBody {
+
+    void run(Worker self) throws Throwable;
+  }
+
   /**
-   * Tracked worker spawn helper. Surefire reuses worker threads across {@code @Test} methods, so any
-   * thread spawned here is registered for a bounded join in the {@code @After} hook. Workers are
-   * daemon so a leaked worker (a stuck mutex acquire that the test cannot unblock) cannot keep the
-   * surefire forked JVM alive.
+   * Starts a tracked worker running {@code body}, with all five guarantees of the canonical worker
+   * idiom above. Surefire reuses threads across {@code @Test} methods, so the thread is registered
+   * for the bounded join in {@code @After}; it is a daemon so a leaked worker (a stuck mutex
+   * acquire the test cannot unblock) cannot keep the forked JVM alive.
    */
-  private Thread spawn(Runnable body, String name) {
-    var t = new Thread(body, name);
-    t.setDaemon(true);
-    spawnedWorkers.add(t);
-    t.start();
-    return t;
+  private Worker startWorker(final String name, final WorkerBody body) {
+    final var worker = new Worker(name);
+    final var thread = new Thread(() -> {
+      try {
+        body.run(worker);
+      } catch (final Throwable t) {
+        // (b): the single sink for every throwable this worker can produce.
+        worker.error.compareAndSet(null, t);
+      } finally {
+        // (e) then (c) then (d), in that order: clean up, release anyone waiting on this worker,
+        // and only then publish completion, so a test observing completion sees the final error.
+        worker.closeSessions();
+        for (final var signal : worker.signals) {
+          signal.countDown();
+        }
+        worker.done.countDown();
+      }
+    }, name);
+    thread.setDaemon(true);
+    // Published before start(), so the body may read self.thread() safely.
+    worker.thread = thread;
+    spawnedWorkers.add(thread);
+    thread.start();
+    return worker;
+  }
+
+  /** A worker started by {@link #startWorker}. See the canonical worker idiom above. */
+  private final class Worker {
+
+    private final String name;
+    private final AtomicReference<Throwable> error = new AtomicReference<>();
+    private final CountDownLatch done = new CountDownLatch(1);
+    private final List<CountDownLatch> signals = new CopyOnWriteArrayList<>();
+    private final List<DatabaseSessionEmbedded> ownedSessions = new CopyOnWriteArrayList<>();
+    private final List<DatabaseSessionEmbedded> testOwnedSessions = new CopyOnWriteArrayList<>();
+    private Thread thread;
+
+    private Worker(final String name) {
+      this.name = name;
+    }
+
+    /**
+     * (c) Declares the latches some waiter awaits on this worker. They are counted down on EVERY
+     * exit path, including a failure before the body would have signalled them, so a waiter can
+     * never stall on a dead worker. Declare a latch here even when the body (or a production hook)
+     * signals it on the happy path — double counting down is a no-op.
+     */
+    Worker signalling(final CountDownLatch... latches) {
+      signals.addAll(Arrays.asList(latches));
+      return this;
+    }
+
+    /** (a)+(e) A session this worker owns: opened inside the body, closed by the runner. */
+    DatabaseSessionEmbedded openSession() {
+      final var opened = openDatabase();
+      ownedSessions.add(opened);
+      return opened;
+    }
+
+    /**
+     * (a)+(e) A session the TEST thread takes over and closes (or tears down) on the happy path.
+     * The runner closes it only if this worker failed, since the test will not reach its own close.
+     */
+    DatabaseSessionEmbedded openSessionForTest() {
+      final var opened = openDatabase();
+      testOwnedSessions.add(opened);
+      return opened;
+    }
+
+    Thread thread() {
+      return thread;
+    }
+
+    boolean isAlive() {
+      return thread.isAlive();
+    }
+
+    /** Whether the body and its cleanup have finished — the (d) completion edge, non-blocking. */
+    boolean isFinished() {
+      return done.getCount() == 0;
+    }
+
+    /**
+     * (c) Waits until {@code signal} fires, and fails as soon as this worker records a throwable
+     * instead.
+     *
+     * <p>Both can be true when this returns: workers signal partway through their body and can fail
+     * afterwards, and the runner's finally signals on the failure path too. When both are set the
+     * throwable wins — a worker that has already failed cannot be in the state the caller wanted to
+     * observe. The {@code seconds} bound applies only to the remaining case, a worker that neither
+     * signals nor fails, i.e. a genuine hang.
+     */
+    void awaitSignal(final CountDownLatch signal, final long seconds, final String message)
+        throws InterruptedException {
+      final var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+      var fired = signal.await(SIGNAL_POLL_MILLIS, TimeUnit.MILLISECONDS);
+      while (!fired && error.get() == null) {
+        if (System.nanoTime() - deadlineNanos >= 0) {
+          fail(message + " (worker '" + name + "' neither signalled nor failed within " + seconds
+              + "s)");
+        }
+        fired = signal.await(SIGNAL_POLL_MILLIS, TimeUnit.MILLISECONDS);
+      }
+      reportErrorIfAny(message);
+    }
+
+    /**
+     * (d) The completion edge: waits for the body AND its cleanup. Every authoritative read of the
+     * error holder must follow this, because a worker records a failure from its own teardown (a
+     * session close that throws) only just before it counts down.
+     */
+    void awaitDone(final long seconds, final String message) throws InterruptedException {
+      assertTrue(message + " (worker '" + name + "' must finish)",
+          done.await(seconds, TimeUnit.SECONDS));
+      reportErrorIfAny(message);
+    }
+
+    /** A bounded join on the worker thread, for tests that assert on liveness themselves. */
+    void joinBounded(final long millis) throws InterruptedException {
+      thread.join(millis);
+    }
+
+    /**
+     * (d) The authoritative error read: rethrows this worker's throwable as the cause of
+     * {@code message}. Asserts the completion edge first, so a test cannot read the holder while
+     * the worker may still write to it.
+     */
+    void failIfErrored(final String message) {
+      assertTrue("test bug: worker '" + name + "' error read before its completion edge",
+          isFinished());
+      reportErrorIfAny(message);
+    }
+
+    private void reportErrorIfAny(final String message) {
+      final var failure = error.get();
+      if (failure != null) {
+        throw new AssertionError(
+            message + " — worker '" + name + "' failed, which is the root cause",
+            failure);
+      }
+    }
+
+    /** (e) Closes what this worker owns, plus test-owned sessions when the worker failed. */
+    private void closeSessions() {
+      final var toClose = new ArrayList<>(ownedSessions);
+      if (error.get() != null) {
+        toClose.addAll(testOwnedSessions);
+      }
+      for (final var opened : toClose) {
+        try {
+          // Lock-free status probe: isClosed() would take the storage state lock and could block
+          // behind an in-flight commit. Skips sessions the body already closed on purpose.
+          if (opened.getStatus() == DatabaseSessionEmbedded.STATUS.OPEN) {
+            opened.activateOnCurrentThread();
+            opened.close();
+          }
+        } catch (final Throwable cleanupFailure) {
+          // Reported, never rethrown: cleanup must not replace the worker's own failure.
+          System.err.println(
+              "worker '" + name + "' could not close its session: " + cleanupFailure);
+          System.err.flush();
+        }
+      }
+    }
   }
 
   /**
@@ -206,31 +401,6 @@ public class MetadataWriteMutexTest extends DbTestBase {
     return null;
   }
 
-  /**
-   * Awaits {@code signal} for up to {@code seconds}, failing as soon as {@code workerError} records
-   * the signalling worker's own throwable.
-   *
-   * <p>Attribution, not liveness, is the point. These handshake latches are counted down on the
-   * worker's success path, so a worker that throws on its way to the handshake never signals: a
-   * plain bounded await would sit out the whole liveness bound and then report the missing signal
-   * instead of the failure that caused it. The bound is still enforced for the case where the
-   * worker neither signals nor fails (a genuine hang).
-   */
-  private static void awaitSignalOrWorkerError(final CountDownLatch signal,
-      final AtomicReference<Throwable> workerError, final long seconds, final String message)
-      throws InterruptedException {
-    final var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
-    while (!signal.await(SIGNAL_POLL_MILLIS, TimeUnit.MILLISECONDS)) {
-      if (workerError.get() != null) {
-        throw new AssertionError(
-            message + " — the worker failed first, which is the root cause", workerError.get());
-      }
-      if (System.nanoTime() - deadlineNanos >= 0) {
-        fail(message);
-      }
-    }
-  }
-
   @After
   public void joinSpawnedWorkers() throws InterruptedException {
     var leaked = new java.util.ArrayList<String>();
@@ -282,91 +452,63 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var firstMayCommit = new CountDownLatch(1);
     var secondCreatedClass = new AtomicBoolean(false);
     var secondAborted = new AtomicBoolean(false);
-    // One error holder PER worker: with a single shared holder, a first-worker failure surfaced
-    // under a message that named neither worker ("no schema tx should error on contention"), and
-    // whichever worker lost the compareAndSet had its throwable dropped entirely.
-    var firstError = new AtomicReference<Throwable>();
-    var secondError = new AtomicReference<Throwable>();
-    // Counted down in worker 1's own finally, i.e. AFTER its session close. It is the
-    // happens-before edge for the firstError read at the end: the mutex permit is released before
-    // commit() returns, so without this edge the body could read firstError while worker 1 is still
-    // inside first.close(), silently dropping a teardown failure recorded a moment later.
-    var firstDone = new CountDownLatch(1);
     var secondAboutToEngage = new CountDownLatch(1);
-    var secondThreadRef = new AtomicReference<Thread>();
 
     // First session: open a schema tx, engage the mutex by creating a class, then park holding it
     // until the test releases it. Runs on its own thread so its session activation does not collide
     // with the test thread's default session. One collection per class: these classes exist only to
     // drive a schema transaction, and the default eight would create ~16 files apiece.
-    spawn(() -> {
-      try (var first = openDatabase()) {
-        first.activateOnCurrentThread();
-        first.begin();
-        first.getMetadata().getSchema().createClass("FirstSchemaTx", 1);
-        firstHoldsMutex.countDown();
-        firstMayCommit.await();
-        first.commit();
-      } catch (Throwable t) {
-        firstError.compareAndSet(null, t);
-      } finally {
-        // Runs after the try-with-resources close, and the catch above covers that close, so by the
-        // time this fires firstError is final for this worker.
-        firstDone.countDown();
-      }
-    }, "mutex-first-writer");
+    var firstWriter = startWorker("mutex-first-writer", self -> {
+      var first = self.openSession();
+      first.activateOnCurrentThread();
+      first.begin();
+      first.getMetadata().getSchema().createClass("FirstSchemaTx", 1);
+      firstHoldsMutex.countDown();
+      firstMayCommit.await();
+      first.commit();
+    }).signalling(firstHoldsMutex);
 
-    var secondDone = new CountDownLatch(1);
+    // Declared here so the authoritative error read after the try can reach it.
+    Worker secondWriter = null;
     try {
-      // Reports worker 1's own throwable the moment it appears instead of waiting out the liveness
-      // bound and blaming the missing latch — worker 1 counts firstHoldsMutex down only on success.
-      awaitSignalOrWorkerError(firstHoldsMutex, firstError, HANDSHAKE_SECONDS,
+      firstWriter.awaitSignal(firstHoldsMutex, HANDSHAKE_SECONDS,
           "first session must engage the mutex");
 
       // Second session: try to start a schema tx while the first holds the mutex. Its createClass
       // must block on the mutex, so secondCreatedClass stays false until the first releases.
-      spawn(() -> {
-        try (var second = openDatabase()) {
-          second.activateOnCurrentThread();
-          second.begin();
-          try {
-            // Publish this worker's thread and signal that the very next call is the blocking
-            // schema write, so the test can observe this thread park on the permit
-            // deterministically.
-            secondThreadRef.set(Thread.currentThread());
-            secondAboutToEngage.countDown();
-            second.getMetadata().getSchema().createClass("SecondSchemaTx", 1);
-            // No mutex-holder check here on purpose. engage() overwrites the single holder slot
-            // unconditionally, so "the first session no longer holds it" is true the instant THIS
-            // write returns even under a hypothetical two-permit mutex that let both writers run
-            // concurrently - i.e. it cannot fail, and it cannot prove serialization. What does
-            // prove it is below: the park observation and secondCreatedClass staying false while
-            // the first holds the permit both go red against a two-permit regression.
-            secondCreatedClass.set(true);
-            second.commit();
-          } catch (Throwable txError) {
-            secondAborted.set(true);
-            throw txError;
-          }
-        } catch (Throwable t) {
-          secondError.compareAndSet(null, t);
-        } finally {
-          secondDone.countDown();
+      secondWriter = startWorker("mutex-second-writer", self -> {
+        var second = self.openSession();
+        second.activateOnCurrentThread();
+        second.begin();
+        try {
+          // Signal that the very next call is the blocking schema write, so the test can observe
+          // this thread park on the permit deterministically.
+          secondAboutToEngage.countDown();
+          second.getMetadata().getSchema().createClass("SecondSchemaTx", 1);
+          // No mutex-holder check here on purpose. engage() overwrites the single holder slot
+          // unconditionally, so "the first session no longer holds it" is true the instant THIS
+          // write returns even under a hypothetical two-permit mutex that let both writers run
+          // concurrently - i.e. it cannot fail, and it cannot prove serialization. What does
+          // prove it is below: the park observation and secondCreatedClass staying false while
+          // the first holds the permit both go red against a two-permit regression.
+          secondCreatedClass.set(true);
+          second.commit();
+        } catch (Throwable txError) {
+          secondAborted.set(true);
+          throw txError;
         }
-      }, "mutex-second-writer");
+      }).signalling(secondAboutToEngage);
 
       // Wait until the second worker is about to make its blocking schema write, then observe it
       // actually park on the permit (WAITING/TIMED_WAITING, inside the mutex's engage frame) rather
       // than inferring blocking from a sleep. The full-path latch only proves the worker reached
       // the call; the park observation proves the call is parked on the semaphore, so this fails
       // closed if a regression let the second writer through instead of blocking it.
-      awaitSignalOrWorkerError(secondAboutToEngage, secondError, HANDSHAKE_SECONDS,
+      secondWriter.awaitSignal(secondAboutToEngage, HANDSHAKE_SECONDS,
           "the second worker must reach its blocking schema write");
-      var secondThread = secondThreadRef.get();
-      assertNotNull("the second worker thread must have been published", secondThread);
       // Deliberately short: the worker has already announced the next call blocks, so this observes
       // thread-state settling, not host-dependent database work.
-      var observedPark = awaitParkedOnMutex(secondThread, PARK_OBSERVATION_MILLIS);
+      var observedPark = awaitParkedOnMutex(secondWriter.thread(), PARK_OBSERVATION_MILLIS);
       assertTrue("the second schema tx must park on the mutex while the first holds it, observed "
           + observedPark, observedPark.parkedOnMutex());
       assertFalse("the second schema tx must block on the mutex while the first holds it",
@@ -378,8 +520,8 @@ public class MetadataWriteMutexTest extends DbTestBase {
       // says "the unblocked worker must not hang", never "it must be fast". The serialization
       // itself is what the park observation and the secondCreatedClass check above proved.
       firstMayCommit.countDown();
-      assertTrue("the second schema tx must finish after the first releases the mutex",
-          secondDone.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
+      secondWriter.awaitDone(UNBLOCKED_COMPLETION_SECONDS,
+          "the second schema tx must finish after the first releases the mutex");
     } finally {
       // Unconditional: the first worker parks on an unbounded firstMayCommit.await(), so a failed
       // assertion above must still release it — otherwise the @After join reports a leaked worker
@@ -387,22 +529,13 @@ public class MetadataWriteMutexTest extends DbTestBase {
       firstMayCommit.countDown();
     }
 
-    // BEFORE the firstError read below, not after: worker 1 counts firstDone down in its own
-    // finally, i.e. after its session close, so only this await establishes that firstError is
-    // final. Read earlier, a close() that throws right after the read would be silently dropped and
-    // the test would pass. (secondError needs no separate edge: worker 2 counts secondDone down in
-    // its own finally and the body already awaited secondDone above.)
-    assertTrue("the first schema tx worker must finish, including its own session close",
-        firstDone.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
-
-    if (firstError.get() != null) {
-      throw new AssertionError("the first schema tx must not error on contention",
-          firstError.get());
-    }
-    if (secondError.get() != null) {
-      throw new AssertionError("the second schema tx must not error on contention",
-          secondError.get());
-    }
+    // (d) The completion edge before the authoritative error reads. Worker 1's error holder is only
+    // final once its own session close has run, so reading it earlier would silently drop a close
+    // that throws a moment later. failIfErrored asserts this ordering rather than trusting it.
+    firstWriter.awaitDone(UNBLOCKED_COMPLETION_SECONDS,
+        "the first schema tx worker must finish, including its own session close");
+    firstWriter.failIfErrored("the first schema tx must not error on contention");
+    secondWriter.failIfErrored("the second schema tx must not error on contention");
 
     assertTrue("the second schema tx must have created its class once unblocked",
         secondCreatedClass.get());
@@ -447,34 +580,25 @@ public class MetadataWriteMutexTest extends DbTestBase {
     // from the reload below cannot succeed silently — it would park and wedge the reload.
     var mutexHeld = new CountDownLatch(1);
     var holderMayFinish = new CountDownLatch(1);
-    var holderError = new AtomicReference<Throwable>();
-    spawn(() -> {
-      try (var holder = openDatabase()) {
-        holder.activateOnCurrentThread();
-        holder.begin();
-        // One collection: this class only has to drive a schema transaction so the mutex is held.
-        // (The ReloadRippleParent/Child pair above keeps the default count — the subclass's
-        // collection membership rippling into the indexed superclass IS the subject of this test.)
-        holder.getMetadata().getSchema().createClass("ReloadRippleMutexHolder", 1);
-        mutexHeld.countDown();
-        holderMayFinish.await();
-        holder.rollback();
-      } catch (Throwable t) {
-        holderError.compareAndSet(null, t);
-        mutexHeld.countDown();
-      }
-    }, "reload-ripple-mutex-holder");
+    var holder = startWorker("reload-ripple-mutex-holder", self -> {
+      var holderSession = self.openSession();
+      holderSession.activateOnCurrentThread();
+      holderSession.begin();
+      // One collection: this class only has to drive a schema transaction so the mutex is held.
+      // (The ReloadRippleParent/Child pair above keeps the default count — the subclass's
+      // collection membership rippling into the indexed superclass IS the subject of this test.)
+      holderSession.getMetadata().getSchema().createClass("ReloadRippleMutexHolder", 1);
+      mutexHeld.countDown();
+      holderMayFinish.await();
+      holderSession.rollback();
+    }).signalling(mutexHeld);
 
     try {
-      // Inside the try like the handshake wait's four siblings elsewhere in this class: the holder
-      // parks on an unbounded holderMayFinish.await(), so if THIS wait fails the finally still has
-      // to release it — otherwise the @After join reports a stranded worker instead of the real
-      // cause. This was the last handshake wait in the file left outside its release's try.
-      awaitSignalOrWorkerError(mutexHeld, holderError, HANDSHAKE_SECONDS,
+      // Inside the try because the holder parks on an unbounded holderMayFinish.await(): if THIS
+      // wait fails the finally still has to release it, or the @After join reports a stranded
+      // worker instead of the real cause.
+      holder.awaitSignal(mutexHeld, HANDSHAKE_SECONDS,
           "the holder session must engage the mutex");
-      if (holderError.get() != null) {
-        throw new AssertionError("the mutex-holder session must not error", holderError.get());
-      }
 
       // The reload must complete while the mutex is held: the committed-view rebuild is not a
       // schema write, so its inheritance-rebuild ripples are suppressed by the reload guard
@@ -487,9 +611,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
 
     assertFalse("the reloading session must not hold the mutex after the reload",
         session.getSharedContext().getMetadataWriteMutex().isEngagedBy(session));
-    if (holderError.get() != null) {
-      throw new AssertionError("the mutex-holder session must not error", holderError.get());
-    }
+    // (d) Completion edge before the authoritative read: the holder's rollback and session close
+    // run after it was released above, and either can fail.
+    holder.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the mutex-holder session must finish");
+    holder.failIfErrored("the mutex-holder session must not error");
     // The reload rebuilt the committed view intact.
     assertTrue(session.getMetadata().getSchema().existsClass("ReloadRippleParent"));
     assertTrue(session.getMetadata().getSchema().existsClass("ReloadRippleChild"));
@@ -515,72 +640,51 @@ public class MetadataWriteMutexTest extends DbTestBase {
 
     var mutexHeld = new CountDownLatch(1);
     var schemaTxMayCommit = new CountDownLatch(1);
-    var holderError = new AtomicReference<Throwable>();
 
-    spawn(() -> {
-      try (var holder = openDatabase()) {
-        holder.activateOnCurrentThread();
-        holder.begin();
-        // Engage the mutex via a schema write, then park holding it. One collection: the class only
-        // exists to drive the schema transaction.
-        holder.getMetadata().getSchema().createClass("MutexHolderClass", 1);
-        assertTrue("the schema writer must hold the mutex",
-            holder.getSharedContext().getMetadataWriteMutex().isEngagedBy(holder));
-        mutexHeld.countDown();
-        schemaTxMayCommit.await();
-        holder.rollback();
-      } catch (Throwable t) {
-        holderError.compareAndSet(null, t);
-      } finally {
-        // Unconditional: the isEngagedBy assertion above runs BEFORE the success-path countDown, so
-        // a holder failure there used to leave the body waiting out its whole liveness bound. The
-        // body re-checks holderError immediately after its wait, so an early signal from this arm
-        // cannot let it proceed on a failed holder.
-        mutexHeld.countDown();
-      }
-    }, "mutex-holder");
+    var holder = startWorker("mutex-holder", self -> {
+      var holderSession = self.openSession();
+      holderSession.activateOnCurrentThread();
+      holderSession.begin();
+      // Engage the mutex via a schema write, then park holding it. One collection: the class only
+      // exists to drive the schema transaction.
+      holderSession.getMetadata().getSchema().createClass("MutexHolderClass", 1);
+      assertTrue("the schema writer must hold the mutex",
+          holderSession.getSharedContext().getMetadataWriteMutex().isEngagedBy(holderSession));
+      mutexHeld.countDown();
+      schemaTxMayCommit.await();
+      holderSession.rollback();
+    }).signalling(mutexHeld);
 
-    var dataDone = new CountDownLatch(1);
-    var dataError = new AtomicReference<Throwable>();
     var snapshotReadSawDataClass = new AtomicBoolean(false);
+    Worker dataWorker = null;
     try {
-      awaitSignalOrWorkerError(mutexHeld, holderError, HANDSHAKE_SECONDS,
-          "the schema writer must engage the mutex");
-      if (holderError.get() != null) {
-        throw new AssertionError("the mutex holder must not error", holderError.get());
-      }
+      // The isEngagedBy assertion above runs BEFORE the body's countDown, so a holder failure there
+      // signals only through the runner's finally; awaitSignal reports the throwable either way.
+      holder.awaitSignal(mutexHeld, HANDSHAKE_SECONDS, "the schema writer must engage the mutex");
 
       // On a separate thread (so it does not touch the test session), run a pure-data commit and a
       // snapshot-based schema read while the mutex is held. Both must complete without waiting on
       // the mutex: a regression that made them take it would block until the holder released, which
       // only happens AFTER this wait, so this is a liveness bound on a permanent block — not a
       // performance claim — and is sized for the slowest CI host.
-      spawn(() -> {
-        try (var dataSession = openDatabase()) {
-          dataSession.activateOnCurrentThread();
-          // Pure-data commit: create an entity in an existing class. Touches no schema, so it never
-          // engages the mutex and must not block behind the held permit.
-          dataSession.executeInTx(tx -> {
-            var entity = dataSession.newEntity("DataClass");
-            entity.setProperty("v", 1);
-          });
-          // Snapshot-based schema read: a plain existsClass goes through the immutable snapshot,
-          // which does not take the mutex.
-          snapshotReadSawDataClass.set(
-              dataSession.getMetadata().getSchema().existsClass("DataClass"));
-        } catch (Throwable t) {
-          dataError.compareAndSet(null, t);
-        } finally {
-          dataDone.countDown();
-        }
-      }, "data-writer-and-reader");
+      dataWorker = startWorker("data-writer-and-reader", self -> {
+        var dataSession = self.openSession();
+        dataSession.activateOnCurrentThread();
+        // Pure-data commit: create an entity in an existing class. Touches no schema, so it never
+        // engages the mutex and must not block behind the held permit.
+        dataSession.executeInTx(tx -> {
+          var entity = dataSession.newEntity("DataClass");
+          entity.setProperty("v", 1);
+        });
+        // Snapshot-based schema read: a plain existsClass goes through the immutable snapshot,
+        // which does not take the mutex.
+        snapshotReadSawDataClass.set(
+            dataSession.getMetadata().getSchema().existsClass("DataClass"));
+      });
 
-      assertTrue("a data commit and a snapshot read must complete while the mutex is held — they do"
-          + " not wait on the schema mutex",
-          dataDone.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
-      if (dataError.get() != null) {
-        throw new AssertionError("the data path must not be blocked by the mutex", dataError.get());
-      }
+      dataWorker.awaitDone(UNBLOCKED_COMPLETION_SECONDS,
+          "a data commit and a snapshot read must complete while the mutex is held — they do not"
+              + " wait on the schema mutex");
       assertTrue("the snapshot-based schema read must have run unblocked",
           snapshotReadSawDataClass.get());
     } finally {
@@ -590,8 +694,11 @@ public class MetadataWriteMutexTest extends DbTestBase {
       schemaTxMayCommit.countDown();
     }
 
-    if (holderError.get() != null) {
-      throw new AssertionError("the mutex holder must not error", holderError.get());
+    // (d) Completion edges before the authoritative reads.
+    holder.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the mutex holder must finish");
+    holder.failIfErrored("the mutex holder must not error");
+    if (dataWorker != null) {
+      dataWorker.failIfErrored("the data path must not be blocked by the mutex");
     }
   }
 
@@ -640,41 +747,35 @@ public class MetadataWriteMutexTest extends DbTestBase {
   public void differentThreadParksUntilRelease() throws InterruptedException {
     var mutex = session.getSharedContext().getMetadataWriteMutex();
     var foreignEngaged = new CountDownLatch(1);
-    var foreignError = new AtomicReference<Throwable>();
     var foreignSession = new AtomicReference<DatabaseSessionEmbedded>();
-    var foreignThreadRef = new AtomicReference<Thread>();
     var foreignAboutToEngage = new CountDownLatch(1);
     var foreignOrdinal = new AtomicLong();
 
     var ownOrdinal = mutex.engage(session);
+    // Declared here so the finally below can read it; assigned before any wait on it.
+    Worker parker = null;
     try {
-      spawn(() -> {
-        var other = openDatabase();
+      // The session is opened INSIDE the body (self.openSessionForTest), so a failure there is
+      // recorded and released like any other; the test thread closes it on the happy path.
+      parker = startWorker("mutex-foreign-parker", self -> {
+        var other = self.openSessionForTest();
         foreignSession.set(other);
-        try {
-          other.activateOnCurrentThread();
-          // Publish this worker's thread and signal that the next call blocks, so the test can
-          // observe this thread park on the permit deterministically.
-          foreignThreadRef.set(Thread.currentThread());
-          foreignAboutToEngage.countDown();
-          // Blocks here until the test thread releases the permit.
-          foreignOrdinal.set(mutex.engage(other));
-          foreignEngaged.countDown();
-        } catch (Throwable t) {
-          foreignError.compareAndSet(null, t);
-          foreignEngaged.countDown();
-        }
-      }, "mutex-foreign-parker");
+        other.activateOnCurrentThread();
+        // Signal that the next call blocks, so the test can observe this thread park on the permit
+        // deterministically.
+        foreignAboutToEngage.countDown();
+        // Blocks here until the test thread releases the permit.
+        foreignOrdinal.set(mutex.engage(other));
+        foreignEngaged.countDown();
+      }).signalling(foreignAboutToEngage, foreignEngaged);
 
       // While the test thread holds the permit, the foreign thread must park on it. Observe the
       // parked thread state deterministically rather than inferring parking from a negative await.
-      awaitSignalOrWorkerError(foreignAboutToEngage, foreignError, HANDSHAKE_SECONDS,
+      parker.awaitSignal(foreignAboutToEngage, HANDSHAKE_SECONDS,
           "the foreign worker must reach its blocking engage");
-      var foreignThread = foreignThreadRef.get();
-      assertNotNull("the foreign worker thread must have been published", foreignThread);
       // Deliberately short: the worker has already announced that its next call is the engage, so
       // this window only has to cover thread-state settling.
-      var observedPark = awaitParkedOnMutex(foreignThread, PARK_OBSERVATION_MILLIS);
+      var observedPark = awaitParkedOnMutex(parker.thread(), PARK_OBSERVATION_MILLIS);
       assertTrue("a foreign thread must park on the held mutex, observed " + observedPark,
           observedPark.parkedOnMutex());
       assertFalse("the foreign engage must not have completed while the permit is held",
@@ -683,11 +784,11 @@ public class MetadataWriteMutexTest extends DbTestBase {
       mutex.releaseFor(session, ownOrdinal);
     }
 
-    assertTrue("the foreign thread must engage once the permit is released",
-        foreignEngaged.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
-    if (foreignError.get() != null) {
-      throw new AssertionError("the foreign engage must succeed after release", foreignError.get());
-    }
+    parker.awaitSignal(foreignEngaged, UNBLOCKED_COMPLETION_SECONDS,
+        "the foreign thread must engage once the permit is released");
+    // (d) Completion edge before the authoritative read.
+    parker.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the foreign worker must finish");
+    parker.failIfErrored("the foreign engage must succeed after release");
     // Release on the foreign thread's behalf and close its session so the @After join is clean.
     var other = foreignSession.get();
     assertNotNull("the foreign session must have been opened", other);
@@ -874,28 +975,19 @@ public class MetadataWriteMutexTest extends DbTestBase {
     // The concurrency consequence: a fresh schema transaction on another thread must engage and
     // commit promptly. If the failed seed had stranded the permit, this worker would park forever on
     // engage and the bounded join below would leave it alive, failing the test.
-    var workerError = new AtomicReference<Throwable>();
-    var worker =
-        spawn(
-            () -> {
-              try (var next = openDatabase()) {
-                next.activateOnCurrentThread();
-                next.begin();
-                next.getMetadata().getSchema().createClass("AfterSeedFailure", 1);
-                next.commit();
-              } catch (Throwable t) {
-                workerError.compareAndSet(null, t);
-              }
-            },
-            "post-seed-failure-writer");
+    var nextWriter = startWorker("post-seed-failure-writer", self -> {
+      var next = self.openSession();
+      next.activateOnCurrentThread();
+      next.begin();
+      next.getMetadata().getSchema().createClass("AfterSeedFailure", 1);
+      next.commit();
+    });
     // LIVENESS: a stranded permit parks this worker forever, so only a hang exhausts the bound.
-    worker.join(WORKER_JOIN_MILLIS);
+    nextWriter.joinBounded(WORKER_JOIN_MILLIS);
     assertFalse("the next schema writer must not be stranded behind a leaked permit",
-        worker.isAlive());
-    if (workerError.get() != null) {
-      throw new AssertionError("the next schema writer must engage and commit after a failed seed",
-          workerError.get());
-    }
+        nextWriter.isAlive());
+    // (d) The join above is the completion edge for this read.
+    nextWriter.failIfErrored("the next schema writer must engage and commit after a failed seed");
   }
 
   /**
@@ -1034,28 +1126,20 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var engaged = new CountDownLatch(1);
     var ownerMayFinish = new CountDownLatch(1);
     var ownerSession = new AtomicReference<DatabaseSessionEmbedded>();
-    var ownerError = new AtomicReference<Throwable>();
-    spawn(() -> {
-      var owner = openDatabase();
+    // The session is opened INSIDE the body; the TEST thread tears it down on the happy path, so
+    // the runner closes it only if this worker failed.
+    var ownerWorker = startWorker("foreign-teardown-owner", self -> {
+      var owner = self.openSessionForTest();
       ownerSession.set(owner);
-      try {
-        owner.activateOnCurrentThread();
-        owner.begin();
-        owner.getMetadata().getSchema().createClass("ForeignTeardownClass", 1);
-        engaged.countDown();
-        ownerMayFinish.await();
-      } catch (Throwable t) {
-        ownerError.compareAndSet(null, t);
-        engaged.countDown();
-      }
-    }, "foreign-teardown-owner");
+      owner.activateOnCurrentThread();
+      owner.begin();
+      owner.getMetadata().getSchema().createClass("ForeignTeardownClass", 1);
+      engaged.countDown();
+      ownerMayFinish.await();
+    }).signalling(engaged);
 
     try {
-      awaitSignalOrWorkerError(engaged, ownerError, HANDSHAKE_SECONDS,
-          "the owner must engage the mutex");
-      if (ownerError.get() != null) {
-        throw new AssertionError("the owner must not error", ownerError.get());
-      }
+      ownerWorker.awaitSignal(engaged, HANDSHAKE_SECONDS, "the owner must engage the mutex");
       var owner = ownerSession.get();
       assertTrue("the owner session must hold the permit", mutex.isEngagedBy(owner));
 
@@ -1071,6 +1155,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
       // must still release it or the @After join reports a leaked worker instead of the real cause.
       ownerMayFinish.countDown();
     }
+
+    // (d) Completion edge before the authoritative read: the owner unparks only once released.
+    ownerWorker.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the owner worker must finish");
+    ownerWorker.failIfErrored("the owner must not error");
 
     session.activateOnCurrentThread();
     // The permit is usable by the next writer.
@@ -1094,44 +1182,35 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var mutex = session.getSharedContext().getMetadataWriteMutex();
     var holderOrdinal = mutex.engage(session); // the permit is held, so the victim's engage parks
     var victimRef = new AtomicReference<DatabaseSessionEmbedded>();
+    // victimThrown captures the engage failure this test is ASSERTING on, caught inside the body so
+    // it never becomes the worker's error; the worker's own holder covers everything else.
     var victimThrown = new AtomicReference<Throwable>();
     var victimReady = new CountDownLatch(1);
-    var victimDone = new CountDownLatch(1);
-    // Distinct from victimThrown, which captures the engage failure this test is ASSERTING on: this
-    // one records a victim that failed on the way there (opening its session, beginning its tx), so
-    // the body reports that instead of waiting out its liveness bound on a signal that never comes.
-    var victimError = new AtomicReference<Throwable>();
-    var worker = spawn(() -> {
+    var victim = startWorker("post-acquire-dekker-victim", self -> {
+      var victimSession = self.openSession();
+      victimRef.set(victimSession);
+      victimSession.activateOnCurrentThread();
+      victimSession.begin();
+      victimReady.countDown();
       try {
-        var victim = openDatabase();
-        victimRef.set(victim);
-        victim.activateOnCurrentThread();
-        victim.begin();
-        victimReady.countDown();
-        try {
-          // Parks in the engage wait; after the holder releases, the acquire succeeds and the
-          // post-acquire re-check sees the mark set below.
-          victim.getMetadata().getSchema().createClass("PostAcquireDekker", 1);
-        } catch (Throwable t) {
-          victimThrown.set(t);
-        } finally {
-          victim.getTransactionInternal().rollbackInternal();
-          victim.clearTeardownIntent();
-          victim.close();
-        }
+        // Parks in the engage wait; after the holder releases, the acquire succeeds and the
+        // post-acquire re-check sees the mark set below.
+        victimSession.getMetadata().getSchema().createClass("PostAcquireDekker", 1);
       } catch (Throwable t) {
-        victimError.compareAndSet(null, t);
+        victimThrown.set(t);
       } finally {
-        victimDone.countDown();
+        victimSession.getTransactionInternal().rollbackInternal();
+        victimSession.clearTeardownIntent();
+        victimSession.close();
       }
-    }, "post-acquire-dekker-victim");
+    }).signalling(victimReady);
 
     try {
-      awaitSignalOrWorkerError(victimReady, victimError, HANDSHAKE_SECONDS,
+      victim.awaitSignal(victimReady, HANDSHAKE_SECONDS,
           "the victim must reach its blocking schema write");
       // Deliberately short: victimReady already proves the victim reached its blocking write, so
       // only thread-state settling is being waited on here.
-      var observedPark = awaitParkedOnMutex(worker, PARK_OBSERVATION_MILLIS);
+      var observedPark = awaitParkedOnMutex(victim.thread(), PARK_OBSERVATION_MILLIS);
       assertTrue("the victim must park on the held permit, observed " + observedPark,
           observedPark.parkedOnMutex());
       // The mark lands while the victim is parked INSIDE the permit wait — past its loop-top
@@ -1141,8 +1220,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
       mutex.releaseFor(session, holderOrdinal);
     }
 
-    assertTrue("the victim must finish",
-        victimDone.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
+    // (d) Completion edge, then the authoritative read: a rollback or close failure in the victim's
+    // own cleanup lands in its holder just before it finishes.
+    victim.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the victim must finish");
+    victim.failIfErrored("the victim's session handling must not error");
     assertNotNull("the marked victim's engage must have failed", victimThrown.get());
     assertTrue("the failure must be the post-acquire self-release branch (message pins the"
         + " 'while engaging' arm, not the loop-top 'while waiting' arm): " + victimThrown.get(),
@@ -1185,35 +1266,31 @@ public class MetadataWriteMutexTest extends DbTestBase {
     });
 
     // firstInListener is counted down by the close listener, so a winner that throws BEFORE its
-    // listener fires would never signal; recording its throwable lets the wait below report that
-    // instead of the missing signal.
-    var firstTeardownError = new AtomicReference<Throwable>();
-    var first = spawn(() -> {
-      try {
-        victim.activateOnCurrentThread();
-        victim.internalClose(false);
-      } catch (Throwable t) {
-        firstTeardownError.compareAndSet(null, t);
-      }
-    }, "teardown-first");
+    // listener fires would never signal it on its own; declaring it here releases the waiter on
+    // that path too, and awaitSignal then reports the throwable rather than the missing signal.
+    var first = startWorker("teardown-first", self -> {
+      victim.activateOnCurrentThread();
+      victim.internalClose(false);
+    }).signalling(firstInListener);
+    Worker second = null;
     try {
       // LIVENESS, not a short bound: the hold clock starts when the winner ENTERS the listener,
       // which is the same moment this wait returns, so time spent reaching the listener consumes no
       // hold time and widening this cannot make the test vacuous.
-      awaitSignalOrWorkerError(firstInListener, firstTeardownError, HANDSHAKE_SECONDS,
+      first.awaitSignal(firstInListener, HANDSHAKE_SECONDS,
           "the first teardown must reach its close listener");
 
       // The second teardown runs while the first is mid-body (status still OPEN): it must no-op on
       // the atomic claim rather than double-running the listeners and the session-count decrement.
-      var second = spawn(() -> {
+      second = startWorker("teardown-second", self -> {
         victim.activateOnCurrentThread();
         victim.internalClose(false);
-      }, "teardown-second");
+      });
       // Deliberately SHORT, and the one bound that must stay under LISTENER_HOLD_SECONDS (asserted
       // at class init): "promptly" means "while the winner is still pinned inside its close
       // listener", and the loser runs one CAS and no I/O, so a slow host cannot need more — only a
       // regression that actually re-ran the teardown body would.
-      second.join(NOOP_TEARDOWN_JOIN_MILLIS);
+      second.joinBounded(NOOP_TEARDOWN_JOIN_MILLIS);
       assertFalse("the losing teardown must no-op promptly", second.isAlive());
     } finally {
       // Unconditional: a failed assertion above must not leave the winning teardown pinned in its
@@ -1221,8 +1298,12 @@ public class MetadataWriteMutexTest extends DbTestBase {
       releaseListener.countDown();
     }
 
-    first.join(WORKER_JOIN_MILLIS);
+    first.joinBounded(WORKER_JOIN_MILLIS);
     assertFalse("the winning teardown must complete", first.isAlive());
+    // (d) Both joins are completion edges: a teardown that threw — the winner late in its body, or
+    // the loser instead of no-opping — used to pass unnoticed here.
+    first.failIfErrored("the winning teardown must not throw");
+    second.failIfErrored("the losing teardown must not throw");
     assertEquals("exactly one full teardown may run (single listener firing, single"
         + " session-count decrement)", 1L, closeListenerFired.get());
 
@@ -1260,42 +1341,31 @@ public class MetadataWriteMutexTest extends DbTestBase {
     // Single-permit proof: engage through one session, then a second engager must PARK rather
     // than acquire a phantom second permit.
     var firstOrdinal = mutex.engage(session);
-    var proberThread = new AtomicReference<Thread>();
     var proberReady = new CountDownLatch(1);
-    var proberError = new AtomicReference<Throwable>();
     var acquired = new CountDownLatch(1);
     var secondOrdinal = new AtomicLong();
     var secondSession = new AtomicReference<DatabaseSessionEmbedded>();
-    spawn(() -> {
-      try {
-        var other = openDatabase();
-        secondSession.set(other);
-        other.activateOnCurrentThread();
-        proberThread.set(Thread.currentThread());
-        // Latch handshake, not a busy-spin the observer runs: opening the session above is real
-        // disk work, and a 60 s Thread.onSpinWait() loop would hot-spin a core inside a fork that
-        // runs four test classes in parallel.
-        proberReady.countDown();
-        secondOrdinal.set(mutex.engage(other));
-        acquired.countDown();
-      } catch (Throwable t) {
-        // Without this the prober's failure was invisible: the observer just waited out its bound.
-        proberError.compareAndSet(null, t);
-        proberReady.countDown();
-      }
-    }, "double-release-prober");
+    // BOTH latches are declared: the test waits on proberReady first and on acquired afterwards, so
+    // a prober that fails inside engage() has to release the second one too - releasing only the
+    // first left the later wait to stall out its whole bound and discard the real error.
+    var prober = startWorker("double-release-prober", self -> {
+      var other = self.openSessionForTest();
+      secondSession.set(other);
+      other.activateOnCurrentThread();
+      // Latch handshake, not a busy-spin the observer runs: opening the session above is real disk
+      // work, and a 60 s Thread.onSpinWait() loop would hot-spin a core inside a fork that runs
+      // four test classes in parallel.
+      proberReady.countDown();
+      secondOrdinal.set(mutex.engage(other));
+      acquired.countDown();
+    }).signalling(proberReady, acquired);
 
     try {
       // LIVENESS: the prober signals only after opening its own session, which is real disk work,
       // so this is sized for the slowest CI host. It returns as soon as the signal lands.
-      awaitSignalOrWorkerError(proberReady, proberError, HANDSHAKE_SECONDS,
-          "the prober must start");
-      if (proberError.get() != null) {
-        throw new AssertionError("the prober must reach its engage", proberError.get());
-      }
-      assertNotNull("the prober must have published its thread", proberThread.get());
+      prober.awaitSignal(proberReady, HANDSHAKE_SECONDS, "the prober must start");
       // Deliberately short: the prober's next call after signalling IS the engage.
-      var observedPark = awaitParkedOnMutex(proberThread.get(), PARK_OBSERVATION_MILLIS);
+      var observedPark = awaitParkedOnMutex(prober.thread(), PARK_OBSERVATION_MILLIS);
       assertTrue("a second engager must park on the single permit (a double release would have"
           + " admitted it immediately), observed " + observedPark,
           observedPark.parkedOnMutex());
@@ -1309,8 +1379,11 @@ public class MetadataWriteMutexTest extends DbTestBase {
       mutex.releaseFor(session, firstOrdinal);
     }
 
-    assertTrue("the prober must acquire after the release",
-        acquired.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
+    prober.awaitSignal(acquired, UNBLOCKED_COMPLETION_SECONDS,
+        "the prober must acquire after the release");
+    // (d) Completion edge before the authoritative read.
+    prober.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the prober must finish");
+    prober.failIfErrored("the prober must engage after the release");
     mutex.releaseFor(secondSession.get(), secondOrdinal.get());
     var other = secondSession.get();
     other.activateOnCurrentThread();
@@ -1373,47 +1446,36 @@ public class MetadataWriteMutexTest extends DbTestBase {
     });
 
     var pooledRef = new AtomicReference<DatabaseSessionEmbedded>();
-    var commitError = new AtomicReference<Throwable>();
-    var committed = new CountDownLatch(1);
+    Worker owner = null;
+    Worker poolCloser = null;
     try {
-      spawn(() -> {
-        try {
-          var pooled = pool.acquire();
-          pooledRef.set(pooled);
-          pooled.begin();
-          pooled.getMetadata().getSchema().createClass("PoolSkipClass", 1);
-          pooled.commit();
-        } catch (Throwable t) {
-          commitError.compareAndSet(null, t);
-        } finally {
-          committed.countDown();
-        }
-      }, "pool-skip-owner");
+      // The pooled session belongs to the pool, which pool.close() below tears down, so it is
+      // neither worker- nor test-owned here.
+      owner = startWorker("pool-skip-owner", self -> {
+        var pooled = pool.acquire();
+        pooledRef.set(pooled);
+        pooled.begin();
+        pooled.getMetadata().getSchema().createClass("PoolSkipClass", 1);
+        pooled.commit();
+      }).signalling(inWindow);
 
       // inWindow is signalled by the commit-window hook, so an owner that fails before reaching the
-      // window never signals; this reports the owner's throwable instead of the missing signal.
-      awaitSignalOrWorkerError(inWindow, commitError, HANDSHAKE_SECONDS,
+      // window never signals it on its own; declaring it releases this wait on that path too.
+      owner.awaitSignal(inWindow, HANDSHAKE_SECONDS,
           "the owner must park inside the commit window");
 
       // Pool close while the owner is mid-commit: the skip branch marks and defers. Run it on
       // its own thread with a bounded await so a skip regression (a full teardown that parks on
       // the commit's held locks) FAILS the test instead of hanging the fork — the window latch is
       // still released by the finally below either way.
-      var poolCloseDone = new CountDownLatch(1);
-      spawn(() -> {
-        try {
-          pool.close();
-        } finally {
-          poolCloseDone.countDown();
-        }
-      }, "pool-closer");
+      poolCloser = startWorker("pool-closer", self -> pool.close());
       // LIVENESS despite the "promptly" wording: the regression this catches is a full teardown
       // that parks on the live commit's held locks and therefore NEVER returns, so widening the
       // bound for a slow host does not weaken the check — pool.close() also tears down the pool's
       // other sessions, which is real disk work.
-      assertTrue("pool.close() must return promptly — the skip must neither park on the live"
-          + " commit nor tear it down",
-          poolCloseDone.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
+      poolCloser.awaitDone(UNBLOCKED_COMPLETION_SECONDS,
+          "pool.close() must return promptly — the skip must neither park on the live commit nor"
+              + " tear it down");
       var pooled = pooledRef.get();
       assertNotNull(pooled);
       // Lock-free status probe: isClosed() would take the storage state lock and block behind
@@ -1422,18 +1484,16 @@ public class MetadataWriteMutexTest extends DbTestBase {
           DatabaseSessionEmbedded.STATUS.OPEN, pooled.getStatus());
       assertTrue("the skip must not release the live commit's permit",
           mutex.isEngagedBy(pooled));
-      assertEquals("the commit must still be parked in the window", 1, committed.getCount());
+      assertFalse("the commit must still be parked in the window", owner.isFinished());
     } finally {
       releaseWindow.countDown();
       storage.setCommitWindowTestHook(null);
     }
 
-    assertTrue("the owner's commit must finish",
-        committed.await(UNBLOCKED_COMPLETION_SECONDS, TimeUnit.SECONDS));
-    if (commitError.get() != null) {
-      throw new AssertionError(
-          "the deferred teardown must not disturb the commit outcome", commitError.get());
-    }
+    // (d) Completion edges before the authoritative reads.
+    owner.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the owner's commit must finish");
+    owner.failIfErrored("the deferred teardown must not disturb the commit outcome");
+    poolCloser.failIfErrored("the pool close must not throw");
     var pooled = pooledRef.get();
     // The owner's completer ran the full teardown on the owning thread. (The window is released
     // now, so the lock-taking isClosed() probe is safe again.)
@@ -1460,29 +1520,19 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var engaged = new CountDownLatch(1);
     var ownerMayFinish = new CountDownLatch(1);
     var pooledRef = new AtomicReference<DatabaseSessionEmbedded>();
-    // The owner's throwable used to be swallowed here, leaving the body to fail on a null pooled
-    // session with no hint of why.
-    var ownerError = new AtomicReference<Throwable>();
-    spawn(() -> {
-      try {
-        var pooled = pool.acquire();
-        pooledRef.set(pooled);
-        pooled.begin();
-        pooled.getMetadata().getSchema().createClass("PoolFallThroughClass", 1);
-        engaged.countDown();
-        ownerMayFinish.await();
-      } catch (Throwable t) {
-        ownerError.compareAndSet(null, t);
-        engaged.countDown();
-      }
-    }, "pool-fallthrough-owner");
+    // The pooled session is the pool's to close (pool.close() below); the owner's throwable used to
+    // be swallowed here, leaving the body to fail on a null pooled session with no hint of why.
+    var owner = startWorker("pool-fallthrough-owner", self -> {
+      var pooled = pool.acquire();
+      pooledRef.set(pooled);
+      pooled.begin();
+      pooled.getMetadata().getSchema().createClass("PoolFallThroughClass", 1);
+      engaged.countDown();
+      ownerMayFinish.await();
+    }).signalling(engaged);
 
     try {
-      awaitSignalOrWorkerError(engaged, ownerError, HANDSHAKE_SECONDS,
-          "the owner must engage the mutex");
-      if (ownerError.get() != null) {
-        throw new AssertionError("the pool-fallthrough owner must not error", ownerError.get());
-      }
+      owner.awaitSignal(engaged, HANDSHAKE_SECONDS, "the owner must engage the mutex");
       var pooled = pooledRef.get();
       assertNotNull(pooled);
       assertTrue(mutex.isEngagedBy(pooled));
@@ -1497,6 +1547,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
       // must still release it or the @After join reports a leaked worker instead of the real cause.
       ownerMayFinish.countDown();
     }
+
+    // (d) Completion edge before the authoritative read.
+    owner.awaitDone(UNBLOCKED_COMPLETION_SECONDS, "the pool-fallthrough owner must finish");
+    owner.failIfErrored("the pool-fallthrough owner must not error");
 
     session.activateOnCurrentThread();
     session.executeInTx(
@@ -1558,14 +1612,12 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var thrown = new AtomicReference<Throwable>();
     var flagRestored = new AtomicBoolean(false);
     var waiterStarted = new CountDownLatch(1);
-    // Same reason as the prober in doubleReleaseKeepsSinglePermit: without a holder, a failing
-    // openDatabase() killed this worker silently and the body just waited out its liveness bound.
-    var waiterError = new AtomicReference<Throwable>();
     try {
-      var waiter = spawn(() -> {
-        DatabaseSessionEmbedded other = null;
+      var waiter = startWorker("interrupted-engage-waiter", self -> {
+        // The session is worker-owned: the runner closes it after this body returns, which is why
+        // the interrupt flag is cleared here first (a set flag would disturb that close).
+        var other = self.openSession();
         try {
-          other = openDatabase();
           other.activateOnCurrentThread();
           waiterStarted.countDown();
           try {
@@ -1574,37 +1626,28 @@ public class MetadataWriteMutexTest extends DbTestBase {
             thrown.set(t);
             flagRestored.set(Thread.currentThread().isInterrupted());
           }
-        } catch (Throwable t) {
-          waiterError.compareAndSet(null, t);
         } finally {
-          // Clear the interrupt status before the teardown so the session close is undisturbed.
           Thread.interrupted();
-          if (other != null) {
-            other.activateOnCurrentThread();
-            other.close();
-          }
         }
-      }, "interrupted-engage-waiter");
+      }).signalling(waiterStarted);
 
-      awaitSignalOrWorkerError(waiterStarted, waiterError, HANDSHAKE_SECONDS,
-          "the waiter must start");
+      waiter.awaitSignal(waiterStarted, HANDSHAKE_SECONDS, "the waiter must start");
       // Deliberately short: the waiter's next call after the start latch is the engage itself.
-      var observedPark = awaitParkedOnMutex(waiter, PARK_OBSERVATION_MILLIS);
+      var observedPark = awaitParkedOnMutex(waiter.thread(), PARK_OBSERVATION_MILLIS);
       assertTrue("the waiter must park on the held permit, observed " + observedPark,
           observedPark.parkedOnMutex());
-      waiter.interrupt();
+      waiter.thread().interrupt();
       // LIVENESS: an interruptible waiter exits at once; only a regression back to an
       // uninterruptible park exhausts this bound.
-      waiter.join(WORKER_JOIN_MILLIS);
+      waiter.joinBounded(WORKER_JOIN_MILLIS);
       assertFalse("the interrupted waiter must exit", waiter.isAlive());
+      // (d) The join is the completion edge for this read.
+      waiter.failIfErrored("the waiter's session handling must not error");
       assertNotNull("the interrupted waiter must have thrown", thrown.get());
       assertTrue("the throw must be a DatabaseException naming the wait: " + thrown.get(),
           thrown.get() instanceof DatabaseException
               && thrown.get().getMessage().contains("interrupted while waiting"));
       assertTrue("the interrupt flag must be restored before the throw", flagRestored.get());
-      if (waiterError.get() != null) {
-        throw new AssertionError("the waiter's session handling must not error", waiterError.get());
-      }
     } finally {
       mutex.releaseFor(session, holderOrdinal);
     }

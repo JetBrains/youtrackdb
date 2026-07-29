@@ -81,6 +81,23 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
    */
   private static final long CLEANUP_JOIN_MILLIS = 10_000L;
 
+  /**
+   * How much longer than the shared wait deadline the in-window pinning hook of
+   * {@link #dataCommitSerializesBehindHeldSchemaWriteLock} stays pinned. It must exceed
+   * {@link #CLEANUP_JOIN_MILLIS}, because the observer's last wait can run that long past the
+   * deadline before it dumps: if the hook unpinned first, the schema commit would already be
+   * unwinding and the dump would no longer show the state it exists to capture.
+   */
+  private static final long HOOK_GRACE_MILLIS = 15_000L;
+
+  static {
+    // Enforced rather than merely documented, like the listener-hold invariant in
+    // MetadataWriteMutexTest: core tests run with -ea, so this fires at class-init time.
+    assert CLEANUP_JOIN_MILLIS < HOOK_GRACE_MILLIS
+        : "the observer's trailing grace must expire while the schema commit is still pinned:"
+            + " CLEANUP_JOIN_MILLIS must stay below HOOK_GRACE_MILLIS";
+  }
+
   private SchemaShared schemaShared() {
     return session.getSharedContext().getSchema();
   }
@@ -847,11 +864,11 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     // (deadline + 15 s) cannot extend that: the body's finally releases the hook as soon as it
     // fails.
     final var waitBudgetMillis = 90_000L;
-    // The in-window hook must outlive the observer's deadline: if both expired together, the pinned
-    // schema commit could unwind WHILE (or before) the diagnostic dump is taken, and the dump would
-    // show the very state we are trying to capture already gone. Strictly later, still far below
-    // the @Test(timeout).
-    final var hookGraceMillis = 15_000L;
+    // The in-window hook must outlive the observer's deadline AND its trailing grace: if they
+    // expired together, the pinned schema commit could unwind WHILE (or before) the diagnostic dump
+    // is taken, and the dump would show the very state we are trying to capture already gone. The
+    // ordering is asserted at class init (see HOOK_GRACE_MILLIS).
+    final var hookGraceMillis = HOOK_GRACE_MILLIS;
     // A pre-existing class for the pure-data commit to insert into (a create would itself be a
     // schema-carry commit; we need the read-lock branch).
     session.executeInTx(tx -> session.getMetadata().getSchema().createClass("DataTarget"));
@@ -1018,8 +1035,9 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     // delete ~40 files); 60 rounds therefore cost ~3-4 s. On MEMORY storage - the module default,
     // and what most CI legs run - the whole method costs ~0.15 s, so the budget below is sized for
     // the disk case, which dominates. The Windows disk-storage leg ran the affected tests at 3.34x
-    // (p50) / 5.01x (p95) / 7.73x (max) this host, so even the worst-case slow-host cost of this
-    // method is ~4% of the 120 s deadline. Worst-case tail: 120 s deadline + 3 x 10 s trailing
+    // (p50) / 5.01x (p95) / 7.73x (max) this host: at the worst observed factor those ~3-4 s become
+    // ~23-31 s, i.e. 20-26% of the 120 s deadline, so the deadline still has ~4x headroom over a
+    // legitimate slow-host run. Worst-case tail: 120 s deadline + 3 x 10 s trailing
     // grace + ~1 s thread dump + 30 s cleanup joins (3 x 10 s) = ~181 s under the 240 s
     // @Test(timeout) - which is what keeps a real deadlock a NAMED assertion carrying a thread dump
     // instead of a bare TestTimedOutException.
@@ -1190,7 +1208,7 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
 
   /**
    * Fails with {@code message} unless {@code condition} holds, dumping thread state first (see
-   * {@link com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics#failWithThreadDump}) and
+   * {@link com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics#dumpThreads}) and
    * attaching whatever a racer thread has already recorded in {@code errors} as the cause.
    *
    * <p>The racer's throwable is the real root cause in the common shape: a racer dies, so it never
