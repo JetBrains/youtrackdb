@@ -40,8 +40,8 @@ public class SQLSuffixIdentifier extends SimpleNode {
    * The name is fixed per parse node, so the shape check (out_/in_ prefix plus
    * {@link #isSafeForGetProperty}, which scans the whole name string) is
    * computed once here instead of on every evaluated row. Under a correlated
-   * per-record filter (e.g. LDBC IC1's LET subqueries) this method is called
-   * millions of times, so the per-call string scan was a measurable hotspot.
+   * per-record filter this method is called millions of times, so the per-call
+   * string scan was a measurable hotspot.
    *
    * <p>Values: {@code 0} = not yet computed, {@code 1} = eligible
    * (getProperty-first hot path), {@code 2} = not eligible (hasProperty-first
