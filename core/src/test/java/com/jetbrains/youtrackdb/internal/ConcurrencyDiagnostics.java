@@ -19,19 +19,16 @@
 
 package com.jetbrains.youtrackdb.internal;
 
-import static org.junit.Assert.fail;
-
 import java.util.concurrent.TimeUnit;
 
-/// One shared dialect for the timeout-bounded concurrency tests, colocated with
+/// The shared deadline-and-dump dialect of the timeout-bounded concurrency tests, colocated with
 /// [JUnitTestListener#appendDiagnostics] because every helper here ends in that report:
 ///
 ///   - **shared deadlines**: [#deadlineFromNow] / [#remainingMillis], so a test's sequential waits
 ///     share ONE budget instead of summing independent bounds past the `@Test(timeout)` (which can
 ///     only ever produce a bare `TestTimedOutException` carrying no thread state);
-///   - **dump before cleanup**: [#dumpThreads] / [#assertWithThreadDump], so the stacks are
-///     captured before the caller's `finally` interrupts a stuck thread or releases a latch it is
-///     pinned on.
+///   - **dump before cleanup**: [#dumpThreads], so the stacks are captured before the caller's
+///     `finally` interrupts a stuck thread or releases a latch it is pinned on.
 ///
 /// Deliberately monotonic: deadlines are [System#nanoTime] values, never wall clock. A forward
 /// clock step (NTP, or a Hyper-V guest resyncing after the host suspends it — routine on the
@@ -75,21 +72,6 @@ public final class ConcurrencyDiagnostics {
       // the one that reaches the test report.
       System.err.println("Failed to write thread diagnostics for '" + label + "': " + dumpFailure);
       System.err.flush();
-    }
-  }
-
-  /// Dumps thread state under `message` and then fails with it. For stalls only: use it where the
-  /// caller's cleanup (an interrupt, a latch release) would unwind the state that explains the
-  /// stall before anyone could read it.
-  public static void failWithThreadDump(final String message) {
-    dumpThreads(message);
-    fail(message);
-  }
-
-  /// [#failWithThreadDump] unless `condition` holds.
-  public static void assertWithThreadDump(final String message, final boolean condition) {
-    if (!condition) {
-      failWithThreadDump(message);
     }
   }
 }
