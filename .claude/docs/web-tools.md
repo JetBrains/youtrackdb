@@ -18,10 +18,12 @@ Slate whitelists a worker extension as a whole npm package, not tool-by-tool, so
 `url_context` tool comes bundled with `web_search`. `url_context` requires a Google/Gemini session
 model; this project configures none (`.pi/slate.json`'s `modelFailover` map only pairs
 Anthropic/OpenAI models). In a host session, `pi-web-search` removes `url_context` from the active
-tool set on non-Google models via a model-scoped tool sync triggered by the `session_start` event.
-Worker sessions never fire `session_start`, so that sync never runs for a worker: `url_context`
-stays listed and, if called, returns an unsupported-provider error instead of disappearing. Do not
-call it.
+tool set on non-Google models via a model-scoped sync triggered by the `session_start` event;
+worker sessions never fire `session_start`, so `url_context` normally stays listed there instead
+of disappearing. That same sync also re-runs on `model_select`, which slate's model failover
+triggers mid-dispatch by calling `session.setModel()` on a live worker — so a worker that has
+failed over can have `url_context` suppressed after all, making its presence or absence in the
+tool list an unreliable signal either way. Do not call it.
 
 ## Batch Sizing and Cancellation
 
