@@ -284,10 +284,13 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
         }
       }
 
-      // Evaluate self against filters
+      // Evaluate self against filters. matchesClassCached reuses the owning
+      // traverser's per-edge schema-snapshot cache and (className, collectionId)
+      // memo, so recursive WHILE expansions also benefit from the zero-I/O
+      // class check without re-resolving the schema on every hop.
       if (startingPoint != null
           && MatchEdgeTraverser.matchesFilters(ctx, filter, startingPoint)
-          && MatchEdgeTraverser.matchesClass(ctx, className, startingPoint)
+          && traverser.matchesClassCached(ctx, className, startingPoint)
           && MatchEdgeTraverser.matchesRid(ctx, targetRid, startingPoint)) {
         ResultInternal rs;
         if (startingPoint instanceof ResultInternal resultInternal) {

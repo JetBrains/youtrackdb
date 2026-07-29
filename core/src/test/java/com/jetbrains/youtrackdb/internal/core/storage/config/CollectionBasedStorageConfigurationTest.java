@@ -335,6 +335,62 @@ public class CollectionBasedStorageConfigurationTest {
     assertEquals("Europe/Berlin", config.getTimeZone().getID());
   }
 
+  @Test
+  public void testGetTimeZoneRepeatedReadsAreConsistentCacheHit() throws IOException {
+    // The first getTimeZone after a set populates the volatile cachedTimeZone (slow path, under
+    // the read lock); a second call must serve the cached instance (fast path). Both reads must
+    // agree on the persisted zone. This exercises the slow-path-populate then fast-path-hit branch
+    // pair of getTimeZone.
+    var tz = TimeZone.getTimeZone("America/New_York");
+    atomicOps.executeInsideAtomicOperation(
+        atomicOperation -> config.setTimeZone(atomicOperation, tz));
+
+    var first = config.getTimeZone();
+    var second = config.getTimeZone();
+
+    assertNotNull(first);
+    assertEquals("America/New_York", first.getID());
+    // Repeated reads must be consistent: the cache-hit path returns the same logical zone.
+    assertEquals(first.getID(), second.getID());
+  }
+
+  @Test
+  public void testSetTimeZoneInvalidatesCacheSoSubsequentGetReflectsNewValue() throws IOException {
+    // Setting two distinct time zones in sequence must make getTimeZone observe each new value.
+    // This exercises the `cachedTimeZone = null` invalidation inside setTimeZone: if the cache
+    // were not cleared on set, the second getTimeZone would return the stale first zone rather
+    // than the newly persisted one.
+    var utc = TimeZone.getTimeZone("UTC");
+    atomicOps.executeInsideAtomicOperation(
+        atomicOperation -> config.setTimeZone(atomicOperation, utc));
+    assertEquals("UTC", config.getTimeZone().getID());
+
+    var offsetZone = TimeZone.getTimeZone("GMT+05:00");
+    atomicOps.executeInsideAtomicOperation(
+        atomicOperation -> config.setTimeZone(atomicOperation, offsetZone));
+    assertEquals("GMT+05:00", config.getTimeZone().getID());
+  }
+
+  @Test
+  public void testGetTimeZoneAfterSetDoesNotServeStaleCachedValue() throws IOException {
+    // Warm the cache with the first zone via a getTimeZone read (populates cachedTimeZone), THEN
+    // change the zone. Because setTimeZone nulls the cache before rewriting the persistent
+    // property, the next getTimeZone must return the NEW zone, never the warmed stale one. This is
+    // the strongest anti-stale check: it fails if the cache-invalidation on set is dropped.
+    var first = TimeZone.getTimeZone("America/New_York");
+    atomicOps.executeInsideAtomicOperation(
+        atomicOperation -> config.setTimeZone(atomicOperation, first));
+    // Populate the cache with the first value.
+    assertEquals("America/New_York", config.getTimeZone().getID());
+
+    var second = TimeZone.getTimeZone("UTC");
+    atomicOps.executeInsideAtomicOperation(
+        atomicOperation -> config.setTimeZone(atomicOperation, second));
+
+    // Must reflect the new zone; a stale warm cache would still report America/New_York.
+    assertEquals("UTC", config.getTimeZone().getID());
+  }
+
   // --- setLocaleLanguage/setLocaleCountry / recalculateLocale / getLocaleInstance ---
 
   @Test
