@@ -3,6 +3,7 @@
   "workflow": { "draftPRs": true },
   "orchestratorPromptDocs": ["docs-internal/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs-internal/agents/thread-guidelines.md"],
+  "workerExtensions": ["^npm:pi-smart-fetch(@|$)", "^npm:pi-web-search(@|$)"],
   "doctrineExtraPath": "docs-internal/agents/slate-doctrine-extra.md",
   "reviewPerspectivesPath": "docs-internal/agents/review-perspectives.md",
   "modelFailover": {
