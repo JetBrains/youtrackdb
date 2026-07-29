@@ -7,8 +7,8 @@ about the live source. It reaches that state only after clearing a review gauntl
 
 The articles this machinery produces live in a separate tree at
 [`../docs/blog/`](../docs/blog/). This directory (`blog-builder/`) holds only the machinery:
-the house rules, the per-article brief template, the production pipeline, the per-developer
-tone system, and the review and reader-feedback artifacts.
+the house rules, the per-article brief template, the production pipeline, and the
+per-developer tone system.
 
 Its discipline is simple: every code claim is verified against the live tree, and voice drift
 is caught early rather than late. Two properties shape everything else.
@@ -37,9 +37,7 @@ blog-builder/
 ├── TONE_GUIDE.md              — how per-developer tone files work: schema, resolution, capture, lifecycle
 ├── templates/                 — figure templates; hero.svg is the title card copied into each article folder
 ├── scripts/                   — render-figures.sh: renders an article's Mermaid + hero.svg sources to PNG
-├── tones/                     — one tone file per developer, named <github-handle>.md
-├── reviews/                   — review reports, namespaced per article: reviews/<article-slug>/<perspective>.md
-└── reader-feedback/           — reader-persona feedback, namespaced per article: reader-feedback/<article-slug>/<persona>.md
+└── tones/                     — one tone file per developer, named <github-handle>.md
 ```
 
 The output tree is [`../docs/blog/`](../docs/blog/): finished articles land in

@@ -91,14 +91,13 @@ All of the following, not a subset. Use a fresh reviewer per perspective.
   free of the Part B anti-tells and generic LLM tells?
 - **Reader-persona pass** — a representative target reader (per the article brief's audience)
   reads it start to finish and reports where an undefined term, a rushed step, or an
-  unearned name blocked them. Record persona reports under [`reader-feedback/`](reader-feedback/)
-  (namespaced per article — see the note below).
+  unearned name blocked them.
 
-Namespace all review and feedback artifacts by the article's slug (the same slug used for
-the published article), so artifacts from different articles never collide: reviewer reports
-go under [`reviews/`](reviews/) as `reviews/<article-slug>/<perspective>.md` (one file per
-perspective), and reader-persona reports under [`reader-feedback/`](reader-feedback/) as
-`reader-feedback/<article-slug>/<persona>.md` (one file per persona).
+The gauntlet's output — reviewer findings and reader-persona notes — is ephemeral. Write it
+to a unique scratch directory created with `mktemp -d` (for example
+`mktemp -d "/tmp/blog-<slug>.XXXXXX"`), so the operating system eventually reclaims anything
+left behind, and delete that directory yourself once the gauntlet is done. None of it is
+committed — the durable record is the finished article and the PR.
 
 ### 5. Revise
 
