@@ -35,6 +35,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
@@ -905,8 +906,7 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
               } catch (final Throwable t) {
                 errors.compareAndSet(null, t);
               } finally {
-                schemaSession.activateOnCurrentThread();
-                schemaSession.close();
+                closeRacerSession(schemaSession, errors);
               }
             },
             "schema-commit-thread");
@@ -935,8 +935,7 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
               } catch (final Throwable t) {
                 errors.compareAndSet(null, t);
               } finally {
-                dataSession.activateOnCurrentThread();
-                dataSession.close();
+                closeRacerSession(dataSession, errors);
               }
             },
             "data-commit-thread");
@@ -1101,8 +1100,7 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
                 error.compareAndSet(null, t);
                 barrier.reset();
               } finally {
-                reloadSession.activateOnCurrentThread();
-                reloadSession.close();
+                closeRacerSession(reloadSession, error);
               }
             },
             "schema-reload-racer");
@@ -1122,8 +1120,7 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
                 error.compareAndSet(null, t);
                 barrier.reset();
               } finally {
-                indexSession.activateOnCurrentThread();
-                indexSession.close();
+                closeRacerSession(indexSession, error);
               }
             },
             "index-load-racer");
@@ -1197,6 +1194,37 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     for (final var t : threads) {
       if (t != null) {
         t.join(CLEANUP_JOIN_MILLIS);
+      }
+    }
+  }
+
+  /**
+   * Closes {@code racerSession} on the calling racer thread, recording a close failure into
+   * {@code errors} instead of letting it escape the racer's {@code finally}.
+   *
+   * <p>An escaping close failure kills the racer thread with an uncaught exception that nothing
+   * records, so the test can still pass — the one path left in this class where a genuine failure
+   * goes green. The first failure stays primary (a close that fails BECAUSE the body failed must
+   * not displace the cause that explains it) and a later one is attached as suppressed, so neither
+   * is lost. The assertions already surface {@code errors}: the deadline-derived waits attach it as
+   * their cause and both tests re-check it at the end.
+   *
+   * <p>This is deliberately narrower than the canonical worker idiom of
+   * {@code MetadataWriteMutexTest}: converting these racers is deferred (their session opens sit
+   * outside the measured budget on purpose, and their peer release is a {@code CyclicBarrier} the
+   * idiom does not model), so only the silent-close path is closed here.
+   */
+  private static void closeRacerSession(final DatabaseSessionEmbedded racerSession,
+      final AtomicReference<Throwable> errors) {
+    try {
+      racerSession.activateOnCurrentThread();
+      racerSession.close();
+    } catch (final Throwable closeFailure) {
+      if (!errors.compareAndSet(null, closeFailure)) {
+        final var primary = errors.get();
+        if (primary != closeFailure) {
+          primary.addSuppressed(closeFailure);
+        }
       }
     }
   }
