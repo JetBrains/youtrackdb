@@ -19,6 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import static com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics.deadlineFromNow;
+import static com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics.dumpThreads;
+import static com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics.remainingMillis;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -47,6 +50,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.io.FileUtils;
 import org.junit.Ignore;
@@ -819,11 +823,24 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
    * exactly the guarantee under test; an "await the data commit while still holding the write lock"
    * shape would deadlock by construction.
    */
-  @Test(timeout = 60_000)
+  @Test(timeout = 180_000)
   public void dataCommitSerializesBehindHeldSchemaWriteLock() throws Exception {
     // A @Test(timeout) body runs on a JUnit watchdog thread, not the @Before thread, so the bound
     // session must be re-activated here before any use (the session is ThreadLocal-bound).
     session.activateOnCurrentThread();
+    // Budget derivation, same dialect as the sibling race test below. Local cost is ~1-2 s (disk)
+    // and ~1 s (memory, the module default); the Windows disk-storage CI leg was measured at 3.34x
+    // (p50) / 5.01x (p95) / 7.73x (max) the reference host, so 90 s is ~45x the worst observed
+    // cost. Tail: 90 s observer deadline + the 1 s exclusion probe + ~1 s thread dump + 20 s
+    // cleanup joins (2 x 10 s) = ~112 s, and the pinning hook's own 105 s bound cannot extend it
+    // (the body's finally releases the hook as soon as it fails) - all under the 180 s
+    // @Test(timeout).
+    final var waitBudgetMillis = 90_000L;
+    // The in-window hook must outlive the observer's deadline: if both expired together, the pinned
+    // schema commit could unwind WHILE (or before) the diagnostic dump is taken, and the dump would
+    // show the very state we are trying to capture already gone. Strictly later, still far below
+    // the @Test(timeout).
+    final var hookGraceMillis = 15_000L;
     // A pre-existing class for the pure-data commit to insert into (a create would itself be a
     // schema-carry commit; we need the read-lock branch).
     session.executeInTx(tx -> session.getMetadata().getSchema().createClass("DataTarget"));
@@ -834,6 +851,9 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     var dataCommitStarted = new CountDownLatch(1);
     var dataCommitted = new CountDownLatch(1);
     var errors = new AtomicReference<Throwable>();
+    // Holds the shared deadline so the racer threads and the in-window hook - all wired up before
+    // the deadline is armed - can read the same budget the body uses.
+    var deadlineNanos = new AtomicLong();
 
     // The schema transaction runs entirely on its own thread with its own session (the session is
     // ThreadLocal-bound, so the main thread must never share it). The in-window hook latches it inside
@@ -864,9 +884,11 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
             () -> {
               try {
                 dataSession.activateOnCurrentThread();
-                // Bounded: if the schema commit never enters its window (a regression), the data
-                // thread fails fast instead of parking forever and leaking with its session open.
-                if (!schemaInWindow.await(30, TimeUnit.SECONDS)) {
+                // Bounded on the SAME shared deadline as the body's wait for this very event: with
+                // an independent (tighter) bound, this thread died first and the body then failed
+                // on a later, unrelated wait, misattributing the stall.
+                if (!schemaInWindow.await(remainingMillis(deadlineNanos.get()),
+                    TimeUnit.MILLISECONDS)) {
                   throw new AssertionError("the schema commit never entered its window");
                 }
                 dataCommitStarted.countDown();
@@ -885,14 +907,16 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
             "data-commit-thread");
 
     // Pin the schema commit inside its window so the data commit demonstrably contends with the held
-    // write lock. The hook waits with a bound: if the test body never releases (an assertion above
-    // failed before releaseSchema.countDown()), the test-body finally releases it anyway, but the
-    // bound is a second backstop so the schema thread cannot park forever and leak.
+    // write lock. The hook's bound is the shared deadline PLUS hookGraceMillis, so the observer
+    // always fails (and dumps) first: if the test body never releases (an assertion above failed
+    // before releaseSchema.countDown()), the test-body finally releases it anyway, so this bound
+    // is only the last backstop against the schema thread parking forever and leaking.
     storage.setCommitWindowTestHook(
         () -> {
           schemaInWindow.countDown();
           try {
-            if (!releaseSchema.await(50, TimeUnit.SECONDS)) {
+            if (!releaseSchema.await(
+                remainingMillis(deadlineNanos.get()) + hookGraceMillis, TimeUnit.MILLISECONDS)) {
               throw new AssertionError("the schema commit was never released from its window");
             }
           } catch (final InterruptedException ie) {
@@ -900,26 +924,38 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
           }
         });
     try {
+      // ONE shared, monotonic deadline for every open-ended wait of this test - the body's waits
+      // above and below, the data thread's wait for the in-window signal, and (offset by
+      // hookGraceMillis) the pinning hook. Armed here, immediately before the racers start, so the
+      // unrelated openDatabase() cost above is not charged to it. Independent per-wait bounds used
+      // to sum to ~141 s against a 60 s @Test(timeout), so a stall could only ever surface as a
+      // bare TestTimedOutException carrying no thread state.
+      deadlineNanos.set(deadlineFromNow(waitBudgetMillis));
       schemaThread.start();
       dataThread.start();
 
       // Wait until the schema commit is inside its window and the data thread has started its commit.
-      assertTrue("the schema commit must enter its window",
-          schemaInWindow.await(30, TimeUnit.SECONDS));
-      assertTrue("the data thread must start its commit",
-          dataCommitStarted.await(30, TimeUnit.SECONDS));
+      // Every deadline-derived wait dumps thread state before failing, because the finally arm
+      // below releases the pinned commit and interrupts both racers - either action unwinds the
+      // stacks that would explain the stall.
+      assertWithRacerErrors(errors, "the schema commit must enter its window",
+          schemaInWindow.await(remainingMillis(deadlineNanos.get()), TimeUnit.MILLISECONDS));
+      assertWithRacerErrors(errors, "the data thread must start its commit",
+          dataCommitStarted.await(remainingMillis(deadlineNanos.get()), TimeUnit.MILLISECONDS));
 
       // The data commit must NOT have completed yet: it is blocked on the read lock behind the held
-      // write lock. A short bounded wait that times out is the positive signal of exclusion.
+      // write lock. A short bounded wait that times out is the positive signal of exclusion, so
+      // this one wait is deliberately a fixed 1 s and not deadline-derived.
       assertFalse("the data commit must be blocked while the schema write lock is held",
           dataCommitted.await(1, TimeUnit.SECONDS));
 
       // Release the schema commit; both commits must now complete with no deadlock.
       releaseSchema.countDown();
-      schemaThread.join(30_000);
-      assertFalse("the schema commit must finish after release", schemaThread.isAlive());
-      assertTrue("the data commit must complete once the write lock is released",
-          dataCommitted.await(30, TimeUnit.SECONDS));
+      schemaThread.join(remainingMillis(deadlineNanos.get()));
+      assertWithRacerErrors(errors, "the schema commit must finish after release",
+          !schemaThread.isAlive());
+      assertWithRacerErrors(errors, "the data commit must complete once the write lock is released",
+          dataCommitted.await(remainingMillis(deadlineNanos.get()), TimeUnit.MILLISECONDS));
     } finally {
       // Always release the pinned schema commit and clear the hook, then interrupt-and-join both
       // racer threads so neither leaks past the test (each closes its own session in its own
@@ -954,12 +990,29 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
    * four-lock interleaving. The {@code @Test(timeout)} is the deadlock detector: a lock-order
    * regression hangs and trips the timeout instead of hanging the whole suite.
    */
-  @Test(timeout = 60_000)
+  @Test(timeout = 210_000)
   public void schemaCommitReloadAndIndexLoadRaceWithoutDeadlock() throws Exception {
     // A @Test(timeout) body runs on a JUnit watchdog thread, not the @Before thread, so the bound
     // session must be re-activated here before its racer thread re-binds it.
     session.activateOnCurrentThread();
-    final var rounds = 30;
+    // Budget derivation. A round is a create+drop of a ONE-collection class. Measured here: ~50 ms
+    // per round on local DISK storage (`-Dyoutrackdb.test.env=ci`), versus ~310 ms at the default 8
+    // collections (each collection is its own pair of files, so the default made a round create and
+    // delete ~40 files); 60 rounds therefore cost ~3-4 s. On MEMORY storage - the module default,
+    // and what most CI legs run - the whole method costs ~0.15 s, so the budget below is sized for
+    // the disk case, which dominates. The Windows disk-storage leg was measured at 3.34x (p50) /
+    // 5.01x (p95) / 7.73x (max) the reference host, so even the worst observed factor lands far
+    // inside the 120 s deadline. Tail: 120 s deadline + 3 x 3 s trailing grace + ~1 s thread dump +
+    // 30 s cleanup joins (3 x 10 s) = ~160 s under the 210 s @Test(timeout) - ~24% headroom, which
+    // is what keeps the failure a NAMED assertion carrying a thread dump instead of a bare
+    // TestTimedOutException.
+    final var rounds = 60;
+    final var raceDeadlineBudgetMillis = 120_000L;
+    // Trailing grace per racer, applied only after the shared deadline expires. The joins below are
+    // sequential against ONE deadline, so a racer that finishes just before it would leave the next
+    // racer nothing but the 1 ms clamp and be reported as deadlocked while it is merely finishing
+    // (its session close can take seconds behind an in-flight commit).
+    final var trailingGraceMillis = 3_000L;
     var barrier = new CyclicBarrier(3);
     var error = new AtomicReference<Throwable>();
 
@@ -983,7 +1036,10 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
                 for (var i = 0; i < rounds; i++) {
                   barrier.await(30, TimeUnit.SECONDS);
                   var cls = "Racer" + i;
-                  session.executeInTx(tx -> session.getMetadata().getSchema().createClass(cls));
+                  // One collection per class instead of the default 8: same four-lock commit path
+                  // and the same interleaving under test, at roughly an eighth of the file churn.
+                  session.executeInTx(
+                      tx -> session.getMetadata().getSchema().createClass(cls, 1));
                   session.executeInTx(tx -> session.getMetadata().getSchema().dropClass(cls));
                 }
               } catch (final Throwable t) {
@@ -1035,18 +1091,43 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
             },
             "index-load-racer");
 
+    final var racers = new Thread[] {commitThread, reloadThread, indexThread};
     try {
+      // ONE shared, monotonic deadline for all three joins instead of three independent 55 s
+      // bounds, whose sum exceeded the @Test(timeout) and so guaranteed that a real deadlock could
+      // only ever surface as a bare TestTimedOutException with no thread state. Armed here,
+      // immediately before the racers start, so the (unrelated) openDatabase() cost above is not
+      // charged to it.
+      final var deadlineNanos = deadlineFromNow(raceDeadlineBudgetMillis);
       commitThread.start();
       reloadThread.start();
       indexThread.start();
 
-      commitThread.join(55_000);
-      reloadThread.join(55_000);
-      indexThread.join(55_000);
+      for (final var t : racers) {
+        t.join(remainingMillis(deadlineNanos));
+      }
+      // Trailing grace: whoever the shared deadline starved gets its own small bound, so "still
+      // alive" below means "did not finish even with slack", not "was joined for 1 ms".
+      for (final var t : racers) {
+        if (t.isAlive()) {
+          t.join(trailingGraceMillis);
+        }
+      }
 
-      assertFalse("the schema-commit racer must finish (no deadlock)", commitThread.isAlive());
-      assertFalse("the schema-reload racer must finish (no deadlock)", reloadThread.isAlive());
-      assertFalse("the index-load racer must finish (no deadlock)", indexThread.isAlive());
+      // Deadline breach - name the racers that are still running and dump their stacks BEFORE the
+      // finally arm interrupts them, since an interrupt unwinds exactly the state that shows where
+      // the lock cycle is. A racer that already failed is attached as the cause: it is the likelier
+      // root cause of a peer still sitting on the barrier.
+      final var stillAlive = new ArrayList<String>();
+      for (final var t : racers) {
+        if (t.isAlive()) {
+          stillAlive.add(t.getName());
+        }
+      }
+      assertWithRacerErrors(error,
+          "the racers must finish (no deadlock); still alive after " + raceDeadlineBudgetMillis
+              + " ms plus " + trailingGraceMillis + " ms grace: " + stillAlive,
+          stillAlive.isEmpty());
       if (error.get() != null) {
         throw new AssertionError("a concurrent racer failed", error.get());
       }
@@ -1059,7 +1140,15 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     }
   }
 
-  /** Interrupts each thread and joins it with a bounded wait so a test never leaks a racer thread. */
+  /**
+   * Interrupts each thread and joins it with a bounded wait so a test never leaks a racer thread.
+   * The bound is deliberately generous, because an interrupt is NOT the end of a racer's work: each
+   * racer's own {@code finally} still closes its session, and that close can legitimately block for
+   * seconds on the storage state lock behind an in-flight commit. A racer left unjoined here is
+   * still closing its session when the next test's teardown drops the database, which is a far
+   * worse failure than waiting. Both callers leave 80+ s between their shared wait deadline and
+   * their {@code @Test(timeout)}, so this wait costs nothing they need.
+   */
   private static void interruptAndJoin(final Thread... threads) throws InterruptedException {
     for (final var t : threads) {
       if (t != null) {
@@ -1071,6 +1160,31 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
         t.join(10_000);
       }
     }
+  }
+
+  /**
+   * Fails with {@code message} unless {@code condition} holds, dumping thread state first (see
+   * {@link com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics#failWithThreadDump}) and
+   * attaching whatever a racer thread has already recorded in {@code errors} as the cause.
+   *
+   * <p>The racer's throwable is the real root cause in the common shape: a racer dies, so it never
+   * sends the signal the body is waiting for, and the body then fails on its own bound. Plain
+   * {@code fail()} would discard that throwable entirely, because the {@code errors} check these
+   * tests do at the end is unreachable once an assertion has already thrown.
+   */
+  private static void assertWithRacerErrors(final AtomicReference<Throwable> errors,
+      final String message, final boolean condition) {
+    if (condition) {
+      return;
+    }
+    dumpThreads(message);
+    final var racerError = errors.get();
+    if (racerError != null) {
+      throw new AssertionError(
+          message + " — and a concurrent racer failed first, which is the likely root cause",
+          racerError);
+    }
+    fail(message);
   }
 
   /**
