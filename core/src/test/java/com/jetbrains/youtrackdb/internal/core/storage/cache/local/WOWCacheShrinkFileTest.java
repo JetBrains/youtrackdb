@@ -61,6 +61,14 @@ public class WOWCacheShrinkFileTest {
   private static final int TEST_SHUTDOWN_TIMEOUT = 10_000;
   private static final long TEST_EXCLUSIVE_WRITE_CACHE_MAX_SIZE = 100L;
 
+  /**
+   * Page count used by the exclusive-write-page accounting tests. Comfortably below
+   * {@link #TEST_EXCLUSIVE_WRITE_CACHE_MAX_SIZE} so no writer-latching flush is triggered
+   * while the test is building its precondition state, and large enough that the shrink test
+   * can split it into a purged range and a surviving range.
+   */
+  private static final int LEAK_TEST_PAGES = 6;
+
   private static final String FILE_NAME = "wowCacheShrinkFileTest.tst";
   private static final String STORAGE_NAME = "WOWCacheShrinkFileTest";
 
@@ -165,18 +173,28 @@ public class WOWCacheShrinkFileTest {
         testFile.delete();
       }
     }
+    // Recursive best-effort wipe, mirroring WOWCacheLoadOrAddTest.cleanUp(). This used to
+    // delete a hand-written list of names (name_id_map.cm, name_id_map_v2.cm) and then call
+    // Files.deleteIfExists(storagePath), which throws DirectoryNotEmptyException on anything
+    // the list misses — name_id_map_v3.cm (the format actually in use) and the WAL segments
+    // among them. On a passing test those are removed by wowCache.delete() /
+    // writeAheadLog.delete() above, so the gap was invisible; but if a test aborts partway
+    // (for example on the -ea exclusive-write-counter assertion) the leftovers make setUp
+    // itself throw for every subsequent run against the same target directory, turning one
+    // real failure into a permanently red class until the directory is wiped by hand.
     if (storagePath != null && Files.exists(storagePath)) {
-      var nameIdMapFile = storagePath.resolve("name_id_map.cm").toFile();
-      if (nameIdMapFile.exists()) {
-        //noinspection ResultOfMethodCallIgnored
-        nameIdMapFile.delete();
+      try (var stream = Files.walk(storagePath)) {
+        stream
+            .sorted(java.util.Comparator.reverseOrder())
+            .forEach(
+                p -> {
+                  try {
+                    Files.deleteIfExists(p);
+                  } catch (IOException e) {
+                    // best-effort cleanup
+                  }
+                });
       }
-      nameIdMapFile = storagePath.resolve("name_id_map_v2.cm").toFile();
-      if (nameIdMapFile.exists()) {
-        //noinspection ResultOfMethodCallIgnored
-        nameIdMapFile.delete();
-      }
-      Files.deleteIfExists(storagePath);
     }
   }
 
@@ -588,5 +606,328 @@ public class WOWCacheShrinkFileTest {
         .isInstanceOf(
             com.jetbrains.youtrackdb.internal.core.exception.StorageException.class)
         .hasMessageContaining("no file entry is open");
+  }
+
+  /**
+   * Regression test for the exclusive-write-page accounting leak in
+   * {@code WOWCache.doRemoveCachePages} — the <b>deleteFile</b> ordering, asserted strictly.
+   *
+   * <p><b>Scenario.</b> Allocate {@code LEAK_TEST_PAGES} pages and install a dirty
+   * {@code writeCachePages} entry for each, then drop the reader reference on every page. That
+   * last step is what publishes each page key into {@code exclusiveWritePages}:
+   * {@code CachePointer.decrementReadersReferrer} fires {@code addOnlyWriters} once a page
+   * reaches {@code readers == 0 && writers > 0}. It reproduces in-process exactly the state the
+   * real orchestration produces on this ordering, where
+   * {@code LockFreeReadCache.deleteFile}/{@code closeFile} purge the READ cache first (dropping
+   * the reader references) and only then call into the write cache. Deleting the file must then
+   * return both the counter and the set to zero.
+   *
+   * <p><b>The bug.</b> {@code doRemoveCachePages} nulls each page's writers listener before
+   * calling {@code decrementWritersReferrer}, deliberately suppressing the
+   * {@code removeOnlyWriters} callback. Before the fix nothing else did the bookkeeping, so
+   * every deleted file's page keys were orphaned in {@code exclusiveWritePages} and
+   * {@code exclusiveWriteCacheSize} never came back down. A permanently non-zero counter pins
+   * the periodic flush task at its 1 ms re-arm interval instead of 25 ms for the whole life of
+   * the storage, and once the leaked count reaches {@code exclusiveWriteCacheMaxSize} it starts
+   * latching writers.
+   *
+   * <p><b>Why the counter and the set are asserted independently, never against each other.</b>
+   * They leak in lockstep — the buggy path skipped both mutations — so
+   * {@code assertThat(counter).isEqualTo(setSize)} held true before the fix as well and proves
+   * nothing. Each is therefore pinned to an absolute expected value: exactly
+   * {@code LEAK_TEST_PAGES} before the delete and exactly zero after it. The set-size assertion
+   * is the one that distinguishes "the counter was decremented" from "the key was actually
+   * removed", which is why {@code getExclusiveWritePagesCountForTest()} exists.
+   *
+   * <p><b>Why background flushing is paused.</b> This cache is built with a 10 ms
+   * {@code pagesFlushInterval}. A periodic flush would write the dirty pages back and remove
+   * their keys through the normal {@code removeOnlyWriters} path, making the non-zero
+   * precondition (and hence the whole test) racy. {@code pauseBackgroundFlush()} additionally
+   * barriers on the commit executor, so any flush already in flight has fully returned before
+   * the test builds its state.
+   */
+  @Test
+  public void deleteFileClearsExclusiveWritePageAccounting() throws IOException {
+    wowCache.pauseBackgroundFlush();
+    try {
+      // Baseline: a fresh cache has no exclusive-write pages at all.
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("fresh cache must report a zero exclusive-write page counter")
+          .isZero();
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("fresh cache must hold an empty exclusive-write page set")
+          .isZero();
+
+      final var fileId = allocateAndOptionallyDirty(LEAK_TEST_PAGES, true);
+
+      // Non-zero precondition. Without this the post-delete zero assertions would pass
+      // vacuously against a cache that never accumulated anything to leak.
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("every dirty reader-free page must be counted in the exclusive-write counter")
+          .isEqualTo(LEAK_TEST_PAGES);
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("every dirty reader-free page must be present in the exclusive-write page set")
+          .isEqualTo(LEAK_TEST_PAGES);
+
+      // deleteFile submits DeleteFileTask to the single-threaded commit executor and blocks on
+      // its future, so doRemoveCachePages has fully run by the time this call returns.
+      wowCache.deleteFile(fileId);
+
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("deleteFile must return the exclusive-write counter to zero (back-pressure and"
+              + " the 25 ms flush re-arm both depend on it reaching zero)")
+          .isZero();
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("deleteFile must actually empty the exclusive-write page set, not merely fix up"
+              + " the counter")
+          .isZero();
+    } finally {
+      wowCache.resumeBackgroundFlush();
+    }
+  }
+
+  /**
+   * Same accounting invariant as {@link #deleteFileClearsExclusiveWritePageAccounting}, on the
+   * <b>closeFile</b> ordering, also asserted strictly.
+   *
+   * <p>{@code close(fileId, flush = false)} reaches {@code doRemoveCachePages} through
+   * {@code removeCachedPages} rather than through {@code DeleteFileTask}, and
+   * {@code LockFreeReadCache.closeFile} likewise purges the read cache before delegating. This
+   * test exists so a future change that fixes (or breaks) only the delete path cannot pass:
+   * both entry points must leave the counter and the set at zero.
+   *
+   * <p>{@code flush = false} is deliberate — with {@code flush = true} the pages would be
+   * written back and unregistered through the ordinary {@code removeOnlyWriters} callback,
+   * which is not the path under test.
+   */
+  @Test
+  public void closeFileWithoutFlushClearsExclusiveWritePageAccounting() throws IOException {
+    wowCache.pauseBackgroundFlush();
+    try {
+      final var fileId = allocateAndOptionallyDirty(LEAK_TEST_PAGES, true);
+
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("non-zero precondition: counter must reflect the dirty reader-free pages")
+          .isEqualTo(LEAK_TEST_PAGES);
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("non-zero precondition: set must hold one key per dirty reader-free page")
+          .isEqualTo(LEAK_TEST_PAGES);
+
+      wowCache.close(fileId, false);
+
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("close(fileId, false) must return the exclusive-write counter to zero")
+          .isZero();
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("close(fileId, false) must actually empty the exclusive-write page set")
+          .isZero();
+    } finally {
+      wowCache.resumeBackgroundFlush();
+    }
+  }
+
+  /**
+   * Accounting behaviour of the range-scoped purge on the <b>shrinkFile</b> ordering —
+   * deliberately asserted only as a <i>direction of improvement</i>, never as a strict
+   * zero-leak claim.
+   *
+   * <p><b>Why not strict.</b> The production comment in {@code doRemoveCachePages} documents a
+   * known, unclosed window on this ordering: {@code LockFreeReadCache.shrinkFile} (and
+   * {@code truncateFile}) purge the write cache FIRST and clear the read cache afterwards, so
+   * the read cache is still live while the purge runs and a concurrent release or eviction can
+   * call {@code decrementReadersReferrer -> addOnlyWriters} and re-publish a key after the
+   * post-loop sweep has already passed it. The in-process shape below happens to be
+   * deterministic (there is no read cache and no eviction thread in this harness), but pinning
+   * an exact post-shrink value here would assert an invariant the production code explicitly
+   * does not promise, and would turn any future eviction-timing change into a spurious
+   * failure. Only the two properties the code does guarantee are asserted.
+   *
+   * <p><b>Property 1 — the purged range is accounted for.</b> The counter and the set must
+   * strictly decrease across the shrink. Before the fix they did not move at all, so this is
+   * the load-bearing half.
+   *
+   * <p><b>Property 2 — the surviving range is NOT over-purged.</b> Neither may drop below the
+   * number of pages the shrink keeps ({@code minPageIndex}). This is the guard against the
+   * whole-file sweep and the unconditional decrement that review rejected: both would run the
+   * counter down past the surviving pages and, on the real ordering, straight into negative
+   * territory, which silently disables the exclusive-write back-pressure altogether.
+   */
+  @Test
+  public void shrinkFileAccountsForThePurgedRangeWithoutOverPurgingTheSurvivors()
+      throws IOException {
+    wowCache.pauseBackgroundFlush();
+    try {
+      final var fileId = allocateAndOptionallyDirty(LEAK_TEST_PAGES, true);
+
+      final long counterBefore = wowCache.getExclusiveWriteCachePagesSize();
+      final int setSizeBefore = wowCache.getExclusiveWritePagesCountForTest();
+      assertThat(counterBefore)
+          .as("non-zero precondition: counter must reflect the dirty reader-free pages")
+          .isEqualTo(LEAK_TEST_PAGES);
+      assertThat(setSizeBefore)
+          .as("non-zero precondition: set must hold one key per dirty reader-free page")
+          .isEqualTo(LEAK_TEST_PAGES);
+
+      // Keep the first SURVIVING_PAGES pages, drop the rest.
+      final int survivingPages = 2;
+      assertThat(wowCache.shrinkFile(fileId, (long) survivingPages * pageSize))
+          .as("a real truncate must return true")
+          .isTrue();
+
+      // Property 1 — the dropped range was accounted for, not orphaned.
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("shrinkFile must account for the purged page range in the counter")
+          .isLessThan(counterBefore);
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("shrinkFile must remove the purged page range from the set")
+          .isLessThan(setSizeBefore);
+
+      // Property 2 — the surviving range below the target was not swept away.
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("the pages below the shrink target must stay counted (a whole-file sweep or an"
+              + " unconditional decrement would drop them and, on the real ordering, drive the"
+              + " counter negative)")
+          .isGreaterThanOrEqualTo(survivingPages);
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("the page keys below the shrink target must stay in the set")
+          .isGreaterThanOrEqualTo(survivingPages);
+    } finally {
+      wowCache.resumeBackgroundFlush();
+    }
+  }
+
+  /**
+   * The <b>conditional</b> half of the accounting fix: a dirty page that still has a reader
+   * must NOT be decremented when its file is purged.
+   *
+   * <p><b>Why this shape matters.</b> A page only enters {@code exclusiveWritePages} once it
+   * becomes writers-only ({@code readers == 0 && writers > 0}). On the
+   * {@code truncateFile}/{@code shrinkFile} ordering the write cache is purged BEFORE the read
+   * cache is cleared, so the pages still have readers and their keys are NOT in the set when
+   * {@code doRemoveCachePages} runs. This test reproduces that in-process by installing a dirty
+   * entry via {@code store} and deliberately holding the reader reference across the delete.
+   *
+   * <p>An unconditional {@code exclusiveWriteCacheSize.decrementAndGet()} in the purge — the
+   * variant review rejected — would take the counter to -1 here. A negative counter is strictly
+   * worse than the leak being fixed: {@code flushExclusivePagesIfNeeded} and
+   * {@code flushWriteCacheFromMinLSN} compare it against {@code exclusiveWriteCacheMaxSize}, so
+   * a negative value disables the exclusive-write back-pressure outright for the rest of the
+   * storage's lifetime. The counter must therefore stay at exactly zero, never go below it.
+   * (The {@code assert remaining >= 0} in the production helper would also trip here under
+   * {@code -ea}, which surefire enables.)
+   */
+  @Test
+  public void deleteFileDoesNotDecrementForPagesThatWereNeverPublishedAsWritersOnly()
+      throws IOException {
+    wowCache.pauseBackgroundFlush();
+    try {
+      final var fileId = wowCache.addFile(FILE_NAME);
+      wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+
+      // Install a dirty writeCachePages entry but KEEP the reader reference, so the page stays
+      // at readers=1/writers=1 and addOnlyWriters never fires for it.
+      final var heldPointer = wowCache.load(fileId, 0L, new ModifiableBoolean(), false);
+      long exclusiveStamp = heldPointer.acquireExclusiveLock();
+      try {
+        var buffer = heldPointer.getBuffer();
+        assert buffer != null;
+        buffer.put(DurablePage.NEXT_FREE_POSITION, (byte) 0x5A);
+      } finally {
+        heldPointer.releaseExclusiveLock(exclusiveStamp);
+      }
+      wowCache.store(fileId, 0L, heldPointer);
+
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("a page that still has a reader must not be counted as exclusive-write")
+          .isZero();
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("a page that still has a reader must not be present in the exclusive-write set")
+          .isZero();
+
+      // The purge walks this dirty entry and must find nothing to remove from the set.
+      wowCache.deleteFile(fileId);
+
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("purging a reader-held dirty page must leave the counter at zero, never negative"
+              + " (a negative counter permanently disables exclusive-write back-pressure)")
+          .isZero();
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("purging a reader-held dirty page must leave the set empty")
+          .isZero();
+
+      // Release the reference the test held so the page frame returns to the pool.
+      heldPointer.decrementReadersReferrer();
+    } finally {
+      wowCache.resumeBackgroundFlush();
+    }
+  }
+
+  /**
+   * The <b>post-loop sweep</b>: page keys that exist ONLY in {@code exclusiveWritePages}, with
+   * no {@code writeCachePages} entry backing them, must still be cleaned up when their file is
+   * purged.
+   *
+   * <p><b>Why such keys exist.</b> {@code flushExclusiveWriteCache} documents the two structures
+   * as only eventually consistent, with {@code writeCachePages} as the source of truth; it even
+   * has a dedicated no-progress break for the case where a key has no entry and the file is too
+   * small to extend. That break is the source of the "no progress in flush cycle" warning this
+   * track eliminates. The purge loop iterates {@code writeCachePages}, so it structurally cannot
+   * see such a key — only the post-loop sweep can.
+   *
+   * <p><b>How the shape is built.</b> {@code addOnlyWriters} is the public {@code WritersListener}
+   * callback the cache installs on every stored page; calling it directly publishes a key into
+   * {@code exclusiveWritePages} and bumps the counter with no {@code writeCachePages} entry —
+   * exactly the orphan shape, built through production API rather than reflection.
+   *
+   * <p><b>Two properties, both load-bearing.</b> The delete must clear the orphans (only the
+   * sweep can), and the shrink must clear ONLY the keys at or above the truncate target. The
+   * second is the regression guard for the range-bound requirement: a whole-file sweep would
+   * also drop the three below-target keys, and on the real ordering that over-purge is what
+   * drives the counter negative. Exact values are asserted here — unlike the CachePointer-backed
+   * shrink test above — because these keys are synthetic: there is no read cache, no
+   * {@code CachePointer} and no listener behind them, so the concurrent-eviction re-publication
+   * that the production known-limitation comment describes cannot occur.
+   */
+  @Test
+  public void purgeSweepsKeysPresentOnlyInTheExclusiveWritePageSet() throws IOException {
+    wowCache.pauseBackgroundFlush();
+    try {
+      final var fileId = allocateAndOptionallyDirty(LEAK_TEST_PAGES, false);
+
+      // Publish LEAK_TEST_PAGES orphan keys: in the set, absent from writeCachePages.
+      for (int i = 0; i < LEAK_TEST_PAGES; i++) {
+        wowCache.addOnlyWriters(fileId, i);
+      }
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("non-zero precondition: every published orphan key must be counted")
+          .isEqualTo(LEAK_TEST_PAGES);
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("non-zero precondition: every published orphan key must be in the set")
+          .isEqualTo(LEAK_TEST_PAGES);
+
+      // Range-bound check first: shrink to 3 pages must sweep keys 3..5 and keep keys 0..2.
+      final int survivingPages = 3;
+      assertThat(wowCache.shrinkFile(fileId, (long) survivingPages * pageSize))
+          .as("a real truncate must return true")
+          .isTrue();
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("the sweep must be range-bound: only keys at or above the truncate target are"
+              + " dropped, so the three below-target keys stay counted")
+          .isEqualTo(survivingPages);
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("the sweep must leave the below-target keys in the set")
+          .isEqualTo(survivingPages);
+
+      // Now delete the file: minPageIndex is 0, so the sweep must clear the remainder.
+      wowCache.deleteFile(fileId);
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("deleting the file must sweep every remaining orphan key from the counter")
+          .isZero();
+      assertThat(wowCache.getExclusiveWritePagesCountForTest())
+          .as("deleting the file must sweep every remaining orphan key from the set")
+          .isZero();
+    } finally {
+      wowCache.resumeBackgroundFlush();
+    }
   }
 }
