@@ -244,13 +244,21 @@ jobs:
           check_name: Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
-        if: "!cancelled()"
+        # always(), NOT !cancelled(): a job killed by its own timeout-minutes is
+        # reported as cancelled, so !cancelled() skipped the upload in exactly the
+        # case the dumps are the only evidence of what hung. Failsafe globs are
+        # included alongside surefire so the step keeps working unchanged if this
+        # job ever gains a verify phase; if-no-files-found: ignore makes the
+        # non-matching globs free.
+        if: always()
         with:
           name: test-diagnostics-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
           path: |
             **/target/deadlock-report.txt
             **/target/surefire-reports/*.dumpstream
             **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
       - name: Upload Coverage Data
@@ -316,13 +324,18 @@ jobs:
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
-        if: "!cancelled()"
+        # always(), NOT !cancelled(): a timeout-killed job is reported as cancelled,
+        # which is precisely when these dumps are the only diagnostic left. Failsafe
+        # globs added defensively next to the surefire ones (ignored when absent).
+        if: always()
         with:
           name: test-diagnostics-windows-jdk${{ matrix.java }}-${{ matrix.distribution }}
           path: |
             **/target/deadlock-report.txt
             **/target/surefire-reports/*.dumpstream
             **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
 
@@ -381,13 +394,18 @@ jobs:
           check_name: Tests Results (macOS arm, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
-        if: "!cancelled()"
+        # always(), NOT !cancelled(): a timeout-killed job is reported as cancelled,
+        # which is precisely when these dumps are the only diagnostic left. Failsafe
+        # globs added defensively next to the surefire ones (ignored when absent).
+        if: always()
         with:
           name: test-diagnostics-macos-jdk${{ matrix.java }}-${{ matrix.distribution }}
           path: |
             **/target/deadlock-report.txt
             **/target/surefire-reports/*.dumpstream
             **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
 
@@ -449,13 +467,23 @@ jobs:
           check_name: Tests Results (Small Cache IT)
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
-        if: "!cancelled()"
+        # always(), NOT !cancelled(): this job has timeout-minutes: 120 and runs the
+        # longest suite in the pipeline, so a timeout kill (reported as cancelled) is
+        # its most likely failure mode — exactly when the dumps matter most.
+        #
+        # The failsafe globs below are this step's ONLY diagnostics source and must not
+        # be replaced. The surefire globs are ADDED: `-pl core -am clean verify` runs
+        # the unit tests through surefire before failsafe's integration-test phase, so
+        # surefire dumps exist here today and were silently being dropped.
+        if: always()
         with:
           name: test-diagnostics-small-cache-linux
           path: |
             **/target/deadlock-report.txt
             **/target/failsafe-reports/*.dumpstream
             **/target/failsafe-reports/*.dump
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
       # Inline dispatch (single non-matrix job, no dedicated notify-failure job needed)

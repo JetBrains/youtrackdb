@@ -180,13 +180,23 @@ jobs:
           check_name: Integration Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
-        if: "!cancelled()"
+        # always(), NOT !cancelled(): this job has timeout-minutes: 600 and a
+        # timeout kill is reported as cancelled, so !cancelled() skipped the upload in
+        # exactly the case the dumps are the only evidence of what hung.
+        #
+        # Mixed matrix, so BOTH report directories are needed and neither may be
+        # dropped: the x86 leg runs `clean verify` (failsafe — previously not collected
+        # here at all) and the arm leg runs `clean package` (surefire only). The
+        # surefire globs are kept as-is and the failsafe ones added.
+        if: always()
         with:
           name: test-diagnostics-integration-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
           path: |
             **/target/deadlock-report.txt
             **/target/surefire-reports/*.dumpstream
             **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
 
@@ -238,13 +248,20 @@ jobs:
           check_name: Integration Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
-        if: "!cancelled()"
+        # always(), NOT !cancelled(): a timeout-killed job is reported as cancelled,
+        # which is precisely when these dumps are the only diagnostic left. This leg
+        # runs `clean package -P ci-integration-tests`, so failsafe does not execute
+        # today; the failsafe globs are added defensively so the step keeps collecting
+        # everything if the goal is ever promoted to verify (ignored when absent).
+        if: always()
         with:
           name: test-diagnostics-integration-windows-jdk${{ matrix.java }}-${{ matrix.distribution }}
           path: |
             **/target/deadlock-report.txt
             **/target/surefire-reports/*.dumpstream
             **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
 
