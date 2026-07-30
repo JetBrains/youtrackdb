@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -55,9 +56,15 @@ final class GremlinToMatchTranslator {
 
   /**
    * Everything the strategy needs to replace a fully-recognized traversal's step list with a
-   * single {@code YTDBMatchPlanStep}.
+   * boundary step. Most translations are still single-plan, but union can carry several child
+   * {@link MatchPlanInputs} that the strategy builds and splices into one {@code MultiPlanMatchStep}.
    *
-   * @param inputs the assembled MATCH plan inputs handed to {@code MatchExecutionPlanner}
+   * @param inputs the assembled MATCH plan inputs handed to {@code MatchExecutionPlanner} for a
+   *     single-plan translation, or {@code null} for a multi-plan translation
+   * @param childInputs the ordered child MATCH plan inputs for a multi-plan translation; empty for a
+   *     single-plan translation
+   * @param childInputParameters the ordered child positional-parameter maps for a multi-plan
+   *     translation; empty for a single-plan translation
    * @param boundaryAlias the alias under which the matched element appears in each result
    *     row (the boundary step projects rows onto traversers by this alias)
    * @param outputType how each row is projected onto a traverser payload
@@ -72,7 +79,9 @@ final class GremlinToMatchTranslator {
    *     token keys); {@link ResultShaping#NONE} for the element path
    */
   record TranslationResult(
-      @Nonnull MatchPlanInputs inputs,
+      @Nullable MatchPlanInputs inputs,
+      @Nonnull List<MatchPlanInputs> childInputs,
+      @Nonnull List<Map<Object, Object>> childInputParameters,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Class<? extends Element> returnClass,
@@ -90,12 +99,57 @@ final class GremlinToMatchTranslator {
         boolean cacheEligible) {
       this(
           inputs,
+          List.of(),
+          List.of(),
           boundaryAlias,
           outputType,
           returnClass,
           inputParameters,
           cacheEligible,
           ResultShaping.NONE);
+    }
+
+    TranslationResult {
+      childInputs = List.copyOf(childInputs);
+      childInputParameters = childInputParameters.stream().map(Map::copyOf).toList();
+      boolean singlePlan = inputs != null;
+      boolean multiPlan = !childInputs.isEmpty();
+      if (singlePlan == multiPlan) {
+        throw new IllegalArgumentException(
+            "TranslationResult must carry either one plan input or an ordered child input list.");
+      }
+      if (multiPlan && childInputs.size() != childInputParameters.size()) {
+        throw new IllegalArgumentException(
+            "Multi-plan translations must carry one positional-parameter map per child input.");
+      }
+      if (multiPlan && !inputParameters.isEmpty()) {
+        throw new IllegalArgumentException(
+            "Multi-plan translations keep positional parameters on child contexts, not the base.");
+      }
+    }
+
+    static TranslationResult multiPlan(
+        @Nonnull List<MatchPlanInputs> childInputs,
+        @Nonnull List<Map<Object, Object>> childInputParameters,
+        @Nonnull String boundaryAlias,
+        @Nonnull BoundaryOutputType outputType,
+        @Nonnull Class<? extends Element> returnClass,
+        boolean cacheEligible,
+        @Nonnull ResultShaping shaping) {
+      return new TranslationResult(
+          null,
+          childInputs,
+          childInputParameters,
+          boundaryAlias,
+          outputType,
+          returnClass,
+          Map.of(),
+          cacheEligible,
+          shaping);
+    }
+
+    boolean isMultiPlan() {
+      return !childInputs.isEmpty();
     }
   }
 }

@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
@@ -14,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -367,10 +370,11 @@ public final class GremlinToMatchStrategy
   }
 
   /**
-   * Replaces the traversal's entire step list with a single {@link YTDBMatchPlanStep} built
-   * from {@code translation} (all-or-nothing). Builds the plan eagerly via {@link
-   * MatchExecutionPlanner#createExecutionPlan} so the boundary step has its plan ready before
-   * any traverser flows through it, then swaps the step list.
+   * Replaces the traversal's entire step list with one boundary step built from {@code translation}
+   * (all-or-nothing). Single-plan translations build one {@link YTDBMatchPlanStep}; multi-plan
+   * translations build every child plan eagerly, install each child's parameters onto its own context,
+   * and splice one {@link MultiPlanMatchStep}. The step list is swapped only after every required plan
+   * exists, so a planner throw still leaves the original traversal intact.
    *
    * <p>Plan build order matters for the throw-safety net: the plan is built <em>before</em>
    * the step list is mutated, so a planner throw is caught by {@link #apply}'s net with the
@@ -386,6 +390,11 @@ public final class GremlinToMatchStrategy
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation,
       long planningStart) {
+    if (translation.isMultiPlan()) {
+      var plans = buildChildPlans(session, translation, planningStart);
+      replaceAllStepsWithBoundary(traversal, plans, translation);
+      return;
+    }
     InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, planningStart);
     replaceAllStepsWithBoundary(traversal, plan, translation);
   }
@@ -400,16 +409,19 @@ public final class GremlinToMatchStrategy
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation,
       long planningStart) {
+    assert !translation.isMultiPlan()
+        : "single-plan buildPlan helper cannot build a multi-plan translation";
     if (!translation.cacheEligible()) {
-      return buildPlanUncached(session, translation.inputs());
+      return buildPlanUncached(session, requireInputs(translation));
     }
-    var fingerprint = GremlinPlanFingerprint.fingerprint(translation.inputs());
+    var inputs = requireInputs(translation);
+    var fingerprint = GremlinPlanFingerprint.fingerprint(inputs);
     var ctx = new BasicCommandContext(session);
     var cached = GremlinPlanCache.get(fingerprint, ctx, session);
     if (cached != null) {
       return cached;
     }
-    var plan = buildPlanUncached(session, translation.inputs());
+    var plan = buildPlanUncached(session, inputs);
     // Cache only if no metadata invalidation landed after planningStart (captured before the walk).
     // A concurrent DDL that fires between the schema read and this put would otherwise leave a plan
     // built against the pre-change schema in the shared per-database cache, served to every later
@@ -420,11 +432,72 @@ public final class GremlinToMatchStrategy
     return plan.copy(ctx);
   }
 
+  /**
+   * Builds every child {@link InternalExecutionPlan} for a multi-plan translation inside the
+   * concurrent-DDL-guarded path (via {@link #planBuilder}), installs each child's positional
+   * parameters onto that child's own context, and closes already-built children if a later child
+   * throws. Each child is forced {@code cacheEligible=false}: the single-plan cache fingerprint
+   * does not fit an N-plan union.
+   */
+  private List<InternalExecutionPlan> buildChildPlans(
+      DatabaseSessionEmbedded session,
+      GremlinToMatchTranslator.TranslationResult translation,
+      long planningStart) {
+    var builtPlans = new ArrayList<InternalExecutionPlan>(translation.childInputs().size());
+    try {
+      for (int i = 0; i < translation.childInputs().size(); i++) {
+        var childInputs = translation.childInputs().get(i);
+        var childParameters = translation.childInputParameters().get(i);
+        var childTranslation =
+            new GremlinToMatchTranslator.TranslationResult(
+                childInputs,
+                List.of(),
+                List.of(),
+                translation.boundaryAlias(),
+                translation.outputType(),
+                translation.returnClass(),
+                childParameters,
+                false,
+                translation.shaping());
+        var childPlan = planBuilder.buildPlan(session, childTranslation, planningStart);
+        if (!childParameters.isEmpty()) {
+          childPlan.getContext().setInputParameters(childParameters);
+        }
+        builtPlans.add(childPlan);
+      }
+      return List.copyOf(builtPlans);
+    } catch (RuntimeException | Error e) {
+      closePlans(builtPlans, e);
+      throw e;
+    }
+  }
+
   private static InternalExecutionPlan buildPlanUncached(
       DatabaseSessionEmbedded session, MatchPlanInputs inputs) {
     var ctx = new BasicCommandContext(session);
     return new MatchExecutionPlanner(inputs)
         .createExecutionPlan(ctx, /* enableProfiling */ false, /* useCache */ false);
+  }
+
+  private static MatchPlanInputs requireInputs(
+      GremlinToMatchTranslator.TranslationResult translation) {
+    var inputs = translation.inputs();
+    assert inputs != null : "single-plan translation must carry MatchPlanInputs";
+    if (inputs == null) {
+      throw new IllegalArgumentException(
+          "Single-plan translation is missing MatchPlanInputs for boundary build.");
+    }
+    return inputs;
+  }
+
+  private static void closePlans(List<InternalExecutionPlan> plans, Throwable primary) {
+    for (var plan : plans) {
+      try {
+        plan.close();
+      } catch (RuntimeException | Error closeFailure) {
+        primary.addSuppressed(closeFailure);
+      }
+    }
   }
 
   /**
@@ -448,6 +521,28 @@ public final class GremlinToMatchStrategy
             translation.boundaryAlias(),
             translation.outputType(),
             translation.inputParameters(),
+            translation.shaping());
+    TraversalHelper.removeAllSteps(traversalRaw);
+    traversalRaw.addStep(boundary);
+  }
+
+  /**
+   * Multi-plan splice: replaces every step with one {@link MultiPlanMatchStep} carrying the
+   * already-built child plans. The base positional-parameter map stays empty — each child's
+   * parameters were installed on that child's own context in {@link #buildChildPlans}.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private static void replaceAllStepsWithBoundary(
+      Traversal.Admin<?, ?> traversalRaw,
+      List<InternalExecutionPlan> plans,
+      GremlinToMatchTranslator.TranslationResult translation) {
+    var boundary =
+        new MultiPlanMatchStep(
+            traversalRaw,
+            translation.returnClass(),
+            plans,
+            translation.boundaryAlias(),
+            translation.outputType(),
             translation.shaping());
     TraversalHelper.removeAllSteps(traversalRaw);
     traversalRaw.addStep(boundary);

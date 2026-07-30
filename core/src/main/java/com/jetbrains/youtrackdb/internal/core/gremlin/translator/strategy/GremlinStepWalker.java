@@ -407,6 +407,8 @@ final class GremlinStepWalker {
     ctx.inputParameters.forEach(inputParameters::put);
     return new GremlinToMatchTranslator.TranslationResult(
         inputs,
+        List.of(),
+        List.of(),
         ctx.boundaryAlias,
         ctx.outputType,
         ctx.returnClass,

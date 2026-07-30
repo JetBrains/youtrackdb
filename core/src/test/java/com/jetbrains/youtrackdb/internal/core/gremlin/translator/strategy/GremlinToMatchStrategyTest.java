@@ -3,14 +3,19 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
@@ -72,6 +77,18 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var inputs = MatchPlanInputs.builder(new Pattern()).build();
     return new GremlinToMatchTranslator.TranslationResult(
         inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true);
+  }
+
+  private static GremlinToMatchTranslator.TranslationResult fixtureMultiPlanTranslation(
+      List<MatchPlanInputs> childInputs, List<Map<Object, Object>> childParameters) {
+    return GremlinToMatchTranslator.TranslationResult.multiPlan(
+        childInputs,
+        childParameters,
+        "v",
+        BoundaryOutputType.ELEMENT,
+        Vertex.class,
+        false,
+        ResultShaping.NONE);
   }
 
   /** Reads/writes the kill-switch on the graph's live session. */
@@ -478,6 +495,96 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     assertThat(boundary.getOutputType()).isEqualTo(BoundaryOutputType.ELEMENT);
   }
 
+  /**
+   * A multi-plan translation builds one child plan per child input, installs each child's positional
+   * parameters onto that child's own context, and replaces the traversal with a single {@link
+   * MultiPlanMatchStep}. The base parameter map stays empty; the child contexts are the sole owners of
+   * the child slot values.
+   */
+  @Test
+  public void apply_multiPlanTranslation_buildsEveryChildAndSplicesMultiPlanBoundary() {
+    var admin = graph.traversal().V().asAdmin();
+    var childA = MatchPlanInputs.builder(new Pattern()).build();
+    var childB = MatchPlanInputs.builder(new Pattern()).build();
+    var paramsA = Map.<Object, Object>of(0, "alice");
+    var paramsB = Map.<Object, Object>of(0, "bob", 1, 42);
+    var translation =
+        fixtureMultiPlanTranslation(List.of(childA, childB), List.of(paramsA, paramsB));
+
+    var planA = mock(InternalExecutionPlan.class);
+    var planB = mock(InternalExecutionPlan.class);
+    var ctxA = new BasicCommandContext();
+    var ctxB = new BasicCommandContext();
+    when(planA.getContext()).thenReturn(ctxA);
+    when(planB.getContext()).thenReturn(ctxB);
+    var built = new java.util.ArrayList<MatchPlanInputs>();
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> translation,
+            (s, tr, planningStart) -> {
+              built.add(tr.inputs());
+              return built.size() == 1 ? planA : planB;
+            });
+
+    strategy.apply(admin);
+
+    assertThat(built).containsExactly(childA, childB);
+    assertThat(ctxA.getInputParameters()).isEqualTo(paramsA);
+    assertThat(ctxB.getInputParameters()).isEqualTo(paramsB);
+    assertThat(admin.getSteps()).hasSize(1);
+    assertThat(admin.getSteps().getFirst()).isInstanceOf(MultiPlanMatchStep.class);
+    var boundary = (MultiPlanMatchStep<?, ?>) admin.getSteps().getFirst();
+    assertThat(boundary.getPlans()).containsExactly(planA, planB);
+    assertThat(boundary.getBoundaryAlias()).isEqualTo("v");
+    assertThat(boundary.getOutputType()).isEqualTo(BoundaryOutputType.ELEMENT);
+  }
+
+  /**
+   * A mid-build failure while assembling a multi-plan boundary closes every earlier child plan and
+   * declines with the native step list intact. The throwing child never returns a plan, later children
+   * are never attempted, and the throw-safety net swallows the build failure into a clean decline.
+   */
+  @Test
+  public void apply_multiPlanChildBuildThrows_closesEarlierChildrenAndDeclines() {
+    var admin = graph.traversal().V().asAdmin();
+    var stepsBefore = List.copyOf(admin.getSteps());
+    var childA = MatchPlanInputs.builder(new Pattern()).build();
+    var childB = MatchPlanInputs.builder(new Pattern()).build();
+    var childC = MatchPlanInputs.builder(new Pattern()).build();
+    var translation =
+        fixtureMultiPlanTranslation(
+            List.of(childA, childB, childC),
+            List.of(Map.of(), Map.of(0, "boom"), Map.of(0, "unused")));
+    var planA = mock(InternalExecutionPlan.class);
+    when(planA.getContext()).thenReturn(new BasicCommandContext());
+    var builds = new int[1];
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> translation,
+            (s, tr, planningStart) -> {
+              builds[0]++;
+              if (builds[0] == 1) {
+                return planA;
+              }
+              throw new IllegalStateException("child build blew up");
+            });
+
+    var logs =
+        captureStrategyDebugLogs(
+            () -> assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException());
+
+    assertThat(builds[0]).isEqualTo(2);
+    verify(planA, times(1)).close();
+    assertThat(admin.getSteps()).isEqualTo(stepsBefore);
+    assertThat(admin.getSteps()).noneMatch(GremlinToMatchStrategyTest::isBoundary);
+    assertThat(logs)
+        .anySatisfy(
+            r -> {
+              assertThat(r.getMessage()).contains("translation declined");
+              assertThat(r.getThrown()).isInstanceOf(IllegalStateException.class);
+            });
+  }
+
   // ---------------------------------------------------------------------------
   // Gating cascade — non-YTDB / detached start, and the plain-GraphStep start gate.
   // ---------------------------------------------------------------------------
@@ -637,6 +744,144 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var boundary = (YTDBMatchPlanStep<?, ?>) only;
     assertThat(boundary.getPlan()).as("a real execution plan was built and installed").isNotNull();
     assertThat(boundary.getBoundaryAlias()).isEqualTo("v");
+  }
+
+  /**
+   * Multi-plan translations are marked non-cacheable: the single-plan cache fingerprint does not
+   * fit an N-plan union, so the carrier forces {@code cacheEligible=false}.
+   */
+  @Test
+  public void multiPlanTranslation_isNotCacheEligible() {
+    var translation =
+        fixtureMultiPlanTranslation(
+            List.of(MatchPlanInputs.builder(new Pattern()).build()),
+            List.of(Map.of(0, "alice")));
+
+    assertThat(translation.cacheEligible()).isFalse();
+  }
+
+  /**
+   * {@code TranslationResult} rejects carriers that are neither single-plan nor multi-plan, that
+   * mismatch child-input and child-parameter list lengths, or that park positional parameters on
+   * the base of a multi-plan translation.
+   */
+  @Test
+  public void translationResult_rejectsInvalidMultiPlanCarriers() {
+    var child = MatchPlanInputs.builder(new Pattern()).build();
+    assertThatCode(
+        () -> new GremlinToMatchTranslator.TranslationResult(
+            null,
+            List.of(),
+            List.of(),
+            "v",
+            BoundaryOutputType.ELEMENT,
+            Vertex.class,
+            Map.of(),
+            false,
+            ResultShaping.NONE))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("either one plan input or an ordered child input list");
+
+    assertThatCode(
+        () -> GremlinToMatchTranslator.TranslationResult.multiPlan(
+            List.of(child, child),
+            List.of(Map.of()),
+            "v",
+            BoundaryOutputType.ELEMENT,
+            Vertex.class,
+            false,
+            ResultShaping.NONE))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("one positional-parameter map per child");
+
+    assertThatCode(
+        () -> new GremlinToMatchTranslator.TranslationResult(
+            null,
+            List.of(child),
+            List.of(Map.of()),
+            "v",
+            BoundaryOutputType.ELEMENT,
+            Vertex.class,
+            Map.of(0, "leak"),
+            false,
+            ResultShaping.NONE))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("keep positional parameters on child contexts");
+  }
+
+  /**
+   * When a mid-build failure closes earlier children, a close failure on an earlier plan is
+   * attached as a suppressed exception and does not replace the primary build failure.
+   */
+  @Test
+  public void apply_multiPlanChildBuildThrows_closeFailureIsSuppressed() {
+    var admin = graph.traversal().V().asAdmin();
+    var childA = MatchPlanInputs.builder(new Pattern()).build();
+    var childB = MatchPlanInputs.builder(new Pattern()).build();
+    var translation =
+        fixtureMultiPlanTranslation(List.of(childA, childB), List.of(Map.of(), Map.of()));
+    var planA = mock(InternalExecutionPlan.class);
+    when(planA.getContext()).thenReturn(new BasicCommandContext());
+    org.mockito.Mockito.doThrow(new IllegalStateException("close failed")).when(planA).close();
+    var builds = new int[1];
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> translation,
+            (s, tr, planningStart) -> {
+              builds[0]++;
+              if (builds[0] == 1) {
+                return planA;
+              }
+              throw new IllegalStateException("child build blew up");
+            });
+
+    var logs =
+        captureStrategyDebugLogs(
+            () -> assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException());
+
+    assertThat(builds[0]).isEqualTo(2);
+    verify(planA, times(1)).close();
+    assertThat(logs)
+        .anySatisfy(
+            r -> {
+              assertThat(r.getThrown()).isInstanceOf(IllegalStateException.class);
+              assertThat(r.getThrown().getMessage()).contains("child build blew up");
+              assertThat(r.getThrown().getSuppressed())
+                  .singleElement()
+                  .isInstanceOf(IllegalStateException.class)
+                  .extracting(Throwable::getMessage)
+                  .isEqualTo("close failed");
+            });
+  }
+
+  /**
+   * Building a multi-plan boundary through the production plan builder never populates the
+   * single-plan {@link GremlinPlanCache}: each child is forced non-cacheable at build time.
+   */
+  @Test
+  public void apply_multiPlanWithProductionBuilder_bypassesPlanCache() {
+    GremlinPlanCache.instance(session()).invalidate();
+
+    var ir = new MatchPatternBuilder().addNode("v", "V", null, false).build();
+    var childInputs =
+        MatchPlanInputs.builder(ir.pattern())
+            .aliasClasses(ir.aliasClasses())
+            .aliasFilters(ir.aliasFilters())
+            .returnElements(true)
+            .build();
+    var translation =
+        fixtureMultiPlanTranslation(
+            List.of(childInputs, childInputs), List.of(Map.of(), Map.of()));
+    var admin = graph.traversal().V().asAdmin();
+    var strategy = new GremlinToMatchStrategy(t -> translation);
+
+    strategy.apply(admin);
+
+    assertThat(admin.getSteps()).hasSize(1);
+    assertThat(admin.getSteps().getFirst()).isInstanceOf(MultiPlanMatchStep.class);
+    assertThat(GremlinPlanCache.instance(session()).contains(
+        GremlinPlanFingerprint.fingerprint(childInputs)))
+        .isFalse();
   }
 
   // ---------------------------------------------------------------------------
