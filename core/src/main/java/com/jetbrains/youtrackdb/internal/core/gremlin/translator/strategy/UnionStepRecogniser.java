@@ -66,6 +66,7 @@ final class UnionStepRecogniser implements StepRecogniser {
 
     var childInputs = new ArrayList<MatchPlanInputs>(globalChildren.size());
     var childParams = new ArrayList<Map<Object, Object>>(globalChildren.size());
+    var childCacheEligible = new ArrayList<Boolean>(globalChildren.size());
     String canonicalAlias = null;
     BoundaryOutputType agreedOutputType = null;
     Class<? extends Element> agreedReturnClass = null;
@@ -96,13 +97,16 @@ final class UnionStepRecogniser implements StepRecogniser {
       childInputs.add(
           rewriteReturnAlias(childResult.inputs(), childResult.boundaryAlias(), canonicalAlias));
       childParams.add(childResult.inputParameters());
+      // Preserve each fork's RID-bearing / cache decision; children cache under their own
+      // fingerprints, the multi-plan carrier does not.
+      childCacheEligible.add(childResult.cacheEligible());
     }
 
     // Re-pin the parent walk to the children's agreed contract. The prefix-only pattern on this
     // context is discarded by buildResult when the union carrier is present.
     ctx.pinBoundary(canonicalAlias, agreedOutputType, agreedReturnClass);
     ctx.setResultShaping(agreedShaping);
-    host.stashAcceptedChildren(childInputs, childParams);
+    host.stashAcceptedChildren(childInputs, childParams, childCacheEligible);
     return Outcome.ACCEPTED;
   }
 

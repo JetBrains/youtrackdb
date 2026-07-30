@@ -180,6 +180,12 @@ final class WalkerContext implements RecognitionContext {
   /** Parallel positional-parameter maps for {@link #unionChildInputs}; same length when set. */
   @Nullable private List<Map<Object, Object>> unionChildInputParameters;
 
+  /**
+   * Parallel per-child {@code GremlinPlanCache} eligibility flags for {@link #unionChildInputs};
+   * same length when set. RID-bearing children are {@code false}.
+   */
+  @Nullable private List<Boolean> unionChildCacheEligible;
+
   /** Stateless builder used to AND-compose same-alias filter contributions in {@link
    *  #putAliasFilter}; construction is trivial so a shared instance is fine. */
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
@@ -607,18 +613,22 @@ final class WalkerContext implements RecognitionContext {
   }
 
   /**
-   * Stashes the ordered union-child plan inputs and their positional-parameter maps. Called via
-   * {@link UnionForkHost#stashAcceptedChildren} after the agreement gate passes; {@code buildResult}
-   * then emits a multi-plan translation.
+   * Stashes the ordered union-child plan inputs, positional-parameter maps, and per-child plan-cache
+   * eligibility. Called via {@link UnionForkHost#stashAcceptedChildren} after the agreement gate
+   * passes; {@code buildResult} then emits a multi-plan translation.
    */
   void stashUnionChildren(
       @Nonnull List<MatchPlanInputs> childInputs,
-      @Nonnull List<Map<Object, Object>> childInputParameters) {
+      @Nonnull List<Map<Object, Object>> childInputParameters,
+      @Nonnull List<Boolean> childCacheEligible) {
     assert childInputs.size() == childInputParameters.size()
         : "union carrier requires one parameter map per child input";
+    assert childInputs.size() == childCacheEligible.size()
+        : "union carrier requires one cache-eligibility flag per child input";
     this.unionChildInputs = List.copyOf(childInputs);
     this.unionChildInputParameters =
         childInputParameters.stream().map(Map::copyOf).toList();
+    this.unionChildCacheEligible = List.copyOf(childCacheEligible);
   }
 
   /** Whether {@link UnionStepRecogniser} accepted and stashed a multi-plan carrier. */
@@ -636,6 +646,12 @@ final class WalkerContext implements RecognitionContext {
   List<Map<Object, Object>> unionChildInputParameters() {
     assert hasUnionCarrier();
     return unionChildInputParameters;
+  }
+
+  @Nonnull
+  List<Boolean> unionChildCacheEligible() {
+    assert hasUnionCarrier();
+    return unionChildCacheEligible;
   }
 
   /**

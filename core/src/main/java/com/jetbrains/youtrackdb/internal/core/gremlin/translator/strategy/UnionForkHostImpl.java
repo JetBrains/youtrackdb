@@ -69,7 +69,8 @@ final class UnionForkHostImpl implements UnionForkHost {
   @Override
   public void stashAcceptedChildren(
       @Nonnull List<MatchPlanInputs> childInputs,
-      @Nonnull List<Map<Object, Object>> childInputParameters) {
-    ctx.stashUnionChildren(childInputs, childInputParameters);
+      @Nonnull List<Map<Object, Object>> childInputParameters,
+      @Nonnull List<Boolean> childCacheEligible) {
+    ctx.stashUnionChildren(childInputs, childInputParameters, childCacheEligible);
   }
 }

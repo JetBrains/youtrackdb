@@ -387,10 +387,10 @@ final class GremlinStepWalker {
       return GremlinToMatchTranslator.TranslationResult.multiPlan(
           ctx.unionChildInputs(),
           ctx.unionChildInputParameters(),
+          ctx.unionChildCacheEligible(),
           ctx.boundaryAlias,
           ctx.outputType,
           ctx.returnClass,
-          false,
           ctx.shaping());
     }
 
@@ -428,6 +428,7 @@ final class GremlinStepWalker {
     ctx.inputParameters.forEach(inputParameters::put);
     return new GremlinToMatchTranslator.TranslationResult(
         inputs,
+        List.of(),
         List.of(),
         List.of(),
         ctx.boundaryAlias,

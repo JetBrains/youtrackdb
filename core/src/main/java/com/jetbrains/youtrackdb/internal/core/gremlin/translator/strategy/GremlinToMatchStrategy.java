@@ -436,8 +436,9 @@ public final class GremlinToMatchStrategy
    * Builds every child {@link InternalExecutionPlan} for a multi-plan translation inside the
    * concurrent-DDL-guarded path (via {@link #planBuilder}), installs each child's positional
    * parameters onto that child's own context, and closes already-built children if a later child
-   * throws. Each child is forced {@code cacheEligible=false}: the single-plan cache fingerprint
-   * does not fit an N-plan union.
+   * throws. Each child is a single-plan translation: cache-eligible children hit {@link
+   * GremlinPlanCache} under their own fingerprint; RID-bearing children bypass. The multi-plan
+   * carrier itself is never one cache entry.
    */
   private List<InternalExecutionPlan> buildChildPlans(
       DatabaseSessionEmbedded session,
@@ -448,16 +449,18 @@ public final class GremlinToMatchStrategy
       for (int i = 0; i < translation.childInputs().size(); i++) {
         var childInputs = translation.childInputs().get(i);
         var childParameters = translation.childInputParameters().get(i);
+        var childCacheEligible = translation.childCacheEligible().get(i);
         var childTranslation =
             new GremlinToMatchTranslator.TranslationResult(
                 childInputs,
+                List.of(),
                 List.of(),
                 List.of(),
                 translation.boundaryAlias(),
                 translation.outputType(),
                 translation.returnClass(),
                 childParameters,
-                false,
+                childCacheEligible,
                 translation.shaping());
         var childPlan = planBuilder.buildPlan(session, childTranslation, planningStart);
         if (!childParameters.isEmpty()) {

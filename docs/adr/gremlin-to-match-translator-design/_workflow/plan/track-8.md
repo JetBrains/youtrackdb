@@ -21,6 +21,7 @@ Second slice of the split final track (see plan D8, revised after Track 6). Depe
 - [x] 2026-07-30T13:30Z [ctx=unknown] Step 2b complete (commit 660b3be634); dim-review PASS (in-session, 2026-07-30T13:55Z)
 - [x] 2026-07-30T14:25Z [ctx=unknown] Step 3 complete (commit d65317f54f); UnionStepRecogniser + UnionForkHost
 - [x] 2026-07-30T14:30Z [ctx=unknown] Phase B complete — all roster steps `[x]`/`[!]`; hand off to Phase C
+- [x] 2026-07-30T15:00Z [ctx=unknown] Follow-up: per-child `GremlinPlanCache` for union (DR-U5); carrier stays uncached
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -43,7 +44,7 @@ Canonical decision is plan D8 (revised after Track 6). Phase A (2026-07-28, iter
 - **DR-U2 — Child→plan seam (technical T2 / adversarial A4).** The recogniser forks the prefix, strips the child `EndStep`, and recursively walks each child via `GremlinStepWalker.production().walk(...)` to a per-child `MatchPlanInputs`; a multi-plan `TranslationResult` (field or sibling `UnionTranslationResult` — decomposition pins which) carries the ordered child inputs; `GremlinToMatchStrategy.buildPlan` builds each child `SelectExecutionPlan` inside the concurrent-DDL-guarded path and installs each child's positional parameters into its own child context (technical T3 — the base takes an empty `inputParameters` map).
 - **DR-U3 — Agreement gate (adversarial A2).** The decline gate is full projection-contract agreement — equal `BoundaryOutputType`, equal return class, equal `ResultShaping` (record equality) — plus one canonical boundary alias rewritten onto every child's RETURN at translation time. Enum-only agreement silently drops or nulls rows.
 - **DR-U4 — Suffix / nesting policy (adversarial A1 / A5).** In Track 8 the union claim is the last recognised step: after consuming the `UnionStep` the recogniser declines unless the cursor is exhausted (Track 9 relaxes this only for the sanctioned list-shaping terminators). A child whose sub-walk hits a nested `UnionStep` declines the whole union (flattening is a Phase 2 option).
-- **DR-U5 — Cache policy (risk R3 / technical T5).** Union sets `cacheEligible = false` (default non-caching, mirroring the RID-bypass path). The single-plan cache value/fingerprint does not fit N plans; per-child caching or a multi-input fingerprint is deferred unless a later need justifies designing plus collision-testing it.
+- **DR-U5 — Cache policy (risk R3 / technical T5).** The multi-plan carrier sets `cacheEligible = false` (never one `GremlinPlanCache` entry for the N-plan union). Each child is a single-plan translation and uses the existing fingerprint/get/put path when that child's walk is cache-eligible; RID-bearing children still bypass. A dedicated multi-input fingerprint / multi-plan cache *value* stays deferred unless a later need justifies designing plus collision-testing it.
 - **DR-U1 / T1 / R1 resolved (Phase B, Step 1) — no `AbstractMatchPlanStep` edit.** The decomposition's open base-edit question resolves to no-edit: the single `startPlanStream()` seam plus a `ChildContextStream` wrapper suffices for per-child context isolation, so the base stays untouched. See Episodes §Step 1.
 - **DR-U6 (ESCALATE 2026-07-30) — fix MATCH empty-class filtered count before retrying Step 2.** Insert Step 2a: skip the `EmptyStep` zero-estimate short-circuit when RETURN is bare `count(*)` without GROUP BY, so `SelectExecutionPlanner.handleProjectionsBlock` can attach `GuaranteeEmptyCountStep` (same SQL empty-count semantics as SELECT). Then retry Step 2 unchanged.
 - **DR-U2 pin (Phase B, Steps 2b / 3) — multi-plan carrier is `TranslationResult` fields + `UnionForkHost`.** Chose fields (`childInputs` / `childInputParameters` / `multiPlan` factory) over a sibling `UnionTranslationResult` type. Child→plan re-walk goes through `UnionForkHost` (walker-private parent Admin), not a recogniser-visible `Traversal.Admin`. See Episodes §Step 2b and §Step 3.
@@ -65,7 +66,7 @@ Canonical decision is plan D8 (revised after Track 6). Phase A (2026-07-28, iter
 **Phase B (2026-07-30).** Roster complete: Steps 1, 2a, 2b, 3 `[x]`; Step 2 remains `[!]` (failed attempt, recovered by 2a/2b). Delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false`. GraphApiTest green after 2a. Step 2b dim-review PASS in-session; Step 3 dim-review deferred to Phase C (usage-limit agents failed mid-session). Next: Phase C track-level code review.
 
 ## Context and Orientation
-Union is live on this branch: `UnionStepRecogniser` (via `UnionForkHost`) forks the prefix into each global child, strips `ComputerAwareStep.EndStep`, and re-walks each fork to a full `MatchPlanInputs`; a multi-plan `TranslationResult` carries the ordered children; `GremlinToMatchStrategy.buildChildPlans` builds each `SelectExecutionPlan` with `cacheEligible=false` and splices `MultiPlanMatchStep`. Single-plan walks still use one `MatchPlanInputs` / `YTDBMatchPlanStep`. `walkChild` remains a WHERE-predicate adapter for logical filters — not a full child→plan path (that path is union-only through `UnionForkHost.walkFork`).
+Union is live on this branch: `UnionStepRecogniser` (via `UnionForkHost`) forks the prefix into each global child, strips `ComputerAwareStep.EndStep`, and re-walks each fork to a full `MatchPlanInputs`; a multi-plan `TranslationResult` carries the ordered children plus per-child `cacheEligible` flags; `GremlinToMatchStrategy.buildChildPlans` builds each `SelectExecutionPlan` through the single-plan path (eligible children hit `GremlinPlanCache`) and splices `MultiPlanMatchStep`. The multi-plan carrier itself stays `cacheEligible=false`. Single-plan walks still use one `MatchPlanInputs` / `YTDBMatchPlanStep`. `walkChild` remains a WHERE-predicate adapter for logical filters — not a full child→plan path (that path is union-only through `UnionForkHost.walkFork`).
 
 Union cannot ride MATCH's `splitDisjointPatterns`, which joins disconnected patterns by **cartesian product** — the opposite of union's concatenation. Start-position `g.union(...)` declines (`hasVertexGraphStart` + empty-prefix gate). Mid-traversal children are prefix-relative and carry an `EndStep`.
 
@@ -78,7 +79,7 @@ flowchart TB
     U["g.V()….union(c1..cN)\n(union = last recognised step)"] --> Fork["fork prefix into each child\nstrip child EndStep"]
     Fork --> Child["recursively sub-walk each child\n→ per-child MatchPlanInputs"]
     Child --> Chk{"all children agree on\nprojection contract + alias?"}
-    Chk -- yes --> Build["strategy builds N child SelectExecutionPlans\n(guarded path; per-child params; cacheEligible=false)"]
+    Chk -- yes --> Build["strategy builds N child SelectExecutionPlans\n(guarded path; per-child params; per-child GremlinPlanCache)"]
     Build --> Multi["MultiPlanMatchStep(plans)\nstartPlanStream() = MultipleExecutionStream\n(one base arming; shaping applied once)"]
     Chk -- no --> Decline["decline whole union (D8)"]
 ```
@@ -162,7 +163,7 @@ flowchart TB
 - `MultiPlanMatchStep` keeps one live child stream; an exception in plan N never starts plan N+1, every child including un-run ones is closed, and the original iteration exception is thrown (not masked by a close failure — risk R6). A mid-build throw on child k closes children 0..k-1 (risk R4).
 - Two union children with different `?`-slot values return the correct per-child multiset (technical T3). Two concurrent clones of a multi-alias union show no cross-clone/parent variable bleed (risk R2).
 - `union().fold()` (Track 9) folds the whole union into one list, not one per child — pinned by the single-base-arming realization (adversarial A3; Track 9 adds the terminator).
-- Union sets `cacheEligible = false`; a union with one RID-bearing child still returns the correct multiset (DR-U5).
+- The multi-plan carrier sets `cacheEligible = false`; each eligible child hits `GremlinPlanCache` under its own fingerprint; a RID-bearing child bypasses and still returns the correct multiset (DR-U5).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -177,7 +178,7 @@ flowchart TB
 ## Interfaces and Dependencies
 **In scope (new):** `UnionStepRecogniser`; `UnionForkHost` / `UnionForkHostImpl` (walker-private parent Admin + prefix snapshot + `walkFork`); `MultiPlanMatchStep`; multi-plan fields on `TranslationResult` (`childInputs` / `childInputParameters` / `multiPlan`); concatenation / decline / lifecycle / leak / exception / concurrent-clone / per-child-param / equivalence tests.
 **In scope (modified):** `GremlinStepWalker` (register union; `UnionForkHost` install; multi-plan `buildResult`); `GremlinToMatchTranslator.TranslationResult`; `GremlinToMatchStrategy` (multi-plan `applyTranslation` / `buildChildPlans` / splice); `RecognitionContext` (`unionForkHost()` default); `WalkerContext` (union carrier stash). `AbstractMatchPlanStep` **unchanged** (DR-U1 / Step 1).
-**Out of scope:** Track 7 boundary base / list-shaping carrier; Track 9 list-shaping terminators + `BoundaryOutputType.LIST`; multi-plan cache fingerprint (deferred under DR-U5); `optional`, edge-bearing OR, nested-union flattening (Phase 2).
+**Out of scope:** Track 7 boundary base / list-shaping carrier; Track 9 list-shaping terminators + `BoundaryOutputType.LIST`; multi-plan cache *value* / multi-input fingerprint (carrier stays uncached under DR-U5; per-child single-plan cache is in); `optional`, edge-bearing OR, nested-union flattening (Phase 2).
 **Inter-track dependencies:** depends on Track 7. Track 9's Cucumber re-run validates union end to end; `union().fold()` relies on single-base-arming (DR-U1).
 **Signatures:** `SelectExecutionPlan.start()`; `BranchStep.getGlobalChildren()`; `UnionStep`; `ComputerAwareStep.EndStep`; `hasVertexGraphStart`; `MultipleExecutionStream` + `ExecutionStreamProducer`; `AbstractMatchPlanStep` plan-seam hooks; `UnionForkHost`.
 

@@ -81,13 +81,28 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   private static GremlinToMatchTranslator.TranslationResult fixtureMultiPlanTranslation(
       List<MatchPlanInputs> childInputs, List<Map<Object, Object>> childParameters) {
+    var childCacheEligible = childInputs.stream().map(ignored -> Boolean.TRUE).toList();
     return GremlinToMatchTranslator.TranslationResult.multiPlan(
         childInputs,
         childParameters,
+        childCacheEligible,
         "v",
         BoundaryOutputType.ELEMENT,
         Vertex.class,
-        false,
+        ResultShaping.NONE);
+  }
+
+  private static GremlinToMatchTranslator.TranslationResult fixtureMultiPlanTranslation(
+      List<MatchPlanInputs> childInputs,
+      List<Map<Object, Object>> childParameters,
+      List<Boolean> childCacheEligible) {
+    return GremlinToMatchTranslator.TranslationResult.multiPlan(
+        childInputs,
+        childParameters,
+        childCacheEligible,
+        "v",
+        BoundaryOutputType.ELEMENT,
+        Vertex.class,
         ResultShaping.NONE);
   }
 
@@ -747,8 +762,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Multi-plan translations are marked non-cacheable: the single-plan cache fingerprint does not
-   * fit an N-plan union, so the carrier forces {@code cacheEligible=false}.
+   * Multi-plan translations mark the carrier itself non-cacheable ({@code cacheEligible=false});
+   * children carry their own eligibility flags for the single-plan {@link GremlinPlanCache}.
    */
   @Test
   public void multiPlanTranslation_isNotCacheEligible() {
@@ -758,6 +773,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             List.of(Map.of(0, "alice")));
 
     assertThat(translation.cacheEligible()).isFalse();
+    assertThat(translation.childCacheEligible()).containsExactly(true);
   }
 
   /**
@@ -773,6 +789,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             null,
             List.of(),
             List.of(),
+            List.of(),
             "v",
             BoundaryOutputType.ELEMENT,
             Vertex.class,
@@ -786,19 +803,32 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         () -> GremlinToMatchTranslator.TranslationResult.multiPlan(
             List.of(child, child),
             List.of(Map.of()),
+            List.of(true, true),
             "v",
             BoundaryOutputType.ELEMENT,
             Vertex.class,
-            false,
             ResultShaping.NONE))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("one positional-parameter map per child");
+
+    assertThatCode(
+        () -> GremlinToMatchTranslator.TranslationResult.multiPlan(
+            List.of(child, child),
+            List.of(Map.of(), Map.of()),
+            List.of(true),
+            "v",
+            BoundaryOutputType.ELEMENT,
+            Vertex.class,
+            ResultShaping.NONE))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("one cache-eligibility flag per child");
 
     assertThatCode(
         () -> new GremlinToMatchTranslator.TranslationResult(
             null,
             List.of(child),
             List.of(Map.of()),
+            List.of(true),
             "v",
             BoundaryOutputType.ELEMENT,
             Vertex.class,
@@ -855,11 +885,12 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Building a multi-plan boundary through the production plan builder never populates the
-   * single-plan {@link GremlinPlanCache}: each child is forced non-cacheable at build time.
+   * Building a multi-plan boundary through the production plan builder populates {@link
+   * GremlinPlanCache} under each eligible child's fingerprint. The multi-plan carrier itself stays
+   * non-cacheable; RID-ineligible children bypass.
    */
   @Test
-  public void apply_multiPlanWithProductionBuilder_bypassesPlanCache() {
+  public void apply_multiPlanWithProductionBuilder_cachesEligibleChildren() {
     GremlinPlanCache.instance(session()).invalidate();
 
     var ir = new MatchPatternBuilder().addNode("v", "V", null, false).build();
@@ -869,6 +900,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .aliasFilters(ir.aliasFilters())
             .returnElements(true)
             .build();
+    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs);
     var translation =
         fixtureMultiPlanTranslation(
             List.of(childInputs, childInputs), List.of(Map.of(), Map.of()));
@@ -879,9 +911,41 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
     assertThat(admin.getSteps()).hasSize(1);
     assertThat(admin.getSteps().getFirst()).isInstanceOf(MultiPlanMatchStep.class);
-    assertThat(GremlinPlanCache.instance(session()).contains(
-        GremlinPlanFingerprint.fingerprint(childInputs)))
-        .isFalse();
+    assertThat(GremlinPlanCache.instance(session()).contains(fingerprint)).isTrue();
+
+    // Second apply of the same child shape reuses the cached plan (still splices MultiPlanMatchStep).
+    var admin2 = graph.traversal().V().asAdmin();
+    new GremlinToMatchStrategy(t -> translation).apply(admin2);
+    assertThat(admin2.getSteps().getFirst()).isInstanceOf(MultiPlanMatchStep.class);
+    assertThat(GremlinPlanCache.instance(session()).contains(fingerprint)).isTrue();
+  }
+
+  /**
+   * A multi-plan child marked non-cacheable (RID-bearing fork) does not populate {@link
+   * GremlinPlanCache}, matching the single-plan RID bypass.
+   */
+  @Test
+  public void apply_multiPlanRidBearingChild_bypassesPlanCache() {
+    GremlinPlanCache.instance(session()).invalidate();
+
+    var ir = new MatchPatternBuilder().addNode("v", "V", null, false).build();
+    var childInputs =
+        MatchPlanInputs.builder(ir.pattern())
+            .aliasClasses(ir.aliasClasses())
+            .aliasFilters(ir.aliasFilters())
+            .returnElements(true)
+            .build();
+    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs);
+    var translation =
+        fixtureMultiPlanTranslation(
+            List.of(childInputs, childInputs),
+            List.of(Map.of(), Map.of()),
+            List.of(false, false));
+    var admin = graph.traversal().V().asAdmin();
+    new GremlinToMatchStrategy(t -> translation).apply(admin);
+
+    assertThat(admin.getSteps().getFirst()).isInstanceOf(MultiPlanMatchStep.class);
+    assertThat(GremlinPlanCache.instance(session()).contains(fingerprint)).isFalse();
   }
 
   // ---------------------------------------------------------------------------

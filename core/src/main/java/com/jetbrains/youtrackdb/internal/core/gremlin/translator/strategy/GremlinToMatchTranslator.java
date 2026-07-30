@@ -65,6 +65,10 @@ final class GremlinToMatchTranslator {
    *     single-plan translation
    * @param childInputParameters the ordered child positional-parameter maps for a multi-plan
    *     translation; empty for a single-plan translation
+   * @param childCacheEligible per-child plan-cache eligibility for multi-plan translations (parallel
+   *     to {@code childInputs}); empty for single-plan. Each eligible child uses the existing
+   *     single-plan {@code GremlinPlanCache}; the multi-plan carrier itself is never cached as one
+   *     entry ({@code cacheEligible} is always {@code false} for multi-plan)
    * @param boundaryAlias the alias under which the matched element appears in each result
    *     row (the boundary step projects rows onto traversers by this alias)
    * @param outputType how each row is projected onto a traverser payload
@@ -74,6 +78,7 @@ final class GremlinToMatchTranslator {
    * @param inputParameters positional-parameter values keyed by slot ({@code 0}, {@code 1}, …) for
    *     this walk; installed on the boundary step before each execution
    * @param cacheEligible {@code false} when the walk is RID-bearing and must bypass the plan cache
+   *     (single-plan), or always {@code false} for a multi-plan carrier
    * @param shaping the boundary row-projection shaping the terminator pinned (row dropping, presence
    *     checks, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, elementMap
    *     token keys); {@link ResultShaping#NONE} for the element path
@@ -82,6 +87,7 @@ final class GremlinToMatchTranslator {
       @Nullable MatchPlanInputs inputs,
       @Nonnull List<MatchPlanInputs> childInputs,
       @Nonnull List<Map<Object, Object>> childInputParameters,
+      @Nonnull List<Boolean> childCacheEligible,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Class<? extends Element> returnClass,
@@ -101,6 +107,7 @@ final class GremlinToMatchTranslator {
           inputs,
           List.of(),
           List.of(),
+          List.of(),
           boundaryAlias,
           outputType,
           returnClass,
@@ -112,6 +119,7 @@ final class GremlinToMatchTranslator {
     TranslationResult {
       childInputs = List.copyOf(childInputs);
       childInputParameters = childInputParameters.stream().map(Map::copyOf).toList();
+      childCacheEligible = List.copyOf(childCacheEligible);
       boolean singlePlan = inputs != null;
       boolean multiPlan = !childInputs.isEmpty();
       if (singlePlan == multiPlan) {
@@ -122,27 +130,43 @@ final class GremlinToMatchTranslator {
         throw new IllegalArgumentException(
             "Multi-plan translations must carry one positional-parameter map per child input.");
       }
+      if (multiPlan && childInputs.size() != childCacheEligible.size()) {
+        throw new IllegalArgumentException(
+            "Multi-plan translations must carry one cache-eligibility flag per child input.");
+      }
+      if (!multiPlan && !childCacheEligible.isEmpty()) {
+        throw new IllegalArgumentException(
+            "Single-plan translations must not carry per-child cache-eligibility flags.");
+      }
       if (multiPlan && !inputParameters.isEmpty()) {
         throw new IllegalArgumentException(
             "Multi-plan translations keep positional parameters on child contexts, not the base.");
       }
+      if (multiPlan) {
+        // The N-plan carrier is never one GremlinPlanCache entry; children cache individually.
+        cacheEligible = false;
+      }
     }
 
-    @SuppressWarnings("unused")
+    /**
+     * Multi-plan carrier: ordered child inputs with per-child positional parameters and per-child
+     * plan-cache eligibility. The carrier's own {@code cacheEligible} is always {@code false}; each
+     * child may still hit {@code GremlinPlanCache} under its own fingerprint when its flag is
+     * {@code true}.
+     */
     static TranslationResult multiPlan(
         @Nonnull List<MatchPlanInputs> childInputs,
         @Nonnull List<Map<Object, Object>> childInputParameters,
+        @Nonnull List<Boolean> childCacheEligible,
         @Nonnull String boundaryAlias,
         @Nonnull BoundaryOutputType outputType,
         @Nonnull Class<? extends Element> returnClass,
-        boolean cacheEligible,
         @Nonnull ResultShaping shaping) {
-      // Multi-plan translations always bypass the single-plan cache fingerprint (union / N-plan
-      // carrier). The cacheEligible parameter is retained for call-site clarity but forced false.
       return new TranslationResult(
           null,
           childInputs,
           childInputParameters,
+          childCacheEligible,
           boundaryAlias,
           outputType,
           returnClass,

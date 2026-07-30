@@ -31,10 +31,12 @@ interface UnionForkHost {
       @Nonnull List<Step<?, ?>> childSuffix);
 
   /**
-   * Stashes the ordered child plan inputs and positional-parameter maps for {@code buildResult} to
-   * emit a multi-plan {@link GremlinToMatchTranslator.TranslationResult}.
+   * Stashes the ordered child plan inputs, positional-parameter maps, and per-child plan-cache
+   * eligibility for {@code buildResult} to emit a multi-plan {@link
+   * GremlinToMatchTranslator.TranslationResult}.
    */
   void stashAcceptedChildren(
       @Nonnull List<MatchPlanInputs> childInputs,
-      @Nonnull List<Map<Object, Object>> childInputParameters);
+      @Nonnull List<Map<Object, Object>> childInputParameters,
+      @Nonnull List<Boolean> childCacheEligible);
 }
