@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -1029,12 +1030,19 @@ public class WOWCacheShrinkFileTest {
    * exists precisely so the answer does not matter.
    *
    * <p><b>How the test builds it deterministically.</b> The two callbacks are public
-   * ({@code WritersListener}), so the interleaving's *net outcome* is reproduced exactly by
-   * calling them sequentially in the reverse order on the same key — no reflection, no threads,
-   * no timing. {@code removeOnlyWriters} first (counter to -1, set untouched because the key is
-   * absent), then {@code addOnlyWriters} (counter back to 0, key added). Background flushing is
-   * paused for the whole test so the transient -1 cannot be observed by the flush path's own
-   * pre-existing non-negativity assertion.
+   * ({@code WritersListener}), so the interleaving's *net outcome* is reproduced exactly by calling
+   * them sequentially in the reverse order on the same key — no threads and no timing.
+   * {@code removeOnlyWriters} first (counter to -1, set untouched because the key is absent), then
+   * {@code addOnlyWriters} (counter back to 0, key added). Background flushing is paused for the
+   * whole test so the transient -1 cannot be observed by the flush path's own pre-existing
+   * non-negativity assertion.
+   *
+   * <p>The test also pins both arms of the diagnostic's throttle, since the clamp is the only thing
+   * that emits it. The emitting arm needs nothing special: the throttle timestamp is initialised one
+   * full interval in the past and {@code nanoTime()} is monotonic, so the first clamp on a fresh
+   * cache always emits. The suppressing arm is the one that cannot be left to elapsed real time —
+   * see {@link #forceAccountingClampThrottleWindowOpen()}, the single place this test reaches into
+   * cache internals.
    *
    * <p><b>What must hold afterwards.</b> The purge sweeps the orphan key, and the counter ends at
    * exactly zero — <i>not</i> -1, which is the outcome the clamp exists to prevent and which would
@@ -1044,7 +1052,7 @@ public class WOWCacheShrinkFileTest {
    * no drift was present at all.
    */
   @Test
-  public void purgeClampsInsteadOfDrivingTheCounterNegativeOnAccountingDrift() throws IOException {
+  public void purgeClampsInsteadOfDrivingTheCounterNegativeOnAccountingDrift() throws Exception {
     wowCache.pauseBackgroundFlush();
     try {
       final var fileId = allocateAndOptionallyDirty(1, false);
@@ -1084,9 +1092,21 @@ public class WOWCacheShrinkFileTest {
           .as("throttle arm 1 — the first clamp on a cache instance must emit its diagnostic")
           .isEqualTo(1);
 
-      // Throttle arm 2: a second drift within the same throttle interval must still be counted as
-      // a clamp but must NOT emit a second record. Both arms are pinned deterministically because
-      // the interval is a minute and this runs in microseconds; no clock injection needed.
+      // Throttle arm 2: a clamp that happens while the throttle window is still open must still be
+      // counted, but must NOT emit a second record.
+      //
+      // The window is forced open explicitly rather than by assuming the work below outruns the
+      // clock. That work is not cheap: allocateAndOptionallyDirty's addFile and the deleteFile
+      // after it each finish with writeNameIdEntry(..., sync = true), i.e. a real
+      // nameIdMapHolder.force(true) fsync, plus a file create, a blank-page task and an unlink. On
+      // an I/O-throttled runner that can cumulatively outlast the one-minute throttle interval, at
+      // which point the second clamp legitimately emits and an assertion of 1 fails on correct
+      // code. No assertion on the emitted count can be both flake-free and able to catch a removed
+      // throttle while the gate is time-based — correct code under a long enough stall is
+      // indistinguishable from a throttle that never suppresses — so the clock is taken out of the
+      // comparison instead of merely being given more headroom.
+      forceAccountingClampThrottleWindowOpen();
+
       final var secondFileId = allocateAndOptionallyDirty(1, false);
       wowCache.removeOnlyWriters(secondFileId, 0);
       wowCache.addOnlyWriters(secondFileId, 0);
@@ -1106,5 +1126,35 @@ public class WOWCacheShrinkFileTest {
     } finally {
       wowCache.resumeBackgroundFlush();
     }
+  }
+
+  /**
+   * Makes {@link WOWCache}'s accounting-clamp log throttle behave as though it had just emitted a
+   * record, so the next clamp is suppressed regardless of how much real time passes — which is what
+   * lets the suppression arm of
+   * {@link #purgeClampsInsteadOfDrivingTheCounterNegativeOnAccountingDrift} assert an exact emitted
+   * count without depending on a wall-clock budget.
+   *
+   * <p>It parks the throttle's last-emitted timestamp far ahead of the clock, so the
+   * {@code now - last < interval} test inside {@code shouldLogAccountingClamp} sees a large negative
+   * elapsed time and takes the suppression branch for any {@code now}. The offset is added to a
+   * fresh {@code nanoTime()} reading rather than being written as an absolute constant: that keeps
+   * the difference bounded near {@code -Long.MAX_VALUE / 4} whatever origin the platform's
+   * {@code nanoTime()} uses, so the subtraction cannot overflow into a positive value and silently
+   * re-open the window. {@code nanoTime()} is documented as possibly negative, which is exactly the
+   * case an absolute constant would get wrong.
+   *
+   * <p>Reflection rather than a production seam, deliberately. Reaching into cache internals from a
+   * test is the established pattern in this package — {@code WOWCacheLoadOrAddTest} injects
+   * {@code flushError}, {@code WOWCacheFlushErrorTest} installs an {@code AtomicLong} into
+   * {@code exclusiveWriteCacheSize}, and three more classes here do the same kind of thing — and it
+   * leaves production behaviour byte-for-byte unchanged. A test-only mutator on {@link WOWCache}
+   * would have meant adding public API that no production path calls, to a class that is already
+   * over five thousand lines.
+   */
+  private void forceAccountingClampThrottleWindowOpen() throws Exception {
+    final var field = WOWCache.class.getDeclaredField("exclusiveWriteAccountingClampWarnNanos");
+    field.setAccessible(true);
+    ((AtomicLong) field.get(wowCache)).set(System.nanoTime() + Long.MAX_VALUE / 4);
   }
 }
