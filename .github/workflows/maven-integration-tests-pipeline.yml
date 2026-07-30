@@ -132,15 +132,16 @@ jobs:
 
       - name: Run Maven Test
         id: tests
-        # Step-level timeout 30 minutes inside the job's own timeout-minutes: 600. A step
-        # timeout is recorded as a step FAILURE, not a cancellation, so the remaining steps run
-        # with the normal job budget instead of racing GitHub's ~5-minute forced-termination
-        # window — which is what makes the diagnostics upload below actually reachable on a
-        # hang. Any run this kills would have been killed by the job timeout 30 minutes later
-        # anyway, so it cannot fail a run that passes today. (On the arm leg the effective cap
-        # is the hosted-runner 360-minute limit, which is lower still; this step timeout does
-        # not change that leg's behaviour.)
-        timeout-minutes: 570
+        # No step-level timeout here, deliberately. The obvious value (just inside this job's
+        # timeout-minutes: 600) is not expressible: GitHub documents a maximum of 360 for
+        # jobs.<job_id>.steps[*].timeout-minutes on both hosted and self-hosted runners, so a
+        # 570 would be out of range — currently unenforced, but not something to rely on. Any
+        # in-range value (<= 360) would be well below this job's 600-minute budget and could
+        # kill integration runs that legitimately take longer, which is a real regression for a
+        # nightly suite sized at 600. The always() condition on the diagnostics upload below
+        # already covers the timeout case on its own; a step timeout would only have been
+        # belt-and-braces, so it is not worth that risk here. The small-cache job in
+        # maven-pipeline.yml keeps its step timeout because 105 is comfortably in range.
         run: ./mvnw -s .github/workflows/settings.xml ${{ matrix.maven_goals }} -B ${{ matrix.mvn_opts }}
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}

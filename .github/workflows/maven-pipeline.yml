@@ -477,12 +477,19 @@ jobs:
           architecture: x64
           overwrite-settings: false
       - name: Run Small Cache Integration Tests
-        # Step-level timeout 15 minutes inside the job's own timeout-minutes: 120. A step
-        # timeout is recorded as a step FAILURE, not a cancellation, so the remaining steps
-        # run with the normal job budget instead of racing GitHub's ~5-minute
-        # forced-termination window — which is what makes the diagnostics upload below
-        # actually reachable on a hang. Any run this kills would have been killed by the job
-        # timeout 15 minutes later anyway, so it cannot fail a run that passes today.
+        # Step-level timeout 15 minutes inside the job's own timeout-minutes: 120, and within
+        # GitHub's documented 360-minute maximum for a step timeout. A step timeout is recorded
+        # as a step FAILURE, not a cancellation, so the remaining steps run with the normal job
+        # budget instead of racing GitHub's ~5-minute forced-termination window — which is what
+        # makes the diagnostics upload below actually reachable on a hang. Any run this kills
+        # would have been killed by the job timeout 15 minutes later anyway, so it cannot fail a
+        # run that passes today.
+        #
+        # Deliberate side effect: a hang now ends the job as FAILED rather than CANCELLED, so it
+        # reaches the failure()-gated Dispatch CI Fix Agent and Zulip steps below, which a
+        # cancellation silently skipped. That is the intent — a suite that hangs for 105 minutes
+        # is exactly the event those notifications exist for, and the diagnostics artifact the
+        # agent needs is now uploaded before them.
         timeout-minutes: 105
         run: ./mvnw -s .github/workflows/settings.xml -pl core -am clean verify -P small-cache-it -Dmaven.test.failure.ignore=true -B
         env:
