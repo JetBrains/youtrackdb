@@ -396,6 +396,26 @@ public final class WOWCache extends AbstractWriteCache
   private final LongAdder loadOrAddGapFillBranchInvocations = new LongAdder();
 
   /**
+   * Counts how many times {@link #removeExclusiveWritePage} found a key in
+   * {@link #exclusiveWritePages} whose {@link #exclusiveWriteCacheSize} contribution had already
+   * been consumed, and therefore clamped instead of decrementing below zero.
+   *
+   * <p>This is the observable form of the "best-effort" half of the exclusive-write accounting
+   * invariant documented on {@link #removeExclusiveWritePage}. The clamp itself is deliberately
+   * silent as far as behaviour goes — that is the point, it prevents a negative counter from
+   * disabling back-pressure — which means without this counter the only trace would be a WARN
+   * log line, and a regression that made the purge decrement unconditionally would be absorbed
+   * by the clamp and become invisible to tests. Exposed via
+   * {@link #getExclusiveWriteAccountingClampsForTest()} so a regression test can assert the
+   * clamp never engages on the deterministic single-threaded paths.
+   *
+   * <p>A non-zero value in production is not an error: it records the known non-atomic
+   * {@code addOnlyWriters}/{@code removeOnlyWriters} interleaving. A value that grows with load
+   * is a real accounting regression.
+   */
+  private final LongAdder exclusiveWriteAccountingClamps = new LongAdder();
+
+  /**
    * Amount of exclusive pages are hold by write cache.
    */
   private final AtomicLong exclusiveWriteCacheSize = new AtomicLong();
@@ -1918,6 +1938,16 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   /**
+   * Test-only accessor: how many times the exclusive-write accounting clamp engaged — see
+   * {@link #exclusiveWriteAccountingClamps}. Zero is the expected value on any deterministic,
+   * single-threaded path; a regression test asserts that, which is what keeps the clamp from
+   * silently absorbing a purge that decrements without having removed anything.
+   */
+  public long getExclusiveWriteAccountingClampsForTest() {
+    return exclusiveWriteAccountingClamps.sum();
+  }
+
+  /**
    * Test-only accessor: number of times the single-page extend branch of
    * {@link #loadOrAdd} has run to completion (post-allocate, post-sanity-check) since this
    * cache instance was constructed. The regression suite for the original poison-cascade
@@ -2290,6 +2320,25 @@ public final class WOWCache extends AbstractWriteCache
             e, storageName);
       }
     }
+
+    // Quiescent-point invariant check for the exclusive-write accounting. This is the only
+    // place the invariant can be asserted without collateral damage: stopFlush is set, every
+    // triggered ExclusiveFlushTask has completed, and the periodic flush future has returned,
+    // so no flush or purge is in flight. The same assertion inside doRemoveCachePages would
+    // abort the purge mid-loop — leaking a PageFrame, orphaning a writeCachePages entry whose
+    // listener was already nulled, and throwing out of deleteFile/truncateFile after the dirty
+    // pages were dropped but the file was not removed — which is strictly worse than the leak
+    // being fixed, so removeExclusiveWritePage clamps and logs there instead.
+    //
+    // A failure here means some path other than removeExclusiveWritePage (which cannot go
+    // negative by construction) drove the counter below zero; the prime suspect would be the
+    // unconditional decrement in removeOnlyWriters. -ea only; coverage-gate.py excludes
+    // assert lines, so this costs nothing in production.
+    assert exclusiveWriteCacheSize.get() >= 0
+        : "exclusiveWriteCacheSize is negative ("
+            + exclusiveWriteCacheSize.get()
+            + ") at flush shutdown for storage "
+            + storageName;
   }
 
   @Override
@@ -3759,34 +3808,63 @@ public final class WOWCache extends AbstractWriteCache
 
   /**
    * Removes {@code pageKey} from {@link #exclusiveWritePages} and keeps
-   * {@link #exclusiveWriteCacheSize} in step, but only if the key was actually present.
+   * {@link #exclusiveWriteCacheSize} in step, but only if the key was actually present, and
+   * never letting the counter fall below zero.
    *
-   * <p>The conditional shape is load-bearing: {@link #doRemoveCachePages} runs against
-   * caller orderings where the key may or may not have been published into the set yet
-   * (see the call sites there), and an unconditional decrement would drive the counter
-   * negative on the orderings where it has not.
+   * <p>The conditional shape is load-bearing: {@link #doRemoveCachePages} runs against caller
+   * orderings where the key may not have been published into the set at all (see the call
+   * sites there), and an unconditional removal-independent decrement would drive the counter
+   * negative on those orderings.
    *
-   * @return {@code true} if this call is the one that removed the key
+   * <p><b>Guaranteed invariant:</b> this method can never make {@link #exclusiveWriteCacheSize}
+   * negative. That matters more than the leak this whole routine exists to fix, because
+   * {@link #checkCacheOverflow()} enforces writer back-pressure with
+   * {@code while (exclusiveWriteCacheSize.get() > exclusiveWriteCacheMaxSize)} and
+   * {@link #executePeriodicFlush} only flushes exclusive pages when the counter is
+   * {@code >= 0} — so a single negative value disables both back-pressure and the proactive
+   * exclusive flush for the rest of the storage's lifetime, with the symptom (unbounded write
+   * cache growth) surfacing nowhere near the cause.
+   *
+   * <p><b>Best-effort invariant:</b> exact agreement between the counter and the set.
+   * {@link #addOnlyWriters} and {@link #removeOnlyWriters} update the counter and the set as
+   * two separate operations, and {@link CachePointer} invokes them *after* the CAS on its
+   * referrer word without holding any lock that would order them against each other. Two
+   * threads transitioning the same page in opposite directions can therefore land their
+   * callbacks in the order opposite to their CAS order, leaving a key in the set whose counter
+   * contribution has already been consumed. This method then finds a key to remove with
+   * nothing left to decrement; it clamps and logs at WARN rather than going negative. The
+   * non-negativity invariant itself is asserted at a quiescent point instead — see
+   * {@link #stopFlush()} — never here, because an assertion firing inside the purge would
+   * abort it mid-loop and leave a leaked page frame and a listener-less write-cache entry
+   * behind.
    */
-  private boolean removeExclusiveWritePage(final PageKey pageKey) {
+  private void removeExclusiveWritePage(final PageKey pageKey) {
     if (!exclusiveWritePages.remove(pageKey)) {
-      return false;
+      return;
     }
 
-    final var remaining = exclusiveWriteCacheSize.decrementAndGet();
-    // Load-bearing assertion (core surefire runs with -ea): a negative counter is worse
-    // than a leaked one. flushExclusivePagesIfNeeded / flushWriteCacheFromMinLSN compare
-    // the counter against exclusiveWriteCacheMaxSize, so a negative value silently
-    // disables the exclusive-write back-pressure for the rest of the storage's lifetime
-    // and the symptom (unbounded write cache growth) surfaces nowhere near the cause.
-    // Fail loudly here instead if a future caller-ordering change breaks the invariant.
-    // coverage-gate.py excludes assert lines, so this costs nothing in production.
-    assert remaining >= 0
-        : "exclusiveWriteCacheSize went negative ("
-            + remaining
-            + ") while purging "
-            + pageKey;
-    return true;
+    // Clamped decrement. getAndUpdate returns the PREVIOUS value, so previous <= 0 is exactly
+    // the case where the clamp engaged and the counter had already lost this key's
+    // contribution.
+    final var previous =
+        exclusiveWriteCacheSize.getAndUpdate(current -> current > 0 ? current - 1 : current);
+    if (previous <= 0) {
+      exclusiveWriteAccountingClamps.increment();
+      LogManager.instance()
+          .warn(
+              this,
+              "%s: exclusive-write page (%d,%d) was present in exclusiveWritePages while the"
+                  + " counter was already %d; removed the key and left the counter unchanged"
+                  + " rather than decrementing below zero. This is the known non-atomic"
+                  + " addOnlyWriters/removeOnlyWriters drift and is harmless for durability"
+                  + " (writeCachePages is the source of truth), but a repeating message points"
+                  + " at a real accounting regression.",
+              (Throwable) null,
+              storageName,
+              pageKey.fileId,
+              pageKey.pageIndex,
+              previous);
+    }
   }
 
   /**
@@ -3829,14 +3907,19 @@ public final class WOWCache extends AbstractWriteCache
             // eventually latches writers once the leaked count reaches
             // exclusiveWriteCacheMaxSize.
             //
-            // The removal is CONDITIONAL because the two caller orderings differ:
+            // The removal is CONDITIONAL because whether the key is in the set depends on the
+            // caller's ordering AND on whether the page happens to be readers-free right now:
             //   * LockFreeReadCache.closeFile/deleteFile purge the read cache BEFORE this
-            //     write-cache purge, so the page is already readers-free and the key IS in
+            //     write-cache purge, so every page is already readers-free and its key IS in
             //     exclusiveWritePages — this is the leak being fixed;
             //   * LockFreeReadCache.truncateFile/shrinkFile purge the write cache FIRST and
-            //     clear the read cache afterwards, so the page still has readers and the key
-            //     is NOT in the set yet — an unconditional decrement would push the counter
-            //     negative and disable the exclusive-write back-pressure entirely.
+            //     clear the read cache afterwards, so a page that still has a reader has NOT
+            //     been published into the set (its key is absent), while a page whose readers
+            //     were already released has. Both cases occur on these two orderings, so the
+            //     removal must not assume either: an unconditional decrement would push the
+            //     counter negative for the reader-held pages and disable the exclusive-write
+            //     back-pressure entirely. (Both cases are covered by tests in
+            //     WOWCacheShrinkFileTest.)
             // Done inside the page-frame exclusive-lock region so the lock-acquisition
             // ordering documented below is unchanged (set/counter mutations take no lock).
             removeExclusiveWritePage(pageKey);
@@ -3880,15 +3963,29 @@ public final class WOWCache extends AbstractWriteCache
     //     would deadlock against the submitter. Both structures touched are concurrent, and
     //     the per-key group lock would buy nothing because CachePointer fires
     //     addOnlyWriters/removeOnlyWriters without holding it.
+    //     Caveat on that exclusion: it is best-effort under interruption. If the submitter's
+    //     future.get() throws InterruptedException, removeCachedPages / deleteFile rethrow
+    //     without cancelling or awaiting this task, so their finally releases the filesLock
+    //     write lock while the purge — including this sweep — may still be running, and a
+    //     concurrent store() can then proceed. Tracked as its own follow-up item.
     //
-    // KNOWN LIMITATION: this sweep NARROWS the orphan window, it does not close it. On the
-    // truncateFile/shrinkFile ordering the read cache is still populated while the purge
-    // runs, so a concurrent release or eviction (WTinyLFUPolicy.invalidateStampsAndRelease)
-    // can call decrementReadersReferrer -> addOnlyWriters for a page whose listener this
-    // method had not yet nulled and land the key in exclusiveWritePages after the sweep has
-    // already moved past it; that key is still leaked. On the closeFile/deleteFile ordering
-    // the read cache is purged first, so no such concurrent source exists and the sweep is
-    // complete.
+    // KNOWN LIMITATION: this sweep NARROWS the orphan window on every ordering, and closes it
+    // on none. Two residual producers can publish a key into exclusiveWritePages after the
+    // sweep has moved past it, both by way of decrementReadersReferrer -> addOnlyWriters:
+    //   * truncateFile/shrinkFile ordering — the read cache is still populated while the purge
+    //     runs, so an ordinary release or an eviction
+    //     (WTinyLFUPolicy.invalidateStampsAndRelease) can fire the callback for a page whose
+    //     listener this method had not yet nulled.
+    //   * closeFile/deleteFile ordering — eviction IS excluded here (clearFile ran first and
+    //     WTinyLFUPolicy skips dead entries), but LockFreeReadCache.silentLoadForRead builds
+    //     its CacheEntryImpl with insideCache=false and never inserts it into the read cache's
+    //     map, so clearFile can neither see nor freeze it; the matching releaseFromRead then
+    //     calls decrementReadersReferrer with no filesLock held. That is reachable from
+    //     DiskStorage.backupPagesWithChanges, which holds no stateLock across its per-page
+    //     load/release loop.
+    // Closing either window means changing read-cache or backup locking, which is out of scope
+    // here; a leaked key is accounting-only (writeCachePages remains the source of truth for
+    // durability) and is now bounded by the clamp in removeExclusiveWritePage.
     final var orphanCandidates =
         exclusiveWritePages.subSet(
             new PageKey(internalFileId, minPageIndex), true,
@@ -4230,9 +4327,18 @@ public final class WOWCache extends AbstractWriteCache
               flushError.getMessage());
       // Abandon the stamp, as the log message above already claims. Every other flush-path
       // entry point returns immediately after reporting flushError (executeFileFlush,
-      // executeFindDirtySegment, ...); falling through here contradicted the diagnostic and
-      // kept issuing writes into a file whose write cache is already known to be
-      // unflushable, which can lay a blank page on top of data the failed flush left behind.
+      // executeFindDirtySegment, executePeriodicFlush, executeFlush); falling through here
+      // contradicted the method's own diagnostic.
+      //
+      // The write it skips cannot corrupt existing data — the guard below only writes when
+      // getUnderlyingFileSize() <= pagePosition, i.e. strictly at or past end-of-file, so it
+      // appends and never overwrites. What the early return avoids is issuing *new* physical
+      // writes after a write failure has already been latched: this path writes through
+      // file.write directly, bypassing the double-write log and any fsync, and flushError is
+      // monotone and escalates via AbstractStorage.setInError, so the file is on its way to
+      // read-only. Extending it further only widens torn-page exposure for a page no healthy
+      // reader will reach, and recovery re-derives the physical size and re-runs the
+      // idempotent gap-fill stamp anyway.
       return;
     }
 
@@ -4246,10 +4352,15 @@ public final class WOWCache extends AbstractWriteCache
       if (entry == null) {
         // The file disappeared between this task being queued and it running: loadOrAdd's
         // extend / gap-fill branches submit EnsurePageIsValidInFileTask asynchronously, and
-        // deleteFile or replaceFileId (which unregisters both ids while it rebinds them) or a
-        // restore can drop the id in the meantime. Nothing can be stamped — writing now would
-        // either resurrect a deleted file or stamp a page into a file id that has since been
-        // rebound to a different component — so bail out instead of dereferencing null.
+        // the live producer of that window is deleteFile -> executeDeleteFile, which calls
+        // files.remove after the task was queued. (The whole-cache close() also removes every
+        // file, but it sets stopFlush first, so the guard above already covers it. WOWCache
+        // .replaceFileId would unregister both ids while it rebinds them and additionally open
+        // a window where the id is valid but bound to a different file — it has no production
+        // callers today, the only one being commented out in CollectionPositionMapV2, so it is
+        // named here as a hazard to re-check if that code is ever revived, not as a path that
+        // is currently reachable.) Nothing can be stamped for a file that is gone, so bail out
+        // instead of dereferencing null.
         //
         // WARN rather than a silent skip, deliberately asymmetric with the null-entry skips on
         // the fsync paths (fsyncFiles, and the callFsync loop in executeFileFlush): there a
