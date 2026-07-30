@@ -294,4 +294,13 @@ interface RecognitionContext extends ParamSink {
    * untouched — the caller commits the captured state itself only on success.
    */
   SubTraversalPredicateAdapter walkChild(Traversal.Admin<?, ?> child);
+
+  /**
+   * Union-only fork seam installed by the top-level walker. Returns {@code null} on sub-walks and
+   * test fixtures that never drive {@code union(...)} — {@link UnionStepRecogniser} declines when
+   * absent. Does not expose the parent traversal.
+   */
+  @Nullable default UnionForkHost unionForkHost() {
+    return null;
+  }
 }

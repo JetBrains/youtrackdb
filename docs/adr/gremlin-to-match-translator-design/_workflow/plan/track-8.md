@@ -19,6 +19,7 @@ Second slice of the split final track (see plan D8, revised after Track 6). Depe
 - [x] 2026-07-30T11:21Z [ctx=unknown] ESCALATE replan accepted — insert Step 2a (GraphApiTest rollback/count fix) before retrying Step 2
 - [x] 2026-07-30T11:31Z [ctx=unknown] Step 2a complete (commit e3d460ef49)
 - [x] 2026-07-30T13:30Z [ctx=unknown] Step 2b complete (commit 660b3be634); dim-review PASS (in-session, 2026-07-30T13:55Z)
+- [x] 2026-07-30T14:25Z [ctx=unknown] Step 3 complete — UnionStepRecogniser + UnionForkHost (no parent Traversal.Admin on recogniser)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -89,7 +90,7 @@ flowchart TB
 2. **Multi-plan translation carrier + strategy build/splice** (DR-U2): a multi-plan `TranslationResult` (field or sibling `UnionTranslationResult`) carrying the ordered child `MatchPlanInputs`; `GremlinToMatchStrategy` `applyTranslation` / `buildPlan` / `replaceAllStepsWithBoundary` gain a multi-plan branch that builds each child `SelectExecutionPlan` inside the concurrent-DDL-guarded path, installs each child's positional parameters into its own context (base takes an empty map), closes already-built plans on a mid-build throw, and splices a `MultiPlanMatchStep`; the translator sets `cacheEligible=false` for union (DR-U5). Tests: N isolated guarded child plans built and spliced; a mid-build throw on child k closes children 0..k-1; a union bypasses the cache. — risk: high (architecture)  *(depends on Step 1)*  [!] commit: (failed)
 2a. **Fix MATCH empty-class filtered `count(*)` (DR-U6):** skip the `EmptyStep` zero-estimate short-circuit in `MatchExecutionPlanner` when RETURN is bare `count(*)` without GROUP BY, so `GuaranteeEmptyCountStep` can emit `0`. Regression: MATCH SQL filtered count on an empty class + `GraphApiTest` rollback/count suite. — risk: medium (architecture)  [x]  commit: e3d460ef49
 2b. **Multi-plan translation carrier + strategy build/splice (retry after 2a):** same scope as Step 2. — risk: high (architecture)  *(depends on Step 2a)*  [x]  commit: 660b3be634
-3. **`UnionStepRecogniser`** registered in `GremlinStepWalker.PRODUCTION_RECOGNISERS`: claim a `UnionStep` (N global children via `getGlobalChildren()`); fork the prefix, strip each child `EndStep`, recursively walk each child via `GremlinStepWalker.production().walk(...)` to a per-child `MatchPlanInputs`; enforce the full-projection-contract + canonical-alias agreement gate (DR-U3); decline the whole union on any disagreement, a declining child, a start-position union, a nested union inside a child, or a non-exhausted cursor after the union (DR-U4). End-to-end tests: concatenation-multiset parity vs native, anti-cartesian `|c1|+|c2|` ≠ product, all decline cases, canonical-alias parity. — risk: high (architecture)  *(depends on Step 2b)*  [ ]
+3. **`UnionStepRecogniser`** registered in `GremlinStepWalker.PRODUCTION_RECOGNISERS`: claim a `UnionStep` (N global children via `getGlobalChildren()`); fork the prefix, strip each child `EndStep`, recursively walk each child via `GremlinStepWalker.production().walk(...)` to a per-child `MatchPlanInputs`; enforce the full-projection-contract + canonical-alias agreement gate (DR-U3); decline the whole union on any disagreement, a declining child, a start-position union, a nested union inside a child, or a non-exhausted cursor after the union (DR-U4). End-to-end tests: concatenation-multiset parity vs native, anti-cartesian `|c1|+|c2|` ≠ product, all decline cases, canonical-alias parity. — risk: high (architecture)  *(depends on Step 2b)*  [x]  commit: (pending SHA)
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -139,6 +140,16 @@ flowchart TB
 - No blockers. Mid-build `closePlans` suppresses close failures onto the primary; multi-plan XOR validation rejects empty/both/mismatched param lists; base `inputParameters` forced empty for multi-plan; `buildChildPlans` always forces `cacheEligible=false` per child (structural bypass, matches DR-U5).
 - Suggestion (not blocking): `TranslationResult.multiPlan(..., cacheEligible, ...)` still accepts a `true` flag that the multi-plan strategy path ignores — document or force `false` in the factory when Step 3 lands.
 - Tests cover N-child splice, mid-build cleanup, close-failure suppression, carrier validation, cache bypass.
+
+### Step 3 — commit TBD, 2026-07-30T14:25Z [ctx=unknown]
+
+**What was done:** Registered `UnionStepRecogniser` for mid-traversal `union(c1,…,cN)`. Forks the recognised prefix into each global child (strips `ComputerAwareStep.EndStep`), re-walks each fork to a single-plan `TranslationResult`, enforces full projection-contract agreement under one canonical RETURN alias, and stashes children for `buildResult` → `TranslationResult.multiPlan(..., cacheEligible=false)`. Decline paths: empty/start-position prefix, nested union, suffix after union, child decline, contract mismatch. Equivalence suite pins concatenation vs native, anti-cartesian sum≠product, and declines.
+
+**What was discovered:** An early WIP hung the parent `Traversal.Admin` on `WalkerContext` for the recogniser to read — that violated the StepCursor / RecognitionContext minimal-access contract. Replaced with `UnionForkHost`: walker keeps the parent Admin private; the recogniser only sees `recognisedPrefixSteps()`, `walkFork(suffix)`, and `stashAcceptedChildren(...)`.
+
+**What changed from the plan:** Fork host seam (not named in the roster) — same fork+`walk` behavior as DR-U2, narrower recogniser surface.
+
+**Critical context:** Do not re-expose `Traversal.Admin` to recognisers. Nested union flattening remains Phase 2 (DR-U4). Track 9 may relax the “union is last step” rule for list-shaping terminators only.
 
 ## Validation and Acceptance
 - `g.V()….union(t1, t2, …)` with children agreeing on the full projection contract translates to the concatenated multiset; the anti-cartesian case (children whose product ≠ sum) returns `|c1| + |c2|`, not the product (risk R5).

@@ -128,6 +128,7 @@ final class GremlinToMatchTranslator {
       }
     }
 
+    @SuppressWarnings("unused")
     static TranslationResult multiPlan(
         @Nonnull List<MatchPlanInputs> childInputs,
         @Nonnull List<Map<Object, Object>> childInputParameters,
@@ -136,6 +137,8 @@ final class GremlinToMatchTranslator {
         @Nonnull Class<? extends Element> returnClass,
         boolean cacheEligible,
         @Nonnull ResultShaping shaping) {
+      // Multi-plan translations always bypass the single-plan cache fingerprint (union / N-plan
+      // carrier). The cacheEligible parameter is retained for call-site clarity but forced false.
       return new TranslationResult(
           null,
           childInputs,
@@ -144,7 +147,7 @@ final class GremlinToMatchTranslator {
           outputType,
           returnClass,
           Map.of(),
-          cacheEligible,
+          false,
           shaping);
     }
 

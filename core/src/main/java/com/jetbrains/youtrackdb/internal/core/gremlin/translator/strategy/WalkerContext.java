@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -160,6 +161,24 @@ final class WalkerContext implements RecognitionContext {
    *  {@code null} for the test constructors that never drive a sub-walk; {@link #walkChild} fails
    *  loudly if reached with a null registry, since production always supplies one. */
   @Nullable private final Map<Class<?>, StepRecogniser> recognisers;
+
+  /**
+   * Narrow union fork seam installed by {@link GremlinStepWalker#walk}. Holds the parent traversal
+   * privately so {@link UnionStepRecogniser} never receives a {@code Traversal.Admin}. {@code null}
+   * for test-constructed contexts and sub-walks.
+   */
+  @Nullable private UnionForkHost unionForkHost;
+
+  /**
+   * Ordered child {@link MatchPlanInputs} stashed by {@link UnionStepRecogniser} on accept. When
+   * non-empty, {@link GremlinStepWalker}'s {@code buildResult} emits a multi-plan
+   * {@link GremlinToMatchTranslator.TranslationResult} and ignores the prefix-only pattern on this
+   * context (the prefix was re-walked into each child).
+   */
+  @Nullable private List<MatchPlanInputs> unionChildInputs;
+
+  /** Parallel positional-parameter maps for {@link #unionChildInputs}; same length when set. */
+  @Nullable private List<Map<Object, Object>> unionChildInputParameters;
 
   /** Stateless builder used to AND-compose same-alias filter contributions in {@link
    *  #putAliasFilter}; construction is trivial so a shared instance is fine. */
@@ -575,6 +594,48 @@ final class WalkerContext implements RecognitionContext {
           "walkChild requires a WalkerContext constructed with a recogniser registry");
     }
     return GremlinStepWalker.subWalk(child, this, recognisers);
+  }
+
+  /** Installs the union fork seam; called once by {@link GremlinStepWalker#walk}. */
+  void setUnionForkHost(@Nonnull UnionForkHost host) {
+    this.unionForkHost = host;
+  }
+
+  @Nullable @Override
+  public UnionForkHost unionForkHost() {
+    return unionForkHost;
+  }
+
+  /**
+   * Stashes the ordered union-child plan inputs and their positional-parameter maps. Called via
+   * {@link UnionForkHost#stashAcceptedChildren} after the agreement gate passes; {@code buildResult}
+   * then emits a multi-plan translation.
+   */
+  void stashUnionChildren(
+      @Nonnull List<MatchPlanInputs> childInputs,
+      @Nonnull List<Map<Object, Object>> childInputParameters) {
+    assert childInputs.size() == childInputParameters.size()
+        : "union carrier requires one parameter map per child input";
+    this.unionChildInputs = List.copyOf(childInputs);
+    this.unionChildInputParameters =
+        childInputParameters.stream().map(Map::copyOf).toList();
+  }
+
+  /** Whether {@link UnionStepRecogniser} accepted and stashed a multi-plan carrier. */
+  boolean hasUnionCarrier() {
+    return unionChildInputs != null && !unionChildInputs.isEmpty();
+  }
+
+  @Nonnull
+  List<MatchPlanInputs> unionChildInputs() {
+    assert hasUnionCarrier();
+    return unionChildInputs;
+  }
+
+  @Nonnull
+  List<Map<Object, Object>> unionChildInputParameters() {
+    assert hasUnionCarrier();
+    return unionChildInputParameters;
   }
 
   /**

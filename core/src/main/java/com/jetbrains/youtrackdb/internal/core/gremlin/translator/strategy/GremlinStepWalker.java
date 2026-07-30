@@ -13,6 +13,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
@@ -135,6 +136,8 @@ final class GremlinStepWalker {
    *   <li><b>Aggregate</b> — {@link CountGlobalStepRecogniser}; {@link PropertyAggregateStepRecogniser}
    *       for {@code sum} / {@code min} / {@code max} / {@code mean}; and {@link GroupStepRecogniser} /
    *       {@link GroupCountStepRecogniser}.
+   *   <li><b>Branch</b> — {@link UnionStepRecogniser} for mid-traversal {@code union(c1, …, cN)},
+   *       emitting a multi-plan translation when every child agrees on the projection contract.
    * </ul>
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
@@ -165,7 +168,8 @@ final class GremlinStepWalker {
           Map.entry(MaxGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
           Map.entry(MeanGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
           Map.entry(GroupStep.class, GroupStepRecogniser.INSTANCE),
-          Map.entry(GroupCountStep.class, GroupCountStepRecogniser.INSTANCE));
+          Map.entry(GroupCountStep.class, GroupCountStepRecogniser.INSTANCE),
+          Map.entry(UnionStep.class, UnionStepRecogniser.INSTANCE));
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
@@ -242,6 +246,9 @@ final class GremlinStepWalker {
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
+    // Install the union fork host after the cursor exists: the host reads prefix length from the
+    // cursor position after UnionStepRecogniser.take(), and keeps the parent Admin private.
+    ctx.setUnionForkHost(new UnionForkHostImpl(traversal, cursor, ctx));
 
     // Cursor-driven dispatch. A missing recogniser or a DECLINE declines the whole traversal
     // (all-or-nothing), returning false; the shared driver is reused by the sub-walk below.
@@ -368,11 +375,25 @@ final class GremlinStepWalker {
   }
 
   /**
-   * Snapshots the walker context into a {@link GremlinToMatchTranslator.TranslationResult}. Locks the
-   * pattern (one-shot {@code build()}), merges builder-supplied alias filters with recogniser-supplied
-   * ones (AND-composing on the same alias), and packages the {@link MatchPlanInputs}.
+   * Snapshots the walker context into a {@link GremlinToMatchTranslator.TranslationResult}. When a
+   * {@link UnionStepRecogniser} accepted, emits a multi-plan result from the stashed child inputs
+   * (the prefix-only pattern on the context is discarded — each child re-walked the prefix).
+   * Otherwise locks the pattern, merges alias filters, and packages a single-plan
+   * {@link MatchPlanInputs}.
    */
   private static GremlinToMatchTranslator.TranslationResult buildResult(WalkerContext ctx) {
+    if (ctx.hasUnionCarrier()) {
+      assert ctx.boundaryAlias != null && ctx.outputType != null && ctx.returnClass != null;
+      return GremlinToMatchTranslator.TranslationResult.multiPlan(
+          ctx.unionChildInputs(),
+          ctx.unionChildInputParameters(),
+          ctx.boundaryAlias,
+          ctx.outputType,
+          ctx.returnClass,
+          false,
+          ctx.shaping());
+    }
+
     var ir = ctx.patternBuilder.build();
 
     Map<String, SQLWhereClause> finalAliasFilters = new LinkedHashMap<>(ir.aliasFilters());
