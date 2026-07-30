@@ -18,7 +18,7 @@ Second slice of the split final track (see plan D8, revised after Track 6). Depe
 - [!] 2026-07-30T10:42Z [ctx=unknown] Step 2 failed — see Episodes §Step 2 (FAILED)
 - [x] 2026-07-30T11:21Z [ctx=unknown] ESCALATE replan accepted — insert Step 2a (GraphApiTest rollback/count fix) before retrying Step 2
 - [x] 2026-07-30T11:31Z [ctx=unknown] Step 2a complete (commit e3d460ef49)
-- [x] 2026-07-30T13:30Z [ctx=unknown] Step 2b complete (commit 660b3be634); dim-review pending
+- [x] 2026-07-30T13:30Z [ctx=unknown] Step 2b complete (commit 660b3be634); dim-review PASS (in-session, 2026-07-30T13:55Z)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -133,6 +133,12 @@ flowchart TB
 **What changed from the plan:** None. Used `TranslationResult` fields (not a sibling `UnionTranslationResult` type), matching DR-U2's "field or sibling" option and the prior Step 2 exploration.
 
 **Critical context:** Construct `MultiPlanMatchStep` only with already-built child plans; per-child params live on child contexts (base map empty). Step 3's `UnionStepRecogniser` should call `TranslationResult.multiPlan(..., cacheEligible=false, ...)` and must not put params on the base map.
+
+**Dim-review (in-session, 2026-07-30T13:55Z — usage-limit agents failed):** PASS. Diff `e441e218dd..660b3be634` reviewed for bugs + architecture.
+
+- No blockers. Mid-build `closePlans` suppresses close failures onto the primary; multi-plan XOR validation rejects empty/both/mismatched param lists; base `inputParameters` forced empty for multi-plan; `buildChildPlans` always forces `cacheEligible=false` per child (structural bypass, matches DR-U5).
+- Suggestion (not blocking): `TranslationResult.multiPlan(..., cacheEligible, ...)` still accepts a `true` flag that the multi-plan strategy path ignores — document or force `false` in the factory when Step 3 lands.
+- Tests cover N-child splice, mid-build cleanup, close-failure suppression, carrier validation, cache bypass.
 
 ## Validation and Acceptance
 - `g.V()….union(t1, t2, …)` with children agreeing on the full projection contract translates to the concatenated multiset; the anti-cartesian case (children whose product ≠ sum) returns `|c1| + |c2|`, not the product (risk R5).
