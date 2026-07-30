@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -573,6 +574,41 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
+   * Track 2's metrics smoke checked query string / summary / count only. Under translation the
+   * source step is {@link YTDBMatchPlanStep}, not {@link YTDBGraphStep}, so
+   * {@code QueryDetails.getExecutionPlan()} must read the MATCH boundary's compiled plan — otherwise
+   * scan/index detectors and the YTDBQueryMetricsStrategyTest plan assertions see null forever.
+   */
+  @Test
+  public void queryMonitoringSurfacesMatchPlanUnderTranslation() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    var listener = new RememberingListener();
+    ((YTDBTransaction) graph.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+    graph.tx().open();
+
+    var q = graph.traversal().V().hasLabel("Person").asAdmin();
+    q.applyStrategies();
+    assertThat(countBoundarySteps(q.getSteps()))
+        .as("hasLabel scan must translate to a MATCH boundary")
+        .isEqualTo(1);
+
+    q.toList();
+    graph.tx().commit();
+
+    assertThat(listener.callCount).isEqualTo(1);
+    assertThat(listener.executionPlan)
+        .as("MATCH boundary must surface a non-null plan to QueryMetricsListener")
+        .isNotNull();
+    assertThat(listener.executionPlan.getSteps())
+        .as("the surfaced plan must retain its step list for diagnostics")
+        .isNotEmpty();
+  }
+
+  /**
    * A translated traversal must surface the translation in {@code explain()}, and a declined one
    * must not. {@code explain()} applies the full strategy chain (including the globally
    * registered {@link GremlinToMatchStrategy}) to a clone, so a recognised {@code g.V()} shows
@@ -773,6 +809,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     private int callCount;
     private String query;
     private String querySummary;
+    private ExecutionPlan executionPlan;
 
     @Override
     public void queryFinished(
@@ -780,6 +817,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
       this.callCount++;
       this.query = queryDetails.getQuery();
       this.querySummary = queryDetails.getQuerySummary();
+      this.executionPlan = queryDetails.getExecutionPlan();
     }
   }
 }

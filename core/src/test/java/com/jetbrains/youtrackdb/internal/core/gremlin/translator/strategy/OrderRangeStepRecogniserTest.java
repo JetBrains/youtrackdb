@@ -122,6 +122,44 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.limit.toString()).contains("5");
   }
 
+  /**
+   * TinkerPop: {@code -1} on the high range emits remaining traversers after {@code low}. Maps to
+   * skip-only ({@code SKIP 2}, no LIMIT) — same as {@code skip(2)}.
+   */
+  @Test
+  public void rangeUnboundedHigh_setsSkipOnly() {
+    var admin = graph.traversal().V().range(2, -1).asAdmin();
+    var ctx = seededContext();
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    var outcome = RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.skip).isNotNull();
+    assertThat(ctx.skip.toString()).contains("2");
+    assertThat(ctx.limit).isNull();
+  }
+
+  /**
+   * {@code range(Scope.local, …)} is {@code RangeLocalStep}: collection-local slicing, not global
+   * MATCH SKIP/LIMIT. No recogniser is registered, so the production walker declines the whole
+   * traversal (native Gremlin keeps the local semantics).
+   */
+  @Test
+  public void rangeScopeLocal_walkerDeclines() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .valueMap()
+            .range(org.apache.tinkerpop.gremlin.process.traversal.Scope.local, 1, 2)
+            .asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
   /** {@code skip(0)} is a no-op: accepted with neither SKIP nor LIMIT set. */
   @Test
   public void skipZero_isNoOp() {

@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitor
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
@@ -514,11 +515,13 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .isNotEmpty();
   }
 
-  // A cache-hit replay of an identical query in the same transaction surfaces a null plan: the
-  // per-transaction result cache re-serves rows from a view whose plan was nulled when the first
-  // (populating) run's stream drained. The first run is fully drained here so the cache entry
-  // closes before the replay. The result cache is off by default, so the test enables it for
-  // the transaction and restores the previous setting afterward.
+  // A cache-hit replay of an identical query in the same transaction: half-measure
+  // {@link YTDBGraphStep} surfaces a null plan because the per-transaction result cache re-serves
+  // rows from a view whose plan was nulled when the first (populating) run's stream drained. The
+  // Gremlin-to-MATCH boundary ({@link YTDBMatchPlanStep}) owns the compiled plan on the step itself
+  // and does not go through that result-cache nulling path, so a translated replay still surfaces
+  // a non-null plan. The result cache is off by default, so the test enables it for the transaction
+  // and restores the previous setting afterward.
   @Test
   @LoadGraphWith(MODERN)
   public void cacheHitReplaySurfacesNullPlan() throws Exception {
@@ -540,28 +543,41 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
           .as("the populating run surfaces a non-null plan")
           .isNotNull();
 
+      // Probe which source step the product path uses without consuming the monitored replay.
+      var probe = g().V().hasLabel("person").asAdmin();
+      probe.applyStrategies();
+      var matchBoundary =
+          TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, probe)
+              .isPresent();
+
       listener.reset();
 
       try (var q2 = g().V().hasLabel("person")) {
-        q2.toList(); // replay — served from the result cache
+        q2.toList(); // replay — served from the result cache on the half-measure path
       }
       g.tx().commit();
 
       assertThat(listener.notified)
           .as("the listener was notified on the replay")
           .isTrue();
-      assertThat(listener.executionPlan)
-          .as("a cache-hit replay surfaces a null plan")
-          .isNull();
+      if (matchBoundary) {
+        assertThat(listener.executionPlan)
+            .as("MATCH boundary keeps the compiled plan across a TX result-cache replay")
+            .isNotNull();
+      } else {
+        assertThat(listener.executionPlan)
+            .as("a half-measure cache-hit replay surfaces a null plan")
+            .isNull();
+      }
     } finally {
       GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheWasEnabled);
     }
   }
 
-  // reset() must clear the retained plan and re-arm the step's iterator. This is a distinct test
-  // from a bare post-reset-null check: it re-iterates the traversal and asserts the results are
-  // still correct, which only holds if reset() called super.reset() to re-enable iteration. A
-  // super-less override would leave the step exhausted, so the second run would return no results.
+  // reset() must re-arm the step's iterator so re-iteration yields the same results. On the
+  // half-measure path, {@link YTDBGraphStep#reset()} also clears the retained plan (re-captured on
+  // the next run). On the MATCH path the compiled plan stays on {@link YTDBMatchPlanStep} across
+  // reset — the step rewinds rather than dropping the plan.
   @Test
   @LoadGraphWith(MODERN)
   public void resetClearsPlanAndReIterationYieldsCorrectResults() {
@@ -575,24 +591,43 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .as("the first run returns the person vertices")
         .isNotEmpty();
 
-    final var graphStep =
-        TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, admin).orElseThrow();
-    assertThat(graphStep.getLastExecutionPlan())
-        .as("the first run captured a plan")
-        .isNotNull();
+    var matchStep =
+        TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, admin);
+    if (matchStep.isPresent()) {
+      assertThat(matchStep.get().getPlan())
+          .as("the first run has a compiled MATCH plan")
+          .isNotNull();
+      admin.reset();
+      assertThat(matchStep.get().getPlan())
+          .as("MATCH boundary keeps its plan across reset()")
+          .isNotNull();
+      final var secondRun = traversal.toList();
+      assertThat(secondRun)
+          .as("re-iteration after reset() yields the same correct results")
+          .hasSameSizeAs(firstRun);
+      assertThat(matchStep.get().getPlan())
+          .as("the MATCH plan is still present after the second run")
+          .isNotNull();
+    } else {
+      final var graphStep =
+          TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, admin).orElseThrow();
+      assertThat(graphStep.getLastExecutionPlan())
+          .as("the first run captured a plan")
+          .isNotNull();
 
-    admin.reset();
-    assertThat(graphStep.getLastExecutionPlan())
-        .as("reset() clears the retained plan")
-        .isNull();
+      admin.reset();
+      assertThat(graphStep.getLastExecutionPlan())
+          .as("reset() clears the retained plan")
+          .isNull();
 
-    final var secondRun = traversal.toList();
-    assertThat(secondRun)
-        .as("re-iteration after reset() yields the same correct results")
-        .hasSameSizeAs(firstRun);
-    assertThat(graphStep.getLastExecutionPlan())
-        .as("the latest run captured a plan")
-        .isNotNull();
+      final var secondRun = traversal.toList();
+      assertThat(secondRun)
+          .as("re-iteration after reset() yields the same correct results")
+          .hasSameSizeAs(firstRun);
+      assertThat(graphStep.getLastExecutionPlan())
+          .as("the latest run captured a plan")
+          .isNotNull();
+    }
 
     g.tx().commit();
   }

@@ -18,6 +18,7 @@ Second slice of the split final track (see plan D8, revised after Track 6). Depe
 - [!] 2026-07-30T10:42Z [ctx=unknown] Step 2 failed — see Episodes §Step 2 (FAILED)
 - [x] 2026-07-30T11:21Z [ctx=unknown] ESCALATE replan accepted — insert Step 2a (GraphApiTest rollback/count fix) before retrying Step 2
 - [x] 2026-07-30T11:31Z [ctx=unknown] Step 2a complete (commit e3d460ef49)
+- [x] 2026-07-30T13:30Z [ctx=unknown] Step 2b complete (commit 660b3be634); dim-review pending
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -87,7 +88,7 @@ flowchart TB
 1. **`MultiPlanMatchStep`** over the Track 7 `AbstractMatchPlanStep`: realize `startPlanStream()` as one `MultipleExecutionStream` over an `ExecutionStreamProducer` that lazily opens each child plan against its own isolated, session-rebound context; `closePlan()` closes every child including un-run `plans[N+1..]`; `clone()` isolates each child against its own child context. Add the per-child-context-threading seam to `AbstractMatchPlanStep` only if the composite needs it (behavior-neutral for the single-plan path; re-run the Track 7 equivalence suite). Unit tests over synthetic child plans: concatenation multiset, one live stream, close-all-including-un-run, build-time partial-build leak, exception-stops-advance (N+1 never started / all closed / original exception primary), concurrent clone-isolation across multi-alias children, per-child positional-parameter correctness. — risk: high (concurrency, architecture, performance)  [x]  commit: 8fa280b898
 2. **Multi-plan translation carrier + strategy build/splice** (DR-U2): a multi-plan `TranslationResult` (field or sibling `UnionTranslationResult`) carrying the ordered child `MatchPlanInputs`; `GremlinToMatchStrategy` `applyTranslation` / `buildPlan` / `replaceAllStepsWithBoundary` gain a multi-plan branch that builds each child `SelectExecutionPlan` inside the concurrent-DDL-guarded path, installs each child's positional parameters into its own context (base takes an empty map), closes already-built plans on a mid-build throw, and splices a `MultiPlanMatchStep`; the translator sets `cacheEligible=false` for union (DR-U5). Tests: N isolated guarded child plans built and spliced; a mid-build throw on child k closes children 0..k-1; a union bypasses the cache. — risk: high (architecture)  *(depends on Step 1)*  [!] commit: (failed)
 2a. **Fix MATCH empty-class filtered `count(*)` (DR-U6):** skip the `EmptyStep` zero-estimate short-circuit in `MatchExecutionPlanner` when RETURN is bare `count(*)` without GROUP BY, so `GuaranteeEmptyCountStep` can emit `0`. Regression: MATCH SQL filtered count on an empty class + `GraphApiTest` rollback/count suite. — risk: medium (architecture)  [x]  commit: e3d460ef49
-2b. **Multi-plan translation carrier + strategy build/splice (retry after 2a):** same scope as Step 2. — risk: high (architecture)  *(depends on Step 2a)*  [ ]
+2b. **Multi-plan translation carrier + strategy build/splice (retry after 2a):** same scope as Step 2. — risk: high (architecture)  *(depends on Step 2a)*  [x]  commit: 660b3be634
 3. **`UnionStepRecogniser`** registered in `GremlinStepWalker.PRODUCTION_RECOGNISERS`: claim a `UnionStep` (N global children via `getGlobalChildren()`); fork the prefix, strip each child `EndStep`, recursively walk each child via `GremlinStepWalker.production().walk(...)` to a per-child `MatchPlanInputs`; enforce the full-projection-contract + canonical-alias agreement gate (DR-U3); decline the whole union on any disagreement, a declining child, a start-position union, a nested union inside a child, or a non-exhausted cursor after the union (DR-U4). End-to-end tests: concatenation-multiset parity vs native, anti-cartesian `|c1|+|c2|` ≠ product, all decline cases, canonical-alias parity. — risk: high (architecture)  *(depends on Step 2b)*  [ ]
 
 ## Episodes
@@ -122,6 +123,16 @@ flowchart TB
 **What changed from the plan:** ESCALATE inserted this step (DR-U6) ahead of the Step 2 retry; scope is MATCH planner only — no translator or `MultiPlanMatchStep` edits.
 
 **Critical context:** Do not reintroduce an unconditional zero-estimate `EmptyStep` return for count(*) shapes. Property aggregates (`sum`/`min`/`max`/`mean`) still want empty → no row under Gremlin `dropNullRows`; only bare `count(*)` without GROUP BY skips the short-circuit.
+
+### Step 2b — commit 660b3be634, 2026-07-30T13:30Z [ctx=unknown]
+
+**What was done:** Extended `TranslationResult` with `childInputs` + `childInputParameters`, a `multiPlan` factory, and XOR validation so a union carrier is distinct from a single-plan one. `GremlinToMatchStrategy.applyTranslation` now branches: `buildChildPlans` builds each child under the injected plan builder (`cacheEligible` forced false), installs per-child params on that child's context, closes children 0..k-1 on a mid-build throw (close failures suppressed), and splices `MultiPlanMatchStep`. Walker single-plan construction passes empty child lists. Tests cover N-child splice + params, mid-build cleanup, close-failure suppression, carrier validation, `cacheEligible=false`, and production-builder cache bypass. `GraphApiTest` 14/14 green after Step 2a.
+
+**What was discovered:** Multi-plan build never calls the parent cache path — children are always built with `cacheEligible=false` via `buildChildPlans`, so union cache bypass is structural, not only a flag on the carrier. `requireInputs`' null throw after assert is unreachable under `-ea` (test/CI default).
+
+**What changed from the plan:** None. Used `TranslationResult` fields (not a sibling `UnionTranslationResult` type), matching DR-U2's "field or sibling" option and the prior Step 2 exploration.
+
+**Critical context:** Construct `MultiPlanMatchStep` only with already-built child plans; per-child params live on child contexts (base map empty). Step 3's `UnionStepRecogniser` should call `TranslationResult.multiPlan(..., cacheEligible=false, ...)` and must not put params on the base map.
 
 ## Validation and Acceptance
 - `g.V()….union(t1, t2, …)` with children agreeing on the full projection contract translates to the concatenated multiset; the anti-cartesian case (children whose product ≠ sum) returns `|c1| + |c2|`, not the product (risk R5).
