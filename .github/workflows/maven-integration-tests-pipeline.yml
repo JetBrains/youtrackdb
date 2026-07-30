@@ -138,9 +138,16 @@ jobs:
         # 570 would be out of range — currently unenforced, but not something to rely on. Any
         # in-range value (<= 360) would be well below this job's 600-minute budget and could
         # kill integration runs that legitimately take longer, which is a real regression for a
-        # nightly suite sized at 600. The always() condition on the diagnostics upload below
-        # already covers the timeout case on its own; a step timeout would only have been
-        # belt-and-braces, so it is not worth that risk here. The small-cache job in
+        # nightly suite sized at 600.
+        #
+        # What this job gives up by not having one, stated precisely (see the canonical note on
+        # the test-linux diagnostics upload in maven-pipeline.yml): always() still makes the
+        # upload ELIGIBLE after the job timeout, and the upload is ordered before the heavy
+        # publish step so it is LIKELY to finish — but on this job that remains best-effort
+        # inside GitHub's roughly five minutes of forced-termination time, because only a
+        # step-level timeout removes that time box. That is the trade accepted here: a
+        # best-effort upload on a 600-minute nightly, versus a step cap that could kill runs
+        # which legitimately need more than 360 minutes. The small-cache job in
         # maven-pipeline.yml keeps its step timeout because 105 is comfortably in range.
         run: ./mvnw -s .github/workflows/settings.xml ${{ matrix.maven_goals }} -B ${{ matrix.mvn_opts }}
         env:
@@ -176,13 +183,15 @@ jobs:
           path: 'core/target/vmlens-report/'
           if-no-files-found: ignore
           retention-days: 30
-      # Diagnostics upload runs BEFORE Publish Test Results, deliberately. Both are
-      # always()-gated, and after a job timeout GitHub allows roughly five minutes of
-      # forced-termination time for the remaining steps; the publish action is the heavy one
-      # (it parses every report XML and calls the checks API) and this job produces the most
-      # reports of any, so with the old order it could consume that budget and the upload —
-      # the whole point of these steps — would never run. Nothing depends on the publish
-      # step's outputs, so the order is free.
+      # Diagnostics upload runs BEFORE Publish Test Results, deliberately — mechanism (2) of the
+      # canonical note on the test-linux diagnostics upload in maven-pipeline.yml. Both steps are
+      # always()-gated, so both are eligible after a timeout, but once the job is cancelled they
+      # share only GitHub's roughly five minutes of forced-termination time; the publish action is
+      # the heavy one (it parses every report XML and calls the checks API) and this job produces
+      # the most reports of any, so behind it the upload could fail to finish. This job has no
+      # step-level timeout to remove that time box (see the Run Maven Test note above), so the
+      # ordering is the only thing improving the odds here. Nothing depends on the publish step's
+      # outputs, so the order is free.
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
         # always(), NOT !cancelled(): a job killed by a timeout is reported as cancelled, so

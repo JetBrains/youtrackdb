@@ -230,12 +230,23 @@ jobs:
           path: 'core/target/vmlens-report/'
           if-no-files-found: ignore
           retention-days: 30
-      # Diagnostics upload runs BEFORE Publish Test Results, deliberately. Both are
-      # always()-gated, and after a job timeout GitHub allows roughly five minutes of
-      # forced-termination time for the remaining steps; the publish action is the heavy
-      # one (it parses every report XML and calls the checks API), so with the old order it
-      # could consume that budget and the upload — the whole point of these steps — would
-      # never run. Nothing depends on the publish step's outputs, so the order is free.
+      # CANONICAL NOTE on what the timeout guarantee actually is; the other diagnostics-upload
+      # steps in this file and in maven-integration-tests-pipeline.yml refer back to this one.
+      # Three separate mechanisms, each doing a different job — none of them sufficient alone:
+      #   1. always() makes the upload ELIGIBLE after a timeout. A timeout is reported as a
+      #      cancellation, and the previous !cancelled() condition skipped the step outright in
+      #      exactly that case. Necessary, but eligibility is not completion.
+      #   2. Step ORDER makes it LIKELY to finish. Once a job is cancelled, the remaining steps
+      #      share only GitHub's roughly five minutes of forced-termination time, so the upload is
+      #      placed before the heavy publish action (which parses every report XML and calls the
+      #      checks API) rather than behind it. This is best-effort inside a time box, not a
+      #      guarantee. Nothing depends on the publish step's outputs, so the order is free.
+      #   3. A step-level timeout, where one is in range, REMOVES the time box: it fails the step
+      #      instead of cancelling the job, so the later steps run on the normal job budget. Only
+      #      the small-cache job below has one; see the note there for why the nightly
+      #      integration job cannot.
+      # So: with (1) and (2) the upload is best-effort within about five minutes; with (3) it is
+      # unconstrained.
       - name: Upload Test Diagnostics
         uses: actions/upload-artifact@v7
         # always(), NOT !cancelled(): this job declares no timeout-minutes, so GitHub's
@@ -480,8 +491,10 @@ jobs:
         # Step-level timeout 15 minutes inside the job's own timeout-minutes: 120, and within
         # GitHub's documented 360-minute maximum for a step timeout. A step timeout is recorded
         # as a step FAILURE, not a cancellation, so the remaining steps run with the normal job
-        # budget instead of racing GitHub's ~5-minute forced-termination window — which is what
-        # makes the diagnostics upload below actually reachable on a hang. Any run this kills
+        # budget instead of racing GitHub's ~5-minute forced-termination window. This is
+        # mechanism (3) of the canonical note on the test-linux diagnostics upload above: always()
+        # is what makes the upload eligible at all, and the step order is what makes it likely to
+        # finish inside that window — this timeout is what removes the window. Any run this kills
         # would have been killed by the job timeout 15 minutes later anyway, so it cannot fail a
         # run that passes today.
         #
