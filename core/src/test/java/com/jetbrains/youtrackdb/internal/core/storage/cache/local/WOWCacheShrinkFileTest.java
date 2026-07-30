@@ -766,9 +766,21 @@ public class WOWCacheShrinkFileTest {
    * the purge completes inside {@code shrinkFile} (which blocks on the task's future), background
    * flushing is paused, and the one thread that could otherwise re-publish a key — a read-cache
    * release or eviction — does not exist here, because the test drives {@link WOWCache} directly
-   * with no {@code LockFreeReadCache} and no evictor. Bounds instead of exact values were
-   * measurably too weak: a mutant that removes the sweep's range bound and purges the whole file
-   * passed them, and fails these.
+   * with no {@code LockFreeReadCache} and no evictor.
+   *
+   * <p>The exact values are what kill an off-by-one in the purge's range filter. Mutating
+   * {@code pageKey.pageIndex >= minPageIndex} to {@code >} in {@code doRemoveCachePages} leaves the
+   * page at the target index behind, so three keys survive where two should: measured, this test
+   * fails on the assertion below with {@code but was: 3L}. The bounds this replaced — strictly less
+   * than the 6 published keys, and at least the 2 surviving ones — both admit 3, so they passed
+   * that mutant.
+   *
+   * <p>What these assertions do <i>not</i> catch, so that the next reader does not over-trust them:
+   * removing the sweep's range bound (making it whole-file) is inert here, because the sweep skips
+   * any key that still has a {@code writeCachePages} entry and the below-target keys all do.
+   * Measured: that mutant leaves this test green and is caught instead by
+   * {@link #purgeSweepsKeysPresentOnlyInTheExclusiveWritePageSet}, whose keys are synthetic and have
+   * no {@code writeCachePages} entries. The two tests are complementary, not redundant.
    *
    * <p>The exactness is therefore a statement about this harness, <i>not</i> a zero-leak promise
    * for the production shrink ordering. There the read cache is still live while the purge runs,
@@ -1068,6 +1080,29 @@ public class WOWCacheShrinkFileTest {
           .as("the clamp branch must have executed exactly once; a zero here would mean the"
               + " assertions above passed without the drift ever being present")
           .isEqualTo(1);
+      assertThat(wowCache.getExclusiveWriteAccountingClampWarningsForTest())
+          .as("throttle arm 1 — the first clamp on a cache instance must emit its diagnostic")
+          .isEqualTo(1);
+
+      // Throttle arm 2: a second drift within the same throttle interval must still be counted as
+      // a clamp but must NOT emit a second record. Both arms are pinned deterministically because
+      // the interval is a minute and this runs in microseconds; no clock injection needed.
+      final var secondFileId = allocateAndOptionallyDirty(1, false);
+      wowCache.removeOnlyWriters(secondFileId, 0);
+      wowCache.addOnlyWriters(secondFileId, 0);
+      wowCache.deleteFile(secondFileId);
+
+      assertThat(wowCache.getExclusiveWriteAccountingClampsForTest())
+          .as("the second drift must still be counted — the counter is never throttled, which is"
+              + " what keeps a recurring drift measurable")
+          .isEqualTo(2);
+      assertThat(wowCache.getExclusiveWriteAccountingClampWarningsForTest())
+          .as("throttle arm 2 — a clamp inside the same interval must be suppressed, bounding the"
+              + " log volume emitted under the purge's page and group locks")
+          .isEqualTo(1);
+      assertThat(wowCache.getExclusiveWriteCachePagesSize())
+          .as("the clamp must still hold the counter at zero on the second drift")
+          .isZero();
     } finally {
       wowCache.resumeBackgroundFlush();
     }

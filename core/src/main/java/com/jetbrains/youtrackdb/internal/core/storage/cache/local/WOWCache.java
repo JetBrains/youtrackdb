@@ -111,7 +111,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.zip.CRC32;
@@ -161,6 +160,14 @@ public final class WOWCache extends AbstractWriteCache
     implements WriteCache, CachePointer.WritersListener {
 
   private static final Logger logger = LoggerFactory.getLogger(WOWCache.class);
+
+  /**
+   * Minimum spacing between two emitted exclusive-write accounting-clamp diagnostics — see
+   * {@link #exclusiveWriteAccountingClampWarnNanos}. One minute keeps a recurring drift visible for
+   * as long as it lasts while bounding the log volume produced under the purge's page/group locks,
+   * however many page keys are affected.
+   */
+  private static final long ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
 
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
@@ -417,18 +424,32 @@ public final class WOWCache extends AbstractWriteCache
   private final LongAdder exclusiveWriteAccountingClamps = new LongAdder();
 
   /**
-   * Latch ensuring the accounting-clamp diagnostic in {@link #removeExclusiveWritePage} is logged
-   * at most once per cache instance.
-   *
-   * <p>The clamp is invoked per page key from inside {@code doRemoveCachePages}' main loop, which
-   * holds both the per-key group lock and the page frame's exclusive lock, on the single
-   * commit-executor thread that also runs every flush. If a drift ever affected many keys of one
-   * file, an unbounded per-key WARN would emit one formatted log record per page while holding
-   * those locks, turning an accounting nuisance into a flush-thread stall. One record per cache
-   * instance is enough to raise the alarm; {@link #exclusiveWriteAccountingClamps} keeps the exact
-   * count for anyone who needs it.
+   * Counts how many accounting-clamp events actually emitted a log record, as opposed to being
+   * throttled. Test-only observable, so a regression test can pin both arms of the throttle in
+   * {@link #removeExclusiveWritePage}; exposed via
+   * {@link #getExclusiveWriteAccountingClampWarningsForTest()}.
    */
-  private final AtomicBoolean exclusiveWriteAccountingClampWarned = new AtomicBoolean();
+  private final LongAdder exclusiveWriteAccountingClampWarnings = new LongAdder();
+
+  /**
+   * {@code System.nanoTime()} of the last emitted accounting-clamp diagnostic, throttling it to at
+   * most one record per {@link #ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS}.
+   *
+   * <p>Two opposing constraints meet here. The clamp is invoked per page key from inside
+   * {@code doRemoveCachePages}' main loop, which holds both the per-key group lock and the page
+   * frame's exclusive lock, on the single commit-executor thread that also runs every flush — so an
+   * unbounded per-key WARN would emit one formatted record per page while holding those locks,
+   * turning an accounting nuisance into a flush-thread stall. But a one-shot latch is the wrong
+   * bound in the other direction: on a long-lived server a drift that recurs for months would be
+   * invisible after its first occurrence, while the leak it accompanies can pin the periodic flush
+   * at its 1 ms re-arm and eventually latch writer back-pressure. A time-based throttle keeps the
+   * volume bounded (at most one record per interval per cache, however many keys drift) while
+   * keeping a recurring problem permanently visible in the log.
+   *
+   * <p>Initialised one full interval in the past so the first clamp always emits.
+   */
+  private final AtomicLong exclusiveWriteAccountingClampWarnNanos =
+      new AtomicLong(System.nanoTime() - ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS);
 
   /**
    * Amount of exclusive pages are hold by write cache.
@@ -1954,12 +1975,28 @@ public final class WOWCache extends AbstractWriteCache
 
   /**
    * Test-only accessor: how many times the exclusive-write accounting clamp engaged — see
-   * {@link #exclusiveWriteAccountingClamps}. Zero is the expected value on any deterministic,
-   * single-threaded path; a regression test asserts that, which is what keeps the clamp from
-   * silently absorbing a purge that decrements without having removed anything.
+   * {@link #exclusiveWriteAccountingClamps}.
+   *
+   * <p>The expected value is per-scenario, not universally zero. On a path that never drifts the
+   * counter and the set apart, zero is expected, and asserting it is what keeps the clamp from
+   * silently absorbing a purge that decrements without having removed anything (see
+   * {@code deleteFileDoesNotDecrementForPagesThatWereNeverPublishedAsWritersOnly}). A test that
+   * deliberately builds the drift expects exactly as many clamps as keys it orphaned (see
+   * {@code purgeClampsInsteadOfDrivingTheCounterNegativeOnAccountingDrift}). Both live in
+   * {@code WOWCacheShrinkFileTest}.
    */
   public long getExclusiveWriteAccountingClampsForTest() {
     return exclusiveWriteAccountingClamps.sum();
+  }
+
+  /**
+   * Test-only accessor: how many accounting-clamp events emitted a log record rather than being
+   * throttled — see {@link #exclusiveWriteAccountingClampWarnings}. Lets a regression test pin both
+   * arms of the throttle (the first clamp emits; a clamp inside the same interval does not) without
+   * capturing log output.
+   */
+  public long getExclusiveWriteAccountingClampWarningsForTest() {
+    return exclusiveWriteAccountingClampWarnings.sum();
   }
 
   /**
@@ -2346,11 +2383,15 @@ public final class WOWCache extends AbstractWriteCache
     // (AbstractStorage.close), so page releases on other threads can in principle still fire
     // addOnlyWriters/removeOnlyWriters while this runs.
     //
-    // That residual is acceptable because it is not new: two pre-existing assertions on this
-    // same counter (in flushExclusivePagesIfNeeded and in the exclusive-flush task) sample it
-    // on the hot flush path under far more concurrency than this one does. This assertion is
-    // strictly less exposed than both, so it adds no failure mode the file did not already
-    // carry.
+    // That residual is small but it is genuinely a NEW sampling window, not a subset of an
+    // existing one. Two pre-existing assertions on this same counter (in
+    // flushExclusivePagesIfNeeded and in the exclusive-flush task) sample it far more often and
+    // under far more concurrency — but only while flushing is still running, and by the time
+    // control reaches this point flushing has been quiesced, so those two can no longer sample at
+    // all. This assertion therefore covers an instant they never see: rarer than theirs, and not
+    // dominated by them. It is kept because the invariant it checks is the one the clamp exists to
+    // protect, and because a violation here is far cheaper to act on than the silent
+    // back-pressure loss it would otherwise announce much later.
     //
     // It is here rather than inside doRemoveCachePages because an assertion firing in the purge
     // aborts it mid-loop — leaking a PageFrame, orphaning a writeCachePages entry whose listener
@@ -3878,9 +3919,10 @@ public final class WOWCache extends AbstractWriteCache
         exclusiveWriteCacheSize.getAndUpdate(current -> current > 0 ? current - 1 : current);
     if (previous <= 0) {
       exclusiveWriteAccountingClamps.increment();
-      // At most one record per cache instance — see exclusiveWriteAccountingClampWarned. The
-      // counter above still records every occurrence.
-      if (exclusiveWriteAccountingClampWarned.compareAndSet(false, true)) {
+      // Throttled, not one-shot — see exclusiveWriteAccountingClampWarnNanos for why both bounds
+      // matter. The counter above records every occurrence regardless.
+      if (shouldLogAccountingClamp()) {
+        exclusiveWriteAccountingClampWarnings.increment();
         LogManager.instance()
             .warn(
                 this,
@@ -3888,9 +3930,9 @@ public final class WOWCache extends AbstractWriteCache
                     + " counter was already %d; removed the key and left the counter unchanged"
                     + " rather than decrementing below zero. This is the known non-atomic"
                     + " addOnlyWriters/removeOnlyWriters drift and is harmless for durability"
-                    + " (writeCachePages is the source of truth). Further occurrences on this"
-                    + " cache instance are not logged; a growing clamp count is what signals a"
-                    + " real accounting regression.",
+                    + " (writeCachePages is the source of truth). Further occurrences within the"
+                    + " next minute are not logged; a message that keeps reappearing is what"
+                    + " signals a real accounting regression.",
                 (Throwable) null,
                 storageName,
                 pageKey.fileId,
@@ -3898,6 +3940,21 @@ public final class WOWCache extends AbstractWriteCache
                 previous);
       }
     }
+  }
+
+  /**
+   * Throttle gate for the accounting-clamp diagnostic: {@code true} at most once per
+   * {@link #ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS}. The compare-and-set makes the winner unique when
+   * several threads clamp inside the same window, so the bound holds under concurrency and not only
+   * on the single commit-executor thread that runs the purge.
+   */
+  private boolean shouldLogAccountingClamp() {
+    final var now = System.nanoTime();
+    final var last = exclusiveWriteAccountingClampWarnNanos.get();
+    if (now - last < ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS) {
+      return false;
+    }
+    return exclusiveWriteAccountingClampWarnNanos.compareAndSet(last, now);
   }
 
   /**
@@ -4017,7 +4074,11 @@ public final class WOWCache extends AbstractWriteCache
     //     structural blind spot: it builds its CacheEntryImpl with insideCache=false and never
     //     inserts it into the read cache's map, so clearFile can neither see nor freeze it, and
     //     the matching releaseFromRead calls decrementReadersReferrer with no filesLock held.
-    //     That blind spot is NOT demonstrated to be live today. silentLoadForRead has exactly
+    //     That blind spot is NOT demonstrated to be live today — subject to the same interruption
+    //     caveat noted above: the exclusion below is a stateLock argument, so it is independent of
+    //     filesLock, but if the submitter is interrupted out of future.get() then this sweep can
+    //     still be running after its caller returned, and a stateLock-based exclusion says nothing
+    //     about what the interrupted caller's thread does next. silentLoadForRead has exactly
     //     one production caller, DiskStorage.backupPagesWithChanges, and the whole per-page
     //     load/release loop runs under DiskStorage.backup's stateLock.readLock()
     //     (backup :930 acquires, :1000 releases, :979 calls storeBackupDataToStream, which calls
