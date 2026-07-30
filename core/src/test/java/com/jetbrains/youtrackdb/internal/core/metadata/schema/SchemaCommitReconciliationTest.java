@@ -1035,18 +1035,38 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     // A @Test(timeout) body runs on a JUnit watchdog thread, not the @Before thread, so the bound
     // session must be re-activated here before its racer thread re-binds it.
     session.activateOnCurrentThread();
-    // Budget derivation. A round is a create+drop of a ONE-collection class. Measured here: ~50 ms
-    // per round on local DISK storage (`-Dyoutrackdb.test.env=ci`), versus ~310 ms at the default 8
-    // collections (each collection is its own pair of files, so the default made a round create and
-    // delete ~40 files); 60 rounds therefore cost ~3-4 s. On MEMORY storage - the module default,
-    // and what most CI legs run - the whole method costs ~0.15 s, so the budget below is sized for
-    // the disk case, which dominates. The Windows disk-storage leg ran the affected tests at 3.34x
-    // (p50) / 5.01x (p95) / 7.73x (max) this host: at the worst observed factor those ~3-4 s become
-    // ~23-31 s, i.e. 20-26% of the 120 s deadline, so the deadline still has ~4x headroom over a
-    // legitimate slow-host run. Worst-case tail: 120 s deadline + 3 x 10 s trailing
-    // grace + ~1 s thread dump + 30 s cleanup joins (3 x 10 s) = ~181 s under the 240 s
-    // @Test(timeout) - which is what keeps a real deadlock a NAMED assertion carrying a thread dump
-    // instead of a bare TestTimedOutException.
+    // Budget derivation, from a measured sweep on local DISK storage (`-Dyoutrackdb.test.env=ci`,
+    // three isolated runs per setting, medians of the surefire method time): 60 rounds -> 4.06 s,
+    // 72 -> 4.54 s, 90 -> 5.46 s, 120 -> 6.65 s, 180 -> 9.31 s. Those fit
+    // methodTime = 1.44 s fixed + 43.7 ms/round to within 1.4% at every point, so cost is LINEAR in
+    // the round count: the fixed part is the two openDatabase() calls plus the fixture, and a round
+    // is one create+drop of a ONE-collection class (44-48 ms measured directly; the default 8
+    // collections cost ~310 ms/round, each being its own file pair). MEMORY storage - the module
+    // default, and what most CI legs run - costs ~0.15 s in-class and ~0.9 s isolated, so the disk
+    // case is what sizes the budget. (In-class disk runs measure ~3.0 s rather than 4.06 s, the JIT
+    // being warm by then; the larger isolated median is used below, being the conservative one.)
+    //
+    // Why 60 and not more: the deadline must absorb the SLOWEST observed host, not the median one.
+    // The Windows disk-storage leg ran these tests at 3.34x (p50) / 5.01x (p95) this host, with a
+    // worst observed cross-leg ratio of 12.96x. Applying 12.96x to the measured medians - itself
+    // conservative, since the method median includes ~1.44 s of fixture work that runs BEFORE the
+    // deadline is armed - projects 60 rounds to 52.6 s, i.e. 44% of the 120 s racer deadline, while
+    // 90 rounds project to 70.8 s (59%) and 180 to 120.6 s (100.5%: past the deadline outright).
+    // Under the rule "projected worst case at or below half the deadline" the ceiling is 72 rounds
+    // ((60 s / 12.96 - 1.44 s) / 43.7 ms = 72.9). Raising 60 -> 72 would buy 20% more interleaving
+    // samples while consuming the whole remaining margin against a factor that is an observed
+    // maximum rather than a bound, so the count stays at 60, and the deadline, the trailing grace
+    // and the @Test(timeout) stay exactly as verified.
+    //
+    // Nothing accumulates per round, so the linear fit is not hiding a compounding term: the
+    // storage's file count is identical (116) at 60, 72, 90, 120 and 180 rounds - collection slots
+    // are reused, not appended - the database grows a flat ~17 KB/round, and the per-round
+    // create+drop cost DEcreases slightly within a run (first 20 rounds 47-50 ms, last 20 rounds
+    // 43-47 ms, JIT warmup), never rises.
+    //
+    // Worst-case tail: 120 s deadline + 3 x 10 s trailing grace + ~1 s thread dump + 30 s cleanup
+    // joins (3 x 10 s) = ~181 s under the 240 s @Test(timeout) - which is what keeps a real
+    // deadlock a NAMED assertion carrying a thread dump instead of a bare TestTimedOutException.
     final var rounds = 60;
     final var raceDeadlineBudgetMillis = 120_000L;
     var barrier = new CyclicBarrier(3);
