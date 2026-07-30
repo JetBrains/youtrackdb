@@ -172,11 +172,136 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnItems.getFirst().toString()).contains("name");
   }
 
+  /**
+   * Multi-label {@code select("a","b").by("name").by("age")} projects each label through its
+   * matching key modulator into a MAP (unwrapSingletonMap stays false).
+   */
+  @Test
+  public void selectMultiLabelWithMatchingBys_pinsMapColumns() {
+    var admin =
+        graph.traversal().V().as("a").out().as("b").select("a", "b").by("name").by("age").asAdmin();
+    var ctx = contextThroughVertexHop(admin);
+    var cursor =
+        cursorAt(admin, org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep.class);
+
+    var outcome = SelectStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
+    assertThat(ctx.shaping().unwrapSingletonMap()).isFalse();
+    assertThat(ctx.returnAliases.stream().map(a -> a.getStringValue())).containsExactly("a", "b");
+    assertThat(ctx.returnItems.get(0).toString()).contains("name");
+    assertThat(ctx.returnItems.get(1).toString()).contains("age");
+  }
+
+  /** {@code select("a","b").by("name")} declines when modulator count ≠ label count. */
+  @Test
+  public void selectMultiLabel_modulatorCountMismatch_declines() {
+    var admin = graph.traversal().V().as("a").out().as("b").select("a", "b").by("name").asAdmin();
+    var ctx = contextThroughVertexHop(admin);
+    var cursor =
+        cursorAt(admin, org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep.class);
+
+    assertThat(SelectStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** {@code select("a","b").by("name").by(__.out())} declines an unsupported key modulator. */
+  @Test
+  public void selectMultiLabel_unsupportedBy_declines() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .as("a")
+            .out()
+            .as("b")
+            .select("a", "b")
+            .by("name")
+            .by(org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.out())
+            .asAdmin();
+    var ctx = contextThroughVertexHop(admin);
+    var cursor =
+        cursorAt(admin, org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep.class);
+
+    assertThat(SelectStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** One unbound label under {@code select(...).by(...)} declines the whole select. */
+  @Test
+  public void selectMultiLabel_unboundLabelUnderBy_declines() {
+    var admin =
+        graph.traversal().V().as("a").select("a", "missing").by("name").by("age").asAdmin();
+    var ctx = contextAfterStart(admin);
+    var cursor =
+        cursorAt(admin, org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep.class);
+
+    assertThat(SelectStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** {@code select(Pop.first, ...)} declines — only Pop.last is Phase-1. */
+  @Test
+  public void selectMultiLabel_popFirst_declines() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .as("a")
+            .out()
+            .as("b")
+            .select(org.apache.tinkerpop.gremlin.process.traversal.Pop.first, "a", "b")
+            .asAdmin();
+    var ctx = contextThroughVertexHop(admin);
+    var cursor =
+        cursorAt(admin, org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep.class);
+
+    assertThat(SelectStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** {@code valueMap("name","age")} emits both property columns under MAP with list-wrap. */
+  @Test
+  public void valueMapMultiKey_pinsBothPresenceKeys() {
+    var admin = graph.traversal().V().valueMap("name", "age").asAdmin();
+    var ctx = contextAfterStart(admin);
+    var cursor = cursorAt(admin, PropertyMapStep.class);
+
+    var outcome = PropertyMapStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
+    assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("name", "age");
+  }
+
+  /** {@code select(Pop.first,"v")} declines — SelectOneStep only accepts Pop.last. */
+  @Test
+  public void selectOne_popFirst_declines() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .as("v")
+            .select(org.apache.tinkerpop.gremlin.process.traversal.Pop.first, "v")
+            .asAdmin();
+    var ctx = contextAfterStart(admin);
+    var cursor = cursorAt(admin, SelectOneStep.class);
+
+    assertThat(SelectOneStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
   private static WalkerContext contextAfterStart(
       org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> admin) {
     var ctx = new WalkerContext(true, false);
     var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
     assertThat(StartStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    return ctx;
+  }
+
+  /** Start + first vertex hop so multi-label {@code as} bindings are registered. */
+  private static WalkerContext contextThroughVertexHop(
+      org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> admin) {
+    var ctx = new WalkerContext(true, false);
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    assertThat(StartStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(VertexStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
     return ctx;
   }
 

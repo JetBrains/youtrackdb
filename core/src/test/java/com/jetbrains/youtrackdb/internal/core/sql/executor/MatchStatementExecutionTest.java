@@ -5000,4 +5000,80 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Bare {@code MATCH … RETURN count(*)} on a class with records uses the hardwired
+   * {@link CountFromClassStep} fast path (not a pattern scan) and returns the class size.
+   */
+  @Test
+  public void testBareMatchCountOnClass_usesCountFromClassStep() {
+    var className = "MatchHwCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+    session.begin();
+    for (var i = 0; i < 4; i++) {
+      session.execute("CREATE VERTEX " + className + " SET name = 'n" + i + "'").close();
+    }
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query("MATCH {class: " + className + ", as: a} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(4L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        "bare MATCH count(*) must use CountFromClassStep",
+        plan.getSteps().stream().anyMatch(step -> step instanceof CountFromClassStep));
+    assertFalse(
+        "bare MATCH count(*) must not fall through to EmptyStep",
+        plan.getSteps().stream().anyMatch(step -> step instanceof EmptyStep));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Bare {@code MATCH … RETURN count(*)} on an empty class still emits one row with {@code 0} via
+   * {@link CountFromClassStep} (not {@link EmptyStep}).
+   */
+  @Test
+  public void testBareMatchCountOnEmptyClass_returnsZeroViaCountFromClass() {
+    var className = "MatchHwEmptyCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+
+    session.begin();
+    var result =
+        session.query("MATCH {class: " + className + ", as: a} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(0L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        plan.getSteps().stream().anyMatch(step -> step instanceof CountFromClassStep));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Non-count MATCH with a filter on an empty class short-circuits to {@link EmptyStep} (estimate
+   * is 0) and returns zero rows. Unfiltered empty-class MATCH uses {@code classCount + 1} and does
+   * not take this path.
+   */
+  @Test
+  public void testMatchReturnAliasOnEmptyClass_usesEmptyStep() {
+    var className = "MatchEmptyReturnV";
+    session.execute("CREATE class " + className + " extends V").close();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: " + className + ", as: a, where: (name = 'nobody')} RETURN a");
+    assertFalse("filtered empty-class MATCH must return no rows", result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        "zero-estimate non-count MATCH must short-circuit via EmptyStep",
+        plan.getSteps().stream().anyMatch(step -> step instanceof EmptyStep));
+    result.close();
+    session.commit();
+  }
+
 }

@@ -127,4 +127,49 @@ public class ByModulatorTranslatorTest extends GraphBaseTest {
     assertThat(ByModulatorTranslator.translateValueModulator(ALIAS, modulator)).isEmpty();
     assertThat(ByModulatorTranslator.translateKeyModulator(ALIAS, modulator)).isEmpty();
   }
+
+  /**
+   * {@code by(__.values("age").sum())} (and min/max/mean/count) maps to {@link
+   * ByModulatorTranslator.ValueAccumulator.PropertyAggregate} over {@code alias.age}.
+   */
+  @Test
+  public void valueSide_propertyAggregates_resolvePropertyAggregate() {
+    assertPropertyAggregate(__.values("age").sum().asAdmin(),
+        ByModulatorTranslator.ValueAccumulator.AggregateFunction.SUM);
+    assertPropertyAggregate(__.values("age").min().asAdmin(),
+        ByModulatorTranslator.ValueAccumulator.AggregateFunction.MIN);
+    assertPropertyAggregate(__.values("age").max().asAdmin(),
+        ByModulatorTranslator.ValueAccumulator.AggregateFunction.MAX);
+    assertPropertyAggregate(__.values("age").mean().asAdmin(),
+        ByModulatorTranslator.ValueAccumulator.AggregateFunction.MEAN);
+    assertPropertyAggregate(__.values("age").count().asAdmin(),
+        ByModulatorTranslator.ValueAccumulator.AggregateFunction.COUNT);
+  }
+
+  /** {@code by(__.label())} resolves to {@code alias.@class}. */
+  @Test
+  public void keySide_labelToken_resolvesClass() {
+    var modulator = graph.traversal().V().project("n").by(T.label).asAdmin().getSteps().getLast();
+    var ring =
+        ((org.apache.tinkerpop.gremlin.process.traversal.step.map.ProjectStep<?, ?>) modulator)
+            .getTraversalRing()
+            .getTraversals()
+            .getFirst();
+
+    var field = ByModulatorTranslator.translateKeyModulator(ALIAS, ring);
+
+    assertThat(field).isPresent();
+    assertThat(field.get().toString()).contains("@class");
+  }
+
+  private static void assertPropertyAggregate(
+      org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> modulator,
+      ByModulatorTranslator.ValueAccumulator.AggregateFunction expected) {
+    var accumulator = ByModulatorTranslator.translateValueModulator(ALIAS, modulator);
+    assertThat(accumulator)
+        .containsInstanceOf(ByModulatorTranslator.ValueAccumulator.PropertyAggregate.class);
+    var agg = (ByModulatorTranslator.ValueAccumulator.PropertyAggregate) accumulator.get();
+    assertThat(agg.function()).isEqualTo(expected);
+    assertThat(agg.field().toString()).contains("age");
+  }
 }

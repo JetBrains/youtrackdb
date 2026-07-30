@@ -122,6 +122,107 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.limit.toString()).contains("5");
   }
 
+  /** {@code skip(0)} is a no-op: accepted with neither SKIP nor LIMIT set. */
+  @Test
+  public void skipZero_isNoOp() {
+    var admin = graph.traversal().V().skip(0).asAdmin();
+    var ctx = seededContext();
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    var outcome = RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.skip).isNull();
+    assertThat(ctx.limit).isNull();
+  }
+
+  /** A second range/limit after one already captured declines (no Phase-1 composition). */
+  @Test
+  public void secondLimit_declines() {
+    var admin = graph.traversal().V().limit(5).limit(2).asAdmin();
+    var ctx = seededContext();
+    var first = cursorAt(admin, RangeGlobalStep.class);
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(first, ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+
+    var second = cursorAt(admin, RangeGlobalStep.class);
+    // Advance past the first RangeGlobalStep already consumed conceptually — rebuild cursor after
+    // first take by finding the remaining RangeGlobalStep.
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    var seen = 0;
+    while (cursor.peek() != null) {
+      if (cursor.peek() instanceof RangeGlobalStep) {
+        if (seen == 1) {
+          break;
+        }
+        seen++;
+        cursor.take();
+        continue;
+      }
+      cursor.take();
+    }
+    assertThat(cursor.peek()).isInstanceOf(RangeGlobalStep.class);
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /** A second {@code order()} after one already captured declines. */
+  @Test
+  public void secondOrder_declines() {
+    var admin = graph.traversal().V().order().by("name").order().by("age").asAdmin();
+    var ctx = seededContext();
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    while (cursor.peek() != null && !(cursor.peek() instanceof OrderGlobalStep)) {
+      cursor.take();
+    }
+    assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    while (cursor.peek() != null && !(cursor.peek() instanceof OrderGlobalStep)) {
+      cursor.take();
+    }
+    assertThat(cursor.peek()).isInstanceOf(OrderGlobalStep.class);
+    assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /** {@code order().by(__.out())} declines — unsupported key modulator. */
+  @Test
+  public void orderByUnsupportedModulator_declines() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .order()
+            .by(org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.out())
+            .asAdmin();
+    var ctx = seededContext();
+    var cursor = cursorAt(admin, OrderGlobalStep.class);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.orderBy).isNull();
+  }
+
+  /** {@code order().by(T.id)} sorts by {@code alias.@rid}. */
+  @Test
+  public void orderByIdToken_sortsByRid() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .order()
+            .by(org.apache.tinkerpop.gremlin.structure.T.id)
+            .asAdmin();
+    var ctx = seededContext();
+    var cursor = cursorAt(admin, OrderGlobalStep.class);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
+  }
+
   private static WalkerContext seededContext() {
     var ctx = new WalkerContext(true, false);
     ctx.addNode(BOUNDARY_ALIAS, "V");

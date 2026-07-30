@@ -79,6 +79,46 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
   }
 
+  /**
+   * Path-scoped {@code where(__.as("a").has(...))} is a {@link WhereTraversalStep} (not
+   * TraversalFilterStep). Pure-filter child merges into the boundary WHERE.
+   */
+  @Test
+  public void whereTraversalStep_pathScopedPureFilter_mergesBoundaryPredicate() {
+    var admin = graph.traversal().V().as("a").where(__.as("a").has("age", P.eq(30))).asAdmin();
+    var ctx = contextAfterStartWithRegistry(admin);
+    var cursor = cursorAtWhereTraversal(admin);
+
+    var outcome = WhereTraversalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(renderBoundaryFilter(ctx)).contains("age");
+    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
+  }
+
+  /** Path-scoped where whose child declines (e.g. {@code count()}) declines the whole filter. */
+  @Test
+  public void whereTraversalStep_declinedChild_declines() {
+    var admin = graph.traversal().V().as("a").where(__.as("a").count()).asAdmin();
+    var ctx = contextAfterStartWithRegistry(admin);
+    var cursor = cursorAtWhereTraversal(admin);
+
+    var outcome = WhereTraversalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** WhereTraversalStep without a boundary alias declines. */
+  @Test
+  public void whereTraversalStep_nullBoundary_declines() {
+    var admin = graph.traversal().V().as("a").where(__.as("a").has("age", P.eq(30))).asAdmin();
+    var ctx = new WalkerContext(true, false, null, productionRegistry());
+    var cursor = cursorAtWhereTraversal(admin);
+
+    assertThat(WhereTraversalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
   private static Map<Class<?>, StepRecogniser> productionRegistry() {
     return Map.of(
         GraphStep.class, StartStepRecogniser.INSTANCE,
@@ -101,6 +141,13 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
     return ctx;
   }
 
+  private WalkerContext contextAfterStartWithRegistry(Traversal.Admin<?, ?> admin) {
+    var ctx = new WalkerContext(true, false, session.getSchema(), productionRegistry());
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    assertThat(StartStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    return ctx;
+  }
+
   private static StepStreamCursor cursorAtTraversalFilter(Traversal.Admin<?, ?> admin) {
     var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
     while (cursor.peek() != null) {
@@ -110,6 +157,18 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
       cursor.take();
     }
     throw new AssertionError("TraversalFilterStep not found in traversal");
+  }
+
+  private static StepStreamCursor cursorAtWhereTraversal(Traversal.Admin<?, ?> admin) {
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    while (cursor.peek() != null) {
+      if (cursor.peek() instanceof WhereTraversalStep) {
+        return cursor;
+      }
+      cursor.take();
+    }
+    throw new AssertionError(
+        "WhereTraversalStep not found in traversal; steps=" + admin.getSteps());
   }
 
   private static String renderBoundaryFilter(WalkerContext ctx) {
