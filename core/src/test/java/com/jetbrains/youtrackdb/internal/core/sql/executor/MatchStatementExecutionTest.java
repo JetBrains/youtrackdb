@@ -4968,4 +4968,36 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Filtered {@code MATCH … RETURN count(*)} on a class that exists but has zero records (or zero
+   * matching records after a filter that cannot hit) must emit one row with {@code 0}, not an empty
+   * result. The zero-estimate {@code EmptyStep} short-circuit used to return before
+   * {@code GuaranteeEmptyCountStep} was attached — the same hole that made
+   * {@code g.V().has(...).count().next()} throw after a rolled-back {@code addV} left an empty
+   * vertex class behind.
+   */
+  @Test
+  public void testFilteredCountOnEmptyClassReturnsZeroRow() {
+    var className = "MatchEmptyCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class:"
+                + className
+                + ", as:a, where:(name='nobody')} RETURN count(*) as cnt");
+    assertTrue("filtered MATCH count(*) on empty class must return 1 row", result.hasNext());
+    var row = result.next();
+    assertEquals(0L, (long) row.<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        "GuaranteeEmptyCountStep must be present so empty input still emits 0",
+        plan.getSteps().stream().anyMatch(step -> step instanceof GuaranteeEmptyCountStep));
+    result.close();
+    session.commit();
+  }
+
 }

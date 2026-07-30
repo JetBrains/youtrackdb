@@ -633,11 +633,18 @@ public class MatchExecutionPlanner {
             .collect(Collectors.toSet());
 
     // Short-circuit: if any non-optional alias has zero estimated records, the query
-    // is guaranteed to produce no results
-    for (var entry : estimatedRootEntries.entrySet()) {
-      if (entry.getValue() == 0L && !isOptional(entry.getKey())) {
-        result.chain(new EmptyStep(context, enableProfiling));
-        return result;
+    // is guaranteed to produce no results. Exception: bare RETURN count(*) (no GROUP BY)
+    // must still emit a single 0 row — same SQL semantics as SELECT count(*) — so skip
+    // the EmptyStep early-return and let handleProjectionsBlock attach
+    // GuaranteeEmptyCountStep. Without this, a filtered MATCH count on an empty-but-existing
+    // class (estimatedRootEntries == 0) returns zero rows instead of {count: 0}, which breaks
+    // Gremlin g.V().has(...).count().next() after a rolled-back addV that left the class behind.
+    if (!isBareCountStarWithoutGroupBy()) {
+      for (var entry : estimatedRootEntries.entrySet()) {
+        if (entry.getValue() == 0L && !isOptional(entry.getKey())) {
+          result.chain(new EmptyStep(context, enableProfiling));
+          return result;
+        }
       }
     }
 
@@ -751,6 +758,18 @@ public class MatchExecutionPlanner {
     }
 
     return result;
+  }
+
+  /**
+   * {@code true} when RETURN is a bare {@code count(*)} with no GROUP BY — the shape that must emit
+   * a synthetic 0 row on empty input ({@link GuaranteeEmptyCountStep}), so the zero-estimate
+   * {@link EmptyStep} short-circuit must not fire.
+   */
+  private boolean isBareCountStarWithoutGroupBy() {
+    if (groupBy != null || returnItems == null || returnItems.size() != 1) {
+      return false;
+    }
+    return "count(*)".equalsIgnoreCase(returnItems.getFirst().toString().trim());
   }
 
   /**
