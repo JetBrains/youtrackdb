@@ -327,6 +327,82 @@
             </goals>
             <configuration>
               <groups>com.jetbrains.youtrackdb.internal.SequentialTest</groups>
+              <excludes>
+                <!-- The three TinkerPop compliance wrapper classes (YTDBProcessTest,
+                     YTDBStructureTest, YTDBGraphFeatureTest) and everything they wrap live
+                     under gremlintest/**; they now run exactly once each, via their own
+                     dedicated gremlin-*-compliance-tests executions below. Without this
+                     exclude they would ALSO match here: GroupMatcherCategoryFilter matches
+                     the wrapped scenario classes' own Description (they extend
+                     YTDBAbstractGremlinTest, which carries @Category(SequentialTest.class)),
+                     so every one of them would run a second time in this execution too. -->
+                <exclude>**/gremlintest/**</exclude>
+                <!-- Configuring ANY custom <excludes> here replaces surefire's default
+                     excludes outright, silently disabling its built-in exclusion of
+                     nested/inner classes (**/*$*.java). Restore that default explicitly so
+                     inner classes are not picked up as top-level test classes. -->
+                <exclude>**/*$*</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+          <!--
+            Compliance executions: one per TinkerPop suite-wrapper class (YTDBProcessTest,
+            YTDBStructureTest, YTDBGraphFeatureTest). Each wrapper carries
+            @Category(SequentialTest.class), but running them under the sequential-tests
+            execution above (or any execution with a <groups>/<excludedGroups> filter)
+            silently executes ZERO tests: GroupMatcherCategoryFilter resolves @Category per
+            leaf Description, not per class, and neither the wrapped upstream TinkerPop test
+            classes (loaded from a jar) nor the Cucumber-synthesized scenario Descriptions
+            carry the category annotation on their own Description. Every leaf gets pruned,
+            the suite reports success, and nothing actually ran. The fix is to give each
+            wrapper its own execution with NO group filter configured at all (neither
+            <groups> nor <excludedGroups>): with no filter, surefire never builds a runtime
+            category filter, so no leaf is pruned. Do NOT "helpfully" re-add a <groups> or
+            <excludedGroups> filter to these executions later; it will silently bring back
+            the zero-tests bug. Each wrapper gets its own execution (rather than one execution
+            listing all three) so that <failIfNoTests>true</failIfNoTests> is scoped per
+            wrapper: if any single suite ever regresses to zero tests again, its own execution
+            fails the build instead of being masked by the other two still reporting tests. It
+            also gives each suite its own fork, which is the configuration that was
+            performance-measured.
+          -->
+          <execution>
+            <id>gremlin-process-compliance-tests</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <includes>
+                <include>**/YTDBProcessTest.java</include>
+              </includes>
+              <failIfNoTests>true</failIfNoTests>
+            </configuration>
+          </execution>
+          <execution>
+            <id>gremlin-structure-compliance-tests</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <includes>
+                <include>**/YTDBStructureTest.java</include>
+              </includes>
+              <failIfNoTests>true</failIfNoTests>
+            </configuration>
+          </execution>
+          <execution>
+            <id>gremlin-feature-compliance-tests</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <includes>
+                <include>**/YTDBGraphFeatureTest.java</include>
+              </includes>
+              <failIfNoTests>true</failIfNoTests>
             </configuration>
           </execution>
         </executions>
@@ -619,11 +695,13 @@
       <version>3.8.8</version>
       <scope>test</scope>
     </dependency>
-    <!-- xchart → pdfbox pulls in junit-jupiter transitively, which causes
-         surefire to auto-detect JUnit Platform instead of the configured
-         surefire-junit47 provider. Add the Vintage engine so that JUnit
-         Platform can discover and run JUnit 4 tests as well. Without this,
-         -Dtest= filtering silently finds zero JUnit 4 tests. -->
+    <!-- xchart → pdfbox pulls in junit-jupiter transitively. Contrary to an earlier version
+         of this comment, that does NOT change which surefire provider runs: the provider is
+         pinned to surefire-junit47 via the explicit plugin dependency declared on
+         maven-surefire-plugin above, and that pin overrides provider auto-detection based on
+         classpath test frameworks. Under the pinned provider this vintage-engine dependency
+         has no effect; it is kept only defensively, in case the provider pin above is ever
+         removed and JUnit Platform auto-detection takes over. -->
     <dependency>
       <groupId>org.junit.vintage</groupId>
       <artifactId>junit-vintage-engine</artifactId>
