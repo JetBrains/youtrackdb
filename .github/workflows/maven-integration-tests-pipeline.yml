@@ -132,6 +132,23 @@ jobs:
 
       - name: Run Maven Test
         id: tests
+        # No step-level timeout here, deliberately. The obvious value (just inside this job's
+        # timeout-minutes: 600) is not expressible: GitHub documents a maximum of 360 for
+        # jobs.<job_id>.steps[*].timeout-minutes on both hosted and self-hosted runners, so a
+        # 570 would be out of range — currently unenforced, but not something to rely on. Any
+        # in-range value (<= 360) would be well below this job's 600-minute budget and could
+        # kill integration runs that legitimately take longer, which is a real regression for a
+        # nightly suite sized at 600.
+        #
+        # What this job gives up by not having one, stated precisely (see the canonical note on
+        # the test-linux diagnostics upload in maven-pipeline.yml): always() still makes the
+        # upload ELIGIBLE after the job timeout, and the upload is ordered before the heavy
+        # publish step so it is LIKELY to finish — but on this job that remains best-effort
+        # inside GitHub's roughly five minutes of forced-termination time, because only a
+        # step-level timeout removes that time box. That is the trade accepted here: a
+        # best-effort upload on a 600-minute nightly, versus a step cap that could kill runs
+        # which legitimately need more than 360 minutes. The small-cache job in
+        # maven-pipeline.yml keeps its step timeout because 105 is comfortably in range.
         run: ./mvnw -s .github/workflows/settings.xml ${{ matrix.maven_goals }} -B ${{ matrix.mvn_opts }}
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
@@ -166,6 +183,43 @@ jobs:
           path: 'core/target/vmlens-report/'
           if-no-files-found: ignore
           retention-days: 30
+      # Diagnostics upload runs BEFORE Publish Test Results, deliberately — mechanism (2) of the
+      # canonical note on the test-linux diagnostics upload in maven-pipeline.yml. Both steps are
+      # always()-gated, so both are eligible after a timeout, but once the job is cancelled they
+      # share only GitHub's roughly five minutes of forced-termination time; the publish action is
+      # the heavy one (it parses every report XML and calls the checks API) and this job produces
+      # the most reports of any, so behind it the upload could fail to finish. This job has no
+      # step-level timeout to remove that time box (see the Run Maven Test note above), so the
+      # ordering is the only thing improving the odds here. Nothing depends on the publish step's
+      # outputs, so the order is free.
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v7
+        # always(), NOT !cancelled(): a job killed by a timeout is reported as cancelled, so
+        # !cancelled() skipped the upload in exactly the case the dumps are the only evidence
+        # of what hung. Which timeout fires differs per leg: the x86 leg is self-hosted, so
+        # this job's timeout-minutes: 600 applies; the arm leg runs on a GitHub-hosted runner,
+        # where the 6-hour (360-minute) hard limit on hosted jobs is reached first and the 600
+        # setting can never fire.
+        #
+        # Mixed matrix, so BOTH report directories are needed and neither may be dropped: the
+        # x86 leg runs `clean verify` (failsafe — previously not collected here at all) and the
+        # arm leg runs `clean package` (surefire only). The surefire globs are kept as-is and
+        # the failsafe ones added.
+        #
+        # run_attempt is in the artifact name because upload-artifact v4+ rejects a duplicate
+        # name within a run: on a job re-run the previous attempt's artifact still exists, so a
+        # fixed name would 409 and fail the step. Suffixing keeps both attempts' diagnostics.
+        if: always()
+        with:
+          name: test-diagnostics-integration-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}-attempt${{ github.run_attempt }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
         if: always()
@@ -178,17 +232,6 @@ jobs:
           comment_mode: off
           compare_to_earlier_commit: false
           check_name: Integration Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
-      - name: Upload Test Diagnostics
-        uses: actions/upload-artifact@v7
-        if: "!cancelled()"
-        with:
-          name: test-diagnostics-integration-linux-${{ matrix.arch }}-jdk${{ matrix.java }}-${{ matrix.distribution }}
-          path: |
-            **/target/deadlock-report.txt
-            **/target/surefire-reports/*.dumpstream
-            **/target/surefire-reports/*.dump
-          retention-days: 7
-          if-no-files-found: ignore
 
   test-windows:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
@@ -224,6 +267,32 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
+      # Ordered before Publish Test Results on purpose — see the comment in the Linux job:
+      # both steps are always()-gated and share the ~5-minute post-timeout window, and the
+      # publish action is the expensive one, so it must not starve the upload.
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v7
+        # always(), NOT !cancelled(): a timeout-killed job is reported as cancelled, which is
+        # precisely when these dumps are the only diagnostic left. This job declares no
+        # timeout-minutes and runs on a GitHub-hosted Windows runner, so the effective limit is
+        # the hosted 6-hour (360-minute) job cap.
+        #
+        # This leg runs `clean package -P ci-integration-tests`, so failsafe never executes;
+        # the failsafe globs are deliberate future-proofing for a promotion to verify and match
+        # nothing today (if-no-files-found: ignore makes them free).
+        #
+        # run_attempt in the name avoids the upload-artifact v4+ duplicate-name 409 on re-runs.
+        if: always()
+        with:
+          name: test-diagnostics-integration-windows-jdk${{ matrix.java }}-${{ matrix.distribution }}-attempt${{ github.run_attempt }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action/windows@v2
         if: always()
@@ -236,17 +305,6 @@ jobs:
           comment_mode: off
           compare_to_earlier_commit: false
           check_name: Integration Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
-      - name: Upload Test Diagnostics
-        uses: actions/upload-artifact@v7
-        if: "!cancelled()"
-        with:
-          name: test-diagnostics-integration-windows-jdk${{ matrix.java }}-${{ matrix.distribution }}
-          path: |
-            **/target/deadlock-report.txt
-            **/target/surefire-reports/*.dumpstream
-            **/target/surefire-reports/*.dump
-          retention-days: 7
-          if-no-files-found: ignore
 
   merge-to-main:
     name: Merge develop into main

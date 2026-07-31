@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -728,8 +729,21 @@ public class WOWCacheFlushErrorTest {
   /**
    * Invokes the private {@code stopFlush()} method via reflection, expecting it
    * to complete without exception.
+   *
+   * <p>{@code exclusiveWriteCacheSize} is installed first because {@code stopFlush} ends with a
+   * quiescent-point invariant assertion that reads it, and a Mockito {@code CALLS_REAL_METHODS}
+   * mock never runs a constructor, so all of {@link WOWCache}'s final fields are {@code null}
+   * here. Without this the real method under test NPEs on that read under {@code -ea} instead of
+   * exercising the shutdown path the tests are about. Installing a real counter (rather than
+   * relaxing the production assertion) also keeps the invariant meaningful: a negative value
+   * seeded by a future test would still fail the assertion.
    */
   private static void invokeStopFlush(WOWCache cache) throws Exception {
+    final Field counterField = findField(cache.getClass(), "exclusiveWriteCacheSize");
+    counterField.setAccessible(true);
+    if (counterField.get(cache) == null) {
+      counterField.set(cache, new AtomicLong());
+    }
     Method method = WOWCache.class.getDeclaredMethod("stopFlush");
     method.setAccessible(true);
     try {
@@ -754,7 +768,7 @@ public class WOWCacheFlushErrorTest {
   // These tests depend on the following WOWCache internal fields (via reflection):
   //   files, filesLock, id, pageSize, storageName, closed,
   //   dirtyPages, localDirtyPages, localDirtyPagesBySegment, writeCachePages,
-  //   flushError, pageIsBrokenListeners
+  //   flushError, pageIsBrokenListeners, exclusiveWriteCacheSize
   // If any of these fields are renamed or removed, update setField() calls here.
   // ---------------------------------------------------------------------------
 

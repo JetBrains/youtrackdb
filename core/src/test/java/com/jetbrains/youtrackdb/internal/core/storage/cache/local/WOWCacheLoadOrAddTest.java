@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
@@ -1004,5 +1005,111 @@ public class WOWCacheLoadOrAddTest {
           bytesBefore,
           Files.readAllBytes(diskPath));
     }
+  }
+
+  /**
+   * Regression test for the removed-file guard in
+   * {@link WOWCache#writeValidPageInFile(int, int)}.
+   *
+   * <p><b>Scenario.</b> {@code loadOrAdd}'s extend and gap-fill branches submit an
+   * {@link EnsurePageIsValidInFileTask} to the commit executor and return without waiting for
+   * it, so the stamp write is asynchronous with respect to the allocation. If the file is
+   * removed in the interval — {@code deleteFile}, or {@code replaceFileId}, which unregisters
+   * both ids from {@code files} while it rebinds them, or a backup restore — the queued task
+   * runs against a fileId that {@code files.acquire} no longer resolves and returns
+   * {@code null} for. This test drives that state deterministically: allocate and flush page 0
+   * (so the file genuinely exists on disk), delete the file, then invoke
+   * {@code writeValidPageInFile} directly, which is precisely what the queued task would do.
+   *
+   * <p><b>Pre-fix failure mode.</b> There was no null check: the method dereferenced the null
+   * entry at {@code entry.get()} and threw {@link NullPointerException} out of the flush
+   * executor (and would then have called {@code files.release(null)} from the finally block).
+   * The fix logs at WARN and returns.
+   *
+   * <p><b>Assertions.</b> The call must not throw, and it must not resurrect the deleted file
+   * on disk — a stamp write here would recreate a file the storage believes is gone (or, on the
+   * {@code replaceFileId} path, write into a fileId that now belongs to another component).
+   */
+  @Test
+  public void writeValidPageInFileSkipsStampWhenFileWasAlreadyRemoved() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    final var intId = AbstractWriteCache.extractFileId(fileId);
+
+    // Allocate page 0 and drain the executor so the file exists on disk with a stamped page.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+
+    final var nativeName = wowCache.nativeFileNameById(fileId);
+    assertNotNull("file must have a registered native name", nativeName);
+    final var diskPath = storagePath.resolve(nativeName);
+    assertTrue("the file must exist on disk before the delete", Files.exists(diskPath));
+
+    // Remove the file. This unregisters it from the `files` container, so every subsequent
+    // files.acquire(...) for this id resolves to null.
+    wowCache.deleteFile(fileId);
+    assertFalse("deleteFile must remove the file from disk", Files.exists(diskPath));
+
+    // Stand-in for an EnsurePageIsValidInFileTask that was queued before the delete and runs
+    // after it. Pre-fix this threw NullPointerException from entry.get(); post-fix it logs a
+    // WARN and returns.
+    wowCache.writeValidPageInFile(intId, 0);
+
+    assertFalse(
+        "writeValidPageInFile must not resurrect a file that was already removed",
+        Files.exists(diskPath));
+  }
+
+  /**
+   * Regression test for the missing early return after the {@code flushError} diagnostic in
+   * {@link WOWCache#writeValidPageInFile(int, int)}.
+   *
+   * <p><b>Scenario.</b> Once a background flush has failed, {@code flushError} is set and every
+   * other flush-path entry point ({@code executeFileFlush}, {@code executeFindDirtySegment},
+   * {@code executePeriodicFlush}, {@code executeFlush}) logs and returns immediately — see the
+   * sibling tests in {@code WOWCacheFlushErrorTest}. {@code writeValidPageInFile} logged the
+   * same "can not write valid page in file" diagnostic and then carried on writing anyway,
+   * contradicting its own message and stamping a blank page into a file whose write cache is
+   * already known to be unflushable.
+   *
+   * <p><b>How the state is driven.</b> {@code flushError} is a private field with no setter, so
+   * it is injected by reflection — the same seam {@code WOWCacheFlushErrorTest} uses for the
+   * four sibling guards. The target page index is deliberately past the end of the freshly
+   * created (zero-length) file, so the inner
+   * {@code getUnderlyingFileSize() <= pagePosition} short-circuit does NOT fire and the method
+   * would genuinely attempt the write.
+   *
+   * <p><b>Pre-fix failure mode.</b> Falling through reached {@code AsyncFile.write}, whose
+   * {@code checkPosition} rejects an offset outside the allocated region and throws
+   * {@code StorageException("You are going to access region outside of allocated file
+   * position")} — a RuntimeException that the method's {@code catch (IOException |
+   * InterruptedException)} does not intercept, so it escaped raw to the flush executor. Post-fix
+   * the method returns at the guard and nothing is attempted.
+   *
+   * <p><b>Assertions.</b> The call must not throw and must not have extended the file. The
+   * injected {@code flushError} is cleared in a finally block so the {@code tearDown} teardown
+   * path ({@code wowCache.delete()}) is not perturbed by it.
+   */
+  @Test
+  public void writeValidPageInFileSkipsStampWhenFlushErrorIsRecorded() throws Exception {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    final var intId = AbstractWriteCache.extractFileId(fileId);
+    assertEquals("fresh file must start at 0 pages", 0L, wowCache.getFilledUpTo(fileId));
+
+    final var flushErrorField = WOWCache.class.getDeclaredField("flushError");
+    flushErrorField.setAccessible(true);
+    flushErrorField.set(wowCache, new IOException("injected flush failure"));
+    try {
+      // Page 3 is past the end of the zero-length file, so the underlying-size short-circuit
+      // inside writeValidPageInFile cannot mask the flushError guard: the only thing that can
+      // stop the write here is the early return under test.
+      wowCache.writeValidPageInFile(intId, 3);
+    } finally {
+      flushErrorField.set(wowCache, null);
+    }
+
+    assertEquals(
+        "writeValidPageInFile must not extend the file after a recorded flush error",
+        0L,
+        wowCache.getFilledUpTo(fileId));
   }
 }
