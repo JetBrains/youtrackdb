@@ -450,9 +450,15 @@ public final class GremlinToMatchStrategy
         var childInputs = translation.childInputs().get(i);
         var childParameters = translation.childInputParameters().get(i);
         var childCacheEligible = translation.childCacheEligible().get(i);
+        // Lone post-union count(): push RETURN count(*) into each child so SQL count /
+        // CountFromClass / per-child GremlinPlanCache stay available; MultiPlanMatchStep sums.
+        if (PostConcatSupport.isPushDownCountOnly(translation.postConcatOps())) {
+          childInputs = PostConcatSupport.rewriteToCountStar(childInputs);
+        }
         var childTranslation =
             new GremlinToMatchTranslator.TranslationResult(
                 childInputs,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -546,7 +552,8 @@ public final class GremlinToMatchStrategy
             plans,
             translation.boundaryAlias(),
             translation.outputType(),
-            translation.shaping());
+            translation.shaping(),
+            translation.postConcatOps());
     TraversalHelper.removeAllSteps(traversalRaw);
     traversalRaw.addStep(boundary);
   }

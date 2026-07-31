@@ -29,6 +29,11 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     if (!(step instanceof OrderGlobalStep<?, ?> orderStep)) {
       return Outcome.DECLINE;
     }
+    // Post-union order needs an in-memory sort of the concatenation; not in this cut (count /
+    // limit / dedup cover the push-down / early-stop post-concat set). Decline to native.
+    if (ctx.hasUnionCarrier()) {
+      return Outcome.DECLINE;
+    }
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;

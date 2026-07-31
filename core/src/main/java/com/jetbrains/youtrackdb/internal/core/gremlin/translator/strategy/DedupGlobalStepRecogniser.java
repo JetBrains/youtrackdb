@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 
 /**
@@ -34,6 +35,9 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
     if (!dedup.getLocalChildren().isEmpty()) {
       return Outcome.DECLINE;
     }
+    if (ctx.hasUnionCarrier()) {
+      return recognizePostUnion(ctx, dedup);
+    }
     // A value / map / scalar projection has already replaced RETURN with a boundary presence column
     // (e.g. values("k") → RETURN $b, $b.k), so RETURN DISTINCT would dedup on (entity, value); the
     // per-row unique entity defeats it and nothing is deduplicated. Decline to native, which dedups
@@ -64,6 +68,32 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
       }
     }
     ctx.setReturnDistinct(true);
+    return Outcome.ACCEPTED;
+  }
+
+  private static Outcome recognizePostUnion(RecognitionContext ctx, DedupGlobalStep<?> dedup) {
+    if (ctx.boundaryOutputType() != BoundaryOutputType.ELEMENT) {
+      return Outcome.DECLINE;
+    }
+    for (var op : ctx.postConcatOps()) {
+      if (op instanceof PostConcatOp.Dedup || op instanceof PostConcatOp.Count) {
+        return Outcome.DECLINE;
+      }
+    }
+    var scopeKeys = dedup.getScopeKeys();
+    if (scopeKeys != null && !scopeKeys.isEmpty()) {
+      var boundary = ctx.boundaryAlias();
+      if (boundary == null) {
+        return Outcome.DECLINE;
+      }
+      for (String userLabel : scopeKeys) {
+        var internalAlias = ctx.resolveUserLabel(userLabel);
+        if (internalAlias == null || !boundary.equals(internalAlias)) {
+          return Outcome.DECLINE;
+        }
+      }
+    }
+    ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
     return Outcome.ACCEPTED;
   }
 }

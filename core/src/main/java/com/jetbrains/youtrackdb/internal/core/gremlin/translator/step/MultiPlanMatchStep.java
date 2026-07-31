@@ -2,17 +2,21 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
@@ -87,24 +91,13 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
   // field (which would void the final-field publication guarantee).
   private List<InternalExecutionPlan> plans;
 
-  // The coordinator context: the single context the base's planContext() seam returns. The base
-  // rebinds THIS context's session to the iteration thread in openArming(); the producer reads that
-  // session back (through the ctx MultipleExecutionStream threads to it) and rebinds each child's own
-  // context before opening it. It carries only the session — never positional parameters, which live
-  // on each child's own context. Non-final so clone() hands each clone its own coordinator; a shared
-  // coordinator would let two concurrent clones race on setDatabaseSession.
   private CommandContext coordinatorContext;
+
+  /** Ordered post-concat reductions; empty for a plain union with no suffix barriers. */
+  private final List<PostConcatOp> postConcatOps;
 
   /**
    * Constructs a multi-plan boundary step over the given ordered child plans with no result shaping.
-   *
-   * @param traversal     the host traversal (must not be null)
-   * @param returnClass   the TinkerPop element class the step emits (currently {@link Vertex}{@code
-   *                      .class})
-   * @param plans         the ordered child plans to concatenate (must not be null or empty)
-   * @param boundaryAlias the canonical alias under which the matched element appears in every child's
-   *                      result rows (must not be null)
-   * @param outputType    how each row projects onto a traverser payload (must not be null)
    */
   public MultiPlanMatchStep(
       @Nonnull Traversal.Admin<S, E> traversal,
@@ -112,14 +105,11 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
       @Nonnull List<InternalExecutionPlan> plans,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType) {
-    this(traversal, returnClass, plans, boundaryAlias, outputType, ResultShaping.NONE);
+    this(traversal, returnClass, plans, boundaryAlias, outputType, ResultShaping.NONE, List.of());
   }
 
   /**
-   * Full constructor including the boundary row-projection shaping for result-shaping terminators.
-   *
-   * @param shaping the row-projection shaping ({@link ResultShaping}) applied once over the whole
-   *     concatenation
+   * Full constructor including row-projection shaping and ordered post-concatenation reductions.
    */
   public MultiPlanMatchStep(
       @Nonnull Traversal.Admin<S, E> traversal,
@@ -128,12 +118,22 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
       @Nonnull ResultShaping shaping) {
-    // The base takes an EMPTY positional-parameter map: union installs each child's parameters into
-    // that child's own context at build time. Handing the base a shared parameter map would push it
-    // onto the coordinator context, which the base is not the right owner for — per-child parameters
-    // must stay on per-child contexts so two children with different `?`-slot values do not collide.
+    this(traversal, returnClass, plans, boundaryAlias, outputType, shaping, List.of());
+  }
+
+  /**
+   * Full constructor including post-concatenation reductions ({@code count}/{@code limit}/{@code
+   * dedup}).
+   */
+  public MultiPlanMatchStep(
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull List<InternalExecutionPlan> plans,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType,
+      @Nonnull ResultShaping shaping,
+      @Nonnull List<PostConcatOp> postConcatOps) {
     super(traversal, returnClass, boundaryAlias, outputType, Map.of(), shaping);
-    // Defensive copy pins the child order and immutability; List.copyOf rejects a null element.
     this.plans = List.copyOf(plans);
     if (this.plans.isEmpty()) {
       throw new IllegalArgumentException(
@@ -141,11 +141,17 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
               + " been declined at recognition time.");
     }
     this.coordinatorContext = new BasicCommandContext();
+    this.postConcatOps = List.copyOf(postConcatOps);
   }
 
   /** The ordered child execution plans this step concatenates. */
   public List<InternalExecutionPlan> getPlans() {
     return plans;
+  }
+
+  /** Ordered post-concatenation reductions applied after the child streams combine. */
+  public List<PostConcatOp> getPostConcatOps() {
+    return postConcatOps;
   }
 
   @Override
@@ -221,10 +227,11 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
 
   @Override
   protected ExecutionStream startPlanStream() {
-    // One MultipleExecutionStream over a FRESH producer per arming, so each (re)open restarts from
-    // the first child. Children open lazily, one live stream at a time: the producer opens child i+1
-    // only when the concatenator has drained and closed child i, so an exception in child i never
-    // opens child i+1.
+    // Lone count(): children were rewritten to RETURN count(*) at build time — sum their scalar
+    // rows. Keeps per-arm SQL count optimisations and avoids draining the element concatenation.
+    if (PostConcatOp.isPushDownCountOnly(postConcatOps)) {
+      return sumChildCountStreams();
+    }
     final var childPlans = plans;
     var producer =
         new ExecutionStreamProducer() {
@@ -238,29 +245,212 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
           @Override
           public ExecutionStream next(CommandContext ctx) {
             var childPlan = iter.next();
-            // Rebind the child's OWN context to the iteration-thread session before opening it. The
-            // base rebound the coordinator context (threaded here as ctx) in openArming(); propagate
-            // that same session down so each child's record reads run against the active session —
-            // the per-child equivalent of the single-plan openArming() rebind. Without it a child
-            // compiled on another thread throws SessionNotActivatedException at its first record read.
             var childContext = childPlan.getContext();
             childContext.setDatabaseSession(ctx.getDatabaseSession());
-            // Iterate and close the child stream against its OWN context, not the coordinator's,
-            // through ChildContextStream — so each child behaves exactly as under the single-plan
-            // YTDBMatchPlanStep (start-time context == iteration-time context). Otherwise
-            // MultipleExecutionStream would thread the coordinator context to the child stream,
-            // splitting the child's session / variable reads across two contexts.
             return new ChildContextStream(childPlan.start(), childContext);
           }
 
           @Override
           public void close(CommandContext ctx) {
-            // No-op: the plans are released by closePlan() (which closes ALL children, including any
-            // this producer never opened), not by the producer. MultipleExecutionStream.close()
-            // already closes the current live child stream.
+            // No-op: plans are released by closePlan().
           }
         };
-    return new MultipleExecutionStream(producer);
+    ExecutionStream stream = new MultipleExecutionStream(producer);
+    for (PostConcatOp op : postConcatOps) {
+      stream = applyPostConcatOp(stream, op);
+    }
+    return stream;
+  }
+
+  /**
+   * Opens each child count plan, reads its single scalar row, and emits one summed {@code count}
+   * result for {@link BoundaryOutputType#SCALAR} projection.
+   */
+  private ExecutionStream sumChildCountStreams() {
+    final var childPlans = plans;
+    final var boundary = getBoundaryAlias();
+    return new ExecutionStream() {
+      private Result pending;
+      private boolean computed;
+
+      @Override
+      public boolean hasNext(CommandContext ctx) {
+        ensure(ctx);
+        return pending != null;
+      }
+
+      @Override
+      public Result next(CommandContext ctx) {
+        ensure(ctx);
+        if (pending == null) {
+          throw new IllegalStateException("no summed count row");
+        }
+        var out = pending;
+        pending = null;
+        return out;
+      }
+
+      @Override
+      public void close(CommandContext ctx) {
+        pending = null;
+      }
+
+      private void ensure(CommandContext ctx) {
+        if (computed) {
+          return;
+        }
+        computed = true;
+        long total = 0L;
+        for (var childPlan : childPlans) {
+          var childContext = childPlan.getContext();
+          childContext.setDatabaseSession(ctx.getDatabaseSession());
+          var childStream = new ChildContextStream(childPlan.start(), childContext);
+          try {
+            if (!childStream.hasNext(childContext)) {
+              continue;
+            }
+            var row = childStream.next(childContext);
+            total += scalarCount(row, boundary);
+            // Drain any unexpected extra rows so the child closes cleanly.
+            while (childStream.hasNext(childContext)) {
+              childStream.next(childContext);
+            }
+          } finally {
+            childStream.close(childContext);
+          }
+        }
+        var result = new ResultInternal((DatabaseSessionEmbedded) ctx.getDatabaseSession());
+        result.setProperty("count", total);
+        pending = result;
+      }
+    };
+  }
+
+  private static long scalarCount(Result row, String boundaryAlias) {
+    for (String name : row.getPropertyNames()) {
+      if (!name.equals(boundaryAlias)) {
+        var value = row.getProperty(name);
+        if (value instanceof Number number) {
+          return number.longValue();
+        }
+        return 0L;
+      }
+    }
+    return 0L;
+  }
+
+  private ExecutionStream applyPostConcatOp(ExecutionStream stream, PostConcatOp op) {
+    return switch (op) {
+      case PostConcatOp.Count ignored -> countConcatStream(stream);
+      case PostConcatOp.Range range -> {
+        ExecutionStream s = stream;
+        if (range.skip() > 0) {
+          s = new SkipExecutionStream(s, range.skip());
+        }
+        if (range.limit() >= 0) {
+          s = s.limit(range.limit());
+        }
+        yield s;
+      }
+      case PostConcatOp.Dedup ignored -> dedupConcatStream(stream);
+    };
+  }
+
+  private ExecutionStream countConcatStream(ExecutionStream upstream) {
+    return new ExecutionStream() {
+      private Result pending;
+      private boolean computed;
+
+      @Override
+      public boolean hasNext(CommandContext ctx) {
+        ensure(ctx);
+        return pending != null;
+      }
+
+      @Override
+      public Result next(CommandContext ctx) {
+        ensure(ctx);
+        if (pending == null) {
+          throw new IllegalStateException("no counted row");
+        }
+        var out = pending;
+        pending = null;
+        return out;
+      }
+
+      @Override
+      public void close(CommandContext ctx) {
+        upstream.close(ctx);
+        pending = null;
+      }
+
+      private void ensure(CommandContext ctx) {
+        if (computed) {
+          return;
+        }
+        computed = true;
+        long total = 0L;
+        try {
+          while (upstream.hasNext(ctx)) {
+            upstream.next(ctx);
+            total++;
+          }
+        } finally {
+          upstream.close(ctx);
+        }
+        var result = new ResultInternal((DatabaseSessionEmbedded) ctx.getDatabaseSession());
+        result.setProperty("count", total);
+        pending = result;
+      }
+    };
+  }
+
+  private ExecutionStream dedupConcatStream(ExecutionStream upstream) {
+    final var boundary = getBoundaryAlias();
+    final Set<Object> seen = new HashSet<>();
+    return upstream.filter(
+        (result, ctx) -> {
+          var entity = result.getEntity(boundary);
+          if (entity == null) {
+            return null;
+          }
+          Object id = entity.getIdentity();
+          return seen.add(id) ? result : null;
+        });
+  }
+
+  /** Skips the first {@code skip} rows of {@code upstream} then passes the rest through. */
+  private static final class SkipExecutionStream implements ExecutionStream {
+    private final ExecutionStream upstream;
+    private final long skip;
+    private long skipped;
+
+    SkipExecutionStream(ExecutionStream upstream, long skip) {
+      this.upstream = upstream;
+      this.skip = skip;
+    }
+
+    @Override
+    public boolean hasNext(CommandContext ctx) {
+      while (skipped < skip && upstream.hasNext(ctx)) {
+        upstream.next(ctx);
+        skipped++;
+      }
+      return upstream.hasNext(ctx);
+    }
+
+    @Override
+    public Result next(CommandContext ctx) {
+      if (!hasNext(ctx)) {
+        throw new IllegalStateException();
+      }
+      return upstream.next(ctx);
+    }
+
+    @Override
+    public void close(CommandContext ctx) {
+      upstream.close(ctx);
+    }
   }
 
   @Override

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import java.util.List;
@@ -88,6 +89,7 @@ final class GremlinToMatchTranslator {
       @Nonnull List<MatchPlanInputs> childInputs,
       @Nonnull List<Map<Object, Object>> childInputParameters,
       @Nonnull List<Boolean> childCacheEligible,
+      @Nonnull List<PostConcatOp> postConcatOps,
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Class<? extends Element> returnClass,
@@ -108,6 +110,7 @@ final class GremlinToMatchTranslator {
           List.of(),
           List.of(),
           List.of(),
+          List.of(),
           boundaryAlias,
           outputType,
           returnClass,
@@ -120,6 +123,7 @@ final class GremlinToMatchTranslator {
       childInputs = List.copyOf(childInputs);
       childInputParameters = childInputParameters.stream().map(Map::copyOf).toList();
       childCacheEligible = List.copyOf(childCacheEligible);
+      postConcatOps = List.copyOf(postConcatOps);
       boolean singlePlan = inputs != null;
       boolean multiPlan = !childInputs.isEmpty();
       if (singlePlan == multiPlan) {
@@ -138,6 +142,10 @@ final class GremlinToMatchTranslator {
         throw new IllegalArgumentException(
             "Single-plan translations must not carry per-child cache-eligibility flags.");
       }
+      if (!multiPlan && !postConcatOps.isEmpty()) {
+        throw new IllegalArgumentException(
+            "Single-plan translations must not carry post-concat reductions.");
+      }
       if (multiPlan && !inputParameters.isEmpty()) {
         throw new IllegalArgumentException(
             "Multi-plan translations keep positional parameters on child contexts, not the base.");
@@ -149,15 +157,15 @@ final class GremlinToMatchTranslator {
     }
 
     /**
-     * Multi-plan carrier: ordered child inputs with per-child positional parameters and per-child
-     * plan-cache eligibility. The carrier's own {@code cacheEligible} is always {@code false}; each
-     * child may still hit {@code GremlinPlanCache} under its own fingerprint when its flag is
-     * {@code true}.
+     * Multi-plan carrier: ordered child inputs with per-child positional parameters, per-child
+     * plan-cache eligibility, and ordered post-concatenation reductions ({@code count}/{@code
+     * limit}/{@code dedup}). The carrier's own {@code cacheEligible} is always {@code false}.
      */
     static TranslationResult multiPlan(
         @Nonnull List<MatchPlanInputs> childInputs,
         @Nonnull List<Map<Object, Object>> childInputParameters,
         @Nonnull List<Boolean> childCacheEligible,
+        @Nonnull List<PostConcatOp> postConcatOps,
         @Nonnull String boundaryAlias,
         @Nonnull BoundaryOutputType outputType,
         @Nonnull Class<? extends Element> returnClass,
@@ -167,6 +175,7 @@ final class GremlinToMatchTranslator {
           childInputs,
           childInputParameters,
           childCacheEligible,
+          postConcatOps,
           boundaryAlias,
           outputType,
           returnClass,

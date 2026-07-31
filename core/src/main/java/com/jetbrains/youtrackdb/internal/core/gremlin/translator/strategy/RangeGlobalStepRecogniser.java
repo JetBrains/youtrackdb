@@ -1,14 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract;
 
 /**
  * Recogniser for {@code RangeGlobalStep} / {@code RangeGlobalStepPlaceholder}: {@code limit(n)},
- * {@code skip(n)}, and {@code range(low, high)} map to {@link SQLSkip} / {@link SQLLimit}. Unbounded
- * high ({@code -1} or {@link Long#MAX_VALUE}) is skip-only.
+ * {@code skip(n)}, and {@code range(low, high)} map to {@code SQLSkip}/{@code SQLLimit} on a
+ * single-plan walk, or to a {@link PostConcatOp.Range} after a union (early-stop on the
+ * concatenator).
  */
 final class RangeGlobalStepRecogniser implements StepRecogniser {
 
@@ -27,6 +27,9 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     }
     if (ctx.boundaryAlias() == null) {
       return Outcome.DECLINE;
+    }
+    if (ctx.hasUnionCarrier()) {
+      return recognizePostUnion(ctx, range);
     }
     // A second range/limit/skip has no clear MATCH composition rule in Phase 1.
     if (ctxHasSkipOrLimit(ctx)) {
@@ -65,8 +68,40 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     return Outcome.ACCEPTED;
   }
 
+  private static Outcome recognizePostUnion(
+      RecognitionContext ctx, RangeGlobalStepContract<?> range) {
+    for (var op : ctx.postConcatOps()) {
+      if (op instanceof PostConcatOp.Range || op instanceof PostConcatOp.Count) {
+        // Second range, or range after count: decline (count already collapsed the stream).
+        return Outcome.DECLINE;
+      }
+    }
+    var lowObj = range.getLowRange();
+    var highObj = range.getHighRange();
+    if (lowObj == null || highObj == null) {
+      return Outcome.DECLINE;
+    }
+    long low = lowObj;
+    long high = highObj;
+    if (low < 0) {
+      return Outcome.DECLINE;
+    }
+    var unboundedHigh = high < 0 || high == Long.MAX_VALUE;
+    if (unboundedHigh) {
+      if (low == 0) {
+        return Outcome.ACCEPTED;
+      }
+      ctx.appendPostConcatOp(new PostConcatOp.Range(low, -1L));
+      return Outcome.ACCEPTED;
+    }
+    if (high < low) {
+      high = low;
+    }
+    ctx.appendPostConcatOp(new PostConcatOp.Range(low, high - low));
+    return Outcome.ACCEPTED;
+  }
+
   private static boolean ctxHasSkipOrLimit(RecognitionContext ctx) {
     return ctx.skip() != null || ctx.limit() != null;
   }
-
 }

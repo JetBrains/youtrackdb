@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -267,6 +268,29 @@ interface RecognitionContext extends ParamSink {
    * element-path default is {@link ResultShaping#NONE}.
    */
   void setResultShaping(@Nonnull ResultShaping shaping);
+
+  /**
+   * Whether {@link UnionStepRecogniser} has stashed a multi-plan carrier on this walk. Post-union
+   * barriers ({@code count}/{@code limit}/{@code dedup}) branch on this instead of mutating a
+   * single-plan {@code MatchPlanInputs}.
+   */
+  default boolean hasUnionCarrier() {
+    return false;
+  }
+
+  /**
+   * Appends a post-concatenation reduction for {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep}. Top-level
+   * walks only; sub-walks throw.
+   */
+  default void appendPostConcatOp(@Nonnull PostConcatOp op) {
+    throw new UnsupportedOperationException("post-concat ops are top-level only");
+  }
+
+  /** Ordered post-concat ops stashed so far (empty when none). */
+  default @Nonnull List<PostConcatOp> postConcatOps() {
+    return List.of();
+  }
 
   /**
    * Records the field-access expression from the most recent single-key {@code values(key)} /

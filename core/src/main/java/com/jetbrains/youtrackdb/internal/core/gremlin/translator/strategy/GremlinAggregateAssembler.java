@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
@@ -47,6 +48,9 @@ final class GremlinAggregateAssembler {
    * when the walk is non-polymorphic (native {@code YTDBGraphCountStrategy} covers that case).
    */
   static Outcome configureCount(RecognitionContext ctx) {
+    if (ctx.hasUnionCarrier()) {
+      return configurePostUnionCount(ctx);
+    }
     if (hasPreAggregateCardinalityClause(ctx)) {
       return Outcome.DECLINE;
     }
@@ -61,6 +65,32 @@ final class GremlinAggregateAssembler {
     ctx.appendReturnColumn(MatchProjectionBuilder.countStar(), null);
     ctx.setGroupBy(null);
     ctx.setLastPropertyProjection(null);
+    ctx.setResultShaping(ResultShaping.NONE);
+    ctx.pinBoundary(boundary, BoundaryOutputType.SCALAR, Vertex.class);
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * {@code union(…).count()}: stash a {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp.Count} and pin
+   * {@link BoundaryOutputType#SCALAR}. Child plans stay ELEMENT until build-time push-down (lone
+   * count) or stream-count (count after limit/dedup).
+   */
+  private static Outcome configurePostUnionCount(RecognitionContext ctx) {
+    if (!ctx.polymorphic()) {
+      return Outcome.DECLINE;
+    }
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null) {
+      return Outcome.DECLINE;
+    }
+    // A second count after union has no Gremlin meaning we translate.
+    for (var op : ctx.postConcatOps()) {
+      if (op instanceof PostConcatOp.Count) {
+        return Outcome.DECLINE;
+      }
+    }
+    ctx.appendPostConcatOp(PostConcatOp.Count.INSTANCE);
     ctx.setResultShaping(ResultShaping.NONE);
     ctx.pinBoundary(boundary, BoundaryOutputType.SCALAR, Vertex.class);
     return Outcome.ACCEPTED;

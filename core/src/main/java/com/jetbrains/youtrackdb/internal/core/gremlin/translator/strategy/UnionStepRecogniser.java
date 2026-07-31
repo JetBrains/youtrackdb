@@ -44,11 +44,6 @@ final class UnionStepRecogniser implements StepRecogniser {
     if (ctx.boundaryAlias() == null) {
       return Outcome.DECLINE;
     }
-    // Union must be the last recognised step: a trailing count/dedup/order/range (or anything else
-    // significant) would not distribute over concatenation.
-    if (cursor.peek() != null) {
-      return Outcome.DECLINE;
-    }
     var host = ctx.unionForkHost();
     if (host == null) {
       return Outcome.DECLINE;
@@ -107,6 +102,8 @@ final class UnionStepRecogniser implements StepRecogniser {
     ctx.pinBoundary(canonicalAlias, agreedOutputType, agreedReturnClass);
     ctx.setResultShaping(agreedShaping);
     host.stashAcceptedChildren(childInputs, childParams, childCacheEligible);
+    // Post-concat barriers (count / limit / dedup) may follow; list-shaping is Track 9. An
+    // unsupported suffix declines in its own recogniser and aborts the whole walk.
     return Outcome.ACCEPTED;
   }
 

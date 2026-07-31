@@ -134,16 +134,59 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A significant step after union ({@code count()}) declines — union must be the last recognised
-   * step.
+   * {@code union(…).count()} translates: push-down {@code RETURN count(*)} per child, sum on the
+   * multi-plan boundary — same Long as native.
    */
   @Test
-  public void suffixAfterUnion_declines() {
+  public void unionThenCount_returnsSameTotalAsNative() {
     seedKnowsChain();
     assertEquivalent(
-        "g.V().union(out(knows), in(knows)).count() — suffix after union",
-        Recognition.DECLINED,
+        "g.V().union(out(knows), in(knows)).count()",
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).count(),
+        true);
+  }
+
+  /**
+   * {@code union(…).dedup()} translates: global dedup over the concatenation (cross-child duplicates
+   * removed).
+   */
+  @Test
+  public void unionThenDedup_returnsSameMultisetAsNative() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).dedup()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup(),
+        true);
+  }
+
+  /**
+   * {@code union(…).limit(n)} translates with early-stop on the concatenator. Seeded from a single
+   * start vertex so emission order is stable across native vs MATCH (bare {@code g.V()} order can
+   * differ while the full multiset still matches after sort).
+   */
+  @Test
+  public void unionThenLimit_returnsSamePrefixAsNative() {
+    seedKnowsChain();
+    var aliceId = graph.traversal().V().has("name", "Alice").id().next();
+    assertEquivalent(
+        "g.V(alice).union(out(knows), in(knows)).limit(2)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).union(__.out("knows"), __.in("knows")).limit(2),
+        true);
+  }
+
+  /**
+   * {@code order()} after union still declines — in-memory post-concat sort is not in this cut.
+   */
+  @Test
+  public void unionThenOrder_declines() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).order()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order(),
         false);
   }
 

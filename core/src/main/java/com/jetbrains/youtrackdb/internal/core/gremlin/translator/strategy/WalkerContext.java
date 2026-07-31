@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -185,6 +186,9 @@ final class WalkerContext implements RecognitionContext {
    * same length when set. RID-bearing children are {@code false}.
    */
   @Nullable private List<Boolean> unionChildCacheEligible;
+
+  /** Ordered post-concat reductions ({@code count}/{@code limit}/{@code dedup}) after a union. */
+  private final List<PostConcatOp> postConcatOps = new ArrayList<>();
 
   /** Stateless builder used to AND-compose same-alias filter contributions in {@link
    *  #putAliasFilter}; construction is trivial so a shared instance is fine. */
@@ -632,7 +636,8 @@ final class WalkerContext implements RecognitionContext {
   }
 
   /** Whether {@link UnionStepRecogniser} accepted and stashed a multi-plan carrier. */
-  boolean hasUnionCarrier() {
+  @Override
+  public boolean hasUnionCarrier() {
     return unionChildInputs != null && !unionChildInputs.isEmpty();
   }
 
@@ -652,6 +657,17 @@ final class WalkerContext implements RecognitionContext {
   List<Boolean> unionChildCacheEligible() {
     assert hasUnionCarrier();
     return unionChildCacheEligible;
+  }
+
+  @Override
+  public void appendPostConcatOp(@Nonnull PostConcatOp op) {
+    postConcatOps.add(op);
+  }
+
+  @Override
+  @Nonnull
+  public List<PostConcatOp> postConcatOps() {
+    return List.copyOf(postConcatOps);
   }
 
   /**
