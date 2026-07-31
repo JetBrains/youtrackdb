@@ -2,12 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -645,6 +647,32 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
       assertEquals(1, result.size());
       assertEquals("child2", result.getFirst().value("name"));
     }
+  }
+
+  @Test
+  public void testDollarSchemaClassIsNoLongerAReservedLabel() {
+    // Regression test for the removal of the rejected Gremlin schema-manipulation API (umbrella
+    // PR #1259). Before the removal, "$schemaClass" and "$schemaProperty" (YTDBSchemaClass.LABEL /
+    // YTDBSchemaProperty.LABEL) were magic labels: YTDBGraphStep.createClassIterator merged in a
+    // YTDBSchemaClassImpl pseudo-vertex per live schema class whenever a traversal asked for
+    // hasLabel("$schemaClass"). SchemaShared.checkClassNameIfValid only rejects ':' in class
+    // names, so "$schemaClass" was never actually reserved at the storage layer -- only the
+    // now-deleted Gremlin layer special-cased it. This pins that, post-removal, both labels are
+    // ordinary and unused on a fresh graph, and that a vertex created with the former magic label
+    // behaves exactly like any other vertex.
+    checkSize(0, () -> g().V().hasLabel("$schemaClass"));
+    checkSize(0, () -> g().V().hasLabel("$schemaProperty"));
+
+    final var created = g().addV("$schemaClass").property("name", "plain").next();
+
+    checkSize(1, () -> g().V().hasLabel("$schemaClass"));
+    final var found = g().V().hasLabel("$schemaClass").next();
+    assertEquals(created.id(), found.id());
+    // An ordinary vertex, not a schema pseudo-vertex: it carries the property we set on it and its
+    // concrete runtime type is the plain vertex implementation (the removed YTDBSchemaClassImpl
+    // pseudo-vertex type no longer exists anywhere in the codebase).
+    assertEquals("plain", found.value("name"));
+    assertSame(YTDBVertexImpl.class, found.getClass());
   }
 
   @After
