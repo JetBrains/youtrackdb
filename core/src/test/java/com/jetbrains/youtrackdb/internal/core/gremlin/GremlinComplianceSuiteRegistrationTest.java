@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -77,28 +78,60 @@ public class GremlinComplianceSuiteRegistrationTest {
    * exists to close.
    *
    * <p>As of this writing there are 10 such classes, spread across both {@code
-   * gremlintest.scenarios} and {@code gremlintest.suites}. 5 is a little under half of that:
-   * comfortably above the 0-2 results a degenerate scan would produce (missing/empty package
-   * directory, wrong classloader, only one subpackage recursed into), while leaving generous
-   * headroom so that legitimately removing or consolidating a few scenario classes over time does
-   * not spuriously fail this guard. It is deliberately not the exact current count, since adding
-   * a class is exactly the normal, expected way this number grows.
+   * gremlintest.scenarios} (8) and {@code gremlintest.suites} (2). 5 is a little under half of
+   * the total: comfortably above what a badly broken scan (missing/empty package directory,
+   * wrong classloader) would produce, while leaving generous headroom so that legitimately
+   * removing or consolidating a few scenario classes over time does not spuriously fail this
+   * guard. It is deliberately not the exact current count, since adding a class is exactly the
+   * normal, expected way this number grows.
+   *
+   * <p>This total alone does not catch an asymmetric scan that walks one subpackage but misses
+   * another entirely (e.g. finds all 8 {@code scenarios} classes but none of the 2 {@code suites}
+   * ones): 8 still clears this floor, yet the missed subpackage's classes would appear in neither
+   * {@code candidates} nor {@code unregistered} -- silently uncovered. {@link
+   * #EXPECTED_GREMLINTEST_SUBPACKAGES} closes that gap separately.
    */
   private static final int MIN_EXPECTED_CANDIDATE_COUNT = 5;
 
   /**
-   * Floor for how many distinct classes each of the two suite-array registries ({@link
-   * YTDBGremlinProcessTests}, {@link YTDBStructureSuite}) must contribute. Guards against a
-   * different flavor of vacuous pass than {@link #MIN_EXPECTED_CANDIDATE_COUNT}: if a future
-   * refactor emptied or deleted a registry's {@code Class<?>[]} field (rather than the candidate
-   * scan degenerating), {@link #collectRegisteredClassNames()} would silently return an empty set
-   * for that registry, and -- absent this check -- the only symptom would be every real scenario
-   * class showing up as "unregistered", which is loud on its own today but would go quiet again
-   * if the candidate scan also degenerated at the same time. Checking both independently removes
-   * that compound blind spot. 1 is deliberately low: this is a sanity floor ("the registry still
-   * exists and still lists something"), not a coverage target.
+   * The immediate subpackages of {@code gremlintest} that are expected to each contribute at
+   * least one candidate to {@link #findConcreteJUnit4TestClasses()}. Checked independently of
+   * {@link #MIN_EXPECTED_CANDIDATE_COUNT}'s combined total, because that total is satisfied by an
+   * asymmetric scan that fully covers one subpackage and completely misses another -- e.g. a scan
+   * that finds all 8 {@code scenarios} classes but walks past {@code suites} without descending
+   * into it still clears a floor of 5, and nothing about the combined count would say the 2
+   * {@code suites} classes went missing. Asserting each named subpackage contributed at least one
+   * candidate (not an exact count -- that would make legitimate growth within a subpackage fail
+   * the build) catches exactly that failure mode. Adding a genuinely new subpackage under {@code
+   * gremlintest} is expected to require adding its name here, the same way it would require new
+   * suite-array entries.
    */
-  private static final int MIN_EXPECTED_PER_REGISTRY_COUNT = 1;
+  private static final Set<String> EXPECTED_GREMLINTEST_SUBPACKAGES = Set.of("scenarios",
+      "suites");
+
+  /**
+   * Per-registry floors for how many distinct classes each suite-array registry must contribute.
+   * Guards a different flavor of vacuous pass than {@link #MIN_EXPECTED_CANDIDATE_COUNT}: if a
+   * future refactor emptied, truncated, or deleted a registry's {@code Class<?>[]} field (rather
+   * than the candidate scan degenerating), {@link #collectRegisteredClassNames()} would silently
+   * return a smaller (or empty) set for that registry, and -- absent this check -- the only
+   * symptom would be gremlintest/** scenario classes showing up as "unregistered", which is loud
+   * on its own today but would go quiet again if the candidate scan also degenerated at the same
+   * time. Checking both independently removes that compound blind spot.
+   *
+   * <p>As of this writing {@link YTDBGremlinProcessTests} contributes 82 distinct classes (almost
+   * entirely upstream TinkerPop compliance classes) and {@link YTDBStructureSuite} contributes
+   * 37. A floor of 1 (the previous value) would pass even if, say, {@code commonTests} were
+   * accidentally truncated from 79 entries down to 3 -- a gross regression a bare non-emptiness
+   * check cannot see. 20 and 15 are chosen well below the current 82/37 (so routine additions or
+   * removals of a handful of upstream compliance classes never spuriously fail this guard) but
+   * high enough that a truncation severe enough to matter -- an accidental array literal
+   * replacement, a bad merge, a refactor that drops most of a list -- cannot hide under the
+   * floor.
+   */
+  private static final Map<Class<?>, Integer> MIN_EXPECTED_REGISTRY_SIZE = Map.of(
+      YTDBGremlinProcessTests.class, 20,
+      YTDBStructureSuite.class, 15);
 
   /**
    * Scenario: a hand-written, concrete class under {@code gremlintest/**} declares (directly or
@@ -111,23 +144,24 @@ public class GremlinComplianceSuiteRegistrationTest {
    *
    * <p>Before checking that, this also asserts the scan and the two registries each found a sane
    * minimum amount of material to check in the first place (see {@link
-   * #MIN_EXPECTED_CANDIDATE_COUNT} and {@link #MIN_EXPECTED_PER_REGISTRY_COUNT}), so a degenerate
-   * scan or an emptied registry fails loudly instead of trivially satisfying the "nothing
-   * unregistered" check below.
+   * #MIN_EXPECTED_CANDIDATE_COUNT}, {@link #EXPECTED_GREMLINTEST_SUBPACKAGES}, and {@link
+   * #MIN_EXPECTED_REGISTRY_SIZE}), so a degenerate scan, an asymmetric scan that misses a whole
+   * subpackage, or a truncated registry all fail loudly instead of trivially satisfying the
+   * "nothing unregistered" check below.
    */
   @Test
   public void everyGremlintestTestClassIsRegisteredInASuite() throws Exception {
     var registeredByClass = collectRegisteredClassNames();
 
     for (var entry : registeredByClass.entrySet()) {
+      var floor = MIN_EXPECTED_REGISTRY_SIZE.get(entry.getKey());
       assertThat(entry.getValue())
           .as(
               "expected %s's Class<?>[] registry field(s) to list at least %d class(es), but "
-                  + "found %d; an emptied, renamed-away, or deleted registry would silently stop "
-                  + "guarding gremlintest/** classes registered through it",
-              entry.getKey().getSimpleName(), MIN_EXPECTED_PER_REGISTRY_COUNT,
-              entry.getValue().size())
-          .hasSizeGreaterThanOrEqualTo(MIN_EXPECTED_PER_REGISTRY_COUNT);
+                  + "found %d; a truncated, emptied, renamed-away, or deleted registry would "
+                  + "silently stop guarding gremlintest/** classes registered through it",
+              entry.getKey().getSimpleName(), floor, entry.getValue().size())
+          .hasSizeGreaterThanOrEqualTo(floor);
     }
 
     var registered = new HashSet<String>();
@@ -142,6 +176,22 @@ public class GremlinComplianceSuiteRegistrationTest {
                 + "checking almost nothing -- see MIN_EXPECTED_CANDIDATE_COUNT's javadoc",
             MIN_EXPECTED_CANDIDATE_COUNT, GREMLINTEST_PACKAGE, candidates.size())
         .hasSizeGreaterThanOrEqualTo(MIN_EXPECTED_CANDIDATE_COUNT);
+
+    var subpackagesFound = candidates.stream()
+        .map(GremlinComplianceSuiteRegistrationTest::subpackageOf)
+        .collect(Collectors.toSet());
+    var missingSubpackages = new HashSet<>(EXPECTED_GREMLINTEST_SUBPACKAGES);
+    missingSubpackages.removeAll(subpackagesFound);
+    assertThat(missingSubpackages)
+        .as(
+            "expected the classpath scan to find at least one @Test-bearing class in each of %s "
+                + "under %s, but found none in %s (subpackages actually visited: %s); an "
+                + "asymmetric scan that fully covers one subpackage while missing another would "
+                + "still clear MIN_EXPECTED_CANDIDATE_COUNT's combined floor, silently losing "
+                + "every class in the missed subpackage",
+            EXPECTED_GREMLINTEST_SUBPACKAGES, GREMLINTEST_PACKAGE, missingSubpackages,
+            subpackagesFound)
+        .isEmpty();
 
     var unregistered = new ArrayList<String>();
     for (var testClass : candidates) {
@@ -257,5 +307,23 @@ public class GremlinComplianceSuiteRegistrationTest {
       }
     }
     return false;
+  }
+
+  /**
+   * Returns the immediate subpackage of {@code clazz} relative to {@link #GREMLINTEST_PACKAGE},
+   * e.g. {@code "scenarios"} for {@code gremlintest.scenarios.YTDBHasLabelProcessTest}. For a
+   * nested class this is the package of its outermost enclosing class (the package a class is
+   * compiled into never changes with nesting), matching how {@link
+   * #findConcreteJUnit4TestClasses()} derives class names. Returns {@code "(root)"} for a class
+   * declared directly in {@link #GREMLINTEST_PACKAGE} with no subpackage; none of today's
+   * candidates fall in that bucket (the three suite-wrapper classes that do live there have no
+   * {@code @Test} methods of their own), but the sentinel keeps this total either way.
+   */
+  private static String subpackageOf(Class<?> clazz) {
+    var packageName = clazz.getPackageName();
+    if (packageName.length() <= GREMLINTEST_PACKAGE.length()) {
+      return "(root)";
+    }
+    return packageName.substring(GREMLINTEST_PACKAGE.length() + 1);
   }
 }
