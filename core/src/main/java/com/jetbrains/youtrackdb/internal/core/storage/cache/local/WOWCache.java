@@ -3931,13 +3931,14 @@ public final class WOWCache extends AbstractWriteCache
                     + " rather than decrementing below zero. This is the known non-atomic"
                     + " addOnlyWriters/removeOnlyWriters drift and is harmless for durability"
                     + " (writeCachePages is the source of truth). Further occurrences within the"
-                    + " next minute are not logged; a message that keeps reappearing is what"
+                    + " next %d seconds are not logged; a message that keeps reappearing is what"
                     + " signals a real accounting regression.",
                 (Throwable) null,
                 storageName,
                 pageKey.fileId,
                 pageKey.pageIndex,
-                previous);
+                previous,
+                TimeUnit.NANOSECONDS.toSeconds(ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS));
       }
     }
   }

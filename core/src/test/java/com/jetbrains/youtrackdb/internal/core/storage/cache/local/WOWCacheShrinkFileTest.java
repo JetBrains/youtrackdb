@@ -1056,6 +1056,7 @@ public class WOWCacheShrinkFileTest {
     wowCache.pauseBackgroundFlush();
     try {
       final var fileId = allocateAndOptionallyDirty(1, false);
+      final var throttleNanosBeforeArm1 = accountingClampThrottleNanos().get();
 
       // Reproduce the net outcome of the opposite-order callback interleaving on page 0.
       wowCache.removeOnlyWriters(fileId, 0);
@@ -1091,6 +1092,14 @@ public class WOWCacheShrinkFileTest {
       assertThat(wowCache.getExclusiveWriteAccountingClampWarningsForTest())
           .as("throttle arm 1 — the first clamp on a cache instance must emit its diagnostic")
           .isEqualTo(1);
+      // Emitting is only half the contract: the throttle must also RECORD that it emitted, or it
+      // would emit again on every clamp and the bound would not exist. Compared against the value
+      // read before the drift rather than against System.nanoTime(): the timestamp only moves
+      // forward, so extra elapsed time can never make this fail — only a missing write can.
+      assertThat(accountingClampThrottleNanos().get())
+          .as("throttle arm 1 — emitting must advance the last-emitted timestamp; leaving it at the"
+              + " bootstrap value would re-open the window immediately")
+          .isGreaterThan(throttleNanosBeforeArm1);
 
       // Throttle arm 2: a clamp that happens while the throttle window is still open must still be
       // counted, but must NOT emit a second record.
@@ -1153,8 +1162,13 @@ public class WOWCacheShrinkFileTest {
    * over five thousand lines.
    */
   private void forceAccountingClampThrottleWindowOpen() throws Exception {
+    accountingClampThrottleNanos().set(System.nanoTime() + Long.MAX_VALUE / 4);
+  }
+
+  /** The cache's accounting-clamp throttle timestamp, for the two assertions that inspect it. */
+  private AtomicLong accountingClampThrottleNanos() throws Exception {
     final var field = WOWCache.class.getDeclaredField("exclusiveWriteAccountingClampWarnNanos");
     field.setAccessible(true);
-    ((AtomicLong) field.get(wowCache)).set(System.nanoTime() + Long.MAX_VALUE / 4);
+    return (AtomicLong) field.get(wowCache);
   }
 }
