@@ -15,8 +15,10 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -67,6 +69,38 @@ public class GremlinComplianceSuiteRegistrationTest {
       YTDBGraphFeatureTest.class.getName());
 
   /**
+   * Floor for the number of concrete, {@code @Test}-bearing classes {@link
+   * #findConcreteJUnit4TestClasses()} must find under {@code gremlintest/**}. Without a floor,
+   * this test passes vacuously (checking nothing) if the classpath scan ever yields zero or a
+   * handful of candidates -- stale/empty build output, a changed build layout, or a classloader
+   * problem would all silently defeat the guard and reopen the exact silent-coverage-loss hole it
+   * exists to close.
+   *
+   * <p>As of this writing there are 10 such classes, spread across both {@code
+   * gremlintest.scenarios} and {@code gremlintest.suites}. 5 is a little under half of that:
+   * comfortably above the 0-2 results a degenerate scan would produce (missing/empty package
+   * directory, wrong classloader, only one subpackage recursed into), while leaving generous
+   * headroom so that legitimately removing or consolidating a few scenario classes over time does
+   * not spuriously fail this guard. It is deliberately not the exact current count, since adding
+   * a class is exactly the normal, expected way this number grows.
+   */
+  private static final int MIN_EXPECTED_CANDIDATE_COUNT = 5;
+
+  /**
+   * Floor for how many distinct classes each of the two suite-array registries ({@link
+   * YTDBGremlinProcessTests}, {@link YTDBStructureSuite}) must contribute. Guards against a
+   * different flavor of vacuous pass than {@link #MIN_EXPECTED_CANDIDATE_COUNT}: if a future
+   * refactor emptied or deleted a registry's {@code Class<?>[]} field (rather than the candidate
+   * scan degenerating), {@link #collectRegisteredClassNames()} would silently return an empty set
+   * for that registry, and -- absent this check -- the only symptom would be every real scenario
+   * class showing up as "unregistered", which is loud on its own today but would go quiet again
+   * if the candidate scan also degenerated at the same time. Checking both independently removes
+   * that compound blind spot. 1 is deliberately low: this is a sanity floor ("the registry still
+   * exists and still lists something"), not a coverage target.
+   */
+  private static final int MIN_EXPECTED_PER_REGISTRY_COUNT = 1;
+
+  /**
    * Scenario: a hand-written, concrete class under {@code gremlintest/**} declares (directly or
    * by inheritance, e.g. a nested subclass of an abstract scenario base) at least one JUnit4
    * {@code @Test} method. Expected outcome: that exact class -- top-level or nested -- appears in
@@ -74,13 +108,43 @@ public class GremlinComplianceSuiteRegistrationTest {
    * YTDBStructureSuite}, or is one of the three suite-wrapper classes. Any class satisfying the
    * first half without the second is named in the failure message, since it would otherwise run
    * nowhere in a normal build.
+   *
+   * <p>Before checking that, this also asserts the scan and the two registries each found a sane
+   * minimum amount of material to check in the first place (see {@link
+   * #MIN_EXPECTED_CANDIDATE_COUNT} and {@link #MIN_EXPECTED_PER_REGISTRY_COUNT}), so a degenerate
+   * scan or an emptied registry fails loudly instead of trivially satisfying the "nothing
+   * unregistered" check below.
    */
   @Test
   public void everyGremlintestTestClassIsRegisteredInASuite() throws Exception {
-    var registered = collectRegisteredClassNames();
+    var registeredByClass = collectRegisteredClassNames();
+
+    for (var entry : registeredByClass.entrySet()) {
+      assertThat(entry.getValue())
+          .as(
+              "expected %s's Class<?>[] registry field(s) to list at least %d class(es), but "
+                  + "found %d; an emptied, renamed-away, or deleted registry would silently stop "
+                  + "guarding gremlintest/** classes registered through it",
+              entry.getKey().getSimpleName(), MIN_EXPECTED_PER_REGISTRY_COUNT,
+              entry.getValue().size())
+          .hasSizeGreaterThanOrEqualTo(MIN_EXPECTED_PER_REGISTRY_COUNT);
+    }
+
+    var registered = new HashSet<String>();
+    registeredByClass.values().forEach(registered::addAll);
+
+    var candidates = findConcreteJUnit4TestClasses();
+    assertThat(candidates)
+        .as(
+            "expected at least %d concrete @Test-bearing classes under %s, but found %d; a "
+                + "count this low means the classpath scan is degenerate (stale/empty build "
+                + "output, wrong classloader, or a changed build layout) and this guard is "
+                + "checking almost nothing -- see MIN_EXPECTED_CANDIDATE_COUNT's javadoc",
+            MIN_EXPECTED_CANDIDATE_COUNT, GREMLINTEST_PACKAGE, candidates.size())
+        .hasSizeGreaterThanOrEqualTo(MIN_EXPECTED_CANDIDATE_COUNT);
 
     var unregistered = new ArrayList<String>();
-    for (var testClass : findConcreteJUnit4TestClasses()) {
+    for (var testClass : candidates) {
       var name = testClass.getName();
       if (!WRAPPER_CLASS_NAMES.contains(name) && !registered.contains(name)) {
         unregistered.add(name);
@@ -99,15 +163,18 @@ public class GremlinComplianceSuiteRegistrationTest {
 
   /**
    * Collects the fully qualified names of every class referenced from any {@code Class<?>[]}
-   * static field declared on {@code declaringClass}. Both {@link YTDBGremlinProcessTests} and
-   * {@link YTDBStructureSuite} declare their registries with package-private or private
-   * visibility, so reflection (with {@code setAccessible}) is required from this package.
+   * static field declared on each of {@link YTDBGremlinProcessTests} and {@link
+   * YTDBStructureSuite}, keyed by the declaring class. Both declare their registries with
+   * package-private or private visibility, so reflection (with {@code setAccessible}) is required
+   * from this package.
    */
-  private static Set<String> collectRegisteredClassNames() throws IllegalAccessException {
-    var registered = new HashSet<String>();
+  private static Map<Class<?>, Set<String>> collectRegisteredClassNames()
+      throws IllegalAccessException {
+    var registeredByClass = new HashMap<Class<?>, Set<String>>();
 
     for (Class<?> declaringClass : List.of(YTDBGremlinProcessTests.class,
         YTDBStructureSuite.class)) {
+      var namesForClass = new HashSet<String>();
       for (Field field : declaringClass.getDeclaredFields()) {
         if (!Class[].class.equals(field.getType())) {
           continue;
@@ -115,12 +182,13 @@ public class GremlinComplianceSuiteRegistrationTest {
         field.setAccessible(true);
         var classes = (Class<?>[]) field.get(null);
         for (var registeredClass : classes) {
-          registered.add(registeredClass.getName());
+          namesForClass.add(registeredClass.getName());
         }
       }
+      registeredByClass.put(declaringClass, namesForClass);
     }
 
-    return registered;
+    return registeredByClass;
   }
 
   /**

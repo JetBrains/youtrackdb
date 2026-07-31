@@ -222,10 +222,12 @@
       its own includes. Left as bare executions that would mean: (a) an ordinary
       `-Dtest=SomeTest` core build runs SomeTest in four forks instead of one, once per
       compliance execution plus whichever execution it would normally belong to; and (b) a
-      reactor-wide `-Dtest=SomeServerOnlyTest -Dsurefire.failIfNoSpecifiedTests=false` build that
-      never touches core at all hard-fails here anyway, because failIfNoTests=true combines with
-      the zero matches that a core-irrelevant -Dtest= produces in this module; that is a real
-      workflow, see .github/workflows/ci-failure-fix-agent.yml. Deactivating the whole profile
+      `-Dtest=SomeUnrelatedTest` build that matches nothing in this module hard-fails here
+      anyway, via failIfNoSpecifiedTests (default true): once -Dtest= is set,
+      AbstractSurefireMojo#getEffectiveFailIfNoTests() consults only that flag, never
+      failIfNoTests, so the <failIfNoTests>true</failIfNoTests> below is not what triggers it.
+      The -Dtest= builds run by .github/workflows/ci-failure-fix-agent.yml are real instances of
+      this pattern. Deactivating the whole profile
       whenever -Dtest is supplied removes these three executions from the reactor entirely for
       such runs, restoring the pre-existing -Dtest= behavior, while an ordinary build (no
       -Dtest) still activates the profile and runs all three suites with their failIfNoTests
