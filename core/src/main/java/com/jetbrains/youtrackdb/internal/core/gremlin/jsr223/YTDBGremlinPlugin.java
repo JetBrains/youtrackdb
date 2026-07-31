@@ -5,15 +5,10 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBDemoGraphFactory;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBDomainObject;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
@@ -43,11 +38,6 @@ public class YTDBGremlinPlugin extends AbstractGremlinPlugin {
                   YTDBDemoGraphFactory.class,
                   YourTracks.class,
                   YTDBGraphTraversal.class,
-                  YTDBSchemaClass.class,
-                  YTDBSchemaProperty.class,
-                  YTDBDomainObject.class,
-                  YTDBDomainObjectPToken.class,
-                  YTDBDomainObjectObjectOutToken.class,
                   YTDBIoRegistry.class,
                   DatabaseType.class,
                   RID.class)
