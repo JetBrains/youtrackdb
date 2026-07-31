@@ -5032,6 +5032,41 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Exact {@code @class} filter on a single-node MATCH count is leaf-exact {@code
+   * CountFromClassStep}, matching Gremlin non-polymorphic {@code hasLabel} encoding.
+   */
+  @Test
+  public void testMatchCountWithExactClassFilter_usesExactCountFromClassStep() {
+    var parent = "MatchHwExactParent";
+    var child = "MatchHwExactChild";
+    session.execute("CREATE class " + parent + " extends V").close();
+    session.execute("CREATE class " + child + " extends " + parent).close();
+    session.begin();
+    session.execute("CREATE VERTEX " + parent + " SET name = 'p'").close();
+    session.execute("CREATE VERTEX " + child + " SET name = 'c'").close();
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: "
+                + parent
+                + ", as: a, where: (@class = '"
+                + parent
+                + "')} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(1L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    var planText = plan.prettyPrint(0, 2);
+    assertTrue(
+        "exact @class filter must short-circuit to leaf-exact CountFromClassStep",
+        planText.contains("CALCULATE CLASS SIZE: " + parent + " (exact)"));
+    result.close();
+    session.commit();
+  }
+
+  /**
    * Bare {@code MATCH … RETURN count(*)} on an empty class still emits one row with {@code 0} via
    * {@link CountFromClassStep} (not {@link EmptyStep}).
    */

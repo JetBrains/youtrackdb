@@ -41,9 +41,12 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(ctx.shaping().dropNullRows()).isFalse();
   }
 
-  /** Non-polymorphic {@code count()} declines so {@code YTDBGraphCountStrategy} covers it. */
+  /**
+   * Non-polymorphic {@code count()} still translates; MATCH short-circuit folds exact {@code
+   * @class} filters into leaf-exact {@code CountFromClassStep}.
+   */
   @Test
-  public void count_nonPolymorphic_declines() {
+  public void count_nonPolymorphic_accepts() {
     var admin = graph.traversal().V().count().asAdmin();
     var ctx = new WalkerContext(false, false);
     ctx.addNode(BOUNDARY_ALIAS, "V");
@@ -52,7 +55,8 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     var cursor = cursorAt(admin, CountGlobalStep.class);
 
     assertThat(CountGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
-        .isEqualTo(Outcome.DECLINE);
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SCALAR);
   }
 
   /** {@code values("age").mean()} re-points at {@code lastPropertyProjection} and sets dropNullRows. */

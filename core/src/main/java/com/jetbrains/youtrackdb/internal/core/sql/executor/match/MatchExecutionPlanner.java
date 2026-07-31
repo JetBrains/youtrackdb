@@ -773,10 +773,12 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Single-node {@code RETURN count(*)} with no edges, no NOT patterns, and no alias filters maps
-   * to {@link com.jetbrains.youtrackdb.internal.core.sql.executor.CountFromClassStep} via the shared
-   * helper. Filtered / multi-node / grouped counts fall through to the generic MATCH aggregate
-   * path (or, for declined Gremlin shapes, to {@code YTDBGraphCountStrategy}).
+   * Single-node {@code RETURN count(*)} with no edges and no NOT patterns maps to {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.CountFromClassStep} via the shared helper.
+   * Unfiltered patterns count polymorphically; a lone exact {@code @class = className} filter
+   * counts leaf-exact (Gremlin non-polymorphic {@code hasLabel}). Other filters / multi-node /
+   * grouped counts fall through to the generic MATCH aggregate path (or, for declined Gremlin
+   * shapes, to {@code YTDBGraphCountStrategy}).
    */
   private boolean tryHardwiredMatchCount(
       SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
@@ -806,14 +808,6 @@ public class MatchExecutionPlanner {
       return false;
     }
     var alias = pattern.aliasToNode.keySet().iterator().next();
-    if (aliasFilters != null && aliasFilters.get(alias) != null) {
-      // Filtered count stays on the generic aggregate path. The indexed-equality count fast path
-      // (CountFromIndexWithKeyStep) needs QueryPlanningInfo WHERE flattening that only the SELECT
-      // planner has today, so wiring it for MATCH is a deliberate Phase-1 deferral (design
-      // §"Non-fast-path counts"). The generic path still index-scans, so this is a missed
-      // optimization on low-selectivity filters, not a full-scan regression.
-      return false;
-    }
     if (aliasPinnedRids != null
         && aliasPinnedRids.get(alias) != null
         && !aliasPinnedRids.get(alias).isEmpty()) {
@@ -823,6 +817,18 @@ public class MatchExecutionPlanner {
     if (className == null || className.isBlank()) {
       return false;
     }
+    // No filter → polymorphic count (MATCH/GQL default; bare g.V()/g.E() and poly hasLabel).
+    // Exact @class = className alone → non-polymorphic (Gremlin hasLabel under poly=false).
+    // Any other filter stays on the generic aggregate path; indexed-equality COUNT is still a
+    // SELECT-only Phase-1 deferral (design §"Non-fast-path counts").
+    var polymorphic = true;
+    var filter = aliasFilters == null ? null : aliasFilters.get(alias);
+    if (filter != null) {
+      if (!HardwiredCountOptimizations.isExactClassEqualsOnly(filter, className)) {
+        return false;
+      }
+      polymorphic = false;
+    }
     var resultAlias =
         returnAliases != null
             && !returnAliases.isEmpty()
@@ -830,7 +836,7 @@ public class MatchExecutionPlanner {
                 ? returnAliases.getFirst().getStringValue()
                 : "count(*)";
     return HardwiredCountOptimizations.tryMatchCountFromClass(
-        result, className, resultAlias, true, context, enableProfiling);
+        result, className, resultAlias, polymorphic, context, enableProfiling);
   }
 
   /**

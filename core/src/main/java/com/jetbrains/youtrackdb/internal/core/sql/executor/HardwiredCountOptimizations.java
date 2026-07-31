@@ -2,9 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 
 /**
  * Shared hardwired count short-circuit used by {@link SelectExecutionPlanner} and {@link
@@ -33,10 +38,12 @@ public final class HardwiredCountOptimizations {
   }
 
   /**
-   * MATCH-side bare class count: a single-node pattern with no filters. Resolves the class on the
-   * runtime session's immutable snapshot and chains {@link CountFromClassStep} when no security
-   * policy on the class requires per-record filtering. The step counts by class name at execution
-   * time, so a cached MATCH plan is never tied to a schema object captured at plan-build time.
+   * MATCH-side bare class count: a single-node pattern with no filters, or with only an exact
+   * {@code @class = 'ClassName'} filter (Gremlin non-polymorphic {@code hasLabel}). Resolves the
+   * class on the runtime session's immutable snapshot and chains {@link CountFromClassStep} when
+   * no security policy on the class requires per-record filtering. The step counts by class name at
+   * execution time, so a cached MATCH plan is never tied to a schema object captured at plan-build
+   * time.
    */
   public static boolean tryMatchCountFromClass(
       SelectExecutionPlan result,
@@ -61,6 +68,72 @@ public final class HardwiredCountOptimizations {
     result.chain(
         new CountFromClassStep(className, polymorphic, resultAlias, ctx, profilingEnabled));
     return true;
+  }
+
+  /**
+   * Whether {@code where} is exactly {@code @class = 'expectedClass'} with no other predicates.
+   * That filter is how Gremlin non-polymorphic {@code hasLabel(L)} narrows a MATCH node whose
+   * {@code class:} is already {@code L}; folding it into {@code countClass(L, false)} preserves
+   * leaf-exact semantics without a scan. Accepts both Gremlin-built AST ({@code
+   * MatchWhereBuilder.classEquals}) and SQL-parsed MATCH {@code where: (@class = 'L')} shapes.
+   */
+  public static boolean isExactClassEqualsOnly(SQLWhereClause where, String expectedClass) {
+    if (where == null || expectedClass == null || expectedClass.isBlank()) {
+      return false;
+    }
+    var bin = unwrapSingleEquals(where.getBaseExpression());
+    if (bin == null) {
+      return false;
+    }
+    // toString is stable enough across builder vs parser for @class and string literals; structural
+    // field walks diverge (record-attribute vs identifier, quote style).
+    if (!"@class".equals(bin.getLeft().toString().trim())) {
+      return false;
+    }
+    return expectedClass.equals(stripQuotes(bin.getRight().toString().trim()));
+  }
+
+  /**
+   * Peels a single equality out of a bare binary condition, or a one-conjunct {@link SQLAndBlock} /
+   * {@link SQLOrBlock} / non-negating {@link SQLNotBlock} (the shapes the SQL parser wraps {@code
+   * WHERE} / MATCH {@code where: (…)} in).
+   */
+  private static SQLBinaryCondition unwrapSingleEquals(SQLBooleanExpression expr) {
+    if (expr instanceof SQLBinaryCondition bin) {
+      return bin.getOperator() instanceof SQLEqualsOperator ? bin : null;
+    }
+    if (expr instanceof SQLNotBlock notBlock) {
+      // Parser wraps every atom in NotBlock; only peel when NOT was not applied.
+      if (notBlock.isNegate()) {
+        return null;
+      }
+      return unwrapSingleEquals(notBlock.getSub());
+    }
+    if (expr instanceof SQLAndBlock andBlock) {
+      var subs = andBlock.getSubBlocks();
+      if (subs != null && subs.size() == 1) {
+        return unwrapSingleEquals(subs.getFirst());
+      }
+    }
+    if (expr instanceof SQLOrBlock orBlock) {
+      var subs = orBlock.getSubBlocks();
+      if (subs != null && subs.size() == 1) {
+        return unwrapSingleEquals(subs.getFirst());
+      }
+    }
+    return null;
+  }
+
+  private static String stripQuotes(String literal) {
+    if (literal == null || literal.length() < 2) {
+      return literal;
+    }
+    var first = literal.charAt(0);
+    var last = literal.charAt(literal.length() - 1);
+    if ((first == '\'' || first == '"') && first == last) {
+      return literal.substring(1, literal.length() - 1);
+    }
+    return literal;
   }
 
   /**

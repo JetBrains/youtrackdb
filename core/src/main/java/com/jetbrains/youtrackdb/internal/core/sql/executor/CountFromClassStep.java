@@ -83,6 +83,10 @@ public class CountFromClassStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     var result = spaces + "+ CALCULATE CLASS SIZE: " + className;
+    if (!polymorphic) {
+      // Distinguish leaf-exact counts (Gremlin non-poly hasLabel) from hierarchy counts.
+      result += " (exact)";
+    }
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

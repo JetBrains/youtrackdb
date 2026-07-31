@@ -44,17 +44,16 @@ final class GremlinAggregateAssembler {
   }
 
   /**
-   * Bare {@code count()} → {@code RETURN count(*)} with {@link BoundaryOutputType#SCALAR}. Declines
-   * when the walk is non-polymorphic (native {@code YTDBGraphCountStrategy} covers that case).
+   * Bare {@code count()} → {@code RETURN count(*)} with {@link BoundaryOutputType#SCALAR}.
+   * Non-polymorphic {@code hasLabel(L)} keeps its exact {@code @class = 'L'} filter; MATCH
+   * short-circuit folds that into {@code countClass(L, false)}. Bare {@code g.V()}/{@code g.E()}
+   * stay unfiltered → polymorphic class size (same as native).
    */
   static Outcome configureCount(RecognitionContext ctx) {
     if (ctx.hasUnionCarrier()) {
       return configurePostUnionCount(ctx);
     }
     if (hasPreAggregateCardinalityClause(ctx)) {
-      return Outcome.DECLINE;
-    }
-    if (!ctx.polymorphic()) {
       return Outcome.DECLINE;
     }
     var boundary = ctx.boundaryAlias();
@@ -74,12 +73,10 @@ final class GremlinAggregateAssembler {
    * {@code union(…).count()}: stash a {@link
    * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp.Count} and pin
    * {@link BoundaryOutputType#SCALAR}. Child plans stay ELEMENT until build-time push-down (lone
-   * count) or stream-count (count after limit/dedup).
+   * count) or stream-count (count after limit/dedup). Non-poly children keep exact {@code @class}
+   * filters so per-child short-circuit can use {@code countClass(L, false)}.
    */
   private static Outcome configurePostUnionCount(RecognitionContext ctx) {
-    if (!ctx.polymorphic()) {
-      return Outcome.DECLINE;
-    }
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;

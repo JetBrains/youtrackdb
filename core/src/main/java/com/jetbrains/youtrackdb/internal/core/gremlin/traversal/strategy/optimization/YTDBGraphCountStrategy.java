@@ -113,8 +113,9 @@ public class YTDBGraphCountStrategy
   @Override
   public Set<Class<? extends ProviderOptimizationStrategy>> applyPrior() {
     // Both the label-folder and the Gremlin-to-MATCH translator run before this count
-    // optimizer. The translator gets first refusal; on a decline (multi-label or
-    // non-polymorphic counts it does not yet cover) this strategy still serves the fast path.
+    // optimizer. The translator gets first refusal; on a decline (multi-label counts, or any
+    // unrecognized step elsewhere) this strategy still serves the fast path. Non-polymorphic
+    // single-label counts now translate via MATCH CountFromClassStep(exact).
     return Set.of(YTDBGraphStepStrategy.class, GremlinToMatchStrategy.class);
   }
 

@@ -4,8 +4,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 
 /**
  * Recogniser for {@link CountGlobalStep}: {@code count()} → {@code RETURN count(*)} with {@link
- * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType#SCALAR}.
- * Non-polymorphic walks decline so {@code YTDBGraphCountStrategy} covers them.
+ * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType#SCALAR}. MATCH
+ * short-circuit maps unfiltered patterns to polymorphic {@code CountFromClassStep} and exact
+ * {@code @class} filters (non-poly {@code hasLabel}) to leaf-exact counts.
  */
 final class CountGlobalStepRecogniser implements StepRecogniser {
 
