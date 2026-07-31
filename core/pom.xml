@@ -194,6 +194,100 @@
         </plugins>
       </build>
     </profile>
+
+    <!--
+      Compliance executions: one per TinkerPop suite-wrapper class (YTDBProcessTest,
+      YTDBStructureTest, YTDBGraphFeatureTest). Each wrapper carries
+      @Category(SequentialTest.class), but running it under any execution that configures a
+      <groups>/<excludedGroups> filter (like sequential-tests above) silently executes ZERO
+      tests: GroupMatcherCategoryFilter resolves @Category per leaf Description, not per class,
+      and neither the wrapped upstream TinkerPop test classes (loaded from the gremlin-test JAR)
+      nor the Cucumber-synthesized scenario Descriptions carry the category annotation on their
+      own Description. Every leaf gets pruned, the suite reports success, and nothing actually
+      ran. The fix is to give each wrapper its own execution with NO group filter configured at
+      all (neither <groups> nor <excludedGroups>): with no filter, surefire never builds a
+      runtime category filter, so no leaf is pruned. Do NOT "helpfully" re-add a <groups> or
+      <excludedGroups> filter to these executions later; it will silently bring back the
+      zero-tests bug. Each wrapper gets its own execution (rather than one execution listing all
+      three) so that <failIfNoTests>true</failIfNoTests> is scoped per wrapper: if any single
+      suite ever regresses to zero tests again, its own execution fails the build instead of
+      being masked by the other two still reporting tests. It also gives each suite its own
+      fork, which is the configuration that was performance-measured.
+
+      These three executions live in their own profile, activated on the ABSENCE of the `test`
+      user property, rather than as bare executions on the maven-surefire-plugin declaration
+      below. Reason: surefire discards EVERY execution's configured includes/excludes the moment
+      -Dtest= is supplied on the command line (AbstractSurefireMojo#isSpecificTestSpecified() in
+      the surefire sources); each execution then tries to run whatever -Dtest= names instead of
+      its own includes. Left as bare executions that would mean: (a) an ordinary
+      `-Dtest=SomeTest` core build runs SomeTest in four forks instead of one, once per
+      compliance execution plus whichever execution it would normally belong to; and (b) a
+      reactor-wide `-Dtest=SomeServerOnlyTest -Dsurefire.failIfNoSpecifiedTests=false` build that
+      never touches core at all hard-fails here anyway, because failIfNoTests=true combines with
+      the zero matches that a core-irrelevant -Dtest= produces in this module; that is a real
+      workflow, see .github/workflows/ci-failure-fix-agent.yml. Deactivating the whole profile
+      whenever -Dtest is supplied removes these three executions from the reactor entirely for
+      such runs, restoring the pre-existing -Dtest= behavior, while an ordinary build (no
+      -Dtest) still activates the profile and runs all three suites with their failIfNoTests
+      guard intact.
+    -->
+    <profile>
+      <id>gremlin-compliance-suites</id>
+      <activation>
+        <property>
+          <name>!test</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>gremlin-process-compliance-tests</id>
+                <phase>test</phase>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <includes>
+                    <include>**/YTDBProcessTest.java</include>
+                  </includes>
+                  <failIfNoTests>true</failIfNoTests>
+                </configuration>
+              </execution>
+              <execution>
+                <id>gremlin-structure-compliance-tests</id>
+                <phase>test</phase>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <includes>
+                    <include>**/YTDBStructureTest.java</include>
+                  </includes>
+                  <failIfNoTests>true</failIfNoTests>
+                </configuration>
+              </execution>
+              <execution>
+                <id>gremlin-feature-compliance-tests</id>
+                <phase>test</phase>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <includes>
+                    <include>**/YTDBGraphFeatureTest.java</include>
+                  </includes>
+                  <failIfNoTests>true</failIfNoTests>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
 
@@ -329,13 +423,21 @@
               <groups>com.jetbrains.youtrackdb.internal.SequentialTest</groups>
               <excludes>
                 <!-- The three TinkerPop compliance wrapper classes (YTDBProcessTest,
-                     YTDBStructureTest, YTDBGraphFeatureTest) and everything they wrap live
-                     under gremlintest/**; they now run exactly once each, via their own
-                     dedicated gremlin-*-compliance-tests executions below. Without this
-                     exclude they would ALSO match here: GroupMatcherCategoryFilter matches
-                     the wrapped scenario classes' own Description (they extend
-                     YTDBAbstractGremlinTest, which carries @Category(SequentialTest.class)),
-                     so every one of them would run a second time in this execution too. -->
+                     YTDBStructureTest, YTDBGraphFeatureTest) live under gremlintest/**, and so
+                     do the roughly nine YTDB-authored scenario/suite classes they invoke via
+                     reflection (packages gremlintest.scenarios / gremlintest.suites). The other
+                     ~3,700-3,800 classes those wrappers exercise are upstream TinkerPop
+                     compliance classes loaded from the gremlin-test JAR dependency; they are
+                     never file-scanned from this project's own test-classes directory, so this
+                     file-glob exclude cannot see them and they were never at risk of the bug
+                     below. It's specifically the ~9 YTDB scenario/suite classes that ARE at
+                     risk: each one is independently file-scanned here too (they are ordinary
+                     compiled classes under gremlintest/**) AND carries the SequentialTest
+                     category on its own Description (via extending YTDBAbstractGremlinTest,
+                     which is annotated with it), so GroupMatcherCategoryFilter would match them
+                     a second time under this execution's <groups> filter, on top of the single
+                     run they already get via the gremlin-*-compliance-tests executions (see the
+                     gremlin-compliance-suites profile below). -->
                 <exclude>**/gremlintest/**</exclude>
                 <!-- Configuring ANY custom <excludes> here replaces surefire's default
                      excludes outright, silently disabling its built-in exclusion of
@@ -343,66 +445,6 @@
                      inner classes are not picked up as top-level test classes. -->
                 <exclude>**/*$*</exclude>
               </excludes>
-            </configuration>
-          </execution>
-          <!--
-            Compliance executions: one per TinkerPop suite-wrapper class (YTDBProcessTest,
-            YTDBStructureTest, YTDBGraphFeatureTest). Each wrapper carries
-            @Category(SequentialTest.class), but running them under the sequential-tests
-            execution above (or any execution with a <groups>/<excludedGroups> filter)
-            silently executes ZERO tests: GroupMatcherCategoryFilter resolves @Category per
-            leaf Description, not per class, and neither the wrapped upstream TinkerPop test
-            classes (loaded from a jar) nor the Cucumber-synthesized scenario Descriptions
-            carry the category annotation on their own Description. Every leaf gets pruned,
-            the suite reports success, and nothing actually ran. The fix is to give each
-            wrapper its own execution with NO group filter configured at all (neither
-            <groups> nor <excludedGroups>): with no filter, surefire never builds a runtime
-            category filter, so no leaf is pruned. Do NOT "helpfully" re-add a <groups> or
-            <excludedGroups> filter to these executions later; it will silently bring back
-            the zero-tests bug. Each wrapper gets its own execution (rather than one execution
-            listing all three) so that <failIfNoTests>true</failIfNoTests> is scoped per
-            wrapper: if any single suite ever regresses to zero tests again, its own execution
-            fails the build instead of being masked by the other two still reporting tests. It
-            also gives each suite its own fork, which is the configuration that was
-            performance-measured.
-          -->
-          <execution>
-            <id>gremlin-process-compliance-tests</id>
-            <phase>test</phase>
-            <goals>
-              <goal>test</goal>
-            </goals>
-            <configuration>
-              <includes>
-                <include>**/YTDBProcessTest.java</include>
-              </includes>
-              <failIfNoTests>true</failIfNoTests>
-            </configuration>
-          </execution>
-          <execution>
-            <id>gremlin-structure-compliance-tests</id>
-            <phase>test</phase>
-            <goals>
-              <goal>test</goal>
-            </goals>
-            <configuration>
-              <includes>
-                <include>**/YTDBStructureTest.java</include>
-              </includes>
-              <failIfNoTests>true</failIfNoTests>
-            </configuration>
-          </execution>
-          <execution>
-            <id>gremlin-feature-compliance-tests</id>
-            <phase>test</phase>
-            <goals>
-              <goal>test</goal>
-            </goals>
-            <configuration>
-              <includes>
-                <include>**/YTDBGraphFeatureTest.java</include>
-              </includes>
-              <failIfNoTests>true</failIfNoTests>
             </configuration>
           </execution>
         </executions>
