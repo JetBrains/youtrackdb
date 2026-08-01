@@ -78,7 +78,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -337,6 +336,20 @@ public class MatchExecutionPlanner {
   private static final long THRESHOLD = 100;
 
   /**
+   * Maximum chain depth for the MATCH cost fold, bounded to
+   * {@code [0, MAX_CHAIN_FOLD_HOPS]}. Zero disables the fold. Configurable
+   * via {@link GlobalConfiguration#QUERY_MATCH_CHAIN_FOLD_MAX_HOPS};
+   * out-of-range values clamp silently, as they do for the sibling knobs
+   * below.
+   */
+  static int getChainFoldMaxHops() {
+    return Math.min(
+        MAX_CHAIN_FOLD_HOPS,
+        Math.max(0,
+            GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger()));
+  }
+
+  /**
    * Maximum estimated build-side cardinality for which the planner will choose a
    * hash-based join (anti-join, semi-join, inner join) over nested-loop evaluation.
    * If the estimated NOT-pattern result set exceeds this threshold, the planner
@@ -388,40 +401,12 @@ public class MatchExecutionPlanner {
    * it is read for plan construction. The chain-fold walk terminates
    * structurally at the pattern graph's branch points and visited edges, so
    * any knob value larger than the deepest linear chain a MATCH can encode
-   * is semantically equivalent to this cap — but can poison downstream
-   * arithmetic (int overflow in the walk's bookkeeping) and waste memory on
-   * upfront collection allocations sized to the raw knob value. Realistic
-   * MATCH patterns top out below 30 linear hops; 1000 leaves a 30× margin
-   * while staying far away from any int-overflow threshold.
+   * behaves the same as this cap. Bounding it anyway keeps the walk's loop
+   * counter in a range no later arithmetic on it can overflow. Realistic
+   * MATCH patterns top out below 30 linear hops, so 1000 leaves a wide
+   * margin.
    */
   private static final int MAX_CHAIN_FOLD_HOPS = 1000;
-
-  /**
-   * Tracks the last out-of-range knob value that triggered an upper-bound
-   * clamp warning, so {@link #clampChainFoldMaxHops} dedupes against the
-   * <em>immediately-preceding</em> warned value only. This is last-value
-   * dedupe, not once-per-distinct-value: a steady misconfiguration on a
-   * single value warns once, and an alternating misconfiguration between
-   * two out-of-range values (e.g. {@code 5000}, {@code 6000}, {@code 5000},
-   * …) re-warns on every change because each value differs from the one
-   * stored by the previous clamp. The common case — one misconfigured value
-   * read once per plan across many queries — collapses to a single WARN.
-   *
-   * <p>Initialised to {@code 0} as a sentinel: {@code 0} is always in-range
-   * (it is the documented "fold disabled" value) so the clamp helper never
-   * compares an out-of-range raw against it as a stale match.
-   *
-   * <p>An {@link AtomicInteger#getAndSet} pair makes the warning emission
-   * thread-safe — concurrent plan constructions racing on a brand-new
-   * out-of-range value will see exactly one of them swap successfully and
-   * log; the others observe {@code previous == raw} and skip.
-   *
-   * <p>This is the cell every production plan shares. The clamp also accepts a
-   * caller-supplied cell, so the dedupe rule can be exercised without touching
-   * process-wide state.
-   */
-  private static final AtomicInteger lastWarnedChainFoldKnob =
-      new AtomicInteger(0);
 
   /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
@@ -2036,16 +2021,12 @@ public class MatchExecutionPlanner {
     Set<PatternNode> visitedNodes = new HashSet<>();
     Set<PatternEdge> visitedEdges = new HashSet<>();
 
-    // Read the chain-fold knob once at the top of plan construction. It is
-    // a hot-path setting consulted by every candidate edge in the sort loop;
-    // re-reading the volatile configuration field per edge would amortize
-    // an O(edges) configuration lookup over the planning phase, and any
-    // mid-plan reconfiguration would split the plan across two knob values.
-    //
-    // {@link #clampChainFoldMaxHops} bounds the value to a safe range and
-    // emits a one-shot WARN if the upper cap actually fires.
-    int chainFoldMaxHops = clampChainFoldMaxHops(
-        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger());
+    // Read the chain-fold knob once at the top of plan construction. Every
+    // candidate edge in the sort loop consults it, so re-reading the volatile
+    // configuration field per edge would spread an O(edges) lookup across the
+    // planning phase; reading once also stops a mid-plan reconfiguration from
+    // splitting one plan across two knob values.
+    int chainFoldMaxHops = getChainFoldMaxHops();
     // Per-plan structural-detection cache for the chain fold: the answer is
     // determined by the pattern graph plus the per-plan {@code aliasClasses}
     // and session, all stable for the lifetime of one plan. The visited-edge
@@ -2125,71 +2106,6 @@ public class MatchExecutionPlanner {
     }
 
     return resultingSchedule;
-  }
-
-  /**
-   * Bounds {@code raw} to {@code [0, MAX_CHAIN_FOLD_HOPS]}, the safe range
-   * for {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS}, and emits a one-shot WARN
-   * the first time a given out-of-range value triggers the upper cap.
-   *
-   * <p>Lower-bound clamp ({@code raw < 0}) is silent — values below zero
-   * are an obvious user error with no meaningful semantics, and the project
-   * convention (see {@link #getHashJoinThreshold}) is silent clamp at the
-   * read site.
-   *
-   * <p>Upper-bound clamp ({@code raw > MAX_CHAIN_FOLD_HOPS}) is logged
-   * because the operator's intent matters here: somebody who set the knob
-   * to e.g. {@code 100_000} probably wanted "fold everything", and a silent
-   * clamp would leave them debugging a fold depth that does not match their
-   * configuration. The warning is deduped against the immediately-preceding
-   * out-of-range value (last-value dedupe via {@link AtomicInteger#getAndSet}
-   * on {@link #lastWarnedChainFoldKnob}): a repeated single out-of-range
-   * value warns once, but alternating between two out-of-range values
-   * re-warns on each change. Concurrent plans racing on the same brand-new
-   * out-of-range value agree on a single emitter.
-   *
-   * @param raw the raw knob value as read from {@link GlobalConfiguration}
-   * @return the clamped value, in {@code [0, MAX_CHAIN_FOLD_HOPS]}
-   */
-  static int clampChainFoldMaxHops(int raw) {
-    return clampChainFoldMaxHops(raw, lastWarnedChainFoldKnob);
-  }
-
-  /**
-   * Clamps {@code raw} against a caller-supplied dedupe cell instead of the
-   * process-wide one.
-   *
-   * <p>The cell holds the last out-of-range value that emitted a warning.
-   * Passing it in rather than reading a static keeps the dedupe decision a
-   * function of its arguments, which is what makes it checkable: a caller that
-   * owns the cell can read the outcome afterwards. That matters because the
-   * warning itself leaves no other trace to assert on.
-   *
-   * @param lastWarned holds the last out-of-range value that warned;
-   *                   {@code 0} means none has, and is safe as a sentinel
-   *                   because {@code 0} is always in range
-   */
-  static int clampChainFoldMaxHops(int raw, AtomicInteger lastWarned) {
-    if (raw > MAX_CHAIN_FOLD_HOPS) {
-      // getAndSet returns the previous sentinel/value; if it equals raw,
-      // we have already warned about this exact value and stay silent.
-      // Otherwise we own the warning for this new out-of-range value.
-      int previous = lastWarned.getAndSet(raw);
-      if (previous != raw) {
-        logger.warn(
-            "QUERY_MATCH_CHAIN_FOLD_MAX_HOPS={} exceeds the supported"
-                + " maximum {}; clamping for plan construction. The chain-fold"
-                + " walk terminates structurally at the pattern graph's branch"
-                + " points, so values above {} are equivalent to {} but risk"
-                + " int overflow in the walk's bookkeeping.",
-            raw, MAX_CHAIN_FOLD_HOPS, MAX_CHAIN_FOLD_HOPS, MAX_CHAIN_FOLD_HOPS);
-      }
-      return MAX_CHAIN_FOLD_HOPS;
-    }
-    // Negative values clamp silently (project convention; see
-    // getHashJoinThreshold). Zero is the documented "fold disabled" value
-    // and passes through unchanged.
-    return Math.max(0, raw);
   }
 
   /**

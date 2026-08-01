@@ -12,6 +12,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -40,9 +42,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Mutation-killing tests for {@link MatchExecutionPlanner}.
@@ -65,7 +67,13 @@ import org.junit.Test;
  * pattern graph ({@link Pattern}, {@link PatternNode}, {@link PatternEdge},
  * visited-set tracking) tightly enough to need a live database, which the
  * end-to-end chain-cost tests provide instead.
+ *
+ * <p>{@code @Category(SequentialTest.class)} because the knob-bounding tests
+ * write {@code GlobalConfiguration}, which is JVM-global. The parallel
+ * surefire execution runs four classes at once, so a class that writes it
+ * belongs in the sequential one.
  */
+@Category(SequentialTest.class)
 public class MatchExecutionPlannerMutationTest {
 
   private static final double DELTA = 1e-9;
@@ -2980,152 +2988,52 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   // =========================================================================
-  // clampChainFoldMaxHops — knob bounding + warn-once contract
-  // =========================================================================
-
-  /**
-   * In-range value (default knob) passes through unchanged. Pins the
-   * happy path so a mutation that always clamps would be caught.
-   */
-  @Test
-  public void clampChainFoldMaxHops_inRangeDefault_returnedUnchanged() {
-    assertEquals(10, MatchExecutionPlanner.clampChainFoldMaxHops(10));
-  }
-
-  /**
-   * The documented "fold disabled" sentinel zero passes through. Pins
-   * that the lower clamp does not accidentally bump zero to anything.
-   */
-  @Test
-  public void clampChainFoldMaxHops_zero_returnedUnchanged() {
-    assertEquals(0, MatchExecutionPlanner.clampChainFoldMaxHops(0));
-  }
-
-  /**
-   * The maximum supported value passes through. Pins the boundary of
-   * the upper clamp — a strict {@code >} comparison must let the cap
-   * through, while a {@code >=} mutation would clamp it to itself
-   * (harmless) but still trip the warning machinery.
-   */
-  @Test
-  public void clampChainFoldMaxHops_atMaxBoundary_returnedUnchanged() {
-    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(1000));
-  }
-
-  /**
-   * Negative input is silently clamped to zero per project convention
-   * (see {@code getHashJoinThreshold}). No warning, no exception.
-   */
-  @Test
-  public void clampChainFoldMaxHops_negative_clampedToZero() {
-    assertEquals(0, MatchExecutionPlanner.clampChainFoldMaxHops(-100));
-    assertEquals(0, MatchExecutionPlanner.clampChainFoldMaxHops(Integer.MIN_VALUE));
-  }
-
-  /**
-   * Above-cap input is clamped to the cap. Pins both the cap value
-   * itself and the direction of the clamp — a mutation that returned
-   * {@code raw} or {@code 0} for the over-cap branch would fail.
-   */
-  @Test
-  public void clampChainFoldMaxHops_aboveCap_clampedToMax() {
-    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(1001));
-    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(100_000));
-    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(Integer.MAX_VALUE));
-  }
-
-  // =========================================================================
-  // clampChainFoldMaxHops — warn dedupe rule
+  // getChainFoldMaxHops — knob bounding
   //
-  // The WARN leaves no trace to assert on: the test log backend discards it.
-  // These drive the clamp with a locally-owned dedupe cell instead and read
-  // the decision out of that cell afterwards, so no two tests can influence
-  // each other and no process-wide state is touched.
+  // Reads QUERY_MATCH_CHAIN_FOLD_MAX_HOPS and bounds it to
+  // [0, MAX_CHAIN_FOLD_HOPS], silently, the way the planner's sibling knob
+  // accessors do.
   // =========================================================================
 
   /**
-   * The first out-of-range value takes ownership of the warning, which shows
-   * up as the cell moving off its zero sentinel. Kills a change that drops the
-   * {@code getAndSet} and records nothing, after which every plan re-warns.
+   * The accessor bounds the knob to {@code [0, 1000]}.
+   *
+   * <p>Covers what the end-to-end probes cannot separate: the exact cap
+   * boundary (1000 passes, 1001 clamps), zero surviving the lower clamp, and
+   * negatives flooring at zero rather than reaching the walk as a meaningless
+   * hop budget. Zero matters most — a {@code Math.max(1, …)} would quietly
+   * remove the only setting that restores the pre-fold schedule.
    */
   @Test
-  public void clampChainFoldMaxHops_firstOutOfRangeValue_takesWarnOwnership() {
-    var lastWarned = new AtomicInteger(0);
+  public void getChainFoldMaxHops_boundsTheKnobToItsSupportedRange() {
+    int previous = GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger();
+    try {
+      assertKnobResolvesTo(10, 10);
+      assertKnobResolvesTo(1, 1);
+      assertKnobResolvesTo(0, 0);
+      assertKnobResolvesTo(1000, 1000);
 
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
+      assertKnobResolvesTo(1001, 1000);
+      assertKnobResolvesTo(100_000, 1000);
+      assertKnobResolvesTo(Integer.MAX_VALUE, 1000);
 
-    assertEquals(5000, lastWarned.get());
-  }
-
-  /**
-   * Repeating one out-of-range value leaves the cell unchanged, so every call
-   * after the first observes {@code previous == raw} and stays silent. This is
-   * the common case: one misconfigured knob read once per plan across many
-   * queries collapses to a single WARN.
-   */
-  @Test
-  public void clampChainFoldMaxHops_repeatedOutOfRangeValue_staysOwnedByFirst() {
-    var lastWarned = new AtomicInteger(0);
-
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
-
-    assertEquals(5000, lastWarned.get());
-  }
-
-  /**
-   * Alternating between two out-of-range values re-warns on each change: the
-   * dedupe is last-value, not once-per-distinct-value. Pins the documented
-   * semantics so a later switch to a set-based "warn once ever" cannot land
-   * unnoticed.
-   */
-  @Test
-  public void clampChainFoldMaxHops_alternatingOutOfRangeValues_rewarnOnChange() {
-    var lastWarned = new AtomicInteger(0);
-
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
-    assertEquals(5000, lastWarned.get());
-
-    MatchExecutionPlanner.clampChainFoldMaxHops(6000, lastWarned);
-    assertEquals(6000, lastWarned.get());
-
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
-    assertEquals(5000, lastWarned.get());
-  }
-
-  /**
-   * In-range values never touch the cell, so correcting the knob back into
-   * range leaves the previous owner recorded. Kills a change that moved the
-   * {@code getAndSet} outside the over-cap branch, which would warn on every
-   * normal plan.
-   */
-  @Test
-  public void clampChainFoldMaxHops_inRangeValues_leaveWarnStateUntouched() {
-    var lastWarned = new AtomicInteger(0);
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
-
-    MatchExecutionPlanner.clampChainFoldMaxHops(10, lastWarned);
-    MatchExecutionPlanner.clampChainFoldMaxHops(0, lastWarned);
-    MatchExecutionPlanner.clampChainFoldMaxHops(-100, lastWarned);
-    MatchExecutionPlanner.clampChainFoldMaxHops(1000, lastWarned);
-
-    assertEquals(5000, lastWarned.get());
-  }
-
-  /**
-   * The single-argument entry point clamps identically to the injected-cell
-   * overload. Pins that production keeps going through the same rule rather
-   * than drifting into a second copy of the bounds.
-   */
-  @Test
-  public void clampChainFoldMaxHops_defaultOverloadClampsLikeInjectedOverload() {
-    var lastWarned = new AtomicInteger(0);
-    for (int raw : new int[] {10, 0, 1000, -100, Integer.MIN_VALUE, 1001, 100_000}) {
-      assertEquals(
-          MatchExecutionPlanner.clampChainFoldMaxHops(raw, lastWarned),
-          MatchExecutionPlanner.clampChainFoldMaxHops(raw));
+      assertKnobResolvesTo(-1, 0);
+      assertKnobResolvesTo(-100, 0);
+      assertKnobResolvesTo(Integer.MIN_VALUE, 0);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.setValue(previous);
     }
+  }
+
+  /**
+   * Writes {@code raw} to the knob and asserts the accessor resolves it to
+   * {@code expected}.
+   */
+  private static void assertKnobResolvesTo(int raw, int expected) {
+    GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.setValue(raw);
+    assertEquals(
+        "knob " + raw + " must resolve to " + expected,
+        expected, MatchExecutionPlanner.getChainFoldMaxHops());
   }
 
   // =========================================================================
