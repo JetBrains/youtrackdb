@@ -2,14 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -660,6 +658,21 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     // now-deleted Gremlin layer special-cased it. This pins that, post-removal, both labels are
     // ordinary and unused on a fresh graph, and that a vertex created with the former magic label
     // behaves exactly like any other vertex.
+    //
+    // The decisive assertions here are the two checkSize() counts: a fresh graph always has at
+    // least the built-in V and E schema classes (usually more), so the removed pseudo-vertex-per-
+    // class merge would have made the first checkSize(0, ...) observe 2+ instead of 0. If that
+    // merge behavior ever reappeared, this count assertion trips regardless of any other check in
+    // this method.
+    //
+    // This scenario class is shared: YTDBGremlinProcessTests.commonTests feeds both
+    // YTDBProcessSuiteEmbedded (run by core, against the embedded graph) and YTDBProcessSuiteRemote
+    // (run by server, against the GraphBinary remote provider, which always hands back
+    // DetachedVertex/DetachedEdge -- never the embedded impl types). Assert only through the
+    // TinkerPop Vertex interface (label()/id()/value()) so this method holds under both providers;
+    // do not assert a concrete implementation class here or anywhere else in this file. Changes to
+    // this class must be verified under both core (./mvnw -pl core ... -Dtest=YTDBProcessTest) and
+    // server (./mvnw -pl server -am test).
     checkSize(0, () -> g().V().hasLabel("$schemaClass"));
     checkSize(0, () -> g().V().hasLabel("$schemaProperty"));
 
@@ -667,12 +680,12 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
 
     checkSize(1, () -> g().V().hasLabel("$schemaClass"));
     final var found = g().V().hasLabel("$schemaClass").next();
+    // An ordinary vertex, not a schema pseudo-vertex: it is addressed by the id we created it
+    // with, carries the label and property we set on it, and nothing more is asserted about its
+    // type -- see the class-level comment above on why.
     assertEquals(created.id(), found.id());
-    // An ordinary vertex, not a schema pseudo-vertex: it carries the property we set on it and its
-    // concrete runtime type is the plain vertex implementation (the removed YTDBSchemaClassImpl
-    // pseudo-vertex type no longer exists anywhere in the codebase).
+    assertEquals("$schemaClass", found.label());
     assertEquals("plain", found.value("name"));
-    assertSame(YTDBVertexImpl.class, found.getClass());
   }
 
   @After
