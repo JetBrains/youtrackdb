@@ -133,3 +133,5 @@ Full investigation evidence — the commit-by-commit bracket table, the isolatio
 ## Base commit
 <!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
 cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->
+
+fd9eb7635da395456f897b23452c7292dcc12952
