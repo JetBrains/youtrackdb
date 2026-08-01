@@ -46,26 +46,8 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
-    var scopeKeys = dedup.getScopeKeys();
-    if (scopeKeys == null || scopeKeys.isEmpty()) {
-      ctx.setReturnDistinct(true);
-      return Outcome.ACCEPTED;
-    }
-
-    var boundary = ctx.boundaryAlias();
-    if (boundary == null) {
+    if (!scopeKeysNameOnlyBoundary(ctx, dedup)) {
       return Outcome.DECLINE;
-    }
-    for (String userLabel : scopeKeys) {
-      var internalAlias = ctx.resolveUserLabel(userLabel);
-      if (internalAlias == null) {
-        return Outcome.DECLINE;
-      }
-      // Prior-hop labels would change uniqueness without changing the emitted object — decline
-      // rather than rewrite RETURN (which broke ELEMENT projection) or emit the wrong element.
-      if (!boundary.equals(internalAlias)) {
-        return Outcome.DECLINE;
-      }
     }
     ctx.setReturnDistinct(true);
     return Outcome.ACCEPTED;
@@ -76,24 +58,48 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     for (var op : ctx.postConcatOps()) {
+      // A second dedup is redundant but harmless to decline; a dedup after count has nothing left
+      // to dedup, because count already collapsed the concatenation to one scalar row.
       if (op instanceof PostConcatOp.Dedup || op instanceof PostConcatOp.Count) {
         return Outcome.DECLINE;
       }
     }
-    var scopeKeys = dedup.getScopeKeys();
-    if (scopeKeys != null && !scopeKeys.isEmpty()) {
-      var boundary = ctx.boundaryAlias();
-      if (boundary == null) {
-        return Outcome.DECLINE;
-      }
-      for (String userLabel : scopeKeys) {
-        var internalAlias = ctx.resolveUserLabel(userLabel);
-        if (internalAlias == null || !boundary.equals(internalAlias)) {
-          return Outcome.DECLINE;
-        }
-      }
+    if (!scopeKeysNameOnlyBoundary(ctx, dedup)) {
+      return Outcome.DECLINE;
     }
     ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Whether {@code dedup}'s scope keys are all the current boundary alias, so deduplicating on them
+   * is deduplicating on the emitted element. An unlabelled {@code dedup()} trivially qualifies. Both
+   * the single-plan ({@code RETURN DISTINCT}) and the post-union ({@link PostConcatOp.Dedup})
+   * branches gate on this, so the two declines below stay stated once.
+   */
+  private static boolean scopeKeysNameOnlyBoundary(RecognitionContext ctx,
+      DedupGlobalStep<?> dedup) {
+    var scopeKeys = dedup.getScopeKeys();
+    if (scopeKeys == null || scopeKeys.isEmpty()) {
+      return true;
+    }
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null) {
+      return false;
+    }
+    for (String userLabel : scopeKeys) {
+      var internalAlias = ctx.resolveUserLabel(userLabel);
+      // An unknown user label names nothing this walk bound, so its uniqueness contract is
+      // unexpressible here.
+      if (internalAlias == null) {
+        return false;
+      }
+      // Prior-hop labels would change uniqueness without changing the emitted object — decline
+      // rather than rewrite RETURN (which broke ELEMENT projection) or emit the wrong element.
+      if (!boundary.equals(internalAlias)) {
+        return false;
+      }
+    }
+    return true;
   }
 }

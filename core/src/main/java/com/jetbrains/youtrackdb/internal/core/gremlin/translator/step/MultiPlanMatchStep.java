@@ -2,21 +2,17 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
@@ -59,10 +55,11 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * {@code RETURN count(*)} at build time, so {@link #sumChildCountStreams()} opens each child, reads
  * its one scalar row, and emits a single summed {@code count} column without ever materialising the
  * element concatenation. Any other op list keeps the children on elements and wraps the
- * concatenator, applying the ops in recognised order — a skip counter, a limit that early-stops the
- * concatenator so later children never open, a global identity set for {@code dedup}, and a
- * terminal drain-and-count for a {@code Count} that follows another reduction. Order matters, so
- * the wrapping follows the list rather than a fixed precedence: {@code union(…).limit(5).count()}
+ * concatenator with the {@link PostConcatStreams} decorators, applying the ops in recognised order —
+ * a skip counter, a limit that early-stops the concatenator so later children never open, a global
+ * identity set for {@code dedup}, and a terminal drain-and-count for a {@code Count} that follows
+ * another reduction. Order matters, so the wrapping follows the list rather than a fixed
+ * precedence: {@code union(…).limit(5).count()}
  * counts at most five rows, which is what the recogniser accepted.
  *
  * <h2>Per-child isolated, session-rebound context</h2>
@@ -123,21 +120,9 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
   }
 
   /**
-   * Full constructor including row-projection shaping and ordered post-concatenation reductions.
-   */
-  public MultiPlanMatchStep(
-      @Nonnull Traversal.Admin<S, E> traversal,
-      @Nonnull Class<E> returnClass,
-      @Nonnull List<InternalExecutionPlan> plans,
-      @Nonnull String boundaryAlias,
-      @Nonnull BoundaryOutputType outputType,
-      @Nonnull ResultShaping shaping) {
-    this(traversal, returnClass, plans, boundaryAlias, outputType, shaping, List.of());
-  }
-
-  /**
-   * Full constructor including post-concatenation reductions ({@code count}/{@code limit}/{@code
-   * dedup}).
+   * Canonical constructor: ordered child plans, row-projection shaping, and the ordered
+   * post-concatenation reductions ({@code count}/{@code limit}/{@code dedup}) the recogniser
+   * accepted after the union.
    */
   public MultiPlanMatchStep(
       @Nonnull Traversal.Admin<S, E> traversal,
@@ -192,18 +177,23 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
       // parent already holds (BasicCommandContext.setVariable / setSystemVariable), so a seeded
       // parent would be written concurrently through its unsynchronised maps by two clones. This
       // assert turns that silent, load-dependent corruption into an immediate failure the moment a
-      // future recogniser change starts seeding an alias / LET / $current / $matched binding onto a
-      // child's context at build time, rather than a rare fault that appears only under production
-      // concurrency. Zero cost in production (assertions disabled). getVariables() is null only for a
-      // test mock context, which carries no per-run state and is treated here as empty.
+      // future recogniser change starts seeding an alias / LET / $current / $current_match /
+      // $matched / $depth binding onto a child's context at build time, rather than a rare fault
+      // that appears only under production concurrency. It covers EVERY system-variable slot rather
+      // than the two the element path happens to use: the MATCH edge-traversal path writes
+      // $current_match per candidate and restores it with a null value afterwards, and fastutil's
+      // key-presence tracking is value-independent, so a child that matched zero rows seeds that
+      // slot without ever touching $matched. Zero cost in production (assertions disabled).
+      // getVariables() is null only for a test mock context, which carries no per-run state and is
+      // treated here as empty.
       var templateVariables = templateContext.getVariables();
       assert (templateVariables == null || templateVariables.isEmpty())
-          && !templateContext.hasSystemVariable(CommandContext.VAR_CURRENT)
-          && !templateContext.hasSystemVariable(CommandContext.VAR_MATCHED)
-          : "union child template context carries per-run state ($current / $matched / a normal"
-              + " variable); clone isolation cannot keep concurrent clones from racing on the shared"
-              + " parent context — the recogniser must seed no per-run binding onto a child plan"
-              + " context at build time";
+          && seededSystemVariable(templateContext) < 0
+          : "union child template context carries per-run state (system variable slot "
+              + seededSystemVariable(templateContext)
+              + ", or a normal variable); clone isolation cannot keep concurrent clones from racing"
+              + " on the shared parent context — the recogniser must seed no per-run binding onto a"
+              + " child plan context at build time";
       var isolatedCtx = new BasicCommandContext();
       isolatedCtx.setParentWithoutOverridingChild(templateContext);
       copies.add(childPlan.copy(isolatedCtx));
@@ -219,6 +209,31 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     // and never close its own fresh plan copies.
     cloned.resetLifecycleForClone();
     return cloned;
+  }
+
+  /**
+   * Every system-variable slot {@link CommandContext} declares, so the clone-isolation assert
+   * rejects a seeded template context whatever wrote it rather than only the slots the element path
+   * happens to use. A fifth slot added to {@code CommandContext} must be added here too.
+   */
+  private static final int[] SYSTEM_VARIABLE_SLOTS = {
+      CommandContext.VAR_CURRENT,
+      CommandContext.VAR_CURRENT_MATCH,
+      CommandContext.VAR_MATCHED,
+      CommandContext.VAR_DEPTH
+  };
+
+  /**
+   * Returns the first system-variable slot {@code context} holds, or {@code -1} when it holds none.
+   * Used only by the clone-isolation assert, which reports the offending slot id in its message.
+   */
+  private static int seededSystemVariable(CommandContext context) {
+    for (int slot : SYSTEM_VARIABLE_SLOTS) {
+      if (context.hasSystemVariable(slot)) {
+        return slot;
+      }
+    }
+    return -1;
   }
 
   // ---- Plan-seam hooks: N child plans, one live stream at a time. ----
@@ -333,9 +348,7 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
             childStream.close(childContext);
           }
         }
-        var result = new ResultInternal((DatabaseSessionEmbedded) ctx.getDatabaseSession());
-        result.setProperty("count", total);
-        pending = result;
+        pending = PostConcatStreams.singleCountRow(ctx, total);
       }
     };
   }
@@ -370,131 +383,19 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
 
   private ExecutionStream applyPostConcatOp(ExecutionStream stream, PostConcatOp op) {
     return switch (op) {
-      case PostConcatOp.Count ignored -> countConcatStream(stream);
+      case PostConcatOp.Count ignored -> PostConcatStreams.count(stream);
       case PostConcatOp.Range range -> {
         ExecutionStream s = stream;
         if (range.skip() > 0) {
-          s = new SkipExecutionStream(s, range.skip());
+          s = PostConcatStreams.skip(s, range.skip());
         }
         if (range.limit() >= 0) {
           s = s.limit(range.limit());
         }
         yield s;
       }
-      case PostConcatOp.Dedup ignored -> dedupConcatStream(stream);
+      case PostConcatOp.Dedup ignored -> PostConcatStreams.dedup(stream, getBoundaryAlias());
     };
-  }
-
-  private ExecutionStream countConcatStream(ExecutionStream upstream) {
-    return new ExecutionStream() {
-      private Result pending;
-      private boolean computed;
-      private boolean upstreamClosed;
-
-      @Override
-      public boolean hasNext(CommandContext ctx) {
-        ensure(ctx);
-        return pending != null;
-      }
-
-      @Override
-      public Result next(CommandContext ctx) {
-        ensure(ctx);
-        if (pending == null) {
-          throw new IllegalStateException("no counted row");
-        }
-        var out = pending;
-        pending = null;
-        return out;
-      }
-
-      @Override
-      public void close(CommandContext ctx) {
-        closeUpstreamOnce(ctx);
-        pending = null;
-      }
-
-      /**
-       * Releases the concatenator at most once. The drain in {@code ensure} closes it eagerly so an
-       * exhausted union frees its last child immediately, and the base then closes this stream again
-       * when it releases the arming; {@link ExecutionStream} states no idempotency requirement, so
-       * the latch keeps the second call from re-entering the whole child chain.
-       */
-      private void closeUpstreamOnce(CommandContext ctx) {
-        if (upstreamClosed) {
-          return;
-        }
-        upstreamClosed = true;
-        upstream.close(ctx);
-      }
-
-      private void ensure(CommandContext ctx) {
-        if (computed) {
-          return;
-        }
-        computed = true;
-        long total = 0L;
-        try {
-          while (upstream.hasNext(ctx)) {
-            upstream.next(ctx);
-            total++;
-          }
-        } finally {
-          closeUpstreamOnce(ctx);
-        }
-        var result = new ResultInternal((DatabaseSessionEmbedded) ctx.getDatabaseSession());
-        result.setProperty("count", total);
-        pending = result;
-      }
-    };
-  }
-
-  private ExecutionStream dedupConcatStream(ExecutionStream upstream) {
-    final var boundary = getBoundaryAlias();
-    final Set<Object> seen = new HashSet<>();
-    return upstream.filter(
-        (result, ctx) -> {
-          var entity = result.getEntity(boundary);
-          if (entity == null) {
-            return null;
-          }
-          Object id = entity.getIdentity();
-          return seen.add(id) ? result : null;
-        });
-  }
-
-  /** Skips the first {@code skip} rows of {@code upstream} then passes the rest through. */
-  private static final class SkipExecutionStream implements ExecutionStream {
-    private final ExecutionStream upstream;
-    private final long skip;
-    private long skipped;
-
-    SkipExecutionStream(ExecutionStream upstream, long skip) {
-      this.upstream = upstream;
-      this.skip = skip;
-    }
-
-    @Override
-    public boolean hasNext(CommandContext ctx) {
-      while (skipped < skip && upstream.hasNext(ctx)) {
-        upstream.next(ctx);
-        skipped++;
-      }
-      return upstream.hasNext(ctx);
-    }
-
-    @Override
-    public Result next(CommandContext ctx) {
-      if (!hasNext(ctx)) {
-        throw new IllegalStateException();
-      }
-      return upstream.next(ctx);
-    }
-
-    @Override
-    public void close(CommandContext ctx) {
-      upstream.close(ctx);
-    }
   }
 
   @Override

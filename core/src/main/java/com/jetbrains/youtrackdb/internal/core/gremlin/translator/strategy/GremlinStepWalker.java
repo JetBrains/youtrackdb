@@ -458,9 +458,7 @@ final class GremlinStepWalker {
     if (ctx.hasUnionCarrier()) {
       assert ctx.boundaryAlias != null && ctx.outputType != null && ctx.returnClass != null;
       return GremlinToMatchTranslator.TranslationResult.multiPlan(
-          ctx.unionChildInputs(),
-          ctx.unionChildInputParameters(),
-          ctx.unionChildCacheEligible(),
+          zipChildPlans(ctx),
           ctx.postConcatOps(),
           ctx.boundaryAlias,
           ctx.outputType,
@@ -500,18 +498,35 @@ final class GremlinStepWalker {
 
     Map<Object, Object> inputParameters = new LinkedHashMap<>(ctx.inputParameters.size());
     ctx.inputParameters.forEach(inputParameters::put);
-    return new GremlinToMatchTranslator.TranslationResult(
+    return GremlinToMatchTranslator.TranslationResult.singlePlan(
         inputs,
-        List.of(),
-        List.of(),
-        List.of(),
-        List.of(),
         ctx.boundaryAlias,
         ctx.outputType,
         ctx.returnClass,
         Map.copyOf(inputParameters),
         !ctx.ridBearing(),
         ctx.shaping());
+  }
+
+  /**
+   * Zips the walker context's three parallel union-child lists into the one {@code ChildPlan} list
+   * the translation carrier takes. The context keeps them separate because the fork host stashes
+   * them as three accumulators; the carrier bundles them so nothing downstream can index them out of
+   * step. The parity the zip relies on is asserted where they are stashed.
+   */
+  private static List<GremlinToMatchTranslator.TranslationResult.ChildPlan> zipChildPlans(
+      WalkerContext ctx) {
+    var childInputs = ctx.unionChildInputs();
+    var childParameters = ctx.unionChildInputParameters();
+    var childCacheEligible = ctx.unionChildCacheEligible();
+    var childPlans =
+        new ArrayList<GremlinToMatchTranslator.TranslationResult.ChildPlan>(childInputs.size());
+    for (int i = 0; i < childInputs.size(); i++) {
+      childPlans.add(
+          new GremlinToMatchTranslator.TranslationResult.ChildPlan(
+              childInputs.get(i), childParameters.get(i), childCacheEligible.get(i)));
+    }
+    return List.copyOf(childPlans);
   }
 
   /** AND-composes two same-alias {@code WHERE} clauses into one — the merge function used when both

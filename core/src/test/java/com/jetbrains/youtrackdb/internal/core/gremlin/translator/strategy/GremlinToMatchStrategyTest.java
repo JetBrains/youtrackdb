@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
@@ -22,9 +23,12 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -75,22 +79,14 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    */
   private static GremlinToMatchTranslator.TranslationResult fixtureTranslation() {
     var inputs = MatchPlanInputs.builder(new Pattern()).build();
-    return new GremlinToMatchTranslator.TranslationResult(
+    return GremlinToMatchTranslator.TranslationResult.singlePlan(
         inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true);
   }
 
   private static GremlinToMatchTranslator.TranslationResult fixtureMultiPlanTranslation(
       List<MatchPlanInputs> childInputs, List<Map<Object, Object>> childParameters) {
     var childCacheEligible = childInputs.stream().map(ignored -> Boolean.TRUE).toList();
-    return GremlinToMatchTranslator.TranslationResult.multiPlan(
-        childInputs,
-        childParameters,
-        childCacheEligible,
-        List.of(),
-        "v",
-        BoundaryOutputType.ELEMENT,
-        Vertex.class,
-        ResultShaping.NONE);
+    return fixtureMultiPlanTranslation(childInputs, childParameters, childCacheEligible);
   }
 
   private static GremlinToMatchTranslator.TranslationResult fixtureMultiPlanTranslation(
@@ -98,14 +94,27 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
       List<Map<Object, Object>> childParameters,
       List<Boolean> childCacheEligible) {
     return GremlinToMatchTranslator.TranslationResult.multiPlan(
-        childInputs,
-        childParameters,
-        childCacheEligible,
+        childPlans(childInputs, childParameters, childCacheEligible),
         List.of(),
         "v",
         BoundaryOutputType.ELEMENT,
         Vertex.class,
         ResultShaping.NONE);
+  }
+
+  /** Zips the three per-child facts into the carrier's {@code ChildPlan} list. */
+  private static List<GremlinToMatchTranslator.TranslationResult.ChildPlan> childPlans(
+      List<MatchPlanInputs> childInputs,
+      List<Map<Object, Object>> childParameters,
+      List<Boolean> childCacheEligible) {
+    var plans =
+        new ArrayList<GremlinToMatchTranslator.TranslationResult.ChildPlan>(childInputs.size());
+    for (int i = 0; i < childInputs.size(); i++) {
+      plans.add(
+          new GremlinToMatchTranslator.TranslationResult.ChildPlan(
+              childInputs.get(i), childParameters.get(i), childCacheEligible.get(i)));
+    }
+    return plans;
   }
 
   /** Reads/writes the kill-switch on the graph's live session. */
@@ -747,7 +756,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .returnElements(true)
             .build();
     var translation =
-        new GremlinToMatchTranslator.TranslationResult(
+        GremlinToMatchTranslator.TranslationResult.singlePlan(
             inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class, Map.of(), true);
 
     // Single-arg constructor → production plan builder (real MatchExecutionPlanner).
@@ -775,22 +784,58 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             List.of(Map.of(0, "alice")));
 
     assertThat(translation.cacheEligible()).isFalse();
-    assertThat(translation.childCacheEligible()).containsExactly(true);
+    assertThat(translation.childPlans())
+        .extracting(GremlinToMatchTranslator.TranslationResult.ChildPlan::cacheEligible)
+        .containsExactly(true);
+  }
+
+  /**
+   * The multi-plan carrier must coerce its own {@code cacheEligible} to {@code false} even when the
+   * caller explicitly asks for {@code true}, because an N-plan union is never one plan-cache entry:
+   * caching it as one would serve a single stored plan for a shape whose arms cache individually.
+   * Built through the canonical constructor rather than {@code multiPlan(...)} on purpose — the
+   * factory hardcodes {@code false}, so going through it would read back the fixture's own answer
+   * instead of the normalization under test. Per-child eligibility must survive the coercion.
+   */
+  @Test
+  public void multiPlanCarrier_coercesCacheEligibleToFalse_whenCallerPassesTrue() {
+    var child = MatchPlanInputs.builder(new Pattern()).build();
+
+    var carrier =
+        new GremlinToMatchTranslator.TranslationResult(
+            null,
+            childPlans(List.of(child), List.of(Map.of()), List.of(true)),
+            List.of(),
+            "v",
+            BoundaryOutputType.ELEMENT,
+            Vertex.class,
+            Map.of(),
+            /* cacheEligible = */ true,
+            ResultShaping.NONE);
+
+    assertThat(carrier.cacheEligible())
+        .as("the N-plan carrier is never one GremlinPlanCache entry, whatever the caller passed")
+        .isFalse();
+    assertThat(carrier.childPlans())
+        .extracting(GremlinToMatchTranslator.TranslationResult.ChildPlan::cacheEligible)
+        .as("per-child eligibility is untouched by the carrier-level coercion")
+        .containsExactly(true);
   }
 
   /**
    * {@code TranslationResult} rejects carriers that are neither single-plan nor multi-plan, that
-   * mismatch child-input and child-parameter list lengths, or that park positional parameters on
-   * the base of a multi-plan translation.
+   * park positional parameters on the base of a multi-plan translation (they belong on the child
+   * contexts, one slot map per child), or that hang post-concat reductions off a single-plan
+   * translation (a single plan folds its count / limit / dedup into the MATCH statement instead).
+   * The former child-list parity checks are gone by construction: the three per-child facts now
+   * travel in one {@code ChildPlan}, so they cannot fall out of alignment.
    */
   @Test
-  public void translationResult_rejectsInvalidMultiPlanCarriers() {
+  public void translationResult_rejectsInvalidCarriers() {
     var child = MatchPlanInputs.builder(new Pattern()).build();
     assertThatCode(
         () -> new GremlinToMatchTranslator.TranslationResult(
             null,
-            List.of(),
-            List.of(),
             List.of(),
             List.of(),
             "v",
@@ -800,40 +845,41 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             false,
             ResultShaping.NONE))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("either one plan input or an ordered child input list");
+        .hasMessageContaining("either one plan input or an ordered child plan list");
 
     assertThatCode(
-        () -> GremlinToMatchTranslator.TranslationResult.multiPlan(
-            List.of(child, child),
-            List.of(Map.of()),
-            List.of(true, true),
+        () -> new GremlinToMatchTranslator.TranslationResult(
+            child,
+            childPlans(List.of(child), List.of(Map.of()), List.of(true)),
             List.of(),
             "v",
             BoundaryOutputType.ELEMENT,
             Vertex.class,
+            Map.of(),
+            false,
             ResultShaping.NONE))
+        .as("a carrier cannot be single-plan and multi-plan at once")
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("one positional-parameter map per child");
+        .hasMessageContaining("either one plan input or an ordered child plan list");
 
     assertThatCode(
-        () -> GremlinToMatchTranslator.TranslationResult.multiPlan(
-            List.of(child, child),
-            List.of(Map.of(), Map.of()),
-            List.of(true),
+        () -> new GremlinToMatchTranslator.TranslationResult(
+            child,
             List.of(),
+            List.of(PostConcatOp.Count.INSTANCE),
             "v",
             BoundaryOutputType.ELEMENT,
             Vertex.class,
+            Map.of(),
+            true,
             ResultShaping.NONE))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("one cache-eligibility flag per child");
+        .hasMessageContaining("must not carry post-concat reductions");
 
     assertThatCode(
         () -> new GremlinToMatchTranslator.TranslationResult(
             null,
-            List.of(child),
-            List.of(Map.of()),
-            List.of(true),
+            childPlans(List.of(child), List.of(Map.of()), List.of(true)),
             List.of(),
             "v",
             BoundaryOutputType.ELEMENT,
@@ -924,6 +970,82 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     new GremlinToMatchStrategy(t -> translation).apply(admin2);
     assertThat(admin2.getSteps().getFirst()).isInstanceOf(MultiPlanMatchStep.class);
     assertThat(GremlinPlanCache.instance(session()).contains(fingerprint)).isTrue();
+  }
+
+  /**
+   * The concurrent-DDL guard covers every child, not just the first. {@code buildChildPlans} takes
+   * one {@code planningStart} snapshot before the walk and reuses it for all N children, so each
+   * child's publish decision is made at a different instant against the same time-of-check value.
+   * This drives the harmful interleaving directly: child 0 is built and published, a second thread
+   * invalidates the cache the way a concurrent DDL would, and child 1 is then built against the new
+   * schema. Child 1 must not be published — with both children sharing a fingerprint, a missing
+   * guard would leave the post-invalidation plan in the cache and serve it to every later query of
+   * this shape.
+   */
+  @Test
+  public void multiPlanBuild_invalidationBetweenChildren_publishesNeitherChild() throws Exception {
+    var cache = GremlinPlanCache.instance(session());
+    cache.invalidate();
+
+    var ir = new MatchPatternBuilder().addNode("v", "V", null, false).build();
+    var childInputs =
+        MatchPlanInputs.builder(ir.pattern())
+            .aliasClasses(ir.aliasClasses())
+            .aliasFilters(ir.aliasFilters())
+            .returnElements(true)
+            .build();
+    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs);
+    var translation =
+        fixtureMultiPlanTranslation(
+            List.of(childInputs, childInputs), List.of(Map.of(), Map.of()));
+
+    var firstChildBuilt = new CountDownLatch(1);
+    var invalidated = new CountDownLatch(1);
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> translation,
+            (s, tr, planningStart) -> {
+              var plan = GremlinToMatchStrategy.buildPlan(s, tr, planningStart);
+              if (firstChildBuilt.getCount() > 0) {
+                firstChildBuilt.countDown();
+                awaitLatch(invalidated);
+              }
+              return plan;
+            });
+
+    // The cache is shared per database, so the invalidating thread never touches the (thread-bound)
+    // session — it holds the cache instance resolved on this thread.
+    var ddl =
+        new Thread(
+            () -> {
+              awaitLatch(firstChildBuilt);
+              cache.invalidate();
+              invalidated.countDown();
+            },
+            "concurrent-ddl");
+    ddl.start();
+    try {
+      strategy.apply(graph.traversal().V().asAdmin());
+    } finally {
+      ddl.join(TimeUnit.SECONDS.toMillis(10));
+    }
+
+    assertThat(ddl.isAlive()).as("the invalidating thread must not hang").isFalse();
+    assertThat(cache.contains(fingerprint))
+        .as("neither the invalidated child 0 nor the post-invalidation child 1 may be in the cache")
+        .isFalse();
+  }
+
+  /** Awaits {@code latch}, converting an interrupt into a test failure rather than a silent skip. */
+  private static void awaitLatch(CountDownLatch latch) {
+    try {
+      if (!latch.await(10, TimeUnit.SECONDS)) {
+        throw new AssertionError("timed out waiting for the other thread");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(e);
+    }
   }
 
   /**

@@ -21,8 +21,14 @@ import org.junit.Test;
  */
 public class UnionTraversalEquivalenceTest extends GraphBaseTest {
 
+  /**
+   * What the translator must do with a shape. {@code RECOGNIZED_MULTI_PLAN} additionally pins that
+   * the spliced boundary is a {@link MultiPlanMatchStep} — a shape can be recognised into the
+   * single-plan boundary instead, which is a different contract and must not silently satisfy a
+   * union test.
+   */
   private enum Recognition {
-    RECOGNIZED, DECLINED
+    RECOGNIZED, RECOGNIZED_MULTI_PLAN, DECLINED
   }
 
   /**
@@ -35,9 +41,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     seedKnowsChain();
     assertEquivalent(
         "g.V().union(out(knows), in(knows))",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")));
   }
 
   /**
@@ -60,9 +65,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V(alice).union(out(), out().out()) — |c1|+|c2| ≠ |c1|·|c2|",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()));
 
     // Explicit size pin against a silent cartesian regression that happened to match the native
     // multiset somehow: the concatenated result must have size 3 (2+1), never the product 2.
@@ -82,9 +86,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     seedKnowsChain();
     assertEquivalent(
         "g.V().union(out(knows), out(knows).out(knows)) — differing hop aliases",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().union(__.out("knows"), __.out("knows").out("knows")),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.out("knows"), __.out("knows").out("knows")));
   }
 
   /**
@@ -98,9 +101,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         graph.traversal().V().has("name", "Alice").id().next();
     assertEquivalent(
         "g.V(alice).union(out(knows), in(knows)) — RID-bearing start",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V(aliceId).union(__.out("knows"), __.in("knows")),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V(aliceId).union(__.out("knows"), __.in("knows")));
   }
 
   /**
@@ -113,8 +115,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().union(values(name), out(knows)) — output-type mismatch",
         Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.values("name"), __.out("knows")),
-        false);
+        () -> graph.traversal().V().union(__.values("name"), __.out("knows")));
   }
 
   /**
@@ -129,8 +130,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph
             .traversal()
             .V()
-            .union(__.out("knows"), __.union(__.in("knows"), __.out("knows"))),
-        false);
+            .union(__.out("knows"), __.union(__.in("knows"), __.out("knows"))));
   }
 
   /**
@@ -142,9 +142,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     seedKnowsChain();
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).count()",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).count(),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).count());
   }
 
   /**
@@ -156,9 +155,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     seedKnowsChain();
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).dedup()",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup(),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup());
   }
 
   /**
@@ -172,9 +170,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     var aliceId = graph.traversal().V().has("name", "Alice").id().next();
     assertEquivalent(
         "g.V(alice).union(out(knows), in(knows)).limit(2)",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V(aliceId).union(__.out("knows"), __.in("knows")).limit(2),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V(aliceId).union(__.out("knows"), __.in("knows")).limit(2));
   }
 
   /**
@@ -186,8 +183,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).order()",
         Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order(),
-        false);
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order());
   }
 
   /**
@@ -203,8 +199,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).out(knows) — hop after union",
         Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).out("knows"),
-        false);
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).out("knows"));
   }
 
   /**
@@ -217,8 +212,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).has(name, Bob) — filter after union",
         Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).has("name", "Bob"),
-        false);
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).has("name", "Bob"));
   }
 
   /**
@@ -231,8 +225,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).values(name) — projection after union",
         Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).values("name"),
-        false);
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).values("name"));
   }
 
   /**
@@ -252,8 +245,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
             .traversal()
             .V(aliceId)
             .union(__.out("knows").limit(1), __.out("knows"))
-            .count(),
-        false);
+            .count());
 
     setTranslatorEnabled(true);
     assertThat(
@@ -283,8 +275,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
             .traversal()
             .V(aliceId)
             .union(__.out("knows").skip(1), __.out("knows"))
-            .count(),
-        false);
+            .count());
 
     setTranslatorEnabled(true);
     assertThat(
@@ -308,8 +299,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().union(out(knows).dedup(), in(knows)).count() — child DISTINCT under count",
         Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows").dedup(), __.in("knows")).count(),
-        false);
+        () -> graph.traversal().V().union(__.out("knows").dedup(), __.in("knows")).count());
   }
 
   /**
@@ -323,14 +313,13 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     var aliceId = seedFanOut();
     assertEquivalent(
         "g.V(alice).union(out(knows), out(knows).out(knows)).limit(2).count()",
-        Recognition.RECOGNIZED,
+        Recognition.RECOGNIZED_MULTI_PLAN,
         () -> graph
             .traversal()
             .V(aliceId)
             .union(__.out("knows"), __.out("knows").out("knows"))
             .limit(2)
-            .count(),
-        true);
+            .count());
 
     setTranslatorEnabled(true);
     assertThat(
@@ -355,9 +344,8 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     seedKnowsChain();
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).dedup().count()",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup().count(),
-        true);
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup().count());
 
     setTranslatorEnabled(true);
     assertThat(graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup().count().next())
@@ -434,8 +422,95 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.union(V(), V().out(knows)) — start-position union",
         Recognition.DECLINED,
-        () -> graph.traversal().union(__.V(), __.V().out("knows")),
-        false);
+        () -> graph.traversal().union(__.V(), __.V().out("knows")));
+  }
+
+  /**
+   * The agreement gate's third leg in isolation. {@code values("name")} and {@code values("age")}
+   * agree on {@code BoundaryOutputType} (SINGLE_VALUE) and on return class and differ only in their
+   * {@code ResultShaping} presence key, so only a shaping comparison can tell them apart. Accepting
+   * would project child two's rows under child one's presence key: the ages would surface as names
+   * or be dropped as absent. The output-type mismatch test above fires on the first leg and says
+   * nothing about this one.
+   */
+  @Test
+  public void unionShapingOnlyMismatch_declines() {
+    seedKnowsChainWithAges();
+    assertEquivalent(
+        "g.V().union(values(name), values(age)) — same output type, different presence key",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.values("name"), __.values("age")));
+  }
+
+  /**
+   * Two children whose positional slot {@code 0} holds different literals must each resolve their
+   * own slot. Every other union child in this class is {@code out()} / {@code in()} / {@code
+   * values(...)}, none of which binds a literal, so without this shape no end-to-end union execution
+   * has ever carried a non-empty parameter map on any child. If the children shared one context or
+   * one parameter map the union would return one name twice instead of both.
+   */
+  @Test
+  public void unionChildrenWithDistinctPositionalParams_resolveTheirOwnSlots() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(has(name,Alice), has(name,Bob)) — distinct slot 0 per child",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.has("name", "Alice"), __.has("name", "Bob")));
+
+    setTranslatorEnabled(true);
+    var names =
+        graph
+            .traversal()
+            .V()
+            .union(__.has("name", "Alice"), __.has("name", "Bob"))
+            .values("name")
+            .toList();
+    assertThat(names)
+        .as("each child resolves its own slot 0; neither literal leaks into the other child")
+        .containsExactlyInAnyOrder("Alice", "Bob");
+  }
+
+  /**
+   * A range after a count has nothing left to slice — the count already collapsed the concatenation
+   * to a single scalar row — so the suffix declines instead of truncating the count itself.
+   */
+  @Test
+  public void postUnionRangeAfterCount_declines() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).count().limit(1) — range after count",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).count().limit(1));
+  }
+
+  /**
+   * A second post-union dedup, and a dedup after a count, both decline. The second dedup is
+   * redundant; the dedup after a count would deduplicate one scalar row.
+   */
+  @Test
+  public void secondPostUnionDedupAndDedupAfterCount_decline() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).dedup().dedup() — second post-union dedup",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup().dedup());
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).count().dedup() — dedup after count",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).count().dedup());
+  }
+
+  /**
+   * A second post-union count declines: the first count already reduced the concatenation to one
+   * row, so a second one would report 1 rather than re-count anything.
+   */
+  @Test
+  public void secondPostUnionCount_declines() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).count().count() — second post-union count",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).count().count());
   }
 
   /**
@@ -447,8 +522,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().union(out(knows), flatMap(out(knows))) — declining child",
         Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows"), __.flatMap(__.out("knows"))),
-        false);
+        () -> graph.traversal().V().union(__.out("knows"), __.flatMap(__.out("knows"))));
   }
 
   /**
@@ -488,6 +562,20 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     return alice.id();
   }
 
+  /**
+   * Seeds Alice -knows-> Bob -knows-> Carol with every vertex carrying both {@code name} and {@code
+   * age}, so {@code values("name")} and {@code values("age")} each yield a full row set and differ
+   * only in which property key they project.
+   */
+  private void seedKnowsChainWithAges() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol", "age", 50);
+    alice.addEdge("knows", bob);
+    bob.addEdge("knows", carol);
+    graph.tx().commit();
+  }
+
   /** Seeds Alice -knows-> Bob -knows-> Carol. */
   private void seedKnowsChain() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
@@ -500,13 +588,11 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
 
   /**
    * Runs the shape with translator on and off; asserts boundary engagement and multiset equality.
-   * When {@code expectMultiPlan} is true, the on-side boundary must be a {@link MultiPlanMatchStep}.
+   * Under {@link Recognition#RECOGNIZED_MULTI_PLAN} the on-side boundary must be a {@link
+   * MultiPlanMatchStep}.
    */
   private void assertEquivalent(
-      String scenario,
-      Recognition expected,
-      Supplier<GraphTraversal<?, ?>> traversalSupplier,
-      boolean expectMultiPlan) {
+      String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
     var original =
         session
             .getConfiguration()
@@ -525,11 +611,11 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
       var boundaryOff = countBoundarySteps(offAdmin.getSteps());
       var offIds = drainSortedIds(offAdmin);
 
-      if (expected == Recognition.RECOGNIZED) {
+      if (expected != Recognition.DECLINED) {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must engage exactly one boundary step")
             .isEqualTo(1);
-        if (expectMultiPlan) {
+        if (expected == Recognition.RECOGNIZED_MULTI_PLAN) {
           assertThat(multiPlanOn)
               .as(scenario + " (translator on) must splice MultiPlanMatchStep")
               .isEqualTo(1);

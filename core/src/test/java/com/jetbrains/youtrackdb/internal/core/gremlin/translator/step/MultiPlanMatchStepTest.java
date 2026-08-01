@@ -551,6 +551,51 @@ public class MultiPlanMatchStepTest {
   }
 
   /**
+   * The guard covers every system-variable slot, not only the two the element path happens to write.
+   * {@code $current_match} ({@link CommandContext#VAR_CURRENT_MATCH}) is the reachable gap: the MATCH
+   * edge-traversal path writes it per candidate and restores it afterwards — with a null value on
+   * the first candidate — and key presence is tracked independently of the value, so a union child
+   * that matched nothing seeds this slot while leaving {@code $matched} and {@code $current} clean.
+   * A guard enumerating only those two would pass such a context and hand two concurrent clones one
+   * shared, unsynchronised parent map.
+   */
+  @Test
+  public void clone_childTemplateContextCarriesCurrentMatchSystemVariable_assertionFailsFast() {
+    var plan = mock(InternalExecutionPlan.class);
+    var seededContext = new BasicCommandContext();
+    // The value a zero-row MATCH child leaves behind when it restores the previous candidate.
+    seededContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, null);
+    lenient().when(plan.getContext()).thenReturn(seededContext);
+    var step =
+        new MultiPlanMatchStep<>(
+            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(AssertionError.class)
+        .isThrownBy(step::clone)
+        .withMessageContaining("system variable slot " + CommandContext.VAR_CURRENT_MATCH);
+  }
+
+  /**
+   * The fourth slot, {@code $depth} ({@link CommandContext#VAR_DEPTH}), is written by MATCH's
+   * recursive {@code while:} path items. No recognised union shape emits one today, so this pins the
+   * guard against a future recogniser widening rather than a live leak.
+   */
+  @Test
+  public void clone_childTemplateContextCarriesDepthSystemVariable_assertionFailsFast() {
+    var plan = mock(InternalExecutionPlan.class);
+    var seededContext = new BasicCommandContext();
+    seededContext.setSystemVariable(CommandContext.VAR_DEPTH, 2);
+    lenient().when(plan.getContext()).thenReturn(seededContext);
+    var step =
+        new MultiPlanMatchStep<>(
+            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(AssertionError.class)
+        .isThrownBy(step::clone)
+        .withMessageContaining("system variable slot " + CommandContext.VAR_DEPTH);
+  }
+
+  /**
    * Concurrency contract for clone isolation, made falsifiable. Each clone deep-copies every child
    * against its OWN isolated child context, so two clones driven on two threads never share the
    * per-run variable map a real child context owns. This drives that contract for real: each child
@@ -957,14 +1002,15 @@ public class MultiPlanMatchStepTest {
 
   /**
    * A result row that binds the boundary alias to the given raw vertex and reports the given
-   * identity. The dedup reduction keys on {@code getEntity(alias).getIdentity()} while the ELEMENT
-   * projection reads {@code getVertex(alias)}, so both are stubbed.
+   * identity. The dedup reduction reads the raw boundary property and takes its identity — it never
+   * calls {@code getEntity}, which would load the record to recover a RID the row already holds —
+   * while the ELEMENT projection reads {@code getVertex(alias)}, so both accessors are stubbed.
    */
   private static Result identityRow(
       com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex raw, RID identity) {
     var row = mock(Result.class);
     lenient().when(row.getVertex("v")).thenReturn(raw);
-    lenient().when(row.getEntity("v")).thenReturn(raw);
+    lenient().when(row.<Object>getProperty("v")).thenReturn(raw);
     lenient().when(raw.getIdentity()).thenReturn(identity);
     return row;
   }

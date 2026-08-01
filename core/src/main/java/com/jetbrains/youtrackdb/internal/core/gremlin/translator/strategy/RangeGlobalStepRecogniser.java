@@ -36,35 +36,19 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
-    var lowObj = range.getLowRange();
-    var highObj = range.getHighRange();
-    if (lowObj == null || highObj == null) {
+    var normalized = normalize(range);
+    if (normalized == null) {
       return Outcome.DECLINE;
     }
-    long low = lowObj;
-    long high = highObj;
-    if (low < 0) {
-      return Outcome.DECLINE;
-    }
-
-    var unboundedHigh = high < 0 || high == Long.MAX_VALUE;
-    if (unboundedHigh) {
-      if (low == 0) {
-        // range(0, -1) / skip(0) is a no-op — accept without clauses.
-        return Outcome.ACCEPTED;
-      }
-      ctx.setSkip(ProjectionExpressionFactories.skip(low));
+    if (normalized.noop()) {
       return Outcome.ACCEPTED;
     }
-    if (high < low) {
-      // Native emits no traversers; LIMIT 0 matches that empty result.
-      high = low;
+    if (normalized.skip() > 0) {
+      ctx.setSkip(ProjectionExpressionFactories.skip(normalized.skip()));
     }
-    long limit = high - low;
-    if (low > 0) {
-      ctx.setSkip(ProjectionExpressionFactories.skip(low));
+    if (normalized.limit() >= 0) {
+      ctx.setLimit(ProjectionExpressionFactories.limit(normalized.limit()));
     }
-    ctx.setLimit(ProjectionExpressionFactories.limit(limit));
     return Outcome.ACCEPTED;
   }
 
@@ -76,29 +60,51 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
         return Outcome.DECLINE;
       }
     }
+    var normalized = normalize(range);
+    if (normalized == null) {
+      return Outcome.DECLINE;
+    }
+    if (normalized.noop()) {
+      return Outcome.ACCEPTED;
+    }
+    ctx.appendPostConcatOp(new PostConcatOp.Range(normalized.skip(), normalized.limit()));
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * The single-plan and post-union branches differ only in where the normalised range goes — SQL
+   * {@code SKIP}/{@code LIMIT} clauses versus a {@link PostConcatOp.Range} — so both read the step
+   * through here and the normalisation rules stay in one place.
+   *
+   * @param skip rows to drop before emitting; never negative
+   * @param limit rows to emit after the skip, or {@code -1} for unbounded (skip-only)
+   * @param noop whether the range drops nothing and bounds nothing, so it needs no clause at all
+   */
+  private record NormalizedRange(long skip, long limit, boolean noop) {
+  }
+
+  /** Normalises the step's low/high pair, or returns {@code null} when the shape must decline. */
+  private static NormalizedRange normalize(RangeGlobalStepContract<?> range) {
     var lowObj = range.getLowRange();
     var highObj = range.getHighRange();
     if (lowObj == null || highObj == null) {
-      return Outcome.DECLINE;
+      return null;
     }
     long low = lowObj;
     long high = highObj;
     if (low < 0) {
-      return Outcome.DECLINE;
+      return null;
     }
     var unboundedHigh = high < 0 || high == Long.MAX_VALUE;
     if (unboundedHigh) {
-      if (low == 0) {
-        return Outcome.ACCEPTED;
-      }
-      ctx.appendPostConcatOp(new PostConcatOp.Range(low, -1L));
-      return Outcome.ACCEPTED;
+      // range(0, -1) / skip(0) is a no-op — accept without clauses.
+      return new NormalizedRange(low, -1L, low == 0);
     }
     if (high < low) {
+      // Native emits no traversers; LIMIT 0 matches that empty result.
       high = low;
     }
-    ctx.appendPostConcatOp(new PostConcatOp.Range(low, high - low));
-    return Outcome.ACCEPTED;
+    return new NormalizedRange(low, high - low, false);
   }
 
   private static boolean ctxHasSkipOrLimit(RecognitionContext ctx) {

@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -259,6 +264,86 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
+  }
+
+  /**
+   * A second post-union range declines the same way the single-plan path refuses a second {@code
+   * limit}: there is no composition rule for two slices over one concatenation. This is asserted
+   * against the recogniser rather than end to end because TinkerPop folds two adjacent {@code
+   * limit} steps into one before any strategy sees them, so the shape is unreachable from a
+   * strategy-applied traversal.
+   */
+  @Test
+  public void secondPostUnionRange_declines() {
+    var ctx = unionCarrierContext();
+    ctx.appendPostConcatOp(new PostConcatOp.Range(0L, 2L));
+    var admin = graph.traversal().V().limit(1).asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * A post-union range after a count declines: the count already collapsed the concatenation to one
+   * scalar row, so there is nothing left to slice.
+   */
+  @Test
+  public void postUnionRangeAfterCount_declines() {
+    var ctx = unionCarrierContext();
+    ctx.appendPostConcatOp(PostConcatOp.Count.INSTANCE);
+    var admin = graph.traversal().V().limit(1).asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * The first post-union range is accepted as a {@link PostConcatOp.Range} rather than as SQL
+   * {@code SKIP}/{@code LIMIT} clauses: a union's slice applies to the concatenation, so pushing it
+   * into each child would slice every arm separately. {@code range(1, 3)} normalises to skip 1,
+   * limit {@code high - low}.
+   */
+  @Test
+  public void postUnionRange_appendsPostConcatOpAndLeavesSqlClausesAlone() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().range(1, 3).asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.postConcatOps()).containsExactly(new PostConcatOp.Range(1L, 2L));
+    assertThat(ctx.skip).as("a union slice must not become a per-child SQL SKIP").isNull();
+    assertThat(ctx.limit).as("a union slice must not become a per-child SQL LIMIT").isNull();
+  }
+
+  /** A post-union {@code skip(0)} is a no-op: accepted, but it appends no reduction. */
+  @Test
+  public void postUnionSkipZero_appendsNothing() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().skip(0).asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.postConcatOps()).isEmpty();
+  }
+
+  /**
+   * A seeded context that additionally carries a union carrier, which routes the recognisers down
+   * their post-union branches. The stashed child is a bare single-alias plan — the branches under
+   * test read the op list and the boundary alias, never the child's pattern.
+   */
+  private static WalkerContext unionCarrierContext() {
+    var ctx = seededContext();
+    ctx.stashUnionChildren(
+        List.of(MatchPlanInputs.builder(new Pattern()).build()), List.of(Map.of()), List.of(true));
+    return ctx;
   }
 
   private static WalkerContext seededContext() {

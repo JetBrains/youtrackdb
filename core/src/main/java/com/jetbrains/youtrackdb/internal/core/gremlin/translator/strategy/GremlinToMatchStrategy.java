@@ -404,8 +404,13 @@ public final class GremlinToMatchStrategy
    * {@link MatchExecutionPlanner#MatchExecutionPlanner(MatchPlanInputs) constructor} and builds
    * the plan eagerly. Cache-eligible shapes get/put through {@link GremlinPlanCache}; RID-bearing
    * shapes always build uncached.
+   *
+   * <p>Package-private rather than private so a test can wrap it in a fixture {@link
+   * MatchPlanBuilder} that parks between union children: the concurrent-invalidation guard below is
+   * only observable when a second thread invalidates mid-build, and a test that reimplemented the
+   * guard would pin its own copy instead of this one.
    */
-  private static InternalExecutionPlan buildPlan(
+  static InternalExecutionPlan buildPlan(
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation,
       long planningStart) {
@@ -444,33 +449,27 @@ public final class GremlinToMatchStrategy
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation,
       long planningStart) {
-    var builtPlans = new ArrayList<InternalExecutionPlan>(translation.childInputs().size());
+    var builtPlans = new ArrayList<InternalExecutionPlan>(translation.childPlans().size());
     try {
-      for (int i = 0; i < translation.childInputs().size(); i++) {
-        var childInputs = translation.childInputs().get(i);
-        var childParameters = translation.childInputParameters().get(i);
-        var childCacheEligible = translation.childCacheEligible().get(i);
+      for (var child : translation.childPlans()) {
+        var childInputs = child.inputs();
         // Lone post-union count(): push RETURN count(*) into each child so SQL count /
         // CountFromClass / per-child GremlinPlanCache stay available; MultiPlanMatchStep sums.
         if (PostConcatSupport.isPushDownCountOnly(translation.postConcatOps())) {
           childInputs = PostConcatSupport.rewriteToCountStar(childInputs);
         }
         var childTranslation =
-            new GremlinToMatchTranslator.TranslationResult(
+            GremlinToMatchTranslator.TranslationResult.singlePlan(
                 childInputs,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
                 translation.boundaryAlias(),
                 translation.outputType(),
                 translation.returnClass(),
-                childParameters,
-                childCacheEligible,
+                child.parameters(),
+                child.cacheEligible(),
                 translation.shaping());
         var childPlan = planBuilder.buildPlan(session, childTranslation, planningStart);
-        if (!childParameters.isEmpty()) {
-          childPlan.getContext().setInputParameters(childParameters);
+        if (!child.parameters().isEmpty()) {
+          childPlan.getContext().setInputParameters(child.parameters());
         }
         builtPlans.add(childPlan);
       }
