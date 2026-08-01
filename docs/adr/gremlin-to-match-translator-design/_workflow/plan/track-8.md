@@ -27,6 +27,7 @@ Second slice of the split final track (see plan D8, revised after Track 6). Depe
 - [x] 2026-08-01T03:44Z [ctx=info] Gate check iteration 1: Bugs PASS (BG1–BG5 VERIFIED); CQ2/CQ6/TC1/TX3 VERIFIED; PF2 REGRESSION (allow-list gate placed after the child fork); new TC9. 9 cleared, 33 open, 0 blockers
 - [x] 2026-08-01T03:44Z [ctx=info] Track-level code review iteration 2 complete (commit 1499aced6d; PF2 repaired via pre-fork look-ahead, plus PF3/CQ9/TC9/TB2/TC8/TC5; PF4 documented not fixed — see DR-U7)
 - [x] 2026-08-01T04:05Z [ctx=info] Gate check iteration 2: Bugs PASS (BG1–BG5 re-verified after the gate moved); PF2 VERIFIED (regression cleared), PF3 VERIFIED, PF4 REJECTED (DR-U7 upheld), CQ9/TB2/TC5/TC8/TC9 VERIFIED; concurrency regression sweep clean. 17 of 42 cleared, 25 open (12 should-fix, 13 suggestion), 0 blockers
+- [x] 2026-08-01T04:51Z [ctx=info] Track-level code review iteration 3 complete (commit 877dc1f4cd; all 12 remaining should-fix — CQ1/CQ3/CQ4/CQ5/CQ7/TB1/TB3/TC3/TC4/TX4/PF1/CN1 — plus CQ11 opportunistically; `PostConcatStreams` extracted, `MultiPlanMatchStep` 564→373 lines). 4 `YTDBQueryMetricsStrategyTest` failures reported as pre-existing at track base — under independent verification against `develop`, see Surprises
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
