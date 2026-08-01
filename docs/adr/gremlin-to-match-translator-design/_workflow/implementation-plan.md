@@ -581,6 +581,20 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > `count()`. The coverage gate was not run in any iteration — see the track
   > file for the reasoning and the resulting unmeasured thresholds. Full detail
   > in plan/track-8.md.
+  >
+  > **Strategy refresh:** CONTINUE — Track 8's discoveries are absorbed by the
+  > remaining plan with no scope, dependency, or ordering change. The
+  > false-pre-existing-failure discovery produced Track 10 itself, so it is
+  > absorbed by construction. Track 9's newly-absorbed post-union relaxation was
+  > checked against the as-built union machinery and holds: `MultiPlanMatchStep`
+  > passes `shaping` to the Track 7 boundary base, so the list-shaping
+  > post-process applies once over the whole concatenation, and Track 8's
+  > `PostConcatOp` (a sealed type permitting `Count` / `Range` / `Dedup` only) is
+  > a separate concat-time mechanism rather than a competing one. The sizing
+  > signal (38 files / 5,814 insertions past the review-burden threshold) and the
+  > unrostered-follow-up-commit review gap are carried forward as forward risks
+  > for Track 9, whose Cucumber triage bucket its own Scope line marks unsized
+  > until the first run; neither warrants a plan edit now.
 
 - [ ] Track 10: Query-metrics regression remediation — restore a green `core` unit-test run
   > **Runs before Track 9** despite the higher number (inline replan, 2026-08-01).
