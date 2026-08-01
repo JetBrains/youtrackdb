@@ -2,7 +2,7 @@
 # Track 9: List-shaping terminators + hardening — Cucumber green + JMH baseline
 
 ## Purpose / Big Picture
-After this track the four list-shaping terminators (`fold` / `unfold` / `reverse` / `tail`) translate as last steps, the full TinkerPop Cucumber suite is green with the strategy registered, and a Gremlin-on-vs-off JMH baseline measures the translator's value with the plan cache enabled. This is the last Phase 1 track — it completes the recognised set and validates the whole feature across all six prior tracks.
+After this track the four list-shaping terminators (`fold` / `unfold` / `reverse` / `tail`) translate as last steps, the full TinkerPop Cucumber suite is green with the strategy registered, and a Gremlin-on-vs-off JMH baseline measures the translator's value with the plan cache enabled. This is the last Phase 1 track — it completes the recognised set and validates the whole feature across all prior tracks.
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
@@ -49,9 +49,10 @@ flowchart LR
 1. **Run the full Cucumber suite early** (strategy on) to establish the pre-terminator green baseline and size the cross-track triage bucket; fix any pre-existing cross-track mistranslation before adding new recognisers.
 2. **`FoldStep` recogniser** → `BoundaryOutputType.LIST`; extend the exhaustive `projectOrSkip` switch with a `LIST` case + a drain stage.
 3. **`UnfoldStep` / `ReverseStep` / `TailGlobalStep` recognisers** registering ordered ops into the Track 7 post-process carrier: `unfold` flat-map with a pending-emission buffer; `reverse` per-value transform; `tail` bounded ring buffer keyed on `TailGlobalStepContract` (register both `TailGlobalStep` and its placeholder), `n=0` → nothing, `n<0` → decline. Mid-traversal use declines (D3). Composition: `reverse().unfold()` / `unfold().reverse()` accepted (order preserved); `fold().unfold()` / `fold().tail(3)` decline.
-4. **Terminator-composition + boundary tests**: `tail` `n=0`/`n<0`, empty-input `fold`, `reverse` value-transform-not-reorder, `unfold` buffer, declared-order combinations, placeholder-form `tail`.
-5. **Re-run the full Cucumber suite green** with terminators registered; add the per-step scenario catalogue.
-6. **Add the mirrored Gremlin JMH benchmark classes + on/off harness** pinned to verified-recognised shapes, asserting boundary-step installation; capture a baseline with the plan cache enabled.
+4. **Relax the post-union suffix allow-list** — `GremlinStepWalker.POST_UNION_RECOGNISERS`, today `count` / `range` / `dedup` — to admit the four list-shaping terminator recognisers (Track 8 DR-U4). Both readers of the set are the walker's own (`dispatchAll`'s fail-closed gate and `postUnionSuffixTranslatable`'s look-ahead, the latter letting `UnionStepRecogniser` decline before forking), so adding the recognisers to the one field covers both paths. `MultipleExecutionStream` (DR-U1) already concatenates the child plans into one stream, so `union(...).fold()` folds the concatenation once rather than per child; the terminators register into the same post-process carrier they use off a non-union boundary.
+5. **Terminator-composition + boundary tests**: `tail` `n=0`/`n<0`, empty-input `fold`, `reverse` value-transform-not-reorder, `unfold` buffer, declared-order combinations, placeholder-form `tail`.
+6. **Re-run the full Cucumber suite green** with terminators registered; add the per-step scenario catalogue.
+7. **Add the mirrored Gremlin JMH benchmark classes + on/off harness** pinned to verified-recognised shapes, asserting boundary-step installation; capture a baseline with the plan cache enabled.
 
 ## Concrete Steps
 <!-- Phase A placeholder. -->
@@ -62,6 +63,7 @@ flowchart LR
 ## Validation and Acceptance
 - `fold()` materializes the whole stream into one list traverser (empty input → empty list); `unfold()` flat-maps per emission; `reverse()` transforms the per-traverser value without reordering the stream; `tail(n)` keeps the last `n` in arrival order (`n=0` → nothing, `n<0` → decline; the `TailGlobalStepPlaceholder` form is recognised). All match native.
 - `reverse().unfold()` / `unfold().reverse()` translate with declared order preserved; `fold().unfold()`, `fold().tail(3)`, and any mid-traversal list-shaper decline.
+- `union(...).fold()` / `union(...).unfold()` / `union(...).reverse()` / `union(...).tail(n)` translate and match native as multisets; `fold()` after a union yields one list over the concatenated child streams, not one list per child.
 - The full TinkerPop Cucumber suite is green with the strategy registered — no previously-passing scenario regresses (union and all prior tracks included).
 - The Gremlin-on-vs-off JMH suite runs on verified-recognised shapes, asserts the boundary step is installed, and produces a baseline comparison with the plan cache enabled.
 
@@ -77,10 +79,10 @@ flowchart LR
 
 ## Interfaces and Dependencies
 **In scope (new):** `FoldStep` / `UnfoldStep` / `ReverseStep` / `TailGlobalStep` recognisers; `BoundaryOutputType.LIST` + the `projectOrSkip` case + drain / flat-map / ring-buffer stages; the mirrored Gremlin JMH benchmark classes + on/off harness; terminator-composition + `tail`-boundary tests; the per-step scenario catalogue.
-**In scope (modified):** the Track 7 boundary base (`LIST` materialization + ordered post-process op application); `BoundaryOutputType` enum (`LIST`); Cucumber fixes if any scenario regresses.
-**Out of scope:** the boundary base extraction + ordered post-process carrier (Track 7); `union` / `MultiPlanMatchStep` (Track 8); edge-bearing OR, `optional`, variable-depth `repeat`, approximate count (Phase 2).
-**Inter-track dependencies:** depends on Track 7 (`LIST` rides the boundary base + the ordered post-process carrier) and Track 8 (the full Cucumber gate validates union too). Last Phase 1 track; validates every prior track via the full Cucumber re-run and the JMH baseline.
-**Signatures:** `TailGlobalStepContract.getLimit()` (+ `TailGlobalStep` / `TailGlobalStepPlaceholder`); `UnfoldStep.flatMap` / `ReverseStep.map` / `FoldStep` (TP reference semantics); `YTDBGraphFeatureTest` / `EmbeddedGraphFeatureTest` (Cucumber runners); the `jmh-ldbc` module (benchmark mirror template); the Track 7 boundary base + ordered post-process carrier.
+**In scope (modified):** the Track 7 boundary base (`LIST` materialization + ordered post-process op application); `BoundaryOutputType` enum (`LIST`); `GremlinStepWalker` — the `POST_UNION_RECOGNISERS` allow-list (DR-U4 — admit the four terminators) plus the new recogniser registry entries; Cucumber fixes if any scenario regresses.
+**Out of scope:** the boundary base extraction + ordered post-process carrier (Track 7); the union recogniser and `MultiPlanMatchStep` internals (Track 8) — `GremlinStepWalker`'s `POST_UNION_RECOGNISERS` allow-list is in scope here (DR-U4); edge-bearing OR, `optional`, variable-depth `repeat`, approximate count (Phase 2).
+**Inter-track dependencies:** depends on Track 7 (`LIST` rides the boundary base + the ordered post-process carrier), Track 8 (the full Cucumber gate validates union too), and Track 10, which restores a green `core` unit-test run — Track 9's Cucumber and JMH gates read a red baseline as noise. Last Phase 1 track; validates every prior track via the full Cucumber re-run and the JMH baseline.
+**Signatures:** `GremlinStepWalker.POST_UNION_RECOGNISERS` (currently `CountGlobalStepRecogniser` / `RangeGlobalStepRecogniser` / `DedupGlobalStepRecogniser`), read by `dispatchAll` and `postUnionSuffixTranslatable`; `TailGlobalStepContract.getLimit()` (+ `TailGlobalStep` / `TailGlobalStepPlaceholder`); `UnfoldStep.flatMap` / `ReverseStep.map` / `FoldStep` (TP reference semantics); `YTDBGraphFeatureTest` / `EmbeddedGraphFeatureTest` (Cucumber runners); the `jmh-ldbc` module (benchmark mirror template); the Track 7 boundary base + ordered post-process carrier.
 
 ## Invariants & Constraints
 <!-- Combined per-track invariants + constraints (conventions-execution.md §2.1 §14).

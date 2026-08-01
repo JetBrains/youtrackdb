@@ -57,13 +57,15 @@ GREMLIN_TESTS=com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenari
 
 Establish what the correct contract is before changing code — for three of the four failures the question "is the test wrong or the product wrong?" is genuinely open, and answering it wrongly bakes in the mistake. Then fix, then close the hole that let a red suite ride for 117 commits.
 
-## Concrete Steps
-<!-- Phase A decomposes this. The list below is the Phase 1 sketch, not a decomposed roster. -->
-
 1. **Settle the `reset()` contract.** Decide whether `AbstractMatchPlanStep` should re-arm from `CLOSED` (matching `YTDBGraphStep`, which re-executes fine) or whether the test's expectation is wrong. This is the one genuine product defect; the decision needs a Decision Record either way.
 2. **Settle the `byId` capture contract.** `g.V(rid)` surfacing a plan is plausibly an improvement; update the test to the intended contract, or suppress the capture for that shape.
 3. **Decide the introspection question, and first answer whether the index is still used.** If `MatchFirstStep` should expose its nested plan through `getSubSteps()` / `getSubExecutionPlans()`, that fixes both scan tests and restores the only Gremlin-level index-usage assertion in the tree. If the index is *not* being used, this is a performance defect well beyond a test fix and needs its own escalation.
+
+   **Phase A owes an explicit decision here, and the default is not the safe one.** The product-side option collides with the plan's `### Constraints` "Engine surface is preserved" bullet, which freezes "the execution steps" with only two named exceptions (D-TEXT-OPS AST nodes, the count short-circuit refactor) — and `MatchFirstStep` is a MATCH execution step. Read literally the constraint forbids the override, so a decomposer that treats it as binding picks the test side silently and the branch permanently loses the assertion Track 10 exists to restore. Phase A must choose in writing between (a) amending the Constraints bullet with a third exception, on the grounds that sub-step / sub-plan introspection adds no execution behaviour, and (b) closing the two scan tests test-side and recording why the freeze outweighs the assertion. Picking (b) by default, without recording the trade, is an ESCALATE.
 4. **Close the detection hole.** A red `core` unit-test run must not survive 117 commits again. Options to weigh: undraft PR #1038, or add a cheap always-on check, or both.
+
+## Concrete Steps
+<!-- Phase A placeholder. -->
 
 ## Episodes
 <!-- One block per completed step. Empty until Phase B. -->
@@ -87,11 +89,12 @@ Full investigation evidence — the commit-by-commit bracket table, the isolatio
 
 **Inter-track dependencies:** depends on Track 8 (complete). **Runs before Track 9** — Track 9's Cucumber-green and JMH-baseline goals both assume a green starting point.
 
-**Signatures:** `YTDBQueryMetricsStep.capturedExecutionPlan()`; `AbstractMatchPlanStep.reset()` / `processNextStart()`; `MatchFirstStep.getSubSteps()` / `getSubExecutionPlans()`; `ExecutionStep.containsStepOfType`; `StartStepRecogniser.normaliseIds`.
+**Signatures:** `YTDBQueryMetricsStep.capturedExecutionPlan()`; `AbstractMatchPlanStep.reset()` / `processNextStart()`; `ExecutionStepInternal.getSubSteps()` / `getSubExecutionPlans()` (the default implementations `MatchFirstStep` inherits); `YTDBQueryMetricsStrategyTest.containsStepOfType` (a private test helper, not an `ExecutionStep` member — it recurses through `getSubSteps()` only, so overriding `getSubExecutionPlans()` alone would not make it find a nested fetch step); `StartStepRecogniser.normaliseIds`.
 
 ## Invariants & Constraints
 - Do not change what translates in order to make a metrics test pass. If the correct fix would narrow translator coverage, that is an ESCALATE, not a step.
 - Multiset equality with the native path stays the contract, as everywhere else on this branch.
+- The plan's "Engine surface is preserved" constraint bears on step 3 and Phase A must resolve it explicitly rather than defaulting to the test side — see that step for the two admissible resolutions and the ESCALATE condition.
 
 ## Base commit
 <!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the

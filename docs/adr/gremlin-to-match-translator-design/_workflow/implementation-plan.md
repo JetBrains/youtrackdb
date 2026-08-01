@@ -82,6 +82,7 @@ flowchart TB
     end
     Half["YTDB half-measure strategies\n(reordered fallback)"]
     GQL["GqlMatchStatement\n(refactored onto builders)"]
+    Metrics["YTDBQueryMetricsStep\n(plan capture, T10)"]
 
     Strat --> Walker --> Reg --> Ctx
     Strat --> Cache
@@ -91,6 +92,7 @@ flowchart TB
     Strat --> Boundary
     Strat -. declines .-> Half
     GQL --> PB & WB & LB
+    Boundary -. read by .-> Metrics
 ```
 
 - **GremlinToMatchStrategy** — entry point; idempotent; walks the step list,
@@ -115,6 +117,11 @@ flowchart TB
 - **Existing engine** — preserved; reached through one additive constructor
   (D2). The count short-circuit is factored to a shared helper the planner
   invokes (design §"Aggregation barrier semantics").
+- **YTDBQueryMetricsStep** — a read-only observer, not a component the plan
+  builds. Its `capturedExecutionPlan()` read `YTDBGraphStep` until translation
+  removed that step, and now reads the boundary step. Track 10 settles the
+  three contracts the shift exposed: `reset()` from `CLOSED`, `g.V(rid)` plan
+  capture, and boundary sub-step introspection.
 
 #### D1: Integration via `ProviderOptimizationStrategy`
 - **Alternatives considered**: a custom `GraphTraversalSource` step; rewriting
@@ -358,6 +365,11 @@ flowchart TB
   `SelectExecutionPlanner.handleHardwiredCountOnClass*`, invoked by
   `MatchExecutionPlanner` after `buildPatterns`.
 - `GremlinPlanCache` reuses the YQL plan-cache schema-change invalidation hook.
+- `YTDBQueryMetricsStep.capturedExecutionPlan()` reads the compiled plan off the
+  boundary step (`YTDBMatchPlanStep`, then `MultiPlanMatchStep`'s first child
+  plan), falling back to `YTDBGraphStep.getLastExecutionPlan()` for untranslated
+  traversals; a change to what translates changes what the monitoring layer
+  sees (Track 10).
 
 ### Non-Goals
 Phase 2+ (the translator declines these under D3; native pipeline handles them):
@@ -578,11 +590,12 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > culprits: `6e657ce2b1` (Track 4 era) removed `YTDBGraphStep` from translated
   > traversals, which is the only step `YTDBQueryMetricsStep.capturedExecutionPlan()`
   > read; Track 8's `3d476357cc` then repaired three scenarios and broke a fourth.
-  > **Scope:** settle the `AbstractMatchPlanStep.reset()`-from-`CLOSED` contract
-  > (the one genuine product defect — re-iteration yields `[]` where native
-  > re-executes), settle the `g.V(rid)` plan-capture contract, decide the
-  > `MatchFirstStep` introspection question **after** establishing whether the
-  > index is still used at all, and close the detection hole.
+  > **Scope:** ~5 files covering the metrics plan capture, the
+  > `AbstractMatchPlanStep.reset()`-from-`CLOSED` contract (the one genuine
+  > product defect — re-iteration yields `[]` where native re-executes), the
+  > `g.V(rid)` plan-capture contract, the `MatchFirstStep` introspection question
+  > (decided **after** establishing whether the index is still used at all), and
+  > the CI detection hole.
   > **Depends on:** Track 8.
   > **Why a separate track:** the root cause spans Track 4 and Track 8, so
   > folding it into Track 8's Phase C would attribute Track 4's defect to Track
@@ -593,24 +606,22 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 - [ ] Track 9: List-shaping terminators + hardening — Cucumber green + JMH baseline
   > Completes and validates the feature. Adds the four list-shaping terminators
   > (`fold` / `unfold` / `reverse` / `tail`) as last-step recognisers driving the
-  > Track 7 ordered post-process: `fold` → `BoundaryOutputType.LIST` (with the
-  > exhaustive `projectOrSkip` switch extended and a drain / ring-buffer stage),
-  > `tail(n)` matched on the `TailGlobalStepContract` interface so the
-  > `TailGlobalStepPlaceholder` form is not silently declined (`n=0` emits
-  > nothing, `n<0` declines), mid-traversal use declines under D3. Then the full
-  > TinkerPop Cucumber suite green with the strategy registered (the first
-  > whole-feature gate over all six tracks' recognisers) and a Gremlin-on-vs-off
-  > JMH baseline pinned to verified-recognised shapes. Detail in plan/track-9.md.
-  > **Scope:** ~14–20 files covering the four terminator recognisers +
-  > `BoundaryOutputType.LIST` + drain / ring-buffer, terminator-composition +
+  > Track 7 ordered post-process, with mid-traversal use declining under D3.
+  > Then the full TinkerPop Cucumber suite green with the strategy registered
+  > (the first whole-feature gate over every prior track's recognisers) and a
+  > Gremlin-on-vs-off JMH baseline pinned to verified-recognised shapes — detail
+  > in plan/track-9.md.
+  > **Scope:** ~15–21 files covering the four terminator recognisers +
+  > `BoundaryOutputType.LIST` + drain / ring-buffer, the post-union suffix
+  > allow-list relaxation, terminator-composition +
   > `tail` boundary tests, the mirrored Gremlin JMH benchmark classes + on/off
   > harness, the per-step scenario catalogue, and the Cucumber re-run + any
   > cross-track mistranslation fixes (triage bucket unsized until the first run).
-  > **Depends on:** Tracks 7 and 8.
+  > **Depends on:** Tracks 7, 8, and 10.
 
 ## Implementation state
 
-Tracks 1–7 are executed and complete; Track 8 Phase B is complete (Phase C pending); Track 9 is not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 Phase B delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 9 still owns list-shaping terminators + Cucumber green + JMH baseline (D3).
+Tracks 1–8 are executed and complete; Track 10 and Track 9 are not started, in that execution order. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 10 owns the query-metrics regression remediation that restores a green `core` unit-test run. Track 9 still owns list-shaping terminators + Cucumber green + JMH baseline (D3).
 
 | Track | Code | Notes |
 |---|---|---|
@@ -621,9 +632,10 @@ Tracks 1–7 are executed and complete; Track 8 Phase B is complete (Phase C pen
 | 5 | done | logical filters (`and` / `or` / `not` / `where`) + `hasNot(key)` + sub-walker + `GremlinPlanCache` (D5) |
 | 6 | done | result shaping — labels / dedup, projections, order / pagination, aggregations; shared `ByModulatorTranslator` + count short-circuit |
 | 7 | done | `AbstractMatchPlanStep` + ordered list-shaping post-process carrier |
-| 8 | Phase B done | `MultiPlanMatchStep` + multi-plan carrier/splice + `UnionStepRecogniser` / `UnionForkHost`; Phase C pending |
+| 8 | done | `MultiPlanMatchStep` + multi-plan carrier/splice + `UnionStepRecogniser` / `UnionForkHost` |
+| 10 | not started | query-metrics regression remediation — restore a green `core` unit-test run |
 | 9 | not started | list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) + `BoundaryOutputType.LIST` + Cucumber green + JMH baseline |
 
-Decision conformance: D6 and D-IS-DEFINED are satisfied by Track 1; Track 2 decisions (decline, class-keyed dispatch, boundary lifecycle, idempotency, translator-first) by Track 2; D10 by Track 3; D5 by Track 5; D11 by Track 6. D8 (union via `MultiPlanMatchStep`) is implemented in code across Tracks 7–8; Track 8 Phase C still open. D3 (list-shaping terminators) lands in Track 9.
+Decision conformance: D6 and D-IS-DEFINED are satisfied by Track 1; Track 2 decisions (decline, class-keyed dispatch, boundary lifecycle, idempotency, translator-first) by Track 2; D10 by Track 3; D5 by Track 5; D11 by Track 6. D8 (union via `MultiPlanMatchStep`) is implemented in code across Tracks 7–8 and complete. D3 (list-shaping terminators) lands in Track 9.
 
 Track 1 deferral: `MatchWhereBuilder.endsWith` / `matchesRegex` are not built in this track. Their AST backing (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) is introduced by Track 4's D-TEXT-OPS work; the baseline-backed `containsText` (`SQLContainsTextCondition`) and `startsWith` (half-open range) ship in Track 1. See plan/track-1.md § Decision Log.
