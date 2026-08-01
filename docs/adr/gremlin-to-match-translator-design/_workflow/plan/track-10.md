@@ -13,6 +13,7 @@ This track is inserted ahead of Track 9 by the inline replan of 2026-08-01. Trac
 ## Progress
 - [x] 2026-08-01T07:34Z [ctx=info] Review + decomposition complete
 - [x] Review + decomposition
+- [x] 2026-08-01T12:34Z [ctx=safe] Step 1 complete (commit b7d2cc10b2)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -22,6 +23,8 @@ This track is inserted ahead of Track 9 by the inline replan of 2026-08-01. Trac
 
 - **Discovered during Track 8 Phase C (2026-08-01), by independent verification rather than by the implementer that hit it.** Iteration 3 reported the four failures as "pre-existing at the track base, not caused by this iteration" and moved on. A verification run in a separate worktree returned `BRANCH-REGRESSION` and showed the report was factually wrong, not merely under-determined: the track base carries **six** problems, not four, and a different set; `byIdLookupSurfacesNullPlan` **passes** at the track base and was broken by Track 8's own `3d476357cc`. The matching count of four was a coincidence. Three of the tests are byte-identical on `develop` and on the branch, so the "revert the test file and re-run" check the implementer described could not have changed their outcome.
 - **Second instance of the DR-U6 pattern on this branch.** The `GraphApiTest` rollback/count failure in Track 8 Step 2 had the same shape: reproduced at the track base, passed on `develop`, turned out branch-introduced and needed a real fix. "Reproduces at the track base" has now twice meant "branch-introduced, further upstream than you looked". Treat that phrase as a prompt to bisect against `develop`, not as an all-clear.
+- **`core`'s Cucumber runner is inert under `./mvnw -pl core test`, which invalidates one sentence of Track 9's plan.** `YTDBGraphFeatureTest` is constructed but executes zero scenarios: Cucumber's child descriptions carry no test class and no `@Category`, so the `sequential-tests` `<groups>SequentialTest</groups>` filter rejects all of them. The executing Cucumber runner is `embedded`'s `EmbeddedGraphFeatureTest`. Track 9's Plan-of-Work item 6 tells that track to read Track 10's failure-list artifact as a baseline "including the Cucumber runner" — it is not one. Track 9's item 1 already mandates its own full Cucumber run, so only that sentence needs correcting, at Track 9's Pre-Flight. See Episodes §Step 1.
+- **The R1 enumeration this track was planned against was itself wrong.** `sequential-tests` drives nine `gremlintest` classes, not `YTDBGraphFeatureTest` plus thirteen others; the fourteen was a source-level count of `@Category(SequentialTest.class)` annotations, five of which contribute no test method. Each of the nine runs twice per suite invocation — once under a runner suite, once via surefire's own file-pattern discovery. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -89,13 +92,33 @@ Establish what the correct contract is before changing code — for three of the
 names the item it realizes so cross-references stay unambiguous. `## Validation and
 Acceptance` cites Plan-of-Work items, not roster steps. -->
 
-1. Enumerate the full `./mvnw -pl core test` failure set, record it as an artifact under `## Artifacts and Notes`, and classify each failure by the item-0 triage rule; ESCALATE instead of continuing if in-scope failures reach beyond the four known scenarios (Plan of Work item 0) — risk: low (default: investigation and artifact recording; no product or test change) — size: ~1 file; heavy-iteration carve-out — a full `core` run plus per-failure triage is iteration-driven, and merging it forward would entangle its ESCALATE gate with work the gate exists to authorize  [ ]
+1. Enumerate the full `./mvnw -pl core test` failure set, record it as an artifact under `## Artifacts and Notes`, and classify each failure by the item-0 triage rule; ESCALATE instead of continuing if in-scope failures reach beyond the four known scenarios (Plan of Work item 0) — risk: low (default: investigation and artifact recording; no product or test change) — size: ~1 file; heavy-iteration carve-out — a full `core` run plus per-failure triage is iteration-driven, and merging it forward would entangle its ESCALATE gate with work the gate exists to authorize  [x] commit: b7d2cc10b2
 2. Settle the `reset()`-from-`CLOSED` contract, implementing copy-on-re-arm via `InternalExecutionPlan.copy` if it lands product-side, with its own context derivation rather than `clone()`'s recipe; pin which plan object `capturedExecutionPlan()` sees across both re-arm paths; revise the `CLOSED`-is-terminal Javadoc; cover close-then-reset at both boundary shapes with real plans and assertions enabled (Plan of Work item 1) — risk: high (architecture: changes the lifecycle contract of the Track 7 boundary base that every translated traversal on this branch flows through, reaching both subclasses)  [ ]
 3. Add sub-step introspection to `MatchPrefetchStep` (primary) and `MatchFirstStep` (secondary), answer whether the `+ PREFETCH` sub-plan contains a `FetchFromIndexStep`, pin the `EXPLAIN` nested-`subSteps` effect with a test, record the DR, and amend the plan's "Engine surface is preserved" bullet with its third exception (Plan of Work item 3) — risk: high (architecture: modifies MATCH execution steps and the Component Map's boundary-to-metrics relationship, and amends a plan-level constraint)  [ ]
 4. Settle the `g.V(rid)` capture contract — treating suppress as rejected on scope grounds unless a third realization appears — pin the translator kill-switch in the three plan-capture scenarios, and close the CI detection hole under the item-0 triage rule (Plan of Work items 2 and 4) — risk: medium (build config plus observability contract; no HIGH triggers) — size: ~4 files; no mergeable `low`/`medium` work fits — the rest of the track is `high` and step 1's ESCALATE gate must clear before this runs  [ ]
 
 ## Episodes
 <!-- One block per completed step. Empty until Phase B. -->
+
+### Step 1 — commit b7d2cc10b2, 2026-08-01T12:34Z [ctx=safe]
+
+**What was done:** Enumerated the full `./mvnw -pl core test` failure set at HEAD and recorded it as `plan/track-10/core-test-failure-inventory.md`. The run was paced by the orchestrator rather than the implementer, because a full `core` suite exceeds the implementer's ten-minute foreground budget. `default-test` reports 17898 tests, 0 failures; `sequential-tests` reports 2220 tests, 4 failures, and fails the build. All four failures are the `YTDBQueryMetricsStrategyTest` scenarios items 1–3 already target, so the item-0 ESCALATE gate did not fire and the out-of-scope deferral list is empty. The artifact carries run provenance, per-execution totals, the four failures with source lines and assertion labels, the triage classification, and the skip inventory.
+
+**What was discovered:** The R1 correction in `## Context and Orientation` is wrong, and the artifact says so. The `sequential-tests` execution drives nine `gremlintest` classes and runs zero Cucumber scenarios — not `YTDBGraphFeatureTest` plus thirteen others. The "fourteen" was a source-level tally of `@Category(SequentialTest.class)` annotations; five of the fourteen contribute no test method (the abstract `YTDBTemporaryRidConversionTest`, the zero-`@Test` base `YTDBAbstractGremlinTest`, and the three runner classes `YTDBProcessTest`, `YTDBStructureTest`, `YTDBGraphFeatureTest`).
+
+`core`'s Cucumber suite is inert under `./mvnw -pl core test`. The runner is constructed — `core/target/cucumber.xml` was written one second before the first `sequential-tests` report — but the file is zero bytes, no surefire report exists for the class, and the 3615-line log never names Cucumber. Cucumber's child descriptions carry no test class and no `@Category`, so `<groups>SequentialTest</groups>` rejects every scenario. The orchestrator re-checked the two measurements independently; the filter mechanism is inferred from them.
+
+Each of the nine `gremlintest` classes executes twice per suite run, once as a child of a runner's suite and once via surefire's own `**/*Test.java` discovery. Every XML report holds exactly twice as many `<testcase>` elements as its `tests=` count, and the log carries two `Running …YTDBQueryMetricsStrategyTest` lines, each with a full 20-test result and the same four failures. The acceptance criterion "run both in isolation and in a multi-class run" is therefore already satisfied by a single full-suite run.
+
+Two details for the later steps. The reset scenario's plan assertion at line 620 passes — the plan survives `reset()` and only the rows come back empty — so item 1's defect is narrower than "the plan is lost". Both scan scenarios fail at the first introspection assertion while the preceding `isNotNull` and `isNotEmpty` checks pass, which is item 3's diagnosis confirmed by measurement.
+
+**What changed from the plan:** Track 9's Plan-of-Work item 6 tells that track to read this artifact "rather than re-deriving the baseline — that run already enumerated the full `core` failure set, including the Cucumber runner". The Cucumber half of that claim is false, so Track 9 cannot treat this artifact as a Cucumber baseline. Its item 1 already mandates a full Cucumber run up front, so scope, dependencies, and ordering are unaffected; the shortcut sentence in item 6 is the only casualty. Track 9's own Pre-Flight is the place to correct it.
+
+Item 4 gains a target the plan did not name: whichever CI mechanism closes the detection hole, `core`'s Cucumber runner stays inert under `./mvnw -pl core test` and will not be part of that gate. The executing Cucumber runner is `embedded`'s `EmbeddedGraphFeatureTest`.
+
+**Key files:** `docs/adr/gremlin-to-match-translator-design/_workflow/plan/track-10/core-test-failure-inventory.md` (new).
+
+**Critical context:** The inventory records one reconciliation residual rather than papering over it. The `sequential-tests` per-class console lines sum to 2232 and the XML `tests=` attributes sum to 2109, against surefire's reported 2220. Failures, errors, and skipped agree across all three views, so the residual is an artifact of surefire's aggregate counter under the double-execution shape and does not affect the failure inventory.
 
 ## Validation and Acceptance
 - The full `./mvnw -pl core test` failure set is enumerated and recorded as an artifact before any fix lands (Plan of Work item 0), and every criterion below is read against that list rather than against the four known scenarios.
@@ -114,6 +137,8 @@ Acceptance` cites Plan-of-Work items, not roster steps. -->
 Each step is a self-contained test-or-product fix; a failed step leaves the suite no worse than the current red state.
 
 ## Artifacts and Notes
+The measured `./mvnw -pl core test` failure set is in `plan/track-10/core-test-failure-inventory.md` (Plan of Work item 0, step 1, commit `b7d2cc10b2`). It carries run provenance, per-execution totals, the four in-scope failures with source lines, the item-0 triage classification with an empty out-of-scope list, and the measured class inventory that refutes the R1 claim. Every acceptance criterion below is read against that file.
+
 Full investigation evidence — the commit-by-commit bracket table, the isolation-dependence disproof, and the CI-wiring analysis — is in Track 8's `## Surprises & Discoveries` entry dated 2026-08-01.
 
 ## Interfaces and Dependencies
