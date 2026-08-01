@@ -604,12 +604,13 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > culprits: `6e657ce2b1` (Track 4 era) removed `YTDBGraphStep` from translated
   > traversals, which is the only step `YTDBQueryMetricsStep.capturedExecutionPlan()`
   > read; Track 8's `3d476357cc` then repaired three scenarios and broke a fourth.
-  > **Scope:** ~5 files covering the metrics plan capture, the
+  > **Scope:** ~11–13 files covering the metrics plan capture, the
   > `AbstractMatchPlanStep.reset()`-from-`CLOSED` contract (the one genuine
   > product defect — re-iteration yields `[]` where native re-executes), the
-  > `g.V(rid)` plan-capture contract, the `MatchFirstStep` introspection question
-  > (decided **after** establishing whether the index is still used at all), and
-  > the CI detection hole.
+  > `g.V(rid)` plan-capture contract, the `MatchPrefetchStep` / `MatchFirstStep`
+  > introspection question (decided **after** establishing whether the index is
+  > still used at all), and the CI detection hole. A step 0 enumerates the real
+  > full-`core` failure set before anything is sized against it.
   > **Depends on:** Track 8.
   > **Why a separate track:** the root cause spans Track 4 and Track 8, so
   > folding it into Track 8's Phase C would attribute Track 4's defect to Track
