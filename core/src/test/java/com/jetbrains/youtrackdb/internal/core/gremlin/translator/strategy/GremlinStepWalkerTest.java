@@ -17,8 +17,13 @@ import java.util.Optional;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Assert;
@@ -882,6 +887,119 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     var fresh = new WalkerContext(true, false);
     assertThat(fresh.nextAnonVertexAlias()).isEqualTo("$g2m_anon_0");
     assertThat(fresh.nextEdgeAlias()).isEqualTo("$g2m_edge_0");
+  }
+
+  /**
+   * A suffix the post-union gate refuses declines the union <em>before</em> any child is forked.
+   * The traversal-level outcome is a decline either way, so only the fork count can tell the two
+   * apart: forking first means every arm runs a complete sub-walk whose result is then discarded,
+   * on every compilation of a query that never translates.
+   */
+  @Test
+  public void union_untranslatableSuffix_declinesWithoutForkingAnyChild() {
+    var admin = graph.traversal().V().union(__.out(), __.in()).out().asAdmin();
+    var cursor = cursorAtUnion(admin);
+    var host = new CountingUnionForkHost(cursor, POST_UNION_GATE_REGISTRY);
+    var ctx = unionSeededContext(host);
+
+    var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(host.forkCalls)
+        .as("a hop after the union is refused by the gate, so no arm may be walked")
+        .isZero();
+  }
+
+  /**
+   * The complement: a suffix the gate accepts ({@code count()} is a post-concat op) does reach the
+   * fork, so the pre-fork check narrows nothing that used to translate. The fork stub declines, so
+   * the recogniser stops after the first arm.
+   */
+  @Test
+  public void union_translatableSuffix_reachesTheFork() {
+    var admin = graph.traversal().V().union(__.out(), __.in()).count().asAdmin();
+    var cursor = cursorAtUnion(admin);
+    var host = new CountingUnionForkHost(cursor, POST_UNION_GATE_REGISTRY);
+    var ctx = unionSeededContext(host);
+
+    var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(host.forkCalls)
+        .as("count() is post-concat translatable, so the first arm must still be walked")
+        .isEqualTo(1);
+  }
+
+  /**
+   * Registry the gate reads in the two tests above: the hop recogniser (not post-concat capable)
+   * and the count recogniser (post-concat capable), under every step class the un-strategized
+   * traversal can produce for those two shapes.
+   */
+  private static final Map<Class<?>, StepRecogniser> POST_UNION_GATE_REGISTRY =
+      Map.of(
+          VertexStep.class, VertexStepRecogniser.INSTANCE,
+          VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
+          CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE);
+
+  /** Advances a fresh cursor over {@code admin}'s steps until the union is the head. */
+  private static StepStreamCursor cursorAtUnion(Traversal.Admin<?, ?> admin) {
+    var cursor = new StepStreamCursor(admin.getSteps(), Set.of(NoOpBarrierStep.class));
+    while (cursor.peek() != null && !(cursor.peek() instanceof UnionStep)) {
+      cursor.take();
+    }
+    Assert.assertTrue("fixture must reach a UnionStep", cursor.peek() instanceof UnionStep);
+    return cursor;
+  }
+
+  /** Context with a pinned boundary and {@code host} installed as the union fork seam. */
+  private static WalkerContext unionSeededContext(UnionForkHost host) {
+    var ctx = new WalkerContext(true, false);
+    ctx.addNode("$g2m_v0", "V");
+    ctx.pinBoundary("$g2m_v0", BoundaryOutputType.ELEMENT, Vertex.class);
+    ctx.setUnionForkHost(host);
+    return ctx;
+  }
+
+  /**
+   * Fork seam stand-in that counts {@link #walkFork} calls and answers the suffix gate through the
+   * production check, so the tests above pin the ordering of the two operations rather than a
+   * hand-written verdict.
+   */
+  private static final class CountingUnionForkHost implements UnionForkHost {
+
+    private final StepCursor cursor;
+    private final Map<Class<?>, StepRecogniser> recognisers;
+    private int forkCalls;
+
+    CountingUnionForkHost(StepCursor cursor, Map<Class<?>, StepRecogniser> recognisers) {
+      this.cursor = cursor;
+      this.recognisers = recognisers;
+    }
+
+    @Override
+    public List<Step<?, ?>> recognisedPrefixSteps() {
+      // Non-empty: the recogniser declines a start-position union, which is not what is under test.
+      return List.of(mock(Step.class));
+    }
+
+    @Override
+    public boolean postUnionSuffixTranslatable() {
+      return GremlinStepWalker.postUnionSuffixTranslatable(cursor, recognisers);
+    }
+
+    @Override
+    public GremlinToMatchTranslator.TranslationResult walkFork(List<Step<?, ?>> childSuffix) {
+      forkCalls++;
+      return null;
+    }
+
+    @Override
+    public void stashAcceptedChildren(
+        List<com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs> childInputs,
+        List<Map<Object, Object>> childInputParameters,
+        List<Boolean> childCacheEligible) {
+      throw new AssertionError("no arm translates in these fixtures, so nothing may be stashed");
+    }
   }
 
   /**

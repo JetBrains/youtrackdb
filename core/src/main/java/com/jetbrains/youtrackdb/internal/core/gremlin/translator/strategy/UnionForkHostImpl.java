@@ -21,31 +21,52 @@ final class UnionForkHostImpl implements UnionForkHost {
   private final StepStreamCursor cursor;
   private final List<?> steps;
   private final WalkerContext ctx;
+  private final Map<Class<?>, StepRecogniser> recognisers;
+
+  /**
+   * Memoised prefix snapshot. {@link #recognisedPrefixSteps()} is called once by the recogniser and
+   * once per union arm by {@link #walkFork}; rebuilding it each time made prefix copying O(arms ×
+   * prefix). The cursor cannot move backwards and the recogniser consumes nothing between those
+   * calls, so one snapshot serves them all.
+   */
+  private List<Step<?, ?>> prefixSnapshot;
 
   UnionForkHostImpl(
       @Nonnull Traversal.Admin<?, ?> parent,
       @Nonnull StepStreamCursor cursor,
-      @Nonnull WalkerContext ctx) {
+      @Nonnull WalkerContext ctx,
+      @Nonnull Map<Class<?>, StepRecogniser> recognisers) {
     this.parent = parent;
     this.cursor = cursor;
     this.steps = parent.getSteps();
     this.ctx = ctx;
+    this.recognisers = recognisers;
   }
 
   @Nonnull
   @Override
   public List<Step<?, ?>> recognisedPrefixSteps() {
+    if (prefixSnapshot != null) {
+      return prefixSnapshot;
+    }
     // After UnionStepRecogniser.take(), position is past the union. The prefix is every step
     // strictly before that union index (position - 1).
     int unionIndex = cursor.position() - 1;
     if (unionIndex <= 0) {
-      return List.of();
+      prefixSnapshot = List.of();
+      return prefixSnapshot;
     }
     var prefix = new ArrayList<Step<?, ?>>(unionIndex);
     for (int i = 0; i < unionIndex; i++) {
       prefix.add((Step<?, ?>) steps.get(i));
     }
-    return List.copyOf(prefix);
+    prefixSnapshot = List.copyOf(prefix);
+    return prefixSnapshot;
+  }
+
+  @Override
+  public boolean postUnionSuffixTranslatable() {
+    return GremlinStepWalker.postUnionSuffixTranslatable(cursor, recognisers);
   }
 
   @Nullable @Override

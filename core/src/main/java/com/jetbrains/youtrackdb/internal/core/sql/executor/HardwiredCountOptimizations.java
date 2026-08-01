@@ -77,6 +77,15 @@ public final class HardwiredCountOptimizations {
    * {@code class:} is already {@code L}; folding it into {@code countClass(L, false)} preserves
    * leaf-exact semantics without a scan. Accepts both Gremlin-built AST ({@code
    * MatchWhereBuilder.classEquals}) and SQL-parsed MATCH {@code where: (@class = 'L')} shapes.
+   *
+   * @implNote The left operand is compared as rendered text on purpose. The two producers build
+   *     structurally different trees for the same filter — the Gremlin builder emits the condition
+   *     directly, the parser wraps every atom in {@code Or → And → Not(negate=false)} — so a
+   *     structural walk would have to encode both shapes. {@code @class} is a record attribute with
+   *     no identifier reading, so nothing else renders as that text. This is a two-producer
+   *     contract, not a general one: a third producer of MATCH {@code where} AST needs a case in
+   *     {@code HardwiredCountExactClassFilterTest} before this method can be trusted on its output,
+   *     because a false positive here answers a filtered count with the whole class size.
    */
   public static boolean isExactClassEqualsOnly(SQLWhereClause where, String expectedClass) {
     if (where == null || expectedClass == null || expectedClass.isBlank()) {

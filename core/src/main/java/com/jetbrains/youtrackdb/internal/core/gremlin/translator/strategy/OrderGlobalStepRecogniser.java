@@ -30,7 +30,10 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     // Post-union order needs an in-memory sort of the concatenation; not in this cut (count /
-    // limit / dedup cover the push-down / early-stop post-concat set). Decline to native.
+    // limit / dedup cover the push-down / early-stop post-concat set). The walker's post-union
+    // allow-list already declines the traversal before this recogniser is dispatched, so in
+    // production this branch is a second line of defence: it keeps a direct invocation honest and
+    // makes re-adding order() to the allow-list a decline rather than a silent mistranslation.
     if (ctx.hasUnionCarrier()) {
       return Outcome.DECLINE;
     }

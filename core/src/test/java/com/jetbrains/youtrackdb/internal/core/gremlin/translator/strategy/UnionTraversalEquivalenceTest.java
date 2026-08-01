@@ -268,6 +268,37 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Same gate for a child carrying {@code skip()}: the count push-down clears the child's {@code
+   * SKIP}, so the arm would contribute the rows it skipped. From Alice with two outgoing edges the
+   * skipped arm contributes 1 and the full arm 2, total 3; a push-down that lost the child skip
+   * would report 4.
+   */
+  @Test
+  public void unionChildWithSkipThenCount_declines() {
+    var aliceId = seedFanOut();
+    assertEquivalent(
+        "g.V(alice).union(out(knows).skip(1), out(knows)).count() — child SKIP under count",
+        Recognition.DECLINED,
+        () -> graph
+            .traversal()
+            .V(aliceId)
+            .union(__.out("knows").skip(1), __.out("knows"))
+            .count(),
+        false);
+
+    setTranslatorEnabled(true);
+    assertThat(
+        graph
+            .traversal()
+            .V(aliceId)
+            .union(__.out("knows").skip(1), __.out("knows"))
+            .count()
+            .next())
+        .as("the skipped arm contributes 1, the full arm 2")
+        .isEqualTo(3L);
+  }
+
+  /**
    * Same gate for a child carrying {@code dedup()}: the count push-down clears {@code RETURN
    * DISTINCT}, so the arm would contribute its duplicates.
    */
@@ -335,6 +366,65 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * {@code limit(n)} after a union truncates the concatenation to {@code n} rows. The four-row
+   * fixture is the point: with a concatenation no larger than the limit the truncation is invisible
+   * and dropping it entirely still passes. Emission order across arms is not pinned, so the
+   * assertion is cardinality plus membership in the untruncated union rather than an exact list.
+   */
+  @Test
+  public void unionThenLimit_truncatesConcatenationToLimit() {
+    var aliceId = seedWideFanOut();
+    assertMultiPlanEngaged(
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).limit(2));
+
+    setTranslatorEnabled(true);
+    var full = sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).toList());
+    var limited =
+        sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).limit(2).toList());
+
+    assertThat(full).as("the untruncated union is 3 + 1 rows").hasSize(4);
+    assertThat(limited).as("limit(2) truncates the concatenation").hasSize(2);
+    assertThat(full).containsAll(limited);
+  }
+
+  /**
+   * {@code skip(n)} and {@code range(low, high)} after a union slice the concatenation. {@code
+   * skip} is the only shape that reaches the skipping stream at all, and {@code range(1, 3)} on a
+   * four-row concatenation is the smallest case that separates a {@code high - low} row budget
+   * (2 rows) from a {@code high} one (3 rows). Order across arms is not pinned, so the assertions
+   * are cardinality plus membership against the full union.
+   */
+  @Test
+  public void unionThenSkipAndRange_sliceTheConcatenation() {
+    var aliceId = seedWideFanOut();
+    assertMultiPlanEngaged(
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).skip(1));
+    assertMultiPlanEngaged(
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, 3));
+
+    setTranslatorEnabled(true);
+    var full = sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).toList());
+    assertThat(full).hasSize(4);
+
+    var skipped =
+        sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).skip(1).toList());
+    assertThat(skipped).as("skip(1) drops exactly one row").hasSize(3);
+    assertThat(full).containsAll(skipped);
+
+    var ranged =
+        sortedIds(
+            graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, 3).toList());
+    assertThat(ranged).as("range(1, 3) keeps high - low = 2 rows after skipping 1").hasSize(2);
+    assertThat(full).containsAll(ranged);
+
+    var openEnded =
+        sortedIds(
+            graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, -1).toList());
+    assertThat(openEnded).as("an unbounded high is skip-only").hasSize(3);
+    assertThat(full).containsAll(openEnded);
+  }
+
+  /**
    * Start-position {@code g.union(...)} has no vertex GraphStep prefix; the strategy and recogniser
    * both decline.
    */
@@ -374,6 +464,26 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     alice.addEdge("knows", bob);
     alice.addEdge("knows", carol);
     bob.addEdge("knows", dave);
+    graph.tx().commit();
+    return alice.id();
+  }
+
+  /**
+   * Seeds Alice -knows-> Bob, Alice -knows-> Carol, Alice -knows-> Dave, Bob -knows-> Erin and
+   * returns Alice's id. From Alice, {@code union(out(), out().out())} concatenates 3 + 1 = 4 rows —
+   * wide enough that a post-union {@code limit(2)} genuinely truncates and that {@code range(1, 3)}
+   * yields a different row count under a {@code high - low} budget than under a {@code high} one.
+   */
+  private Object seedWideFanOut() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    var erin = graph.addVertex(T.label, "Person", "name", "Erin");
+    alice.addEdge("knows", bob);
+    alice.addEdge("knows", carol);
+    alice.addEdge("knows", dave);
+    bob.addEdge("knows", erin);
     graph.tx().commit();
     return alice.id();
   }
@@ -442,6 +552,20 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     } finally {
       setTranslatorEnabled(original);
     }
+  }
+
+  /**
+   * Asserts the shape translates to a multi-plan boundary. Slicing tests read row counts rather than
+   * comparing against native, so without this the whole assertion set would still pass if the shape
+   * quietly declined to the native pipeline.
+   */
+  private void assertMultiPlanEngaged(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    setTranslatorEnabled(true);
+    var admin = traversalSupplier.get().asAdmin();
+    admin.applyStrategies();
+    assertThat(countMultiPlanSteps(admin.getSteps()))
+        .as("shape must splice exactly one MultiPlanMatchStep")
+        .isEqualTo(1);
   }
 
   private void setTranslatorEnabled(boolean enabled) {

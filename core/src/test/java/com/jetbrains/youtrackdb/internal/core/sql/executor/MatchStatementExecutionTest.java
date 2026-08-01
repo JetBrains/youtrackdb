@@ -4975,6 +4975,10 @@ public class MatchStatementExecutionTest extends DbTestBase {
    * {@code GuaranteeEmptyCountStep} was attached — the same hole that made
    * {@code g.V().has(...).count().next()} throw after a rolled-back {@code addV} left an empty
    * vertex class behind.
+   *
+   * <p>The short-circuit itself must survive: a zero-estimate alias means the answer is known
+   * without scheduling the pattern, so the plan is {@code EmptyStep} plus the projection pipeline,
+   * not a full scan plan that happens to yield nothing.
    */
   @Test
   public void testFilteredCountOnEmptyClassReturnsZeroRow() {
@@ -4996,6 +5000,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue(
         "GuaranteeEmptyCountStep must be present so empty input still emits 0",
         plan.getSteps().stream().anyMatch(step -> step instanceof GuaranteeEmptyCountStep));
+    assertTrue(
+        "a zero-estimate alias must still exit through EmptyStep instead of scheduling the pattern",
+        plan.getSteps().stream().anyMatch(step -> step instanceof EmptyStep));
     result.close();
     session.commit();
   }
@@ -5062,6 +5069,77 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue(
         "exact @class filter must short-circuit to leaf-exact CountFromClassStep",
         planText.contains("CALCULATE CLASS SIZE: " + parent + " (exact)"));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * A single-node MATCH count whose filter is not {@code @class} equality must answer the filtered
+   * count, not the class size, on a class that actually holds records. The class-size short-circuit
+   * decides by inspecting the filter AST; if it false-positives on a selective filter it hands back
+   * the whole class count and every row of the filter is silently ignored. Three records, one
+   * match: a false positive answers 3.
+   */
+  @Test
+  public void testMatchCountWithNonClassFilter_countsOnlyMatchingRecords() {
+    var className = "MatchFilteredCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+    session.begin();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Bob'").close();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Carol'").close();
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: "
+                + className
+                + ", as: a, where: (name = 'Alice')} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(
+        "a selective filter must count matches, not the class size",
+        1L,
+        (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertFalse(
+        "a non-@class filter must not fold into the class-size short-circuit",
+        plan.prettyPrint(0, 2).contains("CALCULATE CLASS SIZE"));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * A conjunction that merely contains {@code @class = 'L'} is not a lone class filter: the second
+   * conjunct still selects. Folding it into the class-size short-circuit would drop that conjunct
+   * and answer with the full class count. Two records of the class, one matching the name.
+   */
+  @Test
+  public void testMatchCountWithClassAndNameFilter_countsOnlyMatchingRecords() {
+    var className = "MatchConjunctCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+    session.begin();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Bob'").close();
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: "
+                + className
+                + ", as: a, where: (@class = '"
+                + className
+                + "' AND name = 'Alice')} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(
+        "the name conjunct must still select", 1L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertFalse(
+        "a multi-conjunct filter must not fold into the class-size short-circuit",
+        plan.prettyPrint(0, 2).contains("CALCULATE CLASS SIZE"));
     result.close();
     session.commit();
   }

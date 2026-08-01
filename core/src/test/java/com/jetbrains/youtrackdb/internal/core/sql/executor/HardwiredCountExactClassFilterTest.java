@@ -78,6 +78,27 @@ public class HardwiredCountExactClassFilterTest {
     assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(clause, "Person")).isFalse();
   }
 
+  /**
+   * {@code @class = 'L' AND name = 'x'} is two conjuncts, so it is not a lone class filter. Folding
+   * it would drop the second conjunct and answer a filtered count with the whole class size.
+   */
+  @Test
+  public void multiConjunctAndWithClassEquals_isRejected() throws Exception {
+    var clause = parseWhere("@class = 'Person' AND name = 'Alice'");
+    assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(clause, "Person")).isFalse();
+  }
+
+  /**
+   * A left operand other than {@code @class} is an ordinary property predicate — {@code name =
+   * 'Person'} selects rows, it does not restate the node's class — so it must never fold into a
+   * class-size count even when the compared literal happens to be the class name.
+   */
+  @Test
+  public void nonClassLeftHandSide_isRejected() throws Exception {
+    var clause = parseWhere("name = 'Person'");
+    assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(clause, "Person")).isFalse();
+  }
+
   private static com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause parseWhere(
       String body) throws Exception {
     var sql = "SELECT FROM V WHERE " + body;

@@ -26,8 +26,13 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * becomes a {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp}
  * applied by {@code MultiPlanMatchStep} over the concatenation. {@code order()} after a union
  * declines (no post-concat sort in this cut), the list-shaping terminators ({@code fold} and
- * friends) are not translated yet, and every other step class declines through {@link
- * GremlinStepWalker}'s post-union suffix gate.
+ * friends) are not translated yet, and every other step class declines too.
+ *
+ * <p>That suffix check runs twice, against one allow-list. {@link
+ * UnionForkHost#postUnionSuffixTranslatable} scans the suffix here, before any fork, so an
+ * untranslatable suffix costs a look-ahead instead of N discarded child sub-walks per compilation;
+ * {@link GremlinStepWalker}'s per-step gate then refuses anything the scan let through and any
+ * allow-listed recogniser that declines on its own terms.
  *
  * <p>The recogniser never sees the parent {@code Traversal.Admin} — only the narrow {@link
  * UnionForkHost} seam. On accept it stashes the ordered child {@link MatchPlanInputs} through that
@@ -54,6 +59,14 @@ final class UnionStepRecogniser implements StepRecogniser {
     }
     var host = ctx.unionForkHost();
     if (host == null) {
+      return Outcome.DECLINE;
+    }
+    // Cheapest gate first. Everything below forks the prefix into each arm and runs a complete
+    // sub-walk per arm, and a suffix the walker will not claim post-union declines the traversal
+    // regardless — so pay the O(suffix) look-ahead rather than N discarded sub-walks per
+    // compilation. The look-ahead reads the walker's own post-union allow-list, so it declines
+    // exactly the suffixes the walker's per-step gate declines.
+    if (!host.postUnionSuffixTranslatable()) {
       return Outcome.DECLINE;
     }
 

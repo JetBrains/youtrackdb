@@ -48,6 +48,18 @@ final class GremlinAggregateAssembler {
    * Non-polymorphic {@code hasLabel(L)} keeps its exact {@code @class = 'L'} filter; MATCH
    * short-circuit folds that into {@code countClass(L, false)}. Bare {@code g.V()}/{@code g.E()}
    * stay unfiltered → polymorphic class size (same as native).
+   *
+   * @implNote Every recognised count shape translates, including the two {@code YTDBGraphCountStrategy}
+   *     also serves ({@code g.V().count()} and {@code g.V().hasLabel(L).count()}). The translator
+   *     runs first, so on a non-polymorphic session those two now take the MATCH route where they
+   *     previously fell through to a single {@code YTDBClassCountStep} allocation. Both routes read
+   *     the count from class metadata, so the answer and its asymptotics are unchanged; the accepted
+   *     cost is a constant per compilation — fingerprint, an always-missing plan-cache probe
+   *     ({@code CountFromClassStep.canBeCached()} is false, so the plan is never stored), a plan
+   *     build, and a plan copy. The trade is a single owner for count translation: splitting it back
+   *     by polymorphism flag would route identical query shapes through different planners depending
+   *     on a session setting, and leave the wider shapes ({@code hasLabel(L).has(k, v).count()})
+   *     without an owner at all.
    */
   static Outcome configureCount(RecognitionContext ctx) {
     if (ctx.hasUnionCarrier()) {

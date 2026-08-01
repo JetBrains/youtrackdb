@@ -173,9 +173,9 @@ final class GremlinStepWalker {
 
   /**
    * The only recognisers allowed to claim a step <em>after</em> {@link UnionStepRecogniser} has
-   * stashed a multi-plan carrier. Each member inspects {@link RecognitionContext#hasUnionCarrier()}
-   * itself and either contributes a {@link
-   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} or declines.
+   * stashed a multi-plan carrier — the three whose step maps to a {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} the concatenation
+   * can absorb ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}).
    *
    * <p>The gate has to be here rather than left to each recogniser because {@link #buildResult}'s
    * multi-plan branch reads only the boundary metadata, the shaping, and the post-concat ops: a
@@ -184,13 +184,17 @@ final class GremlinStepWalker {
    * union has its contribution silently discarded, and the query returns rows that ignore the step.
    * Gating on an allow-list keeps the property true by construction: a recogniser added later is
    * declined post-union until it is deliberately taught to branch on the carrier and added here.
+   *
+   * <p>The set is read from two places, and both must read this one field. {@link #dispatchAll}
+   * consults it per step as the fail-closed gate, and {@link #postUnionSuffixTranslatable} consults
+   * it as a look-ahead so {@link UnionStepRecogniser} can decline <em>before</em> forking and
+   * walking every child — see that method for why the look-ahead exists.
    */
   private static final Set<StepRecogniser> POST_UNION_RECOGNISERS =
       Set.of(
           CountGlobalStepRecogniser.INSTANCE,
           RangeGlobalStepRecogniser.INSTANCE,
-          DedupGlobalStepRecogniser.INSTANCE,
-          OrderGlobalStepRecogniser.INSTANCE);
+          DedupGlobalStepRecogniser.INSTANCE);
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
@@ -269,7 +273,7 @@ final class GremlinStepWalker {
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
     // Install the union fork host after the cursor exists: the host reads prefix length from the
     // cursor position after UnionStepRecogniser.take(), and keeps the parent Admin private.
-    ctx.setUnionForkHost(new UnionForkHostImpl(traversal, cursor, ctx));
+    ctx.setUnionForkHost(new UnionForkHostImpl(traversal, cursor, ctx, recognisers));
 
     // Cursor-driven dispatch. A missing recogniser or a DECLINE declines the whole traversal
     // (all-or-nothing), returning false; the shared driver is reused by the sub-walk below.
@@ -336,6 +340,47 @@ final class GremlinStepWalker {
       }
     }
     return true;
+  }
+
+  /**
+   * Look-ahead form of {@link #dispatchAll}'s post-union gate: {@code true} when every step still
+   * ahead of {@code cursor} would be claimed by a {@link #POST_UNION_RECOGNISERS} member, including
+   * the vacuous case of no steps left. Reads the same field the in-loop gate reads, so the two can
+   * never disagree about which suffix is translatable.
+   *
+   * <p>Why look ahead at all: {@link UnionStepRecogniser#recognize} forks the recognised prefix into
+   * every child and runs a complete sub-walk per child before returning, and the in-loop gate only
+   * fires on the step <em>after</em> the union. A suffix the gate will refuse therefore throws away
+   * N full sub-walks on every traversal compilation — {@code applyStrategies()} runs per execution
+   * and no walk-level cache exists. Calling this before the fork turns that into an O(suffix) scan
+   * over steps already in memory.
+   *
+   * <p>The scan reads through {@link StepCursor#peek(int)}, which leaves the cursor position
+   * untouched and skips transparent steps, so a barrier in the suffix is not mistaken for an
+   * unclaimable step. Recogniser lookup is by exact class against the same registry dispatch uses,
+   * so a step class that maps onto an allow-listed recogniser through a second key (the {@code
+   * RangeGlobalStepPlaceholder} → {@link RangeGlobalStepRecogniser} entry) is accepted here exactly
+   * as dispatch would accept it.
+   *
+   * <p>This is a necessary condition, not a simulation: an allow-listed recogniser may still decline
+   * its own step (a second {@code count()}, a {@code dedup(labels)}), in which case the fork is
+   * still paid and the in-loop gate plus the recogniser decline the walk. Fail-closed is preserved
+   * in both directions — the look-ahead only ever declines shapes the in-loop gate would decline.
+   */
+  static boolean postUnionSuffixTranslatable(
+      StepCursor cursor, Map<Class<?>, StepRecogniser> recognisers) {
+    for (var ahead = 0;; ahead++) {
+      var step = cursor.peek(ahead);
+      if (step == null) {
+        return true;
+      }
+      // An unregistered class has no recogniser at all, which dispatch declines before it reaches
+      // the gate. Check for it separately — Set.of(...).contains(null) throws.
+      var recogniser = recognisers.get(step.getClass());
+      if (recogniser == null || !POST_UNION_RECOGNISERS.contains(recogniser)) {
+        return false;
+      }
+    }
   }
 
   /**

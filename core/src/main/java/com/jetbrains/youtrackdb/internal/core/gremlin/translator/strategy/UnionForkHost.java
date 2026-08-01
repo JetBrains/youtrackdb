@@ -23,6 +23,16 @@ interface UnionForkHost {
   List<Step<?, ?>> recognisedPrefixSteps();
 
   /**
+   * Whether every step after the just-consumed {@code UnionStep} is one the walker will still claim
+   * once a multi-plan carrier is on the context. {@code true} when nothing follows the union.
+   *
+   * <p>The recogniser asks this before forking: a suffix the walker refuses declines the whole
+   * traversal anyway, and finding that out first avoids running one full child sub-walk per union
+   * arm only to throw the results away.
+   */
+  boolean postUnionSuffixTranslatable();
+
+  /**
    * Builds a fresh traversal from the recognised prefix plus {@code childSuffix} (caller has already
    * stripped trailing {@code EndStep}s), attaches the parent walk's graph and strategies privately,
    * and runs a full production walk. Returns {@code null} when the fork declines.

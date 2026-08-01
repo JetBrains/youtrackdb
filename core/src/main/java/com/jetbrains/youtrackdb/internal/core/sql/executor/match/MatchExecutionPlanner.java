@@ -633,18 +633,23 @@ public class MatchExecutionPlanner {
             .collect(Collectors.toSet());
 
     // Short-circuit: if any non-optional alias has zero estimated records, the query
-    // is guaranteed to produce no results. Exception: bare RETURN count(*) (no GROUP BY)
-    // must still emit a single 0 row — same SQL semantics as SELECT count(*) — so skip
-    // the EmptyStep early-return and let handleProjectionsBlock attach
-    // GuaranteeEmptyCountStep. Without this, a filtered MATCH count on an empty-but-existing
-    // class (estimatedRootEntries == 0) returns zero rows instead of {count: 0}, which breaks
-    // Gremlin g.V().has(...).count().next() after a rolled-back addV that left the class behind.
-    if (!isBareCountStarWithoutGroupBy()) {
-      for (var entry : estimatedRootEntries.entrySet()) {
-        if (entry.getValue() == 0L && !isOptional(entry.getKey())) {
-          result.chain(new EmptyStep(context, enableProfiling));
-          return result;
+    // is guaranteed to produce no results, so skip pattern scheduling and return an empty plan.
+    //
+    // Bare RETURN count(*) (no GROUP BY) still exits here, but not empty-handed: SQL semantics
+    // require a single 0 row (same as SELECT count(*)), so the projection block goes on top of
+    // the EmptyStep and its GuaranteeEmptyCountStep synthesises that row. Returning the bare
+    // EmptyStep made a filtered MATCH count on an empty-but-existing class emit zero rows
+    // instead of {count: 0}, which broke Gremlin g.V().has(...).count().next() after a
+    // rolled-back addV left the class behind; letting the count shape fall through to full
+    // planning fixed that but gave up the O(1) exit, which bites on a disjoint pattern where
+    // CartesianProductStep restarts the empty sub-plan once per row of the other side.
+    for (var entry : estimatedRootEntries.entrySet()) {
+      if (entry.getValue() == 0L && !isOptional(entry.getKey())) {
+        result.chain(new EmptyStep(context, enableProfiling));
+        if (isBareCountStarWithoutGroupBy()) {
+          appendCustomReturnProjection(result, context, enableProfiling);
         }
+        return result;
       }
     }
 
@@ -720,32 +725,7 @@ public class MatchExecutionPlanner {
         result.chain(new LimitExecutionStep(limit, context, enableProfiling));
       }
     } else {
-      // Custom RETURN expressions — delegate to the SELECT planner for projection,
-      // GROUP BY, ORDER BY, UNWIND, SKIP, LIMIT handling
-      var info = new QueryPlanningInfo();
-      List<SQLProjectionItem> items = new ArrayList<>();
-      for (var i = 0; i < this.returnItems.size(); i++) {
-        var item =
-            new SQLProjectionItem(
-                returnItems.get(i), this.returnAliases.get(i), returnNestedProjections.get(i));
-        items.add(item);
-      }
-      info.projection = new SQLProjection(items, returnDistinct);
-
-      info.projection = SelectExecutionPlanner.translateDistinct(info.projection);
-      info.distinct = info.projection != null && info.projection.isDistinct();
-      if (info.projection != null) {
-        info.projection.setDistinct(false);
-      }
-
-      info.groupBy = this.groupBy;
-      info.orderBy = this.orderBy;
-      info.unwind = this.unwind;
-      info.skip = this.skip;
-      info.limit = this.limit;
-
-      SelectExecutionPlanner.optimizeQuery(info, context);
-      SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+      appendCustomReturnProjection(result, context, enableProfiling);
     }
 
     // --- Store the assembled plan in the cache for future reuse ---
@@ -761,12 +741,59 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Appends the projection pipeline for custom RETURN expressions — projection, GROUP BY, ORDER BY,
+   * UNWIND, SKIP, LIMIT — by delegating to the SELECT planner. Shared by the normal end of planning
+   * and by the zero-estimate short-circuit, which needs the identical pipeline (specifically its
+   * {@link GuaranteeEmptyCountStep}) on top of an {@link EmptyStep} so a bare {@code count(*)} over
+   * nothing still answers {@code 0}.
+   */
+  private void appendCustomReturnProjection(
+      SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
+    var info = new QueryPlanningInfo();
+    List<SQLProjectionItem> items = new ArrayList<>();
+    for (var i = 0; i < this.returnItems.size(); i++) {
+      var item =
+          new SQLProjectionItem(
+              returnItems.get(i), this.returnAliases.get(i), returnNestedProjections.get(i));
+      items.add(item);
+    }
+    info.projection = new SQLProjection(items, returnDistinct);
+
+    info.projection = SelectExecutionPlanner.translateDistinct(info.projection);
+    info.distinct = info.projection != null && info.projection.isDistinct();
+    if (info.projection != null) {
+      info.projection.setDistinct(false);
+    }
+
+    info.groupBy = this.groupBy;
+    info.orderBy = this.orderBy;
+    info.unwind = this.unwind;
+    info.skip = this.skip;
+    info.limit = this.limit;
+
+    SelectExecutionPlanner.optimizeQuery(info, context);
+    SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+  }
+
+  /**
    * {@code true} when RETURN is a bare {@code count(*)} with no GROUP BY — the shape that must emit
    * a synthetic 0 row on empty input ({@link GuaranteeEmptyCountStep}), so the zero-estimate
-   * {@link EmptyStep} short-circuit must not fire.
+   * {@link EmptyStep} short-circuit must carry the projection pipeline with it rather than return
+   * an empty plan.
    */
   private boolean isBareCountStarWithoutGroupBy() {
-    if (groupBy != null || returnItems == null || returnItems.size() != 1) {
+    return groupBy == null && isCountStarReturn();
+  }
+
+  /**
+   * {@code true} when RETURN is exactly one bare {@code count(*)} item. Both the empty-count
+   * guarantee ({@link #isBareCountStarWithoutGroupBy}) and the class-size short-circuit ({@link
+   * #tryHardwiredMatchCount}) turn on this shape, and one deciding it differently from the other is
+   * what let a filtered count on an empty class return no row at all — so the literal lives here
+   * once.
+   */
+  private boolean isCountStarReturn() {
+    if (returnItems == null || returnItems.size() != 1) {
       return false;
     }
     return "count(*)".equalsIgnoreCase(returnItems.getFirst().toString().trim());
@@ -782,10 +809,7 @@ public class MatchExecutionPlanner {
    */
   private boolean tryHardwiredMatchCount(
       SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
-    if (returnItems == null || returnItems.size() != 1) {
-      return false;
-    }
-    if (!"count(*)".equalsIgnoreCase(returnItems.getFirst().toString().trim())) {
+    if (!isCountStarReturn()) {
       return false;
     }
     if (returnDistinct
