@@ -1401,6 +1401,30 @@ public enum GlobalConfiguration {
       Double.class,
       100.0,
       true),
+
+  // ---- MATCH chain-fold cost-model configuration ----
+
+  QUERY_MATCH_CHAIN_FOLD_MAX_HOPS(
+      "youtrackdb.query.match.chainFold.maxHops",
+      "Maximum chain depth for the cost-fold during MATCH plan optimization."
+          + " The fold propagates downstream WHERE selectivities and edge"
+          + " fan-outs into the first edge's cost so that the planner sorts"
+          + " competing branches by their full chain selectivity, not just"
+          + " the single-hop leading edge. A linear-chain walk terminates"
+          + " naturally at branch points or visited nodes, so this knob is"
+          + " a defense-in-depth cap rather than the typical bound. The"
+          + " default (10) matches the planner's WHILE-depth default and"
+          + " covers the chain depths real queries reach; raise it for unusually"
+          + " deep linear MATCH patterns. Set to 1 to restrict the fold to"
+          + " the immediate downstream vertex; note that 1 still folds that"
+          + " vertex, so only 0 restores the schedule the planner produced"
+          + " before the fold existed. Set to 0"
+          + " to disable the fold entirely (rollback-only safety valve)."
+          + " Read once per plan construction, so it takes effect on"
+          + " restart like every other setting here.",
+      Integer.class,
+      10,
+      true),
       ;
 
   static {
