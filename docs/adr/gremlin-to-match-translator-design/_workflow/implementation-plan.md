@@ -543,7 +543,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > keeping only union-recogniser registration on `GremlinToMatchStrategy`. No
   > scope, dependency, or ordering change to Tracks 8–9.
 
-- [ ] Track 8: Union via `MultiPlanMatchStep`
+- [x] Track 8: Union via `MultiPlanMatchStep`
   > Adds `union(...)` (D8): a `UnionStepRecogniser` that forks the traversal
   > prefix into each global child, strips the child `EndStep`, and builds one
   > full `SelectExecutionPlan` per child; and a `MultiPlanMatchStep` (subclass of
@@ -553,11 +553,22 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > child exception. All children must agree on output type or the union declines
   > whole; start-position union declines under the vertex-`GraphStep` start gate.
   > Pins the union plan-cache policy. Detail in plan/track-8.md.
-  > **Scope:** ~10–14 files covering `UnionStepRecogniser`, `MultiPlanMatchStep`,
-  > the prefix-fork + `EndStep`-strip + child→`SelectExecutionPlan` path in the
-  > walker / translator, the cache-policy pin, and concatenation / lifecycle /
-  > leak / exception-stops-advance tests.
-  > **Depends on:** Track 7.
+  >
+  > **Track episode:** delivered as planned, plus a post-concatenation pipeline
+  > for `count` / `limit` / `dedup` (`PostConcatStreams`) and per-child plan-cache
+  > reuse with the carrier itself uncached (DR-U5). 38 files, 5,814 insertions —
+  > past the ~4,000-line review-burden threshold, recorded as a retroactive-split
+  > signal for future planning. Phase C ran three iterations over 42 findings: 30
+  > cleared, zero blockers and zero should-fix remaining, twelve suggestions
+  > carried forward. Both blockers were silent-wrong-results defects originating
+  > in unrostered follow-up commits that never received a step-level review. The
+  > first blocker's fix introduced a performance regression (the post-union gate
+  > landed after the child fork); the gate check caught it and the repair moved
+  > the check ahead of the fork, leaving the decline path cheaper than before.
+  > DR-U7 records the accepted constant-factor cost on non-polymorphic bare
+  > `count()`. The coverage gate was not run in any iteration — see the track
+  > file for the reasoning and the resulting unmeasured thresholds. Full detail
+  > in plan/track-8.md.
 
 - [ ] Track 10: Query-metrics regression remediation — restore a green `core` unit-test run
   > **Runs before Track 9** despite the higher number (inline replan, 2026-08-01).
