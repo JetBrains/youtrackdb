@@ -22,8 +22,12 @@ matching the behaviour already in place for the equivalent
 single-step pattern `.out('X'){where: …}`.
 
 The fold is enabled by default (`QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 10`),
-clamped to `[0, 1000]`. Operators can downgrade to legacy single-hop
-behaviour with `= 1` or disable the fold entirely with `= 0`.
+clamped to `[0, 1000]`. Setting `= 1` restricts the fold to the first
+hop's downstream vertex; `= 0` skips `applyChainFold` altogether and is
+the only value that restores the schedule the planner produced before the
+fold existed. Both take effect
+at plan-construction time only — see the plan-cache caveat under
+Rollback.
 
 ## Goals
 
@@ -35,9 +39,9 @@ behaviour with `= 1` or disable the fold entirely with `= 0`.
   identical before and after the fold; only `EXPLAIN` ordering
   changes.
 - Keep the change strictly additive: the pattern graph, parser, and
-  `MatchStep` pipeline are untouched; the fold can be disabled at
-  runtime via `QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 0` for emergency
-  rollback without a code change.
+  `MatchStep` pipeline are untouched; the fold can be disabled via
+  `QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 0` for emergency rollback without
+  a code change.
 - Cover the three direction variants (`outE→inV`, `inE→outV`,
   `bothE→bothV`) and stay correct under user-named intermediate
   aliases with their own `WHERE` (independence multiplication).
@@ -197,10 +201,11 @@ flowchart LR
   filter against the wrong alias.
 - **Outcome:** Implemented in `detectChainShape` with five clauses
   (item null-check; first-method whitelist `outE` / `inE` / `bothE`;
-  `neighbor.out.size() == 1` not visited; `neighbor.in.size() == 1`
-  identity-equal to `edge`; second-method whitelist `inV` / `outV` /
-  `bothV`). `resolveChainedTarget` adds the dynamic visited-edge
-  check on top.
+  `neighbor.out.size() == 1`; `neighbor.in.size() == 1` identity-equal
+  to `edge`; second-method whitelist `inV` / `outV` / `bothV`). All
+  five are structural, which is what makes the result cacheable. The
+  dynamic visited-edge check is separate — `chainVertexStepVisited`,
+  applied on top by `applyChainFold` and `resolveChainedTarget`.
 - **Risks:** New edge-traversal methods that should also be
   chain-aware (e.g. a hypothetical `outE().filter(…).inV()`) would
   require widening the whitelist. The rule lives in one helper, so
@@ -364,6 +369,16 @@ flowchart LR
   `QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 0` — the sort-loop call site's
   `chainFoldMaxHops >= 1` gate skips `applyChainFold` entirely.
   This is the production rollback path.
+- **Plan-cache caveat.** The knob is read once per plan construction,
+  and `YqlExecutionPlanCache` keys on statement text and invalidates
+  only on schema, index, function, sequence and storage-configuration
+  updates. A `GlobalConfiguration` write therefore does not re-plan
+  statements already in the cache: hot queries keep their old schedule
+  until an eviction. An operator rolling back with `= 0` needs a cache
+  eviction — any schema change, or a restart — for the change to reach
+  queries already running. `MatchEdgeMethodChainCostTest`'s
+  `setChainFoldMaxHops` helper evicts explicitly for this reason, and
+  its Javadoc is the in-repo record of the constraint.
 
 ### Integration Points
 

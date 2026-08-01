@@ -1414,11 +1414,15 @@ public enum GlobalConfiguration {
           + " naturally at branch points or visited nodes, so this knob is"
           + " a defense-in-depth cap rather than the typical bound. The"
           + " default (10) matches the planner's WHILE-depth default and"
-          + " covers all realistic LDBC SNB queries; raise it for unusually"
+          + " covers the chain depths real queries reach; raise it for unusually"
           + " deep linear MATCH patterns. Set to 1 to restrict the fold to"
-          + " the immediate downstream vertex (legacy single-hop behaviour)."
-          + " Set to 0 to disable the fold entirely (rollback-only safety"
-          + " valve).",
+          + " the immediate downstream vertex; note that 1 still folds that"
+          + " vertex, so only 0 restores the schedule the planner produced"
+          + " before the fold existed. Set to 0"
+          + " to disable the fold entirely (rollback-only safety valve)."
+          + " Read once per plan construction: statements already in the"
+          + " execution-plan cache keep their existing schedule until the"
+          + " cache is evicted (any schema change, or a restart).",
       Integer.class,
       10,
       true),

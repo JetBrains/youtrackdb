@@ -26,8 +26,8 @@ The implementation went through two layers:
    filter into the running cost. Bounded by
    `QUERY_MATCH_CHAIN_FOLD_MAX_HOPS` (default 10, hard-capped at 1000)
    plus a per-plan structural cache. Set the knob to 1 to restrict the
-   fold to single-hop behaviour, or 0 to disable it entirely (rollback
-   safety valve).
+   fold to the first hop's downstream vertex, or 0 to disable it entirely.
+   Only 0 is a true rollback; 1 still folds that first vertex.
 
 The fold lives entirely inside the planner sort loop. No
 `Pattern.addExpression` change, no `MatchStep` change, no
@@ -375,16 +375,17 @@ a terminal downstream vertex pays no allocation cost.
 Two layers gate the fold:
 
 - The sort-loop call site skips `applyChainFold` entirely when
-  `chainFoldMaxHops < 1` — full rollback to pre-YTDB-643 behaviour with
-  zero allocations and zero method calls past the gate.
+  `chainFoldMaxHops < 1`, reproducing the schedule the planner produced
+  before the fold existed, with zero allocations and zero method calls
+  past the gate.
 - Inside `applyChainFold`, the `maxHops <= 1` short-circuit returns after
-  the first-hop fold without entering the multi-hop walk — restricts
-  the fold to legacy single-hop behaviour while keeping the cache and
-  call infrastructure live.
+  the first-hop fold without entering the multi-hop walk. This confines
+  the fold to one hop while keeping the cache and call infrastructure
+  live.
 
-Both gates are intentional defense-in-depth: the inner gate alone
-yields single-hop legacy semantics for `maxHops == 1`, while the outer
-gate is the only one that disables the fold completely.
+Both gates are deliberate defense-in-depth: at `maxHops == 1` the inner
+gate alone confines the fold to one hop, while the outer gate is the only
+one that switches it off completely.
 
 ## Per-Plan Structural Cache
 
@@ -422,7 +423,20 @@ Collapsing `outE('X').inV()` into a single `PatternEdge` during
 
 Aggregation at sort time is strictly additive: remove the call-site
 gate (`chainFoldMaxHops >= 1`) and the planner falls back to today's
-behaviour. The knob's `0` value is the production rollback path.
+behaviour. The knob's `0` value is the production rollback path, subject
+to the plan-cache caveat below.
+
+### Plan-Cache Caveat
+
+The knob is read once per plan construction. `YqlExecutionPlanCache` keys
+on statement text and invalidates on schema, index, function, sequence and
+storage-configuration updates — never on a `GlobalConfiguration` write. A
+knob change therefore does not re-plan statements already in the cache, so
+an operator rolling back with `= 0` needs a cache eviction (any schema
+change, or a restart) before hot queries pick it up. The integration
+tests hit the same constraint: `setChainFoldMaxHops` evicts explicitly,
+because without it a second query under a new knob value gets the first
+value's plan handed straight back.
 
 ## Handling the Recursive DFS Pass on the Intermediate Alias
 
@@ -487,7 +501,11 @@ scenarios, including:
 - visited-neighbor zero-cost path (fold is skipped, join semantics
   preserved);
 - multi-hop chain ordering (selectivity hidden two hops in);
-- knob `= 1` downgrades to legacy single-hop behaviour;
+- knob `= 1` confines the fold to the first hop, with a default-knob
+  positive control on the same graph so the assertion cannot pass against
+  a fold that never fires;
+- a three-hop chain pinning both sides of the `maxHops` truncation
+  boundary (`2` too few, `3` exactly enough);
 - multi-hop intermediate edge alias filter folding through the
   walk;
 - pathological knob values (`Integer.MAX_VALUE` clamps,

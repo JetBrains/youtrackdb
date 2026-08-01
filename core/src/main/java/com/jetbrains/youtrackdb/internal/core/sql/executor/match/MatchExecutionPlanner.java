@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -2172,6 +2171,28 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Test seam: resets the warn-dedupe state to its initial sentinel so a test
+   * that exercises {@link #clampChainFoldMaxHops}' upper-bound branch starts
+   * from a known state. The field is a static that outlives any single plan,
+   * so without this reset the dedupe outcome would depend on which test ran
+   * first in the JVM.
+   */
+  static void resetChainFoldWarnState() {
+    lastWarnedChainFoldKnob.set(0);
+  }
+
+  /**
+   * Test seam: the out-of-range knob value that owned the most recent
+   * upper-bound clamp warning, or {@code 0} when none has been emitted since
+   * the last {@link #resetChainFoldWarnState}. Reading it lets a test assert
+   * the dedupe state machine directly — the test log backend is
+   * {@code slf4j-nop}, so the WARN itself is not observable.
+   */
+  static int lastWarnedChainFoldKnobValue() {
+    return lastWarnedChainFoldKnob.get();
+  }
+
+  /**
    * Start a depth-first traversal from the starting node, adding all viable unscheduled edges and
    * vertices.
    *
@@ -2805,18 +2826,14 @@ public class MatchExecutionPlanner {
       return 1.0;
     }
 
-    long classCount;
-    if (classCountCache != null) {
-      Long cached = classCountCache.get(targetClass);
-      if (cached != null) {
-        classCount = cached;
-      } else {
-        classCount = schemaClass.approximateCount(session);
-        classCountCache.put(targetClass, classCount);
-      }
-    } else {
-      classCount = schemaClass.approximateCount(session);
-    }
+    // Same memo idiom as EdgeFanOutEstimator.countFor, so both writers into
+    // the shared classCountCache are read the same way. targetClass is the
+    // canonical schema name here: getClassInternal above returned non-null,
+    // and ImmutableSchema keys its class map by the exact declared name.
+    long classCount = classCountCache != null
+        ? classCountCache.computeIfAbsent(
+            targetClass, k -> schemaClass.approximateCount(session))
+        : schemaClass.approximateCount(session);
     if (classCount <= 0) {
       return 1.0;
     }
@@ -3077,8 +3094,14 @@ public class MatchExecutionPlanner {
    * would let a cached reverse {@code null} poison the forward lookup (and vice
    * versa); the {@code neighborIsIn} flag keeps the two directions distinct,
    * and a {@code null} result stays cached per (edge, direction).
+   *
+   * <p>Package-visible so a test can build a shared cache and assert that the
+   * two directions of one edge occupy separate entries. Keyed on
+   * {@link PatternEdge} identity: the class declares no
+   * {@code equals}/{@code hashCode}, and two distinct edges of the same shape
+   * must not share a cache slot.
    */
-  private record ChainShapeKey(PatternEdge edge, boolean neighborIsIn) {
+  record ChainShapeKey(PatternEdge edge, boolean neighborIsIn) {
   }
 
   /**
@@ -3140,13 +3163,12 @@ public class MatchExecutionPlanner {
    *          unit tests exercise those guards directly. Production folds go
    *          through {@link #applyChainFold} / {@link #lookupOrDetectChainShape}.
    */
-  @VisibleForTesting
   @Nullable static ChainedTarget resolveChainedTarget(
       PatternEdge edge,
       PatternNode neighbor,
       Set<PatternEdge> visitedEdges,
       @Nullable Map<String, String> aliasClasses,
-      DatabaseSessionEmbedded session) {
+      @Nullable DatabaseSessionEmbedded session) {
     // Route through the cached path (with a throwaway per-call cache) so the
     // test seam exercises the exact structural detection the sort loop uses,
     // then apply the shared dynamic visited-edge rule.
@@ -3191,7 +3213,7 @@ public class MatchExecutionPlanner {
       PatternEdge edge,
       PatternNode neighbor,
       @Nullable Map<String, String> aliasClasses,
-      DatabaseSessionEmbedded session) {
+      @Nullable DatabaseSessionEmbedded session) {
     if (edge.item == null || edge.item.getMethod() == null) {
       return null;
     }
@@ -3364,14 +3386,14 @@ public class MatchExecutionPlanner {
    * downstream vertex's WHERE.
    *
    * <p>{@code maxHops} caps the total number of (edge, vertex) sub-chains
-   * folded. Two layers gate the knob: the sort-loop call site skips
-   * {@code applyChainFold} entirely when {@code chainFoldMaxHops < 1} (full
-   * rollback to pre-YTDB-643 behaviour, no allocations), and the inner
-   * {@code maxHops <= 1} short-circuit here returns after the single-hop
-   * fold without entering the multi-hop walk. Either layer alone restricts
-   * the fold to legacy single-hop behaviour for {@code maxHops == 1}; the
-   * outer layer is the only one that can disable the fold completely. Both
-   * layers are intentional defense-in-depth: callers may rely on either.
+   * folded. Two layers gate it. The sort-loop call site skips
+   * {@code applyChainFold} entirely when {@code chainFoldMaxHops < 1},
+   * reproducing the schedule the planner produced before the fold existed
+   * and allocating nothing. The {@code maxHops <= 1} short-circuit below
+   * returns after the first hop's fold without entering the multi-hop walk.
+   * At {@code maxHops == 1} either layer alone confines the fold to one hop;
+   * only the outer layer can switch it off completely. Both are deliberate
+   * defense-in-depth, so a caller may rely on either.
    *
    * <p>{@code chainShapeCache} memoizes the structural part of the chain
    * detection per (first-edge, neighbor-direction) key, so repeat sort-loop
@@ -3498,16 +3520,21 @@ public class MatchExecutionPlanner {
    *
    * @return list of additional hops (may be empty); each hop is one
    *         (edge step, vertex step) sub-chain
+   * @apiNote Package-visible so unit tests can drive the walk directly. Its
+   *          four break conditions (branch point, back-edge into
+   *          {@code initialVisitedEdges}, loop back into {@code chainEdges},
+   *          non-chain continuation) and the {@code remainingHops} cap are
+   *          each reachable from a synthesised pattern graph but not from
+   *          every MATCH query.
    */
-  // NOTE: accepted PF-residual risk. This walk only enumerates the chain's
-  // structural hops (memoized via chainShapeCache + classCountCache); it does
-  // NOT itself call estimateFilterSelectivity. The caller (applyChainFold)
-  // applies per-hop WHERE selectivity, and estimateFilterSelectivity performs
-  // uncached index/histogram lookups. At QUERY_MATCH_CHAIN_FOLD_MAX_HOPS ≈ 1000
-  // with hundreds of filtered chained hops this degrades to O(N^2) per plan.
-  // It is bounded and harmless at the default knob (10) — the realistic worst
-  // case stays under ~30 hops — so no per-hop selectivity cache is added here.
-  private static List<ChainHop> walkLinearChainExtension(
+  // Known and accepted cost: this walk enumerates only structural hops, and
+  // both of its lookups are memoized. Per-hop WHERE selectivity is applied by
+  // the caller through estimateFilterSelectivity, which does uncached
+  // index/histogram reads. A chain of N filtered hops therefore costs O(N^2)
+  // per plan. At the maximum knob (1000) with hundreds of filtered hops that
+  // would matter; at the default (10), where the realistic worst case stays
+  // under ~30 hops, it does not, so there is no per-hop selectivity cache.
+  static List<ChainHop> walkLinearChainExtension(
       PatternNode currentVertex,
       @Nullable String currentVertexClass,
       int remainingHops,
@@ -3595,8 +3622,13 @@ public class MatchExecutionPlanner {
    * {@code edge} alone: {@link #detectChainShape}'s answer depends on which
    * side of the edge the neighbor sits, so a {@code null} cached for one
    * direction must not be returned for (or poison) the opposite direction.
+   *
+   * @apiNote Package-visible test seam. Production callers ({@link #applyChainFold},
+   *          {@link #walkLinearChainExtension}) always pass the per-plan cache
+   *          allocated in {@link #getTopologicalSortedSchedule}; tests pass their
+   *          own map so they can inspect what was memoized under which key.
    */
-  @Nullable private static ChainedTarget lookupOrDetectChainShape(
+  @Nullable static ChainedTarget lookupOrDetectChainShape(
       PatternEdge edge,
       PatternNode neighbor,
       @Nullable Map<String, String> aliasClasses,

@@ -7,6 +7,9 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -31,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,19 +46,24 @@ import org.junit.Test;
 /**
  * Mutation-killing tests for {@link MatchExecutionPlanner}.
  *
- * <p>Targets surviving pitest mutations in:
+ * <p>Each test states the specific code change it would catch, so a reader can
+ * tell whether a refactor has invalidated the test or merely moved it. Covered
+ * behaviours:
  * <ul>
- *   <li>{@code extractEdgeClassName} — L1153 ({@code instanceof String}) and
- *       L1170 (quote-stripping condition)</li>
- *   <li>{@code estimateEdgeCost} — L1092-L1102 (null guards on schema/edge
- *       class/properties) and L1111 (swapped outVertexClass/inVertexClass
- *       parameters in the {@code estimateFanOut} call)</li>
+ *   <li>{@code extractEdgeClassName} — the {@code instanceof String} branch and
+ *       the quote-stripping condition</li>
+ *   <li>{@code estimateEdgeCost} — the null guards on schema, edge class and
+ *       endpoint properties, and the endpoint-class argument order in the
+ *       {@code estimateFanOut} call</li>
+ *   <li>the chain fold — structural detection, class-inference precedence, the
+ *       two per-plan memos, the multi-hop walk's termination conditions, and
+ *       the knob clamp</li>
  * </ul>
  *
- * <p>The scheduling/traversal mutations (L871-L1015) are deeply coupled to the
- * pattern graph infrastructure ({@link Pattern}, {@link PatternNode},
- * {@link PatternEdge}, visited-set tracking) and would require full integration
- * test setup. They are noted but not covered here.
+ * <p>Scheduling and traversal are not covered here: they are coupled to the
+ * pattern graph ({@link Pattern}, {@link PatternNode}, {@link PatternEdge},
+ * visited-set tracking) tightly enough to need a live database, which the
+ * end-to-end chain-cost tests provide instead.
  */
 public class MatchExecutionPlannerMutationTest {
 
@@ -70,12 +79,16 @@ public class MatchExecutionPlannerMutationTest {
     var metadata = mock(MetadataDefault.class);
     when(db.getMetadata()).thenReturn(metadata);
     when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    // clampChainFoldMaxHops dedupes its WARN against a static field that
+    // outlives any single test. Reset it so the clamp tests below observe a
+    // known starting state regardless of which test ran first in this JVM.
+    MatchExecutionPlanner.resetChainFoldWarnState();
   }
 
-  // ── extractEdgeClassName: L1153 — instanceof String must be exercised ──
+  // ── extractEdgeClassName — instanceof String must be exercised ──
 
   /**
-   * Kills L1153: "value instanceof String s" replaced with false.
+   * Kills: "value instanceof String s" replaced with false.
    *
    * <p>Uses a real SQLExpression built via SQLMatchPathItem.outPath so that
    * execute() returns a String ("Knows"). The toString() fallback would also
@@ -137,7 +150,7 @@ public class MatchExecutionPlannerMutationTest {
 
   /**
    * When execute() throws CommandExecutionException, the code must fall
-   * through to the toString path. Combined with L1153: if instanceof is
+   * through to the toString path. If instanceof is
    * replaced with false AND execute throws, behavior stays the same — but
    * this test ensures the exception path itself works correctly.
    */
@@ -157,10 +170,10 @@ public class MatchExecutionPlannerMutationTest {
         MatchExecutionPlanner.extractEdgeClassName(method));
   }
 
-  // ── extractEdgeClassName: L1170 — quote-stripping condition ──
+  // ── extractEdgeClassName — quote-stripping condition ──
 
   /**
-   * Kills L1170: quote-stripping condition replaced with false.
+   * Kills: quote-stripping condition replaced with false.
    *
    * <p>When execute() returns null (not a String) and the raw string is
    * double-quoted, stripping must produce the inner value. If the condition
@@ -216,10 +229,10 @@ public class MatchExecutionPlannerMutationTest {
         MatchExecutionPlanner.extractEdgeClassName(method));
   }
 
-  // ── estimateEdgeCost: L1092 — edgeClassName != null ──
+  // ── estimateEdgeCost — edgeClassName != null ──
 
   /**
-   * Kills L1092: "edgeClassName != null" replaced with true.
+   * Kills: "edgeClassName != null" replaced with true.
    *
    * <p>When edgeClassName is null, the schema lookup block should be skipped
    * entirely, so outVertexClass and inVertexClass stay null. For BOTH
@@ -246,10 +259,10 @@ public class MatchExecutionPlannerMutationTest {
     assertEquals(expected, cost, DELTA);
   }
 
-  // ── estimateEdgeCost: L1094 — schema != null ──
+  // ── estimateEdgeCost — schema != null ──
 
   /**
-   * Kills L1094: "schema != null" replaced with false.
+   * Kills: "schema != null" replaced with false.
    *
    * <p>When schema is null, the method should skip the schema block and use
    * default fan-out. If the condition is replaced with false, the method
@@ -272,10 +285,10 @@ public class MatchExecutionPlannerMutationTest {
     assertEquals(expected, cost, DELTA);
   }
 
-  // ── estimateEdgeCost: L1096 — edgeClass != null ──
+  // ── estimateEdgeCost — edgeClass != null ──
 
   /**
-   * Kills L1096: "edgeClass != null" replaced with false.
+   * Kills: "edgeClass != null" replaced with false.
    *
    * <p>When schema returns null for the edge class, the method should skip
    * property lookup and use default fan-out. Verified by exact cost equality.
@@ -294,10 +307,10 @@ public class MatchExecutionPlannerMutationTest {
     assertEquals(expected, cost, DELTA);
   }
 
-  // ── estimateEdgeCost: L1098 — outProp != null && outProp.getLinkedClass() != null ──
+  // ── estimateEdgeCost — outProp != null && outProp.getLinkedClass() != null ──
 
   /**
-   * Kills L1098: "outProp != null && outProp.getLinkedClass() != null"
+   * Kills: "outProp != null && outProp.getLinkedClass() != null"
    * replaced with false.
    *
    * <p>When outProp exists and has a linked class, outVertexClass should be
@@ -331,10 +344,10 @@ public class MatchExecutionPlannerMutationTest {
     assertEquals(expected, cost, DELTA);
   }
 
-  // ── estimateEdgeCost: L1102 — inProp != null && inProp.getLinkedClass() != null ──
+  // ── estimateEdgeCost — inProp != null && inProp.getLinkedClass() != null ──
 
   /**
-   * Kills L1102: "inProp != null && inProp.getLinkedClass() != null"
+   * Kills: "inProp != null && inProp.getLinkedClass() != null"
    * replaced with false.
    *
    * <p>When inProp exists and has a linked class, inVertexClass should be
@@ -369,9 +382,9 @@ public class MatchExecutionPlannerMutationTest {
     assertEquals(expected, cost, DELTA);
   }
 
-  // ── estimateEdgeCost: L1111 — swapped outVertexClass/inVertexClass ──
+  // ── estimateEdgeCost — swapped outVertexClass/inVertexClass ──
   //
-  // NOTE: The L1111 mutation (swapping params 5 and 6 in estimateFanOut) is
+  // NOTE: The mutation (swapping params 5 and 6 in estimateFanOut) is
   // effectively unkillable via unit test. The BOTH fan-out formula sums
   // outFanOut + inFanOut, and swapping the params merely swaps which side
   // contributes which value — but addition is commutative. When only one side
@@ -1620,22 +1633,21 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   // =========================================================================
-  // resolveChainedTarget — Step 1: structural detection rule
+  // resolveChainedTarget — the structural detection rule
   //
   // The helper recognises the edge-method chain pattern .outE(X).inV()
   // (and .inE→.outV / .bothE→.bothV variants) when it appears as two
   // consecutive PatternEdges, so the planner's sort loop can fold the
   // downstream vertex's WHERE selectivity into the first edge's cost.
   //
-  // In Step 1 the class field of the returned ChainedTarget is always null
-  // (class inference lands in Step 2). These tests exercise the structural
-  // rule in isolation.
+  // These exercise the structural rule in isolation, without alias classes,
+  // so the returned ChainedTarget always carries a null class. The
+  // class-inference section below covers the class field.
   // =========================================================================
 
   /**
    * When {@code edge.item} is null, the helper returns empty. Mirrors the
-   * null-guard of existing callers ({@code estimateEdgeCost} at :2297,
-   * {@code resolveTargetClass} at :2523) so the helper does not NPE on
+   * null-guard of existing callers ({@code estimateEdgeCost} and {@code resolveTargetClass}) so the helper does not NPE on
    * synthesised patterns.
    */
   @Test
@@ -2083,11 +2095,11 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   // =========================================================================
-  // resolveChainedTarget — Step 2: class-inference precedence
+  // resolveChainedTarget — class-inference precedence
   //
   // Precedence rule:
   //   1. aliasClasses.get(effectiveTargetAlias) — the pre-populated path
-  //      for outE→inV / inE→outV (addAliases at :4518) and the only path
+  //      for outE→inV / inE→outV (pre-populated by addAliases) and the only path
   //      for bothE→bothV when the user wrote {class: ...}.
   //   2. Derived from the first edge's class + direction:
   //      outE → edgeClass.in.linkedClass
@@ -3023,5 +3035,499 @@ public class MatchExecutionPlannerMutationTest {
     assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(1001));
     assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(100_000));
     assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(Integer.MAX_VALUE));
+  }
+
+  // =========================================================================
+  // clampChainFoldMaxHops — warn dedupe state machine
+  //
+  // The WARN itself is unobservable (tests run on slf4j-nop), so these
+  // assert the dedupe decision through lastWarnedChainFoldKnobValue(): the
+  // field holds the value that owned the most recent warning, and
+  // clampChainFoldMaxHops stays silent when the incoming value already
+  // matches it.
+  // =========================================================================
+
+  /**
+   * The first out-of-range value takes ownership of the warning, recorded by
+   * the field moving off its zero sentinel. Kills a mutation that drops the
+   * {@code getAndSet} and never records the value, which would make every
+   * subsequent plan re-warn.
+   */
+  @Test
+  public void clampChainFoldMaxHops_firstOutOfRangeValue_takesWarnOwnership() {
+    assertEquals(0, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+
+    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+  }
+
+  /**
+   * Repeating one out-of-range value leaves the recorded value unchanged, so
+   * the second call observes {@code previous == raw} and stays silent. This
+   * is the common case — one misconfigured knob read once per plan across
+   * many queries collapses to a single WARN.
+   */
+  @Test
+  public void clampChainFoldMaxHops_repeatedOutOfRangeValue_staysOwnedByFirst() {
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+
+    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+  }
+
+  /**
+   * Alternating between two out-of-range values re-warns on each change: the
+   * dedupe is last-value, not once-per-distinct-value. Pins the documented
+   * semantics so a future switch to a Set-based "warn once ever" cannot land
+   * silently.
+   */
+  @Test
+  public void clampChainFoldMaxHops_alternatingOutOfRangeValues_rewarnOnChange() {
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+
+    MatchExecutionPlanner.clampChainFoldMaxHops(6000);
+    assertEquals(6000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+  }
+
+  /**
+   * In-range values never touch the warn state, so a knob corrected back
+   * into range leaves the previous owner recorded and does not reset the
+   * dedupe. Kills a mutation that moved {@code getAndSet} outside the
+   * {@code raw > MAX_CHAIN_FOLD_HOPS} branch, which would warn on every
+   * normal plan.
+   */
+  @Test
+  public void clampChainFoldMaxHops_inRangeValues_leaveWarnStateUntouched() {
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+
+    MatchExecutionPlanner.clampChainFoldMaxHops(10);
+    MatchExecutionPlanner.clampChainFoldMaxHops(0);
+    MatchExecutionPlanner.clampChainFoldMaxHops(-100);
+    MatchExecutionPlanner.clampChainFoldMaxHops(1000);
+
+    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+  }
+
+  // =========================================================================
+  // chainShapeCache — structural-detection memo
+  //
+  // lookupOrDetectChainShape memoizes detectChainShape per
+  // (edge, neighbor-direction). Production shares one map across a whole
+  // plan, and the same PatternEdge is evaluated from both of its endpoints
+  // in different recursive updateScheduleStartingAt calls — so the
+  // direction half of the key is load-bearing, not decoration.
+  // =========================================================================
+
+  /**
+   * A repeat lookup on the same (edge, direction) returns the memoized
+   * instance rather than re-running detection. Identity, not equality, is
+   * asserted: two independent detections would produce equal records, so
+   * only {@code isSameAs} distinguishes a cache hit from a recompute.
+   */
+  @Test
+  public void chainShapeCache_repeatLookupReturnsMemoizedInstance() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    var cache = new HashMap<MatchExecutionPlanner.ChainShapeKey,
+        MatchExecutionPlanner.ChainedTarget>();
+
+    var first = MatchExecutionPlanner.lookupOrDetectChainShape(
+        chain.firstEdge(), chain.intermediateNode(), Map.of("tag", "VITag"),
+        db, cache);
+    var second = MatchExecutionPlanner.lookupOrDetectChainShape(
+        chain.firstEdge(), chain.intermediateNode(), Map.of("tag", "VITag"),
+        db, cache);
+
+    assertThat(first).isEqualTo(
+        new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
+    assertThat(second).isSameAs(first);
+    assertThat(cache).hasSize(1);
+  }
+
+  /**
+   * A known-not-chain edge caches its {@code null} answer. Pins the
+   * {@code containsKey}/{@code put} pair against a refactor to
+   * {@code computeIfAbsent}, which cannot store null and would re-run
+   * detection for every rejected edge — the common case in the sort loop,
+   * since most candidate edges are plain {@code .out}/{@code .in} hops.
+   */
+  @Test
+  public void chainShapeCache_negativeResultIsMemoized() {
+    var chain = buildChain("out", "inV", "post", "e", "tag");
+    var cache = new HashMap<MatchExecutionPlanner.ChainShapeKey,
+        MatchExecutionPlanner.ChainedTarget>();
+
+    var result = MatchExecutionPlanner.lookupOrDetectChainShape(
+        chain.firstEdge(), chain.intermediateNode(), Map.of(), db, cache);
+
+    assertThat(result).isNull();
+    var key = new MatchExecutionPlanner.ChainShapeKey(chain.firstEdge(), true);
+    assertThat(cache).containsKey(key);
+    assertThat(cache.get(key)).isNull();
+  }
+
+  /**
+   * The two directions of one edge occupy separate cache entries. Reverse
+   * traversal ({@code neighbor == edge.out}) is rejected structurally and
+   * caches {@code null}; the forward lookup afterwards must still detect the
+   * chain. Kills the mutation that keys the cache on the edge alone, which
+   * would return the reverse direction's cached {@code null} for the forward
+   * lookup and silently disable the fold for every edge the DFS happened to
+   * reach from its {@code in} side first.
+   */
+  @Test
+  public void chainShapeCache_reverseDirectionDoesNotPoisonForward() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    var aliasClasses = Map.of("tag", "VITag");
+    var cache = new HashMap<MatchExecutionPlanner.ChainShapeKey,
+        MatchExecutionPlanner.ChainedTarget>();
+
+    // Reverse first: the sort loop passes edge.out as the neighbor when it
+    // reaches this edge from the other endpoint.
+    var reverse = MatchExecutionPlanner.lookupOrDetectChainShape(
+        chain.firstEdge(), chain.firstEdge().out, aliasClasses, db, cache);
+    assertThat(reverse).isNull();
+
+    var forward = MatchExecutionPlanner.lookupOrDetectChainShape(
+        chain.firstEdge(), chain.intermediateNode(), aliasClasses, db, cache);
+
+    assertThat(forward).isEqualTo(
+        new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
+    assertThat(cache).hasSize(2);
+  }
+
+  /**
+   * Two structurally identical edges must not share a cache slot.
+   * {@link PatternEdge} declares no {@code equals}/{@code hashCode}, so the
+   * key relies on identity; a future value-equality override on PatternEdge
+   * would collapse both edges onto one entry and hand the second edge the
+   * first one's downstream alias.
+   */
+  @Test
+  public void chainShapeCache_identicallyShapedEdgesGetSeparateEntries() {
+    var first = buildChain("outE", "inV", "post", "e1", "tagA");
+    var second = buildChain("outE", "inV", "post", "e2", "tagB");
+    var aliasClasses = Map.of("tagA", "VITag", "tagB", "VITag");
+    var cache = new HashMap<MatchExecutionPlanner.ChainShapeKey,
+        MatchExecutionPlanner.ChainedTarget>();
+
+    var firstShape = MatchExecutionPlanner.lookupOrDetectChainShape(
+        first.firstEdge(), first.intermediateNode(), aliasClasses, db, cache);
+    var secondShape = MatchExecutionPlanner.lookupOrDetectChainShape(
+        second.firstEdge(), second.intermediateNode(), aliasClasses, db, cache);
+
+    assertThat(firstShape.effectiveTargetAlias()).isEqualTo("tagA");
+    assertThat(secondShape.effectiveTargetAlias()).isEqualTo("tagB");
+    assertThat(cache).hasSize(2);
+  }
+
+  // =========================================================================
+  // classCountCache — planner-side selectivity memo
+  //
+  // The estimator's own test covers the fan-out writer; these cover the
+  // second writer, applyClassSelectivity, reached through
+  // applyTargetSelectivityWithResolvedClass. Both writers share one map per
+  // plan, so they have to agree on keys and on polymorphic-count semantics.
+  // =========================================================================
+
+  /**
+   * The cache-aware overload returns exactly what the un-cached overload
+   * returns. Guards the "pure memo" claim: a divergence would mean the same
+   * branch is costed differently depending on whether a cache is in scope.
+   */
+  @Test
+  public void classCountCache_selectivityMatchesUncachedOverload() {
+    registerClass("Tag", 1000);
+
+    double uncached = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), db);
+    double cached = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), new HashMap<>(), db);
+
+    assertEquals(0.5, uncached, DELTA);
+    assertEquals(uncached, cached, 0.0);
+  }
+
+  /**
+   * A seeded entry is read instead of the schema count. Forcing the Tag
+   * count to 500 instead of 1000 doubles the cardinality ratio, so the cost
+   * becomes 500 × (1/500) = 1.0 rather than 0.5 — the only way to tell
+   * "reads the memo" from "ignores it and recomputes".
+   */
+  @Test
+  public void classCountCache_selectivityUsesSeededCount() {
+    var tagClass = registerClass("Tag", 1000);
+
+    Map<String, Long> cache = new HashMap<>();
+    cache.put("Tag", 500L);
+
+    double cost = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), cache, db);
+
+    assertEquals(1.0, cost, DELTA);
+    verify(tagClass, never()).approximateCount(db);
+  }
+
+  /**
+   * A miss populates the map under the canonical class name and a second
+   * call hits it, so one plan reads each class's count once no matter how
+   * many candidate edges target that class.
+   */
+  @Test
+  public void classCountCache_selectivityMissPopulatesThenHits() {
+    var tagClass = registerClass("Tag", 1000);
+
+    Map<String, Long> cache = new HashMap<>();
+    MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), cache, db);
+    MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), cache, db);
+
+    assertThat(cache).containsExactly(entry("Tag", 1000L));
+    verify(tagClass, times(1)).approximateCount(db);
+  }
+
+  /**
+   * The two writers into the shared map agree. The fan-out estimator seeds
+   * "Person" via {@code SchemaClassInternal#getName}, the selectivity helper
+   * reads it back via the caller-supplied class name, and the second read
+   * must be a hit — if the two ever keyed differently (canonical name vs.
+   * caller string) the plan would silently count the same class twice.
+   */
+  @Test
+  public void classCountCache_sharedBetweenFanOutAndSelectivityWriters() {
+    registerClass("Knows", 500);
+    var personClass = registerClass("Person", 100);
+
+    Map<String, Long> cache = new HashMap<>();
+    EdgeFanOutEstimator.estimateFanOut(
+        db, "Knows", "Person",
+        com.jetbrains.youtrackdb.internal.core.db.record.record.Direction.OUT,
+        "Person", "Person", cache);
+    MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "person", "Person", Map.of(), Map.of("person", 1L), cache, db);
+
+    assertEquals(Long.valueOf(100L), cache.get("Person"));
+    verify(personClass, times(1)).approximateCount(db);
+  }
+
+  // =========================================================================
+  // walkLinearChainExtension — multi-hop walk termination
+  //
+  // The walk stops on five conditions: the hop budget, a branch point, a
+  // back-edge into the DFS schedule, a loop back into the walk's own
+  // crossed edges, and a continuation that is not a chain. End-to-end MATCH
+  // queries reach the first two; the rest need a synthesised pattern graph.
+  // =========================================================================
+
+  /**
+   * Walks a linear chain to its natural end when the hop budget allows.
+   * Baseline for the termination tests below — each of those cuts the same
+   * chain short in a different way, and without this they could all pass
+   * against a walk that returns nothing.
+   */
+  @Test
+  public void walkLinearChain_runsToTheEndOfTheChain() {
+    var chain = buildLinearChain(4);
+
+    var hops = walkFrom(chain, 10, Set.of());
+
+    // Sub-chain 1 is the caller's first hop; the walk contributes 2..4.
+    assertThat(hops).hasSize(3);
+    assertThat(hops.get(0).downstreamAlias()).isEqualTo("v2");
+    assertThat(hops.get(2).downstreamAlias()).isEqualTo("v4");
+  }
+
+  /**
+   * The hop budget truncates the walk at exactly {@code remainingHops}
+   * sub-chains even though the graph could continue. Kills an off-by-one in
+   * the {@code hops.size() < remainingHops} bound.
+   */
+  @Test
+  public void walkLinearChain_stopsAtTheHopBudget() {
+    var chain = buildLinearChain(4);
+
+    assertThat(walkFrom(chain, 1, Set.of())).hasSize(1);
+    assertThat(walkFrom(chain, 2, Set.of())).hasSize(2);
+    assertThat(walkFrom(chain, 0, Set.of())).isEmpty();
+    assertThat(walkFrom(chain, -1, Set.of())).isEmpty();
+  }
+
+  /**
+   * A branch point ends the walk: the cost fold has no single continuation
+   * to attribute the downstream selectivity to. The extra edge is added to
+   * v2, so hop 2 is collected and hop 3 is not.
+   */
+  @Test
+  public void walkLinearChain_stopsAtABranchPoint() {
+    var chain = buildLinearChain(4);
+    // v2 now fans out to its own third sub-chain plus an unrelated edge.
+    var extra = new PatternEdge();
+    extra.item = mock(SQLMatchPathItem.class);
+    extra.out = chain.vertices().get(1);
+    extra.in = new PatternNode();
+    chain.vertices().get(1).out.add(extra);
+
+    assertThat(walkFrom(chain, 10, Set.of())).hasSize(1);
+  }
+
+  /**
+   * An edge step already in the DFS schedule ends the walk. Folding across
+   * it would double-count selectivity the scheduled edge already carries in
+   * its own cost.
+   */
+  @Test
+  public void walkLinearChain_stopsOnBackEdgeIntoScheduledEdgeStep() {
+    var chain = buildLinearChain(4);
+    // Third sub-chain's edge step is already scheduled.
+    var visited = Set.of(chain.edgeSteps().get(2));
+
+    assertThat(walkFrom(chain, 10, visited)).hasSize(1);
+  }
+
+  /**
+   * The vertex step of a sub-chain is guarded separately from its edge
+   * step. Here the edge step is fresh but its {@code inV} partner is already
+   * scheduled, which exercises the second of the two two-set checks — a
+   * mutation that dropped it would still pass the edge-step test above.
+   */
+  @Test
+  public void walkLinearChain_stopsOnBackEdgeIntoScheduledVertexStep() {
+    var chain = buildLinearChain(4);
+    var visited = Set.of(chain.vertexSteps().get(2));
+
+    assertThat(walkFrom(chain, 10, visited)).hasSize(1);
+  }
+
+  /**
+   * A chain that loops back onto an edge this walk already crossed ends the
+   * walk. Distinct from the scheduled-edge guard: the DFS-level set is empty
+   * here, so only the walk-local {@code chainEdges} set can stop it.
+   */
+  @Test
+  public void walkLinearChain_stopsWhenTheChainLoopsBackOnItself() {
+    var chain = buildLinearChain(2);
+    // v2's only continuation is the first hop's own edge step, which the
+    // walk seeded into chainEdges before the loop started.
+    chain.vertices().get(1).out.add(chain.edgeSteps().get(0));
+
+    assertThat(walkFrom(chain, 10, Set.of())).hasSize(1);
+  }
+
+  /**
+   * A continuation that is not an edge-method chain ends the walk. The third
+   * sub-chain's vertex step is rewritten to {@code out}, which
+   * detectChainShape rejects.
+   */
+  @Test
+  public void walkLinearChain_stopsOnANonChainContinuation() {
+    var chain = buildLinearChain(4);
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "out");
+    var item = mock(SQLMatchPathItem.class);
+    when(item.getMethod()).thenReturn(method);
+    chain.vertexSteps().get(2).item = item;
+
+    assertThat(walkFrom(chain, 10, Set.of())).hasSize(1);
+  }
+
+  /**
+   * The walk never mutates the caller's DFS state. It tracks its own
+   * crossed edges in a local set precisely so the sort loop's
+   * {@code visitedEdges} stays authoritative for scheduling.
+   */
+  @Test
+  public void walkLinearChain_leavesTheCallersVisitedSetUntouched() {
+    var chain = buildLinearChain(4);
+    Set<PatternEdge> visited = new LinkedHashSet<>();
+    visited.add(chain.edgeSteps().get(0));
+
+    walkFrom(chain, 10, visited);
+
+    assertThat(visited).containsExactly(chain.edgeSteps().get(0));
+  }
+
+  /**
+   * Each hop's fan-out denominator is the previous hop's downstream class,
+   * not the class the walk started from. Kills a mutation that pinned
+   * {@code sourceClass} to the initial value: hop 2 would then divide the
+   * hop-3 edge count by the wrong vertex population and mis-cost every
+   * chain deeper than two hops.
+   */
+  @Test
+  public void walkLinearChain_reseedsSourceClassFromEachDownstreamVertex() {
+    var chain = buildLinearChain(3);
+    var aliasClasses = Map.of("v1", "ClassOne", "v2", "ClassTwo", "v3", "ClassThree");
+
+    var hops = MatchExecutionPlanner.walkLinearChainExtension(
+        chain.vertices().get(0), "ClassOne", 10, Set.of(),
+        chain.edgeSteps().get(0), chain.vertexSteps().get(0),
+        aliasClasses, db, new HashMap<>());
+
+    assertThat(hops).hasSize(2);
+    assertThat(hops.get(0).edgeStepSourceClass()).isEqualTo("ClassOne");
+    assertThat(hops.get(0).downstreamClass()).isEqualTo("ClassTwo");
+    assertThat(hops.get(1).edgeStepSourceClass()).isEqualTo("ClassTwo");
+    assertThat(hops.get(1).downstreamClass()).isEqualTo("ClassThree");
+  }
+
+  // ── walkLinearChainExtension test helpers ──
+
+  /**
+   * A synthesised linear chain of {@code subChains} consecutive
+   * {@code outE→inV} pairs: {@code v0 -e1-> i1 -s1-> v1 -e2-> i2 -s2-> v2 …}.
+   * Index 0 of each list belongs to the first sub-chain, which the sort loop
+   * folds itself; the walk starts from {@code vertices[0]} and contributes
+   * the rest.
+   */
+  private record LinearChain(
+      PatternNode start,
+      List<PatternEdge> edgeSteps,
+      List<PatternEdge> vertexSteps,
+      List<PatternNode> vertices) {
+  }
+
+  private LinearChain buildLinearChain(int subChains) {
+    var start = new PatternNode();
+    start.alias = "v0";
+    var edgeSteps = new ArrayList<PatternEdge>();
+    var vertexSteps = new ArrayList<PatternEdge>();
+    var vertices = new ArrayList<PatternNode>();
+
+    var current = start;
+    for (int i = 1; i <= subChains; i++) {
+      var intermediate = new PatternNode();
+      intermediate.alias = "i" + i;
+      var target = new PatternNode();
+      target.alias = "v" + i;
+
+      var edgeMethod = mock(SQLMethodCall.class);
+      stubMethodName(edgeMethod, "outE");
+      var fixture = buildChain(edgeMethod, "inV", current, intermediate, target);
+
+      edgeSteps.add(fixture.firstEdge());
+      vertexSteps.add(fixture.downstreamEdge());
+      vertices.add(target);
+      current = target;
+    }
+    return new LinearChain(start, edgeSteps, vertexSteps, vertices);
+  }
+
+  /**
+   * Runs the walk from the first sub-chain's downstream vertex, the way
+   * {@code applyChainFold} seeds it. Uses an empty {@code aliasClasses} so
+   * class inference is out of scope for the termination tests.
+   */
+  private List<MatchExecutionPlanner.ChainHop> walkFrom(
+      LinearChain chain, int remainingHops, Set<PatternEdge> visitedEdges) {
+    return MatchExecutionPlanner.walkLinearChainExtension(
+        chain.vertices().get(0), null, remainingHops, visitedEdges,
+        chain.edgeSteps().get(0), chain.vertexSteps().get(0),
+        Map.of(), db, new HashMap<>());
   }
 }

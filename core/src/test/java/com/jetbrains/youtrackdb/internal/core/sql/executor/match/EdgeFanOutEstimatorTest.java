@@ -4,6 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -12,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -673,5 +678,118 @@ public class EdgeFanOutEstimatorTest {
         "Person", "Person");
 
     assertEquals(0.0, fanOut, DELTA);
+  }
+
+  // ── classCountCache: the per-plan approximateCount memo ────
+
+  /**
+   * The cache-aware overload must return exactly what the un-cached overload
+   * returns. {@code classCountCache} is documented as a pure memo, so any
+   * divergence here means the cached path computes a different fan-out and
+   * the planner would order branches differently depending on whether a
+   * cache happened to be in scope.
+   */
+  @Test
+  public void classCountCache_freshCacheMatchesUncachedResult() {
+    registerClass("Knows", 500);
+    registerClass("Person", 100);
+
+    double uncached = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.OUT, "Person", "Person");
+    double cached = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.OUT, "Person", "Person",
+        new HashMap<>());
+
+    assertEquals(uncached, cached, 0.0);
+  }
+
+  /**
+   * The cache must actually sit on the read path. A pre-seeded entry that
+   * disagrees with the schema is doctored test data, not a real state, but
+   * it is the only way to distinguish "reads the memo" from "ignores the
+   * memo and recomputes": with the source count forced to 250 instead of
+   * 100, the fan-out must be 500/250 = 2.0 rather than 5.0.
+   */
+  @Test
+  public void classCountCache_seededEntryIsUsedInsteadOfSchemaCount() {
+    var personClass = registerClass("Person", 100);
+    registerClass("Knows", 500);
+
+    Map<String, Long> cache = new HashMap<>();
+    cache.put("Person", 250L);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.OUT, "Person", "Person", cache);
+
+    assertEquals(2.0, fanOut, DELTA);
+    // A hit must not re-read the schema — that is the whole point of the memo.
+    verify(personClass, never()).approximateCount(session);
+  }
+
+  /**
+   * A miss must populate the cache under the canonical class name, so the
+   * next lookup for the same class inside one plan is a map hit. Both the
+   * edge class and the source class are counted, so both land in the map.
+   */
+  @Test
+  public void classCountCache_missPopulatesBothClassCounts() {
+    registerClass("Knows", 500);
+    registerClass("Person", 100);
+
+    Map<String, Long> cache = new HashMap<>();
+    EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.OUT, "Person", "Person", cache);
+
+    assertEquals(2, cache.size());
+    assertEquals(Long.valueOf(500L), cache.get("Knows"));
+    assertEquals(Long.valueOf(100L), cache.get("Person"));
+  }
+
+  /**
+   * Reusing one cache across calls — the shape the planner's sort loop
+   * produces — must read each class's count exactly once. Pins the
+   * optimisation itself: without the memo, N candidate edges over the same
+   * source class issue N counts.
+   */
+  @Test
+  public void classCountCache_sharedAcrossCallsCountsEachClassOnce() {
+    var knowsClass = registerClass("Knows", 500);
+    var personClass = registerClass("Person", 100);
+
+    Map<String, Long> cache = new HashMap<>();
+    for (int i = 0; i < 3; i++) {
+      assertEquals(
+          5.0,
+          EdgeFanOutEstimator.estimateFanOut(
+              session, "Knows", "Person", Direction.OUT, "Person", "Person",
+              cache),
+          DELTA);
+    }
+
+    verify(knowsClass, times(1)).approximateCount(session);
+    verify(personClass, times(1)).approximateCount(session);
+  }
+
+  /**
+   * BOTH direction reads the two endpoint vertex classes on top of the edge
+   * and source counts, and it does so through the same memo. Pins that the
+   * BOTH branch threads the cache rather than falling back to a fresh map,
+   * which would silently drop the optimisation for bidirectional edges.
+   */
+  @Test
+  public void classCountCache_bothDirectionSharesTheSameMemo() {
+    registerClass("Knows", 500);
+    var personClass = registerClass("Person", 100);
+
+    Map<String, Long> cache = new HashMap<>();
+    double first = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.BOTH, "Person", "Person", cache);
+    double second = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.BOTH, "Person", "Person", cache);
+
+    // Person is both endpoints: 500/100 OUT + 500/100 IN = 10.0
+    assertEquals(10.0, first, DELTA);
+    assertEquals(first, second, 0.0);
+    verify(personClass, times(1)).approximateCount(session);
   }
 }
