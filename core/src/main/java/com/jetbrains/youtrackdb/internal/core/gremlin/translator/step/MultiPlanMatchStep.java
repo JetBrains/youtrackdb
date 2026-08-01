@@ -143,7 +143,15 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     this.postConcatOps = List.copyOf(postConcatOps);
   }
 
-  /** The ordered child execution plans this step concatenates. */
+  /**
+   * The ordered child execution plans this step concatenates.
+   *
+   * <p>Not a fixed list across the step's whole life: a re-arm after {@link #close()} swaps in
+   * copies of every child (see {@link #replaceClosedPlanWithCopy()}). Read within a pass — anywhere
+   * from its first row to the {@code close()} that ends it, which is where {@code
+   * YTDBQueryMetricsStep} reads it — this returns the child plans that produced that pass's rows.
+   * See the "Which plan object an observer sees" section of {@link AbstractMatchPlanStep}.
+   */
   public List<InternalExecutionPlan> getPlans() {
     return plans;
   }
@@ -252,6 +260,31 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     for (var childPlan : plans) {
       childPlan.reset(childPlan.getContext());
     }
+  }
+
+  @Override
+  protected void replaceClosedPlanWithCopy() {
+    // Copy EVERY child, so a re-armed union re-runs all of them from the first — the same breadth
+    // as rewindPlan above, which resets every child rather than only those the producer opened.
+    // Each child is copied against its OWN context, NOT against a fresh child context parented to
+    // it the way clone() does; the base's hook Javadoc gives the full reasoning, and here the
+    // difference is sharpest, because reusing clone()'s recipe would trip clone()'s own isolation
+    // assert on any child that ran (that assert is what documents the seeded per-run state a
+    // completed pass leaves behind).
+    var copies = new ArrayList<InternalExecutionPlan>(plans.size());
+    for (var childPlan : plans) {
+      var copy = childPlan.copy(childPlan.getContext());
+      // A copy() that handed back the same instance would put this child right back on its closed
+      // chain: the re-run would silently drop that child's rows from the union and leak the cursors
+      // it claimed. Zero cost in production (assertions disabled).
+      assert copy != null && copy != childPlan
+          : "InternalExecutionPlan.copy returned " + (copy == null ? "null" : "the same instance")
+              + "; the re-armed union would restart a closed child plan";
+      copies.add(copy);
+    }
+    // Plain field write, as in clone(): the field is non-final (see its declaration) and the write
+    // happens on the iterating thread before any row of the new pass is produced.
+    plans = List.copyOf(copies);
   }
 
   @Override

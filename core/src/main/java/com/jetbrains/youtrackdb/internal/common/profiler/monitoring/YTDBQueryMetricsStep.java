@@ -88,6 +88,13 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   /// single such source; if that step ran no plan-backed query (for example a by-id lookup) its
   /// plan is {@code null}, which is correct. For a multi-plan union the first child's plan is
   /// surfaced — enough for scan/index detectors that inspect step types.
+  ///
+  /// Called from inside the listener callback [#close] fires, which is what pins WHICH plan object
+  /// a re-iterated traversal reports. A boundary step re-armed after a close swaps its plan for a
+  /// fresh copy, so its accessor returns a different object per pass; the boundary's contract is
+  /// that within a pass — up to and including the close that ends it — the accessor returns the
+  /// plan that produced that pass's rows. Reading it here rather than caching a plan at
+  /// first-iteration time is what keeps each reported run matched to its own plan.
   @Nullable private ExecutionPlan capturedExecutionPlan() {
     var matchPlan =
         TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, traversal);

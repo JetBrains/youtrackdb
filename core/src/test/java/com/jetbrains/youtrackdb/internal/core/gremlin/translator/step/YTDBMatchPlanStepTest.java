@@ -796,6 +796,172 @@ public class YTDBMatchPlanStepTest {
     verify(plan, times(1)).reset(ctx);
   }
 
+  // ---- Re-iteration after close() ----
+  //
+  // This is the path a caller reaches by writing "iterate, reset, iterate again": toList() closes
+  // the traversal in a finally, so the boundary step is CLOSED by the time reset() arrives. A closed
+  // plan cannot be rewound — AbstractExecutionStep's close guard is sticky and reset() does not
+  // clear it — so the step swaps in a copy. The mocked plan here can be told to answer copy(), but
+  // it cannot fake WHICH plan object was started, which is what these tests pin.
+
+  /**
+   * The second pass must deliver the same rows as the first. This assertion is the one that matters:
+   * before the fix the closed step ended iteration immediately, so re-iteration produced zero rows
+   * while every plan-identity assertion around it still passed — a test that checked only "the plan
+   * is still there" went green on a traversal that returned nothing.
+   */
+  @Test
+  public void closeThenReset_reIterationYieldsTheSameRows() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    stubPlanCopyDelivering(row);
+
+    var step = elementStep("v");
+    var firstPass = drainPayloads(step);
+    step.close(); // what toList()'s finally does to the traversal
+
+    step.reset();
+    var secondPass = drainPayloads(step);
+
+    assertThat(firstPass).as("the first pass yields the single row").hasSize(1);
+    assertThat(secondPass)
+        .as("the pass after close-then-reset yields the same rows, not an empty result")
+        .hasSize(1);
+    assertThat(assertRawEntityOf(secondPass.getFirst())).isSameAs(rawVertex);
+  }
+
+  /**
+   * The re-arm runs a COPY: {@code copy(...)} is called against the closed plan's own context, and
+   * the closed plan itself is neither restarted nor rewound. Restarting it would run a dead step
+   * chain (empty result plus leaked cursors) and rewinding it cannot help, because {@code
+   * SelectExecutionPlan.reset} forwards to a step-level no-op that never clears the sticky close
+   * guard. The {@code copy(ctx)} argument pins the context-derivation decision: the plan's own
+   * context, not the isolated child context {@code clone()} mints.
+   */
+  @Test
+  public void closeThenReset_startsAFreshCopyAndNeverRestartsTheClosedPlan() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+    var copiedPlan = stubPlanCopyDelivering();
+
+    var step = elementStep("v");
+    drainPayloads(step);
+    step.close();
+
+    step.reset();
+    drainPayloads(step);
+
+    verify(plan, times(1)).copy(ctx);
+    verify(plan, times(1)).start();
+    verify(plan, never()).reset(any());
+    verify(copiedPlan, times(1)).start();
+  }
+
+  /**
+   * The {@code close()} that ends a re-armed pass releases the COPY that ran, not only the original
+   * the first pass closed. Without this the second pass's cursors would leak: the step would hold a
+   * live plan nobody ever closes.
+   */
+  @Test
+  public void closeAfterAReArmedPass_closesThePlanCopyThatRan() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+    var copiedPlan = stubPlanCopyDelivering();
+
+    var step = elementStep("v");
+    drainPayloads(step);
+    step.close();
+    step.reset();
+    drainPayloads(step);
+    step.close();
+
+    verify(copiedPlan, times(1)).close();
+  }
+
+  /**
+   * Pins which plan object an observer sees across a close-then-reset, because {@code
+   * YTDBQueryMetricsStep.capturedExecutionPlan()} reads exactly this accessor from inside the
+   * listener callback it fires on close. The contract: within a pass, up to and including the close
+   * that ends it, the accessor returns the plan that produced that pass's rows. The copy is
+   * therefore installed when the second pass opens, not when {@code reset()} is called — a reset
+   * that is never followed by a re-run has produced no new rows to attribute, so it must leave the
+   * previous pass's plan in place.
+   */
+  @Test
+  public void getPlan_tracksThePlanThatProducedTheCurrentPass_acrossACloseThenReset() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+    var copiedPlan = stubPlanCopyDelivering();
+
+    var step = elementStep("v");
+    drainPayloads(step);
+    step.close();
+    assertThat(step.getPlan()).as("the first pass reports the plan that ran it").isSameAs(plan);
+
+    step.reset();
+    assertThat(step.getPlan())
+        .as("a reset with no re-run installs nothing and keeps the prior pass's plan")
+        .isSameAs(plan);
+
+    drainPayloads(step);
+    assertThat(step.getPlan()).as("the re-armed pass reports its copy").isSameAs(copiedPlan);
+    step.close();
+    assertThat(step.getPlan())
+        .as("the close that ends the pass still reports that pass's plan")
+        .isSameAs(copiedPlan);
+  }
+
+  /**
+   * The same close-then-reset sequence against a REAL {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan}, so the engine's own
+   * copy and close machinery decides the outcome instead of a mock's answers — and so the
+   * production assertions in the re-arm path run for real (this module compiles its surefire
+   * {@code argLine} with {@code -ea}). The fixture's source step stops producing once closed, the
+   * way a real cursor-backed source does, so a re-arm that restarted the closed chain would return
+   * an empty second pass rather than quietly passing.
+   */
+  @Test
+  public void closeThenReset_withARealPlan_replaysRowsWithoutRestartingTheClosedChain() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    var realCtx = new BasicCommandContext();
+    var realPlan = ReplayablePlanFixture.planOver(realCtx, List.of(row));
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal, Vertex.class, realPlan, "v", BoundaryOutputType.ELEMENT);
+
+    var firstPass = drainPayloads(step);
+    step.close();
+    assertThat(realCtx.getVariable(ReplayablePlanFixture.PER_RUN_VARIABLE))
+        .as("the completed pass seeded per-run state onto the context the copy will reuse")
+        .isNotNull();
+
+    step.reset();
+    var secondPass = drainPayloads(step);
+    step.close();
+
+    assertThat(firstPass).hasSize(1);
+    assertThat(secondPass).as("the real plan replays its rows after close-then-reset").hasSize(1);
+
+    var reArmedPlan = step.getPlan();
+    assertThat(reArmedPlan).as("the re-arm installed a copy").isNotSameAs(realPlan);
+    assertThat(reArmedPlan.getContext())
+        .as("the copy runs against the closed plan's own context, seeded state and all")
+        .isSameAs(realCtx);
+    assertThat(ReplayablePlanFixture.startCount(realPlan))
+        .as("the closed chain was started once, by the first pass, and never again")
+        .isEqualTo(1);
+    assertThat(ReplayablePlanFixture.startCount(reArmedPlan))
+        .as("the copy was started once, by the second pass")
+        .isEqualTo(1);
+    assertThat(ReplayablePlanFixture.isClosed(reArmedPlan))
+        .as("the copy is released by the close that ends its pass")
+        .isTrue();
+  }
+
   /**
    * Cloning must not rewind the ORIGINAL's plan. {@code AbstractStep.clone()} invokes {@code
    * reset()} on the freshly-cloned instance while it still aliases the original's plan reference (the
@@ -1226,6 +1392,38 @@ public class YTDBMatchPlanStepTest {
   private YTDBMatchPlanStep<Object, Vertex> elementStep(String alias) {
     return new YTDBMatchPlanStep<>(
         traversal, Vertex.class, plan, alias, BoundaryOutputType.ELEMENT);
+  }
+
+  /**
+   * Stubs {@code plan.copy(...)} — the call a re-arm after close makes — with a second mocked plan
+   * whose stream delivers {@code rows} against the same context, and returns that copy so the test
+   * can verify against it.
+   */
+  private InternalExecutionPlan stubPlanCopyDelivering(Result... rows) {
+    var pending = new ArrayDeque<>(List.of(rows));
+    var copiedStream = mock(ExecutionStream.class);
+    lenient().when(copiedStream.hasNext(ctx)).thenAnswer(invocation -> !pending.isEmpty());
+    lenient().when(copiedStream.next(ctx)).thenAnswer(invocation -> pending.removeFirst());
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    lenient().when(copiedPlan.getContext()).thenReturn(ctx);
+    lenient().when(copiedPlan.start()).thenReturn(copiedStream);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    return copiedPlan;
+  }
+
+  /**
+   * Drives the step to exhaustion and returns every emitted payload in order. Exhaustion is the
+   * {@code FastNoSuchElementException} the step throws once its shaped payloads run dry.
+   */
+  private static List<Object> drainPayloads(YTDBMatchPlanStep<Object, Vertex> step) {
+    var payloads = new ArrayList<>();
+    while (true) {
+      try {
+        payloads.add(step.processNextStart().get());
+      } catch (NoSuchElementException exhausted) {
+        return payloads;
+      }
+    }
   }
 
   private YTDBMatchPlanStep<Object, Vertex> shapedStep(

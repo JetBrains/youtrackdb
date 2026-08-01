@@ -414,6 +414,118 @@ public class MultiPlanMatchStepTest {
     verify(c2.plan, never()).reset(any());
   }
 
+  // ---- Re-iteration after close() ----
+  //
+  // The path a caller reaches by writing "iterate, reset, iterate again": toList() closes the
+  // traversal in a finally, so the boundary step is CLOSED when reset() arrives. A closed plan
+  // cannot be rewound (AbstractExecutionStep's close guard is sticky and reset() does not clear
+  // it), so the union swaps in a copy of every child.
+
+  /**
+   * A union re-armed after {@code close()} delivers the same rows again, out of fresh copies of ALL
+   * its children. The row assertion is the one that matters — before the fix the closed step ended
+   * iteration immediately, so the second pass returned nothing while the step still looked healthy.
+   * The copies are verified per child because a partial re-arm (copy the first child, restart the
+   * rest) would silently drop the other children's rows from the union.
+   */
+  @Test
+  public void closeThenReset_reRunsEveryChildFromAFreshCopy() {
+    var raw1 = rawVertex();
+    var raw2 = rawVertex();
+    var c1 = child(ListStream.of(vertexRow(raw1)));
+    var c2 = child(ListStream.of(vertexRow(raw2)));
+    var copy1 = rowYieldingCopy(c1, vertexRow(raw1));
+    var copy2 = rowYieldingCopy(c2, vertexRow(raw2));
+
+    var step = elementStep(c1, c2);
+    var firstPass = drainPayloads(step);
+    step.close(); // what toList()'s finally does to the traversal
+
+    step.reset();
+    var secondPass = drainPayloads(step);
+    step.close();
+
+    assertThat(firstPass).as("the first pass concatenates both children").hasSize(2);
+    assertThat(secondPass)
+        .as("the pass after close-then-reset concatenates both children again")
+        .hasSize(2);
+    assertThat(rawEntityOf(secondPass.get(0))).isSameAs(raw1);
+    assertThat(rawEntityOf(secondPass.get(1))).isSameAs(raw2);
+    // Every child copied against its OWN context — the derivation the re-arm hook pins, distinct
+    // from the isolated child context clone() mints.
+    verify(c1.plan, times(1)).copy(c1.ctx);
+    verify(c2.plan, times(1)).copy(c2.ctx);
+    // No closed child is restarted, and none is rewound either: a rewind cannot revive it.
+    verify(c1.plan, times(1)).start();
+    verify(c2.plan, times(1)).start();
+    verify(c1.plan, never()).reset(any());
+    verify(c2.plan, never()).reset(any());
+    verify(copy1, times(1)).start();
+    verify(copy2, times(1)).start();
+    // The close that ends the re-armed pass releases the copies, so the second pass leaks nothing.
+    verify(copy1, times(1)).close();
+    verify(copy2, times(1)).close();
+  }
+
+  /**
+   * The same sequence against REAL child {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan}s, so the engine's own
+   * copy and close machinery decides the outcome instead of a mock's answers — and so the production
+   * assertions in the re-arm path run for real (this module compiles its surefire {@code argLine}
+   * with {@code -ea}). The fixture's source steps stop producing once closed, the way real
+   * cursor-backed sources do, so a re-arm that restarted a closed child would drop that child's rows
+   * rather than quietly passing.
+   */
+  @Test
+  public void closeThenReset_withRealChildPlans_replaysEveryChildsRows() {
+    var raw1 = rawVertex();
+    var raw2 = rawVertex();
+    var childContext1 = new BasicCommandContext();
+    var childContext2 = new BasicCommandContext();
+    var childPlan1 = ReplayablePlanFixture.planOver(childContext1, List.of(vertexRow(raw1)));
+    var childPlan2 = ReplayablePlanFixture.planOver(childContext2, List.of(vertexRow(raw2)));
+    var step =
+        new MultiPlanMatchStep<>(
+            traversal,
+            Vertex.class,
+            List.<InternalExecutionPlan>of(childPlan1, childPlan2),
+            "v",
+            BoundaryOutputType.ELEMENT);
+
+    var firstPass = drainPayloads(step);
+    step.close();
+    step.reset();
+    var secondPass = drainPayloads(step);
+    step.close();
+
+    assertThat(firstPass).hasSize(2);
+    assertThat(secondPass).as("both real children replay after close-then-reset").hasSize(2);
+    assertThat(rawEntityOf(secondPass.get(0))).isSameAs(raw1);
+    assertThat(rawEntityOf(secondPass.get(1))).isSameAs(raw2);
+
+    var reArmed = step.getPlans();
+    assertThat(reArmed).as("every child was replaced by a copy").doesNotContain(childPlan1,
+        childPlan2);
+    assertThat(ReplayablePlanFixture.startCount(childPlan1))
+        .as("the closed first child was started once, by the first pass, and never again")
+        .isEqualTo(1);
+    assertThat(ReplayablePlanFixture.startCount(childPlan2))
+        .as("the closed second child was started once, by the first pass, and never again")
+        .isEqualTo(1);
+    assertThat(reArmed.get(0).getContext())
+        .as("each copy runs against its own child's context, seeded state and all")
+        .isSameAs(childContext1);
+    assertThat(reArmed.get(1).getContext()).isSameAs(childContext2);
+    for (var copy : reArmed) {
+      assertThat(ReplayablePlanFixture.startCount(copy))
+          .as("each copy was started once, by the second pass")
+          .isEqualTo(1);
+      assertThat(ReplayablePlanFixture.isClosed(copy))
+          .as("each copy is released by the close that ends its pass")
+          .isTrue();
+    }
+  }
+
   // ---- Clone semantics ----
 
   /**
@@ -899,6 +1011,34 @@ public class MultiPlanMatchStepTest {
   private static Object nextPayload(MultiPlanMatchStep<Object, Vertex> step) {
     Traverser.Admin<?> traverser = step.processNextStart();
     return traverser.get();
+  }
+
+  /**
+   * Drives the step to exhaustion and returns every emitted payload in order. Exhaustion is the
+   * {@code FastNoSuchElementException} the step throws once every child is drained.
+   */
+  private static List<Object> drainPayloads(MultiPlanMatchStep<Object, Vertex> step) {
+    var payloads = new ArrayList<>();
+    while (true) {
+      try {
+        payloads.add(nextPayload(step));
+      } catch (NoSuchElementException exhausted) {
+        return payloads;
+      }
+    }
+  }
+
+  /**
+   * Answers a {@code copy(ctx)} call on this child — the call a re-arm after close makes — with a
+   * plan mock reporting the child's own context and a fresh {@link ListStream} over {@code rows}.
+   */
+  private InternalExecutionPlan rowYieldingCopy(Child child, Result... rows) {
+    var stream = ListStream.of(rows);
+    var copy = mock(InternalExecutionPlan.class);
+    lenient().when(copy.getContext()).thenReturn(child.ctx);
+    lenient().when(copy.start()).thenReturn(stream);
+    when(child.plan.copy(any())).thenReturn(copy);
+    return copy;
   }
 
   /** Answers a {@code copy(ctx)} call with a plan that yields no rows against the given context. */

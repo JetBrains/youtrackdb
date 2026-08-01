@@ -85,7 +85,15 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractMatch
     this.plan = plan;
   }
 
-  /** The compiled execution plan the step iterates over. */
+  /**
+   * The compiled execution plan the step iterates over.
+   *
+   * <p>Not a fixed object across the step's whole life: a re-arm after {@link #close()} swaps in a
+   * copy (see {@link #replaceClosedPlanWithCopy()}). Read within a pass — anywhere from its first
+   * row to the {@code close()} that ends it, which is where {@code YTDBQueryMetricsStep} reads it —
+   * this returns the plan that produced that pass's rows. See the "Which plan object an observer
+   * sees" section of {@link AbstractMatchPlanStep}.
+   */
   public InternalExecutionPlan getPlan() {
     return plan;
   }
@@ -133,6 +141,22 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractMatch
   @Override
   protected void rewindPlan(CommandContext ctx) {
     plan.reset(ctx);
+  }
+
+  @Override
+  protected void replaceClosedPlanWithCopy() {
+    var closedPlan = plan;
+    // Copy against the closed plan's OWN context, NOT against a fresh child context parented to it
+    // the way clone() does — the base's hook Javadoc gives the full reasoning. Short version: a
+    // re-arm has a single live plan, so it needs no isolation, and the completed pass has already
+    // seeded this context with the per-run state clone()'s isolation assert forbids.
+    plan = closedPlan.copy(closedPlan.getContext());
+    // A copy() that handed back the same instance would put us right back on the closed chain: the
+    // re-run would silently produce nothing and leak the cursors it claimed. Costs nothing in
+    // production (assertions disabled) and turns a silent empty result into an immediate failure.
+    assert plan != null && plan != closedPlan
+        : "InternalExecutionPlan.copy returned " + (plan == null ? "null" : "the same instance")
+            + "; the re-armed boundary step would restart a closed plan";
   }
 
   @Override
