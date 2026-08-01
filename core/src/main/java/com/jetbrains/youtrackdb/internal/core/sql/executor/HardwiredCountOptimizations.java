@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
@@ -85,12 +86,25 @@ public final class HardwiredCountOptimizations {
     if (bin == null) {
       return false;
     }
-    // toString is stable enough across builder vs parser for @class and string literals; structural
-    // field walks diverge (record-attribute vs identifier, quote style).
+    // toString is stable enough across builder vs parser for the left side: @class is a record
+    // attribute with no identifier reading, so nothing else renders as "@class".
     if (!"@class".equals(bin.getLeft().toString().trim())) {
       return false;
     }
-    return expectedClass.equals(stripQuotes(bin.getRight().toString().trim()));
+    // The right side is matched structurally, not on rendered text. An unquoted identifier renders
+    // as the bare class name, so a text match would fold `where: (@class = Person)` into a full
+    // class count — but that condition compares the record's class against the value of a property
+    // named Person, which is null on every record, so its true answer is zero rows. Requiring a
+    // string-literal node with no trailing modifier accepts both the Gremlin-built AST
+    // (MatchWhereBuilder.classEquals) and SQL-parsed `@class = 'Person'`, and nothing else.
+    var right = bin.getRight();
+    if (right == null || !(right.getMathExpression() instanceof SQLBaseExpression base)) {
+      return false;
+    }
+    if (base.getModifier() != null) {
+      return false;
+    }
+    return expectedClass.equals(base.getStringLiteralValue());
   }
 
   /**
@@ -122,18 +136,6 @@ public final class HardwiredCountOptimizations {
       }
     }
     return null;
-  }
-
-  private static String stripQuotes(String literal) {
-    if (literal == null || literal.length() < 2) {
-      return literal;
-    }
-    var first = literal.charAt(0);
-    var last = literal.charAt(literal.length() - 1);
-    if ((first == '\'' || first == '"') && first == last) {
-      return literal.substring(1, literal.length() - 1);
-    }
-    return literal;
   }
 
   /**

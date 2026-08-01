@@ -87,6 +87,15 @@ final class GremlinAggregateAssembler {
         return Outcome.DECLINE;
       }
     }
+    // With no other op stashed this count is the lone one, so the strategy pushes RETURN count(*)
+    // into every child. That rewrite drops each child's own LIMIT / SKIP / RETURN DISTINCT, which
+    // would count rows the child never emits — union(out().limit(2), in()).count() would report the
+    // full out-degree of the first arm. Decline the same shapes hasPreAggregateCardinalityClause
+    // declines on the single-plan path. With an op already stashed the push-down does not fire and
+    // the children keep their clauses, so only the lone-count case needs the gate.
+    if (ctx.postConcatOps().isEmpty() && ctx.anyUnionChildHasCardinalityClause()) {
+      return Outcome.DECLINE;
+    }
     ctx.appendPostConcatOp(PostConcatOp.Count.INSTANCE);
     ctx.setResultShaping(ResultShaping.NONE);
     ctx.pinBoundary(boundary, BoundaryOutputType.SCALAR, Vertex.class);

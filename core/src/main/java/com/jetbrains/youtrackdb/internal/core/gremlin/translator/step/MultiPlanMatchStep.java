@@ -51,6 +51,20 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  *       union().fold()} fold the whole union into one list rather than one list per child).
  * </ul>
  *
+ * <h2>Post-concatenation reductions</h2>
+ * A recognised {@code count()}, {@code limit()} / {@code range()} / {@code skip()}, or {@code
+ * dedup()} following the union arrives as an ordered {@link PostConcatOp} list, and {@link
+ * #startPlanStream()} may therefore return something other than the plain concatenator. There are
+ * two count paths. A <em>lone</em> {@code Count} is pushed down: the strategy rewrote every child to
+ * {@code RETURN count(*)} at build time, so {@link #sumChildCountStreams()} opens each child, reads
+ * its one scalar row, and emits a single summed {@code count} column without ever materialising the
+ * element concatenation. Any other op list keeps the children on elements and wraps the
+ * concatenator, applying the ops in recognised order — a skip counter, a limit that early-stops the
+ * concatenator so later children never open, a global identity set for {@code dedup}, and a
+ * terminal drain-and-count for a {@code Count} that follows another reduction. Order matters, so
+ * the wrapping follows the list rather than a fixed precedence: {@code union(…).limit(5).count()}
+ * counts at most five rows, which is what the recogniser accepted.
+ *
  * <h2>Per-child isolated, session-rebound context</h2>
  * Each child plan carries its own {@link CommandContext} (with its own positional parameters,
  * installed at build time — the base's shared parameter map is deliberately empty here). The base
@@ -326,6 +340,13 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     };
   }
 
+  /**
+   * Reads the scalar total out of one child's pushed-down {@code RETURN count(*)} row. The row shape
+   * is pinned by the build-time rewrite — exactly one non-boundary column holding a number — but the
+   * rewrite lives in another package, so a mismatch is reported rather than absorbed: returning
+   * {@code 0} for an unreadable cell would under-report the union total with nothing downstream able
+   * to tell the difference.
+   */
   private static long scalarCount(Result row, String boundaryAlias) {
     for (String name : row.getPropertyNames()) {
       if (!name.equals(boundaryAlias)) {
@@ -333,10 +354,18 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
         if (value instanceof Number number) {
           return number.longValue();
         }
-        return 0L;
+        throw new IllegalStateException(
+            "union child count row column '"
+                + name
+                + "' holds "
+                + (value == null ? "null" : value.getClass().getName())
+                + " instead of a number; the child plan was not rewritten to RETURN count(*)");
       }
     }
-    return 0L;
+    throw new IllegalStateException(
+        "union child count row carries no column other than the boundary alias '"
+            + boundaryAlias
+            + "'; the child plan was not rewritten to RETURN count(*)");
   }
 
   private ExecutionStream applyPostConcatOp(ExecutionStream stream, PostConcatOp op) {
@@ -360,6 +389,7 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     return new ExecutionStream() {
       private Result pending;
       private boolean computed;
+      private boolean upstreamClosed;
 
       @Override
       public boolean hasNext(CommandContext ctx) {
@@ -380,8 +410,22 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
 
       @Override
       public void close(CommandContext ctx) {
-        upstream.close(ctx);
+        closeUpstreamOnce(ctx);
         pending = null;
+      }
+
+      /**
+       * Releases the concatenator at most once. The drain in {@code ensure} closes it eagerly so an
+       * exhausted union frees its last child immediately, and the base then closes this stream again
+       * when it releases the arming; {@link ExecutionStream} states no idempotency requirement, so
+       * the latch keeps the second call from re-entering the whole child chain.
+       */
+      private void closeUpstreamOnce(CommandContext ctx) {
+        if (upstreamClosed) {
+          return;
+        }
+        upstreamClosed = true;
+        upstream.close(ctx);
       }
 
       private void ensure(CommandContext ctx) {
@@ -396,7 +440,7 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
             total++;
           }
         } finally {
-          upstream.close(ctx);
+          closeUpstreamOnce(ctx);
         }
         var result = new ResultInternal((DatabaseSessionEmbedded) ctx.getDatabaseSession());
         result.setProperty("count", total);

@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
@@ -36,6 +37,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGenerator;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -85,6 +87,10 @@ public class MultiPlanMatchStepTest {
     threadSession = mock(DatabaseSessionEmbedded.class);
     lenient().when(graph.tx()).thenReturn(tx);
     lenient().when(tx.getDatabaseSession()).thenReturn(threadSession);
+    // The post-concat count paths build a ResultInternal against the iteration-thread session, and
+    // every ResultInternal mutation asserts the session is active. A bare mock answers false and
+    // trips that assert under -ea, so report the session as active.
+    lenient().when(threadSession.assertIfNotActive()).thenReturn(true);
   }
 
   // ---- Concatenation & one-live-stream ----
@@ -612,6 +618,157 @@ public class MultiPlanMatchStepTest {
     assertThat(mismatches).as("no clone observed another clone's per-run variable").isEmpty();
   }
 
+  // ---- Post-concatenation reductions ----
+
+  /**
+   * A lone {@code Count} takes the push-down path: the strategy rewrote every child to {@code RETURN
+   * count(*)} at build time, so the step reads one scalar row per child and emits their sum as a
+   * single SCALAR traverser. Children reporting 2 and 3 must emit exactly one traverser holding 5.
+   */
+  @Test
+  public void lonePushDownCount_sumsChildScalarRowsIntoOneTraverser() {
+    var c1 = child(ListStream.of(countRow(2L)));
+    var c2 = child(ListStream.of(countRow(3L)));
+
+    var step = scalarStep(List.of(PostConcatOp.Count.INSTANCE), c1, c2);
+
+    assertThat(nextPayload(step)).isEqualTo(5L);
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+  }
+
+  /**
+   * The push-down path infers its row shape from a rewrite that lives in another class: exactly one
+   * non-boundary column holding a number. A cell that is not a number means the child was never
+   * rewritten, and absorbing it as zero would under-report the union total with nothing downstream
+   * able to notice, so the step fails instead.
+   */
+  @Test
+  public void pushDownCount_nonNumericCountColumn_throwsInsteadOfCountingZero() {
+    var step = scalarStep(List.of(PostConcatOp.Count.INSTANCE), child(ListStream.of(
+        countRow("not-a-number"))));
+
+    assertThatExceptionOfType(IllegalStateException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("RETURN count(*)");
+  }
+
+  /**
+   * The other malformed push-down shape: a child row carrying only the boundary column, so there is
+   * no count cell at all. Same reasoning as a non-numeric cell — reporting zero would be a silent
+   * under-count.
+   */
+  @Test
+  public void pushDownCount_rowWithoutCountColumn_throwsInsteadOfCountingZero() {
+    var row = mock(Result.class);
+    lenient().when(row.getPropertyNames()).thenReturn(List.of("v"));
+    var step = scalarStep(List.of(PostConcatOp.Count.INSTANCE), child(ListStream.of(row)));
+
+    assertThatExceptionOfType(IllegalStateException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("no column other than the boundary alias");
+  }
+
+  /**
+   * A {@code Count} that follows another reduction cannot be pushed down, so it drains the
+   * concatenation and counts the surviving rows. Two children yielding two rows apiece, with both
+   * children repeating one shared vertex identity, dedup to three rows.
+   *
+   * <p>The test also pins the release discipline the drain depends on. Draining closes each child
+   * once as the concatenator advances past it, and closing the concatenator closes the last child a
+   * second time; the count wrapper must not add a third close on top, because {@code
+   * ExecutionStream} promises no idempotent close.
+   */
+  @Test
+  public void countAfterDedup_countsDistinctRows_andClosesTheConcatenatorOnce() {
+    var shared = rawVertex();
+    var sharedId = mock(RID.class);
+    var c1 = child(ListStream.of(identityRow(shared, sharedId), identityRow(rawVertex(),
+        mock(RID.class))));
+    var c2 = child(ListStream.of(identityRow(shared, sharedId), identityRow(rawVertex(),
+        mock(RID.class))));
+
+    var step =
+        scalarStep(List.of(PostConcatOp.Dedup.INSTANCE, PostConcatOp.Count.INSTANCE), c1, c2);
+
+    assertThat(nextPayload(step))
+        .as("four concatenated rows, one identity shared across the two children")
+        .isEqualTo(3L);
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    step.close();
+
+    assertThat(c1.stream.closeCount())
+        .as("a non-final child closes once, when the concatenator advances past it")
+        .isEqualTo(1);
+    assertThat(c2.stream.closeCount())
+        .as("the last child closes when it drains and again when the concatenator closes — the"
+            + " count wrapper must not add a third")
+        .isEqualTo(2);
+  }
+
+  /**
+   * {@code clone()} must carry the post-concat op list over, or a cloned union would drop its
+   * reductions and emit raw concatenated rows.
+   */
+  @Test
+  public void clone_carriesPostConcatOps() {
+    var c = child(ListStream.of());
+    when(c.plan.copy(any())).thenAnswer(inv -> emptyCopy(inv.getArgument(0)));
+    var original = elementStepWithOps(List.of(PostConcatOp.Dedup.INSTANCE), c);
+
+    assertThat(original.clone().getPostConcatOps())
+        .isEqualTo(List.of(PostConcatOp.Dedup.INSTANCE));
+  }
+
+  /**
+   * Clone isolation extends to the state the dedup reduction mints. {@code dedupConcatStream} builds
+   * its {@code seen} set per arming, so two clones driven concurrently over rows carrying the SAME
+   * vertex identity must each emit that row once — four rows in, one out per clone. Hoisting {@code
+   * seen} to a field would make the two clones share it through {@code super.clone()}, and whichever
+   * clone lost the race would emit zero rows with no exception and no hang; this test records the
+   * per-clone emission count so that regression shows up as a value, not a flake.
+   */
+  @Test
+  public void clone_concurrentDrivesWithDedup_eachCloneKeepsItsOwnSeenSet() throws Exception {
+    int iterations = 200;
+    var emitted = new CopyOnWriteArrayList<Integer>();
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      for (int i = 0; i < iterations; i++) {
+        var shared = rawVertex();
+        var sharedId = mock(RID.class);
+        var c1 = child(ListStream.of());
+        var c2 = child(ListStream.of());
+        // Each clone's copy re-delivers a row bearing the SHARED identity against the isolated
+        // context clone() passed in, so the only thing that can make a clone emit zero rows is a
+        // seen-set it did not mint itself.
+        when(c1.plan.copy(any()))
+            .thenAnswer(inv -> identityYieldingCopy(inv.getArgument(0), shared, sharedId));
+        when(c2.plan.copy(any()))
+            .thenAnswer(inv -> identityYieldingCopy(inv.getArgument(0), shared, sharedId));
+
+        var original = elementStepWithOps(List.of(PostConcatOp.Dedup.INSTANCE), c1, c2);
+        var cloneA = original.clone();
+        var cloneB = original.clone();
+        cloneA.setTraversal(traversal);
+        cloneB.setTraversal(traversal);
+
+        var barrier = new CyclicBarrier(2);
+        Future<?> futureA = pool.submit(driveCounting(cloneA, barrier, emitted, errors));
+        Future<?> futureB = pool.submit(driveCounting(cloneB, barrier, emitted, errors));
+        futureA.get(5, TimeUnit.SECONDS);
+        futureB.get(5, TimeUnit.SECONDS);
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+    assertThat(errors).as("no driver thread threw during concurrent iteration").isEmpty();
+    assertThat(emitted)
+        .as("every clone dedups against its own seen set, so each emits the shared row once")
+        .hasSize(2 * iterations)
+        .containsOnly(1);
+  }
+
   // ---- Constructor validation & field modifiers ----
 
   /** A union with no children is a recognition-time bug; the constructor rejects an empty plan list. */
@@ -663,6 +820,83 @@ public class MultiPlanMatchStepTest {
     }
     return new MultiPlanMatchStep<>(
         traversal, Vertex.class, plans, "v", BoundaryOutputType.ELEMENT);
+  }
+
+  /** An ELEMENT-projecting step carrying the given post-concat reductions. */
+  private MultiPlanMatchStep<Object, Vertex> elementStepWithOps(
+      List<PostConcatOp> ops, Child... children) {
+    return stepWithOps(BoundaryOutputType.ELEMENT, ops, children);
+  }
+
+  /**
+   * A SCALAR-projecting step carrying the given post-concat reductions — the shape a recognised
+   * {@code union(...).count()} produces, where the boundary emits one aggregate cell.
+   */
+  private MultiPlanMatchStep<Object, Vertex> scalarStep(List<PostConcatOp> ops, Child... children) {
+    return stepWithOps(BoundaryOutputType.SCALAR, ops, children);
+  }
+
+  private MultiPlanMatchStep<Object, Vertex> stepWithOps(
+      BoundaryOutputType outputType, List<PostConcatOp> ops, Child... children) {
+    var plans = new ArrayList<InternalExecutionPlan>();
+    for (var c : children) {
+      plans.add(c.plan);
+    }
+    return new MultiPlanMatchStep<>(
+        traversal, Vertex.class, plans, "v", outputType, ResultShaping.NONE, ops);
+  }
+
+  /**
+   * Pulls the next traverser's payload as an {@code Object}. The step's {@code E} bound is {@code
+   * Vertex} for the element path, so reading a SCALAR count cell through the typed {@code get()}
+   * would insert a cast the aggregate payload cannot satisfy.
+   */
+  private static Object nextPayload(MultiPlanMatchStep<Object, Vertex> step) {
+    Traverser.Admin<?> traverser = step.processNextStart();
+    return traverser.get();
+  }
+
+  /** Answers a {@code copy(ctx)} call with a plan that yields no rows against the given context. */
+  private InternalExecutionPlan emptyCopy(CommandContext isolatedContext) {
+    var stream = ListStream.of();
+    var copy = mock(InternalExecutionPlan.class);
+    lenient().when(copy.getContext()).thenReturn(isolatedContext);
+    lenient().when(copy.start()).thenReturn(stream);
+    return copy;
+  }
+
+  /**
+   * Answers a {@code copy(ctx)} call with a plan whose stream delivers one row bound to the given
+   * raw vertex and identity, against the isolated context {@code clone()} just minted.
+   */
+  private InternalExecutionPlan identityYieldingCopy(
+      CommandContext isolatedContext,
+      com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex raw,
+      RID identity) {
+    // Build the row (and its own stubs) before any stubbing on the copy starts: Mockito refuses a
+    // mock interaction that lands between when(...) and thenReturn(...).
+    var stream = ListStream.of(identityRow(raw, identity));
+    var copy = mock(InternalExecutionPlan.class);
+    lenient().when(copy.getContext()).thenReturn(isolatedContext);
+    lenient().when(copy.start()).thenReturn(stream);
+    return copy;
+  }
+
+  private static Runnable driveCounting(
+      MultiPlanMatchStep<Object, Vertex> step,
+      CyclicBarrier barrier,
+      List<Integer> emitted,
+      List<Throwable> errors) {
+    return () -> {
+      try {
+        barrier.await();
+        var count = new int[1];
+        step.forEachRemaining(t -> count[0]++);
+        emitted.add(count[0]);
+      } catch (Throwable t) {
+        errors.add(t);
+      }
+    };
   }
 
   /**
@@ -718,6 +952,31 @@ public class MultiPlanMatchStepTest {
       com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex raw) {
     var row = mock(Result.class);
     lenient().when(row.getVertex("v")).thenReturn(raw);
+    return row;
+  }
+
+  /**
+   * A result row that binds the boundary alias to the given raw vertex and reports the given
+   * identity. The dedup reduction keys on {@code getEntity(alias).getIdentity()} while the ELEMENT
+   * projection reads {@code getVertex(alias)}, so both are stubbed.
+   */
+  private static Result identityRow(
+      com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex raw, RID identity) {
+    var row = mock(Result.class);
+    lenient().when(row.getVertex("v")).thenReturn(raw);
+    lenient().when(row.getEntity("v")).thenReturn(raw);
+    lenient().when(raw.getIdentity()).thenReturn(identity);
+    return row;
+  }
+
+  /**
+   * A pushed-down {@code RETURN count(*)} row: one non-boundary column holding the child's total.
+   * The column name mirrors the rendered {@code count(*)} projection the rewrite pins.
+   */
+  private static Result countRow(Object value) {
+    var row = mock(Result.class);
+    lenient().when(row.getPropertyNames()).thenReturn(List.of("count(*)"));
+    lenient().when(row.getProperty("count(*)")).thenReturn(value);
     return row;
   }
 

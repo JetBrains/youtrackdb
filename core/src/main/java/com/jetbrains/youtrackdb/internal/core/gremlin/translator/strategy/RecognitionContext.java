@@ -293,6 +293,19 @@ interface RecognitionContext extends ParamSink {
   }
 
   /**
+   * Whether any stashed union child carries its own {@code LIMIT} / {@code SKIP} / {@code RETURN
+   * DISTINCT}. A lone post-union {@code count()} is served by rewriting every child to a bare
+   * {@code RETURN count(*)}, which drops exactly those three clauses, so a child that has one would
+   * contribute rows it would never have emitted. This is the multi-plan counterpart of the
+   * single-plan pre-aggregate cardinality check in {@code GremlinAggregateAssembler}. The default
+   * answers {@code false}: a context with no union carrier has no children to inspect, and only the
+   * post-union count path asks.
+   */
+  default boolean anyUnionChildHasCardinalityClause() {
+    return false;
+  }
+
+  /**
    * Records the field-access expression from the most recent single-key {@code values(key)} /
    * {@code properties(key)} step for a following aggregate to re-point ({@code values("age").mean()}).
    */

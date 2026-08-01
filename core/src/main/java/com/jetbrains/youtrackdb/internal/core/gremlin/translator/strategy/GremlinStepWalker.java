@@ -172,6 +172,27 @@ final class GremlinStepWalker {
           Map.entry(UnionStep.class, UnionStepRecogniser.INSTANCE));
 
   /**
+   * The only recognisers allowed to claim a step <em>after</em> {@link UnionStepRecogniser} has
+   * stashed a multi-plan carrier. Each member inspects {@link RecognitionContext#hasUnionCarrier()}
+   * itself and either contributes a {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} or declines.
+   *
+   * <p>The gate has to be here rather than left to each recogniser because {@link #buildResult}'s
+   * multi-plan branch reads only the boundary metadata, the shaping, and the post-concat ops: a
+   * recogniser that writes into the pattern builder, the alias filters, the RETURN projection, the
+   * DISTINCT / GROUP BY / ORDER BY / LIMIT / SKIP fields, or the positional-parameter map after a
+   * union has its contribution silently discarded, and the query returns rows that ignore the step.
+   * Gating on an allow-list keeps the property true by construction: a recogniser added later is
+   * declined post-union until it is deliberately taught to branch on the carrier and added here.
+   */
+  private static final Set<StepRecogniser> POST_UNION_RECOGNISERS =
+      Set.of(
+          CountGlobalStepRecogniser.INSTANCE,
+          RangeGlobalStepRecogniser.INSTANCE,
+          DedupGlobalStepRecogniser.INSTANCE,
+          OrderGlobalStepRecogniser.INSTANCE);
+
+  /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
    * field — so a single shared instance avoids one allocation per Gremlin traversal that reaches the
    * strategy. Mirrors the singleton pattern the strategy itself uses.
@@ -288,6 +309,13 @@ final class GremlinStepWalker {
     while ((head = cursor.peek()) != null) {
       var recogniser = recognisers.get(head.getClass());
       if (recogniser == null) {
+        return false;
+      }
+      // Post-union suffix gate (see POST_UNION_RECOGNISERS). Only the post-concat-aware recognisers
+      // may claim a step once a union carrier is on the context; every other one would write into
+      // state buildResult discards for a multi-plan translation, so decline the whole walk and let
+      // the traversal run on the native pipeline.
+      if (ctx.hasUnionCarrier() && !POST_UNION_RECOGNISERS.contains(recogniser)) {
         return false;
       }
       int positionBefore = cursor.position();

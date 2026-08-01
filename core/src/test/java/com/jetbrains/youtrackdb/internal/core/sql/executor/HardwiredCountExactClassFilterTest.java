@@ -39,6 +39,45 @@ public class HardwiredCountExactClassFilterTest {
     assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(clause, "Person")).isFalse();
   }
 
+  /**
+   * An unquoted right operand is an identifier, not a class-name literal: {@code @class = Person}
+   * compares the record's class against the value of a property named {@code Person}, which is null
+   * on every record, so the condition matches nothing. Folding it into a full class count would turn
+   * a zero-row answer into the class size, so the right operand must be rejected unless it is a
+   * string literal.
+   */
+  @Test
+  public void sqlParsedUnquotedClassOperand_isRejected() throws Exception {
+    var clause = parseWhere("@class = Person");
+    assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(clause, "Person")).isFalse();
+  }
+
+  /**
+   * A parameterised or expression right operand carries no plan-time class name, so it never folds
+   * even when the bound value would be the class name at execution time.
+   */
+  @Test
+  public void sqlParsedNonLiteralClassOperand_isRejected() throws Exception {
+    assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(parseWhere("@class = ?"),
+        "Person")).isFalse();
+    assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(parseWhere("@class = :cls"),
+        "Person")).isFalse();
+    assertThat(
+        HardwiredCountOptimizations.isExactClassEqualsOnly(parseWhere("@class = 'Per' + 'son'"),
+            "Person"))
+        .isFalse();
+  }
+
+  /**
+   * A modifier applied to the literal (an index, a method call) changes what the right side
+   * evaluates to, so the literal text alone no longer names the class and the fold must decline.
+   */
+  @Test
+  public void sqlParsedLiteralWithModifier_isRejected() throws Exception {
+    var clause = parseWhere("@class = 'Person'.toLowerCase()");
+    assertThat(HardwiredCountOptimizations.isExactClassEqualsOnly(clause, "Person")).isFalse();
+  }
+
   private static com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause parseWhere(
       String body) throws Exception {
     var sql = "SELECT FROM V WHERE " + body;

@@ -18,8 +18,16 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * already-recognised prefix into each global child (stripping the child's trailing {@link
  * ComputerAwareStep.EndStep}), recursively walks each fork to a full single-plan translation, and
  * accepts only when every child agrees on the full projection contract under one canonical boundary
- * alias. A declining child, a projection-contract disagreement, a start-position union, a nested
- * union inside a child, or any significant step after the union declines the whole walk.
+ * alias. A declining child, a projection-contract disagreement, a start-position union, or a nested
+ * union inside a child declines the whole walk.
+ *
+ * <p>After the union the walk may continue for the post-concatenation barriers only — {@code
+ * count()}, {@code limit()} / {@code range()} / {@code skip()}, and {@code dedup()} — each of which
+ * becomes a {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp}
+ * applied by {@code MultiPlanMatchStep} over the concatenation. {@code order()} after a union
+ * declines (no post-concat sort in this cut), the list-shaping terminators ({@code fold} and
+ * friends) are not translated yet, and every other step class declines through {@link
+ * GremlinStepWalker}'s post-union suffix gate.
  *
  * <p>The recogniser never sees the parent {@code Traversal.Admin} — only the narrow {@link
  * UnionForkHost} seam. On accept it stashes the ordered child {@link MatchPlanInputs} through that
@@ -102,8 +110,8 @@ final class UnionStepRecogniser implements StepRecogniser {
     ctx.pinBoundary(canonicalAlias, agreedOutputType, agreedReturnClass);
     ctx.setResultShaping(agreedShaping);
     host.stashAcceptedChildren(childInputs, childParams, childCacheEligible);
-    // Post-concat barriers (count / limit / dedup) may follow; list-shaping is Track 9. An
-    // unsupported suffix declines in its own recogniser and aborts the whole walk.
+    // Post-concat barriers (count / limit / dedup) may follow; every other suffix step declines
+    // through the walker's post-union suffix gate.
     return Outcome.ACCEPTED;
   }
 

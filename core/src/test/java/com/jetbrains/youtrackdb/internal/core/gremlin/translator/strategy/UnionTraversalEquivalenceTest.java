@@ -191,6 +191,150 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * A hop after the union declines. The multi-plan translation carries only the boundary metadata,
+   * the shaping, and the post-concat ops, so a trailing {@code out()} would append its hop to the
+   * discarded parent pattern and the query would silently return the union's own vertices instead of
+   * their neighbours. Native from the Alice→Bob→Carol chain: the concatenation is
+   * [Bob, Carol, Alice, Bob] and the trailing hop yields [Carol, Bob, Carol].
+   */
+  @Test
+  public void hopAfterUnion_declines() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).out(knows) — hop after union",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).out("knows"),
+        false);
+  }
+
+  /**
+   * A filter after the union declines. {@code has(...)} writes an alias filter onto the parent
+   * context, which the multi-plan branch discards, so the query would return the unfiltered union.
+   */
+  @Test
+  public void filterAfterUnion_declines() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).has(name, Bob) — filter after union",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).has("name", "Bob"),
+        false);
+  }
+
+  /**
+   * A projection after the union declines: {@code values(...)} would rewrite the discarded parent
+   * RETURN projection while the child plans keep emitting whole elements.
+   */
+  @Test
+  public void projectionAfterUnion_declines() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).values(name) — projection after union",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).values("name"),
+        false);
+  }
+
+  /**
+   * A lone post-union {@code count()} is served by rewriting every child to {@code RETURN count(*)},
+   * and that rewrite drops the child's own {@code LIMIT}. A child carrying one must therefore
+   * decline, the same way the single-plan path refuses {@code limit(n).count()}. From Alice with two
+   * outgoing edges the correct total is 1 (truncated arm) + 2 (full arm) = 3; a push-down that lost
+   * the child limit would report 4.
+   */
+  @Test
+  public void unionChildWithLimitThenCount_declines() {
+    var aliceId = seedFanOut();
+    assertEquivalent(
+        "g.V(alice).union(out(knows).limit(1), out(knows)).count() — child LIMIT under count",
+        Recognition.DECLINED,
+        () -> graph
+            .traversal()
+            .V(aliceId)
+            .union(__.out("knows").limit(1), __.out("knows"))
+            .count(),
+        false);
+
+    setTranslatorEnabled(true);
+    assertThat(
+        graph
+            .traversal()
+            .V(aliceId)
+            .union(__.out("knows").limit(1), __.out("knows"))
+            .count()
+            .next())
+        .as("the truncated arm contributes 1, the full arm 2")
+        .isEqualTo(3L);
+  }
+
+  /**
+   * Same gate for a child carrying {@code dedup()}: the count push-down clears {@code RETURN
+   * DISTINCT}, so the arm would contribute its duplicates.
+   */
+  @Test
+  public void unionChildWithDedupThenCount_declines() {
+    seedFanOut();
+    assertEquivalent(
+        "g.V().union(out(knows).dedup(), in(knows)).count() — child DISTINCT under count",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows").dedup(), __.in("knows")).count(),
+        false);
+  }
+
+  /**
+   * {@code count()} after another post-concat reduction takes the stream-count path instead of the
+   * per-child push-down: the concatenation is truncated first and the surviving rows are counted.
+   * From Alice, {@code out()} yields 2 and {@code out().out()} yields 1, so the untruncated total is
+   * 3 and {@code limit(2)} must bring the count down to 2.
+   */
+  @Test
+  public void unionThenLimitThenCount_countsTruncatedConcatenation() {
+    var aliceId = seedFanOut();
+    assertEquivalent(
+        "g.V(alice).union(out(knows), out(knows).out(knows)).limit(2).count()",
+        Recognition.RECOGNIZED,
+        () -> graph
+            .traversal()
+            .V(aliceId)
+            .union(__.out("knows"), __.out("knows").out("knows"))
+            .limit(2)
+            .count(),
+        true);
+
+    setTranslatorEnabled(true);
+    assertThat(
+        graph
+            .traversal()
+            .V(aliceId)
+            .union(__.out("knows"), __.out("knows").out("knows"))
+            .limit(2)
+            .count()
+            .next())
+        .as("the stream count sees at most the limit, never the pushed-down child totals")
+        .isEqualTo(2L);
+  }
+
+  /**
+   * {@code dedup()} before {@code count()} also disables the push-down: cross-child duplicates
+   * collapse before the count. From the Alice→Bob→Carol chain the concatenation is
+   * [Bob, Carol, Alice, Bob] — four rows, three distinct.
+   */
+  @Test
+  public void unionThenDedupThenCount_countsDistinctConcatenation() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).dedup().count()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup().count(),
+        true);
+
+    setTranslatorEnabled(true);
+    assertThat(graph.traversal().V().union(__.out("knows"), __.in("knows")).dedup().count().next())
+        .as("three distinct vertices out of a four-row concatenation")
+        .isEqualTo(3L);
+  }
+
+  /**
    * Start-position {@code g.union(...)} has no vertex GraphStep prefix; the strategy and recogniser
    * both decline.
    */
@@ -215,6 +359,23 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         Recognition.DECLINED,
         () -> graph.traversal().V().union(__.out("knows"), __.flatMap(__.out("knows"))),
         false);
+  }
+
+  /**
+   * Seeds Alice -knows-> Bob, Alice -knows-> Carol, Bob -knows-> Dave and returns Alice's id. From
+   * Alice, {@code out()} yields two vertices and {@code out().out()} yields one, so the two arms
+   * have different sizes and a lost per-arm clause changes the total.
+   */
+  private Object seedFanOut() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    alice.addEdge("knows", bob);
+    alice.addEdge("knows", carol);
+    bob.addEdge("knows", dave);
+    graph.tx().commit();
+    return alice.id();
   }
 
   /** Seeds Alice -knows-> Bob -knows-> Carol. */

@@ -660,6 +660,19 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
+  public boolean anyUnionChildHasCardinalityClause() {
+    assert hasUnionCarrier();
+    for (var childInputs : unionChildInputs) {
+      if (childInputs.limit() != null
+          || childInputs.skip() != null
+          || childInputs.returnDistinct()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
   public void appendPostConcatOp(@Nonnull PostConcatOp op) {
     postConcatOps.add(op);
   }
