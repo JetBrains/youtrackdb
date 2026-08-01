@@ -27,3 +27,4 @@
 [2026-07-28T12:14Z] [ctx=info] phase=C track=8 reconciled_tag=high substate=steps-partial
 [2026-07-30T14:32Z] [ctx=unknown] phase=C track=8 substate=steps-done-review-pending
 [2026-08-01T05:23Z] [ctx=info] phase=C track=8 substate=track-complete
+[2026-08-01T05:23Z] [ctx=info] phase=0 substate=steps-partial
