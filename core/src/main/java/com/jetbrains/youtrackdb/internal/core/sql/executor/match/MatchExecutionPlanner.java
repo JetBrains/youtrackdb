@@ -2099,7 +2099,7 @@ public class MatchExecutionPlanner {
         if (branchEdgeSet.contains(edge.edge)) {
           continue; // Skip edges handled by hash join
         }
-        addStepsFor(plan, edge, context, first, profilingEnabled);
+        addStepsFor(plan, edge, context, prefetchedAliases, first, profilingEnabled);
         first = false;
       }
 
@@ -2111,7 +2111,7 @@ public class MatchExecutionPlanner {
           // edges back into the main plan by not skipping them. Since we already
           // skipped them above, we need to add them now.
           for (var branchEdge : branch.branchEdges()) {
-            addStepsFor(plan, branchEdge, context, first, profilingEnabled);
+            addStepsFor(plan, branchEdge, context, prefetchedAliases, first, profilingEnabled);
             first = false;
           }
         } else {
@@ -5406,35 +5406,49 @@ public class MatchExecutionPlanner {
    *
    * If the target node of the edge is optional, an {@link OptionalMatchStep} is used
    * instead of a regular {@link MatchStep}.
+   *
+   * @param prefetchedAliases aliases a {@link MatchPrefetchStep} already loads into the context;
+   *                          a root node whose alias is in this set gets the sub-plan-free
+   *                          {@link MatchFirstStep} constructor
    */
   private void addStepsFor(
       SelectExecutionPlan plan,
       EdgeTraversal edge,
       CommandContext context,
+      Set<String> prefetchedAliases,
       boolean first,
       boolean profilingEnabled) {
     if (first) {
       var patternNode = edge.out ? edge.edge.out : edge.edge.in;
-      var clazz = this.aliasClasses.get(patternNode.alias);
-      var pinnedRids = pinnedRidsForAlias(patternNode.alias);
-      var where = aliasFilters.get(patternNode.alias);
-      var select = new SQLSelectStatement(-1);
-      select.setTarget(new SQLFromClause(-1));
-      select.getTarget().setItem(new SQLFromItem(-1));
-      if (clazz != null) {
-        select.getTarget().getItem().setIdentifier(new SQLIdentifier(clazz));
-      } else if (pinnedRids != null) {
-        select.getTarget().getItem().setRids(pinnedRids);
+      if (prefetchedAliases.contains(patternNode.alias)) {
+        // A MatchPrefetchStep earlier in the chain has already loaded this alias, and
+        // MatchFirstStep.internalStart reads that cache instead of starting a sub-plan. Building
+        // a sub-plan anyway hung a plan that never runs off the root step, so a caller tallying
+        // fetches through getSubSteps() counted the alias twice for a query that fetches it once.
+        // The edge-free branch of createPlanForPattern already skips the sub-plan this way.
+        plan.chain(new MatchFirstStep(context, patternNode, profilingEnabled));
+      } else {
+        var clazz = this.aliasClasses.get(patternNode.alias);
+        var pinnedRids = pinnedRidsForAlias(patternNode.alias);
+        var where = aliasFilters.get(patternNode.alias);
+        var select = new SQLSelectStatement(-1);
+        select.setTarget(new SQLFromClause(-1));
+        select.getTarget().setItem(new SQLFromItem(-1));
+        if (clazz != null) {
+          select.getTarget().getItem().setIdentifier(new SQLIdentifier(clazz));
+        } else if (pinnedRids != null) {
+          select.getTarget().getItem().setRids(pinnedRids);
+        }
+        select.setWhereClause(where == null ? null : where.copy());
+        var subContxt = new BasicCommandContext();
+        subContxt.setParentWithoutOverridingChild(context);
+        plan.chain(
+            new MatchFirstStep(
+                context,
+                patternNode,
+                select.createExecutionPlan(subContxt, profilingEnabled),
+                profilingEnabled));
       }
-      select.setWhereClause(where == null ? null : where.copy());
-      var subContxt = new BasicCommandContext();
-      subContxt.setParentWithoutOverridingChild(context);
-      plan.chain(
-          new MatchFirstStep(
-              context,
-              patternNode,
-              select.createExecutionPlan(subContxt, profilingEnabled),
-              profilingEnabled));
     }
     // Skip edges consumed by a ChainSemiJoin on the next edge — the
     // BackRefHashJoinStep on the next edge covers both.

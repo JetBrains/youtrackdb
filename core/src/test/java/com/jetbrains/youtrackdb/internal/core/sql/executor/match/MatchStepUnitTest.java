@@ -6,8 +6,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -2107,11 +2107,14 @@ public class MatchStepUnitTest extends DbTestBase {
   // -- Sub-step introspection tests --
   //
   // MatchPrefetchStep and MatchFirstStep each own a nested execution plan. Plan introspection
-  // (EXPLAIN result documents, index-usage scans) reaches nested content through getSubSteps(),
-  // and both steps used to inherit the empty default, so their nested fetch step was invisible to
-  // every caller that was not reading prettyPrint. Which of the two holds the fetch depends on
-  // cardinality: below MatchExecutionPlanner.THRESHOLD the alias is prefetched and the fetch lives
-  // under MatchPrefetchStep; above it, under MatchFirstStep's own sub-plan.
+  // (EXPLAIN result documents, the index-usage scans in the test tree) reaches nested content
+  // through getSubSteps(), and both steps used to inherit the empty default, so their nested fetch
+  // step was invisible to every caller that was not reading prettyPrint. Which step holds an
+  // alias's fetch follows from how the planner built the step, not from pattern shape: an alias
+  // the planner prefetches gets a MatchFirstStep with no sub-plan and its fetch sits under
+  // MatchPrefetchStep, while an alias the planner does not prefetch keeps its scan under
+  // MatchFirstStep. These tests construct both steps directly, so they pin the accessors; the
+  // planner-side rule is covered in MatchStatementExecutionTest.
 
   /**
    * Verifies MatchPrefetchStep.getSubSteps() hands back the prefetch sub-plan's steps rather than
@@ -2121,7 +2124,7 @@ public class MatchStepUnitTest extends DbTestBase {
   public void testMatchPrefetchStepGetSubStepsExposesSubPlanSteps() {
     var ctx = createCommandContext();
     var plan = new SelectExecutionPlan(ctx);
-    var subStep = newNoOpStep(ctx);
+    var subStep = createEmptySubStep(ctx);
     plan.chain(subStep);
     var step = new MatchPrefetchStep(ctx, plan, "myAlias", false);
 
@@ -2138,18 +2141,16 @@ public class MatchStepUnitTest extends DbTestBase {
   public void testMatchPrefetchStepGetSubStepsIsImmutableSnapshot() {
     var ctx = createCommandContext();
     var plan = new SelectExecutionPlan(ctx);
-    plan.chain(newNoOpStep(ctx));
+    plan.chain(createEmptySubStep(ctx));
     var step = new MatchPrefetchStep(ctx, plan, "myAlias", false);
 
     var subSteps = step.getSubSteps();
     assertNotSame("the accessor must not leak the sub-plan's live list",
         plan.getSteps(), subSteps);
-    try {
-      subSteps.add(newNoOpStep(ctx));
-      fail("the returned sub-step list should reject mutation");
-    } catch (UnsupportedOperationException expected) {
-      // The snapshot is immutable, which is the point of the assertion.
-    }
+    // The argument is built outside the guarded call so only the mutation can satisfy it.
+    var extra = createEmptySubStep(ctx);
+    assertThrows("the returned sub-step list should reject mutation",
+        UnsupportedOperationException.class, () -> subSteps.add(extra));
   }
 
   /**
@@ -2161,7 +2162,7 @@ public class MatchStepUnitTest extends DbTestBase {
   public void testMatchPrefetchStepGetSubExecutionPlansStaysEmpty() {
     var ctx = createCommandContext();
     var plan = new SelectExecutionPlan(ctx);
-    plan.chain(newNoOpStep(ctx));
+    plan.chain(createEmptySubStep(ctx));
     var step = new MatchPrefetchStep(ctx, plan, "myAlias", false);
 
     assertTrue("the nested plan is published through getSubSteps() only",
@@ -2169,8 +2170,8 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies MatchFirstStep.getSubSteps() hands back the scan sub-plan's steps — the shape taken
-   * above the prefetch threshold, where MatchFirstStep runs its own scan.
+   * Verifies MatchFirstStep.getSubSteps() hands back the scan sub-plan's steps — the shape the
+   * planner builds for an alias it does not prefetch, where MatchFirstStep runs its own scan.
    */
   @Test
   public void testMatchFirstStepGetSubStepsExposesSubPlanSteps() {
@@ -2178,7 +2179,7 @@ public class MatchStepUnitTest extends DbTestBase {
     var node = new PatternNode();
     node.alias = "a";
     var plan = new SelectExecutionPlan(ctx);
-    var subStep = newNoOpStep(ctx);
+    var subStep = createEmptySubStep(ctx);
     plan.chain(subStep);
     var step = new MatchFirstStep(ctx, node, plan, false);
 
@@ -2187,8 +2188,8 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies MatchFirstStep.getSubSteps() is empty when the step was built for a prefetched alias
-   * and carries no sub-plan — the below-threshold shape, where MatchPrefetchStep owns the fetch.
+   * Verifies MatchFirstStep.getSubSteps() is empty when the step carries no sub-plan — the shape
+   * the planner builds for a prefetched alias, where MatchPrefetchStep owns the fetch.
    */
   @Test
   public void testMatchFirstStepGetSubStepsEmptyWithoutSubPlan() {
@@ -2211,18 +2212,16 @@ public class MatchStepUnitTest extends DbTestBase {
     var node = new PatternNode();
     node.alias = "a";
     var plan = new SelectExecutionPlan(ctx);
-    plan.chain(newNoOpStep(ctx));
+    plan.chain(createEmptySubStep(ctx));
     var step = new MatchFirstStep(ctx, node, plan, false);
 
     var subSteps = step.getSubSteps();
     assertNotSame("the accessor must not leak the sub-plan's live list",
         plan.getSteps(), subSteps);
-    try {
-      subSteps.add(newNoOpStep(ctx));
-      fail("the returned sub-step list should reject mutation");
-    } catch (UnsupportedOperationException expected) {
-      // The snapshot is immutable, which is the point of the assertion.
-    }
+    // The argument is built outside the guarded call so only the mutation can satisfy it.
+    var extra = createEmptySubStep(ctx);
+    assertThrows("the returned sub-step list should reject mutation",
+        UnsupportedOperationException.class, () -> subSteps.add(extra));
   }
 
   /**
@@ -2235,34 +2234,11 @@ public class MatchStepUnitTest extends DbTestBase {
     var node = new PatternNode();
     node.alias = "a";
     var plan = new SelectExecutionPlan(ctx);
-    plan.chain(newNoOpStep(ctx));
+    plan.chain(createEmptySubStep(ctx));
     var step = new MatchFirstStep(ctx, node, plan, false);
 
     assertTrue("the nested plan is published through getSubSteps() only",
         step.getSubExecutionPlans().isEmpty());
-  }
-
-  /**
-   * Builds a minimal step for use as sub-plan content: it yields nothing and renders as an empty
-   * string, so a test can assert on the identity of what a sub-step accessor hands back.
-   */
-  private static AbstractExecutionStep newNoOpStep(CommandContext ctx) {
-    return new AbstractExecutionStep(ctx, false) {
-      @Override
-      public ExecutionStream internalStart(CommandContext ctx) {
-        return ExecutionStream.empty();
-      }
-
-      @Override
-      public String prettyPrint(int depth, int indent) {
-        return "";
-      }
-
-      @Override
-      public ExecutionStep copy(CommandContext ctx) {
-        return this;
-      }
-    };
   }
 
   // -- AbstractExecutionStep base behavior tests (exercised via match steps) --

@@ -113,9 +113,11 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
    * <p>
    * The inherited default reports no children, which hides the sub-plan from every caller that
    * walks {@link ExecutionStep#getSubSteps()} — {@code EXPLAIN} result documents built by
-   * {@link ExecutionStep#toResult}, and index-usage scans that ask whether a plan fetches from
-   * an index. {@link #prettyPrint} already inlines the same sub-plan, so the text rendering was
-   * the only place the nested steps were visible. Sibling MATCH steps that own nested execution
+   * {@link ExecutionStep#toResult}, and the index-usage scans in the test tree that ask whether a
+   * plan fetches from an index. (No production index-usage scan reads this accessor;
+   * {@code YTDBGraphQuery.usedIndexes} walks top-level steps and {@code getSubExecutionPlans()}
+   * only.) {@link #prettyPrint} already inlines the same sub-plan, so the text rendering was the
+   * only place the nested steps were visible. Sibling MATCH steps that own nested execution
    * content, {@code HashJoinMatchStep} and {@code FilterNotMatchPatternStep}, expose it the same
    * way.
    * <p>

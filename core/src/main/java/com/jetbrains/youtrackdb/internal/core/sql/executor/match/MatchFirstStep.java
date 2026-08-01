@@ -124,17 +124,28 @@ public class MatchFirstStep extends AbstractExecutionStep {
 
   /**
    * Exposes the scan sub-plan's steps so plan introspection can see the nested fetch, or an empty
-   * list when the alias was prefetched and this step carries no sub-plan.
+   * list when this step carries no sub-plan.
    * <p>
    * The inherited default reports no children, which hides the sub-plan from every caller that
    * walks {@link ExecutionStep#getSubSteps()} — {@code EXPLAIN} result documents built by
-   * {@link ExecutionStep#toResult}, and index-usage scans that ask whether a plan fetches from
-   * an index. {@link #prettyPrint} already inlines the same sub-plan, so the text rendering was
-   * the only place the nested steps were visible.
+   * {@link ExecutionStep#toResult}, and the index-usage scans in the test tree that ask whether a
+   * plan fetches from an index. (No production index-usage scan reads this accessor;
+   * {@code YTDBGraphQuery.usedIndexes} walks top-level steps and {@code getSubExecutionPlans()}
+   * only.) {@link #prettyPrint} already inlines the same sub-plan, so the text rendering was the
+   * only place the nested steps were visible.
    * <p>
-   * Below {@code MatchExecutionPlanner.THRESHOLD} records the alias is prefetched and the fetch
-   * lives under {@link MatchPrefetchStep} instead, which overrides this accessor for the same
-   * reason; above the threshold it lives here.
+   * The empty list means the pattern planner built this step without a sub-plan, which it does
+   * for an alias a {@link MatchPrefetchStep} already loads — an alias whose estimated cardinality
+   * is below {@code MatchExecutionPlanner.THRESHOLD} and whose filter does not depend on
+   * {@code $matched}. That step reads the prefetch cache in {@link #internalStart} and would
+   * never start a sub-plan, so its fetch lives under {@code MatchPrefetchStep}, which overrides
+   * this accessor for the same reason. An alias the planner does not prefetch keeps its scan
+   * here. The rule is about how the planner built the step, not about pattern shape: it holds for
+   * an isolated node and for the root of an edge pattern alike. It does not extend to the
+   * NOT-pattern and hash-join branch builders, which construct their own {@code MatchFirstStep}s
+   * without consulting the prefetch set — a step inside one of those build plans can carry a
+   * sub-plan for an alias that is prefetched anyway, and its fetch is then reachable under both
+   * steps.
    * <p>
    * {@code getSubExecutionPlans()} deliberately keeps its empty default. Callers such as the
    * index-counting test helpers walk both accessors, so publishing the same nested steps through

@@ -2322,10 +2322,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Below MatchExecutionPlanner.THRESHOLD records an alias is prefetched, so its fetch step lives
-   * in a MatchPrefetchStep sub-plan. Verifies that fetch is reachable through getSubSteps(), which
-   * is how plan introspection — EXPLAIN documents, index-usage scans — reaches nested content.
-   * Person holds six vertices, well under the threshold.
+   * An alias the planner prefetches — estimated under MatchExecutionPlanner.THRESHOLD records,
+   * with no dependency on $matched — has its fetch step inside a MatchPrefetchStep sub-plan.
+   * Verifies that fetch is reachable through getSubSteps(), which is how plan introspection —
+   * EXPLAIN documents, the index-usage scans in the test tree — reaches nested content. Person
+   * holds six vertices and carries no filter, so alias a qualifies.
    */
   @Test
   public void testPrefetchStepExposesItsFetchStepBelowThreshold() {
@@ -2345,10 +2346,10 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Above MatchExecutionPlanner.THRESHOLD nothing is prefetched and the fetch step lives under
-   * MatchFirstStep's own sub-plan instead. Verifies it is reachable through getSubSteps() there
-   * too, so plan introspection sees the fetch at either cardinality. IndexedVertex holds 1000
-   * vertices, well over the threshold.
+   * An alias the planner does not prefetch keeps its scan under MatchFirstStep's own sub-plan.
+   * Verifies it is reachable through getSubSteps() there too, so plan introspection sees the fetch
+   * whichever step ended up owning it. IndexedVertex holds 1000 vertices, over
+   * MatchExecutionPlanner.THRESHOLD, which is what disqualifies the alias from prefetching here.
    */
   @Test
   public void testMatchFirstStepExposesItsFetchStepAboveThreshold() {
@@ -2364,6 +2365,41 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue(
         "the scan sub-plan's class fetch is visible through getSubSteps()",
         containsStepOfType(first, FetchFromClassExecutionStep.class));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * A pattern with an edge whose root alias is also prefetched must publish that alias's fetch
+   * exactly once. The planner used to hand the root MatchFirstStep a scan sub-plan regardless of
+   * prefetching; internalStart never started it, because it finds the prefetch cache first, but
+   * getSubSteps() published it anyway, so a caller tallying fetches counted the alias twice for a
+   * query that fetches it once. Both Person aliases here sit under the prefetch threshold, so the
+   * root alias is prefetched and its root step must carry no sub-plan.
+   */
+  @Test
+  public void testPrefetchedRootAliasOfEdgePatternPublishesItsFetchOnce() {
+    session.begin();
+    var result =
+        session.query("MATCH {class:Person, as:a}.out('Friend'){class:Person, as:b} RETURN a, b");
+    var steps = result.getExecutionPlan().getSteps();
+
+    var prefetchCount = steps.stream().filter(MatchPrefetchStep.class::isInstance).count();
+    assertEquals(
+        "both Person aliases are under the prefetch threshold, so both are prefetched",
+        2L, prefetchCount);
+
+    var first = steps.stream().filter(MatchFirstStep.class::isInstance).findFirst().orElse(null);
+    assertNotNull("a MATCH plan starts with a MatchFirstStep", first);
+    assertTrue(
+        "the root step reads the prefetch cache, so it exposes no sub-plan of its own",
+        first.getSubSteps().isEmpty());
+
+    // The whole-plan tally is what a fetch-counting introspection walk sees. One class fetch per
+    // prefetched alias is the count the query actually performs.
+    assertEquals(
+        "each prefetched alias contributes exactly one class fetch to a getSubSteps() walk",
+        prefetchCount, countStepsOfType(steps, FetchFromClassExecutionStep.class));
     result.close();
     session.commit();
   }
@@ -2424,6 +2460,22 @@ public class MatchStatementExecutionTest extends DbTestBase {
       }
     }
     return false;
+  }
+
+  /**
+   * Counts steps of the given type across a plan and every nesting level below it. Mirrors the
+   * accumulating index-usage helpers in the SELECT tests, which are the callers a duplicated
+   * sub-plan would mislead.
+   */
+  private static long countStepsOfType(List<ExecutionStep> steps, Class<?> stepType) {
+    var count = 0L;
+    for (var step : steps) {
+      if (stepType.isInstance(step)) {
+        count++;
+      }
+      count += countStepsOfType(step.getSubSteps(), stepType);
+    }
+    return count;
   }
 
   /**

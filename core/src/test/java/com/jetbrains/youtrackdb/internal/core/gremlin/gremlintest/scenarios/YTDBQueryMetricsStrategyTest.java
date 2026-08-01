@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPrefetchStep;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Random;
@@ -296,10 +297,18 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .as("an unindexed scan uses no index step")
         .isFalse();
     // The label count is under the MATCH prefetch threshold, so the fetch lives in the prefetch
-    // sub-plan. MatchPrefetchStep.prettyPrint inlines that sub-plan, so the rendered text names
-    // the fetch the alias actually runs -- the negative half of this suite's index-usage answer.
+    // sub-plan -- the negative half of this suite's index-usage answer. The class fetch is
+    // asserted inside that sub-plan, since a contains() on the flat rendering would also hold for
+    // a class fetch rendered beside the prefetch block rather than under it.
+    var prefetch = findStepOfType(listener.planStepsInCallback, MatchPrefetchStep.class);
+    assertThat(prefetch)
+        .as("the person label count is under the prefetch threshold, so the alias is prefetched")
+        .isNotNull();
+    assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromClassExecutionStep.class))
+        .as("the prefetch sub-plan is what scans the class")
+        .isTrue();
     assertThat(listener.planPrettyInCallback)
-        .as("the prefetched alias is read by scanning the class, with no index step")
+        .as("the rendered plan names the prefetch block and its class fetch, and no index fetch")
         .contains("+ PREFETCH")
         .contains("+ FETCH FROM CLASS")
         .doesNotContain("+ FETCH FROM INDEX");
@@ -340,9 +349,18 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     // This is the only Gremlin-level index-usage assertion in the tree, so it pins where the index
     // step sits, not just that one exists somewhere. One IndexedThing record is under the MATCH
     // prefetch threshold, so the alias is prefetched and the index fetch belongs in that sub-plan;
-    // an index step reachable only outside it would mean the prefetch itself scans the class.
+    // an index step reachable only outside it would mean the prefetch itself scans the class. The
+    // structural assertion carries that claim -- two contains() calls on the flat rendering below
+    // would hold just as well for an index step rendered above or beside the prefetch block.
+    var prefetch = findStepOfType(listener.planStepsInCallback, MatchPrefetchStep.class);
+    assertThat(prefetch)
+        .as("one IndexedThing record is under the prefetch threshold, so the alias is prefetched")
+        .isNotNull();
+    assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromIndexStep.class))
+        .as("the prefetch sub-plan is what reads through the index")
+        .isTrue();
     assertThat(listener.planPrettyInCallback)
-        .as("the prefetched alias is read through the index, not by scanning the class")
+        .as("the rendered plan names the prefetch block and the index fetch")
         .contains("+ PREFETCH")
         .contains("+ FETCH FROM INDEX");
   }
@@ -1641,6 +1659,22 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       }
     }
     return false;
+  }
+
+  /// Returns the first step of the given type at any nesting level, or null when the plan holds
+  /// none. Unlike [#containsStepOfType], this hands back the step itself, so a caller can assert
+  /// on what sits *inside* it rather than merely alongside it.
+  private static ExecutionStep findStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
+    for (var step : steps) {
+      if (stepType.isInstance(step)) {
+        return step;
+      }
+      var nested = findStepOfType(step.getSubSteps(), stepType);
+      if (nested != null) {
+        return nested;
+      }
+    }
+    return null;
   }
 
 }
