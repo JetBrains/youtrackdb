@@ -23,6 +23,7 @@ Second slice of the split final track (see plan D8, revised after Track 6). Depe
 - [x] 2026-07-30T14:30Z [ctx=unknown] Phase B complete — all roster steps `[x]`/`[!]`; hand off to Phase C
 - [x] 2026-07-30T15:00Z [ctx=unknown] Follow-up: per-child `GremlinPlanCache` for union (DR-U5); carrier stays uncached
 - [x] 2026-07-31T11:55Z [ctx=unknown] Follow-up: post-concat pipeline (`count` push-down+sum, `limit`/`range` early-stop, `dedup`); `order` still declines; list-shaping remains Track 9
+- [x] 2026-08-01T02:06Z [ctx=safe] Track-level code review iteration 1 complete (commit 880af2d09c; 8 of 41 findings — BG1/BG2 blockers, BG3/CQ2/TX3/TC1 should-fix, BG4/BG5 suggestion; all confirmed real, none a misread)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
