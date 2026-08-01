@@ -6198,8 +6198,8 @@ public class MatchExecutionPlanner {
     // represent both endpoint classes and an index lookup on the alias
     // could miss records of the other class.
     if ("both".equals(dirName)) {
-      var inClass = lookupLinkedVertexClass(edgeClassName, "in", context);
-      var outClass = lookupLinkedVertexClass(edgeClassName, "out", context);
+      var inClass = lookupLinkedVertexClass(edgeClassName, "in", context.getDatabaseSession());
+      var outClass = lookupLinkedVertexClass(edgeClassName, "out", context.getDatabaseSession());
       if (inClass != null && inClass.equals(outClass)) {
         return inClass;
       }
