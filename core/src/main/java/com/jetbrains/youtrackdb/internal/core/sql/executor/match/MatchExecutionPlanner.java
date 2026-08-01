@@ -415,6 +415,10 @@ public class MatchExecutionPlanner {
    * thread-safe — concurrent plan constructions racing on a brand-new
    * out-of-range value will see exactly one of them swap successfully and
    * log; the others observe {@code previous == raw} and skip.
+   *
+   * <p>This is the cell every production plan shares. The clamp also accepts a
+   * caller-supplied cell, so the dedupe rule can be exercised without touching
+   * process-wide state.
    */
   private static final AtomicInteger lastWarnedChainFoldKnob =
       new AtomicInteger(0);
@@ -2148,11 +2152,29 @@ public class MatchExecutionPlanner {
    * @return the clamped value, in {@code [0, MAX_CHAIN_FOLD_HOPS]}
    */
   static int clampChainFoldMaxHops(int raw) {
+    return clampChainFoldMaxHops(raw, lastWarnedChainFoldKnob);
+  }
+
+  /**
+   * Clamps {@code raw} against a caller-supplied dedupe cell instead of the
+   * process-wide one.
+   *
+   * <p>The cell holds the last out-of-range value that emitted a warning.
+   * Passing it in rather than reading a static keeps the dedupe decision a
+   * function of its arguments, which is what makes it checkable: a caller that
+   * owns the cell can read the outcome afterwards. That matters because the
+   * warning itself leaves no other trace to assert on.
+   *
+   * @param lastWarned holds the last out-of-range value that warned;
+   *                   {@code 0} means none has, and is safe as a sentinel
+   *                   because {@code 0} is always in range
+   */
+  static int clampChainFoldMaxHops(int raw, AtomicInteger lastWarned) {
     if (raw > MAX_CHAIN_FOLD_HOPS) {
       // getAndSet returns the previous sentinel/value; if it equals raw,
       // we have already warned about this exact value and stay silent.
       // Otherwise we own the warning for this new out-of-range value.
-      int previous = lastWarnedChainFoldKnob.getAndSet(raw);
+      int previous = lastWarned.getAndSet(raw);
       if (previous != raw) {
         logger.warn(
             "QUERY_MATCH_CHAIN_FOLD_MAX_HOPS={} exceeds the supported"
@@ -2168,28 +2190,6 @@ public class MatchExecutionPlanner {
     // getHashJoinThreshold). Zero is the documented "fold disabled" value
     // and passes through unchanged.
     return Math.max(0, raw);
-  }
-
-  /**
-   * Test seam: resets the warn-dedupe state to its initial sentinel so a test
-   * that exercises {@link #clampChainFoldMaxHops}' upper-bound branch starts
-   * from a known state. The field is a static that outlives any single plan,
-   * so without this reset the dedupe outcome would depend on which test ran
-   * first in the JVM.
-   */
-  static void resetChainFoldWarnState() {
-    lastWarnedChainFoldKnob.set(0);
-  }
-
-  /**
-   * Test seam: the out-of-range knob value that owned the most recent
-   * upper-bound clamp warning, or {@code 0} when none has been emitted since
-   * the last {@link #resetChainFoldWarnState}. Reading it lets a test assert
-   * the dedupe state machine directly — the test log backend is
-   * {@code slf4j-nop}, so the WARN itself is not observable.
-   */
-  static int lastWarnedChainFoldKnobValue() {
-    return lastWarnedChainFoldKnob.get();
   }
 
   /**
@@ -2826,10 +2826,10 @@ public class MatchExecutionPlanner {
       return 1.0;
     }
 
-    // Same memo idiom as EdgeFanOutEstimator.countFor, so both writers into
-    // the shared classCountCache are read the same way. targetClass is the
-    // canonical schema name here: getClassInternal above returned non-null,
-    // and ImmutableSchema keys its class map by the exact declared name.
+    // targetClass is safe as a cache key: the lookup above returned non-null,
+    // and the schema keys its class map by the exact declared name, so this
+    // string is the canonical one. Every writer into the map resolves its key
+    // the same way, which is what lets one plan share a single count per class.
     long classCount = classCountCache != null
         ? classCountCache.computeIfAbsent(
             targetClass, k -> schemaClass.approximateCount(session))

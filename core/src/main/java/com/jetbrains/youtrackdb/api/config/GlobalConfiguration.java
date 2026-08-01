@@ -1420,9 +1420,8 @@ public enum GlobalConfiguration {
           + " vertex, so only 0 restores the schedule the planner produced"
           + " before the fold existed. Set to 0"
           + " to disable the fold entirely (rollback-only safety valve)."
-          + " Read once per plan construction: statements already in the"
-          + " execution-plan cache keep their existing schedule until the"
-          + " cache is evicted (any schema change, or a restart).",
+          + " Read once per plan construction, so it takes effect on"
+          + " restart like every other setting here.",
       Integer.class,
       10,
       true),

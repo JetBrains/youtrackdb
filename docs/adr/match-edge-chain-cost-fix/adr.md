@@ -369,16 +369,15 @@ flowchart LR
   `QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 0` — the sort-loop call site's
   `chainFoldMaxHops >= 1` gate skips `applyChainFold` entirely.
   This is the production rollback path.
-- **Plan-cache caveat.** The knob is read once per plan construction,
-  and `YqlExecutionPlanCache` keys on statement text and invalidates
-  only on schema, index, function, sequence and storage-configuration
-  updates. A `GlobalConfiguration` write therefore does not re-plan
-  statements already in the cache: hot queries keep their old schedule
-  until an eviction. An operator rolling back with `= 0` needs a cache
-  eviction — any schema change, or a restart — for the change to reach
-  queries already running. `MatchEdgeMethodChainCostTest`'s
-  `setChainFoldMaxHops` helper evicts explicitly for this reason, and
-  its Javadoc is the in-repo record of the constraint.
+- **In-process knob changes need a cache eviction.** The knob is read
+  once per plan construction, and `YqlExecutionPlanCache` invalidates on
+  schema, index, function, sequence and storage-configuration updates but
+  not on a `GlobalConfiguration` write. Statements already cached keep
+  their schedule. This does not reach production, where configuration is
+  start-time only and a restart empties the cache regardless. It does
+  reach tests, which change the knob in-process: the
+  `setChainFoldMaxHops` helper evicts explicitly, because without it a
+  second query under a new knob value is handed the first value's plan.
 
 ### Integration Points
 

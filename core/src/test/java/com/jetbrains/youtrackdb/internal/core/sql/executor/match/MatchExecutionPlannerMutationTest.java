@@ -40,6 +40,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -79,10 +80,6 @@ public class MatchExecutionPlannerMutationTest {
     var metadata = mock(MetadataDefault.class);
     when(db.getMetadata()).thenReturn(metadata);
     when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
-    // clampChainFoldMaxHops dedupes its WARN against a static field that
-    // outlives any single test. Reset it so the clamp tests below observe a
-    // known starting state regardless of which test ran first in this JVM.
-    MatchExecutionPlanner.resetChainFoldWarnState();
   }
 
   // ── extractEdgeClassName — instanceof String must be exercised ──
@@ -3038,80 +3035,97 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   // =========================================================================
-  // clampChainFoldMaxHops — warn dedupe state machine
+  // clampChainFoldMaxHops — warn dedupe rule
   //
-  // The WARN itself is unobservable (tests run on slf4j-nop), so these
-  // assert the dedupe decision through lastWarnedChainFoldKnobValue(): the
-  // field holds the value that owned the most recent warning, and
-  // clampChainFoldMaxHops stays silent when the incoming value already
-  // matches it.
+  // The WARN leaves no trace to assert on: the test log backend discards it.
+  // These drive the clamp with a locally-owned dedupe cell instead and read
+  // the decision out of that cell afterwards, so no two tests can influence
+  // each other and no process-wide state is touched.
   // =========================================================================
 
   /**
-   * The first out-of-range value takes ownership of the warning, recorded by
-   * the field moving off its zero sentinel. Kills a mutation that drops the
-   * {@code getAndSet} and never records the value, which would make every
-   * subsequent plan re-warn.
+   * The first out-of-range value takes ownership of the warning, which shows
+   * up as the cell moving off its zero sentinel. Kills a change that drops the
+   * {@code getAndSet} and records nothing, after which every plan re-warns.
    */
   @Test
   public void clampChainFoldMaxHops_firstOutOfRangeValue_takesWarnOwnership() {
-    assertEquals(0, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+    var lastWarned = new AtomicInteger(0);
 
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
 
-    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+    assertEquals(5000, lastWarned.get());
   }
 
   /**
-   * Repeating one out-of-range value leaves the recorded value unchanged, so
-   * the second call observes {@code previous == raw} and stays silent. This
-   * is the common case — one misconfigured knob read once per plan across
-   * many queries collapses to a single WARN.
+   * Repeating one out-of-range value leaves the cell unchanged, so every call
+   * after the first observes {@code previous == raw} and stays silent. This is
+   * the common case: one misconfigured knob read once per plan across many
+   * queries collapses to a single WARN.
    */
   @Test
   public void clampChainFoldMaxHops_repeatedOutOfRangeValue_staysOwnedByFirst() {
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+    var lastWarned = new AtomicInteger(0);
 
-    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
+
+    assertEquals(5000, lastWarned.get());
   }
 
   /**
    * Alternating between two out-of-range values re-warns on each change: the
    * dedupe is last-value, not once-per-distinct-value. Pins the documented
-   * semantics so a future switch to a Set-based "warn once ever" cannot land
-   * silently.
+   * semantics so a later switch to a set-based "warn once ever" cannot land
+   * unnoticed.
    */
   @Test
   public void clampChainFoldMaxHops_alternatingOutOfRangeValues_rewarnOnChange() {
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
-    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+    var lastWarned = new AtomicInteger(0);
 
-    MatchExecutionPlanner.clampChainFoldMaxHops(6000);
-    assertEquals(6000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
+    assertEquals(5000, lastWarned.get());
 
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
-    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+    MatchExecutionPlanner.clampChainFoldMaxHops(6000, lastWarned);
+    assertEquals(6000, lastWarned.get());
+
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
+    assertEquals(5000, lastWarned.get());
   }
 
   /**
-   * In-range values never touch the warn state, so a knob corrected back
-   * into range leaves the previous owner recorded and does not reset the
-   * dedupe. Kills a mutation that moved {@code getAndSet} outside the
-   * {@code raw > MAX_CHAIN_FOLD_HOPS} branch, which would warn on every
+   * In-range values never touch the cell, so correcting the knob back into
+   * range leaves the previous owner recorded. Kills a change that moved the
+   * {@code getAndSet} outside the over-cap branch, which would warn on every
    * normal plan.
    */
   @Test
   public void clampChainFoldMaxHops_inRangeValues_leaveWarnStateUntouched() {
-    MatchExecutionPlanner.clampChainFoldMaxHops(5000);
+    var lastWarned = new AtomicInteger(0);
+    MatchExecutionPlanner.clampChainFoldMaxHops(5000, lastWarned);
 
-    MatchExecutionPlanner.clampChainFoldMaxHops(10);
-    MatchExecutionPlanner.clampChainFoldMaxHops(0);
-    MatchExecutionPlanner.clampChainFoldMaxHops(-100);
-    MatchExecutionPlanner.clampChainFoldMaxHops(1000);
+    MatchExecutionPlanner.clampChainFoldMaxHops(10, lastWarned);
+    MatchExecutionPlanner.clampChainFoldMaxHops(0, lastWarned);
+    MatchExecutionPlanner.clampChainFoldMaxHops(-100, lastWarned);
+    MatchExecutionPlanner.clampChainFoldMaxHops(1000, lastWarned);
 
-    assertEquals(5000, MatchExecutionPlanner.lastWarnedChainFoldKnobValue());
+    assertEquals(5000, lastWarned.get());
+  }
+
+  /**
+   * The single-argument entry point clamps identically to the injected-cell
+   * overload. Pins that production keeps going through the same rule rather
+   * than drifting into a second copy of the bounds.
+   */
+  @Test
+  public void clampChainFoldMaxHops_defaultOverloadClampsLikeInjectedOverload() {
+    var lastWarned = new AtomicInteger(0);
+    for (int raw : new int[] {10, 0, 1000, -100, Integer.MIN_VALUE, 1001, 100_000}) {
+      assertEquals(
+          MatchExecutionPlanner.clampChainFoldMaxHops(raw, lastWarned),
+          MatchExecutionPlanner.clampChainFoldMaxHops(raw));
+    }
   }
 
   // =========================================================================

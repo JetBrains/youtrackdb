@@ -79,11 +79,9 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
    * first plan handed back both times without this call, and the second
    * assertion then measures the first knob's schedule.
    *
-   * <p>The same holds in production: {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS}
-   * is read during plan construction, so changing it does not re-plan
-   * statements already in the cache. Operators using the documented
-   * {@code = 0} rollback need a cache eviction (any schema change, or a
-   * restart) for it to take effect on hot queries.
+   * <p>Only tests need this. Production configuration is start-time only —
+   * nothing on the server or SQL surface writes {@code GlobalConfiguration}
+   * on a live instance — and a restart empties the cache anyway.
    */
   private void setChainFoldMaxHops(int maxHops) {
     GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.setValue(maxHops);

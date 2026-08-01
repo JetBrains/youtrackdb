@@ -423,20 +423,22 @@ Collapsing `outE('X').inV()` into a single `PatternEdge` during
 
 Aggregation at sort time is strictly additive: remove the call-site
 gate (`chainFoldMaxHops >= 1`) and the planner falls back to today's
-behaviour. The knob's `0` value is the production rollback path, subject
-to the plan-cache caveat below.
+behaviour. The knob's `0` value is the production rollback path.
 
-### Plan-Cache Caveat
+### Knob Changes and the Plan Cache
 
 The knob is read once per plan construction. `YqlExecutionPlanCache` keys
 on statement text and invalidates on schema, index, function, sequence and
-storage-configuration updates — never on a `GlobalConfiguration` write. A
-knob change therefore does not re-plan statements already in the cache, so
-an operator rolling back with `= 0` needs a cache eviction (any schema
-change, or a restart) before hot queries pick it up. The integration
-tests hit the same constraint: `setChainFoldMaxHops` evicts explicitly,
-because without it a second query under a new knob value gets the first
-value's plan handed straight back.
+storage-configuration updates — never on a `GlobalConfiguration` write, so
+a knob change does not re-plan statements already cached.
+
+Production is unaffected: configuration is start-time only (nothing in the
+server or SQL surface writes `GlobalConfiguration` on a live instance), and
+a restart empties the cache anyway. Tests are affected, because they change
+the knob in-process. `setChainFoldMaxHops` evicts explicitly for that
+reason — without it, a second query under a new knob value gets the first
+value's plan handed straight back, and the assertion silently measures the
+wrong schedule.
 
 ## Handling the Recursive DFS Pass on the Intermediate Alias
 
