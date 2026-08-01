@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryStepTestSupport.drainPayloads;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
@@ -826,6 +827,7 @@ public class YTDBMatchPlanStepTest {
 
     step.reset();
     var secondPass = drainPayloads(step);
+    step.close(); // these tests drive processNextStart() directly, so they close explicitly
 
     assertThat(firstPass).as("the first pass yields the single row").hasSize(1);
     assertThat(secondPass)
@@ -960,6 +962,43 @@ public class YTDBMatchPlanStepTest {
     assertThat(ReplayablePlanFixture.isClosed(reArmedPlan))
         .as("the copy is released by the close that ends its pass")
         .isTrue();
+  }
+
+  /**
+   * A {@code close()} that arrives before the step ever iterated must not send the later re-arm down
+   * the copy path. The caller shape is {@code try (var t = g.V().hasLabel("person")) { if (skip)
+   * return; … }}: {@code Traversal.close()} closes every {@link AutoCloseable} step, so the boundary
+   * step is closed holding a plan it never started. Treating that as an ordinary close would
+   * deep-copy a pristine plan on the next pass and drop the original with nothing left to close it,
+   * so the step records the never-started close separately and the reset returns it to its
+   * first-open state. Iteration stays terminal until that reset arrives, and the close stays
+   * idempotent.
+   */
+  @Test
+  public void closeBeforeAnyIteration_thenReset_startsTheOriginalPlanRatherThanACopy() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    step.close(); // a caller that opened the traversal and returned before iterating
+    step.close(); // still idempotent from the never-started close
+
+    // The close found nothing to release: an unstarted plan has claimed no cursor.
+    verify(plan, never()).close();
+    verify(plan, never()).start();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    step.reset();
+    drainPayloads(step);
+
+    // The original plan runs. Nothing is copied (the plan mock answers copy() with null, which the
+    // production assertion rejects under -ea) and nothing is rewound.
+    verify(plan, times(1)).start();
+    verify(plan, never()).copy(any());
+    verify(plan, never()).reset(any());
+
+    // The pass that did run closes its plan on the way out, as any other pass does.
+    step.close();
+    verify(plan, times(1)).close();
   }
 
   /**
@@ -1409,21 +1448,6 @@ public class YTDBMatchPlanStepTest {
     lenient().when(copiedPlan.start()).thenReturn(copiedStream);
     when(plan.copy(any())).thenReturn(copiedPlan);
     return copiedPlan;
-  }
-
-  /**
-   * Drives the step to exhaustion and returns every emitted payload in order. Exhaustion is the
-   * {@code FastNoSuchElementException} the step throws once its shaped payloads run dry.
-   */
-  private static List<Object> drainPayloads(YTDBMatchPlanStep<Object, Vertex> step) {
-    var payloads = new ArrayList<>();
-    while (true) {
-      try {
-        payloads.add(step.processNextStart().get());
-      } catch (NoSuchElementException exhausted) {
-        return payloads;
-      }
-    }
   }
 
   private YTDBMatchPlanStep<Object, Vertex> shapedStep(

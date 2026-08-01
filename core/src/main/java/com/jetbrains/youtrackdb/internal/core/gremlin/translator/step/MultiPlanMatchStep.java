@@ -272,15 +272,32 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     // assert on any child that ran (that assert is what documents the seeded per-run state a
     // completed pass leaves behind).
     var copies = new ArrayList<InternalExecutionPlan>(plans.size());
-    for (var childPlan : plans) {
-      var copy = childPlan.copy(childPlan.getContext());
-      // A copy() that handed back the same instance would put this child right back on its closed
-      // chain: the re-run would silently drop that child's rows from the union and leak the cursors
-      // it claimed. Zero cost in production (assertions disabled).
-      assert copy != null && copy != childPlan
-          : "InternalExecutionPlan.copy returned " + (copy == null ? "null" : "the same instance")
-              + "; the re-armed union would restart a closed child plan";
-      copies.add(copy);
+    try {
+      for (var childPlan : plans) {
+        var copy = childPlan.copy(childPlan.getContext());
+        // A copy() that handed back the same instance would put this child right back on its closed
+        // chain: the re-run would silently drop that child's rows from the union and leak the
+        // cursors it claimed. Zero cost in production (assertions disabled).
+        assert copy != null && copy != childPlan
+            : "InternalExecutionPlan.copy returned " + (copy == null ? "null" : "the same instance")
+                + "; the re-armed union would restart a closed child plan";
+        copies.add(copy);
+      }
+    } catch (RuntimeException | Error e) {
+      // A child that cannot be copied strands every copy built before it. The field below is only
+      // assigned on success, so `plans` still holds the closed originals and no later closePlan()
+      // can reach the new copies; and this hook runs outside both startPlanStream()'s try and
+      // processNextStart()'s terminal handler, so nothing upstream releases them either. Close what
+      // was built before rethrowing, in closePlan()'s shape: the copy failure stays primary and a
+      // release failure attaches with addSuppressed.
+      for (var copy : copies) {
+        try {
+          copy.close();
+        } catch (RuntimeException | Error suppressed) {
+          e.addSuppressed(suppressed);
+        }
+      }
+      throw e;
     }
     // Plain field write, as in clone(): the field is non-final (see its declaration) and the write
     // happens on the iterating thread before any row of the new pass is produced.

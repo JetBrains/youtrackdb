@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryStepTestSupport.drainPayloads;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
@@ -434,8 +435,8 @@ public class MultiPlanMatchStepTest {
     var raw2 = rawVertex();
     var c1 = child(ListStream.of(vertexRow(raw1)));
     var c2 = child(ListStream.of(vertexRow(raw2)));
-    var copy1 = rowYieldingCopy(c1, vertexRow(raw1));
-    var copy2 = rowYieldingCopy(c2, vertexRow(raw2));
+    var copy1 = stubCopyYielding(c1, vertexRow(raw1));
+    var copy2 = stubCopyYielding(c2, vertexRow(raw2));
 
     var step = elementStep(c1, c2);
     var firstPass = drainPayloads(step);
@@ -524,6 +525,64 @@ public class MultiPlanMatchStepTest {
           .as("each copy is released by the close that ends its pass")
           .isTrue();
     }
+  }
+
+  /**
+   * A child that cannot be copied must not strand the copies the re-arm already built. The step
+   * publishes the new child list only once every copy exists, so a failure part-way leaves the
+   * earlier copies referenced by nothing: the field still holds the closed originals, and the hook
+   * runs outside both the plan-start try and the iteration-failure handler, so no later close can
+   * find them. {@code InternalExecutionPlan.copy} is allowed to be unsupported, which is what makes
+   * this reachable rather than theoretical. The copy failure must stay the primary exception.
+   */
+  @Test
+  public void reArmWhoseChildCopyFails_closesTheChildCopiesAlreadyBuilt() {
+    var c1 = child(ListStream.of());
+    var c2 = child(ListStream.of());
+    var copy1 = stubCopyYielding(c1);
+    when(c2.plan.copy(any()))
+        .thenThrow(new UnsupportedOperationException("child cannot be copied"));
+
+    var step = elementStep(c1, c2);
+    drainPayloads(step);
+    step.close();
+
+    step.reset();
+    assertThatExceptionOfType(UnsupportedOperationException.class)
+        .isThrownBy(() -> step.processNextStart())
+        .withMessageContaining("child cannot be copied");
+
+    verify(copy1, times(1)).close();
+    assertThat(step.getPlans())
+        .as("the failed re-arm publishes nothing: the step still holds the closed originals")
+        .containsExactly(c1.plan, c2.plan);
+  }
+
+  /**
+   * When the copy fails and releasing an already-built copy fails too, the copy failure stays
+   * primary and the release failure attaches with {@code addSuppressed} — the shape {@code
+   * closePlan()} already uses. Letting the cleanup failure win would tell the operator why the
+   * tidy-up broke instead of why the re-arm did.
+   */
+  @Test
+  public void reArmWhoseChildCopyFails_keepsTheCopyFailurePrimaryOverAReleaseFailure() {
+    var c1 = child(ListStream.of());
+    var c2 = child(ListStream.of());
+    var copy1 = stubCopyYielding(c1);
+    doThrow(new IllegalStateException("copy close failed")).when(copy1).close();
+    when(c2.plan.copy(any())).thenThrow(new UnsupportedOperationException("cannot be copied"));
+
+    var step = elementStep(c1, c2);
+    drainPayloads(step);
+    step.close();
+
+    step.reset();
+    assertThatExceptionOfType(UnsupportedOperationException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("cannot be copied")
+        .satisfies(
+            e -> assertThat(e.getSuppressed())
+                .anySatisfy(s -> assertThat(s).hasMessageContaining("copy close failed")));
   }
 
   // ---- Clone semantics ----
@@ -1014,25 +1073,12 @@ public class MultiPlanMatchStepTest {
   }
 
   /**
-   * Drives the step to exhaustion and returns every emitted payload in order. Exhaustion is the
-   * {@code FastNoSuchElementException} the step throws once every child is drained.
+   * Stubs {@code copy(ctx)} on this child — the call a re-arm after close makes — with a plan mock
+   * reporting the child's own context and a fresh {@link ListStream} over {@code rows}, and returns
+   * that copy so the test can verify against it. The {@code stub} prefix flags the side effect: the
+   * neighbouring {@code …Copy} factories build a copy and leave the stubbing to the caller.
    */
-  private static List<Object> drainPayloads(MultiPlanMatchStep<Object, Vertex> step) {
-    var payloads = new ArrayList<>();
-    while (true) {
-      try {
-        payloads.add(nextPayload(step));
-      } catch (NoSuchElementException exhausted) {
-        return payloads;
-      }
-    }
-  }
-
-  /**
-   * Answers a {@code copy(ctx)} call on this child — the call a re-arm after close makes — with a
-   * plan mock reporting the child's own context and a fresh {@link ListStream} over {@code rows}.
-   */
-  private InternalExecutionPlan rowYieldingCopy(Child child, Result... rows) {
+  private InternalExecutionPlan stubCopyYielding(Child child, Result... rows) {
     var stream = ListStream.of(rows);
     var copy = mock(InternalExecutionPlan.class);
     lenient().when(copy.getContext()).thenReturn(child.ctx);
