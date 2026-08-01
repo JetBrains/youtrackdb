@@ -295,6 +295,14 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
         .as("an unindexed scan uses no index step")
         .isFalse();
+    // The label count is under the MATCH prefetch threshold, so the fetch lives in the prefetch
+    // sub-plan. MatchPrefetchStep.prettyPrint inlines that sub-plan, so the rendered text names
+    // the fetch the alias actually runs -- the negative half of this suite's index-usage answer.
+    assertThat(listener.planPrettyInCallback)
+        .as("the prefetched alias is read by scanning the class, with no index step")
+        .contains("+ PREFETCH")
+        .contains("+ FETCH FROM CLASS")
+        .doesNotContain("+ FETCH FROM INDEX");
   }
 
   // An index-backed query must surface a non-null plan whose steps contain a FetchFromIndexStep.
@@ -329,6 +337,14 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
         .as("an indexed query uses a FetchFromIndexStep")
         .isTrue();
+    // This is the only Gremlin-level index-usage assertion in the tree, so it pins where the index
+    // step sits, not just that one exists somewhere. One IndexedThing record is under the MATCH
+    // prefetch threshold, so the alias is prefetched and the index fetch belongs in that sub-plan;
+    // an index step reachable only outside it would mean the prefetch itself scans the class.
+    assertThat(listener.planPrettyInCallback)
+        .as("the prefetched alias is read through the index, not by scanning the class")
+        .contains("+ PREFETCH")
+        .contains("+ FETCH FROM INDEX");
   }
 
   // A by-id lookup takes the branch that runs no query, so no plan is captured — the listener sees

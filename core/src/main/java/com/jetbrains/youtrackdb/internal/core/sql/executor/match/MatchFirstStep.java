@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  * The **entry point** step for a MATCH pattern traversal — produces the initial set of
@@ -119,6 +120,30 @@ public class MatchFirstStep extends AbstractExecutionStep {
   @Override
   public boolean canBeCached() {
     return executionPlan == null || executionPlan.canBeCached();
+  }
+
+  /**
+   * Exposes the scan sub-plan's steps so plan introspection can see the nested fetch, or an empty
+   * list when the alias was prefetched and this step carries no sub-plan.
+   * <p>
+   * The inherited default reports no children, which hides the sub-plan from every caller that
+   * walks {@link ExecutionStep#getSubSteps()} — {@code EXPLAIN} result documents built by
+   * {@link ExecutionStep#toResult}, and index-usage scans that ask whether a plan fetches from
+   * an index. {@link #prettyPrint} already inlines the same sub-plan, so the text rendering was
+   * the only place the nested steps were visible.
+   * <p>
+   * Below {@code MatchExecutionPlanner.THRESHOLD} records the alias is prefetched and the fetch
+   * lives under {@link MatchPrefetchStep} instead, which overrides this accessor for the same
+   * reason; above the threshold it lives here.
+   * <p>
+   * {@code getSubExecutionPlans()} deliberately keeps its empty default. Callers such as the
+   * index-counting test helpers walk both accessors, so publishing the same nested steps through
+   * both would make them count every nested fetch twice.
+   */
+  @Nonnull
+  @Override
+  public List<ExecutionStep> getSubSteps() {
+    return executionPlan == null ? List.of() : List.copyOf(executionPlan.getSteps());
   }
 
   @Override

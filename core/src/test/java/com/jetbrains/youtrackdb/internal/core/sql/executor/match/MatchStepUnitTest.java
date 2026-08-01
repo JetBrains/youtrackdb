@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -2101,6 +2102,167 @@ public class MatchStepUnitTest extends DbTestBase {
     step.start(ctx).close(ctx);
     assertNotNull("after reset, prefetched data should still be in context",
         ctx.getVariable(MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + "alias"));
+  }
+
+  // -- Sub-step introspection tests --
+  //
+  // MatchPrefetchStep and MatchFirstStep each own a nested execution plan. Plan introspection
+  // (EXPLAIN result documents, index-usage scans) reaches nested content through getSubSteps(),
+  // and both steps used to inherit the empty default, so their nested fetch step was invisible to
+  // every caller that was not reading prettyPrint. Which of the two holds the fetch depends on
+  // cardinality: below MatchExecutionPlanner.THRESHOLD the alias is prefetched and the fetch lives
+  // under MatchPrefetchStep; above it, under MatchFirstStep's own sub-plan.
+
+  /**
+   * Verifies MatchPrefetchStep.getSubSteps() hands back the prefetch sub-plan's steps rather than
+   * the empty list the base interface defaults to.
+   */
+  @Test
+  public void testMatchPrefetchStepGetSubStepsExposesSubPlanSteps() {
+    var ctx = createCommandContext();
+    var plan = new SelectExecutionPlan(ctx);
+    var subStep = newNoOpStep(ctx);
+    plan.chain(subStep);
+    var step = new MatchPrefetchStep(ctx, plan, "myAlias", false);
+
+    assertEquals("the prefetch sub-plan's step is exposed as a sub-step",
+        List.of(subStep), step.getSubSteps());
+  }
+
+  /**
+   * Verifies MatchPrefetchStep.getSubSteps() returns an immutable snapshot. SelectExecutionPlan
+   * hands out its live internal step list, so an accessor that forwarded it unchanged would let a
+   * caller walking the plan for introspection mutate the plan it is inspecting.
+   */
+  @Test
+  public void testMatchPrefetchStepGetSubStepsIsImmutableSnapshot() {
+    var ctx = createCommandContext();
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(newNoOpStep(ctx));
+    var step = new MatchPrefetchStep(ctx, plan, "myAlias", false);
+
+    var subSteps = step.getSubSteps();
+    assertNotSame("the accessor must not leak the sub-plan's live list",
+        plan.getSteps(), subSteps);
+    try {
+      subSteps.add(newNoOpStep(ctx));
+      fail("the returned sub-step list should reject mutation");
+    } catch (UnsupportedOperationException expected) {
+      // The snapshot is immutable, which is the point of the assertion.
+    }
+  }
+
+  /**
+   * Verifies MatchPrefetchStep keeps the empty default for getSubExecutionPlans(). Callers that
+   * tally index fetches walk both accessors, so publishing the nested plan through both would
+   * make them count every nested fetch twice.
+   */
+  @Test
+  public void testMatchPrefetchStepGetSubExecutionPlansStaysEmpty() {
+    var ctx = createCommandContext();
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(newNoOpStep(ctx));
+    var step = new MatchPrefetchStep(ctx, plan, "myAlias", false);
+
+    assertTrue("the nested plan is published through getSubSteps() only",
+        step.getSubExecutionPlans().isEmpty());
+  }
+
+  /**
+   * Verifies MatchFirstStep.getSubSteps() hands back the scan sub-plan's steps — the shape taken
+   * above the prefetch threshold, where MatchFirstStep runs its own scan.
+   */
+  @Test
+  public void testMatchFirstStepGetSubStepsExposesSubPlanSteps() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "a";
+    var plan = new SelectExecutionPlan(ctx);
+    var subStep = newNoOpStep(ctx);
+    plan.chain(subStep);
+    var step = new MatchFirstStep(ctx, node, plan, false);
+
+    assertEquals("the scan sub-plan's step is exposed as a sub-step",
+        List.of(subStep), step.getSubSteps());
+  }
+
+  /**
+   * Verifies MatchFirstStep.getSubSteps() is empty when the step was built for a prefetched alias
+   * and carries no sub-plan — the below-threshold shape, where MatchPrefetchStep owns the fetch.
+   */
+  @Test
+  public void testMatchFirstStepGetSubStepsEmptyWithoutSubPlan() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "a";
+    var step = new MatchFirstStep(ctx, node, false);
+
+    assertTrue("a prefetch-fed step has no nested steps to expose",
+        step.getSubSteps().isEmpty());
+  }
+
+  /**
+   * Verifies MatchFirstStep.getSubSteps() returns an immutable snapshot, for the same reason as
+   * the MatchPrefetchStep case: the underlying plan hands out its live step list.
+   */
+  @Test
+  public void testMatchFirstStepGetSubStepsIsImmutableSnapshot() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "a";
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(newNoOpStep(ctx));
+    var step = new MatchFirstStep(ctx, node, plan, false);
+
+    var subSteps = step.getSubSteps();
+    assertNotSame("the accessor must not leak the sub-plan's live list",
+        plan.getSteps(), subSteps);
+    try {
+      subSteps.add(newNoOpStep(ctx));
+      fail("the returned sub-step list should reject mutation");
+    } catch (UnsupportedOperationException expected) {
+      // The snapshot is immutable, which is the point of the assertion.
+    }
+  }
+
+  /**
+   * Verifies MatchFirstStep keeps the empty default for getSubExecutionPlans(), so index-fetch
+   * tallies that walk both accessors do not double-count the nested scan.
+   */
+  @Test
+  public void testMatchFirstStepGetSubExecutionPlansStaysEmpty() {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "a";
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(newNoOpStep(ctx));
+    var step = new MatchFirstStep(ctx, node, plan, false);
+
+    assertTrue("the nested plan is published through getSubSteps() only",
+        step.getSubExecutionPlans().isEmpty());
+  }
+
+  /**
+   * Builds a minimal step for use as sub-plan content: it yields nothing and renders as an empty
+   * string, so a test can assert on the identity of what a sub-step accessor hands back.
+   */
+  private static AbstractExecutionStep newNoOpStep(CommandContext ctx) {
+    return new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
   }
 
   // -- AbstractExecutionStep base behavior tests (exercised via match steps) --

@@ -13,8 +13,11 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchFirstStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPrefetchStep;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -2316,6 +2319,111 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue("plan should contain MATCH step", plan.contains("MATCH"));
     assertTrue("plan should contain forward arrow", plan.contains("---->"));
     session.commit();
+  }
+
+  /**
+   * Below MatchExecutionPlanner.THRESHOLD records an alias is prefetched, so its fetch step lives
+   * in a MatchPrefetchStep sub-plan. Verifies that fetch is reachable through getSubSteps(), which
+   * is how plan introspection — EXPLAIN documents, index-usage scans — reaches nested content.
+   * Person holds six vertices, well under the threshold.
+   */
+  @Test
+  public void testPrefetchStepExposesItsFetchStepBelowThreshold() {
+    session.begin();
+    var result = session.query("MATCH {class:Person, as:a} RETURN a");
+    var prefetch =
+        result.getExecutionPlan().getSteps().stream()
+            .filter(MatchPrefetchStep.class::isInstance)
+            .findFirst()
+            .orElse(null);
+    assertNotNull("six Person vertices are under the prefetch threshold", prefetch);
+    assertTrue(
+        "the prefetch sub-plan's class fetch is visible through getSubSteps()",
+        containsStepOfType(prefetch, FetchFromClassExecutionStep.class));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Above MatchExecutionPlanner.THRESHOLD nothing is prefetched and the fetch step lives under
+   * MatchFirstStep's own sub-plan instead. Verifies it is reachable through getSubSteps() there
+   * too, so plan introspection sees the fetch at either cardinality. IndexedVertex holds 1000
+   * vertices, well over the threshold.
+   */
+  @Test
+  public void testMatchFirstStepExposesItsFetchStepAboveThreshold() {
+    session.begin();
+    var result = session.query("MATCH {class:IndexedVertex, as:one} RETURN one");
+    var steps = result.getExecutionPlan().getSteps();
+    assertTrue(
+        "1000 vertices are over the prefetch threshold, so no alias is prefetched",
+        steps.stream().noneMatch(MatchPrefetchStep.class::isInstance));
+    var first =
+        steps.stream().filter(MatchFirstStep.class::isInstance).findFirst().orElse(null);
+    assertNotNull("a MATCH plan starts with a MatchFirstStep", first);
+    assertTrue(
+        "the scan sub-plan's class fetch is visible through getSubSteps()",
+        containsStepOfType(first, FetchFromClassExecutionStep.class));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Pins the one observable output change the sub-step overrides make. EXPLAIN serialises every
+   * step through ExecutionStep.toResult, which recurses getSubSteps(), so the prefetch step's
+   * result document now carries the nested fetch under "subSteps" where it previously carried an
+   * empty list. The executionPlanAsString rendering is unaffected — MatchPrefetchStep.prettyPrint
+   * inlined the sub-plan all along.
+   */
+  @Test
+  public void testExplainMatchResultDocumentCarriesNestedSubSteps() {
+    session.begin();
+    var explain = session.query("EXPLAIN MATCH {class:Person, as:a} RETURN a").toList();
+    assertEquals(1, explain.size());
+
+    Result planDocument = explain.get(0).getProperty("executionPlan");
+    assertNotNull("EXPLAIN should produce an executionPlan document", planDocument);
+    List<Result> stepDocuments = planDocument.getProperty("steps");
+    assertNotNull("the plan document should carry its steps", stepDocuments);
+
+    var prefetchDocument =
+        stepDocuments.stream()
+            .filter(step -> isDocumentFor(step, MatchPrefetchStep.class))
+            .findFirst()
+            .orElse(null);
+    assertNotNull("six Person vertices are under the prefetch threshold", prefetchDocument);
+
+    List<Result> nested = prefetchDocument.getProperty("subSteps");
+    assertNotNull("the prefetch step's document should carry a subSteps list", nested);
+    assertFalse("the nested fetch should appear in the EXPLAIN document", nested.isEmpty());
+
+    // The nested fetch is a class scan, which is what makes the document useful to a caller
+    // asking how the alias is read.
+    assertTrue(
+        "the nested document should name the class-fetch step",
+        nested.stream().anyMatch(step -> isDocumentFor(step, FetchFromClassExecutionStep.class)));
+    session.commit();
+  }
+
+  /** Reports whether an EXPLAIN step document describes a step of the given class. */
+  private static boolean isDocumentFor(Result stepDocument, Class<?> stepType) {
+    return stepType.getName().equals(stepDocument.getProperty(InternalExecutionPlan.JAVA_TYPE));
+  }
+
+  /**
+   * Recursively scans a step and its sub-steps for one of the given type. Mirrors how plan
+   * introspection callers walk a plan.
+   */
+  private static boolean containsStepOfType(ExecutionStep step, Class<?> stepType) {
+    if (stepType.isInstance(step)) {
+      return true;
+    }
+    for (var subStep : step.getSubSteps()) {
+      if (containsStepOfType(subStep, stepType)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
