@@ -1070,10 +1070,12 @@
               <execution>
                 <id>jacoco-report</id>
                 <!-- Use prepare-package (not test) so the report runs AFTER all
-                     surefire executions. The core module has two surefire
-                     executions (parallel + sequential) both in the test phase;
-                     binding report to test causes it to run between them,
-                     missing coverage from the sequential execution. -->
+                     surefire executions. The core module binds multiple surefire
+                     executions to the test phase: default-test, sequential-tests, and
+                     (on an ordinary build, no -Dtest=) the three per-wrapper Gremlin
+                     TinkerPop compliance executions. Binding report to test would run
+                     it between them, missing coverage from whichever executions run
+                     later in that phase. -->
                 <phase>prepare-package</phase>
                 <goals><goal>report</goal></goals>
                 <configuration>

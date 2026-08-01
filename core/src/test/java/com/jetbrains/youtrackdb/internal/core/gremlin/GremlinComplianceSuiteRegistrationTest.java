@@ -1,0 +1,329 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.YTDBGraphFeatureTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.YTDBProcessTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.YTDBStructureTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites.YTDBGremlinProcessTests;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites.YTDBStructureSuite;
+import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+
+/**
+ * Guards against classes under {@code gremlintest/**} silently running nowhere.
+ *
+ * <p>{@code core/pom.xml}'s {@code sequential-tests} surefire execution excludes {@code
+ * gremlintest/**} entirely, on the assumption that every concrete, {@code @Test}-bearing class
+ * living there is reachable only by explicit registration in one of the two TinkerPop
+ * suite-array registries -- {@link YTDBGremlinProcessTests} (feeding the {@code YTDBProcessTest}
+ * wrapper) or {@link YTDBStructureSuite} (feeding the {@code YTDBStructureTest} wrapper). Before
+ * that exclude existed, a class under {@code gremlintest/**} that was forgotten from both
+ * registries would still have run standalone under {@code sequential-tests} (loudly, as an
+ * unplanned duplicate -- see the removed 2x-duplicate-execution bug). After the exclude, the same
+ * mistake produces no test execution and no build signal at all: not under {@code
+ * sequential-tests} (file-pattern excluded) and not under any compliance execution (never
+ * referenced by a suite array). This test turns that silent gap back into a loud, specific
+ * failure naming the exact class that needs to be added to a registry.
+ *
+ * <p>It walks the compiled {@code gremlintest/**} test-classes tree directly rather than using a
+ * classpath-scanning library, since none is a test-scoped dependency of this module. It lives
+ * outside {@code gremlintest/**} on purpose: that whole package tree is excluded from {@code
+ * sequential-tests}, so a copy of this guard placed inside it would never run either.
+ *
+ * <p>Tagged {@link SequentialTest} not because it mutates shared state, but because it must load
+ * {@link YTDBGremlinProcessTests} and {@link YTDBStructureSuite}, both of which reference
+ * TinkerPop suite base classes from the {@code gremlin-test} dependency; {@code default-test}
+ * excludes that dependency from its classpath entirely (see {@code core/pom.xml}), so this test
+ * can only run under {@code sequential-tests}, which does not.
+ */
+@Category(SequentialTest.class)
+public class GremlinComplianceSuiteRegistrationTest {
+
+  private static final String GREMLINTEST_PACKAGE =
+      "com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest";
+
+  /**
+   * The three suite-wrapper classes are entry points that surefire runs directly (each gets its
+   * own {@code gremlin-*-compliance-tests} execution); they are not themselves registered inside
+   * a suite array, so they are exempt from the "must be registered" check below. In practice none
+   * of them declare a {@code @Test} method of their own either, so the scan would skip them
+   * anyway -- this set just makes that exemption explicit and future-proof.
+   */
+  private static final Set<String> WRAPPER_CLASS_NAMES = Set.of(
+      YTDBProcessTest.class.getName(),
+      YTDBStructureTest.class.getName(),
+      YTDBGraphFeatureTest.class.getName());
+
+  /**
+   * Floor for the number of concrete, {@code @Test}-bearing classes {@link
+   * #findConcreteJUnit4TestClasses()} must find under {@code gremlintest/**}. Without a floor,
+   * this test passes vacuously (checking nothing) if the classpath scan ever yields zero or a
+   * handful of candidates -- stale/empty build output, a changed build layout, or a classloader
+   * problem would all silently defeat the guard and reopen the exact silent-coverage-loss hole it
+   * exists to close.
+   *
+   * <p>As of this writing there are 10 such classes, spread across both {@code
+   * gremlintest.scenarios} (8) and {@code gremlintest.suites} (2). 5 is a little under half of
+   * the total: comfortably above what a badly broken scan (missing/empty package directory,
+   * wrong classloader) would produce, while leaving generous headroom so that legitimately
+   * removing or consolidating a few scenario classes over time does not spuriously fail this
+   * guard. It is deliberately not the exact current count, since adding a class is exactly the
+   * normal, expected way this number grows.
+   *
+   * <p>This total alone does not catch an asymmetric scan that walks one subpackage but misses
+   * another entirely (e.g. finds all 8 {@code scenarios} classes but none of the 2 {@code suites}
+   * ones): 8 still clears this floor, yet the missed subpackage's classes would appear in neither
+   * {@code candidates} nor {@code unregistered} -- silently uncovered. {@link
+   * #EXPECTED_GREMLINTEST_SUBPACKAGES} closes that gap separately.
+   */
+  private static final int MIN_EXPECTED_CANDIDATE_COUNT = 5;
+
+  /**
+   * The immediate subpackages of {@code gremlintest} that are expected to each contribute at
+   * least one candidate to {@link #findConcreteJUnit4TestClasses()}. Checked independently of
+   * {@link #MIN_EXPECTED_CANDIDATE_COUNT}'s combined total, because that total is satisfied by an
+   * asymmetric scan that fully covers one subpackage and completely misses another -- e.g. a scan
+   * that finds all 8 {@code scenarios} classes but walks past {@code suites} without descending
+   * into it still clears a floor of 5, and nothing about the combined count would say the 2
+   * {@code suites} classes went missing. Asserting each named subpackage contributed at least one
+   * candidate (not an exact count -- that would make legitimate growth within a subpackage fail
+   * the build) catches exactly that failure mode. Adding a genuinely new subpackage under {@code
+   * gremlintest} is expected to require adding its name here, the same way it would require new
+   * suite-array entries.
+   */
+  private static final Set<String> EXPECTED_GREMLINTEST_SUBPACKAGES = Set.of("scenarios",
+      "suites");
+
+  /**
+   * Per-registry floors for how many distinct classes each suite-array registry must contribute.
+   * Guards a different flavor of vacuous pass than {@link #MIN_EXPECTED_CANDIDATE_COUNT}: if a
+   * future refactor emptied, truncated, or deleted a registry's {@code Class<?>[]} field (rather
+   * than the candidate scan degenerating), {@link #collectRegisteredClassNames()} would silently
+   * return a smaller (or empty) set for that registry, and -- absent this check -- the only
+   * symptom would be gremlintest/** scenario classes showing up as "unregistered", which is loud
+   * on its own today but would go quiet again if the candidate scan also degenerated at the same
+   * time. Checking both independently removes that compound blind spot.
+   *
+   * <p>As of this writing {@link YTDBGremlinProcessTests} contributes 82 distinct classes (almost
+   * entirely upstream TinkerPop compliance classes) and {@link YTDBStructureSuite} contributes
+   * 37. A floor of 1 (the previous value) would pass even if, say, {@code commonTests} were
+   * accidentally truncated from 79 entries down to 3 -- a gross regression a bare non-emptiness
+   * check cannot see. 20 and 15 are chosen well below the current 82/37 (so routine additions or
+   * removals of a handful of upstream compliance classes never spuriously fail this guard) but
+   * high enough that a truncation severe enough to matter -- an accidental array literal
+   * replacement, a bad merge, a refactor that drops most of a list -- cannot hide under the
+   * floor.
+   */
+  private static final Map<Class<?>, Integer> MIN_EXPECTED_REGISTRY_SIZE = Map.of(
+      YTDBGremlinProcessTests.class, 20,
+      YTDBStructureSuite.class, 15);
+
+  /**
+   * Scenario: a hand-written, concrete class under {@code gremlintest/**} declares (directly or
+   * by inheritance, e.g. a nested subclass of an abstract scenario base) at least one JUnit4
+   * {@code @Test} method. Expected outcome: that exact class -- top-level or nested -- appears in
+   * one of the {@code Class<?>[]} registry fields on {@link YTDBGremlinProcessTests} or {@link
+   * YTDBStructureSuite}, or is one of the three suite-wrapper classes. Any class satisfying the
+   * first half without the second is named in the failure message, since it would otherwise run
+   * nowhere in a normal build.
+   *
+   * <p>Before checking that, this also asserts the scan and the two registries each found a sane
+   * minimum amount of material to check in the first place (see {@link
+   * #MIN_EXPECTED_CANDIDATE_COUNT}, {@link #EXPECTED_GREMLINTEST_SUBPACKAGES}, and {@link
+   * #MIN_EXPECTED_REGISTRY_SIZE}), so a degenerate scan, an asymmetric scan that misses a whole
+   * subpackage, or a truncated registry all fail loudly instead of trivially satisfying the
+   * "nothing unregistered" check below.
+   */
+  @Test
+  public void everyGremlintestTestClassIsRegisteredInASuite() throws Exception {
+    var registeredByClass = collectRegisteredClassNames();
+
+    for (var entry : registeredByClass.entrySet()) {
+      var floor = MIN_EXPECTED_REGISTRY_SIZE.get(entry.getKey());
+      assertThat(entry.getValue())
+          .as(
+              "expected %s's Class<?>[] registry field(s) to list at least %d class(es), but "
+                  + "found %d; a truncated, emptied, renamed-away, or deleted registry would "
+                  + "silently stop guarding gremlintest/** classes registered through it",
+              entry.getKey().getSimpleName(), floor, entry.getValue().size())
+          .hasSizeGreaterThanOrEqualTo(floor);
+    }
+
+    var registered = new HashSet<String>();
+    registeredByClass.values().forEach(registered::addAll);
+
+    var candidates = findConcreteJUnit4TestClasses();
+    assertThat(candidates)
+        .as(
+            "expected at least %d concrete @Test-bearing classes under %s, but found %d; a "
+                + "count this low means the classpath scan is degenerate (stale/empty build "
+                + "output, wrong classloader, or a changed build layout) and this guard is "
+                + "checking almost nothing -- see MIN_EXPECTED_CANDIDATE_COUNT's javadoc",
+            MIN_EXPECTED_CANDIDATE_COUNT, GREMLINTEST_PACKAGE, candidates.size())
+        .hasSizeGreaterThanOrEqualTo(MIN_EXPECTED_CANDIDATE_COUNT);
+
+    var subpackagesFound = candidates.stream()
+        .map(GremlinComplianceSuiteRegistrationTest::subpackageOf)
+        .collect(Collectors.toSet());
+    var missingSubpackages = new HashSet<>(EXPECTED_GREMLINTEST_SUBPACKAGES);
+    missingSubpackages.removeAll(subpackagesFound);
+    assertThat(missingSubpackages)
+        .as(
+            "expected the classpath scan to find at least one @Test-bearing class in each of %s "
+                + "under %s, but found none in %s (subpackages actually visited: %s); an "
+                + "asymmetric scan that fully covers one subpackage while missing another would "
+                + "still clear MIN_EXPECTED_CANDIDATE_COUNT's combined floor, silently losing "
+                + "every class in the missed subpackage",
+            EXPECTED_GREMLINTEST_SUBPACKAGES, GREMLINTEST_PACKAGE, missingSubpackages,
+            subpackagesFound)
+        .isEmpty();
+
+    var unregistered = new ArrayList<String>();
+    for (var testClass : candidates) {
+      var name = testClass.getName();
+      if (!WRAPPER_CLASS_NAMES.contains(name) && !registered.contains(name)) {
+        unregistered.add(name);
+      }
+    }
+
+    assertThat(unregistered)
+        .as(
+            "these gremlintest/** classes declare (or inherit) a @Test method but are not "
+                + "registered in YTDBGremlinProcessTests or YTDBStructureSuite, so they would "
+                + "run nowhere in a normal build -- sequential-tests excludes gremlintest/** "
+                + "entirely and no compliance execution references them; add each one to the "
+                + "appropriate suite array")
+        .isEmpty();
+  }
+
+  /**
+   * Collects the fully qualified names of every class referenced from any {@code Class<?>[]}
+   * static field declared on each of {@link YTDBGremlinProcessTests} and {@link
+   * YTDBStructureSuite}, keyed by the declaring class. Both declare their registries with
+   * package-private or private visibility, so reflection (with {@code setAccessible}) is required
+   * from this package.
+   */
+  private static Map<Class<?>, Set<String>> collectRegisteredClassNames()
+      throws IllegalAccessException {
+    var registeredByClass = new HashMap<Class<?>, Set<String>>();
+
+    for (Class<?> declaringClass : List.of(YTDBGremlinProcessTests.class,
+        YTDBStructureSuite.class)) {
+      var namesForClass = new HashSet<String>();
+      for (Field field : declaringClass.getDeclaredFields()) {
+        if (!Class[].class.equals(field.getType())) {
+          continue;
+        }
+        field.setAccessible(true);
+        var classes = (Class<?>[]) field.get(null);
+        for (var registeredClass : classes) {
+          namesForClass.add(registeredClass.getName());
+        }
+      }
+      registeredByClass.put(declaringClass, namesForClass);
+    }
+
+    return registeredByClass;
+  }
+
+  /**
+   * Walks the compiled {@code gremlintest/**} test-classes tree on disk and returns every
+   * concrete (non-abstract, non-anonymous, non-local) class -- top-level or nested -- that
+   * declares or inherits at least one {@code @org.junit.Test}-annotated method. Anonymous/local
+   * classes are excluded because they cannot be named from a suite array in the first place (e.g.
+   * inner listener implementations compiled as {@code Foo$1}), so they can never legitimately
+   * satisfy the registration check.
+   */
+  private static List<Class<?>> findConcreteJUnit4TestClasses() throws Exception {
+    var classLoader = Thread.currentThread().getContextClassLoader();
+    var packagePath = GREMLINTEST_PACKAGE.replace('.', '/');
+    var root = classLoader.getResource(packagePath);
+    assertThat(root).as("gremlintest test-classes package not found on classpath: %s",
+        packagePath).isNotNull();
+
+    var rootDir = new File(root.toURI());
+    var result = new ArrayList<Class<?>>();
+    Deque<File> pending = new ArrayDeque<>();
+    pending.add(rootDir);
+
+    while (!pending.isEmpty()) {
+      var dir = pending.remove();
+      var children = dir.listFiles();
+      if (children == null) {
+        continue;
+      }
+      for (var child : children) {
+        if (child.isDirectory()) {
+          pending.add(child);
+          continue;
+        }
+
+        var fileName = child.getName();
+        if (!fileName.endsWith(".class")) {
+          continue;
+        }
+
+        var relativePath = rootDir.toPath().relativize(child.toPath()).toString();
+        var binaryTail = relativePath.substring(0, relativePath.length() - ".class".length())
+            .replace(File.separatorChar, '.');
+        var className = GREMLINTEST_PACKAGE + "." + binaryTail;
+
+        var loaded = Class.forName(className, false, classLoader);
+        if (Modifier.isAbstract(loaded.getModifiers())
+            || loaded.isAnonymousClass()
+            || loaded.isLocalClass()) {
+          continue;
+        }
+        if (hasOwnOrInheritedTestMethod(loaded)) {
+          result.add(loaded);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /** {@code getMethods()} includes inherited public methods, covering nested subclasses (like
+   * a {@code Traversals} scenario) whose {@code @Test} methods live only on an abstract base. */
+  private static boolean hasOwnOrInheritedTestMethod(Class<?> clazz) {
+    for (Method method : clazz.getMethods()) {
+      if (method.isAnnotationPresent(Test.class)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns the immediate subpackage of {@code clazz} relative to {@link #GREMLINTEST_PACKAGE},
+   * e.g. {@code "scenarios"} for {@code gremlintest.scenarios.YTDBHasLabelProcessTest}. For a
+   * nested class this is the package of its outermost enclosing class (the package a class is
+   * compiled into never changes with nesting), matching how {@link
+   * #findConcreteJUnit4TestClasses()} derives class names. Returns {@code "(root)"} for a class
+   * declared directly in {@link #GREMLINTEST_PACKAGE} with no subpackage; none of today's
+   * candidates fall in that bucket (the three suite-wrapper classes that do live there have no
+   * {@code @Test} methods of their own), but the sentinel keeps this total either way.
+   */
+  private static String subpackageOf(Class<?> clazz) {
+    var packageName = clazz.getPackageName();
+    if (packageName.length() <= GREMLINTEST_PACKAGE.length()) {
+      return "(root)";
+    }
+    return packageName.substring(GREMLINTEST_PACKAGE.length() + 1);
+  }
+}

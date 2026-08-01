@@ -647,6 +647,47 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     }
   }
 
+  @Test
+  public void testDollarSchemaClassIsNoLongerAReservedLabel() {
+    // Regression test for the removal of the rejected Gremlin schema-manipulation API (umbrella
+    // PR #1259). Before the removal, "$schemaClass" and "$schemaProperty" (YTDBSchemaClass.LABEL /
+    // YTDBSchemaProperty.LABEL) were magic labels: YTDBGraphStep.createClassIterator merged in a
+    // YTDBSchemaClassImpl pseudo-vertex per live schema class whenever a traversal asked for
+    // hasLabel("$schemaClass"). SchemaShared.checkClassNameIfValid only rejects ':' in class
+    // names, so "$schemaClass" was never actually reserved at the storage layer -- only the
+    // now-deleted Gremlin layer special-cased it. This pins that, post-removal, both labels are
+    // ordinary and unused on a fresh graph, and that a vertex created with the former magic label
+    // behaves exactly like any other vertex.
+    //
+    // The decisive assertions here are the two checkSize() counts: a fresh graph always has at
+    // least the built-in V and E schema classes (usually more), so the removed pseudo-vertex-per-
+    // class merge would have made the first checkSize(0, ...) observe 2+ instead of 0. If that
+    // merge behavior ever reappeared, this count assertion trips regardless of any other check in
+    // this method.
+    //
+    // This scenario class is shared: YTDBGremlinProcessTests.commonTests feeds both
+    // YTDBProcessSuiteEmbedded (run by core, against the embedded graph) and YTDBProcessSuiteRemote
+    // (run by server, against the GraphBinary remote provider, which always hands back
+    // DetachedVertex/DetachedEdge -- never the embedded impl types). Assert only through the
+    // TinkerPop Vertex interface (label()/id()/value()) so this method holds under both providers;
+    // do not assert a concrete implementation class here or anywhere else in this file. Changes to
+    // this class must be verified under both core (./mvnw -pl core ... -Dtest=YTDBProcessTest) and
+    // server (./mvnw -pl server -am test).
+    checkSize(0, () -> g().V().hasLabel("$schemaClass"));
+    checkSize(0, () -> g().V().hasLabel("$schemaProperty"));
+
+    final var created = g().addV("$schemaClass").property("name", "plain").next();
+
+    checkSize(1, () -> g().V().hasLabel("$schemaClass"));
+    final var found = g().V().hasLabel("$schemaClass").next();
+    // An ordinary vertex, not a schema pseudo-vertex: it is addressed by the id we created it
+    // with, carries the label and property we set on it, and nothing more is asserted about its
+    // type -- see the class-level comment above on why.
+    assertEquals(created.id(), found.id());
+    assertEquals("$schemaClass", found.label());
+    assertEquals("plain", found.value("name"));
+  }
+
   @After
   @Override
   public void tearDown() {

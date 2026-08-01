@@ -1,11 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect;
 
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBLabelMatcher;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
@@ -30,7 +28,6 @@ import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
-import org.apache.tinkerpop.gremlin.util.iterator.MultiIterator;
 
 public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     implements HasContainerHolder<S, E> {
@@ -64,21 +61,9 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
   private Iterator<? extends Vertex> vertices() {
     var graph = getGraph();
 
-    var userVertices = elements(
+    return elements(
         YTDBGraph::vertices,
         result -> new YTDBVertexImpl(graph, result.asVertex()));
-
-    var schemaVertices = createClassIterator(graph);
-    if (schemaVertices == null) {
-      return userVertices;
-    }
-
-    var multiIterator = new MultiIterator<Vertex>();
-    //noinspection unchecked
-    multiIterator.addIterator((Iterator<Vertex>) userVertices);
-    multiIterator.addIterator(schemaVertices);
-
-    return multiIterator;
   }
 
   private Iterator<? extends Edge> edges() {
@@ -176,22 +161,6 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
   private YTDBGraphInternal getGraph() {
     return (YTDBGraphInternal) this.getTraversal().getGraph().orElseThrow();
-  }
-
-  @Nullable private Iterator<Vertex> createClassIterator(YTDBGraphInternal graph) {
-    for (var hasContainer : this.hasContainers) {
-      if (T.label.getAccessor().equals(hasContainer.getKey()) && YTDBSchemaClass.LABEL.equals(
-          hasContainer.getValue())) {
-        var tx = graph.tx();
-        var session = tx.getDatabaseSession();
-
-        return IteratorUtils.map(
-            session.getSharedContext().getSchema().getClasses(session).iterator(),
-            schemaClass -> new YTDBSchemaClassImpl(schemaClass, graph));
-      }
-    }
-
-    return null;
   }
 
   @Override

@@ -252,13 +252,6 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   }
 
   @Override
-  public <R> R computeSchemaCode(Function<DatabaseSessionEmbedded, R> code) {
-    try (var session = acquireSession()) {
-      return code.apply(session);
-    }
-  }
-
-  @Override
   public SqlCommandExecutionResult executeCommand(String sqlCommand, Map<?, ?> params) {
     if (sqlCommand == null || sqlCommand.isBlank()) {
       throw new IllegalArgumentException("Command cannot be null or empty");
