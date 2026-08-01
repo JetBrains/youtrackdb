@@ -559,6 +559,26 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > leak / exception-stops-advance tests.
   > **Depends on:** Track 7.
 
+- [ ] Track 10: Query-metrics regression remediation — restore a green `core` unit-test run
+  > **Runs before Track 9** despite the higher number (inline replan, 2026-08-01).
+  > Four `YTDBQueryMetricsStrategyTest` scenarios have failed since 2026-07-16;
+  > `./mvnw -pl core test` has been red on this branch for 117 commits, hidden
+  > because PR #1038 is a draft and every CI check reports `skipping`. Two
+  > culprits: `6e657ce2b1` (Track 4 era) removed `YTDBGraphStep` from translated
+  > traversals, which is the only step `YTDBQueryMetricsStep.capturedExecutionPlan()`
+  > read; Track 8's `3d476357cc` then repaired three scenarios and broke a fourth.
+  > **Scope:** settle the `AbstractMatchPlanStep.reset()`-from-`CLOSED` contract
+  > (the one genuine product defect — re-iteration yields `[]` where native
+  > re-executes), settle the `g.V(rid)` plan-capture contract, decide the
+  > `MatchFirstStep` introspection question **after** establishing whether the
+  > index is still used at all, and close the detection hole.
+  > **Depends on:** Track 8.
+  > **Why a separate track:** the root cause spans Track 4 and Track 8, so
+  > folding it into Track 8's Phase C would attribute Track 4's defect to Track
+  > 8's diff. Numbering kept at 10 rather than renumbering Track 9, because Track
+  > 8's file, DR-U4, and its cross-track hints all name "Track 9" for the
+  > list-shaping terminators.
+
 - [ ] Track 9: List-shaping terminators + hardening — Cucumber green + JMH baseline
   > Completes and validates the feature. Adds the four list-shaping terminators
   > (`fold` / `unfold` / `reverse` / `tail`) as last-step recognisers driving the
