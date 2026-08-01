@@ -85,7 +85,9 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
  *       path: {@code toList()} closes the traversal in a {@code finally}, so every {@code
  *       traversal.toList(); admin.reset(); traversal.toList()} sequence arrives closed. A close
  *       that arrived before the step ever opened is the one exception: it released nothing, so the
- *       re-arm starts the original plan rather than a copy of it.
+ *       re-arm starts the original plan rather than a copy of it. A plan start that threw does not
+ *       qualify — its own handler already closed the plan — so that step re-arms through the copy
+ *       path like any other closed step.
  * </ul>
  *
  * <h2>Which plan object an observer sees</h2>
@@ -182,9 +184,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
      */
     REARMED,
     /**
-     * The plan is closed — by {@link #close()} or the terminal iteration-failure path. {@link
-     * #processNextStart()} ends immediately and {@link #close()} is a no-op. A {@link #reset()}
-     * moves to {@link #REARMED_AFTER_CLOSE} rather than reviving the closed plan.
+     * The plan is closed — by {@link #close()}, by the terminal iteration-failure path, or by a
+     * plan start that threw and released the plan on its way out. {@link #processNextStart()} ends
+     * immediately and {@link #close()} is a no-op. A {@link #reset()} moves to {@link
+     * #REARMED_AFTER_CLOSE} rather than reviving the closed plan.
      */
     CLOSED,
     /**
@@ -196,6 +199,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
      * per child in the multi-plan step) and dropping the original with nothing left to close it.
      * The distinction is reachable from a caller that opens a traversal and returns before
      * iterating: {@code Traversal.close()} still closes every {@link AutoCloseable} step.
+     *
+     * <p>Only a {@link #NEW} step can arrive here, and {@link #NEW} is trustworthy as "the plan is
+     * pristine" because the one route that closes a plan while the step has yet to open — a {@link
+     * #startPlanStream()} that throws — records {@link #CLOSED} as it releases the plan.
      */
     CLOSED_UNSTARTED,
     /**
@@ -485,6 +492,16 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     } catch (RuntimeException | Error e) {
       // A partial start may have claimed cursors before throwing — release the plan before
       // propagating so nothing leaks. The original failure stays primary.
+      //
+      // Record CLOSED first, so a closePlan() that itself throws still leaves the state honest.
+      // The write matters beyond bookkeeping: this is the one path that closes the plan
+      // while the step is still NEW, and NEW is read everywhere else as "this plan is pristine"
+      // — the first open skips the rewind, and close() maps it to CLOSED_UNSTARTED, whose reset
+      // returns the step to NEW to start that plan. Leaving the state NEW here would send a
+      // later close() + reset() + pull down that path and start a chain that is already closed,
+      // which yields no rows because the steps' close guard is sticky. CLOSED sends the same
+      // sequence down the copy path instead, which is the only way a closed plan runs again.
+      state = State.CLOSED;
       try {
         closePlan();
       } catch (RuntimeException | Error suppressed) {
@@ -587,10 +604,12 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * close observing REARMED_AFTER_CLOSE is looking at a re-arm that never got that far, and that is
    * exactly why the state must fall through. {@link #openArming()} installs the plan copy before the
    * session rebind and before the try that guards the plan start, and it runs outside {@link
-   * #processNextStart()}'s terminal handler, so a throw in that window (the transaction rebind, for
-   * one) leaves a live, unstarted copy that only this call can release. When the re-arm was simply
-   * never driven, the plan close below lands on the already-closed original, which every {@code
-   * InternalExecutionPlan} treats as a no-op.
+   * #processNextStart()}'s terminal handler, so a throw between the two (the transaction rebind, for
+   * one) leaves a live, unstarted copy that only this call can release. A throw from the guarded
+   * start itself does not reach here in this state: that handler releases the copy and records
+   * CLOSED, which the gate above catches. When the re-arm was simply never driven, the plan close
+   * below lands on the already-closed original, which every {@code InternalExecutionPlan} treats as
+   * a no-op.
    */
   @Override
   public void close() {
@@ -600,6 +619,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     if (state == State.NEW) {
       // Never opened: no stream, and a plan that has claimed nothing. Record that the close found
       // the step unstarted, so a reset() afterwards can start this plan instead of copying it.
+      // A start that threw does not land here — openArming()'s handler closes the plan and records
+      // CLOSED — so NEW at this point really does mean the plan is untouched.
       state = State.CLOSED_UNSTARTED;
       return;
     }

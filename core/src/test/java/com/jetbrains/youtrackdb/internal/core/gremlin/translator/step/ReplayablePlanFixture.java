@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Builds a REAL {@link SelectExecutionPlan} — a live step chain, not a Mockito stub — over a fixed
@@ -41,13 +42,31 @@ final class ReplayablePlanFixture {
   /** Context variable the source step seeds per run, standing in for a MATCH pass's own state. */
   static final String PER_RUN_VARIABLE = "replayableSourceRunCount";
 
+  /** Message the source built by {@link #planFailingItsFirstStart} throws out of its first start. */
+  static final String START_FAILURE_MESSAGE = "replayable source start failed";
+
   private ReplayablePlanFixture() {
   }
 
   /** A real single-step plan that emits {@code rows} on every run until it is closed. */
   static SelectExecutionPlan planOver(CommandContext ctx, List<Result> rows) {
     var plan = new SelectExecutionPlan(ctx);
-    plan.chain(new ReplayableSourceStep(ctx, rows));
+    plan.chain(new ReplayableSourceStep(ctx, rows, new AtomicInteger(0)));
+    return plan;
+  }
+
+  /**
+   * A real single-step plan whose source throws {@link #START_FAILURE_MESSAGE} out of its first
+   * start and emits {@code rows} on every later run, for the tests that drive the boundary step's
+   * plan-start failure path against the engine rather than a stub.
+   *
+   * <p>The one-shot failure budget is shared with every {@code copy()} of the plan, so the throw
+   * fires once across the original and its copies. A per-instance budget would make the copy a
+   * re-arm takes fail identically and hide whether the re-arm worked.
+   */
+  static SelectExecutionPlan planFailingItsFirstStart(CommandContext ctx, List<Result> rows) {
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(new ReplayableSourceStep(ctx, rows, new AtomicInteger(1)));
     return plan;
   }
 
@@ -70,21 +89,32 @@ final class ReplayablePlanFixture {
    * cursor-backed source does. Counts its starts so a test can assert that a closed plan was never
    * restarted, and seeds a per-run context variable so the context a re-arm copies against carries
    * the same kind of residue a completed MATCH pass leaves.
+   *
+   * <p>{@code remainingStartFailures} is a budget of starts that throw before any row is produced,
+   * modelling an inner step that blows up while claiming its cursor. Copies share the budget with
+   * the step they were copied from — see {@link #planFailingItsFirstStart}.
    */
   private static final class ReplayableSourceStep extends AbstractExecutionStep {
 
     private final List<Result> rows;
+    private final AtomicInteger remainingStartFailures;
     private int startCount;
     private boolean closed;
 
-    ReplayableSourceStep(CommandContext ctx, List<Result> rows) {
+    ReplayableSourceStep(CommandContext ctx, List<Result> rows, AtomicInteger startFailureBudget) {
       super(ctx, false);
       this.rows = rows;
+      this.remainingStartFailures = startFailureBudget;
     }
 
     @Override
     protected ExecutionStream internalStart(CommandContext ctx) {
       startCount++;
+      // Spend one unit of the failure budget if any is left; the count records the attempt either
+      // way, so a test can still see that a failed start counts as having started this chain.
+      if (remainingStartFailures.getAndUpdate(remaining -> Math.max(0, remaining - 1)) > 0) {
+        throw new IllegalStateException(START_FAILURE_MESSAGE);
+      }
       if (closed) {
         return ExecutionStream.empty();
       }
@@ -100,7 +130,7 @@ final class ReplayablePlanFixture {
 
     @Override
     public ExecutionStep copy(CommandContext ctx) {
-      return new ReplayableSourceStep(ctx, rows);
+      return new ReplayableSourceStep(ctx, rows, remainingStartFailures);
     }
   }
 }

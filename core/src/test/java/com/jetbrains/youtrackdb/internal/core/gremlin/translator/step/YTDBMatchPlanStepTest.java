@@ -1002,6 +1002,93 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
+   * A plan start that threw must NOT be mistaken for a step that never started. The failure handler
+   * closes the plan on its way out while the step has yet to record an open — {@code
+   * processNextStart()} marks the step open only once {@code openArming()} returns — so the
+   * never-started close path would otherwise claim the {@code close()} that follows, and the {@code
+   * reset()} after it would hand the next pass the very plan that handler already closed. A closed
+   * chain restarts to nothing (its steps' close guard is sticky), so that pass would report no rows
+   * with no error. The re-arm has to take the copy path, the only route that revives a closed plan.
+   */
+  @Test
+  public void planStartThrows_thenCloseAndReset_reArmsWithACopyRatherThanTheClosedOriginal() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var copiedCtx = mock(CommandContext.class);
+    var copiedStream = mock(ExecutionStream.class);
+    when(plan.start()).thenThrow(new RuntimeException("plan start blew up"));
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(copiedPlan.getContext()).thenReturn(copiedCtx);
+    when(copiedPlan.start()).thenReturn(copiedStream);
+    when(copiedStream.hasNext(copiedCtx)).thenReturn(false);
+
+    var step = elementStep("v");
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("plan start blew up");
+
+    // The traversal closes on the way out of the failed pull. The start handler already released
+    // the plan, so this close finds nothing left to release and must not close it twice.
+    step.close();
+    verify(plan, times(1)).close();
+
+    step.reset();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    // The re-arm ran a fresh copy; the plan the failed start closed was never started again.
+    verify(plan, times(1)).start();
+    verify(plan, times(1)).copy(any());
+    verify(copiedPlan, times(1)).start();
+    assertThat(step.getPlan())
+        .as("the re-armed pass reports the copy it ran, not the closed original")
+        .isSameAs(copiedPlan);
+  }
+
+  /**
+   * The same failed-start-then-re-arm sequence against a REAL {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan}, asserting the rows the
+   * second pass emits rather than mock call counts. The fixture's source throws out of its first
+   * start and replays afterwards, and it stops producing once closed the way a real cursor-backed
+   * source does — so a re-arm that restarted the closed original comes back empty here instead of
+   * quietly passing. The module compiles its surefire {@code argLine} with {@code -ea}, so the
+   * production assertion guarding the copy runs for real.
+   */
+  @Test
+  public void planStartThrows_thenCloseAndReset_withARealPlan_replaysRowsFromAFreshCopy() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    var realCtx = new BasicCommandContext();
+    var realPlan = ReplayablePlanFixture.planFailingItsFirstStart(realCtx, List.of(row));
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal, Vertex.class, realPlan, "v", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(IllegalStateException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining(ReplayablePlanFixture.START_FAILURE_MESSAGE);
+    assertThat(ReplayablePlanFixture.isClosed(realPlan))
+        .as("the start handler released the plan before propagating")
+        .isTrue();
+
+    step.close();
+    step.reset();
+    var secondPass = drainPayloads(step);
+    step.close();
+
+    assertThat(secondPass)
+        .as("the re-armed pass emits the row the failed start never produced")
+        .hasSize(1);
+    assertThat(step.getPlan()).as("the re-arm installed a copy").isNotSameAs(realPlan);
+    assertThat(ReplayablePlanFixture.startCount(realPlan))
+        .as("the chain the failed start closed was started once, by that failure, and never again")
+        .isEqualTo(1);
+    assertThat(ReplayablePlanFixture.startCount(step.getPlan()))
+        .as("the copy was started once, by the re-armed pass")
+        .isEqualTo(1);
+  }
+
+  /**
    * Cloning must not rewind the ORIGINAL's plan. {@code AbstractStep.clone()} invokes {@code
    * reset()} on the freshly-cloned instance while it still aliases the original's plan reference (the
    * clone's own copy is installed later in {@code clone()}). {@code reset()} never rewinds the plan
