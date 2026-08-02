@@ -22,8 +22,9 @@ This track is inserted ahead of Track 9 by the inline replan of 2026-08-01. Trac
 - [x] Step implementation
 - [x] 2026-08-02T16:20Z [ctx=safe] Track-level code review iteration 1 complete (commit 0c7911a74f)
 - [x] 2026-08-02T19:21Z [ctx=info] Track-level code review iteration 2 complete (commit d14493217c)
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] 2026-08-02T22:20Z [ctx=info] Track-level code review iteration 3 complete (commit 5db5b41a3d)
+- [x] Track-level code review
+- [x] Track completion
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -247,6 +248,30 @@ The projection probe is gated on `isProjection()` so a record-backed `Result` ne
 **Key files:** `SQLWhereClause.java`, `StartStepRecogniser.java` (modified); `PromoteStaticRidsFromFiltersTest.java`, `YTDBQueryMetricsStrategyTest.java`, `GremlinToMatchSmokeTest.java` (modified).
 
 **Critical context (step 5):** The leaf branch makes every code-assembled single-condition WHERE clause visible to both `findRidEquality()` and `findRidInList()`, not just the Gremlin translator's. Any other caller that builds a clause through `MatchWhereBuilder` rather than the grammar now gets static-RID promotion it did not get before. That is the intended fix, but it widens the promotion's reach beyond this track's own path.
+
+### Track completion — 2026-08-02T22:20Z [ctx=info]
+
+The track restored the query-metrics capture path and, in doing so, repaired far more than it was scoped for: 483 test failures across three surefire executions, against one it introduced. It did not deliver a green `core` run and could not have — that goal stopped being reachable the moment the 2026-08-02 rebase landed.
+
+**What was built.** Six steps: the failure enumeration, the `reset()`-from-`CLOSED` contract with copy-on-re-arm (`AbstractMatchPlanStep` gained `CLOSED_UNSTARTED` and `REARMED_AFTER_CLOSE`, taking the boundary base to six lifecycle states), sub-step introspection on `MatchPrefetchStep` and `MatchFirstStep` answering the index-usage question, the CI-detection work later withdrawn, the RID-promotion fix, and the boundary materialization repair. Three review-fix iterations followed: *scope RID pinning to the class*, *fix the promoted-RID dedupe key and the class-vs-RID precedence in the root builder*, and *consolidate the plan walk and make the projection-gate test witness its claim*.
+
+**The central discovery is a measurement error in this track's own foundation.** Step 1's failure inventory ran before the rebase and recorded two surefire executions and four failures. The rebase pulled in develop's restoration of three TinkerPop compliance executions this branch had never run, so the command the inventory described stopped being the command the criterion read. The Phase C pause handoff then compared HEAD against that stale inventory and concluded the track had introduced 22 failures. A control run at the post-rebase track base refutes it: 300 failing methods there against 21 at the tip, with the new-failure set empty at method level. One test regressed and is fixed. **The rule for future tracks:** a failure inventory is valid only against the commit it was taken at. A rebase invalidates it exactly as it invalidates a recorded base SHA, and this track already knew to recompute the second. Recompute both together.
+
+The handoff's two root-cause hypotheses were also both wrong, and one review file said so before the handoff was written — the performance finding on the `$`-prefixed projection probe contains its own refutation. A pause handoff written under context pressure is a hypothesis, not a finding.
+
+**Cross-track impact.** The by-id investigation localized a pre-existing translator defect that outweighs anything this track owned: on the translated path a per-alias `WHERE` reaches only the alias the planner selects as root, and every other alias's filter is silently discarded. `g.V(marko).out().has(name, vadas)` returns three rows where native returns one, and it translates rather than declining, so the wrong answer is silent. The shapes that work, work by accident — a pinned RID collapses the target alias's estimate so that alias wins root selection. It is deferred to Track 9 as a named first member of that track's cross-track mistranslation triage, with mechanism, measurements, and the extension point recorded there; Track 9's scope grew to roughly 18–26 files to absorb it. The branch's equivalence suites do not witness it, so Track 9's acceptance gained the missing shape.
+
+Track 9's dependency on this track was corrected in the same pass: it does not inherit a green baseline, it inherits an enumerated one, and its Cucumber and JMH gates must read the disposition record before triaging anything.
+
+**Plan deviations.** Plan of Work item 4 was withdrawn when the `maven-pipeline.yml` change was reverted, so the CI detection hole this track was partly created to close is still open. The checklist title was corrected from "restore a green `core` unit-test run" to the outcome actually achievable. The acceptance criterion itself needed no change — its second clause already prescribed enumerate-and-dispose for out-of-scope failures, which is the branch this track took.
+
+**What this track leaves open.** Twenty-one compliance failures remain, every one present at the track base, each recorded with a disposition in `plan/track-10/core-compliance-failure-dispositions.md`. One performance finding is also unfixed: the per-call plan recompile for by-id lookups, whose two remedies — declining translation for an id-only start step, or binding RIDs as positional parameters behind a per-execution pinned-RID slot — are both design changes requiring escalation rather than review fixes. It belongs to a future track.
+
+**Two process departures, recorded rather than papered over.** The two correctness iterations never received a dimensional gate check; their verification is empirical instead, and stronger for this purpose — the full suite at the closing commit shows zero new failures against the track base, confirmed by method-level set difference rather than by matching counts. Second, the third iteration's fixes were applied by the orchestrator rather than a spawned implementer, at the user's direction, after the two implementer spawns ran 71 and 177 minutes for work the findings themselves described as comment, Javadoc, and test-helper consolidation. The convention exists to keep review context out of implementation; the cost it imposed here outweighed what it protected, and the change was verified the same way any implementer's would be, including a falsification run that deletes the guard under test and confirms two tests fail.
+
+**Review burden.** The cumulative diff is past the ~4,000-line threshold at which a track becomes a candidate for retroactive splitting: 38 files, roughly 5,100 insertions with generated code excluded. The diff has landed and cannot be split now; the figure is recorded to calibrate future planning. This is the second consecutive track past the threshold, Track 8 having reported 38 files and 5,814 insertions, which makes it a planning-calibration signal rather than a one-off.
+
+6 steps, 0 failed.
 
 ## Validation and Acceptance
 - The full `./mvnw -pl core test` failure set is enumerated and recorded as an artifact before any fix lands (Plan of Work item 0), and every criterion below is read against that list rather than against the four known scenarios.

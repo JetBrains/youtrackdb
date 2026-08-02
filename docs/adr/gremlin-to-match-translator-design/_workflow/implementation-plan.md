@@ -607,21 +607,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > for Track 9, whose Cucumber triage bucket its own Scope line marks unsized
   > until the first run; neither warrants a plan edit now.
 
-- [ ] Track 10: Query-metrics regression remediation — enumerated `core` baseline, no regression against the track base
-  > **Title revised in Phase C (2026-08-02).** The original title promised "restore
-  > a green `core` unit-test run", which is not reachable inside this track and was
-  > never reachable: the 2026-08-02 rebase onto `develop` pulled in `9b9dfa20fd`,
-  > which restored three TinkerPop compliance surefire executions the branch had
-  > never run. `./mvnw -pl core test` now drives 965 process-compliance tests that
-  > did not exist when Plan of Work item 0 took its enumeration, and 21 of them
-  > fail on branch-wide translator debt spanning nine tracks. The track's
-  > `## Validation and Acceptance` already prescribed this outcome through its
-  > "or" branch — every in-scope failure passes, every out-of-scope one is
-  > recorded with a disposition — so the criterion is unchanged and only the
-  > title is corrected. Measured: 300 failing methods at the track base
-  > `f007749249`, 21 at its tip, with exactly one method
-  > (`YTDBHasLabelProcessTest.testByIdHasLabelSiblingClassDoesNotMatch`)
-  > regressed by this track and fixed in `0c7911a74f`.
+- [x] Track 10: Query-metrics regression remediation — enumerated `core` baseline, no regression against the track base
   > **Runs before Track 9** despite the higher number (inline replan, 2026-08-01).
   > Four `YTDBQueryMetricsStrategyTest` scenarios have failed since 2026-07-16;
   > `./mvnw -pl core test` has been red on this branch for 117 commits, hidden
@@ -629,20 +615,14 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > culprits: `6e657ce2b1` (Track 4 era) removed `YTDBGraphStep` from translated
   > traversals, which is the only step `YTDBQueryMetricsStep.capturedExecutionPlan()`
   > read; Track 8's `3d476357cc` then repaired three scenarios and broke a fourth.
-  > **Scope:** ~11–13 files covering the metrics plan capture, the
-  > `AbstractMatchPlanStep.reset()`-from-`CLOSED` contract (the one genuine
-  > product defect — re-iteration yields `[]` where native re-executes), the
-  > `g.V(rid)` plan-capture contract, the `MatchPrefetchStep` / `MatchFirstStep`
-  > introspection question (decided **after** establishing whether the index is
-  > still used at all), and the CI detection hole. A step 0 enumerates the real
-  > full-`core` failure set before anything is sized against it.
-  > **Depends on:** Track 8.
-  > **Why a separate track:** the root cause spans Track 4 and Track 8, so
-  > folding it into Track 8's Phase C would attribute Track 4's defect to Track
-  > 8's diff. Numbering kept at 10 rather than renumbering Track 9, because Track
-  > 8's file, DR-U4, and its cross-track hints all name "Track 9" for the
-  > list-shaping terminators.
-
+  >
+  > **Track episode:** Repaired 483 compliance and unit failures and caused one,
+  > against a stale pre-rebase inventory that made the track look like the culprit;
+  > the green-`core` title was unreachable and was corrected, and a dropped
+  > per-alias-filter defect was localized and deferred to Track 9 — see
+  > `plan/track-10.md` `## Episodes` § Track completion. (6 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-10.md`
 - [ ] Track 9: List-shaping terminators + hardening — Cucumber green + JMH baseline
   > Completes and validates the feature. Adds the four list-shaping terminators
   > (`fold` / `unfold` / `reverse` / `tail`) as last-step recognisers driving the
