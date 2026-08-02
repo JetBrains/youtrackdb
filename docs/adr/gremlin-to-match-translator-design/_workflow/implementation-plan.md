@@ -625,7 +625,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > **Track file:** `plan/track-10.md`
   >
   > **Strategy refresh:** ADJUST — Track 9's shape holds (terminators, the Cucumber
-  > gate, the JMH baseline, item 1a all survive), but four of its claims were
+  > gate, the JMH harness, item 1a all survive), but four of its claims were
   > amended. Plan-of-Work item 6 pointed at Track 10's superseded step-0 inventory
   > and asserted it covered the Cucumber runner; it covers neither, so item 6 now
   > reads the dispositions file and item 1 derives the first Cucumber baseline
@@ -636,18 +636,22 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > with-the-base-SHA rule. Track 10's own "`core` Cucumber is inert" discovery was
   > checked against HEAD and does not hold — develop's `9b9dfa20fd` gives the runner
   > its own unfiltered surefire execution — so the runner list stayed as written.
-  > Forward risk carried, not acted on: Tracks 8 and 10 both landed 38 files past
-  > the ~4,000-line review-burden threshold, and Track 9 at ~18–26 files with an
-  > unsized Cucumber bucket could be the third; if decomposition crosses it, the
-  > response is ESCALATE rather than a silently oversized track.
-- [ ] Track 9: List-shaping terminators + hardening — Cucumber green + JMH baseline
+  > Forward risk, now realized rather than carried: Tracks 8 and 10 both landed 38
+  > files past the ~4,000-line review-burden threshold, and Phase A's technical
+  > review took Track 9 from ~18–26 to **~22–30 files** — already above the ~20–25
+  > split-candidate bound, before the Cucumber triage bucket is sized. The Phase A
+  > adversarial review weighs sizing against that figure; if it or decomposition
+  > confirms the track is oversized, the response is ESCALATE rather than a
+  > silently oversized third consecutive over-threshold track.
+- [ ] Track 9: List-shaping terminators + hardening — Cucumber green + JMH harness
   > Completes and validates the feature. Adds the four list-shaping terminators
   > (`fold` / `unfold` / `reverse` / `tail`) as last-step recognisers driving the
   > Track 7 ordered post-process, with mid-traversal use declining under D3.
   > Then the full TinkerPop Cucumber suite green with the strategy registered
   > (the first whole-feature gate over every prior track's recognisers) and a
-  > Gremlin-on-vs-off JMH baseline pinned to verified-recognised shapes — detail
-  > in plan/track-9.md.
+  > Gremlin-on-vs-off JMH harness pinned to verified-recognised shapes. The
+  > baseline numbers are Hetzner-scoped and not a gate on this track — `jmh-ldbc`
+  > has no self-contained fixture graph. Detail in plan/track-9.md.
   > **Inherited from Track 10's Phase C (2026-08-02):** Plan of Work item 1 gains
   > a named first member, item 1a — on the translated path a per-alias `WHERE`
   > reaches only the alias the planner selects as root, and every other alias's
@@ -659,15 +663,25 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > branches, and `$matched` back-refs that also read `aliasFilters`. Mechanism
   > and measurements are in `plan/track-9.md` item 1a.
   > **Scope:** ~15–21 files covering the four terminator recognisers +
-  > `BoundaryOutputType.LIST` + drain / ring-buffer, the post-union suffix
+  > the four `ListShapingOp` implementations (drain / flat-map / value-transform /
+  > ring-buffer — Phase A dropped the planned `BoundaryOutputType.LIST` constant as
+  > the wrong mechanism, T1) + the `RecognitionContext` append seam, the post-union suffix
   > allow-list relaxation, terminator-composition +
   > `tail` boundary tests, the mirrored Gremlin JMH benchmark classes + on/off
   > harness, the per-step scenario catalogue, and the Cucumber re-run + any
   > cross-track mistranslation fixes. The triage bucket is no longer fully
-  > unsized: item 1a is a known member costing roughly 3–5 files
-  > (`MatchPatternBuilder`, the filter-binding site the fix lands on, and the
-  > equivalence tests that do not currently witness it), which puts the track at
-  > ~18–26 files. The bucket's process-compliance half is enumerated as of Track
+  > unsized: item 1a is a known member costing roughly 5–8 files
+  > (`MatchPatternBuilder`, the filter-binding site the fix lands on, the
+  > equivalence tests that do not currently witness it, and — added by Phase A —
+  > `GqlMatchPatternAssembler` plus the Track 1 GQL prettyPrint regression tests,
+  > since GQL reaches the planner through the same alias-maps entry and any
+  > builder-level fix moves its IR too). Phase A's technical review also added the
+  > `RecognitionContext` / `WalkerContext` / `SubTraversalPredicateAdapter` append
+  > seam, the `UnionStepRecogniser` child gate, `ListShapingOp`, three stale
+  > javadocs, and a `jmh-ldbc/src/test` installation check, while dropping
+  > `BoundaryOutputType` and the `projectOrSkip` arm. Net: **~22–30 files**, above
+  > the ~20–25 split-candidate bound, so Phase A's adversarial review weighs
+  > sizing against this figure rather than the Phase 1 one. The bucket's process-compliance half is enumerated as of Track
   > 10's close — 21 deferred failures with per-class dispositions, 9 of them item
   > 1a's signature and 12 separate defects — so only the Cucumber half is unsized
   > until the first run.
@@ -675,7 +689,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 
 ## Implementation state
 
-Tracks 1–8 and Track 10 are executed and complete; Track 9 is the one track remaining. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 10 delivered the query-metrics regression remediation and, in place of the green `core` run its title originally promised, an enumerated baseline: 483 repaired failures against one caused, and 21 deferred with per-class dispositions. The green goal stopped being reachable when the 2026-08-02 rebase restored three TinkerPop compliance executions the branch had never run. Track 9 still owns list-shaping terminators + Cucumber green + JMH baseline (D3).
+Tracks 1–8 and Track 10 are executed and complete; Track 9 is the one track remaining. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 10 delivered the query-metrics regression remediation and, in place of the green `core` run its title originally promised, an enumerated baseline: 483 repaired failures against one caused, and 21 deferred with per-class dispositions. The green goal stopped being reachable when the 2026-08-02 rebase restored three TinkerPop compliance executions the branch had never run. Track 9 still owns list-shaping terminators + Cucumber green + JMH harness (D3).
 
 | Track | Code | Notes |
 |---|---|---|
@@ -688,7 +702,7 @@ Tracks 1–8 and Track 10 are executed and complete; Track 9 is the one track re
 | 7 | done | `AbstractMatchPlanStep` + ordered list-shaping post-process carrier |
 | 8 | done | `MultiPlanMatchStep` + multi-plan carrier/splice + `UnionStepRecogniser` / `UnionForkHost` |
 | 10 | done | query-metrics regression remediation — enumerated `core` baseline; 483 failures repaired, 21 deferred to Track 9 with dispositions |
-| 9 | not started | list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) + `BoundaryOutputType.LIST` + Cucumber green + JMH baseline |
+| 9 | not started | list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) as ordered `ListShapingOp`s + Cucumber green + JMH harness |
 
 Decision conformance: D6 and D-IS-DEFINED are satisfied by Track 1; Track 2 decisions (decline, class-keyed dispatch, boundary lifecycle, idempotency, translator-first) by Track 2; D10 by Track 3; D5 by Track 5; D11 by Track 6. D8 (union via `MultiPlanMatchStep`) is implemented in code across Tracks 7–8 and complete. D3 (list-shaping terminators) lands in Track 9.
 
