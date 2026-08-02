@@ -279,8 +279,14 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .withQueryListener(listener);
 
     g.tx().open();
+    // The prefetch block the assertions below walk is a MATCH artefact, so they only mean what
+    // they say on the translated path. Pinning the kill-switch keeps them pointed there instead
+    // of at whichever source path the current default installs.
+    final var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V().hasLabel("person")) {
       q.toList();
+    } finally {
+      restoreTranslator.run();
     }
     g.tx().commit();
 
@@ -335,8 +341,13 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .withQueryListener(listener);
 
     g.tx().open();
+    // Pinned to the translated path for the same reason as the unindexed scan above: the prefetch
+    // sub-plan the assertions walk exists only when the traversal compiles to MATCH.
+    final var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V().has("IndexedThing", "code", "abc")) {
       q.toList();
+    } finally {
+      restoreTranslator.run();
     }
     g.tx().commit();
 
