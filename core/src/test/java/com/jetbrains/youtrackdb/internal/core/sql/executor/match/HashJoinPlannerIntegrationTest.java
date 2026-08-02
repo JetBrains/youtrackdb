@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.containsStepOfType;
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.countStepsOfType;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -9,7 +11,6 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
-import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import java.util.HashMap;
 import java.util.List;
@@ -371,34 +372,6 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
     }
-  }
-
-  /** Reports whether a step or anything nested below it has the given type. */
-  private static boolean containsStepOfType(ExecutionStep step, Class<?> stepType) {
-    if (stepType.isInstance(step)) {
-      return true;
-    }
-    for (var subStep : step.getSubSteps()) {
-      if (containsStepOfType(subStep, stepType)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Counts steps of the given type across a plan and every nesting level below it, the way an
-   * introspection caller that walks getSubSteps() would see them.
-   */
-  private static long countStepsOfType(List<ExecutionStep> steps, Class<?> stepType) {
-    var count = 0L;
-    for (var step : steps) {
-      if (stepType.isInstance(step)) {
-        count++;
-      }
-      count += countStepsOfType(step.getSubSteps(), stepType);
-    }
-    return count;
   }
 
   /**

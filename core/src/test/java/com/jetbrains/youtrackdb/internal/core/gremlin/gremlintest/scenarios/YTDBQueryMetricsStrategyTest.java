@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.containsStepOfType;
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.findStepOfType;
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -569,11 +571,13 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .isNull();
   }
 
-  // A downstream limit(0) does NOT prevent the source step from running: the YTDBGraphStep source
-  // supplier executes its query as soon as the traversal is iterated, before RangeGlobalStep can
-  // short-circuit, so a non-null scan plan is still captured. This contradicts the earlier prose
-  // claim that a limit(0) short-circuit leaves the plan null; this test pins the actual observed
-  // behavior for this Gremlin traversal shape.
+  // A downstream limit(0) does not leave the captured plan null. On the translated path there is no
+  // race to describe: RangeGlobalStepRecogniser folds limit(n) into the MATCH walk as SQLLimit and
+  // HasStepRecogniser folds hasLabel, so the whole traversal compiles to one plan behind a single
+  // boundary step. capturedExecutionPlan() reads that step's plan whether or not it yields rows, so
+  // the capture holds at limit(0). Pinning the kill-switch keeps the assertion pointed at that path
+  // rather than at whichever source the current default installs — the native sibling below covers
+  // the other one.
   @Test
   @LoadGraphWith(MODERN)
   public void downstreamLimitZeroStillCapturesSourcePlan() throws Exception {
@@ -583,8 +587,11 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .withQueryListener(listener);
 
     g.tx().open();
+    final var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V().hasLabel("person").limit(0)) {
       q.toList();
+    } finally {
+      restoreTranslator.run();
     }
     g.tx().commit();
 
@@ -592,7 +599,38 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .as("the listener was notified")
         .isTrue();
     assertThat(listener.executionPlan)
-        .as("the source step runs before limit(0) short-circuits, so its plan is captured")
+        .as("the boundary step's plan is captured even though limit(0) yields no rows")
+        .isNotNull();
+  }
+
+  // The native counterpart of the scenario above, and the one the ordering prose actually describes:
+  // with the translator off, g.V() installs a YTDBGraphStep whose source supplier runs its query as
+  // soon as the traversal is iterated, before RangeGlobalStep can short-circuit. The plan is
+  // therefore captured for a different reason than on the translated path — the source really did
+  // run — and keeping both pins the two mechanisms separately instead of letting one assertion
+  // stand for whichever path the default happens to select.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void downstreamLimitZeroStillCapturesSourcePlanOnNativePath() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    final var restoreTranslator = setTranslatorEnabled(false);
+    try (var q = g().V().hasLabel("person").limit(0)) {
+      q.toList();
+    } finally {
+      restoreTranslator.run();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("the YTDBGraphStep source supplier runs before limit(0) short-circuits")
         .isNotNull();
   }
 
@@ -1718,37 +1756,6 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       planPrettyInCallback = null;
       callCount = 0;
     }
-  }
-
-  /// Recursively scans an execution plan's steps (and their sub-steps) for a step of the given
-  /// type. A [FetchFromIndexStep] marks the query as index-backed; a [FetchFromClassExecutionStep]
-  /// marks it as a full-class scan.
-  private static boolean containsStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
-    for (var step : steps) {
-      if (stepType.isInstance(step)) {
-        return true;
-      }
-      if (containsStepOfType(step.getSubSteps(), stepType)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// Returns the first step of the given type at any nesting level, or null when the plan holds
-  /// none. Unlike [#containsStepOfType], this hands back the step itself, so a caller can assert
-  /// on what sits *inside* it rather than merely alongside it.
-  private static ExecutionStep findStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
-    for (var step : steps) {
-      if (stepType.isInstance(step)) {
-        return step;
-      }
-      var nested = findStepOfType(step.getSubSteps(), stepType);
-      if (nested != null) {
-        return nested;
-      }
-    }
-    return null;
   }
 
 }

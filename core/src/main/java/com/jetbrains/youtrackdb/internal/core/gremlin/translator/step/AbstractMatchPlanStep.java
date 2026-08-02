@@ -90,6 +90,28 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
  *       path like any other closed step.
  * </ul>
  *
+ * <h2>The whole state machine</h2>
+ * The prose above and the per-constant Javadoc each describe a slice. This table is the machine in
+ * one place; when the two disagree, the enum constants are authoritative.
+ *
+ * <table border="1">
+ *   <caption>State transitions and their effect on the plan</caption>
+ *   <tr><th>From</th><th>Trigger</th><th>To</th><th>Effect on the plan</th></tr>
+ *   <tr><td>NEW</td><td>open</td><td>OPEN</td><td>started, not rewound (it is pristine)</td></tr>
+ *   <tr><td>NEW</td><td>{@code close()}</td><td>CLOSED_UNSTARTED</td><td>nothing released</td></tr>
+ *   <tr><td>NEW</td><td>start threw</td><td>CLOSED</td><td>released by the failure handler</td></tr>
+ *   <tr><td>OPEN</td><td>stream drained</td><td>DRAINED</td><td>cursor closed, plan left open</td></tr>
+ *   <tr><td>OPEN / DRAINED</td><td>{@code reset()}</td><td>REARMED</td><td>untouched; the next open rewinds</td></tr>
+ *   <tr><td>OPEN / DRAINED</td><td>{@code close()}</td><td>CLOSED</td><td>stream and plan released</td></tr>
+ *   <tr><td>REARMED</td><td>open</td><td>OPEN</td><td>rewound in place, same plan object</td></tr>
+ *   <tr><td>CLOSED</td><td>{@code reset()}</td><td>REARMED_AFTER_CLOSE</td><td>still closed; the copy is deferred</td></tr>
+ *   <tr><td>CLOSED_UNSTARTED</td><td>{@code reset()}</td><td>NEW</td><td>untouched, still pristine</td></tr>
+ *   <tr><td>REARMED_AFTER_CLOSE</td><td>open</td><td>OPEN</td><td>replaced by a fresh copy, then started</td></tr>
+ * </table>
+ *
+ * <p>CLOSED, CLOSED_UNSTARTED and DRAINED all end {@link #processNextStart()} immediately. The two
+ * CLOSED states make {@link #close()} a no-op; DRAINED does not, because it still holds an open plan.
+ *
  * <h2>Which plan object an observer sees</h2>
  * The two re-arm paths install different plan objects — a rewind keeps the same plan, a re-arm
  * after close swaps in a copy — so the plan a subclass accessor exposes ({@code
@@ -165,8 +187,17 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    */
   private enum State {
     /**
-     * Constructed, or {@link #reset()} before the plan ever ran. The next open starts the plan
-     * WITHOUT rewinding it — there is no consumed state to rewind.
+     * The plan this step holds has never been started. Reached three ways: construction,
+     * {@link #reset()} before the plan ever ran, and {@link #reset()} from
+     * {@link #CLOSED_UNSTARTED}. The next open starts the plan WITHOUT rewinding it — there is no
+     * consumed state to rewind.
+     *
+     * <p><b>Invariant:</b> a NEW step's plan is pristine. Every route that closes or otherwise
+     * consumes the plan MUST record a state; leaving the state NEW after closing a plan makes the
+     * next open start a dead chain, which yields no rows because {@code AbstractExecutionStep}'s
+     * close guard is sticky. Three sites read NEW as "pristine" and would be wrong if a fourth
+     * route violated it: the rewind skip in {@link #openArming()}, {@link #close()}'s mapping to
+     * {@link #CLOSED_UNSTARTED}, and {@link #reset()}'s CLOSED_UNSTARTED-to-NEW edge.
      */
     NEW,
     /** The stream is open and being iterated. */
@@ -463,8 +494,12 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       // read returns the same object either way. The ordering is held anyway as a constraint on
       // future hooks: a hook that derives its own context for the copy needs the session rebind —
       // and every later use of ctx here — addressed to the context the copy actually runs against.
-      // The stale-cursor block above never fires in this state: openStream is null,
-      // because every route into CLOSED goes through releaseStreamAndClosePlan(), which nulls it.
+      // The stale-cursor block above never fires in this state, because openStream is null on every
+      // route that reaches it — but by a different argument per route, so check the one you care
+      // about rather than assuming a single mechanism. processNextStart()'s terminal handler nulls
+      // it through releaseStreamAndClosePlan(). close() reaches its closePlan() arm only when
+      // openStream == null is the branch condition. openArming()'s own start-failure handler below
+      // runs after the stale-cursor block above has already nulled it.
       replaceClosedPlanWithCopy();
     }
     var ctx = planContext();

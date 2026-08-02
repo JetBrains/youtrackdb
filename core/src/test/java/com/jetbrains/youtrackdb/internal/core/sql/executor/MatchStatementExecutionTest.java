@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.containsStepOfType;
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.countStepsOfType;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -13,7 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchFirstStep;
@@ -2444,38 +2445,6 @@ public class MatchStatementExecutionTest extends DbTestBase {
   /** Reports whether an EXPLAIN step document describes a step of the given class. */
   private static boolean isDocumentFor(Result stepDocument, Class<?> stepType) {
     return stepType.getName().equals(stepDocument.getProperty(InternalExecutionPlan.JAVA_TYPE));
-  }
-
-  /**
-   * Recursively scans a step and its sub-steps for one of the given type. Mirrors how plan
-   * introspection callers walk a plan.
-   */
-  private static boolean containsStepOfType(ExecutionStep step, Class<?> stepType) {
-    if (stepType.isInstance(step)) {
-      return true;
-    }
-    for (var subStep : step.getSubSteps()) {
-      if (containsStepOfType(subStep, stepType)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Counts steps of the given type across a plan and every nesting level below it. Mirrors the
-   * accumulating index-usage helpers in the SELECT tests, which are the callers a duplicated
-   * sub-plan would mislead.
-   */
-  private static long countStepsOfType(List<ExecutionStep> steps, Class<?> stepType) {
-    var count = 0L;
-    for (var step : steps) {
-      if (stepType.isInstance(step)) {
-        count++;
-      }
-      count += countStepsOfType(step.getSubSteps(), stepType);
-    }
-    return count;
   }
 
   /**

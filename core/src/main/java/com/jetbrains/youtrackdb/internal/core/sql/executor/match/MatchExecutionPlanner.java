@@ -5447,7 +5447,7 @@ public class MatchExecutionPlanner {
         // The edge-free branch of createPlanForPattern already skips the sub-plan this way.
         plan.chain(new MatchFirstStep(context, patternNode, profilingEnabled));
       } else {
-        var clazz = this.aliasClasses.get(patternNode.alias);
+        var clazz = aliasClasses.get(patternNode.alias);
         var pinnedRids = pinnedRidsForAlias(patternNode.alias);
         var where = fetchFilterFor(patternNode.alias, pinnedRids);
         // Shared builder rather than a hand-rolled copy of it. The copy tested the class before
@@ -5460,13 +5460,13 @@ public class MatchExecutionPlanner {
         // so it is prefetched through the same builder and never arrives here.
         var select =
             createSelectStatement(clazz, pinnedRids, where == null ? null : where.copy());
-        var subContxt = new BasicCommandContext();
-        subContxt.setParentWithoutOverridingChild(context);
+        var subContext = new BasicCommandContext();
+        subContext.setParentWithoutOverridingChild(context);
         plan.chain(
             new MatchFirstStep(
                 context,
                 patternNode,
-                select.createExecutionPlan(subContxt, profilingEnabled),
+                select.createExecutionPlan(subContext, profilingEnabled),
                 profilingEnabled));
       }
     }

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator;
 
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.containsStepOfType;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -13,7 +14,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromRidsStep;
 import java.util.ArrayList;
@@ -730,19 +730,6 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
         .as("a translated traversal surfaces its compiled plan to the metrics listener")
         .isNotNull();
     return listener.executionPlan;
-  }
-
-  /** Recursively scans an execution plan's steps and their sub-steps for a step of the given type. */
-  private static boolean containsStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
-    for (var step : steps) {
-      if (stepType.isInstance(step)) {
-        return true;
-      }
-      if (containsStepOfType(step.getSubSteps(), stepType)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
