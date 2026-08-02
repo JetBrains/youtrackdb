@@ -41,7 +41,18 @@ round-trip.
   surface is one new public `MatchExecutionPlanner(MatchPlanInputs)` constructor
   (D2). Existing constructors, the IR classes, the execution steps, the grammar,
   and the evaluators are not modified — except the two new string-predicate AST
-  nodes in D-TEXT-OPS and the count short-circuit refactor.
+  nodes in D-TEXT-OPS, the count short-circuit refactor, and the MATCH
+  introspection overrides Track 10 adds (`MatchPrefetchStep.getSubSteps()` and
+  `MatchFirstStep.getSubSteps()`, each returning the nested sub-plan's steps as
+  an immutable snapshot; `getSubExecutionPlans()` is deliberately left at its
+  empty default so the counting index-usage helpers cannot double-count). Row
+  output, caching eligibility, and execution semantics are unchanged. Two output
+  surfaces do move, and the exception covers both: EXPLAIN result documents gain
+  nested `subSteps` entries through `ExecutionStep.toResult`, and the
+  pretty-printed plan string drops the `+ SET … AS <sub-plan>` block for a
+  prefetched root alias, because the planner now builds that root with the
+  sub-plan-free constructor instead of attaching a sub-plan nothing reads.
+  See plan/track-10.md § Decision Log DR-M3.
 - **Recognizers see post-fold shapes.** The strategy runs after TinkerPop's
   structural folders (`IncidentToAdjacentStrategy`, `ConnectiveStrategy`,
   `LazyBarrierStrategy`), so `outE(L).inV()` arrives folded to `out(L)`,
