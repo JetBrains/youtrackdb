@@ -5399,4 +5399,71 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * A pattern root pinned to more RIDs than the prefetch threshold fetches those RIDs instead of
+   * scanning its class.
+   *
+   * <p>Only aliases estimated under MatchExecutionPlanner.THRESHOLD are prefetched, and a pinned
+   * alias estimates at its RID count, so a list of 100 or more skips the prefetch block and
+   * reaches the root-step builder directly. That builder used to test the class before the RIDs
+   * and so dropped the pinned list, leaving a full class scan with an {@code @rid} post-filter —
+   * correct rows over O(class size) work, and invisible to any row-level assertion. Below the
+   * threshold the same query is prefetched through the shared builder, which has always tested
+   * the RIDs first, so the arity here is what makes the case.
+   */
+  @Test
+  public void testAboveThresholdPinnedRidRootOfEdgePatternFetchesByRid() {
+    session.execute("CREATE class RidRootScan extends V").close();
+    session.execute("CREATE class RidRootLink extends E").close();
+
+    // 120 sources, one hub. Both aliases stay above the threshold (the hub makes the unpinned
+    // alias the larger of the two), so neither is prefetched and the pinned alias wins the root.
+    final var pinnedCount = 120;
+    List<Identifiable> sources = new ArrayList<>(pinnedCount);
+    session.begin();
+    session.newVertex("RidRootScan");
+    for (var i = 0; i < pinnedCount; i++) {
+      var source = session.newVertex("RidRootScan");
+      source.setProperty("idx", i);
+      sources.add(source);
+    }
+    session.commit();
+
+    session.begin();
+    session.execute(
+        "CREATE EDGE RidRootLink FROM (SELECT FROM RidRootScan WHERE idx IS NOT NULL)"
+            + " TO (SELECT FROM RidRootScan WHERE idx IS NULL)")
+        .close();
+    session.commit();
+
+    List<String> ridLiterals = new ArrayList<>(pinnedCount);
+    for (var source : sources) {
+      ridLiterals.add(source.getIdentity().toString());
+    }
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: RidRootScan, as: a, where: (@rid IN ["
+                + String.join(", ", ridLiterals)
+                + "])}.out('RidRootLink'){as: b} RETURN a");
+    var steps = result.getExecutionPlan().getSteps();
+    assertTrue(
+        "120 pinned RIDs are over the prefetch threshold, so no alias is prefetched",
+        steps.stream().noneMatch(MatchPrefetchStep.class::isInstance));
+    var first = steps.stream().filter(MatchFirstStep.class::isInstance).findFirst().orElse(null);
+    assertNotNull("a MATCH plan starts with a MatchFirstStep", first);
+    assertTrue(
+        "the root step fetches the pinned RIDs",
+        containsStepOfType(first, FetchFromRidsStep.class));
+    assertFalse(
+        "and reads nothing else: a class scan beside the RID fetch is the regression",
+        containsStepOfType(first, FetchFromClassExecutionStep.class));
+    assertEquals(
+        "every pinned source has one outgoing link, so the pattern yields one row each",
+        pinnedCount, (int) result.stream().count());
+    result.close();
+    session.commit();
+  }
+
 }

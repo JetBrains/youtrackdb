@@ -665,6 +665,34 @@ public class PromoteStaticRidsFromFiltersTest {
   }
 
   /**
+   * Two distinct RIDs that a packed dedup key would collapse into one must both be promoted.
+   *
+   * <p>A collection id is 32 bits and a position is 64, so any fold of the pair into a single
+   * {@code long} loses information: {@code (collection << 32) ^ position} maps both
+   * {@code #0:4294967296} and {@code #1:0} to {@code 4294967296}. Under such a key the second RID
+   * is treated as a duplicate and dropped, and because the promoted list is the fetch target
+   * rather than a filter, the record it names is never read — the query returns one row fewer
+   * with no error and no log line. The pair is therefore kept by value.
+   *
+   * <p>Reaching the collision needs a position at or above 2^32, which is a collection that has
+   * allocated more than four billion positions. Positions count allocations rather than live
+   * records, so a long-lived high-churn collection gets there.
+   */
+  @Test
+  public void toPromotedSqlRidList_keepsDistinctRidsWithCollidingPackedKeys() {
+    var where = parseWhere("SELECT FROM Comment WHERE @rid in [#0:4294967296, #1:0]");
+    SQLInCondition inCond = where.findRidInList();
+    assertThat(inCond).isNotNull();
+
+    var promoted = MatchExecutionPlanner.toPromotedSqlRidList(inCond, ctx);
+
+    assertThat(promoted).hasSize(2);
+    assertThat(promoted.get(0).toRecordId((Result) null, CTX).toString())
+        .isEqualTo("#0:4294967296");
+    assertThat(promoted.get(1).toRecordId((Result) null, CTX).toString()).isEqualTo("#1:0");
+  }
+
+  /**
    * Rebuilds {@code where} with its single leaf condition as the base expression, dropping the
    * {@code OrBlock(AndBlock(NotBlock(...)))} wrapping the grammar's {@code WhereClause()}
    * production always adds. This is the shape a clause assembled in code has: {@code
@@ -768,6 +796,70 @@ public class PromoteStaticRidsFromFiltersTest {
     var leafClause = unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE name = 'foo'"));
     Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
     aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertThat(aliasPinnedRids).isEmpty();
+  }
+
+  /**
+   * A code-assembled AND of two bare conditions promotes its {@code @rid} term wherever the term
+   * sits in the block. {@code MatchWhereBuilder.and} returns an {@code SQLAndBlock} for two or
+   * more operands and its sub-blocks carry none of the pass-through {@code NotBlock} wrapping the
+   * grammar adds, which is the shape {@code g.V(id1, id2).has("age", 30)} reaches the planner
+   * with. The AND loop no longer applies the term extractor to a sub-term itself; it recurses, so
+   * the leaf branch is the only thing that sees these unwrapped sub-terms. The RID term is placed
+   * second here, so a loop that stops after the first sub-term fails.
+   *
+   * <p>A regression keeps the rows right and silently reverts the plan to a class scan with an
+   * {@code @rid} post-filter, which no row-level assertion anywhere can see.
+   */
+  @Test
+  public void unwrappedAndBlockWithRidTerm_isPromoted() {
+    var ridLeaf =
+        unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE @rid in [#25:7]"))
+            .getBaseExpression();
+    var otherLeaf =
+        unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE name = 'foo'"))
+            .getBaseExpression();
+    var and = new SQLAndBlock(-1);
+    and.setSubBlocks(List.of(otherLeaf, ridLeaf));
+    var clause = new SQLWhereClause(-1);
+    clause.setBaseExpression(and);
+
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", clause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7");
+  }
+
+  /**
+   * A code-assembled {@code NOT (@rid IN [...])} must not promote. {@code MatchWhereBuilder.not}
+   * builds exactly this node — an {@code SQLNotBlock} with {@code negate} set — and the leaf
+   * branch now hands it straight to the term extractor, so the only thing between it and
+   * promotion is the negate guard inside {@code unwrapSingleElementTerm}. Lose that guard and the
+   * planner pins the RID the query excludes as its fetch target, so {@code SELECT FROM [#25:7]}
+   * returns precisely the record that had to be filtered out.
+   */
+  @Test
+  public void unwrappedNegatedRidList_isNotPromoted() {
+    var ridLeaf =
+        unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE @rid in [#25:7]"))
+            .getBaseExpression();
+    var negated = new SQLNotBlock(-1);
+    negated.setSub(ridLeaf);
+    negated.setNegate(true);
+    var clause = new SQLWhereClause(-1);
+    clause.setBaseExpression(negated);
+
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", clause);
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(

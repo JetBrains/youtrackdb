@@ -110,6 +110,20 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   }
 
   /**
+   * Returns a RID in {@code clazz}'s own collection at a position no record occupies.
+   *
+   * <p>The collection has to be a real one the class owns. The promoter proves a pinned RID is
+   * inside the alias's class by collection ownership, and declines when it cannot — a RID in an
+   * unowned collection (a literal like {@code -1:0}) is unprovable, so the plan keeps the class
+   * scan and never reaches the RID fetch these scenarios are about. Borrowing a live record's
+   * collection and moving the position out of range keeps the RID provable and still unresolvable.
+   */
+  private String missingRidInCollectionOf(String clazz, String name) {
+    var live = ridOf(clazz, name);
+    return live.substring(0, live.indexOf(':')) + ":999999999";
+  }
+
+  /**
    * Extracts the root alias of a MATCH plan: the alias printed on the first
    * non-blank line after the {@code + SET} marker emitted by
    * {@link MatchFirstStep}. The root determines which node the traversal starts
@@ -184,7 +198,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   @Test
   public void multiHopStaticRidInWhere_nonExistentRid_returnsEmpty() {
     session.begin();
-    var missingRid = "-1:0";
+    var missingRid = missingRidInCollectionOf("Comment", "c1");
 
     var result = session.query(
         "EXPLAIN MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
@@ -325,7 +339,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   @Test
   public void multiHopStaticRidListInWhere_nonExistentRid_returnsEmpty() {
     session.begin();
-    var missingRid = "-1:0";
+    var missingRid = missingRidInCollectionOf("Comment", "c1");
 
     var query =
         "MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"

@@ -371,10 +371,18 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromIndexStep.class))
         .as("the prefetch sub-plan is what reads through the index")
         .isTrue();
+    // Presence of the index step alone would also hold for a plan that reads the index for part
+    // of the predicate and scans the class for the rest, which is not an index-backed query. The
+    // two negative assertions are what make this scenario an index-usage answer rather than an
+    // index-existence one; both siblings above and below carry the same mirror.
+    assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromClassExecutionStep.class))
+        .as("an indexed alias is read through the index alone, never scanned as well")
+        .isFalse();
     assertThat(listener.planPrettyInCallback)
-        .as("the rendered plan names the prefetch block and the index fetch")
+        .as("the rendered plan names the prefetch block and the index fetch, and no class scan")
         .contains("+ PREFETCH")
-        .contains("+ FETCH FROM INDEX");
+        .contains("+ FETCH FROM INDEX")
+        .doesNotContain("+ FETCH FROM CLASS");
   }
 
   // What a by-id lookup surfaces depends on which source path ran, so this scenario pins both arms

@@ -5442,15 +5442,16 @@ public class MatchExecutionPlanner {
         var clazz = this.aliasClasses.get(patternNode.alias);
         var pinnedRids = pinnedRidsForAlias(patternNode.alias);
         var where = aliasFilters.get(patternNode.alias);
-        var select = new SQLSelectStatement(-1);
-        select.setTarget(new SQLFromClause(-1));
-        select.getTarget().setItem(new SQLFromItem(-1));
-        if (clazz != null) {
-          select.getTarget().getItem().setIdentifier(new SQLIdentifier(clazz));
-        } else if (pinnedRids != null) {
-          select.getTarget().getItem().setRids(pinnedRids);
-        }
-        select.setWhereClause(where == null ? null : where.copy());
+        // Shared builder rather than a hand-rolled copy of it. The copy tested the class before
+        // the RIDs, so a pattern root carrying both scanned the class and demoted the pinned list
+        // to a post-filter — and the prefetch filter only spares aliases estimated under
+        // THRESHOLD, so the aliases that reached here were exactly the large RID lists that most
+        // needed the fetch. createSelectStatement takes the RIDs first, which is safe because
+        // promoteStaticRidsFromFilters only pins RIDs it has proved are inside the alias's class
+        // (see pinnedRidsProvablyInClass); a parser `rid:` slot pins one RID and estimates at 1,
+        // so it is prefetched through the same builder and never arrives here.
+        var select =
+            createSelectStatement(clazz, pinnedRids, where == null ? null : where.copy());
         var subContxt = new BasicCommandContext();
         subContxt.setParentWithoutOverridingChild(context);
         plan.chain(
@@ -5856,24 +5857,41 @@ public class MatchExecutionPlanner {
     // `@rid IN [#5:0, #5:0]` post-filter tests each record once and emits it once. The promoted
     // form enumerates the pinned list instead, so a duplicate left in place would fetch the same
     // record twice and change the result multiset — g.V().hasId(a, a) is the shape that exposes it.
-    // Keyed on collection+position rather than on SQLRid, which inherits identity equality.
+    // Keyed on the (collection, position) pair rather than on SQLRid, which inherits identity
+    // equality. The pair is carried by a value record and never folded into a single long: a
+    // 32-bit collection id and a 64-bit position do not fit in 64 bits, and any fold collides —
+    // #0:4294967296 and #1:0 share the packed key (collection << 32) ^ position, and a collision
+    // silently drops the second RID from the list the promoted plan fetches.
     List<SQLRid> rids = new ArrayList<>();
-    Set<Long> seen = new HashSet<>();
+    Set<RidKey> seen = new HashSet<>();
     for (var item : iterable) {
       var sqlRid = sqlRidFromRuntimeValue(item);
       if (sqlRid == null) {
         return null;
       }
+      // sqlRidFromRuntimeValue is the only producer and always sets both fields, so the pair is
+      // always available here; the assert states that rather than adding a dead runtime branch.
       var collection = sqlRid.getCollection();
       var position = sqlRid.getPosition();
-      if (collection == null || position == null) {
-        return null;
-      }
-      if (seen.add((collection.getValue().longValue() << 32) ^ position.getValue().longValue())) {
+      assert collection != null && position != null
+          : "sqlRidFromRuntimeValue must populate both collection and position";
+      if (seen.add(new RidKey(collection.getValue().intValue(), position.getValue().longValue()))) {
         rids.add(sqlRid);
       }
     }
     return rids.isEmpty() ? null : rids;
+  }
+
+  /**
+   * Dedup key for a promoted RID: the (collection id, position) pair by value.
+   *
+   * <p>{@link SQLRid} inherits identity equality, so a set of RID nodes never dedups. The pair is
+   * kept as a record rather than packed into a {@code long} because the two fields are 32 and 64
+   * bits wide and any packing loses information — the same reason
+   * {@code StartStepRecogniser.RidKey} exists on the translator side of the same feature.
+   */
+  private record RidKey(int collectionId, long position) {
+
   }
 
   private static boolean isEarlyCalculableInRight(SQLInCondition inCond, CommandContext ctx) {
