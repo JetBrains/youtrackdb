@@ -17,7 +17,9 @@ This track is inserted ahead of Track 9 by the inline replan of 2026-08-01. Trac
 - [x] 2026-08-01T15:00Z [ctx=safe] Step 2 complete (commit b1f4ad79ba)
 - [x] 2026-08-02T01:11Z [ctx=info] Step 3 complete (commit afb7061b26)
 - [x] 2026-08-02T10:31Z [ctx=info] Step 4 complete (commit 4154baada4)
-- [ ] Step implementation
+- [x] 2026-08-02T13:32Z [ctx=info] Step 6 complete (commit dd24a5852f)
+- [x] 2026-08-02T13:32Z [ctx=info] Step 5 complete (commit df396aa0d0)
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -128,8 +130,8 @@ Acceptance` cites Plan-of-Work items, not roster steps. -->
 2. Settle the `reset()`-from-`CLOSED` contract, implementing copy-on-re-arm via `InternalExecutionPlan.copy` if it lands product-side, with its own context derivation rather than `clone()`'s recipe; pin which plan object `capturedExecutionPlan()` sees across both re-arm paths; revise the `CLOSED`-is-terminal Javadoc; cover close-then-reset at both boundary shapes with real plans and assertions enabled (Plan of Work item 1) — risk: high (architecture: changes the lifecycle contract of the Track 7 boundary base that every translated traversal on this branch flows through, reaching both subclasses)  [x] commit: b1f4ad79ba
 3. Add sub-step introspection to `MatchPrefetchStep` (primary) and `MatchFirstStep` (secondary), answer whether the `+ PREFETCH` sub-plan contains a `FetchFromIndexStep`, pin the `EXPLAIN` nested-`subSteps` effect with a test, record the DR, and amend the plan's "Engine surface is preserved" bullet with its third exception (Plan of Work item 3) — risk: high (architecture: modifies MATCH execution steps and the Component Map's boundary-to-metrics relationship, and amends a plan-level constraint)  [x] commit: afb7061b26
 4. Close the CI detection hole under the item-0 triage rule, and pin the translator kill-switch in the two plan-capture scenarios whose contract is already settled (Plan of Work item 4, and item 2's T3 clause in part) — risk: medium (build config plus observability contract; no HIGH triggers) — size: ~4 files; no mergeable `low`/`medium` work fits — the rest of the track is `high` and step 1's ESCALATE gate must clear before this runs. **Narrowed by the step-4 split of 2026-08-02 (DR-M4)** — item 2 moved to step 5  [x] commit: 4154baada4
-5. Localize and fix the RID-promotion defect that makes translated `g.V(rid)` compile an `O(|V|)` class scan, then settle the `g.V(rid)` capture contract and pin the kill-switch in `byIdLookupSurfacesNullPlan` (Plan of Work item 2, reopened by measurement) — risk: high (architecture: `MatchExecutionPlanner`'s static-RID promotion, on the path every translated RID-bearing traversal takes) — size: unknown until the root cause is localized; added by the step-4 split of 2026-08-02 (DR-M4)  [ ]
-6. Repair the boundary materialization regression the 2026-08-02 rebase onto `develop` introduced — translated traversals return the right row count with `null` elements, failing 9 `GremlinToMatchSmokeTest` cases that were green before the rebase (DR-M5) — risk: high (architecture: the boundary's result-row-to-`Vertex` conversion, on the path every translated traversal takes) — size: unknown until the root cause is localized. **Executes before step 5**, whose verification is untrustworthy while materialization is broken  [ ]
+5. Localize and fix the RID-promotion defect that makes translated `g.V(rid)` compile an `O(|V|)` class scan, then settle the `g.V(rid)` capture contract and pin the kill-switch in `byIdLookupSurfacesNullPlan` (Plan of Work item 2, reopened by measurement) — risk: high (architecture: `MatchExecutionPlanner`'s static-RID promotion, on the path every translated RID-bearing traversal takes) — size: unknown until the root cause is localized; added by the step-4 split of 2026-08-02 (DR-M4)  [x] commit: df396aa0d0
+6. Repair the boundary materialization regression the 2026-08-02 rebase onto `develop` introduced — translated traversals return the right row count with `null` elements, failing 9 `GremlinToMatchSmokeTest` cases that were green before the rebase (DR-M5) — risk: high (architecture: the boundary's result-row-to-`Vertex` conversion, on the path every translated traversal takes) — size: unknown until the root cause is localized. **Executes before step 5**, whose verification is untrustworthy while materialization is broken  [x] commit: dd24a5852f
 
 ## Episodes
 <!-- One block per completed step. Empty until Phase B. -->
@@ -213,6 +215,34 @@ The step-1 inventory's wall clock corrects a cost estimate carried through this 
 **Key files:** `.github/workflows/maven-pipeline.yml`, `CLAUDE.md`, `docs-internal/agents/orchestrator-guidelines.md`, `YTDBQueryMetricsStrategyTest.java` (modified).
 
 **Critical context (step 4):** The two draft-gate `if` expressions must stay in sync. A future edit to one that misses the other reintroduces the hole in a subtler shape — `detect-changes` alone leaves `[run-ci]` drafts with no aggregate check, `ci-status` alone leaves the token inert. The escape hatch is live from this commit but dormant until someone adds `[run-ci]` to PR #1038's title and pushes; whoever flips it should expect R5's full fan-out on the first run and apply the item-0 triage rule rather than treating every red leg as this branch's work.
+
+**Superseded.** The `maven-pipeline.yml` change and its two documentation lines were reverted on 2026-08-02 at the user's request (commit `244a6a8f6d`). Plan of Work item 4 is unrealized and the detection hole is still open. Only the kill-switch pinning from this step survives. See Decision Log DR-M5.
+
+### Step 6 — commit dd24a5852f, 2026-08-02T13:32Z [ctx=info]
+
+**What was done:** Repaired the boundary materialization regression the rebase onto `develop` introduced. `SQLSuffixIdentifier` now probes a projection's own columns before falling through to `Result` metadata and temporary properties, so a `$`-prefixed MATCH alias resolves. `GremlinToMatchSmokeTest` is back to green at 25 of 25, the nine `NullPointerException` cases included.
+
+**What was discovered:** The `$`-prefix short-circuit was right about the record and wrong about everything else. Such a name fails `EntityImpl.validatePropertyName`, so it can never be stored and a `getProperty`-first probe would throw rather than miss — the short-circuit is correct to bypass the record. Where it went was the error: straight to `Result` metadata and temporary properties, which is where a LET variable lives and where a MATCH alias does not. A MATCH alias is a column of the projection itself, because both the planner's `DEFAULT_ALIAS_PREFIX` aliases and the translator's reserved pattern-node aliases are `$`-prefixed and a RETURN column addresses them by name. The lookup missed and the boundary emitted `null` for every row — the right row count with null elements, which is why the plan-shape and size assertions passed and only the element dereference failed.
+
+The projection probe is gated on `isProjection()` so a record-backed `Result` never dispatches to the record for a name the record provably cannot hold. On a lazily loaded RID-only `Result` from the MATCH path that dispatch would be a storage read for a guaranteed miss.
+
+**What changed from the plan:** This step did not exist until the rebase created the need for it. See DR-M5.
+
+**Key files:** `SQLSuffixIdentifier.java`, `SQLSuffixIdentifierTest.java` (modified).
+
+### Step 5 — commit df396aa0d0, 2026-08-02T13:32Z [ctx=info]
+
+**What was done:** Fixed the RID-promotion defect and settled the `g.V(rid)` capture contract on the repaired behaviour. `SQLWhereClause.findRidConditionInExpression` gains a leaf branch that applies the term extractor once the recursion bottoms out, and its AND loop now recurses per sub-term rather than extracting inline — the leaf branch is what applies the extractor, and the extractor's own unwrapping still covers the wrapper shapes. `StartStepRecogniser`'s class comment, which claimed the promotion fired and that a size-1 `IN` collapsed to a `SELECT FROM #X:Y` fast path, is corrected to describe what the code does. **All 20 `YTDBQueryMetricsStrategyTest` scenarios pass**, which is the acceptance criterion this track was created to restore.
+
+**What was discovered:** The defect was one missing branch, not a planner gap. `promoteStaticRidsFromFilters`, `promoteFilterRidsOnBuild`, `pinnedRidsForAlias`, and `createSelectStatement`'s RID-fetch path all existed and were all enabled on the translator path. `findRidConditionInExpression` handled `SQLOrBlock` and `SQLAndBlock` and returned `null` for anything else, and every clause the grammar produces is an `SQLOrBlock` at the top level — so a parsed clause never reached the gap. `MatchWhereBuilder.and` returns a lone operand unwrapped for parser parity, and the Gremlin recognisers build one-condition alias filters that way, so the bare `SQLInCondition` they install was the one shape nothing could see. The consumer side was correct all along; only the detector was blind.
+
+**A rebase onto `develop` was run mid-step to test whether this fix was already upstream. It was not** — `develop`'s `findRidConditionInExpression` still has no leaf branch. See DR-M5 for the rebase's own fallout.
+
+**What changed from the plan:** Nothing beyond DR-M4's split, which created this step. The fix landed inside the track's fences: no translator coverage was narrowed, and what translates is unchanged.
+
+**Key files:** `SQLWhereClause.java`, `StartStepRecogniser.java` (modified); `PromoteStaticRidsFromFiltersTest.java`, `YTDBQueryMetricsStrategyTest.java`, `GremlinToMatchSmokeTest.java` (modified).
+
+**Critical context (step 5):** The leaf branch makes every code-assembled single-condition WHERE clause visible to both `findRidEquality()` and `findRidInList()`, not just the Gremlin translator's. Any other caller that builds a clause through `MatchWhereBuilder` rather than the grammar now gets static-RID promotion it did not get before. That is the intended fix, but it widens the promotion's reach beyond this track's own path.
 
 ## Validation and Acceptance
 - The full `./mvnw -pl core test` failure set is enumerated and recorded as an artifact before any fix lands (Plan of Work item 0), and every criterion below is read against that list rather than against the four known scenarios.
