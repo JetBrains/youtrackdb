@@ -5606,7 +5606,8 @@ public class MatchExecutionPlanner {
       // does for the SQL path. Scoped by promoteFilterRidsOnBuild so only the MatchPlanInputs path
       // (which sets a mutable aliasPinnedRids) promotes; the GQL 3-arg ctor keeps its plans.
       if (promoteFilterRidsOnBuild) {
-        promoteStaticRidsFromFilters(this.aliasFilters, this.aliasPinnedRids, ctx);
+        promoteStaticRidsFromFilters(
+            this.aliasFilters, this.aliasClasses, this.aliasPinnedRids, ctx);
       }
       return;
     }
@@ -5649,7 +5650,10 @@ public class MatchExecutionPlanner {
     // size, so a 2M-row class restricted to a few RIDs stops losing root selection
     // to a 10K-row unfiltered class.
     // The promotion also lets createSelectStatement() take the FetchFromRids
-    // fast path instead of a class scan with post-filter.
+    // fast path instead of a class scan with post-filter. aliasClasses is passed in because that
+    // swap discards the alias's class — createSelectStatement treats RIDs and class as mutually
+    // exclusive — so the promoter declines whenever the pinned RIDs are not provably inside the
+    // class (see pinnedRidsProvablyInClass).
     // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
     // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
     // join in the pre-filter pass.
@@ -5658,7 +5662,7 @@ public class MatchExecutionPlanner {
     // still relies on findRidEquality(). {@code @rid IN <list>} has no
     // RidFilterDescriptor analogue; non-root IN lists are enforced via prefetch
     // or post-fetch WHERE evaluation instead.
-    promoteStaticRidsFromFilters(aliasFilters, aliasPinnedRids, ctx);
+    promoteStaticRidsFromFilters(aliasFilters, aliasClasses, aliasPinnedRids, ctx);
 
     rebindFilters(aliasFilters);
   }
@@ -5684,11 +5688,17 @@ public class MatchExecutionPlanner {
    *       {@code EdgeRidLookup} or Pattern A back-ref hash join)
    *   <li>expressions that are not early-calculable (depend on per-row context)
    *   <li>{@code @rid IN <subquery>} or non-static right-hand sides
+   *   <li>aliases whose class constraint the pinned RIDs are not provably inside
+   *       (see {@link #pinnedRidsProvablyInClass})
    * </ul>
+   *
+   * @param aliasClasses per-alias class constraints, consulted so a promotion never
+   *                     silently discards one
    */
   // Visible for testing
   static void promoteStaticRidsFromFilters(
       Map<String, SQLWhereClause> aliasFilters,
+      Map<String, String> aliasClasses,
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext ctx) {
     for (var entry : aliasFilters.entrySet()) {
@@ -5701,6 +5711,7 @@ public class MatchExecutionPlanner {
       if (aliasPinnedRids.containsKey(alias)) {
         continue;
       }
+      var aliasClass = aliasClasses.get(alias);
       var ridExpr = filter.findRidEquality();
       if (ridExpr != null) {
         var involved = ridExpr.getMatchPatternInvolvedAliases();
@@ -5712,7 +5723,11 @@ public class MatchExecutionPlanner {
         }
         var rid = new SQLRid(-1);
         SQLRid.internalPromoteExpression(rid, ridExpr);
-        aliasPinnedRids.put(alias, List.of(rid));
+        var promotedEquality = List.of(rid);
+        if (!pinnedRidsProvablyInClass(promotedEquality, aliasClass, ctx)) {
+          continue;
+        }
+        aliasPinnedRids.put(alias, promotedEquality);
         logger.debug(
             "MATCH planner: promoted @rid = filter to aliasPinnedRids for alias '{}'",
             alias);
@@ -5731,12 +5746,71 @@ public class MatchExecutionPlanner {
       if (promotedList == null || promotedList.isEmpty()) {
         continue;
       }
+      if (!pinnedRidsProvablyInClass(promotedList, aliasClass, ctx)) {
+        continue;
+      }
       aliasPinnedRids.put(alias, promotedList);
       logger.debug(
           "MATCH planner: promoted @rid IN filter ({} RIDs) for alias '{}'",
           promotedList.size(),
           alias);
     }
+  }
+
+  /**
+   * Whether every pinned RID provably belongs to {@code className} or one of its subclasses.
+   *
+   * <p>The promotion is only safe when it loses nothing. {@link #createSelectStatement} treats a
+   * RID list and a class as mutually exclusive — a non-empty RID list sets the FROM target and the
+   * class arm never runs — so promoting an alias that also carries a class silently drops that
+   * class from the plan. Where the class is the only type constraint the alias has, the fetch then
+   * resolves whatever record the RID names. A translated {@code g.V(rid).hasLabel(L)} under
+   * polymorphic mode is exactly that shape: {@code HasStepRecogniser} re-types the boundary node to
+   * {@code L} and deliberately adds no {@code @class} conjunct, so with the class gone the label
+   * stops being checked at all and a record from an unrelated class is emitted.
+   *
+   * <p>Proof is by collection ownership, the same zero-I/O route
+   * {@code MatchEdgeTraverser.matchesClass} takes: a RID's collection is owned by at most one
+   * schema class, so the immutable schema snapshot answers membership without loading the record.
+   * An unresolvable RID (a parameter expression that needs per-row bindings) or an unowned
+   * collection returns {@code false} — the promotion is skipped and the plan falls back to the
+   * class scan with the {@code @rid} post-filter, which is correct at any arity and is what the
+   * planner emitted before the promotion learned to see code-assembled clauses.
+   *
+   * @param className the alias's class constraint, or {@code null} when it has none — with no
+   *                  class to lose, every promotion is safe
+   */
+  private static boolean pinnedRidsProvablyInClass(
+      List<SQLRid> rids, @Nullable String className, CommandContext ctx) {
+    if (className == null) {
+      return true;
+    }
+    // Collect the collection ids before reaching for the schema: a RID whose collection needs
+    // per-row bindings to resolve is unprovable whatever the schema says, and answering that
+    // first keeps the schema lookup off the path entirely.
+    var collectionIds = new ArrayList<Integer>(rids.size());
+    for (var rid : rids) {
+      var collection = rid.getCollection();
+      if (collection == null || collection.getValue() == null) {
+        return false;
+      }
+      collectionIds.add(collection.getValue().intValue());
+    }
+    var session = ctx == null ? null : ctx.getDatabaseSession();
+    if (session == null) {
+      return false;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return false;
+    }
+    for (var collectionId : collectionIds) {
+      var owner = schema.getClassByCollectionId(collectionId);
+      if (owner == null || !owner.isSubClassOf(className)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Returns the pinned RID list for an alias, or {@code null} if none. */

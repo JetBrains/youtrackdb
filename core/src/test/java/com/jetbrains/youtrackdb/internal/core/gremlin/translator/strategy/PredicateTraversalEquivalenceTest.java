@@ -220,6 +220,56 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasId(aliceId, aliceId));
   }
 
+  /**
+   * {@code g.V().hasId(<edge rid>)} returns nothing on both pipelines, and its {@code count()}
+   * returns zero. A vertex source is scoped to the vertex class, so a RID naming an edge is not a
+   * member of it however well-formed the RID is.
+   *
+   * <p>The scoping is at risk because the planner has a fast path that fetches a pinned RID
+   * directly, and the fetch it builds carries either the RID list or the class, never both. A
+   * translated {@code g.V()} boundary keeps its whole type constraint in that class, so a
+   * promotion the planner has not proved against the class turns the plan into a bare fetch of
+   * whatever record the RID names, and the edge is emitted.
+   *
+   * <p>The {@code count()} half is the sharper of the two. The list half raises when the boundary
+   * turns the row into a vertex, which is loud; {@code count()} is answered from the plan without
+   * materialising an element, so a widened plan returns one with nothing to notice. This case
+   * therefore asserts both.
+   *
+   * <p>The assertion cannot go through {@code assertEquivalent}: that helper requires a
+   * RECOGNIZED shape to return rows, and the correct answer here is no rows. Engagement is
+   * asserted directly instead, so the empty result cannot come from a silent decline to native.
+   */
+  @Test
+  public void hasIdOverEdgeRid_returnsNothingAndCountsZero() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var edge = alice.addEdge("knows", bob);
+    graph.tx().commit();
+    var edgeId = edge.id();
+
+    withTranslator(true, () -> {
+      var admin = graph.traversal().V().hasId(edgeId).asAdmin();
+      admin.applyStrategies();
+      assertThat(countBoundarySteps(admin.getSteps()))
+          .as("g.V().hasId(<edge rid>) must translate, so the empty result below is the "
+              + "translated pipeline's answer and not a decline to native")
+          .isEqualTo(1);
+      assertThat(admin.toList())
+          .as("a vertex source must not emit a record that is an edge")
+          .isEmpty();
+      assertThat(graph.traversal().V().hasId(edgeId).count().next())
+          .as("the count short-circuit must be scoped to vertices too")
+          .isZero();
+    });
+    withTranslator(false, () -> {
+      assertThat(graph.traversal().V().hasId(edgeId).toList())
+          .as("native pins the expected answer")
+          .isEmpty();
+      assertThat(graph.traversal().V().hasId(edgeId).count().next()).isZero();
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Property has() and same-alias AND-composition.
   // ---------------------------------------------------------------------------

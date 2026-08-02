@@ -5349,4 +5349,54 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * A {@code where: (@rid = ...)} naming a record outside the alias's class returns no rows. The
+   * class and the RID are both constraints on the alias and the pattern means their conjunction,
+   * so a RID from a sibling class satisfies one and fails the other.
+   *
+   * <p>The planner has a fast path that fetches a pinned RID directly instead of scanning the
+   * class, and the fetch it builds carries either the RID list or the class, never both. Taking
+   * that path for a RID it has not proved to be inside the class drops the class from the plan
+   * and the sibling record comes back. Two classes with a common ancestor are the sharp case: the
+   * sibling is a real vertex with a real supertype chain, so nothing downstream rejects it.
+   */
+  @Test
+  public void testRidFilterOutsideAliasClassMatchesNothing() {
+    session.execute("CREATE class RidScopeBase extends V").close();
+    session.execute("CREATE class RidScopeLeft extends RidScopeBase").close();
+    session.execute("CREATE class RidScopeRight extends RidScopeBase").close();
+
+    session.begin();
+    var right = session.newVertex("RidScopeRight");
+    right.setProperty("name", "right-one");
+    session.commit();
+    var rightRid = right.getIdentity();
+
+    session.begin();
+    // Same RID under its own class: the row is there, so an empty result below cannot be blamed
+    // on the record or the RID literal.
+    try (var inClass =
+        session.query(
+            "MATCH {class: RidScopeRight, as: a, where: (@rid = " + rightRid + ")} RETURN a")) {
+      assertEquals(
+          "the sibling's own class must match its RID", 1, inClass.stream().count());
+    }
+    try (var crossClass =
+        session.query(
+            "MATCH {class: RidScopeLeft, as: a, where: (@rid = " + rightRid + ")} RETURN a")) {
+      assertFalse(
+          "a RID from a sibling class must not satisfy a class-constrained alias",
+          crossClass.hasNext());
+    }
+    // The IN form promotes through a separate branch of the same optimisation.
+    try (var crossClassInList =
+        session.query(
+            "MATCH {class: RidScopeLeft, as: a, where: (@rid IN [" + rightRid + "])} RETURN a")) {
+      assertFalse(
+          "the @rid IN form must be scoped to the alias's class too",
+          crossClassInList.hasNext());
+    }
+    session.commit();
+  }
+
 }
