@@ -5778,13 +5778,26 @@ public class MatchExecutionPlanner {
     if (!(rightVal instanceof Iterable<?> iterable)) {
       return null;
     }
+    // Duplicates are dropped, first occurrence wins. IN is set membership: a class scan with an
+    // `@rid IN [#5:0, #5:0]` post-filter tests each record once and emits it once. The promoted
+    // form enumerates the pinned list instead, so a duplicate left in place would fetch the same
+    // record twice and change the result multiset — g.V().hasId(a, a) is the shape that exposes it.
+    // Keyed on collection+position rather than on SQLRid, which inherits identity equality.
     List<SQLRid> rids = new ArrayList<>();
+    Set<Long> seen = new HashSet<>();
     for (var item : iterable) {
       var sqlRid = sqlRidFromRuntimeValue(item);
       if (sqlRid == null) {
         return null;
       }
-      rids.add(sqlRid);
+      var collection = sqlRid.getCollection();
+      var position = sqlRid.getPosition();
+      if (collection == null || position == null) {
+        return null;
+      }
+      if (seen.add((collection.getValue().longValue() << 32) ^ position.getValue().longValue())) {
+        rids.add(sqlRid);
+      }
     }
     return rids.isEmpty() ? null : rids;
   }

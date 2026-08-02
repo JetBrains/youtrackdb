@@ -634,6 +634,30 @@ public class PromoteStaticRidsFromFiltersTest {
   }
 
   /**
+   * A repeated RID in the IN list is promoted once, first occurrence winning.
+   *
+   * <p>IN is set membership: the class scan this promotion replaces tests each record once
+   * against the list and emits it once, however many times the list names it. The promoted
+   * form enumerates the pinned list instead, so leaving a duplicate in place fetches the same
+   * record twice and changes the result multiset. {@code g.V().hasId(alice, alice)} is the
+   * traversal that exposes it, and
+   * {@code PredicateTraversalEquivalenceTest.hasIdDuplicate_isSetMembership_matchesNative}
+   * is the end-to-end guard; this test pins the same invariant at the promotion itself.
+   */
+  @Test
+  public void toPromotedSqlRidList_dropsDuplicateRids() {
+    var where = parseWhere("SELECT FROM Comment WHERE @rid in [#25:7, #26:8, #25:7]");
+    SQLInCondition inCond = where.findRidInList();
+    assertThat(inCond).isNotNull();
+
+    var promoted = MatchExecutionPlanner.toPromotedSqlRidList(inCond, ctx);
+
+    assertThat(promoted).hasSize(2);
+    assertThat(promoted.get(0).toRecordId((Result) null, CTX).toString()).isEqualTo("#25:7");
+    assertThat(promoted.get(1).toRecordId((Result) null, CTX).toString()).isEqualTo("#26:8");
+  }
+
+  /**
    * Rebuilds {@code where} with its single leaf condition as the base expression, dropping the
    * {@code OrBlock(AndBlock(NotBlock(...)))} wrapping the grammar's {@code WhereClause()}
    * production always adds. This is the shape a clause assembled in code has: {@code
