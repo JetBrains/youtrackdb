@@ -205,6 +205,17 @@ public class OrderByStep extends AbstractExecutionStep {
       var heap = new PriorityQueue<Result>(
           maxResults, (a, b) -> orderBy.compare(b, a, ctx));
 
+      // Early-termination eligibility is fixed for the whole scan:
+      // IndexOrderedEdgeStep sets VAR_INDEX_ORDERED_PRE_SORTED before this step
+      // starts and never changes it mid-iteration, so read it once here rather
+      // than per row.
+      boolean earlyTerminationEnabled =
+          primaryKeySortedInput != null
+              && indexOrderedUpstream
+              && Boolean.TRUE.equals(
+                  ctx.getSystemVariable(
+                      CommandContext.VAR_INDEX_ORDERED_PRE_SORTED));
+
       while (upstream.hasNext(ctx)) {
         if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
           sendTimeout();
@@ -217,11 +228,7 @@ public class OrderByStep extends AbstractExecutionStep {
         // All subsequent items will also be worse (input is sorted).
         // Only active when IndexOrderedEdgeStep confirmed pre-sorted output;
         // when the fallback (unsorted) path was taken, cutoff is unsafe.
-        if (primaryKeySortedInput != null
-            && indexOrderedUpstream
-            && Boolean.TRUE.equals(
-                ctx.getSystemVariable(
-                    CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
+        if (earlyTerminationEnabled
             && heap.size() >= maxResults
             && primaryKeySortedInput.compare(item, heap.peek(), ctx) > 0) {
           break;
@@ -301,7 +308,14 @@ public class OrderByStep extends AbstractExecutionStep {
     SQLOrderByItem copiedHint = null;
     if (primaryKeySortedInput != null) {
       int idx = orderBy.getItems().indexOf(primaryKeySortedInput);
-      assert idx >= 0 : "primaryKeySortedInput not found in orderBy items";
+      // Enforced unconditionally (not via assert, which is off in production):
+      // primaryKeySortedInput is always one of orderBy's items, so a negative
+      // index signals a construction bug and must fail loudly rather than
+      // producing an obscure IndexOutOfBounds from get(-1) below.
+      if (idx < 0) {
+        throw new IllegalStateException(
+            "primaryKeySortedInput not found in orderBy items");
+      }
       copiedHint = copiedOrderBy.getItems().get(idx);
     }
     return new OrderByStep(

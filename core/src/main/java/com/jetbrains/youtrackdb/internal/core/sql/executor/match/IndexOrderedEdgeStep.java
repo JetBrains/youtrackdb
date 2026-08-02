@@ -447,8 +447,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     // Collect upstream source RIDs + build union RidSet simultaneously.
     // If union exceeds maxRidSetSize, stop adding to union but keep collecting
-    // source RIDs for the fallback path. Cap sourceRids at maxSources to
-    // prevent unbounded memory growth for large source result sets.
+    // source RIDs for the fallback path. When the source count exceeds
+    // maxSources the index scan is no longer profitable, so release the
+    // (expensive, per-edge) union RidSet and fall back to streaming from all
+    // source LinkBags. We keep collecting the (cheap) source RID list to the
+    // end: dropping sources here would silently truncate results. This mirrors
+    // filteredBound, which retains the full sourceMap on overflow.
     int maxSources =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     var sourceRids = new ArrayList<RID>();
@@ -461,9 +465,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       var sourceRid = extractSourceRid(row);
       if (sourceRid != null) {
         sourceRids.add(sourceRid);
-        if (sourceRids.size() > maxSources) {
+        if (!sourceOverflow && sourceRids.size() > maxSources) {
           sourceOverflow = true;
-          break;
+          ridSetOverflow = true;
+          unionRidSet = new RidSet(); // release partial set; we will fall back
         }
       }
       if (!ridSetOverflow) {
@@ -537,14 +542,27 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
     var results = new ArrayList<Result>();
+    forEachMatchingTarget(linkBag, session, ctx, record -> results.add(
+        new MatchResultRow(session, emptyUpstream, targetAlias, record)));
+    return ExecutionStream.resultIterator(results.iterator());
+  }
+
+  /**
+   * Iterates a source LinkBag, loading each target record (via
+   * {@link #ridFromPair}) and applying {@link #matchesTargetFilter}. Every
+   * target that loads and passes the filter is handed to {@code consumer}.
+   * Shared by the eager list-building fallback paths (bound and unbound) so the
+   * load-and-filter loop is written once.
+   */
+  private void forEachMatchingTarget(
+      LinkBag linkBag, DatabaseSessionEmbedded session, CommandContext ctx,
+      java.util.function.Consumer<Result> consumer) {
     for (RidPair pair : linkBag) {
       var record = loadRecord(ridFromPair(pair), session);
       if (record != null && matchesTargetFilter(record, ctx)) {
-        results.add(
-            new MatchResultRow(session, emptyUpstream, targetAlias, record));
+        consumer.accept(record);
       }
     }
-    return ExecutionStream.resultIterator(results.iterator());
   }
 
   // ---- Mode C: UNFILTERED_BOUND (class check + lazy load) ----
@@ -559,7 +577,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var srcClass = schema.getClassInternal(sourceClassName);
 
-    // Consume upstream to avoid pipeline stall, but don't collect
+    // Start and immediately close upstream: this mode does not read source
+    // rows (it scans the index and class-checks reverse edges), but the
+    // upstream chain must still be started/closed so its own side effects and
+    // resources run and release.
     var upstream = prev.start(ctx);
     upstream.close(ctx);
 
@@ -614,6 +635,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var srcClass = schema.getClassInternal(sourceClassName);
 
+    // Start and immediately close upstream: this mode does not read source
+    // rows, but the upstream chain must still be started/closed so its own
+    // side effects and resources run and release.
     var upstream = prev.start(ctx);
     upstream.close(ctx);
 
@@ -747,18 +771,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
     var upstreamRows = entry.getValue();
     var results = new ArrayList<Result>();
-    for (RidPair pair : linkBag) {
-      var record = loadRecord(ridFromPair(pair), session);
-      if (record == null || !matchesTargetFilter(record, ctx)) {
-        continue;
-      }
+    forEachMatchingTarget(linkBag, session, ctx, record -> {
       for (var row : upstreamRows) {
         if (!isAlreadyBoundAndDifferent(row, record, session)) {
           results.add(
               new MatchResultRow(session, row, targetAlias, record));
         }
       }
-    }
+    });
     return ExecutionStream.resultIterator(results.iterator());
   }
 
@@ -946,8 +966,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         sampled++;
       }
     }
-    int avgPerSource = sampled > 0
-        ? totalSampled / sampled
+    // Round rather than truncate: integer division would systematically
+    // undercount the fan-out (e.g. an average of 9.8 edges/source read as 9),
+    // biasing the cost model toward load-all-and-sort.
+    long avgPerSource = sampled > 0
+        ? Math.round((double) totalSampled / sampled)
         : GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
     return (int) Math.min(
         (long) sourceMap.size() * avgPerSource, Integer.MAX_VALUE);
