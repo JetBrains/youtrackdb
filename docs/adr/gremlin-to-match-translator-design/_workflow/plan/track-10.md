@@ -284,3 +284,5 @@ Full investigation evidence — the commit-by-commit bracket table, the isolatio
 cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->
 
 fd9eb7635da395456f897b23452c7292dcc12952
+
+Note: recorded base `fd9eb7635d` was invalidated by the 2026-08-02 rebase onto `develop` (DR-M5), which rewrote every commit on the branch. The post-rebase base is `f007749249` — the parent of the "Record Phase B base commit for Track 10" commit on HEAD's path. Phase C reads `f007749249..HEAD` for the cumulative track diff. Both SHAs are kept for the audit trail.
