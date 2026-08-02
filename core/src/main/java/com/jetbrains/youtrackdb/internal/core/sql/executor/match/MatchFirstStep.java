@@ -104,6 +104,11 @@ public class MatchFirstStep extends AbstractExecutionStep {
     if (matchedNodes != null) {
       data = ExecutionStream.resultIterator(matchedNodes.iterator());
     } else {
+      // A step built without a sub-plan is one the planner knows a MatchPrefetchStep feeds. Inside
+      // a hash join's build plan that reasoning does not hold — the build side is materialized
+      // before the upstream prefetch step runs — so those roots keep their own scan.
+      assert executionPlan != null
+          : "no prefetched data and no sub-plan for alias " + alias;
       data = executionPlan.start();
     }
 
@@ -141,11 +146,16 @@ public class MatchFirstStep extends AbstractExecutionStep {
    * never start a sub-plan, so its fetch lives under {@code MatchPrefetchStep}, which overrides
    * this accessor for the same reason. An alias the planner does not prefetch keeps its scan
    * here. The rule is about how the planner built the step, not about pattern shape: it holds for
-   * an isolated node and for the root of an edge pattern alike. It does not extend to the
-   * NOT-pattern and hash-join branch builders, which construct their own {@code MatchFirstStep}s
-   * without consulting the prefetch set — a step inside one of those build plans can carry a
-   * sub-plan for an alias that is prefetched anyway, and its fetch is then reachable under both
-   * steps.
+   * an isolated node and for the root of an edge pattern alike.
+   * <p>
+   * A hash join's build plan is the one place a prefetched alias is scanned twice, and the
+   * duplication is in the query rather than in this accessor. {@code HashJoinMatchStep}
+   * materializes its build side before it starts its upstream, so the {@code MatchPrefetchStep}
+   * ahead of it in the chain has not run and its cache does not exist yet; the build root's
+   * sub-plan is the only source of build rows and the planner builds it for every alias. Both
+   * the NOT anti-join and the hash-join branch builders work that way. A caller tallying fetches
+   * through {@code getSubSteps()} therefore reads two class fetches for such an alias, and the
+   * query performs two.
    * <p>
    * {@code getSubExecutionPlans()} deliberately keeps its empty default. Callers such as the
    * index-counting test helpers walk both accessors, so publishing the same nested steps through

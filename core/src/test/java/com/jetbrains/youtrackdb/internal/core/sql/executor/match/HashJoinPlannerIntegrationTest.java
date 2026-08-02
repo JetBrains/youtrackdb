@@ -9,6 +9,8 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -251,6 +253,153 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   }
 
   // ── Semi-join tests ───────────────────────────────────────────────────
+
+  /**
+   * A NOT anti-join keeps its own origin scan even when the origin alias is prefetched, and a walk
+   * of getSubSteps() is right to report both fetches. HashJoinMatchStep.internalStart materializes
+   * the build side before it calls prev.start(), so the MatchPrefetchStep ahead of it in the chain
+   * has not run and MatchFirstStep finds no cache to read — the build root's sub-plan is the only
+   * source of build rows. Dropping it the way addStepsFor drops the main chain's root scan for a
+   * prefetched alias makes the anti-join throw on its first row, so this test pins the live
+   * sub-plan, the resulting two-fetch tally, and the row set the scan produces.
+   */
+  @Test
+  public void notPatternBuildRootKeepsItsScanForAPrefetchedOrigin() {
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      session.begin();
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+              + " NOT {as:a}.out('Friend'){as:b, where:(name='n3')}"
+              + " RETURN b.name as bName");
+      var steps = result.getExecutionPlan().getSteps();
+
+      var prefetchCount = steps.stream().filter(MatchPrefetchStep.class::isInstance).count();
+      assertEquals("five Person vertices are under the prefetch threshold, so origin alias a is"
+          + " prefetched", 1L, prefetchCount);
+
+      var antiJoin = steps.stream()
+          .filter(HashJoinMatchStep.class::isInstance)
+          .findFirst()
+          .orElse(null);
+      assertNotNull("the NOT pattern is eligible for the hash anti-join", antiJoin);
+      var buildRoot = antiJoin.getSubSteps().stream()
+          .filter(MatchFirstStep.class::isInstance)
+          .findFirst()
+          .orElse(null);
+      assertNotNull("the anti-join's build plan starts with a MatchFirstStep", buildRoot);
+      assertTrue("the build root runs before the prefetch step, so it carries its own scan",
+          containsStepOfType(buildRoot, FetchFromClassExecutionStep.class));
+
+      // One fetch under the prefetch step, one under the build root. The main chain's root adds
+      // none, because addStepsFor hands a prefetched alias the sub-plan-free constructor.
+      assertEquals("a getSubSteps() walk sees the two class fetches the query performs",
+          2L, countStepsOfType(steps, FetchFromClassExecutionStep.class));
+
+      // n1 is friends with n2 and n3; the NOT pattern removes n3. Getting n2 back is what shows
+      // the build side produced rows rather than silently materializing empty.
+      var names = result.stream().map(r -> (String) r.getProperty("bName"))
+          .collect(Collectors.toSet());
+      assertEquals(Set.of("n2"), names);
+      result.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+    }
+  }
+
+  /**
+   * The same build-before-upstream rule for a hash-join branch, which is assembled by a different
+   * builder than the NOT anti-join's. The diamond's branch scans from a shared alias, and both
+   * classed aliases here (Person a, Tag t) sit under the prefetch threshold, so the scan alias is
+   * one the prefetch step would have covered had it run first. The enumerated row set repeats
+   * diamondPattern_innerJoin_correctResults because that test does not pin the thresholds that
+   * force the branch onto the hash-join path.
+   */
+  @Test
+  public void hashJoinBranchBuildRootKeepsItsScanForAPrefetchedScanAlias() {
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      session.begin();
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+              + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+              + " RETURN a.name as aName, b.name as bName, c.name as cName, t.name as tName");
+      var steps = result.getExecutionPlan().getSteps();
+
+      var prefetchCount = steps.stream().filter(MatchPrefetchStep.class::isInstance).count();
+      assertEquals("both classed aliases (Person a, Tag t) are under the prefetch threshold",
+          2L, prefetchCount);
+
+      var branchJoin = steps.stream()
+          .filter(HashJoinMatchStep.class::isInstance)
+          .findFirst()
+          .orElse(null);
+      assertNotNull("the diamond's second branch is evaluated by a hash join", branchJoin);
+      var buildRoot = branchJoin.getSubSteps().stream()
+          .filter(MatchFirstStep.class::isInstance)
+          .findFirst()
+          .orElse(null);
+      assertNotNull("the branch's build plan starts with a MatchFirstStep", buildRoot);
+      assertTrue("the branch scan root runs before the prefetch step, so it carries its own scan",
+          containsStepOfType(buildRoot, FetchFromClassExecutionStep.class));
+
+      // Two fetches under the prefetch steps, one under the branch's build root.
+      assertEquals("a getSubSteps() walk sees the three class fetches the query performs",
+          3L, countStepsOfType(steps, FetchFromClassExecutionStep.class));
+
+      var rows = result.stream()
+          .map(r -> r.getProperty("aName") + "|" + r.getProperty("bName")
+              + "|" + r.getProperty("cName") + "|" + r.getProperty("tName"))
+          .collect(Collectors.toSet());
+      assertEquals(
+          Set.of(
+              "n1|n2|n2|t1",
+              "n1|n2|n2|t2",
+              "n1|n2|n3|t1",
+              "n1|n3|n2|t1",
+              "n1|n3|n3|t1"),
+          rows);
+      result.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
+    }
+  }
+
+  /** Reports whether a step or anything nested below it has the given type. */
+  private static boolean containsStepOfType(ExecutionStep step, Class<?> stepType) {
+    if (stepType.isInstance(step)) {
+      return true;
+    }
+    for (var subStep : step.getSubSteps()) {
+      if (containsStepOfType(subStep, stepType)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Counts steps of the given type across a plan and every nesting level below it, the way an
+   * introspection caller that walks getSubSteps() would see them.
+   */
+  private static long countStepsOfType(List<ExecutionStep> steps, Class<?> stepType) {
+    var count = 0L;
+    for (var step : steps) {
+      if (stepType.isInstance(step)) {
+        count++;
+      }
+      count += countStepsOfType(step.getSubSteps(), stepType);
+    }
+    return count;
+  }
 
   /**
    * Diamond pattern correctness: two MATCH clauses share aliases 'a' and 't',

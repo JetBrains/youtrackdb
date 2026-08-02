@@ -1852,6 +1852,12 @@ public class MatchExecutionPlanner {
     // Build the origin scan: SELECT FROM <class> [WHERE ...]
     // Copy the WHERE clause to prevent mutable filter corruption (same as
     // buildHashJoinBranchPlan and addStepsFor).
+    //
+    // Unlike addStepsFor, this scan is built whether or not the origin alias is prefetched, and
+    // it must be: HashJoinMatchStep.internalStart materializes the build side before it calls
+    // prev.start(), so the upstream MatchPrefetchStep has not run and the context carries no
+    // cache for MatchFirstStep to read. Handing the sub-plan-free constructor to a prefetched
+    // origin alias here makes the anti-join throw on its first row.
     var select = createSelectStatement(
         originClass, originRids, originFilter == null ? null : originFilter.copy());
 
@@ -1898,6 +1904,11 @@ public class MatchExecutionPlanner {
 
     // Copy the WHERE clause to prevent mutable state from the main plan's
     // execution corrupting the build-side filter (matches addStepsFor behavior).
+    //
+    // The scan is built whether or not the scan alias is prefetched, for the same reason as in
+    // buildNotPatternPlan: the build side is materialized before HashJoinMatchStep starts its
+    // upstream, so the prefetch cache does not exist yet and this sub-plan is the only source of
+    // build rows.
     var select = createSelectStatement(
         scanClass, scanRids, scanFilter == null ? null : scanFilter.copy());
     var scanNode = new PatternNode();
