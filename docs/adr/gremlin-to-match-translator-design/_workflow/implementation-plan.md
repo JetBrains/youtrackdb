@@ -623,6 +623,23 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > `plan/track-10.md` `## Episodes` § Track completion. (6 steps, 0 failed)
   >
   > **Track file:** `plan/track-10.md`
+  >
+  > **Strategy refresh:** ADJUST — Track 9's shape holds (terminators, the Cucumber
+  > gate, the JMH baseline, item 1a all survive), but four of its claims were
+  > amended. Plan-of-Work item 6 pointed at Track 10's superseded step-0 inventory
+  > and asserted it covered the Cucumber runner; it covers neither, so item 6 now
+  > reads the dispositions file and item 1 derives the first Cucumber baseline
+  > itself. Item 1's triage bucket gained its enumerated process-compliance half:
+  > 21 deferred failures, 9 of item 1a's signature and 12 separate defects.
+  > `## Context and Orientation` absorbed the boundary base's growth to seven
+  > lifecycle states, and the Decision Log absorbed the recompute-the-inventory-
+  > with-the-base-SHA rule. Track 10's own "`core` Cucumber is inert" discovery was
+  > checked against HEAD and does not hold — develop's `9b9dfa20fd` gives the runner
+  > its own unfiltered surefire execution — so the runner list stayed as written.
+  > Forward risk carried, not acted on: Tracks 8 and 10 both landed 38 files past
+  > the ~4,000-line review-burden threshold, and Track 9 at ~18–26 files with an
+  > unsized Cucumber bucket could be the third; if decomposition crosses it, the
+  > response is ESCALATE rather than a silently oversized track.
 - [ ] Track 9: List-shaping terminators + hardening — Cucumber green + JMH baseline
   > Completes and validates the feature. Adds the four list-shaping terminators
   > (`fold` / `unfold` / `reverse` / `tail`) as last-step recognisers driving the
@@ -650,12 +667,15 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > unsized: item 1a is a known member costing roughly 3–5 files
   > (`MatchPatternBuilder`, the filter-binding site the fix lands on, and the
   > equivalence tests that do not currently witness it), which puts the track at
-  > ~18–26 files with the rest of the bucket unsized until the first Cucumber run.
+  > ~18–26 files. The bucket's process-compliance half is enumerated as of Track
+  > 10's close — 21 deferred failures with per-class dispositions, 9 of them item
+  > 1a's signature and 12 separate defects — so only the Cucumber half is unsized
+  > until the first run.
   > **Depends on:** Tracks 7, 8, and 10.
 
 ## Implementation state
 
-Tracks 1–8 are executed and complete; Track 10 and Track 9 are not started, in that execution order. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 10 owns the query-metrics regression remediation that restores a green `core` unit-test run. Track 9 still owns list-shaping terminators + Cucumber green + JMH baseline (D3).
+Tracks 1–8 and Track 10 are executed and complete; Track 9 is the one track remaining. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 10 delivered the query-metrics regression remediation and, in place of the green `core` run its title originally promised, an enumerated baseline: 483 repaired failures against one caused, and 21 deferred with per-class dispositions. The green goal stopped being reachable when the 2026-08-02 rebase restored three TinkerPop compliance executions the branch had never run. Track 9 still owns list-shaping terminators + Cucumber green + JMH baseline (D3).
 
 | Track | Code | Notes |
 |---|---|---|
@@ -667,7 +687,7 @@ Tracks 1–8 are executed and complete; Track 10 and Track 9 are not started, in
 | 6 | done | result shaping — labels / dedup, projections, order / pagination, aggregations; shared `ByModulatorTranslator` + count short-circuit |
 | 7 | done | `AbstractMatchPlanStep` + ordered list-shaping post-process carrier |
 | 8 | done | `MultiPlanMatchStep` + multi-plan carrier/splice + `UnionStepRecogniser` / `UnionForkHost` |
-| 10 | not started | query-metrics regression remediation — restore a green `core` unit-test run |
+| 10 | done | query-metrics regression remediation — enumerated `core` baseline; 483 failures repaired, 21 deferred to Track 9 with dispositions |
 | 9 | not started | list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) + `BoundaryOutputType.LIST` + Cucumber green + JMH baseline |
 
 Decision conformance: D6 and D-IS-DEFINED are satisfied by Track 1; Track 2 decisions (decline, class-keyed dispatch, boundary lifecycle, idempotency, translator-first) by Track 2; D10 by Track 3; D5 by Track 5; D11 by Track 6. D8 (union via `MultiPlanMatchStep`) is implemented in code across Tracks 7–8 and complete. D3 (list-shaping terminators) lands in Track 9.
