@@ -38,27 +38,29 @@ failing at the subject that does not fail at the base —
 
 ## Dispositions
 
-All 21 are **deferred to Track 9**, whose Plan of Work item 1 already owns
-"fix any pre-existing cross-track mistranslation before adding new recognisers".
+All 21 are **deferred to Track 9**. The 2026-08-03 inline replan split the original
+final track, so the pointers below were renumbered: the dropped-per-alias-filter
+group goes to Track 9 **item 2** (the filter fix) and the rest to Track 9 **item 4**
+(triage and disposition). The terminator work moved to Track 11 and owns none of these.
 Each fails byte-identically at the track base, so none is this track's to fix and
 none can be attributed to its diff.
 
 | Count | Class | Disposition |
 |---|---|---|
-| 5 | `HasTest` | Deferred — Track 9 item 1a. By-id filter on a post-hop alias. Not BG8: reverting the `SQLWhereClause` leaf branch, which disables promotion for code-assembled clauses entirely, leaves all five failing with identical signatures. |
-| 2 | `AndTest` | Deferred — Track 9 item 1a. Multi-alias shapes with the dropped-filter signature (over-emission: 2→3 and 1→6). |
-| 1 | `WhereTest` | Deferred — Track 9 item 1a. Over-emission 2→10, same signature. |
-| 1 | `SelectTest` | Deferred — Track 9 item 1a. Over-emission 4→6. |
-| 2 | `ValueMapTest` | Deferred — Track 9 item 1. `ClassCast String → List` and an NPE on `List.get`; boundary value shaping for the MAP output type. |
-| 2 | `PropertiesTest` | Deferred — Track 9 item 1. `ClassCast String → Property`. |
-| 1 | `MeanTest` | Deferred — Track 9 item 1. `ClassCast Integer → Double`. |
-| 1 | `SumTest` | Deferred — Track 9 item 1. |
-| 1 | `GroupTest` | Deferred — Track 9 item 1. Over-emission 4→5. |
-| 1 | `GroupCountTest` | Deferred — Track 9 item 1. NPE on `Long.longValue`. |
-| 1 | `ElementMapTest` | Deferred — Track 9 item 1. Under-emission 4→2. |
-| 1 | `OrderTest` | Deferred — Track 9 item 1. Ordering divergence, expected `[josh]` got `[marko]`. |
-| 1 | `PartitionStrategyProcessTest` | Deferred — Track 9 item 1. Fails byte-identically at the base; not BG8 despite the pause handoff grouping it there. |
-| 1 | `SubgraphStrategyProcessTest` | Deferred — Track 9 item 1. Same. |
+| 5 | `HasTest` | Deferred — Track 9 item 2. By-id filter on a post-hop alias. Not BG8: reverting the `SQLWhereClause` leaf branch, which disables promotion for code-assembled clauses entirely, leaves all five failing with identical signatures. |
+| 2 | `AndTest` | Deferred — Track 9 item 2. Multi-alias shapes with the dropped-filter signature (over-emission: 2→3 and 1→6). |
+| 1 | `WhereTest` | Deferred — Track 9 item 2. Over-emission 2→10, same signature. |
+| 1 | `SelectTest` | Deferred — Track 9 item 2. Over-emission 4→6. |
+| 2 | `ValueMapTest` | Deferred — Track 9 item 4. `ClassCast String → List` and an NPE on `List.get`; boundary value shaping for the MAP output type. |
+| 2 | `PropertiesTest` | Deferred — Track 9 item 4. `ClassCast String → Property`. |
+| 1 | `MeanTest` | Deferred — Track 9 item 4. `ClassCast Integer → Double`. |
+| 1 | `SumTest` | Deferred — Track 9 item 4. |
+| 1 | `GroupTest` | Deferred — Track 9 item 4. Over-emission 4→5. |
+| 1 | `GroupCountTest` | Deferred — Track 9 item 4. NPE on `Long.longValue`. |
+| 1 | `ElementMapTest` | Deferred — Track 9 item 4. Under-emission 4→2. |
+| 1 | `OrderTest` | Deferred — Track 9 item 4. Ordering divergence, expected `[josh]` got `[marko]`. |
+| 1 | `PartitionStrategyProcessTest` | Deferred — Track 9 item 4. Fails byte-identically at the base; not BG8 despite the pause handoff grouping it there. |
+| 1 | `SubgraphStrategyProcessTest` | Deferred — Track 9 item 4. Same. |
 
 ## Why the original inventory does not answer this
 
@@ -82,5 +84,5 @@ base SHA. The track file already knew to recompute the base SHA after the
 ## References
 
 - `plan/track-10/reviews/bugs-iter1.md` — BG8 (fixed, `0c7911a74f`), BG9 (fixed, `d14493217c`)
-- `plan/track-9.md` § Plan of Work item 1a — mechanism and measurements for the dropped per-alias filter
+- `plan/track-9.md` § Context and Orientation — mechanism and measurements for the dropped per-alias filter (item 1a before the 2026-08-03 split; now the track's central subject)
 - `implementation-plan.md` § Checklist, Track 10 — the title revision this measurement forced
