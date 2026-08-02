@@ -315,6 +315,75 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   }
 
   /**
+   * A promoted fetch carries no {@code @rid} post-filter: the RID target already enumerates the
+   * records, so the surviving term could only ever be true.
+   *
+   * <p>Keeping it is not free. A RID target carries no class, so no index absorbs the predicate
+   * and it runs per fetched record, re-evaluating the literal list and walking it each time —
+   * quadratic work in the id count for what should be one load per id. The term stays in the
+   * alias filter for the traversal paths that still need it, so this asserts the fetch's own copy
+   * rather than the filter map.
+   *
+   * <p>The compound sibling below covers the other half: only the {@code @rid} term is dropped.
+   */
+  @Test
+  public void staticRidList_promotedFetchDropsTheRedundantRidTerm() {
+    session.begin();
+    var c1 = ridOf("Comment", "c1");
+    var c2 = ridOf("Comment", "c2");
+    var query =
+        "MATCH {class: Comment, as: c, where: (@rid in [" + c1 + ", " + c2 + "])}"
+            + " RETURN c.name as name ORDER BY name";
+
+    var explain = session.query("EXPLAIN " + query).toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    var cBlock = prefetchBlock(plan, "c");
+    assertTrue("the promoted alias fetches by RID, got:\n" + plan,
+        cBlock.contains("FETCH FROM RIDs"));
+    assertFalse("the fetch target enforces membership, so no @rid filter, got:\n" + plan,
+        cBlock.contains("@rid"));
+    session.commit();
+  }
+
+  /**
+   * A compound filter loses nothing. {@code @rid IN [...] AND name = 'c1'} promotes and fetches
+   * by RID, and the name term still selects one of the two records.
+   *
+   * <p>The redundant {@code @rid} term survives here, and that is the intended boundary rather
+   * than an oversight: removal runs only when the extractor can isolate the promoted term, and
+   * the MATCH front-end nests a compound {@code where:} one level deeper than the extractor
+   * walks. The conservative arm returns the filter untouched, which costs the optimisation and
+   * nothing else — the shape the optimisation exists for, a bulk id lookup with no other
+   * predicate, is the sibling above. Widening the extractor would change what
+   * {@code SELECT}'s direct-fetch path sees too, so it is left for a change that can carry that
+   * blast radius.
+   */
+  @Test
+  public void staticRidListWithOtherTerm_promotedFetchLosesNoTerm() {
+    session.begin();
+    var c1 = ridOf("Comment", "c1");
+    var c2 = ridOf("Comment", "c2");
+    var query =
+        "MATCH {class: Comment, as: c, where: (@rid in [" + c1 + ", " + c2 + "]"
+            + " and name = 'c1')} RETURN c.name as name";
+
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    assertEquals("c1", result.getFirst().getProperty("name"));
+
+    var explain = session.query("EXPLAIN " + query).toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    var cBlock = prefetchBlock(plan, "c");
+    assertTrue("the promoted alias fetches by RID, got:\n" + plan,
+        cBlock.contains("FETCH FROM RIDs"));
+    assertTrue("a compound filter is kept whole, got:\n" + plan,
+        cBlock.contains("name = \"c1\""));
+    session.commit();
+  }
+
+  /**
    * Multi-hop chain with {@code @rid IN [c1]} returns the single matching path.
    */
   @Test

@@ -317,6 +317,14 @@ public class MatchExecutionPlanner {
   private Map<String, List<SQLRid>> aliasPinnedRids;
 
   /**
+   * The subset of {@link #aliasPinnedRids} keys this planner promoted out of a static
+   * {@code @rid} WHERE term, as opposed to reading from a pattern {@code {as: a, rid: #1:2}} slot.
+   * {@link #fetchFilterFor} needs the distinction: only for a promoted alias is the surviving
+   * {@code @rid} term known to enumerate the same records the fetch target does.
+   */
+  private Set<String> promotedRidAliases = Set.of();
+
+  /**
    * When true, {@link #buildPatterns} promotes the pre-built {@code @rid} / {@code @rid IN}
    * filters into {@link #aliasPinnedRids} on the additive (pre-built-pattern) path. Set only by
    * the {@link MatchPlanInputs} constructor — the Gremlin-to-MATCH translator's path — so the GQL
@@ -2140,7 +2148,7 @@ public class MatchExecutionPlanner {
       } else {
         var clazz = aliasClasses.get(node.alias);
         var pinnedRids = pinnedRidsForAlias(node.alias);
-        var filter = aliasFilters.get(node.alias);
+        var filter = fetchFilterFor(node.alias, pinnedRids);
         var select = createSelectStatement(clazz, pinnedRids, filter);
         plan.chain(
             new MatchFirstStep(
@@ -5441,7 +5449,7 @@ public class MatchExecutionPlanner {
       } else {
         var clazz = this.aliasClasses.get(patternNode.alias);
         var pinnedRids = pinnedRidsForAlias(patternNode.alias);
-        var where = aliasFilters.get(patternNode.alias);
+        var where = fetchFilterFor(patternNode.alias, pinnedRids);
         // Shared builder rather than a hand-rolled copy of it. The copy tested the class before
         // the RIDs, so a pattern root carrying both scanned the class and demoted the pinned list
         // to a post-filter — and the prefetch filter only spares aliases estimated under
@@ -5549,7 +5557,7 @@ public class MatchExecutionPlanner {
     for (var alias : aliasesToPrefetch) {
       var targetClass = aliasClasses.get(alias);
       var pinnedRids = pinnedRidsForAlias(alias);
-      var filter = aliasFilters.get(alias);
+      var filter = fetchFilterFor(alias, pinnedRids);
       var prefetchStm =
           createSelectStatement(targetClass, pinnedRids, filter);
 
@@ -5607,7 +5615,7 @@ public class MatchExecutionPlanner {
       // does for the SQL path. Scoped by promoteFilterRidsOnBuild so only the MatchPlanInputs path
       // (which sets a mutable aliasPinnedRids) promotes; the GQL 3-arg ctor keeps its plans.
       if (promoteFilterRidsOnBuild) {
-        promoteStaticRidsFromFilters(
+        this.promotedRidAliases = promoteStaticRidsFromFilters(
             this.aliasFilters, this.aliasClasses, this.aliasPinnedRids, ctx);
       }
       return;
@@ -5663,7 +5671,8 @@ public class MatchExecutionPlanner {
     // still relies on findRidEquality(). {@code @rid IN <list>} has no
     // RidFilterDescriptor analogue; non-root IN lists are enforced via prefetch
     // or post-fetch WHERE evaluation instead.
-    promoteStaticRidsFromFilters(aliasFilters, aliasClasses, aliasPinnedRids, ctx);
+    this.promotedRidAliases =
+        promoteStaticRidsFromFilters(aliasFilters, aliasClasses, aliasPinnedRids, ctx);
 
     rebindFilters(aliasFilters);
   }
@@ -5695,13 +5704,16 @@ public class MatchExecutionPlanner {
    *
    * @param aliasClasses per-alias class constraints, consulted so a promotion never
    *                     silently discards one
+   * @return the aliases this call promoted, which is what tells {@link #fetchFilterFor} that an
+   *         alias's {@code @rid} term is the same list its fetch target enumerates
    */
   // Visible for testing
-  static void promoteStaticRidsFromFilters(
+  static Set<String> promoteStaticRidsFromFilters(
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext ctx) {
+    Set<String> promoted = new HashSet<>();
     for (var entry : aliasFilters.entrySet()) {
       var alias = entry.getKey();
       var filter = entry.getValue();
@@ -5729,6 +5741,7 @@ public class MatchExecutionPlanner {
           continue;
         }
         aliasPinnedRids.put(alias, promotedEquality);
+        promoted.add(alias);
         logger.debug(
             "MATCH planner: promoted @rid = filter to aliasPinnedRids for alias '{}'",
             alias);
@@ -5751,11 +5764,58 @@ public class MatchExecutionPlanner {
         continue;
       }
       aliasPinnedRids.put(alias, promotedList);
+      promoted.add(alias);
       logger.debug(
           "MATCH planner: promoted @rid IN filter ({} RIDs) for alias '{}'",
           promotedList.size(),
           alias);
     }
+    return promoted;
+  }
+
+  /**
+   * Returns the WHERE clause to attach to an alias's direct-RID fetch: the alias filter without
+   * the {@code @rid} term the fetch target already enforces, or the filter unchanged when the term
+   * cannot be removed safely.
+   *
+   * <p>A promoted alias otherwise plans as {@code SELECT FROM [#a, #b, …] WHERE @rid IN [#a, #b,
+   * …]}. The RID target is the enumeration, so the predicate can only ever be true, and it is not
+   * free: a RID target carries no class, so no index absorbs the term and it runs as a filter step
+   * per fetched record. {@code SQLInCondition.evaluate} re-executes the literal collection and
+   * materialises a fresh list of evaluated RIDs on each of those rows, then walks it, which makes
+   * an N-RID lookup cost O(N^2) comparisons and allocations for N record loads.
+   *
+   * <p>Removal is refused unless the term is provably the promoted one. Three conditions have to
+   * hold together: the alias is one this planner's own promotion pinned (a parser {@code rid:}
+   * slot pins a RID the filter never mentions, and stripping an unrelated {@code @rid} term there
+   * would drop a live constraint); the extractor reaches the same term the promoter did, checked
+   * by taking the equality branch exactly when the promoter would have; and what remains carries
+   * no {@code @rid} term at all, which is what rules out a clause holding two of them where the
+   * extractor removed the other one. Any failure returns the original filter and costs only the
+   * optimisation.
+   */
+  @Nullable private SQLWhereClause fetchFilterFor(
+      String alias, @Nullable List<SQLRid> pinnedRids) {
+    var filter = aliasFilters.get(alias);
+    if (filter == null
+        || pinnedRids == null
+        || pinnedRids.isEmpty()
+        || !promotedRidAliases.contains(alias)) {
+      return filter;
+    }
+    // The promoter tries the equality first and only looks for an IN list when there is no rid
+    // equality at all, so branching on the same test reaches the same term it pinned from.
+    var extracted =
+        filter.findRidEquality() != null ? filter.extractRidEquality() : filter.extractRidInList();
+    if (extracted == null) {
+      return filter;
+    }
+    var remaining = extracted.remainingWhere();
+    if (remaining != null
+        && (remaining.findRidEquality() != null || remaining.findRidInList() != null)) {
+      return filter;
+    }
+    return remaining;
   }
 
   /**

@@ -1234,7 +1234,13 @@ public class SQLWhereClause extends SimpleNode {
       expr = orBlock.subBlocks.getFirst();
     }
     if (!(expr instanceof SQLAndBlock andBlock)) {
-      return null;
+      // A leaf base expression is what a clause assembled in code looks like — the grammar always
+      // wraps a parsed clause in OrBlock(AndBlock(...)), but MatchWhereBuilder returns a lone
+      // operand unwrapped. The term is the whole clause, so nothing remains once it is extracted.
+      // Mirrors the leaf branch in findRidConditionInExpression, whose non-destructive siblings
+      // findRidEquality / findRidInList have to agree with this one about where a term can sit.
+      var leafRidExpr = termExtractor.extract(expr);
+      return leafRidExpr == null ? null : new RidExtractionResult(leafRidExpr, null);
     }
     for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
       var ridExpr = termExtractor.extract(andBlock.subBlocks.get(idx));
