@@ -607,7 +607,21 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > for Track 9, whose Cucumber triage bucket its own Scope line marks unsized
   > until the first run; neither warrants a plan edit now.
 
-- [ ] Track 10: Query-metrics regression remediation — restore a green `core` unit-test run
+- [ ] Track 10: Query-metrics regression remediation — enumerated `core` baseline, no regression against the track base
+  > **Title revised in Phase C (2026-08-02).** The original title promised "restore
+  > a green `core` unit-test run", which is not reachable inside this track and was
+  > never reachable: the 2026-08-02 rebase onto `develop` pulled in `9b9dfa20fd`,
+  > which restored three TinkerPop compliance surefire executions the branch had
+  > never run. `./mvnw -pl core test` now drives 965 process-compliance tests that
+  > did not exist when Plan of Work item 0 took its enumeration, and 21 of them
+  > fail on branch-wide translator debt spanning nine tracks. The track's
+  > `## Validation and Acceptance` already prescribed this outcome through its
+  > "or" branch — every in-scope failure passes, every out-of-scope one is
+  > recorded with a disposition — so the criterion is unchanged and only the
+  > title is corrected. Measured: 300 failing methods at the track base
+  > `f007749249`, 21 at its tip, with exactly one method
+  > (`YTDBHasLabelProcessTest.testByIdHasLabelSiblingClassDoesNotMatch`)
+  > regressed by this track and fixed in `0c7911a74f`.
   > **Runs before Track 9** despite the higher number (inline replan, 2026-08-01).
   > Four `YTDBQueryMetricsStrategyTest` scenarios have failed since 2026-07-16;
   > `./mvnw -pl core test` has been red on this branch for 117 commits, hidden
@@ -637,12 +651,26 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > (the first whole-feature gate over every prior track's recognisers) and a
   > Gremlin-on-vs-off JMH baseline pinned to verified-recognised shapes — detail
   > in plan/track-9.md.
+  > **Inherited from Track 10's Phase C (2026-08-02):** Plan of Work item 1 gains
+  > a named first member, item 1a — on the translated path a per-alias `WHERE`
+  > reaches only the alias the planner selects as root, and every other alias's
+  > filter is silently discarded. `g.V(marko).out().has(name, vadas)` returns 3
+  > rows where native returns 1, and it translates rather than declining, so the
+  > wrong answer is silent. This gates the Cucumber-green goal more than anything
+  > Track 10 owned. Track 10 did not fix it: the defect changes every translated
+  > multi-hop traversal and interacts with the pre-filter descriptors, hash-join
+  > branches, and `$matched` back-refs that also read `aliasFilters`. Mechanism
+  > and measurements are in `plan/track-9.md` item 1a.
   > **Scope:** ~15–21 files covering the four terminator recognisers +
   > `BoundaryOutputType.LIST` + drain / ring-buffer, the post-union suffix
   > allow-list relaxation, terminator-composition +
   > `tail` boundary tests, the mirrored Gremlin JMH benchmark classes + on/off
   > harness, the per-step scenario catalogue, and the Cucumber re-run + any
-  > cross-track mistranslation fixes (triage bucket unsized until the first run).
+  > cross-track mistranslation fixes. The triage bucket is no longer fully
+  > unsized: item 1a is a known member costing roughly 3–5 files
+  > (`MatchPatternBuilder`, the filter-binding site the fix lands on, and the
+  > equivalence tests that do not currently witness it), which puts the track at
+  > ~18–26 files with the rest of the bucket unsized until the first Cucumber run.
   > **Depends on:** Tracks 7, 8, and 10.
 
 ## Implementation state
