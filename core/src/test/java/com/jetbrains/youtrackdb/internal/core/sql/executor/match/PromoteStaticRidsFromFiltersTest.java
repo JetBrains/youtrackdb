@@ -8,7 +8,10 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -628,5 +631,117 @@ public class PromoteStaticRidsFromFiltersTest {
     assertThat(promoted).hasSize(2);
     assertThat(promoted.get(0).toRecordId((Result) null, CTX).toString()).isEqualTo("#25:7");
     assertThat(promoted.get(1).toRecordId((Result) null, CTX).toString()).isEqualTo("#26:8");
+  }
+
+  /**
+   * Rebuilds {@code where} with its single leaf condition as the base expression, dropping the
+   * {@code OrBlock(AndBlock(NotBlock(...)))} wrapping the grammar's {@code WhereClause()}
+   * production always adds. This is the shape a clause assembled in code has: {@code
+   * MatchWhereBuilder.and} returns a lone operand unwrapped for parser parity, so a one-condition
+   * alias filter reaches the planner as a bare condition with no wrapper at all. Building the leaf
+   * by re-parsing rather than by hand keeps the condition node itself identical to the parsed tests
+   * above, so the only variable is the missing wrapping.
+   */
+  private static SQLWhereClause unwrapToLeafClause(SQLWhereClause where) {
+    var expr = where.getBaseExpression();
+    assertThat(expr).isInstanceOf(SQLOrBlock.class);
+    var orBlock = (SQLOrBlock) expr;
+    assertThat(orBlock.getSubBlocks()).hasSize(1);
+    var and = orBlock.getSubBlocks().getFirst();
+    assertThat(and).isInstanceOf(SQLAndBlock.class);
+    var subBlocks = ((SQLAndBlock) and).getSubBlocks();
+    assertThat(subBlocks).hasSize(1);
+    var leaf = subBlocks.getFirst();
+    // The grammar routes every atom through NotBlock, negated or not, so a plain condition arrives
+    // wrapped in a pass-through NotBlock. Strip it: the translator's hand-built clause has none.
+    if (leaf instanceof SQLNotBlock notBlock) {
+      leaf = notBlock.getSub();
+    }
+    assertThat(leaf)
+        .as("the leaf must carry no block wrapping, matching a clause assembled in code")
+        .isNotInstanceOfAny(SQLOrBlock.class, SQLAndBlock.class, SQLNotBlock.class);
+
+    var leafClause = new SQLWhereClause(-1);
+    leafClause.setBaseExpression(leaf);
+    return leafClause;
+  }
+
+  /**
+   * A code-assembled {@code WHERE @rid IN [#25:7]} — a bare {@code SQLInCondition} as the base
+   * expression, with no {@code OrBlock}/{@code AndBlock} wrapper — promotes exactly like the parsed
+   * form. This is the shape the Gremlin-to-MATCH translator hands the planner for {@code g.V(rid)}.
+   * Before the leaf branch in {@code SQLWhereClause.findRidConditionInExpression}, the search
+   * bottomed out at the wrapper check and returned null, so the promotion never fired and
+   * {@code createSelectStatement} emitted a full class scan with an {@code @rid} post-filter
+   * instead of a RID fetch — an O(class size) plan for a single-record lookup.
+   */
+  @Test
+  public void unwrappedLiteralRidList_isPromoted() {
+    var leafClause = unwrapToLeafClause(
+        parseWhere("SELECT FROM Comment WHERE @rid in [#25:7]"));
+    assertThat(leafClause.getBaseExpression()).isInstanceOf(SQLInCondition.class);
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7");
+  }
+
+  /**
+   * The multi-RID form of {@link #unwrappedLiteralRidList_isPromoted}: a code-assembled
+   * {@code WHERE @rid IN [#25:7, #26:8]} promotes both RIDs, which is what {@code g.V(id1, id2)}
+   * and the set-membership {@code hasId(id1, id2)} branch produce.
+   */
+  @Test
+  public void unwrappedMultiRidList_isPromoted() {
+    var leafClause = unwrapToLeafClause(
+        parseWhere("SELECT FROM Comment WHERE @rid in [#25:7, #26:8]"));
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7", "#26:8");
+  }
+
+  /**
+   * The equality sibling: a code-assembled {@code WHERE @rid = #25:7} with no wrapper promotes too.
+   * {@code findRidEquality()} and {@code findRidInList()} share the same tree search, so the leaf
+   * branch has to serve both — and the pre-filter pass reads {@code findRidEquality()} on
+   * non-root aliases, which is a second consumer of the same repair.
+   */
+  @Test
+  public void unwrappedLiteralRidEquality_isPromoted() {
+    var leafClause = unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE @rid = #25:7"));
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7");
+  }
+
+  /**
+   * A code-assembled clause with no {@code @rid} term still promotes nothing. Guards the leaf
+   * branch against over-reach: it must widen where the search looks, not what the search accepts.
+   */
+  @Test
+  public void unwrappedNonRidCondition_isNotPromoted() {
+    var leafClause = unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE name = 'foo'"));
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, aliasPinnedRids, ctx);
+
+    assertThat(aliasPinnedRids).isEmpty();
   }
 }

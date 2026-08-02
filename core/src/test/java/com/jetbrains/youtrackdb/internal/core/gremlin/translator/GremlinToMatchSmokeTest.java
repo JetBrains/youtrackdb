@@ -13,12 +13,17 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromRidsStep;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -606,6 +611,138 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     assertThat(listener.executionPlan.getSteps())
         .as("the surfaced plan must retain its step list for diagnostics")
         .isNotEmpty();
+  }
+
+  /**
+   * A translated {@code g.V(rid)} must reach the record through a RID fetch, never through a scan
+   * of the vertex class.
+   *
+   * <p>This is a correctness-preserving performance contract, which is why it needs its own guard:
+   * a plan that scans {@code V} and post-filters on {@code @rid} returns exactly the same one
+   * vertex, so every result-level test in the suite stays green while the lookup silently costs
+   * O(class size). The shape is produced by {@code MatchExecutionPlanner.promoteStaticRidsFromFilters}
+   * lifting the recogniser's {@code @rid IN [...]} filter into the alias's pinned-RID slot;
+   * {@code createSelectStatement} then emits {@code SELECT FROM [#X:Y]} instead of
+   * {@code SELECT FROM V WHERE @rid IN [...]}. The assertion is structural rather than timed
+   * because a wall-clock bound would be flaky under CI load and orders of magnitude slower to run.
+   */
+  @Test
+  public void translatedSingleIdLookupFetchesByRid() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    var plan = capturedTranslatedPlan(() -> graph.traversal().V(bob.id()));
+
+    assertThat(containsStepOfType(plan.getSteps(), FetchFromRidsStep.class))
+        .as("a by-id lookup must fetch by RID; plan was:\n" + plan.prettyPrint(0, 2))
+        .isTrue();
+    assertThat(containsStepOfType(plan.getSteps(), FetchFromClassExecutionStep.class))
+        .as("a by-id lookup must not scan the vertex class; plan was:\n" + plan.prettyPrint(0, 2))
+        .isFalse();
+  }
+
+  /**
+   * The multi-id sibling of {@link #translatedSingleIdLookupFetchesByRid}: {@code g.V(id1, id2)}
+   * pins both RIDs and fetches from the list, so arity is not what decides between a RID fetch and
+   * a class scan.
+   */
+  @Test
+  public void translatedMultiIdLookupFetchesByRid() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    graph.tx().commit();
+
+    var plan = capturedTranslatedPlan(() -> graph.traversal().V(alice.id(), carol.id()));
+
+    assertThat(containsStepOfType(plan.getSteps(), FetchFromRidsStep.class))
+        .as("a multi-id lookup must fetch by RID; plan was:\n" + plan.prettyPrint(0, 2))
+        .isTrue();
+    assertThat(containsStepOfType(plan.getSteps(), FetchFromClassExecutionStep.class))
+        .as("a multi-id lookup must not scan the vertex class; plan was:\n"
+            + plan.prettyPrint(0, 2))
+        .isFalse();
+  }
+
+  /**
+   * {@code g.V().hasId(rid)} reaches the same contract by a different route. The set-membership
+   * {@code hasId} branch of the has-step recogniser emits the identical {@code @rid IN [...]}
+   * expression as {@code g.V(rid)} and, when it is the traversal's only predicate, hands it to the
+   * planner unwrapped — so it shares both the fast path and the failure mode. Covering it here
+   * keeps the two entry points from drifting: a promotion that fires for one shape and not the
+   * other would otherwise go unnoticed.
+   */
+  @Test
+  public void translatedHasIdLookupFetchesByRid() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    var plan = capturedTranslatedPlan(() -> graph.traversal().V().hasId(bob.id()));
+
+    assertThat(containsStepOfType(plan.getSteps(), FetchFromRidsStep.class))
+        .as("hasId must fetch by RID; plan was:\n" + plan.prettyPrint(0, 2))
+        .isTrue();
+    assertThat(containsStepOfType(plan.getSteps(), FetchFromClassExecutionStep.class))
+        .as("hasId must not scan the vertex class; plan was:\n" + plan.prettyPrint(0, 2))
+        .isFalse();
+  }
+
+  /**
+   * Runs the supplied traversal with the translator pinned on, inside a monitored transaction, and
+   * returns the execution plan the metrics listener captured. The listener callback is the only
+   * window in which the plan is valid, so the plan-shape tests above read it from there rather
+   * than off the boundary step. Asserts engagement before running: without exactly one boundary
+   * step the traversal never translated and every plan assertion would be vacuous.
+   */
+  @SuppressWarnings("DataFlowIssue")
+  private ExecutionPlan capturedTranslatedPlan(
+      Supplier<GraphTraversal<Vertex, Vertex>> traversalSupplier) {
+    var originalValue =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    var listener = new RememberingListener();
+    try {
+      session
+          .getConfiguration()
+          .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+      ((YTDBTransaction) graph.tx())
+          .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+          .withQueryListener(listener);
+      graph.tx().open();
+
+      var admin = traversalSupplier.get().asAdmin();
+      admin.applyStrategies();
+      assertThat(countBoundarySteps(admin.getSteps()))
+          .as("the shape under test must translate, or the plan assertions mean nothing")
+          .isEqualTo(1);
+      admin.toList();
+      graph.tx().commit();
+    } finally {
+      session
+          .getConfiguration()
+          .setValue(
+              GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, originalValue);
+    }
+    assertThat(listener.executionPlan)
+        .as("a translated traversal surfaces its compiled plan to the metrics listener")
+        .isNotNull();
+    return listener.executionPlan;
+  }
+
+  /** Recursively scans an execution plan's steps and their sub-steps for a step of the given type. */
+  private static boolean containsStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
+    for (var step : steps) {
+      if (stepType.isInstance(step)) {
+        return true;
+      }
+      if (containsStepOfType(step.getSubSteps(), stepType)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
