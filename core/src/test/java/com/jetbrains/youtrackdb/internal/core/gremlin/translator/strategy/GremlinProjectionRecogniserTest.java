@@ -44,17 +44,27 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("name");
   }
 
-  /** Optimised {@code properties("name")} terminal step is accepted like {@code values}. */
+  /**
+   * The element-returning {@code properties("name")} form declines where {@code values("name")} is
+   * accepted. {@code properties(key)} emits the {@code VertexProperty} element and {@code values(key)}
+   * emits its payload, so projecting the former as a field access would hand a downstream step the
+   * value in place of the element — measured as {@code properties(k).has(metaKey, v)} returning nothing
+   * translated against one row natively. The pairing with {@code valuesSingleKey_*} above is the
+   * positive control: the decline has to be specific to the element form, not a blanket withdrawal of
+   * the step class.
+   */
   @Test
-  public void propertiesSingleKey_acceptedLikeValues() {
+  public void propertiesElementForm_declines_whereValuesIsAccepted() {
     var admin = graph.traversal().V().properties("name").asAdmin();
     var ctx = contextAfterStart(admin);
     var cursor = cursorAt(admin, PropertiesStep.class);
 
     var outcome = PropertiesStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.lastPropertyProjection)
+        .as("a declined step must leave no projection behind on the context")
+        .isNull();
   }
 
   /** Multi-key {@code values("a","b")} declines — flatMap has no boundary equivalent yet. */

@@ -14,8 +14,10 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -77,6 +79,130 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().values(foo)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("foo"));
+  }
+
+  /**
+   * The element-returning {@code properties(key)} form declines while {@code values(key)} on the same
+   * seeded graph still translates, and with the translator on the shape yields a {@code Property}
+   * element rather than its payload. The three assertions are one claim each and none is redundant:
+   * the decline says the translator withdrew, the {@code values} case is the positive control that the
+   * withdrawal is specific to the element form, and the element-type assertion is what makes the
+   * equality non-vacuous — a regression that projected the value would still produce a single row of
+   * the right count, and only the type discriminates it.
+   */
+  @Test
+  public void propertiesElementForm_declines_whileValuesStillTranslates() {
+    var marko = graph.addVertex(T.label, "Person", "name", "marko");
+    marko.property("friendWeight", 1.5);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().properties(friendWeight)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().properties("friendWeight"));
+
+    // Positive control on the same graph: the value form is unaffected and still translates.
+    assertEquivalent(
+        "g.V().values(friendWeight)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("friendWeight"));
+
+    setTranslatorEnabled(true);
+    try {
+      assertThat(graph.traversal().V().properties("friendWeight").next())
+          .as("properties(key) must yield the VertexProperty element, not its payload")
+          .isInstanceOf(Property.class);
+    } finally {
+      setTranslatorEnabled(false);
+    }
+  }
+
+  /**
+   * A meta-property read through {@code properties(key).has(metaKey, value)} matches native. This is
+   * the shape TinkerPop's {@code addV} meta-property scenarios verify their mutation with, and it
+   * returned nothing translated while returning the property element natively: the element-returning
+   * step was projected as a field access, so the following {@code has} tested a {@code Double} for a
+   * meta-property it cannot carry.
+   */
+  @Test
+  public void metaPropertyFilterThroughProperties_matchesNative() {
+    var marko = graph.addVertex(T.label, "Person", "name", "marko");
+    marko.property("friendWeight", 1.5).property("acl", "private");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().properties(friendWeight).has(acl, private)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().properties("friendWeight").has("acl", "private"));
+
+    // Non-vacuity: the shape returns a row on both arms, so the equality is over one element and not
+    // over two empty lists. A seed that failed to attach the meta-property would trip here.
+    setTranslatorEnabled(true);
+    try {
+      assertThat(graph.traversal().V().properties("friendWeight").has("acl", "private").toList())
+          .as("the meta-property filter must select the one seeded property element")
+          .hasSize(1);
+    } finally {
+      setTranslatorEnabled(false);
+    }
+  }
+
+  /**
+   * {@code group().by(properties(key))} declines, where a value-keyed translation silently merged
+   * buckets. Native keys on the {@code VertexProperty} element, so two elements carrying the same
+   * key and value are two distinct keys and two buckets; keying on the payload collapses them into
+   * one. The Cucumber suite never exercised this shape, so the count-based residue could not have
+   * caught it — the on/off comparison is the only net. {@code by(values(key))} is the positive
+   * control.
+   */
+  @Test
+  public void groupByPropertiesElementForm_declines_whileByValuesStillTranslates() {
+    graph.addVertex(T.label, "Software", "name", "lop", "lang", "java");
+    graph.addVertex(T.label, "Software", "name", "ripple", "lang", "java");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().group().by(properties(lang))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().group().by(__.properties("lang")));
+
+    assertEquivalent(
+        "g.V().group().by(values(lang))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().group().by(__.values("lang")));
+
+    // Non-vacuity: native really does split the two same-valued property elements into two buckets,
+    // which is the divergence the decline exists for. Without this the decline could be guarding
+    // nothing.
+    setTranslatorEnabled(false);
+    assertThat((Map<?, ?>) graph.traversal().V().group().by(__.properties("lang")).next())
+        .as("native keys on the property element, so two same-valued elements are two buckets")
+        .hasSize(2);
+  }
+
+  /**
+   * The two positions where an element-returning {@code properties(key)} still translates, because
+   * nothing downstream can read the value. Both arrive here as {@link org.apache.tinkerpop.gremlin
+   * .structure.PropertyType#PROPERTY} only because {@code AdjacentToIncidentStrategy} rewrote a
+   * written {@code values(key)}, so each is a shape callers do write and would silently stop
+   * translating if the element-form decline were unconditional: a count consumes the step, or a
+   * sub-walk capture discards the projection and keeps only the presence conjunct.
+   */
+  @Test
+  public void countConsumedAndSubWalkPropertiesForms_stillTranslate() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().values(age).count()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").count());
+
+    assertEquivalent(
+        "g.V().where(values(age))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().where(__.values("age")));
   }
 
   /** {@code elementMap("name")} matches native id/label/property maps. */

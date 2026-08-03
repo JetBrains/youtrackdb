@@ -314,6 +314,12 @@ final class WalkerContext implements RecognitionContext {
     return polymorphic;
   }
 
+  /** The top-level walk is the one whose projection becomes the boundary's RETURN. */
+  @Override
+  public boolean projectsReturnedPayload() {
+    return true;
+  }
+
   @Override
   public boolean edgeLabelVerificationEnabled() {
     return edgeLabelVerification;

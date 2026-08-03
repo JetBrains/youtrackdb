@@ -235,10 +235,16 @@ public final class ByModulatorTranslator {
     return ProjectionExpressionFactories.aliasRecordAttribute(alias, attribute);
   }
 
+  /**
+   * A modulator body is a single-key value projection only in the {@code values(key)} form. A
+   * {@code by(properties(key))} body is {@link PropertyType#PROPERTY} and yields the
+   * {@code VertexProperty} element, so the key or accumuland is the element rather than its payload —
+   * measured on {@code g.V().group().by(properties("lang"))}, where native keys two distinct
+   * {@code VertexProperty} elements into two buckets and a value-keyed translation collapses them into
+   * one. Declining leaves the whole shape to native, which is the only arm that can key on an element.
+   */
   private static boolean isSingleValueProperty(PropertiesStep<?> step) {
-    var returnType = step.getReturnType();
-    return (returnType == PropertyType.VALUE || returnType == PropertyType.PROPERTY)
-        && step.getPropertyKeys().length == 1;
+    return step.getReturnType() == PropertyType.VALUE && step.getPropertyKeys().length == 1;
   }
 
   /**

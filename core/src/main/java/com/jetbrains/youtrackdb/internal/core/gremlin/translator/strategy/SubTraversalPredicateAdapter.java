@@ -174,6 +174,17 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return parent.polymorphic();
   }
 
+  /**
+   * A captured child never returns rows: the commit helpers in {@link ConnectiveStepSupport} keep the
+   * captured filters and pattern fragment and drop the child's projection, so a projection configured
+   * here is only ever read as a filter signal. This is deliberately <em>not</em> delegated to the
+   * parent — the parent does return rows, and forwarding would defeat the distinction.
+   */
+  @Override
+  public boolean projectsReturnedPayload() {
+    return false;
+  }
+
   @Override
   public boolean edgeLabelVerificationEnabled() {
     return parent.edgeLabelVerificationEnabled();

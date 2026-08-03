@@ -101,6 +101,18 @@ interface RecognitionContext extends ParamSink {
    */
   @Nullable BoundaryOutputType boundaryOutputType();
 
+  /**
+   * Whether a projection configured on this context can reach the caller as a returned row payload.
+   * The top-level walk answers {@code true}; a sub-walk capture answers {@code false}, because a
+   * combinator child's commit keeps only the filters and pattern fragments it captured and discards
+   * the child's own projection.
+   *
+   * <p>A recogniser reads this when a shape is exact enough to translate as a filter signal but not as
+   * a payload. {@link PropertiesStepRecogniser} is the case in hand: {@code properties(key)} yields a
+   * property element rather than its value, which matters only if something downstream reads the row.
+   */
+  boolean projectsReturnedPayload();
+
   // --- Schema-aware type gating -----------------------------------------------------------------
 
   /**
