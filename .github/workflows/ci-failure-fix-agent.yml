@@ -860,7 +860,7 @@ jobs:
         # fix-ready sentinel still publishes even if the Claude step exited
         # nonzero AFTER writing it; only a cancelled job skips.
         if: ${{ !cancelled() && steps.fix-result.outputs.status == 'fix-ready' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_APP_PRIVATE_KEY }}
