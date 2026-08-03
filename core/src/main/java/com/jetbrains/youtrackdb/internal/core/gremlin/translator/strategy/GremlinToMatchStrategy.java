@@ -242,6 +242,14 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
+    // Honour a per-traversal veto. RepeatDeclineStrategy removes this strategy from the
+    // traversal's own strategy list at decoration time, but TinkerPop captures the strategy set
+    // before the first strategy runs, so the removal cannot stop this invocation on its own —
+    // re-reading the list here is what makes it effective. See RepeatDeclineStrategy for why the
+    // decision has to be taken that early.
+    if (traversal.getStrategies().getStrategy(GremlinToMatchStrategy.class).isEmpty()) {
+      return;
+    }
     // Run the O(1) start-step gate before the O(steps) boundary scan, so a traversal that does not
     // start at a vertex GraphStep declines without walking the whole step list. Idempotency still
     // holds: an already-translated traversal's start step is a boundary step (an
@@ -318,8 +326,13 @@ public final class GremlinToMatchStrategy
    * {@link GlobalConfiguration}) lets operators — and tests — flip it per-session without mutating
    * global state. That {@code getConfiguration()} is {@code @Nullable}; a null result is treated
    * as "decline" so the kill-switch read never dereferences a null configuration.
+   *
+   * <p>Package-private rather than private because {@link RepeatDeclineStrategy} gates its own
+   * work on the same kill-switch and must read it exactly the way this strategy does — two
+   * spellings of one flag would let the veto and the translation disagree about whether the
+   * translator is on.
    */
-  @Nullable private static DatabaseSessionEmbedded resolveSessionIfEnabled(
+  @Nullable static DatabaseSessionEmbedded resolveSessionIfEnabled(
       Traversal.Admin<?, ?> traversal) {
     var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
     if (session == null) {
