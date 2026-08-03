@@ -684,9 +684,15 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > that do not currently witness the defect, and the two-runner baseline
   > artifact (`core`'s `gremlin-feature-compliance-tests` plus the `embedded`
   > module's `EmbeddedGraphFeatureTest`, whose A/B is unsized until first run). The
+  > residue-triage bucket is likewise **unsized until item 3's residue exists**,
+  > and is bounded by a fix-vs-defer rule plus its own ESCALATE trigger rather
+  > than by the file figure above (see `plan/track-9.md` item 4). The
   > suite-completion diagnosis is **unsized until localized** and carries an
-  > ESCALATE trigger: if the cause is not pinned to a fixable defect in the first
-  > step, escalate rather than absorb an undiagnosed engine-level fault.
+  > ESCALATE trigger bounded by evidence and budget; `plan/track-9.md`
+  > `## Plan of Work` item 1 owns the exact wording, so this entry does not
+  > restate it. The escalation branch does not stall the track — the
+  > per-directory run becomes the published baseline and the completion criteria
+  > relax to it, with Track 11's dependency restating against that shape.
   > **Depends on:** Track 10 (the enumerated process-compliance baseline and its
   > disposition record — not a green run; Track 10's own
   > `gremlin-feature-compliance-tests` execution was a BUILD FAILURE its

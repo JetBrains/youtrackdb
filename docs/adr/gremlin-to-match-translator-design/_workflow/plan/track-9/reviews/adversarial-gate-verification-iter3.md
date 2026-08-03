@@ -1,0 +1,83 @@
+<!-- MANIFEST
+findings: 1   severity: {blocker: 0, should-fix: 1, suggestion: 0}
+index:
+  - {id: A7, sev: should-fix, loc: "docs/adr/gremlin-to-match-translator-design/_workflow/plan/track-9.md:147", anchor: "### A7 ", cert: VS6, basis: "the A6-repaired where-fragment shape still passes vacuously in the default polymorphic mode — measured, not derived: hasLabel(person) is re-type-only there, so the origin scores count(person)+1=5 while SQLWhereClause.estimate's count/2 heuristic scores the filtered fragment target min(6/2,6)=3 and the target wins root selection; the criterion's fixture-property sentence asserts the opposite arithmetic"}
+verdicts:
+  - {id: A5, verdict: STILL OPEN}
+  - {id: A6, verdict: STILL OPEN}
+overall: FAIL
+evidence_base: {section: "## Evidence base", certs: 3, matches: 1}
+cert_index:
+  - {id: VS6, verdict: CONSTRUCTIBLE, anchor: "#### VS6 "}
+  - {id: AT7, verdict: HOLDS, anchor: "#### AT7 "}
+  - {id: AT8, verdict: HOLDS, anchor: "#### AT8 "}
+flags: [CONTRACT_OK]
+-->
+
+# Track 9 adversarial review — gate verification, iteration 3
+
+This round replaced grep-derived arithmetic with a measured run: a scratch JUnit test (written, executed twice, then deleted — commands in the evidence base) built the six-vertex modern graph and ran every disputed shape translator-on and translator-off under both polymorphism modes. The union half of the rewritten criterion holds exactly as stated — native 4 rows against a dropped-filter 6, recognised into a `MultiPlanMatchStep`, failing before the fix in both modes. The `where()` half is still a vacuous witness in the mode an implementer will run it in: under the default polymorphic mode `g.V().hasLabel(person).where(__.out().has(name, vadas))` returns `[marko]` with the translator on and off — it does not fail before the fix. The criterion's own fixture-property sentence predicts the opposite, because iteration 2's repair (and the applied edit) assumed the fragment target's score is capped at `count(V)` = 6 when `SQLWhereClause.estimate`'s count/2 heuristic actually scores it 3, below the `hasLabel(person)` origin's 5. The same run measured the repair: a start set pinned to two RIDs fails before the fix under both modes. A5 and A6 are STILL OPEN; finding A7 carries the corrected one-bullet edit. Overall FAIL.
+
+**Tooling caveat.** PSI was unavailable per the spawn (IDE open on a different project; no attempt spent). This round's load-bearing claims are runtime measurements rather than symbol reads; the remaining symbol facts (`estimateRootEntries`, `SQLWhereClause.estimate`, `HasStepRecogniser`'s mode branch, the ascending root sort, `approximateCount`'s polymorphic default) are `grep -n` plus end-to-end reads of each declaring method, and the one negative that matters — no other estimate override touches this shape — is bounded by those reads, not established by PSI.
+
+## Verification certificates
+
+#### Verify A5: union-child and captured-fragment families had no witness
+- **Original issue**: an option-2 fix mechanically covers both families but no acceptance shape exercised either; iteration 2 found the first `where()` witness vacuous (REGRESSION) and A6 carried a replacement.
+- **Fix applied**: the criterion at `track-9.md:147` now states the union counts (native 4, dropped 6), names `g.V().hasLabel(person).where(__.out().has(name, vadas))` on the six-vertex modern graph as the fragment witness (`{marko}` native against `{marko, josh, peter}` dropped), and explains the root-selection fixture property in R16's shape.
+- **Re-check**:
+  - Track-file/plan/codebase location: `track-9.md:147`; measured run (evidence base, VS6/AT7/AT8 tables).
+  - Current state: the union family is now genuinely witnessed — `g.V(marko).union(__.out().hasId(vadas), __.out())` measured 6 rows translated against 4 native in both polymorphism modes, so it fails before the fix, and it translates (the boundary is a `MultiPlanMatchStep`, `UnionTraversalEquivalenceTest`'s `assertMultiPlanEngaged` contract, so the witness belongs in that suite rather than behind `PredicateTraversalEquivalenceTest`'s single-plan `boundaryOn == 1` assertion). The fragment family is still unwitnessed where it counts: the named shape measured `[marko]` on and off under the default polymorphic mode — a pass, where the criterion asserts "fails before the fix". It fails only under non-polymorphic mode (measured 6 rows against 1), a mode the criterion never mentions and the suites do not default to (`QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT` is true by default, `GlobalConfiguration:962-965`).
+  - Criteria met: half — the union witness stands; the fragment witness still cannot fail before the fix in the default mode.
+- **Regression check**: the union sentence introduced no new false statement (both numbers measured exact). The fragment sentence carries the new false arithmetic — finding A7.
+- **Verdict**: STILL OPEN
+
+#### Verify A6: the where-fragment acceptance shape passed vacuously at the watch-it-fail gate
+- **Original issue**: `g.V().where(__.out().has(name, vadas))` cannot fail before the fix — the filtered fragment target wins root selection and a root alias's filter is honoured today.
+- **Fix applied**: as proposed at iteration 2 — origin re-labelled to `hasLabel(person)`, fixture moved to the six-vertex modern graph, fixture property stated (`classCount + 1` unfiltered origin against `min(estimate, classCount)` filtered target), josh and peter named as discriminating vertices.
+- **Re-check**:
+  - Track-file/plan/codebase location: `track-9.md:147`; `HasStepRecogniser.java:158-166`; `SQLWhereClause.java:86-97,155-157`; `MatchExecutionPlanner.java:355,6375-6425,2259-2273`; `SchemaImmutableClass.java:386-393`; measured run.
+  - Current state: the edit matches the iteration-2 proposal, and the proposal's arithmetic was wrong. Two facts it missed, both now measured. First, under polymorphic mode (the default) `hasLabel(person)` is re-type-only — `HasStepRecogniser` adds the `@class = 'person'` WHERE term under `!ctx.polymorphic()` only (`:163-165`) — so the origin has no `aliasFilters` entry and `estimateRootEntries` scores it unfiltered: `count(person) + 1 = 5`. Second, the fragment target's `min(estimate, classCount)` is not `count(V)` = 6: `SQLWhereClause.estimate` returns `classCount / 2` for any class smaller than `THRESHOLD` = 100 (the early return at `:94-97`; the no-index fall-through at `:155-157` returns the same value), so the target scores `min(3, 6) = 3`. The ascending root sort (`:2259-2265`) hands the target root selection at 3 against 5, its filter is honoured, and the translated result is `[marko]` — equal to native, measured. Under non-polymorphic mode the origin gains the `@class` term, scores `min(4/2, 4) = 2`, wins root, and the shape fails before the fix (measured: 6 rows `[marko ×3, josh ×2, peter]` against native `[marko]`) — which also shows the criterion's stated wrong answer `{marko, josh, peter}` glosses the per-binding multiplicity the equivalence suites' multiset comparison would see.
+  - Criteria met: no — the vacuous-witness defect A6 named persists in the default mode; the criterion traded an unconditionally vacuous shape for a mode-conditionally vacuous one and states no mode.
+- **Regression check**: checked the rest of the edited bullet and its neighbours — the union sentence is correct (AT7); the bare-shape explanation ("would hand root selection to the fragment target") remains true and is now true for the named shape as well; the `not()` criterion one bullet above (`:146`, R16's repair) is untouched and its polymorphic-mode framing unaffected. A1–A4 anchors re-read: item 4's rule and ESCALATE trigger (`:127`), the plan entry's unsized triage marker (`implementation-plan.md:687`), the attribution/destination/waiver clauses (`:129-133`), option 3's gating sentence (`:112`), and the qualifying-commit wording at `:29`, `:153`, `:163` with the Outcomes closure list at `:37` — all present in the form iteration 2 verified; the edited bullet interacts with none of them. Clean apart from A7.
+- **Verdict**: STILL OPEN
+
+## Findings
+
+### A7 [should-fix]
+**Certificate**: VS6 (violation scenario, constructible — and executed), supported by AT8
+**Target**: the A5/A6 acceptance criterion at `track-9.md:147` — "`g.V().hasLabel(person).where(__.out().has(name, vadas))` … Each **fails before the fix**" and "Filtering the origin (`hasLabel(person)`, or a pinned start set) undercuts the target's score, makes the origin root"
+**Challenge**: The named shape does not fail before the fix in the default polymorphic mode — measured, translator on and off both return `[marko]`. The criterion's arithmetic sentence is wrong twice over: `hasLabel(person)` contributes no filter under polymorphic mode (re-type only, `HasStepRecogniser:158-166`), so the origin scores `count(person) + 1 = 5` as an *unfiltered* alias; and the fragment target's score is not capped at `count(V) = 6` but computed by `SQLWhereClause.estimate`'s count/2 heuristic as `min(6/2, 6) = 3` (`SQLWhereClause.java:94-97` — any class under `THRESHOLD = 100` early-returns `classCount / 2`, and the no-index fall-through at `:155-157` returns the same). 3 beats 5; the target roots; its filter is honoured; the gate passes where the criterion promises a failure — the same trap A6 was accepted to repair, now one layer deeper. The parenthetical alternative the criterion already carries ("or a pinned start set") is the half that works: pinned RIDs score `list.size()` regardless of mode (`estimateRootEntries:6390-6394`), so a two-RID start set scores 2, beats the target's 3 under both modes, and the shape fails before the fix — measured. Even the three-RID variant works (a 3-against-3 tie breaks toward the origin: stable ascending sort over `LinkedHashMap` insertion order, matching the track's measured `g.V().has(name, marko).out().has(name, vadas)` tie), but resting a watch-it-fail gate on tie-breaking is the kind of coincidence this criterion exists to eliminate.
+**Evidence**: measured matrix in VS6/AT8 (scratch run, this working tree, 2026-08-03); `HasStepRecogniser.java:158-166`; `SQLWhereClause.java:86-97,155-157`; `MatchExecutionPlanner.java:355` (`THRESHOLD = 100`), `:6375-6425` (`estimateRootEntries`), `:2259-2273` (ascending root sort); `SchemaImmutableClass.java:386-393` (`approximateCount` defaults polymorphic, so `count(V)` = 6 and `count(person)` = 4 on the modern graph); `GlobalConfiguration:962-965` (`QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT`, true by default).
+**Proposed fix**: One bullet edit at `:147`, three changes. (1) Replace the named shape with the pinned two-RID variant: `g.V(marko, josh).where(__.out().has(name, vadas))` — native `[marko]`, dropped-filter translation `[marko ×3, josh ×2]` (5 rows, per-binding multiplicity), fails before the fix under both polymorphism modes, measured. Josh stays the discriminating vertex (out-edges, none to vadas); peter is unnecessary and the three-RID form ties 3-against-3, which works today but by tie-break. (2) Restate the fixture property with the real arithmetic: the fragment target scores `classCount / 2` = 3 (`SQLWhereClause.estimate`'s sub-`THRESHOLD` heuristic), an unfiltered origin scores `classCount + 1`, and under the default polymorphic mode `hasLabel` re-types without filtering — so the origin must be pinned below the target's 3, not merely labelled; a labelled origin at `count(person) + 1 = 5` hands the target root selection exactly like the bare shape. (3) State the dropped-filter answer as the measured multiset rather than the three-element set, since the equivalence suites compare multisets. If the criterion also wants a labelled-origin witness, add it mode-qualified — under non-polymorphic mode `g.V().hasLabel(person).where(…)` measures 6 rows against 1 and is a valid second witness — but the mode-independent pinned shape is the gate.
+
+## Evidence base
+
+Certificates for the verdicts and the new finding. Verdicts: assumption tests HOLDS/FRAGILE/BREAKS, violation scenarios CONSTRUCTIBLE/THEORETICAL/INFEASIBLE.
+
+**Method note — the measured run.** A scratch JUnit test (`A6ScratchVerificationTest`, `core/src/test/.../translator/strategy/`, deleted after the run, never committed; surefire reports and the compiled class removed too) seeded the six-vertex modern graph (marko/vadas/josh/peter `person`, lop/ripple `software`; marko→knows→vadas, marko→knows→josh, marko→created→lop, josh→created→ripple, josh→created→lop, peter→created→lop) and ran each shape via `./mvnw -pl core -o test-compile surefire:test -Dtest=A6ScratchVerificationTest -Dspotless.check.skip=true`, toggling `QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED` and `QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT` per sub-case on the graph session's configuration (the equivalence suites' own technique). `boundary` counts top-level `YTDBMatchPlanStep`s.
+
+#### VS6 Violation scenario: the A6-repaired where-fragment shape passes vacuously in the default mode — CONSTRUCTIBLE
+- **Invariant claim**: every acceptance shape added under a "fails before the fix" clause actually fails before the fix (`track-9.md:145-147`).
+- **Violation construction — executed, not traced**: implementer adds the named shape to the equivalence suite and runs it in the suite's default (polymorphic) mode. Measured:
+
+  | shape | mode | translator ON | translator OFF | pre-fix verdict |
+  |---|---|---|---|---|
+  | `g.V().hasLabel(person).where(out().has(name,vadas))` | poly (default) | `[marko]`, boundary=1 | `[marko]` | **passes — vacuous** |
+  | same | non-poly | `[josh ×2, marko ×3, peter]` (6 rows) | `[marko]` | fails |
+  | bare `g.V().where(out().has(name,vadas))` | both | `[marko]` | `[marko]` | passes (A6's original) |
+
+  Mechanism, each step read end-to-end: `hasLabel(person)` re-types without filtering under polymorphic mode (`HasStepRecogniser:158-166`) → origin unfiltered at `count(person)+1 = 5` (`estimateRootEntries:6416-6419`); fragment target `V`-classed (`VertexHopRecogniser` contract) and filtered → `min(estimate, 6)` where `estimate = 6/2 = 3` (`SQLWhereClause.estimate:94-97`, `THRESHOLD = 100` at `MatchExecutionPlanner:355`) → ascending sort roots the target (`:2262-2265`) → root filter honoured (the track's own accidental-pass mechanism, `track-9.md:54`) → native answer pre-fix.
+- **Feasibility**: CONSTRUCTIBLE — and constructed; the violating run is in the table. Finding A7.
+
+#### AT7 Assumption test: the union criterion's 4-against-6 count pair — HOLDS
+- **Claim** (`track-9.md:147`): `g.V(marko).union(__.out().hasId(vadas), __.out())` returns 4 rows native, 6 under the dropped-filter translation, and fails before the fix.
+- **Stress scenario**: the counts were asserted at iteration 2 from the Context table's measured child rather than from a run of the union itself; a decline anywhere in the union path would make the shape witness nothing.
+- **Code evidence — measured**: translator ON 6 rows `[josh, josh, lop, lop, vadas, vadas]`, OFF 4 rows `[josh, lop, vadas, vadas]`, identical in both polymorphism modes. The engagement is real but multi-plan: no top-level `YTDBMatchPlanStep` (the boundary is a `MultiPlanMatchStep`; `UnionTraversalEquivalenceTest` asserts engagement via `assertMultiPlanEngaged`), and the control `g.V(marko).out().hasId(vadas)` reproduced the track's measured 3-against-1 in the same run. One placement note for the implementer: the witness belongs where the multi-plan engagement assertion lives, not behind `PredicateTraversalEquivalenceTest`'s single-plan `boundaryOn == 1` check, which would read 0 for this shape.
+- **Verdict**: HOLDS — the union half of the criterion is exact.
+
+#### AT8 Assumption test: the pinned-start alternative fails before the fix under both modes — HOLDS
+- **Claim** (A7's proposed fix): a two-RID pinned origin makes the fragment witness fail before the fix regardless of polymorphism mode.
+- **Stress scenario**: pinned RIDs could lose root selection to the fragment target, or the tie behaviour could flip by mode.
+- **Code evidence — measured**: `g.V(marko, josh).where(__.out().has(name, vadas))` ON `[josh ×2, marko ×3]` (5 rows), OFF `[marko]`, both modes — origin 2 beats target 3 outright. `g.V(marko, josh, peter).where(…)` ON 6 rows, OFF `[marko]`, both modes — the 3-against-3 tie breaks toward the origin (stable ascending sort over insertion order, `MatchExecutionPlanner:2262-2273`), consistent with the track's measured `g.V().has(name, marko).out().has(name, vadas)` tie. The two-RID form is the proposal because it does not rest on the tie.
+- **Verdict**: HOLDS — the repair is measured, not predicted.
