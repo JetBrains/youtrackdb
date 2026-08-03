@@ -16,8 +16,12 @@ integration.
 
 ## Do this first
 
-**Collect the five in-flight agents before starting anything new.** None of their work is
-on disk yet except step 10's, which is uncommitted in its worktree.
+**Collect the five in-flight agents before starting anything new.** Each reviewer writes its
+own findings file as it finishes, so **check `plan/track-9/reviews/` rather than assuming all
+five are still pending** — `test-structure-step13-iter1.md` had already landed when this
+handoff was written (7 findings, 0 blockers: TS30–TS32 should-fix, TS33–TS36 suggestions).
+Step 10's implementer is the only one whose work is not self-persisting: it commits to its
+branch, and anything unfinished stays as uncommitted changes in its worktree.
 
 | Agent | What it is doing | Where its output goes |
 |---|---|---|

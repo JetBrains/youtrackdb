@@ -19,8 +19,8 @@ flags: [CONTRACT_OK]
 
 **Location:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/NotStepRecogniserTest.java`, method `notWithCrossTypeRangeComparison_declinesAndAgreesWithNative`, lines 331-345.
 
-**Issue.** The pin is legitimate, not a passenger. It is the only thing in the
-tree that records the premise the whole decline rests on: with the translator
+**Issue.** The pin earns its place. It is the only thing in the tree that
+records the premise the whole decline rests on: with the translator
 on, `has("name", lte(27))` returns 0 and `has("name", lte("z"))` returns 6, so
 YouTrackDB's SQL comparator ranks every String above the Integer. The
 String-comparand control does its job — the empty result cannot be read as a
@@ -93,9 +93,9 @@ and the `not(out(...))` cases at `PredicateTraversalEquivalenceTest:1046` and
 `not(__.has` across `core/src/test` returns no end-to-end equivalence case in
 either named class; the only ones in the tree are the five this step just added
 to *this* class. The pointer sends a reader looking for `not(has(...))`
-coverage to a class that has none, and on a branch with twelve recorded
-could-not-fail tests, a false coverage pointer is the expensive kind of stale
-comment.
+coverage to a class that has none. On a branch with twelve recorded
+could-not-fail tests, a false coverage pointer is how the thirteenth gets
+written.
 
 The claim predates this step, but the step rewrote the three lines carrying it
 and added the case that makes it wrong.
@@ -160,13 +160,12 @@ and `predicateHasRangeComparison_falseForMembershipAndTextPredicates`
 global children: a top-level `has()` (line 808) and a `has()` behind a hop
 (line 824). The second adds a `null`-predicate case (line 801) that is neither
 membership nor Text. Both extra cases carry `.as(...)` descriptions, so the
-failure output is readable — but the surefire report shows the method name
-first, and a reader who sees
-`traversalHasRangeComparison_findsNestedLocalAndGlobalChildren` fail will look
-for a nesting bug when the broken assertion was the behind-a-hop one. The same
-name-versus-content drift is what makes the four-assertion form awkward: AssertJ
-stops at the first failure, so a mutation that breaks three of the four shows
-only one.
+failure output reads well once you reach it. The surefire report shows the
+method name first, though: a reader who sees
+`traversalHasRangeComparison_findsNestedLocalAndGlobalChildren` fail looks for a
+nesting bug when the broken assertion was the behind-a-hop one. The
+four-assertion form sharpens this, because AssertJ stops at the first failure —
+a mutation that breaks three of the four arms reports one.
 
 **Proposed fix.** Rename to what the sets actually cover —
 `traversalHasRangeComparison_findsRangeAtEveryDepth` and
@@ -184,11 +183,11 @@ results. The `DECLINED` branch gets no such pin, so for
 `notWithRangeComparisonBehindHop_declinesToNative` and
 `notWithBetweenPredicate_declinesToNative` the multiset arm is unguarded: a
 fixture that seeded nothing would leave both lists empty and both tests green
-on the strength of the boundary-count assertion alone. The boundary count is
-still a real assertion, so neither test is unfalsifiable — the cost is one of
-two witnesses silently retiring. The step's author hit this for the cross-type
-case and worked around it with a bespoke `hasSize(6)` outside the helper
-(lines 322-329) rather than closing it in the helper.
+on the strength of the boundary-count assertion alone. The boundary count still
+discriminates, so both tests can still fail. The cost is that the multiset arm
+stops discriminating without announcing it. The step's author hit this for the
+cross-type case and worked around it with a bespoke `hasSize(6)` outside the
+helper (lines 322-329) rather than closing it in the helper.
 
 Both shapes do return rows today (5 and 4 respectively on the modern graph), so
 an unconditional pin would hold for every decline case in this class.
@@ -203,11 +202,11 @@ bespoke `hasSize(6)` at 322-329 can go.
 
 ## Reviewer notes
 
-Four checks the dispatch asked for came back clean. Recording them so they do
-not get re-run.
+Four checks the dispatch asked for came back clean. I record them here so
+nobody re-runs them.
 
-**The mutation record holds.** Each mutation reddens the tests named for it, on
-the reading of the mutation points that makes the counts come out.
+**The mutation record holds.** Each mutation reddens the tests named for it.
+The counts work out under one reading of where each mutation sits, given below.
 `M_B` = `predicateHasRangeComparison` always false gives exactly 6 in these two
 classes: the two `predicateHasRangeComparison_*` true-side tests, the
 `traversalHasRangeComparison_findsNested…` case, and the three decline cases.
@@ -270,5 +269,5 @@ completeness reviewer.** `traversalHasRangeComparison` finds predicates through
 comparison the detector reports as absent (`IsStep` holds its predicate
 directly, not in a `HasContainer`). Whether that shape reaches the gate at all
 depends on whether `IsStep` is in the recogniser registry — it is not in
-`productionRegistry()` here — so it likely declines anyway. Flagging rather than
-filing.
+`productionRegistry()` here — so it likely declines anyway. The question belongs
+to the completeness dimension, so it stays a note here.
