@@ -279,22 +279,26 @@ public class SubTraversalPredicateAdapterTest {
   }
 
   /**
-   * {@link ConnectiveStepSupport#commitEdgeBearingChild} appends the hop fragment and merges
-   * captured target filters into the parent.
+   * {@link ConnectiveStepSupport#commitPositiveFilterChild} declines an edge-bearing child and
+   * writes nothing to the parent — neither the hop fragment nor the target filter the child
+   * captured. Committing the hop would translate the existence test as a join, so the whole filter
+   * has to withdraw and leave the parent context exactly as it found it.
    */
   @Test
-  public void commitEdgeBearingChild_appendsHopAndMergesFilters() {
+  public void commitPositiveFilterChild_edgeBearingChild_declinesWithoutMutatingParent() {
     var parent = parentWithBoundary(Map.of());
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
     adapter.addEdge(
         BOUNDARY_ALIAS, FIRST_ANON_ALIAS, MatchPatternBuilder.Direction.OUT, "knows");
     adapter.addNode(FIRST_ANON_ALIAS, "V");
     adapter.putAliasFilter(FIRST_ANON_ALIAS, whereClause("age"));
+    adapter.markOutcome(Outcome.ACCEPTED);
 
-    ConnectiveStepSupport.commitEdgeBearingChild(parent, adapter);
+    var outcome = ConnectiveStepSupport.commitPositiveFilterChild(parent, adapter);
 
-    assertThat(parent.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isTrue();
-    assertThat(parent.aliasFilters).containsKey(FIRST_ANON_ALIAS);
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(parent.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isFalse();
+    assertThat(parent.aliasFilters).isEmpty();
   }
 
   /**

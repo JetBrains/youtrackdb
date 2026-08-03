@@ -752,34 +752,57 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * {@code g.V().and(__.out("a"), __.out("b"))} over a source whose {@code a} and {@code b} targets
-   * differ must match native. A per-child alias counter would mint the same anonymous alias twice and
-   * silently require both edges to reach the same vertex, dropping every source whose targets differ.
+   * {@code g.V().and(__.out("a"), __.out("b"))} declines to the native pipeline and returns native's
+   * multiset. Native {@code and(...)} is an existence test — the hub passes once — while appending
+   * both hops to the positive pattern joins them and emits the hub once per (a-target, b-target)
+   * pair. The fixture gives the hub two {@code a} edges precisely so the two readings differ: the
+   * row-count assertion below is one under the filter reading and two under the join reading.
    */
   @Test
-  public void andTwoOutHops_differingTargets_matchesNative() {
+  public void andTwoOutHops_differingTargets_declinesAndMatchesNative() {
     seedDualLabeledOutEdges();
-    assertEquivalent(
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V().and(__.out("a"), __.out("b"));
+
+    assertNativeFanOut(
         "g.V().and(out(a), out(b)) with differing targets",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().and(__.out("a"), __.out("b")));
+        traversal,
+        1,
+        () -> graph.traversal().V().and(__.out("a"), __.out("b")).out("a"),
+        2);
+    assertEquivalent(
+        "g.V().and(out(a), out(b)) with differing targets", Recognition.DECLINED, traversal);
   }
 
   /**
-   * Nested {@code g.V().and(__.and(__.out("a"), __.out("b")), __.has("age", 30))} must keep both hops
-   * (and the age filter) so the translated multiset matches native. A regression that left the middle
-   * adapter classified pure-filter would drop the hops and over-accept vertices.
+   * Nested {@code g.V().and(__.and(__.out("a"), __.out("b")), __.has("age", 30))} declines too: the
+   * inner combinator's hops reach the outer one through the middle adapter's {@code hasEdges}
+   * classification, so the outer AND sees an edge-bearing child and withdraws. A regression that
+   * left the middle adapter classified pure-filter would translate the shape and drop the hops.
    */
   @Test
-  public void nestedAndOfOutHops_thenHas_matchesNative() {
+  public void nestedAndOfOutHops_thenHas_declinesAndMatchesNative() {
     seedDualLabeledOutEdgesWithAge();
-    assertEquivalent(
-        "g.V().and(and(out(a), out(b)), has(age,30)) nested connective",
-        Recognition.RECOGNIZED,
+    Supplier<GraphTraversal<?, ?>> traversal =
         () -> graph
             .traversal()
             .V()
-            .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30))));
+            .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30)));
+
+    assertNativeFanOut(
+        "g.V().and(and(out(a), out(b)), has(age,30)) nested connective",
+        traversal,
+        1,
+        () -> graph
+            .traversal()
+            .V()
+            .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30)))
+            .out("a"),
+        2);
+    assertEquivalent(
+        "g.V().and(and(out(a), out(b)), has(age,30)) nested connective",
+        Recognition.DECLINED,
+        traversal);
   }
 
   // ---------------------------------------------------------------------------
@@ -806,22 +829,35 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V().where(__.out("knows"))} translates and matches native: a positive edge-bearing
-   * sub-traversal appends the hop to the positive pattern (the NOT counterpart uses detached NOT).
+   * {@code g.V().where(__.out("knows"))} declines to the native pipeline and returns native's
+   * multiset. The positive edge-bearing sub-traversal cannot be appended to the pattern: native
+   * {@code where(...)} emits alice once, while the hop makes it a join emitting alice once per
+   * {@code knows} target. Alice gets two {@code knows} edges so the two readings differ — native
+   * returns two rows (alice and bob), the join reading would return three.
+   *
+   * <p>The {@code not(...)} counterpart above still translates, because an anti-join emits its input
+   * at most once and so never over-emits.
    */
   @Test
-  public void whereOutKnows_matchesNative() {
+  public void whereOutKnows_declinesAndMatchesNative() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
     alice.addEdge("knows", bob);
+    alice.addEdge("knows", dave);
     bob.addEdge("knows", carol);
     graph.tx().commit();
 
-    assertEquivalent(
+    Supplier<GraphTraversal<?, ?>> traversal = () -> graph.traversal().V().where(__.out("knows"));
+
+    assertNativeFanOut(
         "g.V().where(out(knows))",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().where(__.out("knows")));
+        traversal,
+        2,
+        () -> graph.traversal().V().where(__.out("knows")).out("knows"),
+        3);
+    assertEquivalent("g.V().where(out(knows))", Recognition.DECLINED, traversal);
   }
 
   /**
@@ -977,9 +1013,14 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   private void seedDualLabeledOutEdges() {
     var hub = graph.addVertex(T.label, "Person", "name", "Hub");
     var targetA = graph.addVertex(T.label, "Person", "name", "TargetA");
+    var secondA = graph.addVertex(T.label, "Person", "name", "SecondA");
     var targetB = graph.addVertex(T.label, "Person", "name", "TargetB");
     var onlyA = graph.addVertex(T.label, "Person", "name", "OnlyA");
     hub.addEdge("a", targetA);
+    // The hub's second a-edge is what makes the and(...) cases discriminating: native emits the hub
+    // once, while a translation that appended both hops emits it once per (a, b) target pair. With a
+    // single a-edge the join and the filter agree and the case witnesses nothing.
+    hub.addEdge("a", secondA);
     hub.addEdge("b", targetB);
     onlyA.addEdge("a", targetA);
     graph.tx().commit();
@@ -992,9 +1033,13 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   private void seedDualLabeledOutEdgesWithAge() {
     var hub = graph.addVertex(T.label, "Person", "name", "Hub", "age", 30);
     var targetA = graph.addVertex(T.label, "Person", "name", "TargetA", "age", 1);
+    var secondA = graph.addVertex(T.label, "Person", "name", "SecondA", "age", 1);
     var targetB = graph.addVertex(T.label, "Person", "name", "TargetB", "age", 1);
     var onlyA = graph.addVertex(T.label, "Person", "name", "OnlyA", "age", 30);
     hub.addEdge("a", targetA);
+    // Second a-edge for the same reason as in seedDualLabeledOutEdges: it separates the filter
+    // semantics native uses from the join a hop-appending translation would produce.
+    hub.addEdge("a", secondA);
     hub.addEdge("b", targetB);
     onlyA.addEdge("a", targetA);
     graph.tx().commit();
@@ -1053,6 +1098,43 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
       assertThat(onIds)
           .as(scenario + ": translator-on and translator-off result multisets must match")
           .isEqualTo(offIds);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * Guards the fixture of a declined edge-bearing filter case. {@link #assertEquivalent} only
+   * compares the translator-on and translator-off runs, and on a fixture where every sub-traversal
+   * matches exactly once the filter reading and the join reading return the same multiset — so the
+   * comparison would stay green even if the hop were appended to the pattern again. The two shapes
+   * here separate the readings: {@code filterShape} is the case under test, {@code joinShape} is the
+   * same shape with the child's hop re-appended after it, which is what a join reading would emit.
+   * Requiring strictly more rows from the join shape fails loudly if a later fixture edit removes
+   * the fan-out and quietly makes the case vacuous.
+   */
+  private void assertNativeFanOut(
+      String scenario,
+      Supplier<GraphTraversal<?, ?>> filterShape,
+      int expectedFilterRows,
+      Supplier<GraphTraversal<?, ?>> joinShape,
+      int expectedJoinRows) {
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      setTranslatorEnabled(false);
+      assertThat(filterShape.get().toList())
+          .as(scenario + ": native row count under filter semantics")
+          .hasSize(expectedFilterRows);
+      assertThat(joinShape.get().toList())
+          .as(scenario + ": row count the join reading would produce")
+          .hasSize(expectedJoinRows);
+      assertThat(expectedJoinRows)
+          .as(scenario + ": the fixture must fan out, or the equivalence assertion cannot tell a "
+              + "filter from a join")
+          .isGreaterThan(expectedFilterRows);
     } finally {
       setTranslatorEnabled(original);
     }

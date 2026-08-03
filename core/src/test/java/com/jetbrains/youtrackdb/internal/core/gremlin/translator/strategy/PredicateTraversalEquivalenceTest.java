@@ -941,23 +941,17 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V(marko, josh).where(__.out().has("name", "vadas"))} returns {@code [marko]}, matching
-   * native: marko has an out-neighbour named vadas and josh does not.
+   * {@code g.V(marko, josh).where(__.out().has("name", "vadas"))} declines to the native pipeline
+   * and returns native's {@code [marko]}: marko has an out-neighbour named vadas and josh does not.
    *
-   * <p>The origin is pinned to <em>two</em> RIDs deliberately, and that is what makes the case
-   * discriminating rather than vacuous. Root selection scores a pinned origin at its RID count and a
-   * filtered target at half the class count (three here, over six vertices), so two RIDs root the
-   * origin and the fragment's target is the non-root side. A bare {@code g.V().where(…)} origin
-   * scores {@code classCount + 1} and loses to the target, whose filter is then honoured; a
-   * three-RID origin ties and passes only by tie-break. Labelling the origin does not help either,
-   * because under polymorphic mode {@code hasLabel} re-types without filtering.
-   *
-   * <p>With the fragment's target predicate dropped the translation degenerates to
-   * {@code where(out())} — a join emitting one row per out-edge — and returns marko three times and
-   * josh twice.
+   * <p>The shape used to translate, with the fragment's hop appended to the positive pattern. That
+   * reading is a join, so it agreed with native only while at most one target matched the
+   * fragment's predicate — exactly one of marko's three out-neighbours is named vadas, which is why
+   * the case was green. The sibling case below drives the same fragment with a predicate that
+   * matches two, and it is that one that would have failed.
    */
   @Test
-  public void whereFragmentPostHopFilter_pinnedOrigin_matchesNative() {
+  public void whereFragmentPostHopFilter_pinnedOrigin_declinesAndMatchesNative() {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
     var joshId = modern.josh().id();
@@ -965,27 +959,23 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     Supplier<GraphTraversal<?, ?>> traversal =
         () -> graph.traversal().V(markoId, joshId).where(__.out().has("name", "vadas"));
 
-    assertRootsAtOrigin("g.V(marko, josh).where(out().has(name, vadas))", traversal);
     assertEquivalent(
-        "g.V(marko, josh).where(out().has(name, vadas))", Recognition.RECOGNIZED, traversal);
+        "g.V(marko, josh).where(out().has(name, vadas))", Recognition.DECLINED, traversal);
   }
 
   /**
-   * The same {@code where(...)} fragment with a predicate that matches <em>two</em> of marko's
-   * out-neighbours returns marko twice from the translated plan and once from native. This is a
-   * defect the step above does not introduce and does not fix: an edge-bearing {@code where(...)}
-   * child is committed as a hop appended to the positive pattern, so the translation is a join that
-   * emits one row per matching path, while native {@code where(...)} is a filter that emits its
-   * input once. The case above passes only because exactly one target matches it.
+   * The same {@code where(...)} fragment with a predicate matching <em>two</em> of marko's
+   * out-neighbours returns marko once, from native and from the translator-on run alike, because the
+   * edge-bearing filter declines.
    *
-   * <p>Pinned here rather than left implicit because the fix has two exits and neither is this
-   * step's to take. Marking the shape {@code RETURN DISTINCT} restores filter semantics but
-   * collapses path multiplicity the caller may legitimately want; declining an edge-bearing
-   * {@code where(...)} child gives up a translated shape. When either lands, this case flips to an
-   * ordinary equivalence assertion and this javadoc goes away.
+   * <p>This is the case that pins the decline's purpose. Appending the fragment's hop makes the
+   * translation a join that emits one row per matching path, so before the decline this returned
+   * marko twice while native returned it once — the same element set, a wrong multiset. Both
+   * candidate repairs were unsound: {@code RETURN DISTINCT} also collapses the path multiplicity a
+   * prefix hop legitimately produces, and a captured sub-walk cannot express result shaping at all.
    */
   @Test
-  public void whereFragmentWithSeveralMatchingTargets_translatedPlanOverEmits() {
+  public void whereFragmentWithSeveralMatchingTargets_declinesAndMatchesNative() {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
     Supplier<GraphTraversal<?, ?>> traversal =
@@ -994,13 +984,57 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     var translated = translatedSortedIds(traversal);
     var nativeIds = nativeSortedIds(traversal);
 
+    assertThat(nativeSortedIds(() -> graph.traversal().V(markoId).out().hasLabel("Person")))
+        .as("the fixture must fan out — with one matching out-neighbour the filter reading and "
+            + "the join reading agree and this case witnesses nothing")
+        .hasSize(2);
     assertThat(nativeIds)
         .as("native where(...) is a filter — marko passes once")
         .containsExactly(markoId.toString());
     assertThat(translated)
-        .as("translated where(...) joins the fragment's hop, so marko appears once per matching "
-            + "out-neighbour (vadas and josh) — over-emission, not a wrong element set")
-        .containsExactly(markoId.toString(), markoId.toString());
+        .as("marko has two Person out-neighbours (vadas and josh), so a join reading would emit "
+            + "him twice; the decline keeps the native multiset")
+        .containsExactly(markoId.toString());
+    assertEquivalent(
+        "g.V(marko).where(out().hasLabel(Person))", Recognition.DECLINED, traversal);
+  }
+
+  /**
+   * {@code g.V(marko).out("knows").where(__.out("created"))} declines and returns native's
+   * {@code [josh]}. The {@code where} sits on a hop target rather than on the scan origin, which is
+   * the shape that rules out the {@code RETURN DISTINCT} repair: the RETURN column is the hop's
+   * target, and deduplicating it would also collapse the duplicates a prefix hop legitimately
+   * produces when several sources reach the same target. Josh has two {@code created} edges, so a
+   * join reading emits him twice where native emits him once.
+   */
+  @Test
+  public void wherePostHop_edgeBearingChild_declinesAndMatchesNative() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+    var joshId = modern.josh().id();
+
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V(markoId).out("knows").where(__.out("created"));
+
+    assertThat(nativeSortedIds(() -> graph.traversal().V(joshId).out("created")))
+        .as("the fixture must fan out — josh created two things, so a join reading emits him twice")
+        .hasSize(2);
+    assertThat(nativeSortedIds(traversal))
+        .as("native: josh is marko's only knows-neighbour that created something, and he passes once")
+        .containsExactly(joshId.toString());
+    assertEquivalent(
+        "g.V(marko).out(knows).where(out(created))", Recognition.DECLINED, traversal);
+
+    // The same shape with a values(...) tail, the spelling that first surfaced the over-emission
+    // outside this suite. The projection must not reintroduce the join reading: one row per source,
+    // not one per created-edge.
+    Supplier<GraphTraversal<?, ?>> projected =
+        () -> graph.traversal().V(markoId).out("knows").where(__.out("created")).values("name");
+    assertThat(drainAsStrings(projected, true))
+        .as("g.V(marko).out(knows).where(out(created)).values(name): translator-on must agree "
+            + "with native, which yields josh's name once and not once per created-edge")
+        .isEqualTo(drainAsStrings(projected, false))
+        .containsExactly("josh");
   }
 
   /**
@@ -1234,6 +1268,22 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
     return tx.getDatabaseSession();
+  }
+
+  /**
+   * Runs {@code traversalSupplier} with the translator forced to {@code enabled} and returns the
+   * results rendered as sorted strings. The {@link #sortedIds} pair casts to {@code Vertex}, so a
+   * shape ending in a {@code values(...)} projection needs this looser rendering.
+   */
+  private List<String> drainAsStrings(
+      Supplier<GraphTraversal<?, ?>> traversalSupplier, boolean enabled) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(enabled);
+      return traversalSupplier.get().toList().stream().map(String::valueOf).sorted().toList();
+    } finally {
+      setTranslatorEnabled(original);
+    }
   }
 
   private static List<String> sortedIds(List<?> results) {

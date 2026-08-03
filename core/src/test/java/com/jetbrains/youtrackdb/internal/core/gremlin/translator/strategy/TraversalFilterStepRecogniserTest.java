@@ -89,17 +89,21 @@ public class TraversalFilterStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
   }
 
-  /** {@code where(out(knows))} (also {@code filter(out(knows))}) appends a hop via the sub-walker. */
+  /**
+   * {@code where(out(knows))} (also {@code filter(out(knows))}) declines: the hop would join rather
+   * than test existence, emitting the source once per matching target instead of once.
+   */
   @Test
-  public void whereTraversal_outKnows_appendsHop() {
+  public void whereTraversal_outKnows_declines() {
     var admin = graph.traversal().V().where(__.out("knows")).asAdmin();
     var ctx = contextWithRegistry(null);
     var cursor = cursorAfterStart(admin);
 
     var outcome = TraversalFilterStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isEqualTo(1);
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
+    assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
   }
 
   /**

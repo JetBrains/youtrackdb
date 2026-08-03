@@ -51,18 +51,23 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
   }
 
-  /** {@code where(out(knows))} appends a hop fragment to the positive pattern. */
+  /**
+   * {@code where(out(knows))} declines. Appending the hop to the positive pattern turns the
+   * existence test into a join that emits the source once per matching target, so the filter has to
+   * stay on the native pipeline; the context must carry no hop alias and no edge afterwards.
+   */
   @Test
-  public void edgeBearingChild_appendsHopFragment() {
+  public void edgeBearingChild_declines() {
     var admin = graph.traversal().V().where(__.out("knows")).asAdmin();
     var ctx = contextWithRegistry(true, null);
     var cursor = cursorAtTraversalFilter(admin);
 
     var outcome = TraversalFilterStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isTrue();
-    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isEqualTo(1);
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isFalse();
+    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
+    assertThat(ctx.aliasFilters).isEmpty();
   }
 
   /** A declined child sub-walk declines the whole {@code where(traversal)} filter. */
@@ -94,6 +99,26 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(renderBoundaryFilter(ctx)).contains("age");
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
+  }
+
+  /**
+   * The path-scoped {@link WhereTraversalStep} class reaches the same edge-bearing gate as the
+   * {@code TraversalFilterStep} spelling above: {@code where(__.as("a").out("knows"))} declines and
+   * commits nothing. Pinned separately because the two spellings enter through different recogniser
+   * classes, and a gate added on only one of them would leave the over-emission live on the other.
+   */
+  @Test
+  public void whereTraversalStep_edgeBearingChild_declines() {
+    var admin = graph.traversal().V().as("a").where(__.as("a").out("knows")).asAdmin();
+    var ctx = contextAfterStartWithRegistry(admin);
+    var cursor = cursorAtWhereTraversal(admin);
+
+    var outcome = WhereTraversalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isFalse();
+    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
+    assertThat(ctx.aliasFilters).isEmpty();
   }
 
   /** Path-scoped where whose child declines (e.g. {@code count()}) declines the whole filter. */

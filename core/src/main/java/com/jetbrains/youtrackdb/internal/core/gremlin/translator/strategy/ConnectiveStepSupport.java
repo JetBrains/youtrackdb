@@ -62,31 +62,59 @@ final class ConnectiveStepSupport {
   }
 
   /**
-   * Commits an edge-bearing child: appends the captured hop fragment to the positive pattern and
-   * merges any alias filters the child captured (target-vertex {@code has(...)} after a hop, etc.).
+   * Whether any accepted child contributed a hop, which makes the whole positive filter
+   * inexpressible and forces a decline to the native pipeline.
+   *
+   * <h2>Why an edge-bearing positive filter cannot be translated</h2>
+   *
+   * <p>A native {@code where(t)} / {@code and(t1, t2)} is an <b>existence test</b>: the incoming
+   * element passes through once when every child yields at least one result, and the child's own
+   * results are discarded. Committing the child's hop into the positive pattern instead makes the
+   * translation a <b>join</b>, so the plan emits one row per matching path. On the modern graph
+   * {@code g.V(marko).where(__.out())} returns marko once natively and once per out-edge
+   * translated; {@code g.V().and(__.out("a"), __.out("b"))} multiplies the two fan-outs. The
+   * element set is right and the multiset is wrong, which is the silent-wrong-answer shape, so the
+   * shape has to leave the translator until the semi-join is modelled.
+   *
+   * <p>Neither repair available today is sound. {@code RETURN DISTINCT} would collapse the
+   * over-emitted rows, but it applies to the whole projection and therefore also collapses the path
+   * multiplicity a prefix hop legitimately produces — {@code g.V().out()} yields a target once per
+   * in-path, and native Gremlin keeps those duplicates. Expressing the fix inside the child is not
+   * possible either: a captured sub-walk cannot contribute result shaping at all, because {@link
+   * SubTraversalPredicateAdapter} swallows {@code setReturnDistinct} (and the slice setters) so that
+   * only alias filters and pattern writes survive into the parent.
+   *
+   * <p>{@code not(t)} is unaffected and keeps translating: an anti-join emits its input at most
+   * once, so it never over-emits. {@link OrStepRecogniser} already declines edge-bearing children
+   * for a different reason (an OR arm has to be one boolean operand), so all four connective
+   * surfaces now agree that a hop inside a boolean filter stays native.
    */
-  static void commitEdgeBearingChild(RecognitionContext ctx, SubTraversalPredicateAdapter adapter) {
-    ctx.appendPattern(adapter.capturedPattern());
-    for (var entry : adapter.capturedAliasFilters().entrySet()) {
-      ctx.putAliasFilter(entry.getKey(), entry.getValue());
+  static boolean anyEdgeBearing(List<SubTraversalPredicateAdapter> adapters) {
+    for (var adapter : adapters) {
+      if (adapter.hasEdges()) {
+        return true;
+      }
     }
+    return false;
   }
 
   /**
    * Commits a single accepted child sub-walk from a positive filter ({@code where(traversal)} /
-   * {@link org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep}): pure-filter
-   * children merge into the boundary {@code WHERE}; edge-bearing children append hop fragments.
+   * {@code filter(traversal)} / {@link
+   * org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep}): pure-filter
+   * children merge into the boundary {@code WHERE}, edge-bearing children decline the whole filter
+   * (see {@link #anyEdgeBearing} for why). Nothing is written to {@code ctx} on the decline path, so
+   * a declining filter leaves the outer context exactly as it found it.
    */
   static Outcome commitPositiveFilterChild(
       RecognitionContext ctx, SubTraversalPredicateAdapter adapter) {
     if (adapter.outcome() != Outcome.ACCEPTED) {
       return Outcome.DECLINE;
     }
-    if (!adapter.hasEdges()) {
-      commitPureFilterChild(ctx, adapter);
-    } else {
-      commitEdgeBearingChild(ctx, adapter);
+    if (adapter.hasEdges()) {
+      return Outcome.DECLINE;
     }
+    commitPureFilterChild(ctx, adapter);
     return Outcome.ACCEPTED;
   }
 

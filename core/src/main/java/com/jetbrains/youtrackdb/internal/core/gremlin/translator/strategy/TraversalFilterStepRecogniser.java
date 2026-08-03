@@ -22,7 +22,9 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
  *   <li><b>{@code where(traversal)}</b> — in this fork also arrives as {@code TraversalFilterStep} over a
  *       general child sub-traversal (the positive counterpart of {@link NotStepRecogniser}'s logical
  *       {@code not(traversal)}). Pure-filter children merge into the boundary {@code WHERE};
- *       edge-bearing children append hop fragments to the positive pattern.
+ *       edge-bearing children decline the whole filter, because appending the hop would emit one row
+ *       per matching path instead of testing existence (see {@link
+ *       ConnectiveStepSupport#anyEdgeBearing}).
  * </ul>
  *
  * <p>Every other {@code TraversalFilterStep} declines.

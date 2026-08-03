@@ -12,10 +12,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
  *       — captured alias filters AND-composed into the parent boundary via {@link
  *       RecognitionContext#putAliasFilter}; a boundary re-type from a folded {@code hasLabel(L)}
  *       captured in the child's pattern buffer is committed through {@link RecognitionContext#addNode}.
- *   <li><b>Edge-bearing children</b> — captured hop fragments appended to the positive pattern via
- *       {@link RecognitionContext#appendPattern}, with any target filters merged through {@link
- *       RecognitionContext#putAliasFilter}.
- *   <li><b>Mixed</b> pure-filter and edge-bearing children in one {@code AndStep} are supported.
+ *   <li><b>Edge-bearing children</b> decline the whole {@code AndStep}, including a mixed AND whose
+ *       other arms are pure filters. Appending the hop would turn the existence test into a join
+ *       that emits one row per matching path — see {@link ConnectiveStepSupport#anyEdgeBearing} for
+ *       the full reasoning and for why {@code RETURN DISTINCT} is not the repair.
  * </ul>
  */
 final class AndStepRecogniser implements StepRecogniser {
@@ -40,12 +40,13 @@ final class AndStepRecogniser implements StepRecogniser {
     if (adapters == null) {
       return Outcome.DECLINE;
     }
+    // Check every child before committing any of them: a mixed AND must leave the outer context
+    // untouched when one arm is edge-bearing, not commit the pure-filter arms and then decline.
+    if (ConnectiveStepSupport.anyEdgeBearing(adapters)) {
+      return Outcome.DECLINE;
+    }
     for (var adapter : adapters) {
-      if (adapter.hasEdges()) {
-        ConnectiveStepSupport.commitEdgeBearingChild(ctx, adapter);
-      } else {
-        ConnectiveStepSupport.commitPureFilterChild(ctx, adapter);
-      }
+      ConnectiveStepSupport.commitPureFilterChild(ctx, adapter);
     }
     return Outcome.ACCEPTED;
   }

@@ -3,10 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
 
 /**
- * Recogniser for {@link WhereTraversalStep} — the positive counterpart of {@link NotStep}: a child
- * sub-traversal that must yield at least one result for the current row to pass. Pure-filter children
- * merge into the boundary alias {@code WHERE}; edge-bearing children append hop fragments to the
- * positive pattern (the same commit paths as {@link AndStepRecogniser}'s single child).
+ * Recogniser for {@link WhereTraversalStep} — the positive counterpart of {@code not(traversal)}: a
+ * child sub-traversal that must yield at least one result for the current row to pass. Pure-filter
+ * children merge into the boundary alias {@code WHERE}; edge-bearing children decline the whole
+ * filter, because appending the hop would emit one row per matching path instead of testing
+ * existence (see {@link ConnectiveStepSupport#anyEdgeBearing}). Both paths are shared with {@link
+ * AndStepRecogniser} through {@link ConnectiveStepSupport#commitPositiveFilterChild}.
  */
 final class WhereTraversalStepRecogniser implements StepRecogniser {
 
