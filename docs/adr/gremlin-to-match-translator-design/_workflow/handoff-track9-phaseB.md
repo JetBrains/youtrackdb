@@ -1,109 +1,124 @@
 <!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
-# Handoff — Track 9 Phase B, 2026-08-03T11:5xZ [ctx=warning]
+# Handoff — Track 9 Phase B, 2026-08-03 [ctx=warning]
 
-Track 9 Phase B is mid-flight with parallel worktrees. Steps 1 and 7 are done and on
-the branch; steps 3 and 8 are committed on their own branches or still running. Resume
-by reading this file, then the track file, then the branch list below.
+Track 9 Phase B ran four steps in parallel worktrees and is paused at the context
+warning. Read this file, then `plan/track-9.md` (`## Decision Log`, `## Surprises &
+Discoveries`, `## Artifacts and Notes`, `## Episodes`), then the branch list below.
 
-## Where the work is
+## Step state
 
-| Step | State | Branch / commit |
-|---|---|---|
-| 1 — repeat decline | **done**, episode written, roster `[x]` | `107de3ef34` on the design branch |
-| 7 — union positional suffix | **done**, code merged, **episode not written**, roster still `[ ]` | `2def4d43f0` on the design branch |
-| 3 — per-alias filter binding | implementer was running in a worktree | `ytdb-558-t9-step3` at `.claude/worktrees/t9-step3` |
-| 8 — move the veto marker off the strategy list | implementer was running in a worktree | `ytdb-558-t9-step8` at `.claude/worktrees/t9-step8` |
-| 2, 4, 6 — measurements | not started, deliberately serialized | — |
-| 5 — residue triage | not started, depends on 3 and 4 | — |
+| Step | State |
+|---|---|
+| 1 — repeat decline | done, merged, episode written, roster `[x]` |
+| 3 — per-alias filter binding | code merged (`89b8bc4f47`), reviewed, **fix respawn was running in the main checkout**, no episode, roster `[ ]` |
+| 7 — union positional suffix | code merged (`2def4d43f0`), reviewed, **fix respawn was running in `.claude/worktrees/t9-step7`**, no episode, roster `[ ]` |
+| 8 — veto marker carrier | done, merged (`55da40dcdd`), **no episode**, roster `[ ]` |
+| 2, 4, 6 — measurements | not started, must run serially with nothing else touching `core` |
+| 5 — residue triage and fixes | not started; scope expanded by DR-S2, see below |
 
-**If a worktree branch has commits the design branch lacks**, its implementer finished
-after this file was written and its structured return was lost with the session. The
-commit message and the diff are the record; reconstruct the episode from them rather
-than re-running the step. Rebase each onto the design branch tip and fast-forward, in
-step order: `git -C .claude/worktrees/t9-stepN rebase <design-branch-tip>` then
-`git merge --ff-only ytdb-558-t9-stepN`.
+**First thing to do on resume:** check whether the two fix respawns landed commits.
+`git log --oneline 55da40dcdd..HEAD` in the main checkout, and
+`git -C .claude/worktrees/t9-step7 log --oneline` for step 7's. A `Review fix:` commit
+means the spawn finished and its structured return was lost with the session —
+reconstruct the episode from the commit message and diff rather than re-running. No
+commit means it did not finish; re-spawn from the review files listed below.
 
-**If a worktree branch has no commits**, its implementer did not finish. Re-spawn it
-from the roster line, which carries the full contract for both steps 7 and 8.
+Worktrees: `t9-step3`, `t9-step7`, `t9-step8` under `.claude/worktrees/`. Steps 3, 7
+and 8 are already merged into the design branch, so those branches are only useful for
+in-flight work. Rebase then `git merge --ff-only` in step order.
 
-## What still owes work on steps already merged
+## Episodes owed
 
-- **Step 7 has no episode and no step-level dimensional review.** It is `risk: high`,
-  so the review is owed before Phase C. Its `EPISODE_DRAFT` was lost with the session;
-  the commit message and `## Surprises & Discoveries` carry the substance. What the
-  step established, so it is not re-derived: `MultiPlanMatchStep` concatenates child
-  plans branch-major through a `MultipleExecutionStream`, while TinkerPop's `union` is
-  a `BranchStep` that interleaves arms per incoming traverser. Same rows, different
-  order, so any positional slice after a union diverges. The fix accepts a post-union
-  `range` / `limit` / `skip` only when a `count()` follows immediately, because
-  `min(n, total)` and `max(0, total - n)` are order-free; everything else declines.
-  `POST_UNION_RECOGNISERS` membership is now necessary but not sufficient —
-  `RangeGlobalStepRecogniser` stays on the list and gates inside itself.
-- **Step 1's dimensional review closed at iteration 1 with two recorded skips**: TS8
-  (a fifth hand-rolled copy of the translator test harness across five classes) and
-  PF1's code half (a deep hand-written chain still translates and still pays the path
-  enumeration; bounding it by depth or fan-out is a design decision, not a review fix).
-  Both belong on the residual list.
+Steps 3, 7 and 8 all lack episodes and all three are `risk: high`. Their step-level
+dimensional reviews are done — 25 findings across steps 3 and 7, 0 blockers as graded,
+12 should-fix, files under `plan/track-9/reviews/`: `bugs-step3-iter1.md`,
+`performance-step3-iter1.md`, `test-structure-step3-iter1.md`, `bugs-step7-iter1.md`,
+`performance-step7-iter1.md`, `test-structure-step7-iter1.md`. Step 8 had no
+step-level review; decide whether to run one or let Phase C cover it.
 
-## Numbers that are load-bearing
+Two orchestrator severity calls, already reflected in the fix respawns: step 3's BG1
+plus PF1 (same site, `MatchPatternBuilder:391`, the NOT path binding the generic `V`
+class the walker site skips) were **upgraded to blocker** because the basis says
+"divergent". Step 7's BG3 was **excluded** from its respawn — see below.
 
-`core` feature suite at `107de3ef34`: **1930 scenarios / 42 failures / 14 skipped**,
-single fork, translator on, orchestrator-verified. **42 is the pre-triage number**, not
-41 — see `## Artifacts and Notes` for why the intermediate 41 was an artifact of an
-accidental narrowing rather than an improvement. Step 7 changed `core` behaviour after
-that verification, so the figure must be re-taken before step 2 publishes anything.
+## The decision that reshapes the rest of the track (DR-S2)
 
-CI covers both Cucumber runners on the **on-arm only** from `b35ac67d2f` onward and
-never sets the kill-switch. Banked figures and their three qualifications are in
-`## Artifacts and Notes`.
+Measured at `55da40dcdd`, one flag apart: translator **off** is 1930 / **0 failures**
+/ 14; translator **on** is 1930 / **42** / 14. Every compliance failure is a
+regression this branch introduces, not inherited debt, and the kill-switch defaults to
+true. The user was offered a kill-switch flip to `false` (green by construction) and
+chose instead to **fix the whole residue in step 5**, the twelve Track-6-surface
+defects included. `## Decision Log` DR-S2 carries the full rationale and the cost:
+the track grows past DR-S1's split size and Phase C's review-burden check is expected
+to trip. If item 4's two-working-day ESCALATE fires, the fallback is the kill-switch
+flip, not a follow-up issue.
+
+## Two live defects with no owner yet
+
+Both are silent wrong answers on recognised shapes, both recorded in `## Surprises &
+Discoveries`, both in the mandatory-handling category.
+
+- **A1** — `union(...).range(2,5)` and `.limit(3)` diverged on/off. **Fixed** by step 7.
+- **BG3** (step 7 bugs review, `### BG3 `, cert C7) — pre-existing, single-plan path: a
+  slice followed by a hop compiles to a statement-level SQL `SKIP`/`LIMIT`, so
+  `g.V().limit(2).out()` slices the **hop's output** instead of its input. Not fixed,
+  not assigned. The user directed A1 fixed in-track rather than dispositioned; they
+  were asked whether BG3 gets the same treatment and had not answered when the session
+  paused. Default is that step 5 inherits it.
+
+## Numbers
+
+`core` feature suite, translator on, at `55da40dcdd`: **1930 / 42 / 14**. Translator
+off at the same commit: **1930 / 0 / 14**. The whole `...gremlin.translator.**` package
+is 601 / 601 green. Of the 42, the track records that 28 are count comparisons and 25
+of those are over-emission — the dropped-filter signature step 3 fixes — so step 4's
+re-measure is where the number should drop sharply. It has not been taken.
+
+Banked CI figures and their three qualifications are in `## Artifacts and Notes`; they
+are pinned to `b35ac67d2f` and superseded by anything later.
 
 ## Rules the parallel worktrees run under
 
-Every worktree implementer was given these and they must be repeated on any re-spawn:
-never `mvn install`, never `-am` (the shared `~/.m2` would poison a pending
-measurement — Track 11 finding R5 confirms the mechanism); never the full Cucumber
-suite or a whole-module `core` test run, targeted `-Dtest=` only; one Maven invocation
-at a time per worktree; commit on the worktree branch and do not push.
+Repeat these on any re-spawn: never `mvn install`, never `-am` (shared `~/.m2` poisons
+pending measurements — Track 11 R5 confirms the mechanism); never the full Cucumber
+suite or a whole-module `core` run except where a spawn explicitly authorises one;
+one Maven invocation at a time per worktree; commit on the worktree branch, do not
+push. **Steps 2, 4 and 6 are measurements — stop every other stream before running
+them.**
 
-**Steps 2, 4 and 6 are measurements and must not run concurrently with anything that
-touches `core` or `embedded`.** Rule R8 in `## Decision Log` invalidates a baseline on
-any qualifying commit, and the suite is additionally perturbable by machine load. Stop
-the other streams before measuring.
+## Track 11
 
-## Track 11, out-of-band
+Phase A panel ran out-of-band and is committed: `technical-iter1.md` (8 findings, 1
+blocker), `risk-iter1.md` (9, 2 blockers), `adversarial-iter1.md` (9, 2 blockers) under
+`plan/track-11/reviews/`. **No ledger entry was appended for Track 11.** Item 7 was
+revised against A2 / T5 / A7 and is committed. The union-ordering cluster (T1, T3, R2)
+and the baseline-ancestry findings (R4, A6) were left for Track 11's own Phase A and
+must be re-read against `2def4d43f0`, which changed the union surface underneath them.
 
-Its Phase A panel ran early and in parallel: `plan/track-11/reviews/technical-iter1.md`
-(8 findings, 1 blocker), `risk-iter1.md` (9, 2 blockers), `adversarial-iter1.md` (9, 2
-blockers). **No ledger entry was appended for Track 11** — the ledger stays Track 9's,
-so its formal Phase A will find the reviews on disk and iterate from there rather than
-starting cold. Item 7 was already revised against A2 / T5 / A7 and is committed. The
-union-ordering cluster (T1, T3, R2) and the baseline-ancestry findings (R4, A6) were
-deliberately left for Track 11's own Phase A, because they depend on what Track 9 does
-to the union surface — which step 7 has now changed, so re-read them against
-`2def4d43f0` rather than against the state they were written on.
-
-Step 7's cross-track finding bears directly on Track 11 item 4: **`tail(n)` inherits
-the same defect and cannot be added as a bare post-union suffix**, though
-`tail(n).count()` would be order-free; and `fold()` cannot be added either, because
+Step 7 established two hard constraints for Track 11 item 4: **`tail(n)` cannot be a
+bare post-union suffix** (it selects by position and inherits the ordering defect,
+though `tail(n).count()` would be order-free), and **`fold()` cannot either**, because
 the folded result is a one-element multiset whose member is a `List` and `List.equals`
-is order-sensitive, so a multiset comparison of `union(...).fold()` is an ordered
-comparison in disguise.
+is order-sensitive. Step 7's own review added BG2: the positional gate keys on
+`RangeGlobalStepRecogniser.INSTANCE` rather than on a property, so a new
+`POST_UNION_RECOGNISERS` member would get the membership gate and no positional gate —
+the fix respawn was asked to re-key it.
 
-## The recurring failure mode, now at five instances
+## The recurring failure mode, at eight instances
 
 Acceptance assertions on this branch keep passing without exercising the path they
-name. Phase A caught two, step 1's review caught a third (TS1 / TS2 / TS3), Track 11's
-technical review caught a fourth (T4 — `supportsListShaping()` defaults to `true`,
-which inverts under a Mockito mock), and step 7 found the fifth: every existing
-post-union slice test used a fixture whose arms were too short to separate the two
-orders, or asserted cardinality plus membership instead of the multiset. The defect
-was reachable the whole time and the fixtures could not see it. Any new decline
-assertion needs a positive control of the same shape, measured rather than derived.
-This belongs in `design-final.md` at Phase 4.
+name. Two in Phase A, one in step 1's review, one in Track 11's technical review (T4,
+a Mockito mock inverting a `true` default), one found by step 3 itself (a boundary
+counter reading `YTDBMatchPlanStep` where a union splices `MultiPlanMatchStep`), one in
+step 3's review (TS1, confirmed by trace), and two in step 7's review (TS1, TS2). Step
+3's review also found the counter trap still live in three more helpers (TS3), where a
+DECLINED case passes inverted. The durable rule — a decline assertion needs a positive
+control of the same shape, measured rather than derived — is recorded for
+`design-final.md`. The user was offered promoting it to an enforced review rule and had
+not answered when the session paused.
 
-## D14 deviation to record
+## D14 deviation
 
-Track 11's adversarial pass ran on Opus. `design_gate` resolves to `yes` (ledger
-`tier=full`, `design.md` exists), so D14 required a Fable 5 pin. Root cause, recorded
-as finding A9: `phase-ledger.md` carries no `design_gate` field and D14 states no
-fallback. Worth a self-improvement issue.
+Track 11's adversarial pass ran on Opus; `design_gate` resolves to `yes`, so D14
+required Fable 5. Root cause recorded as A9: `phase-ledger.md` carries no `design_gate`
+field and D14 states no fallback. Worth a self-improvement issue.
