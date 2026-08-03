@@ -11,17 +11,15 @@ Discoveries`, `## Artifacts and Notes`, `## Episodes`), then the branch list bel
 |---|---|
 | 1 — repeat decline | done, merged, episode written, roster `[x]` |
 | 3 — per-alias filter binding | code merged, reviewed, **fix landed** (`c4d9d67ae7`), no episode, roster `[ ]` |
-| 7 — union positional suffix | code merged (`2def4d43f0`), reviewed, **fix respawn was running in `.claude/worktrees/t9-step7`**, no episode, roster `[ ]` |
+| 7 — union positional suffix | code merged, reviewed, **fix landed** (`001ea7921c`), no episode, roster `[ ]` |
 | 8 — veto marker carrier | done, merged (`55da40dcdd`), **no episode**, roster `[ ]` |
 | 2, 4, 6 — measurements | not started, must run serially with nothing else touching `core` |
 | 5 — residue triage and fixes | not started; scope expanded by DR-S2, see below |
 
-**First thing to do on resume:** check whether the two fix respawns landed commits.
-`git log --oneline 55da40dcdd..HEAD` in the main checkout, and
-`git -C .claude/worktrees/t9-step7 log --oneline` for step 7's. A `Review fix:` commit
-means the spawn finished and its structured return was lost with the session —
-reconstruct the episode from the commit message and diff rather than re-running. No
-commit means it did not finish; re-spawn from the review files listed below.
+**Both fix respawns landed and are merged.** No spawn is in flight. The design branch
+tip carries every step's code; `...gremlin.translator.**` is 612 / 612 green with all
+four steps combined. Nothing needs re-running — the outstanding work is episodes,
+measurements and step 5.
 
 Worktrees: `t9-step3`, `t9-step7`, `t9-step8` under `.claude/worktrees/`. Steps 3, 7
 and 8 are already merged into the design branch, so those branches are only useful for
@@ -113,6 +111,29 @@ baseline, and step 2 has not run either.
 
 Banked CI figures and their three qualifications are in `## Artifacts and Notes`; they
 are pinned to `b35ac67d2f` and superseded by anything later.
+
+## Step 7's fix — what the commit does not carry
+
+`001ea7921c` re-keyed the post-union positional gate off recogniser identity onto a
+property: `StepRecogniser.selectsPositionally(Step)` with a safe `false` default, each
+allow-list member stating its own answer, and a unit test over `POST_UNION_RECOGNISERS`
+that **fails the build** if a future member inherits the default. That is a hard gate in
+front of Track 11 item 4 — a `tail` recogniser must answer `true`, since `tail(n)`
+selects from the end of the concatenation, the position the two arrival orders disagree
+about hardest, and will then translate only ahead of an immediate `count()`.
+
+Two facts worth keeping. `skip(n)` and `range(n, -1)` compile to the identical
+`RangeGlobalStep(n, -1)`, so TS2's supposedly unpinned shape was already covered by the
+existing `skip(1)` guard; the guard was added anyway so the block reads as guarded
+without that knowledge. And the decline's real cost, now recorded in
+`RangeGlobalStepRecogniser`'s Javadoc rather than the track file: because the walk is
+all-or-nothing, withdrawing the post-union slice **withdraws the prefix from MATCH too**.
+Post-concat `order()` is the recovery path and should be sequenced ahead of other
+post-concat work if union paging matters to consumers.
+
+BG3 was left untouched as instructed and verified unaffected — the single-plan branch
+and `GremlinPatternAssembler.claimFoldedHop` are byte-identical, and the
+`g.V().limit(2).out()` repro behaves exactly as at `2def4d43f0`.
 
 ## Steps 2, 4 and 6 should be restructured before they run (proposed, user raised it, not yet applied)
 
