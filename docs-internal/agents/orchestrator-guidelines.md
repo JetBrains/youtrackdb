@@ -15,8 +15,8 @@ code review → mandatory user review → marker commit), and the change-size sc
 and pr-publishing.md — umbrella draft PR before implementation, description rules,
 ready-for-review flip, user-performed merge (draft-PR publishing is enabled for this repo).
 YTDB deltas — the `develop` base branch, issue-prefix/PR-template conventions, the
-umbrella-PR peer-review policy, and the package pin-bump rule — live in
-`docs-internal/dev-workflow/track-development.md`.
+umbrella-PR peer-review policy, the action-level model-routing setup, and the package
+pin-bump rule — live in `docs-internal/dev-workflow/track-development.md`.
 
 This flow covers **all files in the repository**, including `.pi/` configuration, prompts,
 and docs — not only Java/product sources. There is no "harness tooling" exemption: editing a

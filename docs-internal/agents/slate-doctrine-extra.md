@@ -16,3 +16,20 @@ itself, for changes of any size:
    description in sync (pr-publishing.md § After the flip).
 3. Peer review supplements, never replaces, the mandatory per-track
    user review (track-workflow.md § Peer review).
+
+## Model routing
+
+1. Always name both `model` and `effort`, or neither. Naming one alone
+   takes the other from a default you did not choose.
+2. Name neither only for bulk mechanical work: the dispatch then rides
+   the thread's base, which is sized for nothing else.
+3. Gate and verification actions MUST name both, on a level the live
+   routing table marks measured for that model, and MUST NOT be sized
+   down to the cheapest model that looks like it would clear them:
+   adversarial review, agent code review, the design-review and
+   PR-description statements, the ready-for-review flip, Maven
+   build/test/coverage runs, commits and pushes, and any change to
+   storage, WAL, index, transaction or crash-recovery code.
+
+Rationale, model-list maintenance and the machine-local prerequisite:
+`docs-internal/dev-workflow/track-development.md` § Model routing.
