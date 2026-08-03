@@ -11,6 +11,12 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder.Direction;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1066,6 +1072,103 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         List<Boolean> childCacheEligible) {
       throw new AssertionError("no arm translates in these fixtures, so nothing may be stashed");
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // bindPathItemConstraints — the preservation rules no traversal can reach.
+  // The equivalence suites cover the binding itself end-to-end; these cover what
+  // the binding must NOT do, which a regression would otherwise break silently.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Binding the target alias's class and {@code WHERE} onto the closing vertex item leaves the edge
+   * item alone: the edge alias is in neither map, and its own predicate lives nowhere else, so
+   * touching it would drop the {@code outE(L).has(p, v).inV()} edge filter with no error.
+   */
+  @Test
+  public void bindPathItemConstraints_bindsTarget_andLeavesUnlistedEdgeAliasAlone() {
+    var wb = new MatchWhereBuilder();
+    var edgeWhere = wb.wrap(wb.eq("weight", MatchLiteralBuilder.toLiteral(1L)));
+    var targetWhere = wb.wrap(wb.eq("name", MatchLiteralBuilder.toLiteral("vadas")));
+    var ir =
+        new MatchPatternBuilder()
+            .addEdgeAsNode("a", "e", "t", Direction.OUT, "knows", Direction.IN, edgeWhere)
+            .build();
+
+    GremlinStepWalker.bindPathItemConstraints(
+        ir.pattern(), Map.of("t", targetWhere), Map.of("t", "Person"));
+
+    var edgeItem = itemTargeting(ir.pattern(), "e");
+    assertThat(renderWhere(edgeItem)).contains("weight");
+    assertThat(edgeItem.getFilter().getClassName(null)).isNull();
+    var targetItem = itemTargeting(ir.pattern(), "t");
+    assertThat(renderWhere(targetItem)).contains("name");
+    assertThat(targetItem.getFilter().getClassName(null)).isEqualTo("Person");
+  }
+
+  /**
+   * A path item that already carries a {@code WHERE} keeps it — the alias filter is AND-composed on
+   * top — and a class already on the item is not replaced. Overwriting either would reintroduce the
+   * dropped-constraint defect on a second surface.
+   */
+  @Test
+  public void bindPathItemConstraints_andComposesExistingWhere_andKeepsExistingClass() {
+    var wb = new MatchWhereBuilder();
+    var itemWhere = wb.wrap(wb.eq("since", MatchLiteralBuilder.toLiteral(2020L)));
+    var aliasWhere = wb.wrap(wb.eq("name", MatchLiteralBuilder.toLiteral("vadas")));
+    var ir =
+        new MatchPatternBuilder()
+            .addEdge("a", "t", Direction.OUT, "knows", itemWhere, null, null)
+            .build();
+    itemTargeting(ir.pattern(), "t").getFilter().setClassName("Employee");
+
+    GremlinStepWalker.bindPathItemConstraints(
+        ir.pattern(), Map.of("t", aliasWhere), Map.of("t", "Person"));
+
+    var targetItem = itemTargeting(ir.pattern(), "t");
+    assertThat(renderWhere(targetItem)).contains("since").contains("name");
+    assertThat(targetItem.getFilter().getClassName(null)).isEqualTo("Employee");
+  }
+
+  /**
+   * The generic {@code V} root class the hop recognisers register on every target is not bound: it
+   * excludes nothing a vertex hop can reach, so binding it would only add a class check per
+   * candidate row.
+   */
+  @Test
+  public void bindPathItemConstraints_skipsGenericVertexRootClass() {
+    var ir =
+        new MatchPatternBuilder()
+            .addEdge("a", "t", Direction.OUT, "knows", null, null, null)
+            .build();
+
+    GremlinStepWalker.bindPathItemConstraints(
+        ir.pattern(), Map.of(), Map.of("t", WalkerContext.VERTEX_ROOT_CLASS));
+
+    assertThat(itemTargeting(ir.pattern(), "t").getFilter().getClassName(null)).isNull();
+  }
+
+  /** Returns the single path item whose target node is {@code alias}. */
+  private static SQLMatchPathItem itemTargeting(Pattern pattern, String alias) {
+    for (var node : pattern.aliasToNode.values()) {
+      for (var edge : node.out) {
+        if (alias.equals(edge.in.alias)) {
+          return edge.item;
+        }
+      }
+    }
+    throw new AssertionError("no path item targets alias " + alias);
+  }
+
+  /** Renders a path item's {@code WHERE} as generic statement text, or "" when it carries none. */
+  private static String renderWhere(SQLMatchPathItem item) {
+    var where = item.getFilter().getFilter();
+    if (where == null) {
+      return "";
+    }
+    var sb = new StringBuilder();
+    where.getBaseExpression().toGenericStatement(sb);
+    return sb.toString();
   }
 
   /**

@@ -382,6 +382,15 @@ public final class MatchPatternBuilder {
     SQLMatchFilter filter;
     if (existingItemFilter != null) {
       filter = existingItemFilter.copy();
+      // The class has to be bound on this branch too, and this is the branch that always runs on the
+      // NOT path: buildNotExpression copies items produced by addEdge / MatchEdgePathItems, both of
+      // which always attach a filter, so the else branch below is unreachable from there. Under
+      // polymorphic mode a hasLabel(L) inside the sub-traversal contributes no @class term to the
+      // captured WHERE, so leaving the class unbound turns not(out().hasLabel(L)) into not(out()) —
+      // fewer rows returned, with no error.
+      if (className != null && filter.getClassName(null) == null) {
+        filter.setClassName(className);
+      }
     } else {
       filter = SQLMatchFilter.fromAliasAndClass(alias, className);
     }

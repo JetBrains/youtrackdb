@@ -104,6 +104,29 @@ public class SQLMatchFilter extends SimpleNode {
     }
   }
 
+  /**
+   * Sets the class constraint, mirroring {@link #setFilter}: the first item that already carries a
+   * class name is rewritten, otherwise a new item carrying only the class is appended. The
+   * representation matches {@link #fromAliasAndClass}'s, so {@link #getClassName} reads it back the
+   * same way regardless of which of the two built the filter.
+   *
+   * <p>Front-ends that construct MATCH AST directly need this when they bind a class onto a filter
+   * they did not build — a path item's target filter is created alias-only and its class becomes
+   * known only later, once the traversal step that types the target has been read.
+   */
+  public void setClassName(String className) {
+    var expression = new SQLExpression(new SQLIdentifier(className));
+    for (var item : items) {
+      if (item.className != null) {
+        item.className = expression;
+        return;
+      }
+    }
+    var newItem = new SQLMatchFilterItem(-1);
+    newItem.className = expression;
+    items.add(newItem);
+  }
+
   @Nullable
   public SQLWhereClause getWhileCondition() {
     for (var item : items) {

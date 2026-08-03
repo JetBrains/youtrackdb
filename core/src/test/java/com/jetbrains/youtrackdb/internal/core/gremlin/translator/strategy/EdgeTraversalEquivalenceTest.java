@@ -865,6 +865,68 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Post-hop constraints on a non-root alias. A hop's target is a second pattern
+  // alias, and only the alias the planner picks as root has its filter read from
+  // the plan inputs; the rest are read off the path item the hop built. These
+  // cases pin that a constraint landing on a non-root target still reaches the
+  // executor. Each returns three rows instead of one when the target's filter or
+  // class is dropped, so a regression is visible as an over-large multiset rather
+  // than an error.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V(marko).out().hasId(vadas)} returns the single pinned target, matching native. The
+   * origin is pinned to one RID so root selection prefers it, which puts {@code hasId}'s {@code @rid}
+   * term on the hop's <em>target</em> alias — the non-root side. Marko has three out-neighbours
+   * (vadas, josh, lop), so a target constraint that never reaches the executor returns all three.
+   */
+  @Test
+  public void postHopHasId_onNonRootTarget_returnsSameMultisetAsNative() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+    var vadasId = modern.vadas().id();
+
+    assertEquivalent(
+        "g.V(marko).out().hasId(vadas)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(markoId).out().hasId(vadasId));
+  }
+
+  /**
+   * {@code g.V(marko).out().hasLabel("Software")} returns only {@code lop}, matching native. This is
+   * the class half of the same binding and it is asserted separately on purpose: under the default
+   * polymorphic mode a {@code hasLabel(L)} contributes no {@code WHERE} term at all — the class slot
+   * is the whole constraint — so a fix that binds only the {@code WHERE} still returns marko's three
+   * out-neighbours here.
+   */
+  @Test
+  public void postHopHasLabel_onNonRootTarget_returnsSameMultisetAsNative() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+
+    assertEquivalent(
+        "g.V(marko).out().hasLabel(Software)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(markoId).out().hasLabel("Software"));
+  }
+
+  /**
+   * {@code g.V().outE("knows").has("weight", 0.5).inV()} returns only vadas, matching native. The
+   * edge predicate lives on the edge path item and nowhere else, so this is the regression case for
+   * binding target constraints by merge rather than by overwrite: an overwriting rebind would clear
+   * the edge {@code WHERE} and return both {@code knows} targets with no error.
+   */
+  @Test
+  public void edgePathItemFilter_survivesTargetConstraintBinding() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().outE(knows).has(weight, 0.5).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE("knows").has("weight", 0.5d).inV());
+  }
+
+  // ---------------------------------------------------------------------------
   // Fixture helpers.
   // ---------------------------------------------------------------------------
 

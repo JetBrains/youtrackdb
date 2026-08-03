@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStr
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -512,6 +513,12 @@ final class GremlinStepWalker {
       finalAliasFilters.merge(entry.getKey(), entry.getValue(), GremlinStepWalker::andWhere);
     }
 
+    // The merged map above is what the planner reads for the alias it roots the plan at; every other
+    // alias's constraint has to be pushed onto the path item that produced it. This is the first
+    // point where both halves exist — the pattern is assembled and the recogniser-contributed
+    // filters are merged — so the pass runs here.
+    bindPathItemConstraints(ir.pattern(), finalAliasFilters, ir.aliasClasses());
+
     // Only the fields a single-node g.V() translation actually carries are set; the rest keep their
     // null/false defaults (matchExpressions/notMatchExpressions normalise to empty lists in the
     // compact constructor). The builder names each field so a future track adding one cannot silently
@@ -569,5 +576,81 @@ final class GremlinStepWalker {
    *  the pattern builder and a recogniser contribute a filter to the same alias. */
   private static SQLWhereClause andWhere(SQLWhereClause a, SQLWhereClause b) {
     return WHERE.wrap(WHERE.and(a.getBaseExpression(), b.getBaseExpression()));
+  }
+
+  /**
+   * Pushes each alias's class and {@code WHERE} onto the path item that targets it, so a constraint
+   * on an alias the planner does not root still reaches the executor.
+   *
+   * <p>A forward hop's target constraint is read off the path item itself — {@code
+   * MatchEdgeTraverser} calls {@code item.getFilter().getFilter()} and {@code .getClassName(…)} — and
+   * not off the plan's alias maps, which the planner consults for the root alias and, when it
+   * traverses an edge backwards, for the syntactic source. Every positive path item is constructed
+   * alias-only, so before this pass a predicate on any other alias had no consumer at all:
+   * {@code g.V(a).out().has(k, v)} returned every out-neighbour of {@code a} rather than the matching
+   * one, and returned it with no error.
+   *
+   * <p>The binding merges and never rebinds:
+   *
+   * <ul>
+   *   <li>It AND-composes with the {@code WHERE} the item already carries. An edge path item's own
+   *       predicate ({@code outE(L).has(p, v).inV()}) lives nowhere else — the walker's edge-filter
+   *       map is observability-only and never reaches the plan inputs — so an overwriting rebind
+   *       would drop it silently.
+   *   <li>It leaves an item whose alias is in neither map untouched, for the same reason.
+   *   <li>It does not overwrite a class the item already carries.
+   * </ul>
+   *
+   * <p>The class is bound as well as the {@code WHERE} because under polymorphic mode a {@code
+   * hasLabel(L)} contributes no {@code @class} term to the alias filter (see {@link
+   * HasStepRecogniser}), which leaves the item's class slot as the constraint's only carrier — a
+   * {@code WHERE}-only binding would lose {@code g.V(a).out().hasLabel(L)} entirely. The generic
+   * {@code V} root class the hop recognisers register is skipped: it excludes nothing a vertex hop
+   * can reach, and binding it would add a per-candidate class check to every translated hop.
+   *
+   * <p>The items are mutated in place. {@code Pattern.copy()} shares its path items with the
+   * builder's pattern and the planner takes the pattern by reference, so these are the objects the
+   * executor reads; the builder is locked by {@code build()} before this runs, so no later
+   * construction call can observe a half-bound item. The filter itself is replaced by a copy rather
+   * than mutated, because a captured sub-walk fragment shares its filter objects with the parent
+   * pattern it was appended into.
+   *
+   * <p>Package-private rather than private so the merge rules above can be asserted directly: the
+   * three preservation cases (an alias in neither map, an item that already carries a {@code WHERE},
+   * an item that already carries a class) are the ones a regression would break silently, and the
+   * translator cannot currently build a traversal that reaches them.
+   */
+  static void bindPathItemConstraints(
+      Pattern pattern, Map<String, SQLWhereClause> aliasFilters, Map<String, String> aliasClasses) {
+    for (var node : pattern.aliasToNode.values()) {
+      for (var edge : node.out) {
+        // Pattern.addExpression names each node after its item's own filter alias, so the alias at
+        // the head of the edge is the one whose constraints belong on this item.
+        var alias = edge.in.alias;
+        var where = aliasFilters.get(alias);
+        var className = aliasClasses.get(alias);
+        if (WalkerContext.VERTEX_ROOT_CLASS.equals(className)) {
+          // The generic vertex root the hop recognisers register excludes nothing a vertex hop can
+          // reach; binding it would cost a class check per candidate row for no narrowing.
+          className = null;
+        }
+        if (where == null && className == null) {
+          continue;
+        }
+        var item = edge.item;
+        var existing = item.getFilter();
+        assert existing != null
+            : "path item for alias " + alias + " has no filter block to bind onto";
+        var bound = existing.copy();
+        if (className != null && bound.getClassName(null) == null) {
+          bound.setClassName(className);
+        }
+        if (where != null) {
+          var existingWhere = bound.getFilter();
+          bound.setFilter(existingWhere == null ? where : andWhere(existingWhere, where));
+        }
+        item.setFilter(bound);
+      }
+    }
   }
 }

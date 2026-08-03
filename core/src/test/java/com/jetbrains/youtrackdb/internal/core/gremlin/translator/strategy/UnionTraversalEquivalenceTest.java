@@ -106,6 +106,31 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * {@code g.V(marko).union(__.out().hasId(vadas), __.out())} returns four rows — the filtered
+   * child's single target plus the unfiltered child's three — matching native.
+   *
+   * <p>The case belongs to the per-alias-filter family rather than to union semantics: each child is
+   * walked and planned separately, and a child's post-hop constraint lands on the hop's target alias,
+   * which is not the alias the child's planner picks as root. It lives here rather than beside the
+   * other post-hop-filter cases in {@link PredicateTraversalEquivalenceTest} because a union splices
+   * a {@link MultiPlanMatchStep}, and only this fixture's boundary counter recognises one.
+   *
+   * <p>With the filtered child's target constraint dropped both children return marko's three
+   * out-neighbours and the union returns six rows, so the multiset comparison is discriminating.
+   */
+  @Test
+  public void unionChildPostHopFilter_returnsSameMultisetAsNative() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+    var vadasId = modern.vadas().id();
+
+    assertEquivalent(
+        "g.V(marko).union(out().hasId(vadas), out()) — post-hop filter in a union child",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V(markoId).union(__.out().hasId(vadasId), __.out()));
+  }
+
+  /**
    * Projection-contract mismatch: {@code values("name")} (SINGLE_VALUE) and {@code out()} (ELEMENT)
    * disagree, so the whole union declines to native.
    */

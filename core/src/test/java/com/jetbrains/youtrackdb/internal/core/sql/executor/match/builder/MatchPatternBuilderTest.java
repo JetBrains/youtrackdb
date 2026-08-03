@@ -505,6 +505,26 @@ public class MatchPatternBuilderTest {
   }
 
   /**
+   * The registered class of a NOT hop's target reaches the emitted path item. Every item
+   * {@code buildNotExpression} copies was built with a filter block already attached, so the
+   * copy-the-existing-filter branch always runs on this path and it is the branch that has to bind
+   * the class. A caller whose class constraint lives only in {@code aliasClasses} — a polymorphic
+   * {@code hasLabel} contributes no {@code WHERE} term — would otherwise emit an anti-join over
+   * every neighbour instead of every neighbour of that class.
+   */
+  @Test
+  public void buildNotExpression_bindsRegisteredTargetClassOnLeafItem() {
+    var captured =
+        new MatchPatternBuilder()
+            .addEdge("p", "t", Direction.OUT, "knows", null, null, null)
+            .addNode("t", "Software", null, false);
+
+    var notExpr = captured.buildNotExpression("p", Map.of());
+
+    assertEquals("Software", notExpr.getItems().getFirst().getFilter().getClassName(null));
+  }
+
+  /**
    * Supplemental alias filters from the sub-walk capture are merged onto the leaf path item when the
    * builder itself carried no filter for that alias.
    */

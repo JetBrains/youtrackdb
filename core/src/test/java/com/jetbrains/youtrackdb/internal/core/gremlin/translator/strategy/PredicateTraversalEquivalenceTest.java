@@ -890,6 +890,98 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Predicates on a non-root alias. A predicate after a hop constrains the hop's
+  // target, which is a second pattern alias; only the alias the planner picks as
+  // root has its filter read from the plan inputs. These cases pin that a
+  // predicate on a non-root alias still reaches the executor — directly, inside a
+  // union child, inside a where(...) fragment, and on a not(...) sub-traversal.
+  // Every one of them returns an over-large multiset when the constraint is
+  // dropped, never an error, which is why they are equivalence cases rather than
+  // structural assertions.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V(marko).out().has("name", "vadas")} returns the one named target, matching native. The
+   * pinned single-RID origin wins root selection, so the predicate lands on the hop's target alias.
+   * Marko has three out-neighbours, so dropping the target's predicate returns all three.
+   */
+  @Test
+  public void postHopHas_pinnedOrigin_matchesNative() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+
+    assertEquivalent(
+        "g.V(marko).out().has(name, vadas)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(markoId).out().has("name", "vadas"));
+  }
+
+  /**
+   * {@code g.V().has("name", "marko").out().has("name", "vadas")} returns the one named target,
+   * matching native. Same defect on a property-filtered rather than RID-pinned origin: the origin's
+   * own predicate is honoured (it roots the plan), the target's is the one at risk.
+   */
+  @Test
+  public void postHopHas_filteredOrigin_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().has(name, marko).out().has(name, vadas)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "marko").out().has("name", "vadas"));
+  }
+
+  /**
+   * {@code g.V(marko, josh).where(__.out().has("name", "vadas"))} returns {@code [marko]}, matching
+   * native: marko has an out-neighbour named vadas and josh does not.
+   *
+   * <p>The origin is pinned to <em>two</em> RIDs deliberately, and that is what makes the case
+   * discriminating rather than vacuous. Root selection scores a pinned origin at its RID count and a
+   * filtered target at half the class count (three here, over six vertices), so two RIDs root the
+   * origin and the fragment's target is the non-root side. A bare {@code g.V().where(…)} origin
+   * scores {@code classCount + 1} and loses to the target, whose filter is then honoured; a
+   * three-RID origin ties and passes only by tie-break. Labelling the origin does not help either,
+   * because under polymorphic mode {@code hasLabel} re-types without filtering.
+   *
+   * <p>With the fragment's target predicate dropped the translation degenerates to
+   * {@code where(out())} — a join emitting one row per out-edge — and returns marko three times and
+   * josh twice.
+   */
+  @Test
+  public void whereFragmentPostHopFilter_pinnedOrigin_matchesNative() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+    var joshId = modern.josh().id();
+
+    assertEquivalent(
+        "g.V(marko, josh).where(out().has(name, vadas))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(markoId, joshId).where(__.out().has("name", "vadas")));
+  }
+
+  /**
+   * {@code g.V().not(__.out().hasLabel("Person"))} returns the five vertices that have no outgoing
+   * edge to a {@code Person}, matching native. A NOT sub-traversal is emitted as a detached anti-join
+   * expression whose path items are copied, and the class constraint has to be bound onto the copy —
+   * under polymorphic mode {@code hasLabel} puts the class nowhere else, so a class-dropped
+   * translation degenerates to {@code not(out())} and returns only the three vertices with no
+   * out-edges at all.
+   *
+   * <p>The discriminating fixture property is that josh and peter have out-edges but none to a
+   * {@code Person}. In a graph whose only edge-bearing vertex points at a {@code Person} the two
+   * forms return the same rows and this case would pass without witnessing anything.
+   */
+  @Test
+  public void notChildTargetLabel_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().not(out().hasLabel(Person))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().not(__.out().hasLabel("Person")));
+  }
+
+  // ---------------------------------------------------------------------------
   // Fixture + assertion helpers.
   // ---------------------------------------------------------------------------
 

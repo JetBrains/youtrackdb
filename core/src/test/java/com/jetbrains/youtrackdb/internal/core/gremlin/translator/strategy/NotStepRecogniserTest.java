@@ -133,6 +133,34 @@ public class NotStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * {@code not(out(knows).hasLabel(Software))} binds the target class onto the NOT path item. Under
+   * the default polymorphic mode {@code hasLabel} contributes no {@code @class} term to the leaf
+   * {@code WHERE}, so the path item's class slot is the only place the constraint can live — a null
+   * there silently degrades the anti-join to {@code not(out(knows))} and excludes rows that have any
+   * out-edge at all. The other cases here assert aliases, item counts and {@code WHERE} text; this is
+   * the one that reads a class off a NOT item. End-to-end multiset equivalence for the same shape is
+   * in {@link PredicateTraversalEquivalenceTest}.
+   */
+  @Test
+  public void edgeBearingChildWithTargetLabel_bindsTargetClassOnNotItem() {
+    session.createVertexClass("Software");
+    var admin = graph.traversal().V().not(__.out("knows").hasLabel("Software")).asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = NotStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.notMatchExpressions).hasSize(1);
+    var leafFilter = ctx.notMatchExpressions.getFirst().getItems().getFirst().getFilter();
+    assertThat(leafFilter).isNotNull();
+    assertThat(leafFilter.getAlias()).isEqualTo(FIRST_ANON_ALIAS);
+    assertThat(leafFilter.getClassName(null))
+        .as("the NOT path item must carry the target class — under polymorphic mode nothing else does")
+        .isEqualTo("Software");
+  }
+
+  /**
    * When the NOT origin alias is absent from the positive pattern, the recogniser declines
    * rather than emitting a planner-disqualifying detached expression.
    */
