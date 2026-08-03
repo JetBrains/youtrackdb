@@ -395,7 +395,33 @@ steps; `subgraph`; path manipulation (`simplePath`/`cyclicPath`/advanced
 `path()`); `choose()`; custom DSL steps; edge-returning terminals and
 user-facing edge aliases; edge property extraction; multi-label edges
 (`out("a","b")`); mid-traversal list-shaping; singleton-collection equality on
-schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+)".
+schema-less fields; `profile()`; **positional suffixes after a `union` that are
+not immediately followed by `count()`** — `union(...).limit(n)`,
+`union(...).range(a, b)`, `union(...).skip(n)`. Full table: design.md §"Out of
+scope (Phase 2+)".
+
+**The post-union positional suffix, and the way out of it (Track 9 step 7).**
+Gremlin's `union` is a `BranchStep` that interleaves its arms per incoming
+traverser, while `MultiPlanMatchStep` concatenates the child plans branch-major
+through a `MultipleExecutionStream`. Both emit the same rows; only the order
+differs, so any suffix that selects by position sees a different prefix on each
+arm. `count()`, `dedup()` and the other reductions to cardinality or to a
+distinct set are order-free, which is why `union(...).count()` and
+`union(...).limit(3).count()` still translate and why the decline is narrowed to
+the positional case rather than dropping the range recogniser outright.
+
+Translating the positional case needs the boundary step to reproduce native's
+arrival order, and the obstacle is structural rather than incidental: each union
+child is its own compiled MATCH plan over the whole start set, so there is no
+per-traverser interleaving point to imitate. The exit is to make each child plan
+carry the identity of the start row its results belong to and emit them ordered
+by it, then replace the concatenation in `MultiPlanMatchStep` with a k-way merge
+on that key. That is a change to the child-plan output contract and to the
+boundary step together, it overlaps the index-ordered MATCH work, and it is
+sized as its own track rather than as a suffix to this plan. Relaxing the
+acceptance criterion to unordered multisets is **not** an alternative: the
+TinkerPop compliance suite asserts specific prefixes, so the project would
+trade a wrong answer for a failed conformance run.
 
 ## Checklist
 
