@@ -13,11 +13,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.structure.Property;
+import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -107,28 +111,23 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("friendWeight"));
 
-    setTranslatorEnabled(true);
-    try {
-      assertThat(graph.traversal().V().properties("friendWeight").next())
-          .as("properties(key) must yield the VertexProperty element, not its payload")
-          .isInstanceOf(Property.class);
-    } finally {
-      setTranslatorEnabled(false);
-    }
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().properties("friendWeight").next())
+            .as("properties(key) must yield the VertexProperty element, not its payload")
+            .isInstanceOf(Property.class));
   }
 
   /**
-   * A meta-property read through {@code properties(key).has(metaKey, value)} matches native. This is
-   * the shape TinkerPop's {@code addV} meta-property scenarios verify their mutation with, and it
-   * returned nothing translated while returning the property element natively: the element-returning
-   * step was projected as a field access, so the following {@code has} tested a {@code Double} for a
-   * meta-property it cannot carry.
+   * A main-line meta-property read through {@code properties(key).has(metaKey, value)} declines to
+   * native. This is the shape TinkerPop's {@code addV} meta-property scenarios verify their mutation
+   * with, and it returned nothing translated while returning the property element natively: the
+   * element-returning step was projected as a field access, so the following {@code has} tested a
+   * {@code Double} for a meta-property it cannot carry. The combinator spellings of the same read are
+   * in {@code metaPropertyFilterInSubWalk_declinesInEveryCombinator}.
    */
   @Test
-  public void metaPropertyFilterThroughProperties_matchesNative() {
-    var marko = graph.addVertex(T.label, "Person", "name", "marko");
-    marko.property("friendWeight", 1.5).property("acl", "private");
-    graph.tx().commit();
+  public void metaPropertyFilterThroughProperties_declinesToNative() {
+    seedMetaPropertyGraph();
 
     assertEquivalent(
         "g.V().properties(friendWeight).has(acl, private)",
@@ -136,15 +135,13 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().properties("friendWeight").has("acl", "private"));
 
     // Non-vacuity: the shape returns a row on both arms, so the equality is over one element and not
-    // over two empty lists. A seed that failed to attach the meta-property would trip here.
-    setTranslatorEnabled(true);
-    try {
-      assertThat(graph.traversal().V().properties("friendWeight").has("acl", "private").toList())
-          .as("the meta-property filter must select the one seeded property element")
-          .hasSize(1);
-    } finally {
-      setTranslatorEnabled(false);
-    }
+    // over two empty lists. The fixture's third vertex carries acl as a top-level property, so a
+    // plan that read acl off the vertex would select a different element rather than the same one.
+    withTranslatorOn(
+        () -> assertThat(
+            graph.traversal().V().properties("friendWeight").has("acl", "private").toList())
+            .as("the meta-property filter must select the one seeded property element")
+            .hasSize(1));
   }
 
   /**
@@ -174,35 +171,146 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     // Non-vacuity: native really does split the two same-valued property elements into two buckets,
     // which is the divergence the decline exists for. Without this the decline could be guarding
     // nothing.
-    setTranslatorEnabled(false);
-    assertThat((Map<?, ?>) graph.traversal().V().group().by(__.properties("lang")).next())
-        .as("native keys on the property element, so two same-valued elements are two buckets")
-        .hasSize(2);
+    withTranslatorOff(
+        () -> assertThat((Map<?, ?>) graph.traversal().V().group().by(__.properties("lang")).next())
+            .as("native keys on the property element, so two same-valued elements are two "
+                + "buckets")
+            .hasSize(2));
   }
 
   /**
-   * The two positions where an element-returning {@code properties(key)} still translates, because
-   * nothing downstream can read the value. Both arrive here as {@link org.apache.tinkerpop.gremlin
-   * .structure.PropertyType#PROPERTY} only because {@code AdjacentToIncidentStrategy} rewrote a
-   * written {@code values(key)}, so each is a shape callers do write and would silently stop
-   * translating if the element-form decline were unconditional: a count consumes the step, or a
-   * sub-walk capture discards the projection and keeps only the presence conjunct.
+   * A count-consumed element form still translates. {@code values(age).count()} reaches the recogniser
+   * as {@code PropertyType.PROPERTY} only because {@code AdjacentToIncidentStrategy} rewrote it, so an
+   * unconditional element-form decline would silently stop translating a shape callers do write. One
+   * property element per value leaves the row count unchanged, which is what makes the position safe.
+   * {@code countAfterValues_countsOnlyKeyBearers} carries the hand-computed native answer for the same
+   * traversal; this case pins that the rewritten form reaches the gate and is accepted.
    */
   @Test
-  public void countConsumedAndSubWalkPropertiesForms_stillTranslate() {
+  public void countConsumedPropertiesForm_stillTranslates() {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
+
+    assertRewrittenToElementForm(
+        "g.V().values(age).count()", () -> graph.traversal().V().values("age").count());
 
     assertEquivalent(
         "g.V().values(age).count()",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("age").count());
+  }
+
+  /**
+   * A sub-walk capture of the element form still translates, and the presence filter the projection
+   * stands for survives the capture. {@code and(values(a), values(b))} is the shortest shape that
+   * reaches this escape: each child routes through {@code walkChild}, where the projection is
+   * discarded on commit and a pattern conjunct is the only carrier left for the drop
+   * {@code values(key)} performs. Expressing that drop as result shaping instead — which the sub-walk
+   * adapter swallows — made the AND a no-op that returned every seeded vertex against native's one.
+   *
+   * <p>The single-step {@code where(values(k))} spelling cannot serve as this escape's control: the
+   * {@code has(key)} desugar claims it before the child is ever walked, which is what
+   * {@code whereValuesPresence_matchesNativeThroughHasKeyDesugar} pins instead.
+   */
+  @Test
+  public void subWalkPropertiesForm_stillTranslatesAndKeepsThePresenceFilter() {
+    seedNameAgeNickGraph();
+
+    assertRewrittenToElementForm(
+        "g.V().and(values(age), values(name))",
+        () -> graph.traversal().V().and(__.values("age"), __.values("name")));
+
+    assertEquivalent(
+        "g.V().and(values(age), values(name))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().and(__.values("age"), __.values("name")));
+
+    // Non-vacuity: native keeps one of the three seeded vertices, so the equality above is over a
+    // filtered row set. An AND that committed no conjunct would return all three and still be a
+    // single-boundary-step translation.
+    withTranslatorOff(
+        () -> assertThat(graph.traversal().V().and(__.values("age"), __.values("name")).toList())
+            .as("native keeps only the vertex carrying both properties")
+            .hasSize(1));
+  }
+
+  /**
+   * {@code where(values(key))} filters on presence and matches native through the {@code has(key)}
+   * desugar, not through the sub-walk escape: {@link TraversalFilterStepRecogniser} claims a filter
+   * child that is exactly one single-key {@code PropertiesStep} and maps it straight to
+   * {@code IS DEFINED}, so the child never reaches {@code walkChild}. Measured by disabling the
+   * escape, which leaves this case green. It is kept as a pin on that desugar; the escape's own
+   * control is {@code subWalkPropertiesForm_stillTranslatesAndKeepsThePresenceFilter}.
+   */
+  @Test
+  public void whereValuesPresence_matchesNativeThroughHasKeyDesugar() {
+    seedNameAgeNickGraph();
 
     assertEquivalent(
         "g.V().where(values(age))",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().where(__.values("age")));
+
+    // Non-vacuity: the presence filter selects two of the three seeded vertices, so the equality
+    // above is neither over the whole scan nor over an empty result.
+    withTranslatorOff(
+        () -> assertThat(graph.traversal().V().where(__.values("age")).toList())
+            .as("native keeps the two age-bearing vertices")
+            .hasSize(2));
+  }
+
+  /**
+   * A meta-property read inside a combinator child declines in all four spellings that reach the
+   * sub-walk escape. The escape covers the child's end step only: a step after the projection reads
+   * the payload and commits its own filter to the parent on the vertex alias, so a translated
+   * {@code where(properties(friendWeight).has(acl, private))} tested each vertex's own {@code acl} and
+   * returned {@code peter} — who carries a top-level {@code acl} and no {@code friendWeight} — where
+   * native returns {@code marko}, whose {@code acl} lives on the property. The row sets were disjoint
+   * in both directions, so no count-based check could have found it either. The value form in the same
+   * combinator is the positive control: the decline is specific to a payload-reading successor and not
+   * a withdrawal of sub-walk projections.
+   */
+  @Test
+  public void metaPropertyFilterInSubWalk_declinesInEveryCombinator() {
+    seedMetaPropertyGraph();
+
+    assertEquivalent(
+        "g.V().where(properties(friendWeight).has(acl, private))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().where(__.properties("friendWeight").has("acl", "private")));
+    assertEquivalent(
+        "g.V().filter(properties(friendWeight).has(acl, private))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().filter(__.properties("friendWeight").has("acl", "private")));
+    assertEquivalent(
+        "g.V().and(properties(friendWeight).has(acl, private))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.properties("friendWeight").has("acl", "private")));
+    assertEquivalent(
+        "g.V().not(properties(friendWeight).has(acl, private))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().not(__.properties("friendWeight").has("acl", "private")));
+
+    // Positive control: the same combinator over the value form still translates.
+    assertEquivalent(
+        "g.V().and(values(friendWeight), values(name))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().and(__.values("friendWeight"), __.values("name")));
+
+    // The fixture separates the two placements of the filter: native reads acl off the property
+    // element, so it selects marko and not peter. Without the third vertex a plan that pushed the
+    // filter onto the vertex would be indistinguishable from one that read the property element.
+    withTranslatorOff(
+        () -> assertThat(
+            graph
+                .traversal()
+                .V()
+                .where(__.properties("friendWeight").has("acl", "private"))
+                .values("name")
+                .toList())
+            .as("native reads acl off the property element, not off the vertex")
+            .containsExactly("marko"));
   }
 
   /** {@code elementMap("name")} matches native id/label/property maps. */
@@ -1025,10 +1133,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
       Cardinality cardinality,
       Supplier<GraphTraversal<?, ?>> traversalSupplier,
       boolean ordered) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    var original = translatorEnabled();
     try {
       setTranslatorEnabled(true);
       var onAdmin = traversalSupplier.get().asAdmin();
@@ -1075,6 +1180,106 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     session
         .getConfiguration()
         .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+  }
+
+  private boolean translatorEnabled() {
+    return session
+        .getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+  }
+
+  /**
+   * Runs {@code body} with the translator on, restoring the previous setting afterwards. The flag
+   * defaults to {@code true}, so restoring a hardcoded {@code false} would leave a later assertion
+   * appended to the same method running translator-off and passing without exercising the translator.
+   */
+  private void withTranslatorOn(Runnable body) {
+    withTranslator(true, body);
+  }
+
+  /** Runs {@code body} with the translator off, restoring the previous setting afterwards. */
+  private void withTranslatorOff(Runnable body) {
+    withTranslator(false, body);
+  }
+
+  private void withTranslator(boolean enabled, Runnable body) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(enabled);
+      body.run();
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * Asserts that {@code AdjacentToIncidentStrategy} rewrote the traversal's written
+   * {@code values(key)} into the element form. Every case that pins an element-form escape rests on
+   * that rewrite: the shapes are written as {@code values(key)} and only reach the recogniser as
+   * {@link PropertyType#PROPERTY} because the strategy changed them. A fork upgrade that stopped
+   * rewriting would leave those cases green while covering neither escape, which is the failure this
+   * premise check exists to catch. Read with the translator off, since the translated arm folds the
+   * step into a plan and leaves nothing to inspect.
+   */
+  private void assertRewrittenToElementForm(
+      String scenario, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    withTranslatorOff(
+        () -> {
+          var admin = traversalSupplier.get().asAdmin();
+          admin.applyStrategies();
+          assertThat(firstPropertiesStepReturnType(admin))
+              .as(scenario
+                  + ": the strategy must have rewritten values(key) into the element form, "
+                  + "or the case below exercises no escape")
+              .isEqualTo(PropertyType.PROPERTY);
+        });
+  }
+
+  /**
+   * The {@link PropertyType} of the first {@code PropertiesStep} anywhere in a post-strategy traversal
+   * tree, child traversals included, or {@code null} when there is none. The recursion is needed
+   * because the sub-walk shapes carry their projection inside a combinator child.
+   */
+  private static PropertyType firstPropertiesStepReturnType(Traversal.Admin<?, ?> admin) {
+    for (var step : admin.getSteps()) {
+      if (step instanceof PropertiesStep<?> propertiesStep) {
+        return propertiesStep.getReturnType();
+      }
+      if (step instanceof TraversalParent parent) {
+        var children = new ArrayList<Traversal.Admin<?, ?>>(parent.getLocalChildren());
+        children.addAll(parent.getGlobalChildren());
+        for (var child : children) {
+          var nested = firstPropertiesStepReturnType(child);
+          if (nested != null) {
+            return nested;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Alice carries {@code name} and {@code age}, Bob only {@code name}, the third only {@code age}. */
+  private void seedNameAgeNickGraph() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "age", 44, "nick", "c");
+    graph.tx().commit();
+  }
+
+  /**
+   * A meta-property fixture that separates the two placements of an {@code acl} filter: marko's
+   * {@code acl} lives on his {@code friendWeight} property, josh's carries a different value, and
+   * peter carries {@code acl} as a top-level vertex property and no {@code friendWeight} at all. A
+   * plan that read {@code acl} off the vertex selects peter; native selects marko.
+   */
+  private void seedMetaPropertyGraph() {
+    var marko = graph.addVertex(T.label, "Person", "name", "marko");
+    marko.property("friendWeight", 1.5).property("acl", "private");
+    var josh = graph.addVertex(T.label, "Person", "name", "josh");
+    josh.property("friendWeight", 2.5).property("acl", "public");
+    graph.addVertex(T.label, "Person", "name", "peter", "acl", "private");
+    graph.tx().commit();
   }
 
   /**

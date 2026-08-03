@@ -184,12 +184,19 @@ public final class ByModulatorTranslator {
       };
     }
     if (steps.size() == 2 && steps.get(0) instanceof PropertiesStep ps
-        && isSingleValueProperty(ps)) {
+        && isSingleKeyProperty(ps)) {
       var field = aliasProperty(alias, ps.getPropertyKeys()[0]);
+      if (steps.get(1) instanceof CountGlobalStep) {
+        // The one accumulator that cannot tell the element from its payload: one property element
+        // per value, so the count is the same either way. This is also the only arm the element form
+        // reaches from a written by(values(k).count()) — see isSingleValueProperty.
+        return Optional.of(new ValueAccumulator.PropertyAggregate(
+            ValueAccumulator.AggregateFunction.COUNT, field));
+      }
+      if (!isSingleValueProperty(ps)) {
+        return Optional.empty();
+      }
       return switch (steps.get(1)) {
-        case CountGlobalStep ignored ->
-            Optional.of(new ValueAccumulator.PropertyAggregate(
-                ValueAccumulator.AggregateFunction.COUNT, field));
         case SumGlobalStep ignored ->
             Optional.of(new ValueAccumulator.PropertyAggregate(
                 ValueAccumulator.AggregateFunction.SUM, field));
@@ -242,9 +249,29 @@ public final class ByModulatorTranslator {
    * measured on {@code g.V().group().by(properties("lang"))}, where native keys two distinct
    * {@code VertexProperty} elements into two buckets and a value-keyed translation collapses them into
    * one. Declining leaves the whole shape to native, which is the only arm that can key on an element.
+   *
+   * <p>The two positions this predicate gates differ in their exposure to
+   * {@code AdjacentToIncidentStrategy}, so the value side widens it to {@link #isSingleKeyProperty}
+   * for {@code count} alone. A one-step key-side {@code by(values(k))} body never arrives as a
+   * {@code PropertiesStep} at all — {@code ByModulatorOptimizationStrategy} converts it to a
+   * {@code ValueTraversal} that {@link #classifyKey} resolves first, and the strategy's end-step arm
+   * needs a filter parent that a {@code by(...)} modulator is not — so the element form there is only
+   * ever hand-written. The two-step value-side body is exposed: the strategy's count arm rewrites the
+   * {@code PropertiesStep} of a written {@code by(values(k).count())} into the element form.
    */
   private static boolean isSingleValueProperty(PropertiesStep<?> step) {
     return step.getReturnType() == PropertyType.VALUE && step.getPropertyKeys().length == 1;
+  }
+
+  /**
+   * As {@link #isSingleValueProperty}, plus the element-returning {@code properties(key)} form. Used
+   * where the accumulator reads the count of the projected elements rather than their payloads, which
+   * is the same number either way.
+   */
+  private static boolean isSingleKeyProperty(PropertiesStep<?> step) {
+    var returnType = step.getReturnType();
+    return (returnType == PropertyType.VALUE || returnType == PropertyType.PROPERTY)
+        && step.getPropertyKeys().length == 1;
   }
 
   /**

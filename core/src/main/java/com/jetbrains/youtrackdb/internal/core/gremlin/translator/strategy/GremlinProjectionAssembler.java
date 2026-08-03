@@ -63,8 +63,28 @@ final class GremlinProjectionAssembler {
    * Configures single-key {@code values(key)}: boundary entity column (for {@code hasProperty}) plus
    * one field-access RETURN column, {@link BoundaryOutputType#SINGLE_VALUE}, {@code dropOnAbsent},
    * and {@code lastPropertyProjection} for a following aggregate ({@code values("age").mean()}).
+   *
+   * <p>An element without the property produces no traverser, and that drop has to reach the plan by
+   * one of two routes depending on where the projection sits. On the main line it travels as result
+   * shaping, which {@code YTDBMatchPlanStep} applies to the rows it returns. In a captured child
+   * ({@code and(values(a), values(b))}) it cannot: {@link SubTraversalPredicateAdapter} swallows every
+   * result-shape write, because the child returns no rows and its projection is discarded on commit.
+   * There the drop has to travel as a pattern conjunct instead, or the child commits an empty filter
+   * map and filters nothing — {@code and(values(age), values(name))} returned every vertex against
+   * native's one. {@link ByModulatorPresence#requireProjectedProperty} writes that conjunct through
+   * {@code putAliasFilter}, which the adapter does capture.
+   *
+   * <p>Keeping the conjunct off the main-line arm matters: {@code IS DEFINED} has no estimator in the
+   * MATCH root-selection cost model (see {@link ByModulatorPresence}'s {@code @implNote}), and the
+   * main line already expresses the same drop through {@code dropOnAbsent}.
+   *
+   * @param lastStepInWalk whether the step ends the walk it belongs to. Only then does the projection
+   *     drop anything: a following {@code count()} — the sole successor
+   *     {@link PropertiesStepRecogniser} accepts — emits {@code 0} for an element without the
+   *     property rather than no traverser, so a presence conjunct would filter rows native keeps.
    */
-  static Outcome configureSingleKeyValues(RecognitionContext ctx, String propertyKey) {
+  static Outcome configureSingleKeyValues(
+      RecognitionContext ctx, String propertyKey, boolean lastStepInWalk) {
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;
@@ -80,9 +100,14 @@ final class GremlinProjectionAssembler {
     ctx.appendReturnColumn(expr, null);
     ctx.setLastPropertyProjection(
         new RecognitionContext.PropertyProjection(boundary, propertyKey, expr));
-    // dropOnAbsent + presence key so Step 7 drops rows where the property is absent on the entity.
-    ctx.setResultShaping(
-        ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of(propertyKey)));
+    if (ctx.projectsReturnedPayload()) {
+      // dropOnAbsent + presence key so the plan step drops rows where the entity lacks the property.
+      ctx.setResultShaping(
+          ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of(propertyKey)));
+    } else if (lastStepInWalk) {
+      // A captured child's shaping is swallowed, so the same drop travels as a pattern conjunct.
+      ByModulatorPresence.requireProjectedProperty(ctx, boundary, propertyKey);
+    }
     ctx.pinBoundary(boundary, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
     return Outcome.ACCEPTED;
   }

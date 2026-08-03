@@ -2,9 +2,15 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
+import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
 
@@ -160,6 +166,123 @@ public class ByModulatorTranslatorTest extends GraphBaseTest {
 
     assertThat(field).isPresent();
     assertThat(field.get().toString()).contains("@class");
+  }
+
+  /**
+   * The key side declines the element form, and the value form beside it still resolves. The bodies
+   * are read after {@code applyStrategies()} because that is what production delivers: a written
+   * {@code by(__.values("age"))} never arrives as a {@code PropertiesStep} at all — the by-modulator
+   * optimisation converts a one-step value projection into a {@code ValueTraversal} first — so the
+   * element form on this side is only ever hand-written, and keying on a {@code VertexProperty}
+   * element as if it were its payload merges buckets native keeps apart.
+   */
+  @Test
+  public void keySide_postStrategyElementForm_declines_whileValuesResolves() {
+    var elementForm =
+        postStrategyModulator(
+            graph.traversal().V().group().by(__.properties("age")).by(__.count()), 0);
+    assertThat(firstStepReturnType(elementForm))
+        .as("premise: nothing rewrites a hand-written key-side element form before the translator")
+        .isEqualTo(PropertyType.PROPERTY);
+
+    assertThat(ByModulatorTranslator.translateKeyModulator(ALIAS, elementForm)).isEmpty();
+
+    var valueForm =
+        postStrategyModulator(
+            graph.traversal().V().group().by(__.values("age")).by(__.count()), 0);
+    assertThat(ByModulatorTranslator.translateKeyModulator(ALIAS, valueForm))
+        .as("the decline must be specific to the element form")
+        .isPresent();
+  }
+
+  /**
+   * The value side resolves the post-strategy element form for {@code count}, and for {@code count}
+   * only. {@code AdjacentToIncidentStrategy} rewrites the projection of a written
+   * {@code by(__.values("age").count())} into the element form before the translator sees the body, so
+   * a value-only predicate on this side withdraws a shape callers do write — measured as the whole
+   * {@code group()} losing its translation. One property element per value leaves the count unchanged,
+   * which is what makes this arm safe and the accumulating arms not: the {@code sum} sibling keeps the
+   * value form, because the strategy rewrites only in front of a count.
+   */
+  @Test
+  public void valueSide_postStrategyElementFormCount_resolvesAggregate() {
+    var countBody =
+        postStrategyModulator(
+            graph.traversal().V().group().by("name").by(__.values("age").count()), 1);
+    assertThat(firstStepReturnType(countBody))
+        .as("premise: the strategy must have rewritten values(age) into the element form")
+        .isEqualTo(PropertyType.PROPERTY);
+
+    var countAccumulator = ByModulatorTranslator.translateValueModulator(ALIAS, countBody);
+    assertThat(countAccumulator)
+        .containsInstanceOf(ByModulatorTranslator.ValueAccumulator.PropertyAggregate.class);
+    var aggregate =
+        (ByModulatorTranslator.ValueAccumulator.PropertyAggregate) countAccumulator.orElseThrow();
+    assertThat(aggregate.function())
+        .isEqualTo(ByModulatorTranslator.ValueAccumulator.AggregateFunction.COUNT);
+    assertThat(aggregate.field().toString()).contains("age");
+
+    var sumBody =
+        postStrategyModulator(
+            graph.traversal().V().group().by("name").by(__.values("age").sum()), 1);
+    assertThat(firstStepReturnType(sumBody))
+        .as("the strategy rewrites only in front of a count, so the sum body keeps the value form")
+        .isEqualTo(PropertyType.VALUE);
+    assertThat(ByModulatorTranslator.translateValueModulator(ALIAS, sumBody))
+        .containsInstanceOf(ByModulatorTranslator.ValueAccumulator.PropertyAggregate.class);
+
+    // The widening is specific to count: an accumulator that reads the payload still declines the
+    // element form, which no strategy produces in that position anyway.
+    assertThat(
+        ByModulatorTranslator.translateValueModulator(
+            ALIAS, __.properties("age").sum().asAdmin()))
+        .isEmpty();
+  }
+
+  /**
+   * The {@code by(...)} body at {@code childIndex} after TinkerPop's strategies have run. Hand-built
+   * bodies are not what production delivers — {@code AdjacentToIncidentStrategy} rewrites a
+   * {@code values(key)} in front of a {@code count()} into the element form, and the by-modulator
+   * optimisation folds a one-step value projection into a {@code ValueTraversal} — so a case built
+   * without {@code applyStrategies()} classifies a shape the translator never receives. The
+   * Gremlin-to-MATCH translator is switched off around the call: with it on, a recognised traversal is
+   * replaced by a plan step and the modulator disappears with it.
+   */
+  private Traversal.Admin<?, ?> postStrategyModulator(
+      GraphTraversal<?, ?> traversal, int childIndex) {
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      session
+          .getConfiguration()
+          .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+      var admin = traversal.asAdmin();
+      admin.applyStrategies();
+      var groupStep =
+          admin.getSteps().stream()
+              .filter(step -> step.getClass().getSimpleName().contains("Group"))
+              .findFirst()
+              .orElseThrow();
+      return ((TraversalParent) groupStep).getLocalChildren().get(childIndex);
+    } finally {
+      session
+          .getConfiguration()
+          .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, original);
+    }
+  }
+
+  /**
+   * The {@link PropertyType} of a modulator body's first step, or {@code null} when that step is not a
+   * property projection (a {@code ValueTraversal} body has no steps at all).
+   */
+  private static PropertyType firstStepReturnType(Traversal.Admin<?, ?> modulator) {
+    var steps = modulator.getSteps();
+    if (steps.isEmpty() || !(steps.getFirst() instanceof PropertiesStep<?> propertiesStep)) {
+      return null;
+    }
+    return propertiesStep.getReturnType();
   }
 
   private static void assertPropertyAggregate(

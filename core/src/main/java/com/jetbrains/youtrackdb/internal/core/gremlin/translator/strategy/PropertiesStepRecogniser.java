@@ -49,7 +49,10 @@ final class PropertiesStepRecogniser implements StepRecogniser {
       // Multi-key values() flatMaps — no MATCH boundary equivalent in Phase 1.
       return Outcome.DECLINE;
     }
-    return GremlinProjectionAssembler.configureSingleKeyValues(ctx, keys[0]);
+    // The drop the projection performs is real only where nothing consumes the projection: a
+    // following count() emits 0 for an element without the property rather than no traverser.
+    return GremlinProjectionAssembler.configureSingleKeyValues(ctx, keys[0],
+        cursor.peek(0) == null);
   }
 
   /**
@@ -61,13 +64,22 @@ final class PropertiesStepRecogniser implements StepRecogniser {
    * before the element form started declining.
    *
    * <ul>
-   *   <li><b>A sub-walk capture</b> ({@code where(values(key))} and the other combinator children
-   *       that route through {@link RecognitionContext#walkChild}). Only the presence conjunct the
-   *       projection contributes survives the commit; the projection itself is discarded, so the
-   *       element and its payload are indistinguishable to the caller.
-   *   <li><b>A count-consumed main-line step</b> ({@code values(key).count()}, measured as arriving
-   *       here with a {@link CountGlobalStep} successor). One property element per value means the row
-   *       count is the same either way.
+   *   <li><b>The end step of a sub-walk capture</b> ({@code and(values(a), values(b))} and the other
+   *       combinator children that route through {@link RecognitionContext#walkChild}). The
+   *       projection itself is discarded on commit and only the presence conjunct
+   *       {@link GremlinProjectionAssembler#configureSingleKeyValues} contributes survives, so the
+   *       element and its payload are indistinguishable to the caller. The position inside the child
+   *       is as load-bearing as the capture: a step after the projection reads the payload and has
+   *       its own filter committed to the parent on the <em>element's</em> alias, which is how
+   *       {@code where(properties(k).has(metaKey, v))} became a top-level {@code metaKey} filter and
+   *       returned a row set disjoint from native's. The child's end step is also the only position
+   *       {@code AdjacentToIncidentStrategy} rewrites there (its {@code i == size} arm).
+   *   <li><b>A count-consumed step</b> ({@code values(key).count()}, measured as arriving here with a
+   *       {@link CountGlobalStep} successor, on the main line and inside a child alike). One property
+   *       element per value means the row count is the same either way. Matched by exact class rather
+   *       than {@code instanceof} for the reason {@code RangeGlobalStepRecogniser.followedByCount}
+   *       records: a {@code CountGlobalStep} subclass has no registry entry and would decline the
+   *       walk anyway, so treating it as a count here is the one direction that is not fail-closed.
    * </ul>
    *
    * <p>Anything else declines, which is the safe direction: the shape runs natively and the two arms
@@ -78,6 +90,12 @@ final class PropertiesStepRecogniser implements StepRecogniser {
    * Whoever adds an {@code IsStep} recogniser should extend this gate at the same time.
    */
   private static boolean elementFormIsUnobserved(StepCursor cursor, RecognitionContext ctx) {
-    return !ctx.projectsReturnedPayload() || cursor.peek(0) instanceof CountGlobalStep<?>;
+    var successor = cursor.peek(0);
+    if (successor == null) {
+      // Nothing reads the projection only when the walk it ends is a captured child, whose payload
+      // is dropped. On the main line the element would be returned to the caller as its own value.
+      return !ctx.projectsReturnedPayload();
+    }
+    return successor.getClass() == CountGlobalStep.class;
   }
 }
