@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -21,8 +22,8 @@ import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
 /**
- * Translator-on against translator-off over the four Gremlin shapes in
- * {@link GremlinTraversalShapes}, on the LDBC schema.
+ * Translator-on against translator-off over the Gremlin shapes in {@link GremlinTraversalShapes}, on
+ * the LDBC schema.
  *
  * <p>The A/B axis is a JMH {@code @Param} on {@link TranslatorArm}, so each arm gets its own
  * forks and the kill-switch is flipped once per trial in-process. Nothing is set through
@@ -30,16 +31,23 @@ import org.openjdk.jmh.annotations.Warmup;
  * (taking {@code -ea}, the heap sizing and every {@code --add-opens} with it) and on others plugin
  * configuration wins and the CLI value is inert. Neither failure is visible in the numbers.
  *
+ * <p><b>Two groups of benchmark, read differently.</b> A translating shape's delta is MATCH against
+ * the native pipeline. A declining shape's delta is the cost of the decline itself —
+ * {@code GremlinToMatchStrategy} runs on the on-arm, walks the traversal and only then hands it back
+ * — and doubles as the baseline for the day a recogniser claims that shape. The two groups are
+ * separated below and each declining shape's Javadoc says so, because a 0% delta means opposite
+ * things in the two groups.
+ *
  * <p><b>What these numbers are not.</b> They are not comparable to this module's IC / IS figures —
  * see {@link GremlinTraversalShapes}. The baseline is Hetzner-scoped; a local run measures the
  * harness, not the feature.
  *
  * <p><b>Why the trial setup checks engagement and throws.</b> An A/B whose two arms both ran the
  * same path reports a difference of zero and looks like a clean result. {@link
- * TranslatorArm#setUp} therefore builds a witness traversal, applies strategies, and throws unless
- * the boundary step is present on the on-arm and absent on the off-arm. It throws rather than
- * asserting because the launcher at {@code jmh-ldbc/pom.xml} runs {@code java} without {@code -ea}
- * — see {@link GremlinTraversalShapes#requireTranslated}.
+ * TranslatorArm#setUp} therefore builds two witness traversals — one from each group — applies
+ * strategies, and throws unless the boundary step is present exactly where the arm says it should
+ * be. It throws rather than asserting because the launcher at {@code jmh-ldbc/pom.xml} runs
+ * {@code java} without {@code -ea} — see {@link GremlinTraversalShapes#requireTranslated}.
  *
  * <p>Run one arm only with {@code -Djmh.args=".*LdbcGremlinTranslator.* -p translatorEnabled=true"}.
  */
@@ -67,13 +75,13 @@ public class LdbcGremlinTranslatorBenchmark {
 
   /**
    * Per-arm trial state: the kill-switch position, a RID pool for the by-id shape, and the person
-   * id pool the three walk shapes rotate through.
+   * and message id pools the walk shapes rotate through.
    *
    * <p>Kept separate from {@link LdbcBenchmarkState} so that class stays untouched and {@code
-   * curatedParams} stays private. The pool is built through the public {@code isPersonId} /
-   * {@code ic1PersonId} accessors, which is all the by-id shape needs — it wants a RID while the
-   * curated parameters hold LDBC {@code id} longs, so the resolution happens once here rather than
-   * per invocation.
+   * curatedParams} stays private. The pools are built through the public {@code isPersonId} /
+   * {@code isMessageId} accessors, which is all the shapes need — the by-id shape wants a RID while
+   * the curated parameters hold LDBC {@code id} longs, so the resolution happens once here rather
+   * than per invocation.
    */
   @State(Scope.Benchmark)
   public static class TranslatorArm {
@@ -90,13 +98,14 @@ public class LdbcGremlinTranslatorBenchmark {
 
     private long[] personIds;
     private Object[] personRids;
+    private long[] messageIds;
     private boolean flagBeforeTrial;
 
     /**
-     * Resolves the RID pool and proves the arm is really installed.
+     * Resolves the id and RID pools and proves the arm is really installed.
      *
      * <p>Order matters: the flag is set before anything else runs, so setup and measurement share
-     * one arm. The pool is then resolved from curated person ids, skipping ids the dataset does not
+     * one arm. The pools are then resolved from curated ids, skipping ids the dataset does not
      * hold, and an empty pool throws — an empty parameter feed would otherwise surface only as
      * suspiciously fast numbers on the first Hetzner run.
      */
@@ -108,6 +117,7 @@ public class LdbcGremlinTranslatorBenchmark {
 
       var ids = new ArrayList<Long>(POOL_SIZE);
       var rids = new ArrayList<Object>(POOL_SIZE);
+      var messages = new ArrayList<Long>(POOL_SIZE);
       state.traversal.executeInTx(t -> {
         for (var i = 0; i < POOL_SIZE; i++) {
           var personId = state.isPersonId(i);
@@ -120,6 +130,13 @@ public class LdbcGremlinTranslatorBenchmark {
             ids.add(personId);
             rids.add(vertex.get().id());
           }
+          var messageId = state.isMessageId(i);
+          if (t.V().hasLabel(GremlinTraversalShapes.MESSAGE_LABEL)
+              .has("id", messageId)
+              .tryNext()
+              .isPresent()) {
+            messages.add(messageId);
+          }
         }
       });
 
@@ -128,29 +145,47 @@ public class LdbcGremlinTranslatorBenchmark {
             "No curated Person id resolved to a record, so every benchmark below would measure an"
                 + " empty traversal. Check that the LDBC database at -Dldbc.db.path is loaded.");
       }
+      if (messages.isEmpty()) {
+        throw new IllegalStateException(
+            "No curated Message id resolved to a record, so the IS4 / IS5 / IS7 shapes would"
+                + " measure an empty traversal. Check that the LDBC database at -Dldbc.db.path is"
+                + " loaded.");
+      }
       personIds = new long[ids.size()];
       for (var i = 0; i < ids.size(); i++) {
         personIds[i] = ids.get(i);
       }
       personRids = rids.toArray();
+      messageIds = new long[messages.size()];
+      for (var i = 0; i < messages.size(); i++) {
+        messageIds[i] = messages.get(i);
+      }
 
       checkArmInstalled(state);
     }
 
     /**
-     * Builds the witness shape, applies strategies, and throws unless the boundary step's presence
-     * matches the arm. Without this an arm that failed to flip reports a difference of zero and
-     * reads as a clean null result.
+     * Builds one witness from each shape group, applies strategies, and throws unless the boundary
+     * step's presence matches the arm. Without this an arm that failed to flip reports a difference
+     * of zero and reads as a clean null result.
+     *
+     * <p>The declining witness is checked on both arms, which is what keeps the declining group
+     * honest: it fails the day {@code repeat(...)} starts translating, at which point every
+     * declining-shape number in this class stops measuring the decline path and needs re-reading.
      */
     private void checkArmInstalled(LdbcBenchmarkState state) {
       state.traversal.executeInTx(t -> {
-        var witness = GremlinTraversalShapes.knowsFirstNames(t, personIds[0]).asAdmin();
-        witness.applyStrategies();
+        var translating = GremlinTraversalShapes.knowsFirstNames(t, personIds[0]).asAdmin();
+        translating.applyStrategies();
         if (translatorEnabled) {
-          GremlinTraversalShapes.requireTranslated("knowsFirstNames", witness);
+          GremlinTraversalShapes.requireTranslated("knowsFirstNames", translating);
         } else {
-          GremlinTraversalShapes.requireNotTranslated("knowsFirstNames", witness);
+          GremlinTraversalShapes.requireNotTranslated("knowsFirstNames", translating);
         }
+
+        var declining = GremlinTraversalShapes.repeatKnowsToThreeHops(t, personIds[0]).asAdmin();
+        declining.applyStrategies();
+        GremlinTraversalShapes.requireNotTranslated("repeatKnowsToThreeHops", declining);
       });
     }
 
@@ -167,7 +202,15 @@ public class LdbcGremlinTranslatorBenchmark {
     Object personRid(long idx) {
       return personRids[(int) (idx % personRids.length)];
     }
+
+    long messageId(long idx) {
+      return messageIds[(int) (idx % messageIds.length)];
+    }
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Translating shapes. Delta = MATCH against the native pipeline.
+  // ---------------------------------------------------------------------------------------------
 
   /**
    * Shape 1 — {@code g.V(rid)}. The one shape where translator-on can be strictly slower than
@@ -207,5 +250,136 @@ public class LdbcGremlinTranslatorBenchmark {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes.knowsFirstNamesFolded(t, arm.personId(i)).next());
+  }
+
+  /** Shape 5 — IS1's {@code IS_LOCATED_IN} join with the city columns. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlinIs1PersonCityProfile(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is1PersonCityProfile(t, arm.personId(i)).toList());
+  }
+
+  /** Shape 6 — IS3's friend columns under an {@code ORDER BY}. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlinIs3FriendsWithNames(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is3FriendsWithNames(t, arm.personId(i)).toList());
+  }
+
+  /** Shape 7 — IS5 whole: the message's author, every column projected. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlinIs5MessageCreator(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is5MessageCreator(t, arm.messageId(i)).toList());
+  }
+
+  /** Shape 8 — two chained {@code KNOWS} hops: MATCH path enumeration against two native passes. */
+  @Benchmark
+  public List<String> gremlinTwoHopKnows(LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.twoHopKnows(t, arm.personId(i)).toList());
+  }
+
+  /**
+   * Shape 9 — two hops with an indexed filter on the intermediate one, where MATCH can enter the
+   * pattern from the filtered alias and native cannot.
+   */
+  @Benchmark
+  public List<String> gremlinKnowsFilteredByFriendFirstName(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes
+            .knowsFilteredByFriendFirstName(t, arm.personId(i), state.ic1FirstName(i))
+            .toList());
+  }
+
+  /** Shape 10 — three hops with a {@code where()} back-reference to the first hop's alias. */
+  @Benchmark
+  public List<String> gremlinThreeHopKnowsExcludingIntermediate(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.threeHopKnowsExcludingIntermediate(t, arm.personId(i))
+            .toList());
+  }
+
+  /** Shape 11 — {@code ORDER BY} with {@code SKIP} / {@code LIMIT} paging. */
+  @Benchmark
+  public List<String> gremlinKnowsOrderedPage(LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.knowsOrderedPage(t, arm.personId(i)).toList());
+  }
+
+  /** Shape 12 — {@code GROUP BY} with {@code count(*)} pushed into the plan. */
+  @Benchmark
+  public Map<Object, Long> gremlinKnowsGroupCountByLastName(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.knowsGroupCountByLastName(t, arm.personId(i)).next());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Declining shapes. Delta = the cost of the decline path, and the baseline for the day the shape
+  // starts translating. A 0% delta here means "MATCH never ran", not "MATCH did not help" — the
+  // both-arms requireNotTranslated in the trial witness and in
+  // LdbcGremlinShapeTranslationTest is what keeps that reading true.
+  // ---------------------------------------------------------------------------------------------
+
+  /** IS1's full projection: declines on the start-step {@code as(...)} label. */
+  @Benchmark
+  public List<Map<String, Object>> gremlinIs1FullProfileDeclines(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is1FullProfile(t, arm.personId(i)).toList());
+  }
+
+  /** IS3 whole: declines on the edge alias of the folded {@code outE(KNOWS).inV()} hop. */
+  @Benchmark
+  public List<Map<String, Object>> gremlinIs3FriendsWithDatesDeclines(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is3FriendsWithDates(t, arm.personId(i)).toList());
+  }
+
+  /**
+   * IC1's variable-depth walk: vetoed by {@code RepeatDeclineStrategy} before the walker runs, so
+   * this is the cheapest decline route in the group and the floor the other two are read against.
+   */
+  @Benchmark
+  public List<String> gremlinRepeatKnowsToThreeHopsDeclines(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.repeatKnowsToThreeHops(t, arm.personId(i)).toList());
+  }
+
+  /** IS4's {@code coalesce} projection: declines part-way through the walk on {@code CoalesceStep}. */
+  @Benchmark
+  public List<String> gremlinCoalesceMessageContentDeclines(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.coalesceMessageContent(t, arm.messageId(i)).toList());
+  }
+
+  /** IS7's optional hop: declines part-way through the walk, and reserves the Phase 2 baseline. */
+  @Benchmark
+  public List<String> gremlinOptionalFriendOfCreatorDeclines(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.optionalFriendOfCreator(t, arm.messageId(i)).toList());
   }
 }
