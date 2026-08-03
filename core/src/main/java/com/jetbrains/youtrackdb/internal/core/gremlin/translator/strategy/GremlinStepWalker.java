@@ -106,19 +106,18 @@ final class GremlinStepWalker {
    * Adding a transparent type is a one-line change here that touches no recogniser.
    *
    * <p>{@link NoOpBarrierStep} is transparent because {@code LazyBarrierStrategy} wedges one
-   * between chained hops. There it carries no meaning the MATCH pattern has to preserve: it merges
-   * identical traversers into bulks, and a MATCH plan reaches the same answer set by other means,
-   * so skipping it costs nothing.
+   * between chained hops, and {@code RepeatUnrollStrategy} wedges one between the hops it unrolls a
+   * {@code repeat(...)} into. Skipping it preserves the <em>answer set</em>: the barrier merges
+   * identical traversers into bulks, and a MATCH plan reaches the same answers by other means.
    *
-   * <p>That reasoning holds for the barrier a chain carries and <b>not</b> for the barrier an
-   * unrolled {@code repeat(...)} carries, even though the two are the same class with the same
-   * size. {@code RepeatUnrollStrategy} turns {@code repeat(__.out()).times(n)} into n hops with
-   * barriers between them, and there the bulking is what keeps the cost at n passes over the edge
-   * set instead of one row per distinct path. Translating that shape hands MATCH a path count that
-   * grows as the n-th power of the average degree. Skipping the barrier is therefore safe as a
-   * <em>reading</em> rule and unsafe as a licence to treat an unrolled repeat as a hand-written
-   * chain — which is why {@link RepeatDeclineStrategy} keeps those traversals away from the walker
-   * entirely, before the unroll erases the distinction.
+   * <p>The transparency rule carries no <em>cost</em> bound, for either barrier. Bulking is what
+   * keeps a chain of n hops at n passes over the edge set; a MATCH plan enumerates one row per
+   * distinct path, which grows as the n-th power of the average degree. That is a property of the
+   * chain and not of the syntax it came from, so a hand-written n-hop chain reaches the same
+   * enumeration as an unrolled {@code repeat(__.out()).times(n)}. {@link RepeatDeclineStrategy}
+   * bounds the {@code repeat(...)} spelling, which is the one the TinkerPop feature suite drove to
+   * a stall; a deep hand-written chain is still translated and still pays the enumeration. Bounding
+   * that shape needs a depth or fan-out gate the translator does not have yet.
    */
   private static final Set<Class<?>> TRANSPARENT_STEPS =
       Set.of(NoOpBarrierStep.class, WhereStartStep.class, WhereEndStep.class);

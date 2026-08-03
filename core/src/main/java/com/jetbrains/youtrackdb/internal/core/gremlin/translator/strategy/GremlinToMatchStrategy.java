@@ -75,6 +75,11 @@ import org.slf4j.LoggerFactory;
  *       time the start step is still a plain {@code GraphStep}. Keying on {@code YTDBGraphStep}
  *       would decline every recognized shape. The check is also ordering-robust, since a
  *       {@code YTDBGraphStep} <em>is</em> a {@code GraphStep}.</li>
+ *   <li><b>Per-traversal veto.</b> The traversal's strategy list carries a {@link
+ *       RepeatDeclineStrategy.Veto} marker, which {@link RepeatDeclineStrategy} adds at decoration
+ *       time to every traversal whose subtree was written with {@code repeat(...)}. The marker is
+ *       how a decision taken before {@code RepeatUnrollStrategy} flattened the repeat survives into
+ *       this pass; see that class for why the decline cannot be made here.</li>
  *   <li><b>Idempotency.</b> The traversal already contains a boundary step ({@link
  *       AbstractMatchPlanStep}, either the single-plan {@link YTDBMatchPlanStep} or any other
  *       concrete boundary form) anywhere in its step list. A traversal's strategy chain can be
@@ -242,14 +247,6 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
-    // Honour a per-traversal veto. RepeatDeclineStrategy removes this strategy from the
-    // traversal's own strategy list at decoration time, but TinkerPop captures the strategy set
-    // before the first strategy runs, so the removal cannot stop this invocation on its own —
-    // re-reading the list here is what makes it effective. See RepeatDeclineStrategy for why the
-    // decision has to be taken that early.
-    if (traversal.getStrategies().getStrategy(GremlinToMatchStrategy.class).isEmpty()) {
-      return;
-    }
     // Run the O(1) start-step gate before the O(steps) boundary scan, so a traversal that does not
     // start at a vertex GraphStep declines without walking the whole step list. Idempotency still
     // holds: an already-translated traversal's start step is a boundary step (an
@@ -257,6 +254,16 @@ public final class GremlinToMatchStrategy
     // anyway; the boundary scan below stays as the guard for the defensive case where an ordinary
     // step is prepended in front of the boundary.
     if (!hasVertexGraphStart(traversal)) {
+      return;
+    }
+    // Honour a per-traversal veto. RepeatDeclineStrategy marks a repeat-bearing traversal at
+    // decoration time, but TinkerPop captures the strategy set before the first strategy runs, so
+    // the mark cannot stop this invocation on its own — reading it here is what makes it effective.
+    // The check keys on the marker's presence and not on this strategy's absence: a child
+    // traversal's own strategy list never carries a provider strategy during the strategy pass, so
+    // an absence test would decline every sub-traversal rather than the vetoed ones. See
+    // RepeatDeclineStrategy for why the decision has to be taken that early.
+    if (traversal.getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class).isPresent()) {
       return;
     }
     if (containsBoundaryStep(traversal)) {
@@ -327,12 +334,12 @@ public final class GremlinToMatchStrategy
    * global state. That {@code getConfiguration()} is {@code @Nullable}; a null result is treated
    * as "decline" so the kill-switch read never dereferences a null configuration.
    *
-   * <p>Package-private rather than private because {@link RepeatDeclineStrategy} gates its own
-   * work on the same kill-switch and must read it exactly the way this strategy does — two
-   * spellings of one flag would let the veto and the translation disagree about whether the
-   * translator is on.
+   * <p>This strategy is the only reader of the kill-switch on the translation path.
+   * {@link RepeatDeclineStrategy} deliberately does not consult it, so the two cannot disagree
+   * about whether the translator is on when a thread flips the flag mid-compilation; see that
+   * class's "Why the kill-switch is not consulted".
    */
-  @Nullable static DatabaseSessionEmbedded resolveSessionIfEnabled(
+  @Nullable private static DatabaseSessionEmbedded resolveSessionIfEnabled(
       Traversal.Admin<?, ?> traversal) {
     var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
     if (session == null) {
