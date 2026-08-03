@@ -108,14 +108,26 @@ iterations, two dimensions, BG2 VERIFIED at iteration 5, BG8 routed out.
 
 ## Open leads with no owner
 
-**The unfolded-`has` cross-type divergence is the significant one.** The graph-step fold that
-reconciles TinkerPop's ternary comparison with YouTrackDB's comparator applies **only at the
-root**, so `g.V().out().has("name", gt(27))` should carry the identical divergence with no
-negation at all. Unmeasured, and it has no Cucumber witness, so only a directed measurement
-will find it. If it reproduces, the surface is far wider than `not()` and step 13's decline
-shape will not do — declining every post-hop range comparison would withdraw a large fraction
-of recognised traversals. Step 13's own note is that schema-typed properties are safe and
-untyped ones are not, which points at DR-S15's accessor as the tool.
+**The unfolded-`has` cross-type divergence is no longer a lead — it is CONFIRMED and unowned.**
+Step 13's bugs review measured it as **BG20** (should-fix, cert C1, `HasStepRecogniser.java:150`):
+`g.V().out().has("name", gt(27))` answers **6 translated against 0 native** at one boundary step.
+The graph-step fold that reconciles TinkerPop's ternary comparison with YouTrackDB's comparator
+applies only at the **root**, so every post-hop range comparison carries the divergence with no
+negation involved. It is pre-existing, outside step 13's scope, and has **no Cucumber witness**, so
+the absolute green criterion will not catch it. Under the track's item-4 rule a silent wrong answer
+on a recognised shape needs a disposition — fix, decline, or a recorded user waiver — and this one
+has none. **Declining is probably not available here:** withdrawing every post-hop range comparison
+would take a large fraction of recognised traversals, which is why DR-S15's `declaredPropertyType`
+accessor matters beyond step 13 — it is the only tool that separates the safe same-type case from
+the unsafe cross-type one. Size this before Phase C, because it may be a step rather than a fix.
+
+**Two further step-13 findings, both confirmed.** **BG22** (suggestion, cert C4) independently
+confirms DR-S15's premise by measurement: the gate is type-unaware and withdraws negated range
+comparisons whose arms already agree, with the same-type control `g.V().out().has(age, gt(30))`
+agreeing 1/1. **BG21** (suggestion, cert C2) is a real completeness gap in step 13's detector — it
+inspects `HasContainerHolder` steps and nested child traversals only, so a `WherePredicateStep`'s
+range comparison passes the gate. Benign today because both arms order by RID, but the Javadoc's
+"however deeply nested" claim overstates the search and will mislead the next reader.
 
 Two smaller ones: `SubTraversalPredicateAdapter.appendPattern` carries a comment naming the
 removed `commitEdgeBearingChild` (step 10's file, one-line sweep after integration); and
