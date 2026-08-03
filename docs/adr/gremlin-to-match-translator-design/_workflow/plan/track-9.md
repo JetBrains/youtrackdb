@@ -15,6 +15,7 @@ First half of the split final track (inline replan, 2026-08-03 — see `## Decis
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- **PAUSED 2026-08-03T19:05Z [ctx=info] — Phase B paused at the context warning; step 9 fix respawn owed, 3 blockers open. See `_workflow/handoff-track9-phaseB.md`.**
 - [x] 2026-08-03T17:14Z [ctx=info] Step 5 complete (commit `c5f299e2fa`). Feature suite 1930 / 7 / 14, translator on, down from 27; 20 scenarios moved on four root causes. Step-level review ran 3 dimensions, 19 findings, 0 blockers as graded with 4 orchestrator-upgraded (all four measured on/off divergences invisible to the compliance suite), all upgrades and all should-fixes closed, 4 skipped with reasons, PF1 deferred as executor work. Coverage gate not run — Phase C owns it.
 - [x] 2026-08-03T13:46Z [ctx=safe] Step 2 complete (commit `055ebfdac5`). Four-arm baseline published at `plan/track-9/cucumber-baseline.md`, all at `fe4b5cc95d`: both runners 1930 / 27 / 14 on and 1930 / 0 / 14 off. `embedded`'s off arm self-witnessed by a new permanent test. `risk: medium`, so no step-level dimensional review.
 - [x] 2026-08-03T13:20Z [ctx=safe] Step 3 complete (commit `c4d9d67ae7`). Feature suite 1930 / 27 / 14, translator on, down from 42; off arm still 0. Step-level review ran 3 dimensions, 13 findings, 0 blockers as graded with 2 orchestrator-upgraded, 1 skipped with a reason.
