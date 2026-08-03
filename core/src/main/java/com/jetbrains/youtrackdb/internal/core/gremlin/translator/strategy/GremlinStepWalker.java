@@ -359,6 +359,12 @@ final class GremlinStepWalker {
       if (ctx.hasUnionCarrier() && !POST_UNION_RECOGNISERS.contains(recogniser)) {
         return false;
       }
+      // Single-plan slice gate (see capturedSinglePlanSlice and POST_SLICE_RECOGNISERS). Once a
+      // SKIP / LIMIT is captured, only the pure projections may claim a further step; anything
+      // else would run before the slice in the compiled statement and return a different row set.
+      if (capturedSinglePlanSlice(ctx) && !POST_SLICE_RECOGNISERS.contains(recogniser)) {
+        return false;
+      }
       int positionBefore = cursor.position();
       Outcome outcome = recogniser.recognize(cursor, ctx);
       if (outcome == Outcome.DECLINE) {
@@ -378,6 +384,71 @@ final class GremlinStepWalker {
     }
     return true;
   }
+
+  /**
+   * Whether the walk has already captured a positional slice as a statement-level {@code SKIP} /
+   * {@code LIMIT}, which makes every step after it untranslatable on the single-plan path.
+   *
+   * <p>Those clauses ride the assembled statement and MATCH applies them last — after the pattern,
+   * after every {@code WHERE}, after {@code DISTINCT} and {@code ORDER BY}. Gremlin applies a slice
+   * where the user wrote it, to the stream the next step consumes. A step recognised after the
+   * slice therefore lands on the wrong side of it: {@code g.V().limit(2).out()} compiles to the
+   * same statement as {@code g.V().out().limit(2)} and returns the first two out-neighbours of the
+   * whole graph, where native returns the out-neighbours of the first two vertices. Measured on a
+   * five-vertex fixture whose only edge-bearing vertex has three out-edges — two rows translated
+   * against zero native for {@code limit(2).out()}, one against three for {@code skip(2).out()},
+   * one against zero for {@code limit(2).has(name, x)}, and a different pair of vertices for
+   * {@code limit(2).order().by(name)}.
+   *
+   * <p>Almost no suffix is exempt: hops and filters change the row set, {@code order()} changes
+   * which rows the slice selects, {@code dedup()} collapses rows the slice had already counted, and
+   * an aggregate consumes a stream the slice was meant to bound. {@link #POST_SLICE_RECOGNISERS}
+   * holds the exceptions and says why they are ones. A slice that normalises away to nothing
+   * ({@code skip(0)}, {@code range(0, -1)}) never arms the gate at all — {@link
+   * RangeGlobalStepRecogniser} accepts it without setting a clause.
+   *
+   * <p>This is the single-plan twin of the post-union gate above, and it lives in the loop for the
+   * same reason: a recogniser added later inherits it without being told. It covers the two slice
+   * clauses only. {@code returnDistinct} has the same shape — {@code in(k).dedup().out(k)} returns
+   * two rows translated against three native, because {@code DISTINCT} also applies after the
+   * pattern — but declining it withdraws a far wider surface than the slice does, so that clause is
+   * left to a change of its own. {@link GremlinAggregateAssembler} still tests all three before an
+   * aggregate; for the two slice clauses this gate now reaches the step first, and the assembler's
+   * own test remains its direct-invocation guard.
+   */
+  private static boolean capturedSinglePlanSlice(RecognitionContext ctx) {
+    return ctx.skip() != null || ctx.limit() != null;
+  }
+
+  /**
+   * The only recognisers allowed to claim a step once {@link #capturedSinglePlanSlice} holds — the
+   * three pure projections, whose entire contribution is RETURN columns, result shaping, and the
+   * boundary pin.
+   *
+   * <p>Membership is a claim about <em>when</em> a contribution takes effect, and the test is
+   * whether the recogniser can change the row set, its order, or its multiplicity. These three
+   * cannot. {@code GremlinProjectionAssembler.configureSingleKeyValues} and {@code
+   * configurePropertyMap} write only the RETURN columns and a {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping}; the row-dropping
+   * half of {@code values(k)} rides {@code dropOnAbsent} on that shaping, which the boundary step
+   * applies to the plan's output — after {@code SKIP} / {@code LIMIT}, which is where Gremlin
+   * applies it too. Changing which columns a row carries does not move the row.
+   *
+   * <p>The projection family is not admitted wholesale. {@code SelectOneStepRecogniser} and {@code
+   * SelectStepRecogniser} call {@code ByModulatorPresence.requireModulatedProperty} for a {@code
+   * by(key)} modulator, which contributes {@code key IS DEFINED} into the pattern's alias filters —
+   * a filter that runs before the slice counts rows, which is the whole defect this gate exists to
+   * close. They stay out, so {@code g.V().as("a").limit(2).select("a").by(k)} declines.
+   *
+   * <p>Fail-closed by construction, like the post-union allow-list above: a recogniser added later
+   * is refused after a slice until someone establishes that its contribution lands on the far side
+   * of the clause and adds it here.
+   */
+  private static final Set<StepRecogniser> POST_SLICE_RECOGNISERS =
+      Set.of(
+          PropertiesStepRecogniser.INSTANCE,
+          PropertyMapStepRecogniser.INSTANCE,
+          ElementMapStepRecogniser.INSTANCE);
 
   /**
    * Look-ahead form of {@link #dispatchAll}'s post-union gate: {@code true} when every step still

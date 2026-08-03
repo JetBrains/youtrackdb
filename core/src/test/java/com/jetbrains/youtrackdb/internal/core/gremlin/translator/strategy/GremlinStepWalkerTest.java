@@ -759,6 +759,103 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result).isNull();
   }
 
+  /**
+   * A hop after a captured slice declines the whole walk. The slice becomes a statement-level
+   * {@code LIMIT}, which MATCH applies after the pattern, so a translated
+   * {@code g.V().limit(2).out()} would slice the hop's output where Gremlin slices its input.
+   */
+  @Test
+  public void walk_sliceThenHop_declines() {
+    var admin = graph.traversal().V().limit(2).out("knows").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * The gate is not hop-specific. A filter after a slice lands in the pattern's {@code WHERE},
+   * which also runs before the statement-level {@code LIMIT}, so it declines the same way.
+   */
+  @Test
+  public void walk_sliceThenFilter_declines() {
+    var admin = graph.traversal().V().limit(2).has("name", "Hub").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * {@code order()} after a slice declines too: MATCH sorts before it slices, so the translated
+   * statement would select the two smallest rows of the whole match where Gremlin sorts the two
+   * rows the slice already picked.
+   */
+  @Test
+  public void walk_sliceThenOrder_declines() {
+    var admin = graph.traversal().V().limit(2).order().by("name").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * The gate arms on a captured clause, not on the presence of a range step. {@code skip(0)}
+   * normalises away to nothing and sets no clause, so the following hop still translates.
+   */
+  @Test
+  public void walk_noopSliceThenHop_translates() {
+    var admin = graph.traversal().V().skip(0).out("knows").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().skip()).isNull();
+    assertThat(result.inputs().limit()).isNull();
+  }
+
+  /**
+   * A pure projection is the gate's allow-listed exception: {@code values(k)} contributes RETURN
+   * columns and result shaping, both applied after the statement's {@code LIMIT}, so the walk
+   * survives.
+   */
+  @Test
+  public void walk_sliceThenValues_translates() {
+    var admin = graph.traversal().V().limit(2).values("name").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().limit()).isNotNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+  }
+
+  /**
+   * The allow-list stops at the projections that contribute nothing but columns. A {@code
+   * select(...).by(key)} contributes a {@code key IS DEFINED} conjunct into the pattern, which
+   * would filter rows before the slice counted them, so it declines.
+   */
+  @Test
+  public void walk_sliceThenSelectByKey_declines() {
+    var admin = graph.traversal().V().as("a").limit(2).select("a").by("name").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /** A terminal slice is unaffected — {@code g.V().out().limit(2)} still translates. */
+  @Test
+  public void walk_hopThenSlice_translates() {
+    var admin = graph.traversal().V().out("knows").limit(2).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().limit()).isNotNull();
+  }
+
   /** {@code g.V().values("name")} translates end-to-end with {@code SINGLE_VALUE} boundary type. */
   @Test
   public void walk_valuesSingleKey_pinsSingleValueOutput() {

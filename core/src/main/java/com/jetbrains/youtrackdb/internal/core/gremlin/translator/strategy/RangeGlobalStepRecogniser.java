@@ -12,6 +12,26 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * single-plan walk, or to a {@link PostConcatOp.Range} after a union (early-stop on the
  * concatenator).
  *
+ * <h2>A single-plan slice ends the walk</h2>
+ *
+ * The clauses this recogniser sets belong to the assembled statement, and MATCH applies them after
+ * everything else the walk contributes. Gremlin applies a slice where the user wrote it. Left
+ * unguarded, {@code g.V().limit(2).out()} compiles to the statement {@code g.V().out().limit(2)}
+ * compiles to and slices the hop's output instead of its input — the first two out-neighbours of
+ * the whole graph against native's out-neighbours of the first two vertices. {@link
+ * GremlinStepWalker}'s dispatch loop closes that: once a clause is set, the next step declines the
+ * whole walk unless it is a pure projection, whose contribution lands on the far side of the clause
+ * anyway. The gate sits there rather than here because every recogniser has to respect it,
+ * including ones added later.
+ *
+ * <p>The decline is priced the same way the post-union one is, and for the same reason — the
+ * all-or-nothing walk gives up the prefix too. {@code g.V().has("name", x).limit(2).values("name")}
+ * runs end to end on the native traverser pipeline, so its non-leading filters and its hops run per
+ * traverser instead of inside one plan. A <em>leading</em> {@code has()} keeps index-backed access
+ * either way, since {@code YTDBGraphStepStrategy} folds it into {@code YTDBGraphStep}. What the
+ * gate cannot give back is the pushed-down slice itself: a translated {@code LIMIT} stops the scan
+ * inside the engine, and the native {@code RangeGlobalStep} only stops the traverser stream.
+ *
  * <h2>Why a post-union slice needs a following {@code count()}</h2>
  *
  * A slice selects rows <em>by position</em>, and the multi-plan boundary's positions are not
@@ -71,7 +91,10 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (ctx.hasUnionCarrier()) {
       return recognizePostUnion(cursor, ctx, range);
     }
-    // A second range/limit/skip has no clear MATCH composition rule in Phase 1.
+    // A second range/limit/skip has no clear MATCH composition rule in Phase 1. The walker's
+    // single-plan slice gate declines any step after a captured slice, so in production it reaches
+    // a second slice before dispatch hands it here; this branch stays as the direct-invocation
+    // guard and keeps the recogniser correct on its own.
     if (ctxHasSkipOrLimit(ctx)) {
       return Outcome.DECLINE;
     }

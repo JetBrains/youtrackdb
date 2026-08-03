@@ -2,7 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -10,19 +12,28 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
 /**
  * Unit tests for {@link OrderGlobalStepRecogniser} and {@link RangeGlobalStepRecogniser}: ORDER BY
  * wiring, skip/limit translation, and decline paths.
+ *
+ * <p>The last group runs end to end instead — measured translator-on / translator-off equivalence
+ * for the rule that a captured single-plan slice ends the walk. That rule is enforced by {@link
+ * GremlinStepWalker}'s dispatch loop rather than by the recogniser, so a cursor-level assertion
+ * cannot see it, and the defect it closes is a silently different multiset that only an executed
+ * pair of arms exposes.
  */
 public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
@@ -459,6 +470,255 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
         .isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.postConcatOps()).isEmpty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // A captured single-plan slice ends the walk — measured translator-on / translator-off
+  // equivalence, not a recogniser unit assertion.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V().limit(2).out("knows")} declines and returns native's rows. Before the walker's
+   * slice gate it compiled to the same statement as {@code g.V().out("knows").limit(2)} and sliced
+   * the hop's output: two rows against native's zero or three, depending on where the hub landed in
+   * the scan.
+   */
+  @Test
+  public void limitThenHop_declinesAndReturnsNativeRows() {
+    seedSingleHub();
+    assertSliceThenStepDeclines(
+        "g.V().limit(2).out(knows)",
+        () -> graph.traversal().V().limit(2).out("knows"),
+        () -> graph.traversal().V().out("knows").limit(2));
+  }
+
+  /**
+   * The skip half of the same defect: {@code g.V().skip(2).out("knows")} dropped two rows of the
+   * hop's output (leaving one) where native drops two vertices from the scan and hops from what is
+   * left (leaving zero or three).
+   */
+  @Test
+  public void skipThenHop_declinesAndReturnsNativeRows() {
+    seedSingleHub();
+    assertSliceThenStepDeclines(
+        "g.V().skip(2).out(knows)",
+        () -> graph.traversal().V().skip(2).out("knows"),
+        () -> graph.traversal().V().out("knows").skip(2));
+  }
+
+  /**
+   * The gate keys on position, not on shape: the same {@code limit} still translates when it is the
+   * walk's last step. The bound is three — the hop's full output — so both arms return every row
+   * and the comparison does not rest on the two pipelines agreeing about which rows come first.
+   */
+  @Test
+  public void hopThenLimit_stillTranslates() {
+    seedSingleHub();
+    assertTranslatesAndMatchesNative(
+        "g.V().out(knows).limit(3)", () -> graph.traversal().V().out("knows").limit(3));
+  }
+
+  /**
+   * A slice that normalises away to nothing does not arm the gate. {@code skip(0)} selects no
+   * position, so the recogniser accepts it without setting a clause and the following hop still
+   * translates — the carve-out that keeps the gate from declining a shape it has no reason to.
+   */
+  @Test
+  public void noopSkipThenHop_stillTranslates() {
+    seedSingleHub();
+    assertTranslatesAndMatchesNative(
+        "g.V().skip(0).out(knows)", () -> graph.traversal().V().skip(0).out("knows"));
+  }
+
+  /**
+   * A pure projection is the exception the gate allows: {@code values(k)} writes RETURN columns and
+   * result shaping, both of which land after the statement's {@code LIMIT}, so it keeps
+   * translating. The bound is ten against five vertices, so every row survives the slice and the
+   * comparison does not turn on the two pipelines agreeing about row order.
+   */
+  @Test
+  public void sliceThenValues_stillTranslates() {
+    seedSingleHub();
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().limit(10).values(name)", () -> graph.traversal().V().limit(10).values("name"));
+  }
+
+  /**
+   * The map projections are allowed for the same reason. Pinning one of them keeps the allow-list
+   * from being read as a carve-out for {@code values(k)} alone.
+   */
+  @Test
+  public void sliceThenValueMap_stillTranslates() {
+    seedSingleHub();
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().limit(10).valueMap(name)",
+        () -> graph.traversal().V().limit(10).valueMap("name"));
+  }
+
+  /**
+   * Five vertices where exactly one — the hub — carries outgoing {@code knows} edges, three of
+   * them. That asymmetry is what makes the slice-then-hop cases discriminate under any scan order:
+   * the hop's full output is three rows, so a statement-level {@code LIMIT 2} yields two and a
+   * {@code SKIP 2} yields one, while native slices the scan first and so reaches either all three
+   * of the hub's neighbours or none of them. Two and one are both unreachable natively, so neither
+   * case can pass by accident on a lucky scan order.
+   */
+  private void seedSingleHub() {
+    var hub = graph.addVertex(T.label, "Person", "name", "Hub");
+    var ann = graph.addVertex(T.label, "Person", "name", "Ann");
+    var ben = graph.addVertex(T.label, "Person", "name", "Ben");
+    var cal = graph.addVertex(T.label, "Person", "name", "Cal");
+    graph.addVertex(T.label, "Person", "name", "Isolate");
+    hub.addEdge("knows", ann);
+    hub.addEdge("knows", ben);
+    hub.addEdge("knows", cal);
+    graph.tx().commit();
+  }
+
+  /**
+   * Asserts that {@code shape} — a slice followed by another step — declines to the native pipeline
+   * and returns native's rows.
+   *
+   * <p>{@code sliceLastSpelling} is the traversal the pre-gate translation collapsed {@code shape}
+   * onto, and its native result is asserted to <em>differ</em> from {@code shape}'s. That third
+   * assertion is what makes the case a witness rather than a tautology: a decline compares native
+   * against native, which agrees no matter what the fixture holds, so without it the test would
+   * still pass on a fixture where both spellings mean the same thing and would pin nothing.
+   */
+  private void assertSliceThenStepDeclines(
+      String scenario,
+      Supplier<GraphTraversal<?, ?>> shape,
+      Supplier<GraphTraversal<?, ?>> sliceLastSpelling) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var onIds = sortedIds(onAdmin.toList());
+
+      setTranslatorEnabled(false);
+      var offIds = sortedIds(drain(shape));
+      var sliceLastIds = sortedIds(drain(sliceLastSpelling));
+
+      // Fixture precondition first: if the two spellings agree natively, the case witnesses
+      // nothing and the two assertions below would hold for the wrong reason.
+      assertThat(offIds)
+          .as(scenario + ": the fixture must separate the two spellings, or the assertions below "
+              + "witness nothing — native " + scenario + " and its slice-last spelling would then "
+              + "be interchangeable and the shared statement harmless")
+          .isNotEqualTo(sliceLastIds);
+      assertThat(onIds)
+          .as(scenario + ": translator-on and translator-off multisets must match")
+          .isEqualTo(offIds);
+      assertThat(boundaryOn)
+          .as(scenario + ": a step after a captured slice must decline the whole walk")
+          .isEqualTo(0);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * The complement: {@code shape} engages exactly one boundary step with the translator on and
+   * returns the same non-empty multiset either way. The non-empty guard keeps the multiset
+   * comparison from holding vacuously over two empty results.
+   */
+  private void assertTranslatesAndMatchesNative(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var onIds = sortedIds(onAdmin.toList());
+
+      setTranslatorEnabled(false);
+      var offIds = sortedIds(drain(shape));
+
+      assertThat(boundaryOn)
+          .as(scenario + " must translate — exactly one boundary step")
+          .isEqualTo(1);
+      assertThat(onIds).as(scenario + " must return rows, or the comparison is vacuous")
+          .isNotEmpty();
+      assertThat(onIds)
+          .as(scenario + ": translator-on and translator-off multisets must match")
+          .isEqualTo(offIds);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * The {@link #assertTranslatesAndMatchesNative} sibling for shapes whose rows are values rather
+   * than elements, compared on {@code toString} because a projected value has no RID to sort on.
+   */
+  private void assertTranslatesAndMatchesNativeValues(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var onRows = sortedStrings(onAdmin.toList());
+
+      setTranslatorEnabled(false);
+      var offRows = sortedStrings(drain(shape));
+
+      assertThat(boundaryOn)
+          .as(scenario + " must translate — exactly one boundary step")
+          .isEqualTo(1);
+      assertThat(onRows)
+          .as(scenario + " must return rows, or the comparison is vacuous")
+          .isNotEmpty();
+      assertThat(onRows)
+          .as(scenario + ": translator-on and translator-off multisets must match")
+          .isEqualTo(offRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /** Builds a fresh traversal from the supplier, applies strategies, and drains it. */
+  private static List<?> drain(Supplier<GraphTraversal<?, ?>> shape) {
+    var admin = shape.get().asAdmin();
+    admin.applyStrategies();
+    return admin.toList();
+  }
+
+  private boolean translatorEnabled() {
+    return session
+        .getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+  }
+
+  private void setTranslatorEnabled(boolean enabled) {
+    session
+        .getConfiguration()
+        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+  }
+
+  /** Counts translated boundary steps of any kind — a multi-plan step is a translation too. */
+  private static int countBoundarySteps(List<?> steps) {
+    var count = 0;
+    for (var step : steps) {
+      if (step instanceof AbstractMatchPlanStep<?, ?>) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /** Sorted RID strings; sorting preserves multiplicity, so the comparison is a multiset one. */
+  private static List<String> sortedIds(List<?> results) {
+    return results.stream().map(v -> ((Vertex) v).id().toString()).sorted().toList();
+  }
+
+  /** The {@link #sortedIds} sibling for rows that are values or maps rather than elements. */
+  private static List<String> sortedStrings(List<?> results) {
+    return results.stream().map(String::valueOf).sorted().toList();
   }
 
   /**
