@@ -10,7 +10,7 @@ Discoveries`, `## Artifacts and Notes`, `## Episodes`), then the branch list bel
 | Step | State |
 |---|---|
 | 1 — repeat decline | done, merged, episode written, roster `[x]` |
-| 3 — per-alias filter binding | code merged (`89b8bc4f47`), reviewed, **fix respawn was running in the main checkout**, no episode, roster `[ ]` |
+| 3 — per-alias filter binding | code merged, reviewed, **fix landed** (`c4d9d67ae7`), no episode, roster `[ ]` |
 | 7 — union positional suffix | code merged (`2def4d43f0`), reviewed, **fix respawn was running in `.claude/worktrees/t9-step7`**, no episode, roster `[ ]` |
 | 8 — veto marker carrier | done, merged (`55da40dcdd`), **no episode**, roster `[ ]` |
 | 2, 4, 6 — measurements | not started, must run serially with nothing else touching `core` |
@@ -66,9 +66,44 @@ Discoveries`, both in the mandatory-handling category.
   were asked whether BG3 gets the same treatment and had not answered when the session
   paused. Default is that step 5 inherits it.
 
+## Step 3's fix landed — what the commit does not tell you
+
+`c4d9d67ae7` ("Review fix: stop binding the generic vertex root") closed step 3's
+review. **The feature suite moved from 42 failures to 27** at the same 1930 run and 14
+skips, translator on. That is the drop the dropped-filter family was expected to
+produce, now measured. Off-arm is still 0, so **27 regressions remain** and DR-S2 puts
+all of them in step 5's scope.
+
+Three things from that spawn that the diff does not carry:
+
+- **BG3 did not under-emit, it declined.** With the resolver mutated back to the raw
+  label, `g.V().as("a").out().where(P.neq("a"))` engages zero boundary steps: the plan
+  build fails on the unknown `$matched.a` alias and the strategy's throw-safety net
+  degrades to native. The reviewer's worse branch never materialised. The fix is still
+  worth having — it turns an accidental decline into a correct translation and makes
+  the unresolvable case an explicit decline.
+- **BG2 was fixed test-side only, and the reason bounds a future step.** The
+  over-emission is real and now pinned by
+  `whereFragmentWithSeveralMatchingTargets_translatedPlanOverEmits`. The production
+  exit was not taken because `ConnectiveStepSupport.commitEdgeBearingChild` is reached
+  from **three** recognisers — `WhereTraversalStep` and `TraversalFilterStep` through
+  `commitPositiveFilterChild`, and `AndStepRecogniser` directly — so a decline covers
+  all three or leaves the defect live on two. The other candidate exit, `returnDistinct`,
+  is wrong in general: it collapses path multiplicity native Gremlin legitimately
+  produces (`g.V().out()` returns a target once per in-path). **Step 5 should size this
+  as one fix across three recognisers**, and expect the suite count to move in either
+  direction depending on the exit.
+- `MatchPatternBuilder.buildNotExpression` is now three-argument with **no** two-argument
+  overload, deliberately: a future front end has to state which of its registered
+  classes is generic, which is what stops the two binding sites drifting apart again.
+
+PF2 was skipped with a reason (per-row `SQLIdentifier` allocation in
+`MatchEdgeTraverser.targetClassName` is executor work warranting its own issue). Two
+ephemeral-identifier leaks were cleaned up in passing.
+
 ## Numbers
 
-`core` feature suite, translator on, at `55da40dcdd`: **1930 / 42 / 14**. Translator
+`core` feature suite, translator on, at `c4d9d67ae7`: **1930 / 27 / 14** (was 42 before step 3's review fix). Translator
 off at the same commit: **1930 / 0 / 14**. The whole `...gremlin.translator.**` package
 is 601 / 601 green. Of the 42, the track records that 28 are count comparisons and 25
 of those are over-emission — the dropped-filter signature step 3 fixes — so step 4's
