@@ -302,15 +302,15 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The first post-union range is accepted as a {@link PostConcatOp.Range} rather than as SQL
-   * {@code SKIP}/{@code LIMIT} clauses: a union's slice applies to the concatenation, so pushing it
-   * into each child would slice every arm separately. {@code range(1, 3)} normalises to skip 1,
-   * limit {@code high - low}.
+   * A post-union range whose {@code count()} follows immediately is accepted as a {@link
+   * PostConcatOp.Range} rather than as SQL {@code SKIP}/{@code LIMIT} clauses: a union's slice
+   * applies to the concatenation, so pushing it into each child would slice every arm separately.
+   * {@code range(1, 3)} normalises to skip 1, limit {@code high - low}.
    */
   @Test
-  public void postUnionRange_appendsPostConcatOpAndLeavesSqlClausesAlone() {
+  public void postUnionRangeBeforeCount_appendsPostConcatOpAndLeavesSqlClausesAlone() {
     var ctx = unionCarrierContext();
-    var admin = graph.traversal().V().range(1, 3).asAdmin();
+    var admin = graph.traversal().V().range(1, 3).count().asAdmin();
 
     var cursor = cursorAt(admin, RangeGlobalStep.class);
 
@@ -319,6 +319,66 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.postConcatOps()).containsExactly(new PostConcatOp.Range(1L, 2L));
     assertThat(ctx.skip).as("a union slice must not become a per-child SQL SKIP").isNull();
     assertThat(ctx.limit).as("a union slice must not become a per-child SQL LIMIT").isNull();
+  }
+
+  /**
+   * The same range without a {@code count()} behind it declines. The multi-plan boundary emits the
+   * children back to back while native {@code union(...)} interleaves them, so a slice that survives
+   * to the caller would hand back rows from positions native never put there. Only a following
+   * count — which reduces the slice to a cardinality — is order-independent.
+   */
+  @Test
+  public void postUnionRangeWithNoCountBehindIt_declines() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().range(1, 3).asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.postConcatOps()).isEmpty();
+  }
+
+  /**
+   * A step between the slice and the count declines too: {@code limit(2).dedup().count()} counts
+   * the distinct rows of whichever two arrived first, which is exactly what the two orders disagree
+   * about. Only an immediately following count qualifies.
+   */
+  @Test
+  public void postUnionRangeWithCountBehindAnotherStep_declines() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().limit(2).dedup().count().asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.postConcatOps()).isEmpty();
+  }
+
+  /**
+   * The positional check the walker's pre-fork look-ahead reads answers {@code false} for a step
+   * that is not a range shape at all. Production reaches it only through the class-keyed lookup,
+   * which routes just the two range classes here; answering {@code false} rather than throwing keeps
+   * a mis-registered class declining at the recogniser one fork later instead of failing the query.
+   */
+  @Test
+  public void selectsPositionally_nonRangeStep_isFalse() {
+    var admin = graph.traversal().V().count().asAdmin();
+
+    assertThat(RangeGlobalStepRecogniser.selectsPositionally(admin.getSteps().get(1))).isFalse();
+  }
+
+  /**
+   * A {@code skip(0)} selects no position, so the same check calls it non-positional and the
+   * look-ahead lets it reach the fork. This is the carve-out that keeps the look-ahead from being
+   * stricter than {@link RangeGlobalStepRecogniser}, which accepts a normalised-away slice.
+   */
+  @Test
+  public void selectsPositionally_noOpSkip_isFalse() {
+    var admin = graph.traversal().V().skip(0).asAdmin();
+
+    assertThat(RangeGlobalStepRecogniser.selectsPositionally(admin.getSteps().get(1))).isFalse();
   }
 
   /** A post-union {@code skip(0)} is a no-op: accepted, but it appends no reduction. */

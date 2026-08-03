@@ -202,6 +202,13 @@ final class GremlinStepWalker {
    * consults it per step as the fail-closed gate, and {@link #postUnionSuffixTranslatable} consults
    * it as a look-ahead so {@link UnionStepRecogniser} can decline <em>before</em> forking and
    * walking every child — see that method for why the look-ahead exists.
+   *
+   * <p>Membership is necessary, not sufficient. {@link RangeGlobalStepRecogniser} sits here because
+   * a slice <em>can</em> ride the concatenation, but it accepts only when a {@code count()} follows
+   * immediately: the concatenation emits child one's rows then child two's while native {@code
+   * union(...)} interleaves the arms, so any surviving positional selection would return a different
+   * multiset with the translator on than off. That recogniser's class Javadoc carries the full
+   * argument.
    */
   private static final Set<StepRecogniser> POST_UNION_RECOGNISERS =
       Set.of(
@@ -379,6 +386,14 @@ final class GremlinStepWalker {
    * its own step (a second {@code count()}, a {@code dedup(labels)}), in which case the fork is
    * still paid and the in-loop gate plus the recogniser decline the walk. Fail-closed is preserved
    * in both directions — the look-ahead only ever declines shapes the in-loop gate would decline.
+   *
+   * <p>The one gate mirrored here rather than left to its recogniser is the positional one: a
+   * post-union slice needs a {@code count()} immediately after it (see {@link
+   * RangeGlobalStepRecogniser}), and {@code union(...).limit(n)} is common enough that paying N
+   * discarded sub-walks per compilation for it would give back most of what this look-ahead exists
+   * to save. The mirror reads {@link RangeGlobalStepRecogniser#selectsPositionally} rather than
+   * re-deriving the normalisation, so a slice that normalises away to nothing still reaches the fork
+   * exactly as it did before and the look-ahead stays no stricter than the recogniser.
    */
   static boolean postUnionSuffixTranslatable(
       StepCursor cursor, Map<Class<?>, StepRecogniser> recognisers) {
@@ -392,6 +407,14 @@ final class GremlinStepWalker {
       var recogniser = recognisers.get(step.getClass());
       if (recogniser == null || !POST_UNION_RECOGNISERS.contains(recogniser)) {
         return false;
+      }
+      if (recogniser == RangeGlobalStepRecogniser.INSTANCE
+          && RangeGlobalStepRecogniser.selectsPositionally(step)) {
+        var next = cursor.peek(ahead + 1);
+        if (next == null
+            || recognisers.get(next.getClass()) != CountGlobalStepRecogniser.INSTANCE) {
+          return false;
+        }
       }
     }
   }

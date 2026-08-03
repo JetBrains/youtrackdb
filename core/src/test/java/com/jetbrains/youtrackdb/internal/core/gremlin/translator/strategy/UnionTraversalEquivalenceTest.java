@@ -160,17 +160,18 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code union(…).limit(n)} translates with early-stop on the concatenator. Seeded from a single
-   * start vertex so emission order is stable across native vs MATCH (bare {@code g.V()} order can
-   * differ while the full multiset still matches after sort).
+   * A bare {@code union(…).limit(n)} declines even from a single start vertex whose arms are too
+   * short for the two orders to select different rows. The gate is on the shape, not on whether the
+   * fixture at hand happens to expose the divergence — the recogniser cannot see arm sizes, so a
+   * shape-blind rule is the only one that holds for every graph.
    */
   @Test
-  public void unionThenLimit_returnsSamePrefixAsNative() {
+  public void unionThenLimit_declines() {
     seedKnowsChain();
     var aliceId = graph.traversal().V().has("name", "Alice").id().next();
     assertEquivalent(
         "g.V(alice).union(out(knows), in(knows)).limit(2)",
-        Recognition.RECOGNIZED_MULTI_PLAN,
+        Recognition.DECLINED,
         () -> graph.traversal().V(aliceId).union(__.out("knows"), __.in("knows")).limit(2));
   }
 
@@ -354,62 +355,125 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code limit(n)} after a union truncates the concatenation to {@code n} rows. The four-row
-   * fixture is the point: with a concatenation no larger than the limit the truncation is invisible
-   * and dropping it entirely still passes. Emission order across arms is not pinned, so the
-   * assertion is cardinality plus membership in the untruncated union rather than an exact list.
+   * {@code skip(n)} and {@code range(low, high)} slice the concatenation before the {@code count()}
+   * that makes the slice translatable at all. The four-row fixture is the point: with a
+   * concatenation no larger than the slice the truncation is invisible and dropping it entirely
+   * still passes. {@code skip} is the only shape that reaches the skipping stream, and {@code
+   * range(1, 3)} on four rows is the smallest case that separates a {@code high - low} row budget
+   * (2) from a {@code high} one (3).
    */
   @Test
-  public void unionThenLimit_truncatesConcatenationToLimit() {
+  public void unionThenSkipAndRangeThenCount_sliceTheConcatenation() {
     var aliceId = seedWideFanOut();
     assertMultiPlanEngaged(
-        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).limit(2));
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).skip(1).count());
+    assertMultiPlanEngaged(
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, 3).count());
 
     setTranslatorEnabled(true);
-    var full = sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).toList());
-    var limited =
-        sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).limit(2).toList());
-
-    assertThat(full).as("the untruncated union is 3 + 1 rows").hasSize(4);
-    assertThat(limited).as("limit(2) truncates the concatenation").hasSize(2);
-    assertThat(full).containsAll(limited);
+    assertThat(graph.traversal().V(aliceId).union(__.out(), __.out().out()).count().next())
+        .as("the unsliced union is 3 + 1 rows")
+        .isEqualTo(4L);
+    assertThat(graph.traversal().V(aliceId).union(__.out(), __.out().out()).limit(2).count().next())
+        .as("limit(2) truncates the concatenation before the count sees it")
+        .isEqualTo(2L);
+    assertThat(graph.traversal().V(aliceId).union(__.out(), __.out().out()).skip(1).count().next())
+        .as("skip(1) drops exactly one row")
+        .isEqualTo(3L);
+    assertThat(
+        graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, 3).count().next())
+        .as("range(1, 3) keeps high - low = 2 rows after skipping 1")
+        .isEqualTo(2L);
+    assertThat(
+        graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, -1).count().next())
+        .as("an unbounded high is skip-only")
+        .isEqualTo(3L);
   }
 
   /**
-   * {@code skip(n)} and {@code range(low, high)} after a union slice the concatenation. {@code
-   * skip} is the only shape that reaches the skipping stream at all, and {@code range(1, 3)} on a
-   * four-row concatenation is the smallest case that separates a {@code high - low} row budget
-   * (2 rows) from a {@code high} one (3 rows). Order across arms is not pinned, so the assertions
-   * are cardinality plus membership against the full union.
+   * A positional suffix after a union must not translate. The multi-plan boundary emits child one's
+   * rows, then child two's; native {@code union(...)} interleaves the arms as it pulls each incoming
+   * traverser. The two orders hold the same rows, so the divergence stays invisible until a suffix
+   * selects <em>by position</em>: on an eight-vertex chain {@code out("knows")} and {@code
+   * in("knows")} yield seven rows each, and {@code limit(3)} then reads three rows out of the first
+   * arm on the translated side against a mixture of both arms natively. Neither order is a contract
+   * — MATCH does not promise one and native's follows TinkerPop's branch scheduling — so the shape
+   * declines and runs natively rather than returning a silently different multiset.
    */
   @Test
-  public void unionThenSkipAndRange_sliceTheConcatenation() {
-    var aliceId = seedWideFanOut();
-    assertMultiPlanEngaged(
-        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).skip(1));
-    assertMultiPlanEngaged(
-        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, 3));
+  public void positionalSuffixAfterUnion_declines() {
+    seedLongKnowsChain();
+    assertSameMultisetOnAndOff(
+        "g.V().union(out(knows), in(knows)).limit(3)",
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).limit(3));
+    assertSameMultisetOnAndOff(
+        "g.V().union(out(knows), in(knows)).range(2, 5)",
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).range(2, 5));
 
-    setTranslatorEnabled(true);
-    var full = sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).toList());
-    assertThat(full).hasSize(4);
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).limit(3) — positional suffix",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).limit(3));
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).range(2, 5) — positional suffix",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).range(2, 5));
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).skip(3) — positional suffix",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).skip(3));
+  }
 
-    var skipped =
-        sortedIds(graph.traversal().V(aliceId).union(__.out(), __.out().out()).skip(1).toList());
-    assertThat(skipped).as("skip(1) drops exactly one row").hasSize(3);
-    assertThat(full).containsAll(skipped);
+  /**
+   * The complement of the decline above: a positional suffix that ends in {@code count()} still
+   * translates, because the count reduces the slice to a cardinality and {@code min(n, total)} is
+   * the same whichever order the arms arrived in. Keeping this shape is the point of gating on the
+   * following step rather than dropping the range recogniser from the post-union allow-list
+   * outright.
+   */
+  @Test
+  public void positionalSuffixEndingInCountAfterUnion_stillTranslates() {
+    seedLongKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).limit(3).count()",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).limit(3).count());
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).skip(3).count()",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).skip(3).count());
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).dedup().range(1, 3).count()",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph
+            .traversal()
+            .V()
+            .union(__.out("knows"), __.in("knows"))
+            .dedup()
+            .range(1, 3)
+            .count());
+  }
 
-    var ranged =
-        sortedIds(
-            graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, 3).toList());
-    assertThat(ranged).as("range(1, 3) keeps high - low = 2 rows after skipping 1").hasSize(2);
-    assertThat(full).containsAll(ranged);
-
-    var openEnded =
-        sortedIds(
-            graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, -1).toList());
-    assertThat(openEnded).as("an unbounded high is skip-only").hasSize(3);
-    assertThat(full).containsAll(openEnded);
+  /**
+   * A positional suffix whose {@code count()} is not immediately next still declines: {@code
+   * limit(3).dedup().count()} counts the distinct rows <em>of the first three</em>, and which three
+   * those are depends on the arrival order the two arms disagree about. This fixture's two prefixes
+   * happen to hold three distinct rows each, so the shape agrees here by luck — the decline is what
+   * keeps a fixture that does not agree from returning a wrong count.
+   */
+  @Test
+  public void positionalSuffixWithCountBehindAnotherOp_declines() {
+    seedLongKnowsChain();
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).limit(3).dedup().count() — count behind a dedup",
+        Recognition.DECLINED,
+        () -> graph
+            .traversal()
+            .V()
+            .union(__.out("knows"), __.in("knows"))
+            .limit(3)
+            .dedup()
+            .count());
   }
 
   /**
@@ -576,6 +640,26 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     graph.tx().commit();
   }
 
+  /**
+   * Seeds an eight-vertex {@code knows} chain, Alice→Bob→…→Hank. Off a bare {@code g.V()} start both
+   * {@code out("knows")} and {@code in("knows")} yield seven rows, so a post-union positional suffix
+   * chooses from fourteen and a three-row prefix sits entirely inside the first arm — wide enough
+   * for the branch-major concatenation and native's per-traverser interleaving to select different
+   * rows. The three-vertex {@link #seedKnowsChain()} is not: its arms are too short for any prefix
+   * to separate them.
+   */
+  private void seedLongKnowsChain() {
+    Vertex previous = null;
+    for (var name : List.of("Alice", "Bob", "Carol", "Dave", "Eve", "Fay", "Gina", "Hank")) {
+      var current = graph.addVertex(T.label, "Person", "name", name);
+      if (previous != null) {
+        previous.addEdge("knows", current);
+      }
+      previous = current;
+    }
+    graph.tx().commit();
+  }
+
   /** Seeds Alice -knows-> Bob -knows-> Carol. */
   private void seedKnowsChain() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
@@ -632,6 +716,32 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
       assertThat(boundaryOff)
           .as(scenario + " (translator off) must never engage a boundary step")
           .isEqualTo(0);
+      assertThat(onIds)
+          .as(scenario + ": translator-on and translator-off result multisets must match")
+          .isEqualTo(offIds);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * Drains the shape with the translator on and then off and asserts the two multisets match,
+   * restoring the switch afterwards. {@link #assertEquivalent} checks the same equality, but only
+   * after its recognition assertions; a shape that both mis-recognises and diverges therefore
+   * reports the recognition failure and says nothing about the divergence. This helper reports the
+   * divergence on its own, so a regression that re-admits a diverging shape names the actual defect.
+   */
+  private void assertSameMultisetOnAndOff(
+      String scenario, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      setTranslatorEnabled(true);
+      var onIds = drainSortedIds(traversalSupplier.get().asAdmin());
+      setTranslatorEnabled(false);
+      var offIds = drainSortedIds(traversalSupplier.get().asAdmin());
       assertThat(onIds)
           .as(scenario + ": translator-on and translator-off result multisets must match")
           .isEqualTo(offIds);

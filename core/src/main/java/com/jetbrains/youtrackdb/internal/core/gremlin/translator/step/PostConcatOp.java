@@ -24,6 +24,10 @@ public sealed interface PostConcatOp
   /**
    * {@code skip}/{@code limit}/{@code range} over the concatenation. {@code limit < 0} means
    * unbounded high (skip-only). Early-stops the concatenator so unopened children never start.
+   *
+   * <p>Only built when a {@code count()} follows the slice immediately: the concatenation's row
+   * order is not native's, so a slice whose rows reach the caller would return a different multiset
+   * than the untranslated traversal. The recogniser's class Javadoc carries the argument.
    */
   record Range(long skip, long limit) implements PostConcatOp {
     public Range {

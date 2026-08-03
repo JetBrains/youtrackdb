@@ -19,6 +19,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
@@ -931,15 +933,79 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * Registry the gate reads in the two tests above: the hop recogniser (not post-concat capable)
-   * and the count recogniser (post-concat capable), under every step class the un-strategized
-   * traversal can produce for those two shapes.
+   * A positional slice is on the post-union allow-list but only translates when a {@code count()}
+   * follows it immediately, and the pre-fork gate mirrors that rather than leaving it to the
+   * recogniser. Without the mirror {@code union(...).limit(3)} — the commonest post-union suffix —
+   * would walk every arm on each compilation and throw the results away.
+   */
+  @Test
+  public void union_positionalSuffixWithoutCount_declinesWithoutForkingAnyChild() {
+    var admin = graph.traversal().V().union(__.out(), __.in()).limit(3).asAdmin();
+    var cursor = cursorAtUnion(admin);
+    var host = new CountingUnionForkHost(cursor, POST_UNION_GATE_REGISTRY);
+    var ctx = unionSeededContext(host);
+
+    var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(host.forkCalls)
+        .as("a bare slice after the union is refused by the gate, so no arm may be walked")
+        .isZero();
+  }
+
+  /**
+   * The complement: the same slice with its {@code count()} attached is translatable, so it must
+   * still reach the fork. Pins that the mirror above narrows only the diverging half of the shape.
+   */
+  @Test
+  public void union_positionalSuffixEndingInCount_reachesTheFork() {
+    var admin = graph.traversal().V().union(__.out(), __.in()).limit(3).count().asAdmin();
+    var cursor = cursorAtUnion(admin);
+    var host = new CountingUnionForkHost(cursor, POST_UNION_GATE_REGISTRY);
+    var ctx = unionSeededContext(host);
+
+    var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(host.forkCalls)
+        .as("limit(n).count() is post-concat translatable, so the first arm must still be walked")
+        .isEqualTo(1);
+  }
+
+  /**
+   * A slice that normalises away to nothing selects no position, so the mirror must let it through
+   * unchanged: {@code skip(0)} still reaches the fork even though no count follows it. Without the
+   * carve-out the gate would be stricter than the recogniser and would decline a shape that used to
+   * translate.
+   */
+  @Test
+  public void union_noOpSliceWithoutCount_stillReachesTheFork() {
+    var admin = graph.traversal().V().union(__.out(), __.in()).skip(0).asAdmin();
+    var cursor = cursorAtUnion(admin);
+    var host = new CountingUnionForkHost(cursor, POST_UNION_GATE_REGISTRY);
+    var ctx = unionSeededContext(host);
+
+    var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(host.forkCalls)
+        .as("skip(0) appends no reduction, so the gate must not treat it as a positional slice")
+        .isEqualTo(1);
+  }
+
+  /**
+   * Registry the gate reads in the tests above: the hop recogniser (not post-concat capable), the
+   * count recogniser (post-concat capable), and the range recogniser (post-concat capable only
+   * ahead of a count), under every step class the un-strategized traversal can produce for those
+   * shapes.
    */
   private static final Map<Class<?>, StepRecogniser> POST_UNION_GATE_REGISTRY =
       Map.of(
           VertexStep.class, VertexStepRecogniser.INSTANCE,
           VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
-          CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE);
+          CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE,
+          RangeGlobalStep.class, RangeGlobalStepRecogniser.INSTANCE,
+          RangeGlobalStepPlaceholder.class, RangeGlobalStepRecogniser.INSTANCE);
 
   /** Advances a fresh cursor over {@code admin}'s steps until the union is the head. */
   private static StepStreamCursor cursorAtUnion(Traversal.Admin<?, ?> admin) {
