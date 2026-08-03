@@ -33,6 +33,8 @@ branch, and anything unfinished stays as uncommitted changes in its worktree.
 
 The prefixes are deliberately disjoint so two concurrent reviewers cannot collide on IDs.
 
+**Step 11's bugs review has since landed and it carries a blocker — start there.** `BG9` (CONFIRMED, cert C1) refutes the `not`-exemption invariant this session recorded: `g.V().or(not(out(a)).has(name, x), has(age, 30))` returns `[x]` against native's `[x, y]` at one boundary step, because an edge-bearing `not()` inside an OR arm leaks its anti-join past the capture boundary. `BG11` is a second confirmed wrong answer — a path-scoped `where` mis-keyed onto the current boundary, `g.V().as(a).out(knows).where(as(a).has(age, 30))` returning `[]` against `[Bob]` — and `BG10` reports that the regression guard two test Javadocs claim does not exist, since `RecognitionContext.appendPattern` now has zero production callers. Step 11 is **not** done; the track-file entry recording its invariant has been corrected in the same commit as this note.
+
 ## The four branches, and the order to integrate them
 
 All three are **pushed to `origin`** (as is `t11-item7-jmh`, carrying Track 11 item 7's JMH
