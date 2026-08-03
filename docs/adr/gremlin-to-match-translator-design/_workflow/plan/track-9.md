@@ -14,7 +14,6 @@ First half of the split final track (inline replan, 2026-08-03 — see `## Decis
 - [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
-- **PAUSED 2026-08-04T02:10Z [ctx=warning] — Phase B paused at the context warning; all four step branches integrated and green (683/683), step 9 episode written, review loops open on steps 10, 11 and 13 with blocker BG9. See `_workflow/handoff-track9-phaseB.md`.**
 - [x] 2026-08-04T01:55Z [ctx=warning] Step 9 complete (commit `d6e0920e5c`). Fail-closed chain-termination gate after three attempts; two prior attempts failed on incomplete successor enumeration, the second regressing a working shape. Step-level review ran 2 dimensions over 5 iterations (3 past the cap, DR-S11/DR-S12): test-structure PASS at iteration 2, bugs VERIFIED at iteration 5. BG7 and BG8 routed out to step 10 as pre-existing. Suite unmoved at 1930 / 5 / 14 across four closed divergences. Coverage gate not run — Phase C owns it.
 - [ ] Track completion
 - [x] 2026-08-03T17:14Z [ctx=info] Step 5 complete (commit `c5f299e2fa`). Feature suite 1930 / 7 / 14, translator on, down from 27; 20 scenarios moved on four root causes. Step-level review ran 3 dimensions, 19 findings, 0 blockers as graded with 4 orchestrator-upgraded (all four measured on/off divergences invisible to the compliance suite), all upgrades and all should-fixes closed, 4 skipped with reasons, PF1 deferred as executor work. Coverage gate not run — Phase C owns it.
