@@ -21,7 +21,10 @@ own findings file as it finishes, so **check `plan/track-9/reviews/` rather than
 five are still pending** — `test-structure-step13-iter1.md` had already landed when this
 handoff was written (7 findings, 0 blockers: TS30–TS32 should-fix, TS33–TS36 suggestions).
 Step 10's implementer is the only one whose work is not self-persisting: it commits to its
-branch, and anything unfinished stays as uncommitted changes in its worktree.
+branch, and anything unfinished stays as uncommitted changes in its worktree. **All four
+reviews have now landed**: step 13 test-structure (7 findings, 0 blockers), step 11 bugs
+(5 findings, **1 blocker BG9**), step 11 test-structure (6 findings, 0 blockers: TS10–TS12
+should-fix, TS13–TS15 suggestions), step 13 bugs. Only step 10 is still running.
 
 | Agent | What it is doing | Where its output goes |
 |---|---|---|
@@ -126,5 +129,8 @@ full coverage gate outside Phase C. One Maven invocation at a time per worktree.
 `./mvnw -pl core -o test-compile surefire:test@gremlin-feature-compliance-tests
 -Dmaven.test.failure.ignore=true`; the `test-compile` prefix is not optional. Every new or
 changed test gets a mutation proof — this branch has twelve recorded instances of a test that
-could not fail, and step 11's `assertNativeFanOut` helper is the first mechanical defence
-against recurrence, so copy that pattern rather than relying on assertions alone.
+could not fail. Step 11 added an `assertNativeFanOut` helper aimed at that, but its own
+test-structure review (TS13) found the fan-out check compares two call-site literals rather
+than anything derived from the fixture — so **do not copy it as-is**; the idea is right and
+the implementation is still assertion-shaped. Strengthening it into a real structural guard
+would be worth more than any single finding it currently carries.
