@@ -105,9 +105,11 @@ ephemeral-identifier leaks were cleaned up in passing.
 
 `core` feature suite, translator on, at `c4d9d67ae7`: **1930 / 27 / 14** (was 42 before step 3's review fix). Translator
 off at the same commit: **1930 / 0 / 14**. The whole `...gremlin.translator.**` package
-is 601 / 601 green. Of the 42, the track records that 28 are count comparisons and 25
-of those are over-emission — the dropped-filter signature step 3 fixes — so step 4's
-re-measure is where the number should drop sharply. It has not been taken.
+is 601 / 601 green. The track recorded that 28 of the original 42 were count
+comparisons and 25 of those over-emission — the dropped-filter signature — and step 3's
+review fix is where that drop actually landed, not step 4. **Step 4 has still not run**,
+and it is owed: it is the step that records both directions of drift against step 2's
+baseline, and step 2 has not run either.
 
 Banked CI figures and their three qualifications are in `## Artifacts and Notes`; they
 are pinned to `b35ac67d2f` and superseded by anything later.
