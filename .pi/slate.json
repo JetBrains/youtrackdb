@@ -6,13 +6,20 @@
   "workerExtensions": ["^npm:pi-smart-fetch(@|$)", "^npm:pi-web-search(@|$)"],
   "doctrineExtraPath": "docs-internal/agents/slate-doctrine-extra.md",
   "reviewPerspectivesPath": "docs-internal/agents/review-perspectives.md",
+  "episodeModel": "anthropic/claude-sonnet-5",
+  "router": {
+    "models": [
+      "anthropic/claude-opus-5",
+      "anthropic/claude-sonnet-5",
+      "openai/gpt-5.6-sol",
+      "openai/gpt-5.6-luna"
+    ],
+    "allowUnmeasuredEffort": false
+  },
   "modelFailover": {
-    "anthropic/claude-sonnet-5": "openai/gpt-5.6-luna",
-    "openai/gpt-5.6-luna": "anthropic/claude-sonnet-5",
-    "anthropic/claude-opus-4-8": "openai/gpt-5.6-terra",
-    "openai/gpt-5.6-terra": "anthropic/claude-opus-4-8",
-    "anthropic/claude-fable-5": "openai/gpt-5.6-sol",
     "anthropic/claude-opus-5": "openai/gpt-5.6-sol",
-    "openai/gpt-5.6-sol": "anthropic/claude-opus-5"
+    "anthropic/claude-sonnet-5": "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol": "anthropic/claude-opus-5",
+    "openai/gpt-5.6-luna": "anthropic/claude-opus-5"
   }
 }
