@@ -14,6 +14,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -473,6 +474,238 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().has(name, nobody).groupCount().by(name)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().has("name", "nobody").groupCount().by("name"));
+  }
+
+  // --- by(key) is filtering: an element without the key is dropped, not grouped under null ------
+
+  /**
+   * Seeds the split every {@code by(key)} case below needs: two vertices carrying {@code age} and
+   * two that do not. Without the split a presence conjunct is indistinguishable from no conjunct,
+   * and every assertion here would pass vacuously.
+   */
+  private void seedAgedAndAgeless() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "Nobody");
+    graph.addVertex(T.label, "Person", "name", "Nemo");
+    graph.tx().commit();
+  }
+
+  /**
+   * {@code order().by("age")} emits only the two vertices that carry {@code age}. Gremlin's
+   * modulator is a traversal, so an element with no {@code age} produces no value and its traverser
+   * is dropped; a plain SQL {@code ORDER BY} would keep all four and sort the missing ones as null.
+   */
+  @Test
+  public void orderByMissingKey_dropsElementLikeNative() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().order().by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("age"));
+  }
+
+  /**
+   * The same drop has to reach a following {@code count()}, which reads the filtered pattern rather
+   * than the projected stream: {@code order().by("age").count()} is 2, not 4.
+   */
+  @Test
+  public void countAfterOrderByMissingKey_countsOnlyKeyBearers() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().order().by(age).count()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("age").count());
+  }
+
+  /** {@code select("a").by("age")} drops the elements without {@code age} the same way. */
+  @Test
+  public void selectByMissingKey_dropsElementLikeNative() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().as(a).select(a).by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("a").select("a").by("age"));
+  }
+
+  /** The multi-label {@code select(a, n).by(age).by(name)} form drops on the modulated alias too. */
+  @Test
+  public void multiLabelSelectByMissingKey_dropsElementLikeNative() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().as(a, n).select(a, n).by(age).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("a", "n").select("a", "n").by("age").by("name"));
+  }
+
+  /**
+   * {@code group().by("age")} and {@code groupCount().by("age")} carry no {@code null} bucket. This
+   * is the one shape where the drop cannot be done after the fact — SQL forms the bucket during
+   * aggregation, so the conjunct has to filter the rows that feed it.
+   */
+  @Test
+  public void groupByMissingKey_hasNoNullBucket() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().group().by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().group().by("age"));
+    assertEquivalent(
+        "g.V().groupCount().by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().groupCount().by("age"));
+  }
+
+  /**
+   * The positive control for the drop: under {@code ProductiveByStrategy} a {@code by(key)} yields
+   * {@code null} instead of dropping, so the {@code null} bucket is the correct answer and the
+   * conjunct must not be added. Without this case the four assertions above would be equally green
+   * if the conjunct were added unconditionally, which is the bug this pins.
+   */
+  @Test
+  public void productiveByStrategy_keepsTheNullBucket() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy).V().groupCount().by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph
+            .traversal()
+            .withStrategies(ProductiveByStrategy.instance())
+            .V()
+            .groupCount()
+            .by("age"));
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy).V().order().by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().withStrategies(ProductiveByStrategy.instance()).V().order()
+            .by("age"));
+  }
+
+  // --- valueMap / elementMap: tokens do not decide list wrapping, and no keys means decline ------
+
+  /**
+   * {@code valueMap(true, "name")} wraps its property values in singleton lists and emits the id /
+   * label tokens. Asking for tokens does not turn a {@code valueMap} into an {@code elementMap}, so
+   * the wrapping stays; deriving it from the token bits emitted {@code name=Alice} where native
+   * emits {@code name=[Alice]}.
+   */
+  @Test
+  public void valueMapWithTokens_stillWrapsValuesInLists() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().valueMap(true, name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().valueMap(true, "name"));
+  }
+
+  /**
+   * A key-less {@code valueMap} / {@code elementMap} projects every property, which needs a
+   * schema-driven enumeration this cut does not have, so all four spellings decline. Requesting the
+   * tokens does not supply a key list: a plan built from the token columns alone returns
+   * {@code {id, label}} per element and silently loses every property.
+   */
+  @Test
+  public void keylessValueMapAndElementMap_decline() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().valueMap()", Recognition.DECLINED, () -> graph.traversal().V().valueMap());
+    assertEquivalent(
+        "g.V().valueMap(true)", Recognition.DECLINED, () -> graph.traversal().V().valueMap(true));
+    assertEquivalent(
+        "g.V().elementMap()", Recognition.DECLINED, () -> graph.traversal().V().elementMap());
+  }
+
+  // --- terminators that must read the value a preceding values(key) projected --------------------
+
+  /**
+   * {@code values("name").order()} sorts the names. A bare {@code order()} defaults to the element
+   * RID, which after a value projection sorts the emitted strings into insertion order and calls it
+   * sorted — green on any fixture whose insertion order happens to be alphabetical, which is why
+   * the seed below is deliberately not.
+   */
+  @Test
+  public void orderAfterValues_sortsByTheValueNotTheRid() {
+    graph.addVertex(T.label, "Person", "name", "Zoe");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Mallory");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().values(name).order()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("name").order());
+  }
+
+  /** {@code values("name").groupCount()} keys on the names, not on the vertices that carry them. */
+  @Test
+  public void groupCountAfterValues_keysOnTheProjectedValue() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().values(name).groupCount()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("name").groupCount());
+  }
+
+  /**
+   * {@code group().by(label).count()} counts the maps the grouping emits — one — not the rows that
+   * fed it. The count assembler clears the projection and nulls the GROUP BY, so it declines rather
+   * than turning the shape into a bare {@code count(*)} over the ungrouped rows.
+   */
+  @Test
+  public void countAfterGroup_declines() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().group().by(label).count()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().group().by(T.label).count());
+  }
+
+  /**
+   * {@code values("foo").sum()} over a graph where nothing carries {@code foo} emits nothing. The
+   * drop that {@code values(key)} pins in the row projection is replaced by the aggregate column,
+   * so it is restated as a pattern conjunct — otherwise the aggregate reduces four null-valued rows
+   * and emits a zero where Gremlin emits no traverser at all.
+   */
+  @Test
+  public void sumOverAbsentProperty_emitsNothing() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().values(foo).sum()",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().values("foo").sum());
+  }
+
+  /**
+   * {@code values("age").mean()} divides in floating point: 30 and 25 average to 27.5, not 27. The
+   * ages are chosen not to divide evenly, because an evenly-dividing fixture cannot tell the SQL
+   * {@code mean} aggregate apart from {@code avg}, whose integer division is why {@code mean}
+   * exists.
+   */
+  @Test
+  public void meanOverIntegerProperty_dividesInFloatingPoint() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().values(age).mean()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").mean());
   }
 
   /** Seeds {@code count} Person vertices with distinct names and ages for the B1 cardinality cases. */

@@ -68,6 +68,13 @@ final class GremlinAggregateAssembler {
     if (hasPreAggregateCardinalityClause(ctx)) {
       return Outcome.DECLINE;
     }
+    // count() after a grouping terminator counts the maps the grouping emits, not the rows that
+    // fed it: g.V().group().by(label).count() is 1, one map. This body clears the projection and
+    // nulls the GROUP BY, which would turn it into a bare count(*) over the six vertices. Decline
+    // and let the native pipeline count the grouped output.
+    if (ctx.groupBy() != null) {
+      return Outcome.DECLINE;
+    }
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;
@@ -124,12 +131,19 @@ final class GremlinAggregateAssembler {
       return Outcome.DECLINE;
     }
     var boundary = ctx.boundaryAlias();
-    var field = ctx.lastPropertyProjection();
-    if (boundary == null || field == null) {
+    var projection = ctx.lastPropertyProjection();
+    if (boundary == null || projection == null) {
       return Outcome.DECLINE;
     }
+    // The values(key) step this aggregate re-points at drops elements without the property, and
+    // that drop lives in the boundary's row projection — which this method is about to replace
+    // with a single aggregate column. Restate it as a pattern conjunct so the aggregate reduces
+    // the same input Gremlin does: g.V().values("foo").sum() over a graph with no foo must match
+    // nothing and emit nothing, where sum() over six null-valued rows emits a zero.
+    ByModulatorPresence.requireProperty(ctx, projection.alias(), projection.propertyKey());
     ctx.clearReturnProjection();
-    ctx.appendReturnColumn(MatchProjectionBuilder.propertyAggregate(functionName, field), null);
+    ctx.appendReturnColumn(
+        MatchProjectionBuilder.propertyAggregate(functionName, projection.expression()), null);
     ctx.setGroupBy(null);
     ctx.setLastPropertyProjection(null);
     // dropNullRows so empty input (no matched vertices) emits no traverser.
@@ -153,7 +167,7 @@ final class GremlinAggregateAssembler {
     if (boundary == null) {
       return Outcome.DECLINE;
     }
-    var keyExpr = resolveGroupKey(boundary, keyTraversal);
+    var keyExpr = resolveGroupKey(ctx, boundary, keyTraversal);
     if (keyExpr == null) {
       return Outcome.DECLINE;
     }
@@ -161,6 +175,7 @@ final class GremlinAggregateAssembler {
     if (valueExpr == null) {
       return Outcome.DECLINE;
     }
+    requireGroupKeyPresent(ctx, boundary, keyTraversal);
     var groupBy = new SQLGroupBy(-1);
     groupBy.addItem(keyExpr);
     ctx.clearReturnProjection();
@@ -185,10 +200,11 @@ final class GremlinAggregateAssembler {
     if (boundary == null) {
       return Outcome.DECLINE;
     }
-    var keyExpr = resolveGroupKey(boundary, keyTraversal);
+    var keyExpr = resolveGroupKey(ctx, boundary, keyTraversal);
     if (keyExpr == null) {
       return Outcome.DECLINE;
     }
+    requireGroupKeyPresent(ctx, boundary, keyTraversal);
     var groupBy = new SQLGroupBy(-1);
     groupBy.addItem(keyExpr);
     ctx.clearReturnProjection();
@@ -202,8 +218,41 @@ final class GremlinAggregateAssembler {
     return Outcome.ACCEPTED;
   }
 
-  private static SQLExpression resolveGroupKey(String alias, Traversal.Admin<?, ?> keyTraversal) {
+  /**
+   * Restates the group key's Gremlin-side drop as a pattern conjunct. Both routes into {@link
+   * #resolveGroupKey} can drop an element: an explicit {@code by(key)} drops one without the
+   * property, and the no-{@code by} route re-points at a preceding {@code values(key)} whose own
+   * drop lived in the boundary row projection this assembler is about to replace with group
+   * columns. Without it the SQL {@code GROUP BY} collects those elements into a {@code null}
+   * bucket — {@code g.V().groupCount().by("age")} gains a {@code null=2} entry the native answer
+   * does not have.
+   */
+  private static void requireGroupKeyPresent(
+      RecognitionContext ctx, String boundary, Traversal.Admin<?, ?> keyTraversal) {
+    if (keyTraversal != null && !(keyTraversal instanceof IdentityTraversal)) {
+      ByModulatorPresence.requireModulatedProperty(ctx, boundary, keyTraversal);
+      return;
+    }
+    var projection = ctx.lastPropertyProjection();
+    if (projection != null) {
+      ByModulatorPresence.requireProperty(ctx, projection.alias(), projection.propertyKey());
+    }
+  }
+
+  /**
+   * The GROUP BY key expression. With no {@code by(...)} the group key is whatever the walk is
+   * already projecting: the property behind a preceding {@code values(key)} if there is one, the
+   * element RID otherwise. {@code g.V().out("created").values("name").groupCount()} keys on the
+   * names — before this distinction existed it keyed on the vertices and returned
+   * {@code {v[lop]=3, v[ripple]=1}} where Gremlin returns {@code {lop=3, ripple=1}}.
+   */
+  private static SQLExpression resolveGroupKey(
+      RecognitionContext ctx, String alias, Traversal.Admin<?, ?> keyTraversal) {
     if (keyTraversal == null || keyTraversal instanceof IdentityTraversal) {
+      var projection = ctx.lastPropertyProjection();
+      if (projection != null) {
+        return projection.expression();
+      }
       return ByModulatorTranslator.aliasRecordAttribute(alias, "@rid");
     }
     return ByModulatorTranslator.translateKeyModulator(alias, keyTraversal).orElse(null);
@@ -227,8 +276,10 @@ final class GremlinAggregateAssembler {
       case ByModulatorTranslator.ValueAccumulator.FoldList ignored ->
           MatchProjectionBuilder.listAlias(alias);
       case ByModulatorTranslator.ValueAccumulator.PropertyAggregate prop ->
-          // MatchProjectionBuilder.propertyAggregate lowercases the function name itself, so pass the
-          // enum name as-is rather than lowercasing here too (was a redundant double lowercase).
+          // MatchProjectionBuilder.propertyAggregate lowercases the function name itself, so pass
+          // the enum name as-is rather than lowercasing here too. MEAN names the SQL "mean"
+          // aggregate, which divides in floating point the way Gremlin's mean() does — see
+          // PropertyAggregateStepRecogniser for why avg() is the wrong target.
           MatchProjectionBuilder.propertyAggregate(prop.function().name(), prop.field());
     };
   }

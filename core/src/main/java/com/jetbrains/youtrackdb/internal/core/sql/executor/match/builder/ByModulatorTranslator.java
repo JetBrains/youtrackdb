@@ -93,6 +93,20 @@ public final class ByModulatorTranslator {
     return classifyKey(modulator).map(field -> field.toOrderItem(alias, ascending));
   }
 
+  /**
+   * The property key a key-side {@code by(...)} modulator reads, or empty when the modulator
+   * resolves to a record attribute ({@code by(T.id)} / {@code by(T.label)}) or is unrecognised.
+   *
+   * <p>Callers need this because Gremlin's {@code by(key)} is filtering: a modulator is a
+   * traversal, and an element with no such property produces no value, so the traverser is dropped
+   * before the sort / projection / grouping ever sees it. SQL keeps the row and yields
+   * {@code null}, so the translated plan must add an {@code IS DEFINED} conjunct on the modulated
+   * alias to match. Record attributes need no conjunct — every record has a RID and a class.
+   */
+  public static Optional<String> keyModulatorPropertyKey(Traversal.Admin<?, ?> modulator) {
+    return classifyKey(modulator).filter(ref -> !ref.recordAttr()).map(FieldRef::name);
+  }
+
   /** Classifies a key-side modulator into a field reference, independent of the target alias. */
   private static Optional<FieldRef> classifyKey(Traversal.Admin<?, ?> modulator) {
     if (modulator == null) {

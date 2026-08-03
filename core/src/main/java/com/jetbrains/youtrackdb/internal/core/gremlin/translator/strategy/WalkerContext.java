@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -108,6 +109,10 @@ final class WalkerContext implements RecognitionContext {
   /** {@code GROUP BY} clause for {@code group()} / {@code groupCount()} terminators. */
   @Nullable SQLGroupBy groupBy;
 
+  /** {@code ProductiveByStrategy}'s productive keys, or {@code null} when the strategy is absent.
+   *  See {@link #setProductiveByKeys}. */
+  @Nullable private Set<String> productiveByKeys;
+
   /** {@code ORDER BY} clause for {@code order()} terminators. */
   @Nullable SQLOrderBy orderBy;
 
@@ -131,7 +136,7 @@ final class WalkerContext implements RecognitionContext {
    * Field-access expression from the immediately preceding single-key property extraction, consumed
    * by aggregate recognisers ({@code values("age").mean()}).
    */
-  @Nullable SQLExpression lastPropertyProjection;
+  @Nullable RecognitionContext.PropertyProjection lastPropertyProjection;
 
   /** Whether the traversal runs as a polymorphic query, resolved once from the traversal's YTDB
    *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}) by {@link GremlinStepWalker}.
@@ -312,6 +317,22 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public boolean edgeLabelVerificationEnabled() {
     return edgeLabelVerification;
+  }
+
+  /**
+   * Records {@code ProductiveByStrategy}'s productive-key set for the traversal being walked:
+   * {@code null} when the strategy is absent, an empty set when every key is productive (the
+   * strategy's own default), and otherwise the configured keys. Resolved once by the walker for
+   * the same reason the polymorphism and edge-label-verification flags are.
+   */
+  void setProductiveByKeys(@Nullable Set<String> keys) {
+    this.productiveByKeys = keys;
+  }
+
+  @Override
+  public boolean byModulatorIsProductive(String propertyKey) {
+    return productiveByKeys != null
+        && (productiveByKeys.isEmpty() || productiveByKeys.contains(propertyKey));
   }
 
   // --- RecognitionContext: boundary read --------------------------------------------------------
@@ -558,6 +579,11 @@ final class WalkerContext implements RecognitionContext {
     this.groupBy = groupBy;
   }
 
+  @Nullable @Override
+  public SQLGroupBy groupBy() {
+    return groupBy;
+  }
+
   @Override
   public void setOrderBy(@Nullable SQLOrderBy orderBy) {
     this.orderBy = orderBy;
@@ -585,12 +611,13 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
-  public void setLastPropertyProjection(@Nullable SQLExpression expression) {
-    this.lastPropertyProjection = expression;
+  public void
+      setLastPropertyProjection(@Nullable RecognitionContext.PropertyProjection projection) {
+    this.lastPropertyProjection = projection;
   }
 
   @Nullable @Override
-  public SQLExpression lastPropertyProjection() {
+  public RecognitionContext.PropertyProjection lastPropertyProjection() {
     return lastPropertyProjection;
   }
 

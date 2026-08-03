@@ -369,6 +369,12 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public boolean byModulatorIsProductive(String propertyKey) {
+    // Delegated: the strategy is a property of the whole traversal, not of one sub-walk.
+    return parent.byModulatorIsProductive(propertyKey);
+  }
+
+  @Override
   public void setReturnDistinct(boolean distinct) {
     // Swallowed: sub-walk filter children do not shape the parent's RETURN clause.
   }
@@ -376,6 +382,12 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void setGroupBy(@Nullable SQLGroupBy groupBy) {
     // Swallowed — see setReturnDistinct.
+  }
+
+  @Nullable @Override
+  public SQLGroupBy groupBy() {
+    // Always null: setGroupBy is swallowed, so a sub-walk never carries one.
+    return null;
   }
 
   @Override
@@ -400,12 +412,13 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
-  public void setLastPropertyProjection(@Nullable SQLExpression expression) {
+  public void setLastPropertyProjection(
+      @Nullable RecognitionContext.PropertyProjection projection) {
     // Swallowed for combinator filter sub-walks; value-side by() sub-walks land in Track 6 Step 4.
   }
 
   @Nullable @Override
-  public SQLExpression lastPropertyProjection() {
+  public RecognitionContext.PropertyProjection lastPropertyProjection() {
     return null;
   }
 

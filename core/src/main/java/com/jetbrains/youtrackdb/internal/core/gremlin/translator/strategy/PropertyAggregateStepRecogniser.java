@@ -25,9 +25,10 @@ final class PropertyAggregateStepRecogniser implements StepRecogniser {
           case SumGlobalStep<?> ignored -> "sum";
           case MinGlobalStep<?> ignored -> "min";
           case MaxGlobalStep<?> ignored -> "max";
-          // Gremlin mean maps to the YTDB SQL aggregate "avg" (there is no "mean" SQL function, so
-          // emitting mean(...) would fail plan-build and decline the whole traversal to native).
-          case MeanGlobalStep<?, ?> ignored -> "avg";
+          // Gremlin mean maps to the SQL aggregate "mean", not to "avg": avg divides in the
+          // input's own arithmetic, so avg(age) over the modern graph's integer ages returns
+          // 123 / 4 = 30 where Gremlin's mean() is always floating-point and returns 30.75.
+          case MeanGlobalStep<?, ?> ignored -> "mean";
           default -> null;
         };
     if (function == null) {

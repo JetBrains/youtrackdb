@@ -59,7 +59,11 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SCALAR);
   }
 
-  /** {@code values("age").mean()} re-points at {@code lastPropertyProjection} and sets dropNullRows. */
+  /**
+   * {@code values("age").mean()} re-points at {@code lastPropertyProjection}, sets dropNullRows and
+   * emits the SQL {@code mean} aggregate — not {@code avg}, which divides integer input in integer
+   * arithmetic and would answer 30 where Gremlin's mean() answers 30.75.
+   */
   @Test
   public void mean_afterValues_repointsAndDropsNullRows() {
     var admin = graph.traversal().V().values("age").mean().asAdmin();
@@ -74,7 +78,8 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SCALAR);
     assertThat(ctx.shaping().dropNullRows()).isTrue();
-    assertThat(ctx.returnItems.getFirst().toString()).containsIgnoringCase("avg");
+    assertThat(ctx.returnItems.getFirst().toString()).containsIgnoringCase("mean");
+    assertThat(ctx.returnItems.getFirst().toString()).doesNotContainIgnoringCase("avg");
     assertThat(ctx.returnItems.getFirst().toString()).contains("age");
   }
 

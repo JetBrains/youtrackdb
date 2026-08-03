@@ -28,6 +28,7 @@ final class ElementMapStepRecogniser implements StepRecogniser {
     var tokens =
         GremlinProjectionAssembler.ELEMENT_MAP_TOKEN_ID
             | GremlinProjectionAssembler.ELEMENT_MAP_TOKEN_LABEL;
-    return GremlinProjectionAssembler.configurePropertyMap(ctx, mapStep.getPropertyKeys(), tokens);
+    return GremlinProjectionAssembler.configurePropertyMap(
+        ctx, mapStep.getPropertyKeys(), tokens, true);
   }
 }

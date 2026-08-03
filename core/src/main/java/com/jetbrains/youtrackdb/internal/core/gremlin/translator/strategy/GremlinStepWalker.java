@@ -45,6 +45,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SumGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 
 /**
@@ -298,6 +299,14 @@ final class GremlinStepWalker {
     Schema schema = session != null ? session.getSchema() : null;
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
+    // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
+    // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
+    ctx.setProductiveByKeys(
+        traversal
+            .getStrategies()
+            .getStrategy(ProductiveByStrategy.class)
+            .map(ProductiveByStrategy::getProductiveKeys)
+            .orElse(null));
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
     // Install the union fork host after the cursor exists: the host reads prefix length from the
     // cursor position after UnionStepRecogniser.take(), and keeps the parent Admin private.

@@ -58,13 +58,18 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
         return Outcome.DECLINE;
       }
       var ascending = SQLOrderByItem.ASC.equals(direction.get());
-      var item = resolveSortItem(boundary, pair.getValue0(), ascending);
+      var item = resolveSortItem(ctx, boundary, pair.getValue0(), ascending);
       if (item == null) {
         return Outcome.DECLINE;
       }
       items.add(item);
     }
 
+    // Contribution — reached only after every comparator resolved, so a declining modulator leaves
+    // the context unmutated.
+    for (var pair : comparators) {
+      ByModulatorPresence.requireModulatedProperty(ctx, boundary, pair.getValue0());
+    }
     var orderBy = new SQLOrderBy(-1);
     orderBy.setItems(items);
     ctx.setOrderBy(orderBy);
@@ -72,12 +77,20 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
   }
 
   /**
-   * Identity modulators (bare {@code order()} / {@code by(Order.asc)}) sort by element RID; other
-   * shapes go through {@link ByModulatorTranslator}. Built as AST — no SQL-text round-trip.
+   * Identity modulators (bare {@code order()} / {@code by(Order.asc)}) sort by the value the walk
+   * is already projecting — the property behind a preceding {@code values(key)} if there is one,
+   * the element RID otherwise. {@code g.V().values("name").order()} sorts names, not RIDs, and
+   * before this distinction existed it emitted the six names in RID order and called it sorted.
+   * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no SQL-text round-trip.
    */
   private static SQLOrderByItem resolveSortItem(
-      String alias, Traversal.Admin<?, ?> modulator, boolean ascending) {
+      RecognitionContext ctx, String alias, Traversal.Admin<?, ?> modulator, boolean ascending) {
     if (modulator instanceof IdentityTraversal) {
+      var projection = ctx.lastPropertyProjection();
+      if (projection != null) {
+        return ProjectionExpressionFactories.orderByProperty(
+            projection.alias(), projection.propertyKey(), ascending);
+      }
       return ProjectionExpressionFactories.orderByRecordAttribute(alias, "@rid", ascending);
     }
     return ByModulatorTranslator.translateKeyModulatorOrderItem(alias, modulator, ascending)

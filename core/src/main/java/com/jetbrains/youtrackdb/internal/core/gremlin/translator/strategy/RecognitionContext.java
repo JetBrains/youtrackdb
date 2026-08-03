@@ -60,6 +60,22 @@ interface RecognitionContext extends ParamSink {
    */
   boolean edgeLabelVerificationEnabled();
 
+  /**
+   * Whether {@code ProductiveByStrategy} makes a {@code by(propertyKey)} modulator productive on
+   * this traversal.
+   *
+   * <p>The strategy inverts the rule {@link ByModulatorPresence} encodes: a productive
+   * {@code by(key)} yields {@code null} for an element without the property instead of dropping
+   * the traverser, so {@code g.withStrategies(ProductiveByStrategy).V().groupCount().by("age")}
+   * keeps the {@code null} bucket SQL produces anyway and the presence conjunct must not be added.
+   * The translator has to answer this itself rather than let the strategy rewrite the modulator:
+   * it runs first and folds the {@code by(...)} into the MATCH plan, so by the time
+   * {@code ProductiveByStrategy} looks for {@link
+   * org.apache.tinkerpop.gremlin.process.traversal.step.ByModulating} steps to wrap, there are
+   * none left.
+   */
+  boolean byModulatorIsProductive(String propertyKey);
+
   // --- Boundary read ----------------------------------------------------------------------------
 
   /**
@@ -245,6 +261,13 @@ interface RecognitionContext extends ParamSink {
   /** The {@code ORDER BY} set so far, or {@code null} — lets a recogniser refuse a second order(). */
   @Nullable SQLOrderBy orderBy();
 
+  /**
+   * The {@code GROUP BY} set so far, or {@code null} — lets a following terminator refuse a shape
+   * that would silently clobber it ({@code group().by(label).count()} must not become a bare
+   * {@code count(*)} over the ungrouped rows).
+   */
+  @Nullable SQLGroupBy groupBy();
+
   /** The {@code LIMIT} set so far, or {@code null} — lets a recogniser refuse a second limit/range. */
   @Nullable SQLLimit limit();
 
@@ -306,13 +329,26 @@ interface RecognitionContext extends ParamSink {
   }
 
   /**
-   * Records the field-access expression from the most recent single-key {@code values(key)} /
-   * {@code properties(key)} step for a following aggregate to re-point ({@code values("age").mean()}).
+   * A resolved single-key {@code values(key)} / {@code properties(key)} projection. Carries the
+   * alias and the property key alongside the field-access expression because the terminators that
+   * re-point at it need different halves: an aggregate needs the expression
+   * ({@code values("age").sum()} → {@code sum(alias.age)}), while a bare {@code order()} needs the
+   * alias and key to build an {@code ORDER BY} item, which {@code SQLOrderByItem} models as an
+   * alias plus a modifier rather than as an arbitrary expression.
    */
-  void setLastPropertyProjection(@Nullable SQLExpression expression);
+  record PropertyProjection(String alias, String propertyKey, SQLExpression expression) {
+  }
 
-  /** The expression recorded by {@link #setLastPropertyProjection}, or {@code null} when unset. */
-  @Nullable SQLExpression lastPropertyProjection();
+  /**
+   * Records the projection from the most recent single-key {@code values(key)} /
+   * {@code properties(key)} step so a following terminator can re-point at the projected value
+   * instead of at the element ({@code values("age").sum()}, {@code values("name").order()},
+   * {@code values("name").groupCount()}).
+   */
+  void setLastPropertyProjection(@Nullable PropertyProjection projection);
+
+  /** The projection recorded by {@link #setLastPropertyProjection}, or {@code null} when unset. */
+  @Nullable PropertyProjection lastPropertyProjection();
 
   // --- Sub-walk seam ----------------------------------------------------------------------------
 

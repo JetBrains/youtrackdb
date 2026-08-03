@@ -57,6 +57,8 @@ final class SelectStepRecogniser implements StepRecogniser {
         return Outcome.DECLINE;
       }
       ctx.appendReturnColumn(field.get(), userLabel);
+      // by(key) drops an element that has no such property — see ByModulatorPresence.
+      ByModulatorPresence.requireModulatedProperty(ctx, internalAlias, modulators.get(i));
     }
     ctx.pinBoundary(ctx.boundaryAlias(), BoundaryOutputType.MAP, Vertex.class);
     // A single-label select emits the column value directly (native SelectOneStep shape).

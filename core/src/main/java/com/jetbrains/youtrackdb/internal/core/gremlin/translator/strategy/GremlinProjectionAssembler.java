@@ -78,7 +78,8 @@ final class GremlinProjectionAssembler {
     // Entity column first — Step 7 dropOnAbsent reads EntityImpl.hasProperty from this alias.
     ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
     ctx.appendReturnColumn(expr, null);
-    ctx.setLastPropertyProjection(expr);
+    ctx.setLastPropertyProjection(
+        new RecognitionContext.PropertyProjection(boundary, propertyKey, expr));
     // dropOnAbsent + presence key so Step 7 drops rows where the property is absent on the entity.
     ctx.setResultShaping(
         ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of(propertyKey)));
@@ -87,31 +88,39 @@ final class GremlinProjectionAssembler {
   }
 
   /**
-   * Configures {@code valueMap(keys…)} / {@code elementMap(…)}: boundary entity for presence checks,
-   * one RETURN column per map entry ({@code id}, {@code label}, then property keys), and {@link
-   * BoundaryOutputType#MAP}. {@code valueMap} wraps property values in singleton lists; {@code
-   * elementMap} leaves them unwrapped.
+   * Configures {@code valueMap(keys…)} / {@code elementMap(keys…)}: boundary entity for presence
+   * checks, one RETURN column per map entry ({@code id}, {@code label}, then property keys), and
+   * {@link BoundaryOutputType#MAP}. {@code valueMap} wraps property values in singleton lists;
+   * {@code elementMap} leaves them unwrapped. An empty key list declines — see the body.
+   *
+   * @param tokens bit set of the {@code T.id} / {@code T.label} token columns to emit, from
+   *     {@code valueMap(true)} / {@code with(WithOptions.tokens)} or from {@code elementMap}, which
+   *     always emits both
+   * @param isElementMap whether the step is {@code elementMap} rather than {@code valueMap} — the
+   *     two differ in list wrapping, which is independent of whether tokens were requested
    */
   static Outcome configurePropertyMap(
-      RecognitionContext ctx, String[] propertyKeys, int elementMapTokens) {
+      RecognitionContext ctx, String[] propertyKeys, int tokens, boolean isElementMap) {
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;
     }
-    var isElementMap = elementMapTokens != 0;
-    if (!isElementMap && (propertyKeys == null || propertyKeys.length == 0)) {
-      // Bare valueMap() enumerates every property at iteration time — decline until schema-driven
-      // all-property projection lands.
+    if (propertyKeys == null || propertyKeys.length == 0) {
+      // No key list means every property, enumerated at iteration time — decline until
+      // schema-driven all-property projection lands. This covers valueMap(), elementMap(),
+      // valueMap(true) and valueMap().with(WithOptions.tokens) alike: requesting the id / label
+      // tokens says nothing about which properties to project, and a plan built from the token
+      // columns alone returns {id, label} per element and silently loses every property.
       return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
     // Entity column — omitted from the emitted MAP; used only for hasProperty classification.
     ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
-    if (isElementMap) {
-      if ((elementMapTokens & ELEMENT_MAP_TOKEN_ID) != 0) {
+    if (tokens != 0) {
+      if ((tokens & ELEMENT_MAP_TOKEN_ID) != 0) {
         ctx.appendReturnColumn(aliasRecordAttribute(boundary, "@rid"), ELEMENT_MAP_KEY_ID);
       }
-      if ((elementMapTokens & ELEMENT_MAP_TOKEN_LABEL) != 0) {
+      if ((tokens & ELEMENT_MAP_TOKEN_LABEL) != 0) {
         ctx.appendReturnColumn(aliasRecordAttribute(boundary, "@class"), ELEMENT_MAP_KEY_LABEL);
       }
     }
@@ -129,13 +138,16 @@ final class GremlinProjectionAssembler {
       // Only the entity column — nothing to project.
       return Outcome.DECLINE;
     }
-    // valueMap wraps property values in singleton lists; elementMap leaves them unwrapped and emits
-    // its id/label token columns under T.id / T.label keys.
+    // List wrapping follows the step, not the tokens: valueMap wraps property values in singleton
+    // lists whether or not it was asked for tokens, and elementMap never does. Deriving it from the
+    // token bits instead made valueMap(true, "name") emit name=josh where native emits name=[josh].
+    // The token-key flag does follow the tokens — id / label go under T.id / T.label whenever they
+    // are emitted, from either step.
     ctx.setResultShaping(
         ResultShaping.NONE
             .withPresencePropertyKeys(presenceKeys)
             .withWrapMapValuesInLists(!isElementMap)
-            .withElementMapTokens(isElementMap));
+            .withElementMapTokens(tokens != 0));
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
   }
