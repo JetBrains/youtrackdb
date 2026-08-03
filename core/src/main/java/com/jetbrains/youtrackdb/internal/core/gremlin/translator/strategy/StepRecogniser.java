@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
+
 /**
  * Pluggable handler that {@link GremlinStepWalker} runs for the step at the cursor's head. A
  * recogniser reads the step stream through a {@link StepCursor}, validates the shape of the Gremlin
@@ -45,4 +47,27 @@ interface StepRecogniser {
    *     {@link Outcome#DECLINE} to decline the whole traversal.
    */
   Outcome recognize(StepCursor cursor, RecognitionContext ctx);
+
+  /**
+   * Whether {@code step} — a step this recogniser would claim — selects rows <em>by position</em>
+   * out of the post-union concatenation. {@code MultiPlanMatchStep} emits child one's rows then
+   * child two's, while native {@code union(...)} interleaves the arms as it pulls each incoming
+   * traverser, and no MATCH plan can reproduce that interleaving. A step that answers {@code true}
+   * therefore translates post-union only when the very next step collapses the selection to a
+   * cardinality; {@link GremlinStepWalker#postUnionSuffixTranslatable} enforces that before forking
+   * the union's arms, and the recogniser enforces it again on its own step.
+   *
+   * <p><strong>Every member of {@link GremlinStepWalker}'s post-union allow-list must state its own
+   * answer here</strong> rather than inherit this default — the walker's unit tests fail the build
+   * when one does not. The default serves the recognisers outside that allow-list, which the
+   * post-union gate refuses before this question is ever asked. Answering {@code false} for a step
+   * that does select by position ships a silently different multiset under a kill switch that
+   * defaults on; {@link RangeGlobalStepRecogniser} carries the worked case.
+   *
+   * @param step the step at the cursor's head, matched to this recogniser by exact class
+   * @return {@code true} when the step selects rows by position out of the concatenation
+   */
+  default boolean selectsPositionally(Step<?, ?> step) {
+    return false;
+  }
 }

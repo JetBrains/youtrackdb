@@ -210,8 +210,15 @@ final class GremlinStepWalker {
    * union(...)} interleaves the arms, so any surviving positional selection would return a different
    * multiset with the translator on than off. That recogniser's class Javadoc carries the full
    * argument.
+   *
+   * <p>That second condition rides on {@link StepRecogniser#selectsPositionally}, so adding a member
+   * here is two decisions rather than one: whether the recogniser's contribution survives {@link
+   * #buildResult}'s multi-plan branch, and whether its step selects rows by position. Every member
+   * must override {@code selectsPositionally} rather than inherit the interface default — a unit
+   * test over this field pins that, so a member added without an answer fails the build instead of
+   * silently inheriting {@code false}. The field is package-private for exactly that test.
    */
-  private static final Set<StepRecogniser> POST_UNION_RECOGNISERS =
+  static final Set<StepRecogniser> POST_UNION_RECOGNISERS =
       Set.of(
           CountGlobalStepRecogniser.INSTANCE,
           RangeGlobalStepRecogniser.INSTANCE,
@@ -366,8 +373,10 @@ final class GremlinStepWalker {
   /**
    * Look-ahead form of {@link #dispatchAll}'s post-union gate: {@code true} when every step still
    * ahead of {@code cursor} would be claimed by a {@link #POST_UNION_RECOGNISERS} member, including
-   * the vacuous case of no steps left. Reads the same field the in-loop gate reads, so the two can
-   * never disagree about which suffix is translatable.
+   * the vacuous case of no steps left. Reads the same allow-list the in-loop gate reads, so the two
+   * agree on which recognisers may claim a post-union step. The positional rule below is a second
+   * gate, deliberately mirrored here rather than left to its recogniser; keeping the two in step is
+   * a maintenance obligation the field alone does not discharge.
    *
    * <p>Why look ahead at all: {@link UnionStepRecogniser#recognize} forks the recognised prefix into
    * every child and runs a complete sub-walk per child before returning, and the in-loop gate only
@@ -389,12 +398,21 @@ final class GremlinStepWalker {
    * in both directions — the look-ahead only ever declines shapes the in-loop gate would decline.
    *
    * <p>The one gate mirrored here rather than left to its recogniser is the positional one: a
-   * post-union slice needs a {@code count()} immediately after it (see {@link
+   * step that selects rows by position needs a {@code count()} immediately after it (see {@link
    * RangeGlobalStepRecogniser}), and {@code union(...).limit(n)} is common enough that paying N
    * discarded sub-walks per compilation for it would give back most of what this look-ahead exists
-   * to save. The mirror reads {@link RangeGlobalStepRecogniser#selectsPositionally} rather than
-   * re-deriving the normalisation, so a slice that normalises away to nothing still reaches the fork
-   * exactly as it did before and the look-ahead stays no stricter than the recogniser.
+   * to save. The mirror asks the recogniser through {@link StepRecogniser#selectsPositionally}
+   * rather than testing one recogniser's identity or re-deriving the normalisation, so a slice that
+   * normalises away to nothing still reaches the fork exactly as it did before, the look-ahead stays
+   * no stricter than the recogniser, and a member added to {@link #POST_UNION_RECOGNISERS} later
+   * gets the positional gate along with the membership one.
+   *
+   * <p>The two halves spell "a count follows" differently on purpose. Here the next step is resolved
+   * through {@code recognisers}, the same registry dispatch would use, so a curated test registry is
+   * simulated faithfully; the recogniser matches {@code CountGlobalStep} by exact class, which is
+   * what it can see from a bare cursor. {@code CountGlobalStep} is the sole production key mapping
+   * to {@link CountGlobalStepRecogniser}, so the two conditions coincide under the production
+   * registry, and both drift directions decline rather than translate.
    */
   static boolean postUnionSuffixTranslatable(
       StepCursor cursor, Map<Class<?>, StepRecogniser> recognisers) {
@@ -409,8 +427,7 @@ final class GremlinStepWalker {
       if (recogniser == null || !POST_UNION_RECOGNISERS.contains(recogniser)) {
         return false;
       }
-      if (recogniser == RangeGlobalStepRecogniser.INSTANCE
-          && RangeGlobalStepRecogniser.selectsPositionally(step)) {
+      if (recogniser.selectsPositionally(step)) {
         var next = cursor.peek(ahead + 1);
         if (next == null
             || recognisers.get(next.getClass()) != CountGlobalStepRecogniser.INSTANCE) {

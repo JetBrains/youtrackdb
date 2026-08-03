@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 
 /**
@@ -69,6 +70,18 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
     }
     ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * {@code dedup()} keeps one row per distinct boundary element, and the surviving set is the same
+   * whichever order the union's arms arrived in — which duplicate survives is not observable once
+   * {@link #recognize} has refused every {@code by(...)} modulator and every non-boundary scope
+   * key. Stated rather than inherited because this recogniser sits on {@link GremlinStepWalker}'s
+   * post-union allow-list.
+   */
+  @Override
+  public boolean selectsPositionally(Step<?, ?> step) {
+    return false;
   }
 
   /**

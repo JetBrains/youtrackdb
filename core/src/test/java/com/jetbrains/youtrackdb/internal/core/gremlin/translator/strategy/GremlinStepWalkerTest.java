@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPa
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -962,6 +963,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   /**
    * The complement: the same slice with its {@code count()} attached is translatable, so it must
    * still reach the fork. Pins that the mirror above narrows only the diverging half of the shape.
+   * The traversal-level outcome is {@code DECLINE} either way — {@link CountingUnionForkHost} is a
+   * stub whose {@code walkFork} declines — so {@code forkCalls} is the observable under test.
    */
   @Test
   public void union_positionalSuffixEndingInCount_reachesTheFork() {
@@ -972,7 +975,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome)
+        .as("the fork stub declines, so the traversal-level outcome is DECLINE either way")
+        .isEqualTo(Outcome.DECLINE);
     assertThat(host.forkCalls)
         .as("limit(n).count() is post-concat translatable, so the first arm must still be walked")
         .isEqualTo(1);
@@ -982,7 +987,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * A slice that normalises away to nothing selects no position, so the mirror must let it through
    * unchanged: {@code skip(0)} still reaches the fork even though no count follows it. Without the
    * carve-out the gate would be stricter than the recogniser and would decline a shape that used to
-   * translate.
+   * translate. As above, the traversal-level outcome is {@code DECLINE} either way because the fork
+   * stub declines; {@code forkCalls} is the observable.
    */
   @Test
   public void union_noOpSliceWithoutCount_stillReachesTheFork() {
@@ -993,10 +999,54 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome)
+        .as("the fork stub declines, so the traversal-level outcome is DECLINE either way")
+        .isEqualTo(Outcome.DECLINE);
     assertThat(host.forkCalls)
         .as("skip(0) appends no reduction, so the gate must not treat it as a positional slice")
         .isEqualTo(1);
+  }
+
+  /**
+   * Every recogniser on the post-union allow-list must answer {@link
+   * StepRecogniser#selectsPositionally} itself rather than inherit the interface default. The
+   * membership gate and the positional gate are two separate decisions, and a member that inherits
+   * {@code false} would get the first and silently skip the second — which is how a step that
+   * selects by position (a {@code tail(n)} recogniser, say) could translate after a union and hand
+   * back rows the concatenation ordered differently from native. Failing the build is the point:
+   * whoever widens the allow-list has to state an answer instead of omitting one.
+   */
+  @Test
+  public void everyPostUnionRecogniserStatesItsOwnPositionalAnswer() {
+    for (var recogniser : GremlinStepWalker.POST_UNION_RECOGNISERS) {
+      var declaresOwn =
+          Arrays.stream(recogniser.getClass().getDeclaredMethods())
+              .anyMatch(m -> m.getName().equals("selectsPositionally"));
+
+      assertThat(declaresOwn)
+          .as(
+              recogniser.getClass().getSimpleName()
+                  + " is on the post-union allow-list, so it must override selectsPositionally"
+                  + " rather than inherit the StepRecogniser default")
+          .isTrue();
+    }
+  }
+
+  /**
+   * The interface default answers {@code false}, which is safe only for the recognisers the
+   * membership gate refuses before the question is asked — {@link VertexStepRecogniser} is one, and
+   * a hop after a union declines on membership alone. Pins the default's value so the fail-closed
+   * reasoning above rests on a checked fact rather than on the absence of an override.
+   */
+  @Test
+  public void recogniserOutsideThePostUnionAllowList_inheritsANonPositionalAnswer() {
+    var admin = graph.traversal().V().out().asAdmin();
+    var hop = admin.getSteps().get(1);
+    assertThat(GremlinStepWalker.POST_UNION_RECOGNISERS)
+        .as("fixture premise: the hop recogniser must be off the allow-list")
+        .doesNotContain(VertexStepRecogniser.INSTANCE);
+
+    assertThat(VertexStepRecogniser.INSTANCE.selectsPositionally(hop)).isFalse();
   }
 
   /**

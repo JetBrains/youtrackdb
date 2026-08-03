@@ -380,20 +380,34 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code skip(n)} and {@code range(low, high)} slice the concatenation before the {@code count()}
-   * that makes the slice translatable at all. The four-row fixture is the point: with a
-   * concatenation no larger than the slice the truncation is invisible and dropping it entirely
-   * still passes. {@code skip} is the only shape that reaches the skipping stream, and {@code
-   * range(1, 3)} on four rows is the smallest case that separates a {@code high - low} row budget
-   * (2) from a {@code high} one (3).
+   * Every slice shape that survives a union — {@code limit}, {@code skip}, {@code range} with a
+   * bounded high, and {@code range} with an unbounded one — cuts the concatenation before the
+   * {@code count()} that makes the slice translatable at all. The four-row fixture is the smallest
+   * one on which each of {@code limit(2)}, {@code skip(1)} and {@code range(1, 3)} returns a count
+   * that differs from the untruncated total of 4: a concatenation no larger than the slice would
+   * make the truncation invisible and let a dropped slice pass. {@code range(1, 3)} on four rows
+   * additionally separates a {@code high - low} row budget (2) from a {@code high} one (3), and
+   * {@code skip} is the only shape that reaches the skipping stream.
+   *
+   * <p>Every shape gets its own {@link #assertMultiPlanEngaged} guard, because the counts asserted
+   * below are the same on the native pipeline; without the guard each assertion would pass through a
+   * silent decline. The {@code range(1, -1)} guard is belt and braces — {@code skip(n)} builds the
+   * same {@code RangeGlobalStep(n, -1)} — but it saves the next reader from having to know that to
+   * see the block is fully guarded.
    */
   @Test
-  public void unionThenSkipAndRangeThenCount_sliceTheConcatenation() {
+  public void unionThenSliceThenCount_sliceTheConcatenation() {
     var aliceId = seedWideFanOut();
+    assertMultiPlanEngaged(
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).count());
+    assertMultiPlanEngaged(
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).limit(2).count());
     assertMultiPlanEngaged(
         () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).skip(1).count());
     assertMultiPlanEngaged(
         () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, 3).count());
+    assertMultiPlanEngaged(
+        () -> graph.traversal().V(aliceId).union(__.out(), __.out().out()).range(1, -1).count());
 
     setTranslatorEnabled(true);
     assertThat(graph.traversal().V(aliceId).union(__.out(), __.out().out()).count().next())
@@ -434,6 +448,12 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertSameMultisetOnAndOff(
         "g.V().union(out(knows), in(knows)).range(2, 5)",
         () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).range(2, 5));
+    // skip(3) separates the two orders on this fixture as well: the concatenation is seven out-rows
+    // (Bob…Hank) then seven in-rows (Alice…Gina), so branch-major drops three out-rows and keeps
+    // Alice, while native's interleaved prefix is Bob, Carol, Alice and drops Alice instead.
+    assertSameMultisetOnAndOff(
+        "g.V().union(out(knows), in(knows)).skip(3)",
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).skip(3));
 
     assertEquivalent(
         "g.V().union(out(knows), in(knows)).limit(3) — positional suffix",
@@ -702,51 +722,46 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
    */
   private void assertEquivalent(
       String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    try {
-      setTranslatorEnabled(true);
-      var onAdmin = traversalSupplier.get().asAdmin();
-      onAdmin.applyStrategies();
-      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
-      var multiPlanOn = countMultiPlanSteps(onAdmin.getSteps());
-      var onIds = drainSortedIds(onAdmin);
+    withTranslatorRestored(
+        () -> {
+          setTranslatorEnabled(true);
+          var onAdmin = traversalSupplier.get().asAdmin();
+          onAdmin.applyStrategies();
+          var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+          var multiPlanOn = countMultiPlanSteps(onAdmin.getSteps());
+          var onIds = drainSortedIds(onAdmin);
 
-      setTranslatorEnabled(false);
-      var offAdmin = traversalSupplier.get().asAdmin();
-      offAdmin.applyStrategies();
-      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
-      var offIds = drainSortedIds(offAdmin);
+          setTranslatorEnabled(false);
+          var offAdmin = traversalSupplier.get().asAdmin();
+          offAdmin.applyStrategies();
+          var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+          var offIds = drainSortedIds(offAdmin);
 
-      if (expected != Recognition.DECLINED) {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must engage exactly one boundary step")
-            .isEqualTo(1);
-        if (expected == Recognition.RECOGNIZED_MULTI_PLAN) {
-          assertThat(multiPlanOn)
-              .as(scenario + " (translator on) must splice MultiPlanMatchStep")
-              .isEqualTo(1);
-        }
-        assertThat(onIds)
-            .as(scenario + ": RECOGNIZED fixture must return a non-empty result")
-            .isNotEmpty();
-      } else {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must decline — no boundary step")
-            .isEqualTo(0);
-        assertThat(multiPlanOn).isEqualTo(0);
-      }
-      assertThat(boundaryOff)
-          .as(scenario + " (translator off) must never engage a boundary step")
-          .isEqualTo(0);
-      assertThat(onIds)
-          .as(scenario + ": translator-on and translator-off result multisets must match")
-          .isEqualTo(offIds);
-    } finally {
-      setTranslatorEnabled(original);
-    }
+          if (expected != Recognition.DECLINED) {
+            assertThat(boundaryOn)
+                .as(scenario + " (translator on) must engage exactly one boundary step")
+                .isEqualTo(1);
+            if (expected == Recognition.RECOGNIZED_MULTI_PLAN) {
+              assertThat(multiPlanOn)
+                  .as(scenario + " (translator on) must splice MultiPlanMatchStep")
+                  .isEqualTo(1);
+            }
+            assertThat(onIds)
+                .as(scenario + ": RECOGNIZED fixture must return a non-empty result")
+                .isNotEmpty();
+          } else {
+            assertThat(boundaryOn)
+                .as(scenario + " (translator on) must decline — no boundary step")
+                .isEqualTo(0);
+            assertThat(multiPlanOn).isEqualTo(0);
+          }
+          assertThat(boundaryOff)
+              .as(scenario + " (translator off) must never engage a boundary step")
+              .isEqualTo(0);
+          assertThat(onIds)
+              .as(scenario + ": translator-on and translator-off result multisets must match")
+              .isEqualTo(offIds);
+        });
   }
 
   /**
@@ -758,18 +773,31 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
    */
   private void assertSameMultisetOnAndOff(
       String scenario, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    withTranslatorRestored(
+        () -> {
+          setTranslatorEnabled(true);
+          var onIds = drainSortedIds(traversalSupplier.get().asAdmin());
+          setTranslatorEnabled(false);
+          var offIds = drainSortedIds(traversalSupplier.get().asAdmin());
+          assertThat(onIds)
+              .as(scenario + ": translator-on and translator-off result multisets must match")
+              .isEqualTo(offIds);
+        });
+  }
+
+  /**
+   * Runs {@code body} with the translator switch restored to whatever it was on the way in, whether
+   * {@code body} returns or throws. Both toggling helpers route through here so the restore contract
+   * is written once — two verbatim copies of a {@code finally} block is where the third copy forgets
+   * it.
+   */
+  private void withTranslatorRestored(Runnable body) {
     var original =
         session
             .getConfiguration()
             .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
     try {
-      setTranslatorEnabled(true);
-      var onIds = drainSortedIds(traversalSupplier.get().asAdmin());
-      setTranslatorEnabled(false);
-      var offIds = drainSortedIds(traversalSupplier.get().asAdmin());
-      assertThat(onIds)
-          .as(scenario + ": translator-on and translator-off result multisets must match")
-          .isEqualTo(offIds);
+      body.run();
     } finally {
       setTranslatorEnabled(original);
     }

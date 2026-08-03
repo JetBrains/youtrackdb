@@ -11,8 +11,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -272,12 +274,16 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * against the recogniser rather than end to end because TinkerPop folds two adjacent {@code
    * limit} steps into one before any strategy sees them, so the shape is unreachable from a
    * strategy-applied traversal.
+   *
+   * <p>The fixture carries the {@code count()} so that the existing-op check is the <em>only</em>
+   * surviving reason to decline. A bare {@code limit(1)} would also fail the positional gate, and
+   * the test would then stay green with the check it exists to pin deleted.
    */
   @Test
   public void secondPostUnionRange_declines() {
     var ctx = unionCarrierContext();
     ctx.appendPostConcatOp(new PostConcatOp.Range(0L, 2L));
-    var admin = graph.traversal().V().limit(1).asAdmin();
+    var admin = graph.traversal().V().limit(1).count().asAdmin();
 
     var cursor = cursorAt(admin, RangeGlobalStep.class);
 
@@ -287,13 +293,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   /**
    * A post-union range after a count declines: the count already collapsed the concatenation to one
-   * scalar row, so there is nothing left to slice.
+   * scalar row, so there is nothing left to slice. The fixture's trailing {@code count()} keeps the
+   * existing-op check the only surviving decline reason, as in the test above.
    */
   @Test
   public void postUnionRangeAfterCount_declines() {
     var ctx = unionCarrierContext();
     ctx.appendPostConcatOp(PostConcatOp.Count.INSTANCE);
-    var admin = graph.traversal().V().limit(1).asAdmin();
+    var admin = graph.traversal().V().limit(1).count().asAdmin();
 
     var cursor = cursorAt(admin, RangeGlobalStep.class);
 
@@ -366,7 +373,10 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void selectsPositionally_nonRangeStep_isFalse() {
     var admin = graph.traversal().V().count().asAdmin();
 
-    assertThat(RangeGlobalStepRecogniser.selectsPositionally(admin.getSteps().get(1))).isFalse();
+    assertThat(
+        RangeGlobalStepRecogniser.INSTANCE.selectsPositionally(
+            stepOf(admin, CountGlobalStep.class)))
+        .isFalse();
   }
 
   /**
@@ -378,7 +388,64 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void selectsPositionally_noOpSkip_isFalse() {
     var admin = graph.traversal().V().skip(0).asAdmin();
 
-    assertThat(RangeGlobalStepRecogniser.selectsPositionally(admin.getSteps().get(1))).isFalse();
+    assertThat(
+        RangeGlobalStepRecogniser.INSTANCE.selectsPositionally(
+            stepOf(admin, RangeGlobalStep.class)))
+        .isFalse();
+  }
+
+  /**
+   * A negative low reaches the same check from the DSL, so the un-normalisable arm is live rather
+   * than reachable only through a mis-registered step class: {@code RangeGlobalStep}'s constructor
+   * rejects a range only when both bounds are set and {@code low > high}, which {@code skip(-5)}
+   * ({@code low = -5}, {@code high = -1}) does not trip. The check answers {@code false}, so the
+   * look-ahead applies no positional gate and lets the shape through to the recogniser, which
+   * declines it at the same normalisation one fork later.
+   */
+  @Test
+  public void selectsPositionally_negativeLow_isFalse() {
+    var admin = graph.traversal().V().skip(-5).asAdmin();
+
+    assertThat(
+        RangeGlobalStepRecogniser.INSTANCE.selectsPositionally(
+            stepOf(admin, RangeGlobalStep.class)))
+        .isFalse();
+  }
+
+  /**
+   * The complement at the recogniser: the same negative low declines post-union rather than
+   * translating, so the look-ahead's {@code false} above costs a discarded fork and never a wrong
+   * answer. {@code normalize} refuses the shape before the positional gate is consulted, which is
+   * why the fixture needs no {@code count()} behind it.
+   */
+  @Test
+  public void postUnionNegativeLow_declines() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().skip(-5).count().asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.postConcatOps()).isEmpty();
+  }
+
+  /**
+   * An unbounded high normalises to a skip-only {@link PostConcatOp.Range}: {@code range(1, -1)}
+   * keeps the skip and carries {@code -1} through as the limit rather than collapsing to a no-op
+   * the way {@code range(0, -1)} does. Pins the normalisation the end-to-end row count for this
+   * shape would otherwise be the only claim about.
+   */
+  @Test
+  public void postUnionRangeUnboundedHighBeforeCount_appendsSkipOnlyRange() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().range(1, -1).count().asAdmin();
+
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.postConcatOps()).containsExactly(new PostConcatOp.Range(1L, -1L));
   }
 
   /** A post-union {@code skip(0)} is a no-op: accepted, but it appends no reduction. */
@@ -421,6 +488,21 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
         return cursor;
       }
       cursor.take();
+    }
+    throw new AssertionError("Step not found: " + stepType.getSimpleName());
+  }
+
+  /**
+   * The {@link #cursorAt} sibling for tests that want the step itself rather than a cursor parked on
+   * it. Naming the type says which step the assertion means and fails with the same readable message
+   * when a TinkerPop upgrade changes what the builder emits, where a bare list index would say
+   * nothing and throw {@code IndexOutOfBoundsException}.
+   */
+  private static Step<?, ?> stepOf(Traversal.Admin<?, ?> admin, Class<?> stepType) {
+    for (var step : admin.getSteps()) {
+      if (stepType.isInstance(step)) {
+        return step;
+      }
     }
     throw new AssertionError("Step not found: " + stepType.getSimpleName());
   }

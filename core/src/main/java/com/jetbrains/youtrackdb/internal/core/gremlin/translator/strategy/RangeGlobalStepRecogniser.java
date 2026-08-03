@@ -30,6 +30,25 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * very next step is {@code count()}, and declines every other post-union slice to the native
  * pipeline. A slice that normalises away to nothing ({@code skip(0)}, {@code range(0, -1)}) selects
  * no position at all and is accepted unconditionally.
+ *
+ * <h2>What the decline costs</h2>
+ *
+ * A DECLINE aborts the whole walk rather than only the slice — {@link GremlinStepWalker} has no
+ * partial-splice path — so {@code g.V().has("name", x).out("knows").union(out(), in()).limit(10)}
+ * gives up its prefix's MATCH plan too and runs end to end on the native traverser pipeline.
+ * Compile cost falls, because the N per-arm sub-walks are never paid and nothing caches them.
+ * Execution pays for it twice: the prefix's non-leading filters and hops run per traverser instead
+ * of inside one plan, and the concatenator's early stop is gone, so every arm executes where a
+ * {@link PostConcatOp.Range} used to leave the later ones unopened. A <em>leading</em> {@code
+ * has()} keeps index-backed access either way, since {@code YTDBGraphStepStrategy} folds it into
+ * {@code YTDBGraphStep}, so the loss is confined to non-leading filters and wide unions.
+ *
+ * <p>Post-concat {@code order()} is the exit, not a wider accept surface: a slice after a total
+ * sort picks the same rows whichever order the arms arrived in, so {@code
+ * union(...).order().by(k).limit(n)} becomes translatable once post-concat sort exists, with a
+ * unique key or an explicit tie-break to pin the ties. Trimming the decline to recover compile
+ * coverage in the meantime would re-admit shapes whose answer depends on arrival order, which is
+ * the defect this gate exists to close.
  */
 final class RangeGlobalStepRecogniser implements StepRecogniser {
 
@@ -114,13 +133,21 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
   /**
    * Whether {@code step} would contribute a real {@link PostConcatOp.Range} — a slice that selects
    * by position — rather than normalising away to nothing or being a shape {@link #recognize}
-   * declines outright. {@link GremlinStepWalker#postUnionSuffixTranslatable} reads this so its
-   * pre-fork look-ahead applies the same positional gate {@link #recognizePostUnion} applies, and so
-   * a no-op slice keeps reaching the fork exactly as before. Returning {@code false} for an
-   * un-normalisable step is safe in the look-ahead's direction: the recogniser still declines it,
-   * one fork later.
+   * declines outright. {@link GremlinStepWalker#postUnionSuffixTranslatable} reads this through the
+   * {@link StepRecogniser} seam so its pre-fork look-ahead applies the same positional gate {@link
+   * #recognizePostUnion} applies, and so a no-op slice keeps reaching the fork exactly as before.
+   *
+   * <p>The un-normalisable case is reachable from the DSL, not only through a mis-registered step
+   * class. {@code RangeGlobalStep}'s constructor rejects a range only when both bounds are set and
+   * {@code low > high}, so {@code limit(-5)} throws — it builds {@code RangeGlobalStep(0, -5)} —
+   * while {@code skip(-5)} and {@code range(-5, 10)} construct, survive strategy application, and
+   * arrive here. {@link #normalize} returns {@code null} for them and this answers {@code false},
+   * which is the safe direction: the look-ahead applies no gate, the fork is paid, and
+   * {@link #recognizePostUnion} declines at the same {@code normalize} call one fork later. The
+   * cost is N discarded sub-walks on a query nobody writes; the answer stays right.
    */
-  static boolean selectsPositionally(Step<?, ?> step) {
+  @Override
+  public boolean selectsPositionally(Step<?, ?> step) {
     if (!(step instanceof RangeGlobalStepContract<?> range)) {
       return false;
     }

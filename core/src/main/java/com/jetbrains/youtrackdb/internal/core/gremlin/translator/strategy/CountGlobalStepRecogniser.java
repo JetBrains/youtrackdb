@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 
 /**
@@ -22,5 +23,15 @@ final class CountGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     return GremlinAggregateAssembler.configureCount(ctx);
+  }
+
+  /**
+   * {@code count()} reduces the concatenation to a cardinality, and a total is the same whichever
+   * order the union's arms arrived in. Stated rather than inherited because this recogniser sits on
+   * {@link GremlinStepWalker}'s post-union allow-list.
+   */
+  @Override
+  public boolean selectsPositionally(Step<?, ?> step) {
+    return false;
   }
 }
