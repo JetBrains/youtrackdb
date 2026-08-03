@@ -38,3 +38,4 @@
 [2026-08-03T02:57Z] [ctx=info] phase=C track=9 reconciled_tag=high substate=steps-partial
 [2026-08-03T11:23Z] [ctx=info] phase=C track=9 substate=steps-partial
 [2026-08-03T19:05Z] [ctx=info] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
+[2026-08-04T01:20Z] [ctx=warning] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
