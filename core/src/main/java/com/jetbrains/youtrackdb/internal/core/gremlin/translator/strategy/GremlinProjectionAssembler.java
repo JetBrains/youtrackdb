@@ -14,9 +14,9 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * Builds RETURN-clause {@link SQLExpression}s for Gremlin projection terminators ({@code select},
  * {@code values}, {@code valueMap}, {@code elementMap}) and pins {@link BoundaryOutputType} on the
  * walk. Entity-layer absent-vs-null classification ({@code EntityImpl.hasProperty}) lands in
- * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep} (Track 6
- * Step 7); this assembler wires MATCH RETURN items (including the boundary entity for presence
- * checks) and recogniser-side flags ({@code dropOnAbsent}, presence keys, valueMap list wrapping).
+ * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep}; this
+ * assembler wires MATCH RETURN items (including the boundary entity for presence checks) and
+ * recogniser-side flags ({@code dropOnAbsent}, presence keys, valueMap list wrapping).
  */
 final class GremlinProjectionAssembler {
 
@@ -72,19 +72,22 @@ final class GremlinProjectionAssembler {
    * There the drop has to travel as a pattern conjunct instead, or the child commits an empty filter
    * map and filters nothing — {@code and(values(age), values(name))} returned every vertex against
    * native's one. {@link ByModulatorPresence#requireProjectedProperty} writes that conjunct through
-   * {@code putAliasFilter}, which the adapter does capture.
+   * {@code putAliasFilter}, which the adapter does capture. Whether it belongs there at all depends on
+   * what follows the projection inside the child — see {@code contributePresenceConjunct} below.
    *
    * <p>Keeping the conjunct off the main-line arm matters: {@code IS DEFINED} has no estimator in the
    * MATCH root-selection cost model (see {@link ByModulatorPresence}'s {@code @implNote}), and the
    * main line already expresses the same drop through {@code dropOnAbsent}.
    *
-   * @param lastStepInWalk whether the step ends the walk it belongs to. Only then does the projection
-   *     drop anything: a following {@code count()} — the sole successor
-   *     {@link PropertiesStepRecogniser} accepts — emits {@code 0} for an element without the
-   *     property rather than no traverser, so a presence conjunct would filter rows native keeps.
+   * @param contributePresenceConjunct whether the captured child still emits nothing for an element
+   *     without the property once its remaining steps have run. Read only on the captured-child path;
+   *     the main line expresses the same drop through shaping and ignores it. {@link
+   *     PropertiesStepRecogniser} decides it by classifying the projection's successor — {@code
+   *     count()} is the one accepted successor that emits for an empty stream, so it turns the flag
+   *     off and an unclassified successor declines the walk outright.
    */
   static Outcome configureSingleKeyValues(
-      RecognitionContext ctx, String propertyKey, boolean lastStepInWalk) {
+      RecognitionContext ctx, String propertyKey, boolean contributePresenceConjunct) {
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;
@@ -95,7 +98,7 @@ final class GremlinProjectionAssembler {
     }
     var expr = aliasProperty(boundary, propertyKey);
     ctx.clearReturnProjection();
-    // Entity column first — Step 7 dropOnAbsent reads EntityImpl.hasProperty from this alias.
+    // Entity column first — the plan step's dropOnAbsent reads EntityImpl.hasProperty from it.
     ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
     ctx.appendReturnColumn(expr, null);
     ctx.setLastPropertyProjection(
@@ -104,7 +107,7 @@ final class GremlinProjectionAssembler {
       // dropOnAbsent + presence key so the plan step drops rows where the entity lacks the property.
       ctx.setResultShaping(
           ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of(propertyKey)));
-    } else if (lastStepInWalk) {
+    } else if (contributePresenceConjunct) {
       // A captured child's shaping is swallowed, so the same drop travels as a pattern conjunct.
       ByModulatorPresence.requireProjectedProperty(ctx, boundary, propertyKey);
     }

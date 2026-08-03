@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -27,9 +28,11 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
 /**
- * Translator-on / translator-off equivalence for Track 6 projection and aggregate terminators
+ * Translator-on / translator-off equivalence for the projection and aggregate terminators
  * ({@code values} / {@code valueMap} / {@code elementMap} / {@code select} / {@code count} /
- * {@code mean} / {@code groupCount} / order / range / dedup). Multiset equality is on a
+ * {@code mean} / {@code groupCount} / order / range / dedup), and for the element-returning
+ * {@code properties(key)} form — which projects a {@code VertexProperty} rather than its payload and
+ * therefore declines almost everywhere {@code values(key)} translates. Multiset equality is on a
  * string-canonicalised payload so Maps / scalars / lists compare without relying on Vertex RID
  * sorting from {@link EdgeTraversalEquivalenceTest}.
  */
@@ -85,14 +88,25 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().values("foo"));
   }
 
+  // ---------------------------------------------------------------------------
+  // properties(key): the element form declines where the value would be read.
+  // AdjacentToIncidentStrategy rewrites a written values(key) into the element
+  // form wherever the payload is unread, so these cases are written as values()
+  // and reach the recogniser as PropertyType.PROPERTY. The two escapes that keep
+  // accepting are a count-consumed step and the end step of a combinator child;
+  // everything else declines, and the decline is what the row sets here pin.
+  // ---------------------------------------------------------------------------
+
   /**
    * The element-returning {@code properties(key)} form declines while {@code values(key)} on the same
    * seeded graph still translates, and with the translator on the shape yields a {@code Property}
    * element rather than its payload. The three assertions are one claim each and none is redundant:
-   * the decline says the translator withdrew, the {@code values} case is the positive control that the
-   * withdrawal is specific to the element form, and the element-type assertion is what makes the
-   * equality non-vacuous — a regression that projected the value would still produce a single row of
-   * the right count, and only the type discriminates it.
+   * the decline is carried by the boundary-step count inside {@code assertEquivalent}, which is the
+   * discriminator here — a regression that projected the value would engage a boundary step and fail
+   * there before any payload comparison. The {@code values} case is the positive control that the
+   * withdrawal is specific to the element form. The element-type assertion runs only once the shape
+   * has been proved untranslated, so it documents what native yields rather than guarding the
+   * equality.
    */
   @Test
   public void propertiesElementForm_declines_whileValuesStillTranslates() {
@@ -312,6 +326,138 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .as("native reads acl off the property element, not off the vertex")
             .containsExactly("marko"));
   }
+
+  // ---------------------------------------------------------------------------
+  // A captured child contributes one thing to its parent: whether it emitted a
+  // traverser. So the presence conjunct a sub-walk values(key) stands for is
+  // right only where the child's remaining steps leave the drop intact. The
+  // three cases below are the three answers — preserved, destroyed, and not
+  // classified — and each pins the native row set the answer has to reproduce.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A drop-preserving successor inside a captured child still gets the presence conjunct.
+   * {@code dedup()} cannot turn an empty stream into output, so a vertex without {@code age} produces
+   * no traverser in the child either way and the {@code and} must drop it. The conjunct was gated on
+   * the projection ending its child's walk, which is false here, so both spellings translated with an
+   * empty filter map and returned every seeded vertex. The second spelling adds a sibling child to
+   * show the conjunct composes rather than replacing what the other child contributed.
+   */
+  @Test
+  public void subWalkValuesBeforeDedup_keepsThePresenceFilter() {
+    seedNameAgeNickGraph();
+
+    assertEquivalent(
+        "g.V().and(values(age).dedup())",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().and(__.values("age").dedup()));
+    assertEquivalent(
+        "g.V().and(values(age).dedup(), values(name))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().and(__.values("age").dedup(), __.values("name")));
+
+    // Non-vacuity: native filters on both, and to different sizes, so neither equality above is over
+    // the whole scan and the two-child case is not a restatement of the one-child case.
+    withTranslatorOff(
+        () -> {
+          assertThat(graph.traversal().V().and(__.values("age").dedup()).toList())
+              .as("native keeps the two age-bearing vertices of the three seeded")
+              .hasSize(2);
+          assertThat(
+              graph.traversal().V().and(__.values("age").dedup(), __.values("name")).toList())
+              .as("native keeps only the vertex carrying both properties")
+              .hasSize(1);
+        });
+  }
+
+  /**
+   * A {@code count()} successor inside a captured child gets no conjunct, because it destroys the
+   * drop: native counts an empty stream as {@code 0} and emits it, so a vertex without {@code age}
+   * survives the child and the {@code and} keeps it. Contributing the presence conjunct here would
+   * filter rows native returns, which is why the classification is three-way and not "successor or
+   * no successor".
+   */
+  @Test
+  public void subWalkValuesBeforeCount_keepsEveryElement() {
+    seedNameAgeNickGraph();
+
+    assertEquivalent(
+        "g.V().and(values(age).count())",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().and(__.values("age").count()));
+
+    // Non-vacuity in the opposite direction from the dedup case: this shape must filter nothing, so
+    // the guard is that native returns every seeded vertex. A conjunct leaking in would return two.
+    withTranslatorOff(
+        () -> assertThat(graph.traversal().V().and(__.values("age").count()).toList())
+            .as("count() emits 0 for the age-less vertices, so native keeps all three")
+            .hasSize(3));
+  }
+
+  /**
+   * An unclassified successor inside a captured child declines the whole walk. A slice selects by
+   * position — {@code limit(0)} empties every stream and {@code skip(n)} empties a stream of
+   * {@code n} values — so it preserves the drop only for some bounds; {@code order()} carries
+   * comparator modulators that read properties of their own and commit their own conjuncts. Both
+   * translated before the classification existed and both disagreed with native, so the decline
+   * costs no shape that was answering correctly.
+   */
+  @Test
+  public void subWalkValuesBeforeSliceOrOrder_declinesToNative() {
+    seedNameAgeNickGraph();
+
+    assertEquivalent(
+        "g.V().and(values(age).limit(1))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.values("age").limit(1)));
+    assertEquivalent(
+        "g.V().and(values(age).order())",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.values("age").order()));
+
+    // Non-vacuity: native filters to two of the three seeded vertices, so the decline is guarding a
+    // real divergence — the accepting translation returned all three.
+    withTranslatorOff(
+        () -> assertThat(graph.traversal().V().and(__.values("age").limit(1)).toList())
+            .as("native keeps the two age-bearing vertices")
+            .hasSize(2));
+  }
+
+  /**
+   * A count with a slice between it and the projection declines in both its spellings — as written,
+   * and as {@code CountStrategy} produces it from {@code count().is(gt(n))}. The element-form gate
+   * sees the slice at the successor position and declines there; without it the count assembler's
+   * cardinality gate declines one step later. This pins the claim the gate's own comment makes about
+   * the position, so an {@code IsStep} recogniser landing without the gate extension the comment asks
+   * for turns this red rather than silently mistranslating.
+   */
+  @Test
+  public void countAfterValuesWithInterveningSlice_declinesToNative() {
+    seedNameAgeNickGraph();
+
+    assertEquivalent(
+        "g.V().values(age).limit(1).count()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().values("age").limit(1).count());
+    assertEquivalent(
+        "g.V().values(age).count().is(gt(1))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().values("age").count().is(P.gt(1L)));
+
+    // Non-vacuity: the two shapes must return different answers, so a decline that quietly became a
+    // shared count(*) over the unfiltered pattern could not satisfy both.
+    withTranslatorOff(
+        () -> {
+          assertThat(graph.traversal().V().values("age").limit(1).count().next())
+              .as("the slice cuts the two age values to one before the count")
+              .isEqualTo(1L);
+          assertThat(graph.traversal().V().values("age").count().is(P.gt(1L)).toList())
+              .as("two age values are more than one, so the count survives its own filter")
+              .containsExactly(2L);
+        });
+  }
+
+  // --- Main-line projection, aggregate and result-shaping terminators -------------------------
 
   /** {@code elementMap("name")} matches native id/label/property maps. */
   @Test
