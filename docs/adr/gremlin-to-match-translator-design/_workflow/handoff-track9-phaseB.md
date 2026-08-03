@@ -2,8 +2,8 @@
 # Handoff — Track 9 Phase B, 2026-08-04T01:20Z [ctx=warning]
 
 Paused at the context warning with **five agents in flight and four unmerged branches**.
-Branch `gremlin-to-match-translator-design`, HEAD `d3ce3b98bd`, everything on `origin`
-except the four worktree branches, working tree clean. Read this, then `plan/track-9.md`
+Branch `gremlin-to-match-translator-design`, everything pushed to `origin` including the
+four worktree branches; working tree clean. Read this, then `plan/track-9.md`
 (`## Decision Log` DR-S9 through DR-S15, `## Surprises & Discoveries`), then collect the
 in-flight agents.
 
@@ -35,7 +35,9 @@ The prefixes are deliberately disjoint so two concurrent reviewers cannot collid
 
 ## The four branches, and the order to integrate them
 
-All four are **unpushed** and based on `d6e0920e5c` unless noted.
+All three are **pushed to `origin`** (as is `t11-item7-jmh`, carrying Track 11 item 7's JMH
+harness at `b1fc04a030`) and based on `d6e0920e5c` unless noted. They are temporary
+integration branches: delete each with `git push --delete origin <name>` once merged.
 
 | Branch | Commits | State |
 |---|---|---|
