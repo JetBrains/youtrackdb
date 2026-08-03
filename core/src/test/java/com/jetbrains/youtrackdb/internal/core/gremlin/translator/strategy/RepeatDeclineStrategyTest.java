@@ -12,13 +12,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.RepeatStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.AdjacentToIncidentStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.RepeatUnrollStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
 /**
@@ -40,9 +44,9 @@ import org.junit.Test;
  *       RepeatDeclineStrategy} removed from its strategy list. A case whose control translates
  *       proves the decline came from the veto; a case whose control also declines is a guard on the
  *       recursive scan rather than a witness for the fix, and says so in its own javadoc.
- *   <li><b>Zero boundary steps</b> with the translator on, and the {@link
- *       RepeatDeclineStrategy.Veto} marker present on the traversal — the veto itself, not only its
- *       outcome.
+ *   <li><b>Zero boundary steps</b> with the translator on, and {@link
+ *       RepeatDeclineStrategy#isVetoed} answering true for the traversal — the veto itself, not only
+ *       its outcome.
  *   <li><b>{@code RepeatUnrollStrategy} still registered</b> on the on arm. The decline works by
  *       marking the traversal, never by removing the unroll — dropping the unroll would strip the
  *       barriers that make the native fallback fast and would move the non-termination from MATCH
@@ -57,13 +61,17 @@ import org.junit.Test;
  * recogniser emits differs between them, and a decline that only held under one mode would leave the
  * other translating.
  *
- * <p>Five further cases stand alone: {@link #repeatInsideAChildStartingAtV_vetoesThatChildToo} (a
+ * <p>Eight further cases stand alone: {@link #repeatInsideAChildStartingAtV_vetoesThatChildToo} (a
  * repeat one nesting level down, in a child the translator would otherwise fold on its own), {@link
  * #childWithoutARepeat_stillTranslates} (the other side of that boundary), {@link
- * #translatorAlreadyRemovedFromTheSource_needsNoVeto} (a source that dropped the translator itself),
- * {@link #veto_leavesTheProcessWideStrategyCacheIntact} (the veto edits a copy, never the JVM-global
- * strategy set), and {@link #translatorOff_leavesTranslatorAndUnrollRegistered} (the measurement
- * control arm).
+ * #theVeto_doesNotLeakToASiblingOrToARepeatFreeChild} (the marker is per-traversal, not per-tree),
+ * {@link #translatorAlreadyRemovedFromTheSource_needsNoVeto} (a source that dropped the translator
+ * itself), {@link #veto_leavesTheProcessWideStrategyCacheIntact} (the veto never edits the
+ * JVM-global strategy set), {@link #translatorOff_leavesTranslatorAndUnrollRegistered} (the
+ * measurement control arm), {@link #translatorOff_leavesTheStrategyListAndRequirementsUntouched}
+ * (that same control arm compiles exactly as an unmarked traversal does), and {@link
+ * #theVetoCarrier_forwardsEveryOperationToTheListItWraps} (the carrier is transparent apart from its
+ * own type).
  */
 public class RepeatDeclineStrategyTest extends GraphBaseTest {
 
@@ -239,9 +247,9 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
     var root = graph.traversal().V().map(child).asAdmin();
     root.applyStrategies();
 
-    assertThat(child.asAdmin().getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class))
+    assertThat(RepeatDeclineStrategy.isVetoed(child.asAdmin()))
         .as("the veto must mark the child that carries the repeat, not the root alone")
-        .isPresent();
+        .isTrue();
     assertThat(countBoundarySteps(child.asAdmin()))
         .as("so the child declines to native as well")
         .isZero();
@@ -269,12 +277,59 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
     var root = graph.traversal().V().map(child).asAdmin();
     root.applyStrategies();
 
-    assertThat(child.asAdmin().getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class))
+    assertThat(RepeatDeclineStrategy.isVetoed(child.asAdmin()))
         .as("a repeat-free child carries no veto marker")
-        .isEmpty();
+        .isFalse();
     assertThat(countBoundarySteps(child.asAdmin()))
         .as("and is still translated in its own right")
         .isEqualTo(1);
+  }
+
+  /**
+   * The marker belongs to one traversal, not to the tree it sits in. A repeat in one union child
+   * must veto that child and the root — the root's scan is recursive — while leaving the sibling
+   * child, which carries no repeat, free to be translated on its own account.
+   *
+   * <p>The assertion has to be taken mid-pass, which is why the strategy is driven directly rather
+   * than through {@code applyStrategies}. {@code DefaultTraversal.lock()} overwrites every
+   * descendant's strategies reference with its parent's as the last act of compilation, so after a
+   * full {@code applyStrategies} every descendant of a vetoed root reads as vetoed and the case
+   * could not discriminate. {@code TraversalHelper.applyTraversalRecursively} is the same walk
+   * {@code applyStrategies} uses per strategy, so this reproduces the exact state {@code
+   * GremlinToMatchStrategy} reads in.
+   *
+   * <p>The rejected carrier is what this case was written against. A side-effect key cannot pass it:
+   * {@code g.V().union(a, b)} hands both children the root's own {@code TraversalSideEffects}
+   * instance (measured — the three references are identical), so a boolean key written at the root
+   * would report every sibling as vetoed and withdraw translation from correct shapes.
+   */
+  @Test
+  public void theVeto_doesNotLeakToASiblingOrToARepeatFreeChild() {
+    seedKnowsChain();
+    setTranslatorEnabled(true);
+
+    GraphTraversal<Vertex, String> repeatChild =
+        __.<Vertex>repeat(__.out()).times(2).values("name");
+    GraphTraversal<Vertex, String> plainChild = __.<Vertex>out().values("name");
+    var root = graph.traversal().V().union(repeatChild, plainChild).asAdmin();
+
+    assertThat(root.getSideEffects())
+        .as("premise of the rejected carrier: root and children share one side-effects instance")
+        .isSameAs(repeatChild.asAdmin().getSideEffects())
+        .isSameAs(plainChild.asAdmin().getSideEffects());
+
+    TraversalHelper.applyTraversalRecursively(RepeatDeclineStrategy.instance()::apply, root);
+
+    assertThat(RepeatDeclineStrategy.isVetoed(repeatChild.asAdmin()))
+        .as("the child holding the repeat is vetoed")
+        .isTrue();
+    assertThat(RepeatDeclineStrategy.isVetoed(root))
+        .as("and so is the root, whose scan reaches into that child")
+        .isTrue();
+    assertThat(RepeatDeclineStrategy.isVetoed(plainChild.asAdmin()))
+        .as("but the repeat-free sibling must not inherit the veto — declining it would withdraw "
+            + "translation from a shape the translator handles correctly")
+        .isFalse();
   }
 
   /**
@@ -329,17 +384,24 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
     assertThat(countBoundarySteps(vetoed))
         .as("precondition: the repeat-bearing traversal declines, so the veto did fire")
         .isZero();
-    assertThat(vetoed.getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class))
+    assertThat(RepeatDeclineStrategy.isVetoed(vetoed))
         .as("precondition: the veto marked this traversal's own strategy list")
-        .isPresent();
+        .isTrue();
 
     var cached = TraversalStrategies.GlobalCache.getStrategies(graph.getClass());
-    assertThat(cached.getStrategy(RepeatDeclineStrategy.Veto.class))
-        .as("the veto must not add its marker to the JVM-global strategy cache")
-        .isEmpty();
+    assertThat(RepeatDeclineStrategy.isVetoed(vetoed))
+        .as("precondition restated: the traversal under test is the vetoed one")
+        .isTrue();
+    assertThat(cached)
+        .as("the veto must not mark the JVM-global strategy cache itself")
+        .isNotInstanceOf(RepeatDeclineStrategy.VetoedStrategies.class);
     assertThat(cached.getStrategy(GremlinToMatchStrategy.class))
         .as("and must leave the translator registered in that cache")
         .isPresent();
+    assertSameStrategiesInOrder(
+        "the vetoed traversal reads through to the global list, so that list must be untouched",
+        vetoed.getStrategies().toList(),
+        cached.toList());
 
     var later = graph.traversal().V().out("knows").out("knows").asAdmin();
     later.applyStrategies();
@@ -379,35 +441,139 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
     assertThat(countBoundarySteps(admin))
         .as("translator off: the traversal runs natively, marked or not")
         .isZero();
-    assertThat(admin.getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class))
+    assertThat(RepeatDeclineStrategy.isVetoed(admin))
         .as("translator off: the veto still marks the traversal, because it never reads the "
             + "kill-switch — no flip between two reads of that flag can skip it")
-        .isPresent();
+        .isTrue();
   }
 
   /**
-   * The veto is idempotent: a second pass over an already-marked traversal returns without cloning
-   * the strategy list again. Both calls go through {@code apply} directly, because {@code
-   * applyStrategies} locks a traversal after its first pass and so cannot drive this.
+   * With the translator off, a repeat-bearing traversal must compile exactly as an unmarked one
+   * does. This is the arm every measurement on this branch compares against, so the marker has to
+   * be inert here in a stronger sense than "the answer is the same": the strategy list must be the
+   * same objects in the same order, and the traverser requirements must be the same set.
+   *
+   * <p>Both halves name a carrier that fails them. The list assertion fails against a marker added
+   * to a cloned strategy list — the clone carries one entry more, and {@code
+   * TraversalStrategies.sortStrategies} re-runs over it and may seat the unconstrained
+   * optimizations, {@code RepeatUnrollStrategy} and {@code AdjacentToIncidentStrategy} among them,
+   * in a different order. The requirements assertion fails against a side-effect key: {@code
+   * DefaultTraversal.getTraverserRequirements} adds {@code SIDE_EFFECTS} whenever {@code
+   * getSideEffects().keys()} is non-empty, which swaps the traverser generator from {@code
+   * B_O_TraverserGenerator} to {@code B_O_S_SE_SL_TraverserGenerator} (measured).
+   *
+   * <p>The control is a hand-written two-hop count rather than a second repeat form, so it is a
+   * traversal the veto never touches. Both shapes reduce to the same chained hops once {@code
+   * RepeatUnrollStrategy} has run.
+   */
+  @Test
+  public void translatorOff_leavesTheStrategyListAndRequirementsUntouched() {
+    seedKnowsChain();
+    setTranslatorEnabled(false);
+
+    var control = graph.traversal().V().out("knows").out("knows").count().asAdmin();
+    control.applyStrategies();
+
+    var vetoed = graph.traversal().V().repeat(__.out()).times(2).count().asAdmin();
+    vetoed.applyStrategies();
+
+    assertThat(RepeatDeclineStrategy.isVetoed(vetoed))
+        .as("precondition: the veto did fire on the off arm, so the case measures the marked state")
+        .isTrue();
+    assertThat(RepeatDeclineStrategy.isVetoed(control))
+        .as("precondition: the control is unmarked")
+        .isFalse();
+
+    assertSameStrategiesInOrder(
+        "translator off: a marked traversal must see the same strategy list an unmarked one sees",
+        vetoed.getStrategies().toList(),
+        control.getStrategies().toList());
+
+    assertThat(vetoed.getTraverserRequirements())
+        .as("translator off: the marker must not add a traverser requirement — SIDE_EFFECTS would "
+            + "change which traverser generator the native pipeline picks")
+        .doesNotContain(TraverserRequirement.SIDE_EFFECTS)
+        .isEqualTo(control.getTraverserRequirements());
+  }
+
+  /**
+   * The carrier is transparent for everything except its own type. Every {@code
+   * TraversalStrategies} operation must reach the wrapped list and report what the wrapped list
+   * reports, because a traversal that has been vetoed is still an ordinary traversal to every other
+   * strategy, to {@code applyStrategies}, and to {@code lock()}. The one deliberate exception is
+   * {@code clone()}, which keeps the veto: a copy describes the same repeat-bearing query, and
+   * carrying the decline forward is the safe direction.
+   *
+   * <p>The wrapper is driven directly, over a detached copy of the graph's strategy list. Its
+   * mutators forward verbatim, so exercising them through a live traversal would edit the JVM-global
+   * {@code GlobalCache} instance every other test in this fork compiles against.
+   */
+  @Test
+  public void theVetoCarrier_forwardsEveryOperationToTheListItWraps() {
+    var delegate = graph.traversal().V().asAdmin().getStrategies().clone();
+    var wrapper = new RepeatDeclineStrategy.VetoedStrategies(delegate);
+
+    assertSameStrategiesInOrder(
+        "a fresh wrapper reads the wrapped list through unchanged", wrapper.toList(),
+        delegate.toList());
+    assertThat(wrapper.iterator())
+        .toIterable()
+        .as("and iterates it in the same order, which is what applyStrategies consumes")
+        .containsExactlyElementsOf(delegate.toList());
+    assertThat(wrapper.getStrategy(GremlinToMatchStrategy.class))
+        .as("lookups resolve against the wrapped list, not against the wrapper")
+        .isPresent();
+    assertThat(wrapper.toString())
+        .as("and the rendering is the wrapped list's, so a log line reads as it did before")
+        .isEqualTo(delegate.toString());
+
+    assertThat(wrapper.removeStrategies(GremlinToMatchStrategy.class))
+        .as("removeStrategies returns the wrapper, so the veto outlives a removal")
+        .isSameAs(wrapper);
+    assertThat(delegate.getStrategy(GremlinToMatchStrategy.class))
+        .as("and the removal reached the wrapped list")
+        .isEmpty();
+
+    assertThat(wrapper.addStrategies(GremlinToMatchStrategy.instance()))
+        .as("addStrategies likewise returns the wrapper")
+        .isSameAs(wrapper);
+    assertThat(delegate.getStrategy(GremlinToMatchStrategy.class))
+        .as("and reached the wrapped list")
+        .isPresent();
+
+    var copy = wrapper.clone();
+    assertThat(copy)
+        .as("a clone of a vetoed list stays vetoed")
+        .isInstanceOf(RepeatDeclineStrategy.VetoedStrategies.class)
+        .isNotSameAs(wrapper);
+    assertThat(copy.toList())
+        .as("and carries the same strategies")
+        .containsExactlyElementsOf(delegate.toList());
+  }
+
+  /**
+   * The veto is idempotent: a second pass over an already-marked traversal returns without wrapping
+   * the strategies reference a second time. Both calls go through {@code apply} directly, because
+   * {@code applyStrategies} locks a traversal after its first pass and so cannot drive this.
    *
    * <p>Neither call sets the kill-switch, which is the second thing the case pins: the veto marks
    * regardless of the flag, so no interleaving of two reads of it can leave a repeat-bearing
    * traversal unmarked.
    */
   @Test
-  public void applyingTheVetoTwice_replacesTheStrategyListOnce() {
+  public void applyingTheVetoTwice_wrapsTheStrategiesReferenceOnce() {
     seedKnowsChain();
     var admin = graph.traversal().V().repeat(__.out()).times(2).count().asAdmin();
 
     RepeatDeclineStrategy.instance().apply(admin);
     var afterFirstPass = admin.getStrategies();
-    assertThat(afterFirstPass.getStrategy(RepeatDeclineStrategy.Veto.class))
+    assertThat(RepeatDeclineStrategy.isVetoed(admin))
         .as("the first pass marks the traversal without reading the kill-switch")
-        .isPresent();
+        .isTrue();
 
     RepeatDeclineStrategy.instance().apply(admin);
     assertThat(admin.getStrategies())
-        .as("the second pass must reuse the marked list rather than clone and re-sort it again")
+        .as("the second pass must reuse the existing wrapper rather than nest another one")
         .isSameAs(afterFirstPass);
   }
 
@@ -439,9 +605,9 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
       armed.set(false);
     }
 
-    assertThat(traversal.asAdmin().getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class))
+    assertThat(RepeatDeclineStrategy.isVetoed(traversal.asAdmin()))
         .as("the veto declined, so the traversal carries no marker and compiles as it did before")
-        .isEmpty();
+        .isFalse();
   }
 
   /**
@@ -489,10 +655,10 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
     assertThat(countBoundarySteps(onAdmin))
         .as(scenario + " (translator on) must decline to native — no boundary step")
         .isZero();
-    assertThat(onAdmin.getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class))
+    assertThat(RepeatDeclineStrategy.isVetoed(onAdmin))
         .as(scenario + " (translator on): the veto must mark this traversal, so the decline is this"
             + " strategy's work and not a recogniser's")
-        .isPresent();
+        .isTrue();
     assertThat(onAdmin.getStrategies().getStrategy(RepeatUnrollStrategy.class))
         .as(scenario + " (translator on) must keep the unroll strategy, which supplies the "
             + "barriers the native fallback needs")
@@ -540,6 +706,24 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
     var sorted = new ArrayList<Object>(results);
     sorted.sort(Comparator.comparing(String::valueOf));
     return sorted;
+  }
+
+  /**
+   * Asserts two strategy lists hold the same instances at the same positions. Identity rather than
+   * equality, because {@code AbstractTraversalStrategy.equals} compares only the runtime class and
+   * would pass over two distinct copies; position by position rather than as a set, because the
+   * order is the thing a re-sort moves.
+   */
+  private static void assertSameStrategiesInOrder(
+      String description,
+      List<? extends TraversalStrategy<?>> actual,
+      List<? extends TraversalStrategy<?>> expected) {
+    assertThat(actual).as(description + " — list length").hasSameSizeAs(expected);
+    for (var i = 0; i < expected.size(); i++) {
+      assertThat(actual.get(i))
+          .as(description + " — strategy at position " + i)
+          .isSameAs(expected.get(i));
+    }
   }
 
   /** Counts boundary steps of every form, keyed on the shared base rather than one concrete step. */

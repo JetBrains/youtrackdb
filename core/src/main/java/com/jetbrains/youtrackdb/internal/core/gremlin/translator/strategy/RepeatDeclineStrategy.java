@@ -1,11 +1,16 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Optional;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.RepeatStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.RepeatUnrollStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,13 +39,18 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>How the veto is recorded</h2>
  *
- * <p>The veto adds the {@link Veto} marker to a clone of the traversal's own strategy list. The
- * marker carries no behaviour; {@link GremlinToMatchStrategy} reads it and declines. Recording the
- * veto as the presence of a marker, rather than as the absence of the translator, is what keeps it
- * from over-reaching. A sub-traversal's own strategy list normally comes from {@code EmptyGraph} and
- * never carried the translator to begin with, so "the translator is missing from this list" cannot
- * separate a vetoed traversal from an ordinary child, and a check keyed on it declines every
- * sub-traversal in the process.
+ * <p>The veto swaps the traversal's {@code TraversalStrategies} reference for a {@link
+ * VetoedStrategies} view of the same list. That view forwards every operation to the list it wraps
+ * and adds one bit of its own — its type. {@link #isVetoed} reads that bit; {@link
+ * GremlinToMatchStrategy} calls it and declines. Nothing is added to, removed from, or reordered
+ * within the strategy list itself, so a vetoed traversal compiles through exactly the strategies, in
+ * exactly the order, an unvetoed one does.
+ *
+ * <p>Recording the veto as the presence of a marker, rather than as the absence of the translator,
+ * is what keeps it from over-reaching. A sub-traversal's own strategy list normally comes from
+ * {@code EmptyGraph} and never carried the translator to begin with, so "the translator is missing
+ * from this list" cannot separate a vetoed traversal from an ordinary child, and a check keyed on it
+ * declines every sub-traversal in the process.
  *
  * <p>Every traversal whose subtree carries a {@link RepeatStep} is marked, not the root alone.
  * {@code Traversal.Admin.applyStrategies} applies each strategy to the root and to every descendant
@@ -53,18 +63,39 @@ import org.slf4j.LoggerFactory;
  * the sharper version of the same shape, but {@code Bytecode.convertArgument} rejects any child
  * argument carrying source instructions, so the fluent API cannot construct one.)
  *
- * <p>The list is replaced through {@code clone()} rather than mutated in place. {@code
+ * <p>Marking one traversal must not mark its neighbours, and the wrapper is per-traversal for that
+ * reason. Each traversal in a tree holds its own {@code TraversalStrategies} reference until {@code
+ * lock()} runs — a root's list comes from the graph's {@code GlobalCache}, a child's from {@code
+ * EmptyGraph}'s — so replacing one reference reaches that traversal and nothing else. A vetoed root
+ * therefore leaves a repeat-free sibling or child free to translate on its own account, which is the
+ * property {@code RepeatDeclineStrategyTest} pins directly.
+ *
+ * <p>The reference is replaced rather than the list mutated in place. {@code
  * traversal.getStrategies()} returns the process-wide {@code TraversalStrategies.GlobalCache}
  * singleton registered for the graph class — one object shared by every graph instance and every
  * thread in the JVM — its backing collection is a plain {@code LinkedHashSet}, and {@code
  * applyStrategies} holds a fail-fast iterator over it for the whole compilation. An in-place edit
  * therefore raises {@link java.util.ConcurrentModificationException} in every thread that is
- * compiling a traversal against that graph class at the time, not only in the editing one.
- * Replacing this traversal's own reference keeps the edit local to this one traversal.
+ * compiling a traversal against that graph class at the time, not only in the editing one. The
+ * wrapper never edits the list it wraps, so the singleton is left exactly as it was found.
  *
  * <p>Because the replacement lands after the iteration has already captured the old set, the
- * translator is still invoked in this pass; it honours the marker itself by reading the traversal's
- * strategy list before translating. That check lives in {@link GremlinToMatchStrategy}.
+ * translator is still invoked in this pass; it honours the marker itself by calling {@link
+ * #isVetoed} before translating. That check lives in {@link GremlinToMatchStrategy}.
+ *
+ * <h2>Channels that were measured and rejected</h2>
+ *
+ * <p>{@code traversal.getSideEffects()} is the obvious per-traversal channel and it fails twice,
+ * measured rather than argued. A single side-effect key of any name flips {@code
+ * getTraverserRequirements()} from {@code [BULK, OBJECT]} to {@code [BULK, OBJECT, SIDE_EFFECTS]} —
+ * {@code DefaultTraversal} adds {@link TraverserRequirement#SIDE_EFFECTS} whenever {@code
+ * getSideEffects().keys()} is non-empty — which swaps the traverser generator from {@code
+ * B_O_TraverserGenerator} to {@code B_O_S_SE_SL_TraverserGenerator}. That is a change to the native
+ * execution path of every repeat-bearing traversal, including with the translator switched off,
+ * which is the deviation this carrier exists to remove. And a traversal shares one {@code
+ * TraversalSideEffects} instance with its direct children: for {@code g.V().union(a, b)} both
+ * children read the root's object, so a plain boolean key marked at the root would veto every
+ * sibling and withdraw translation from correct shapes.
  *
  * <h2>What it deliberately leaves alone</h2>
  *
@@ -87,22 +118,22 @@ import org.slf4j.LoggerFactory;
  *
  * <p>A traversal with no {@code repeat} pays one recursive step-tree scan and stops: no session
  * resolution, no transaction, no allocation past the scan's iterators. A repeat-bearing traversal
- * additionally pays {@code clone()} plus {@code addStrategies}, and {@code addStrategies} re-runs
- * {@code TraversalStrategies.sortStrategies} over the whole list — roughly 19 us on the production
- * 23-strategy list, against 0.7 us for the clone alone. Nothing reads that sorted order in the pass
- * that pays for it, since {@code applyStrategies} captured its iterator before the first strategy
- * ran and the veto needs membership only. The cost is accepted rather than memoized: it lands once
- * per repeat-bearing compilation, on a traversal the translator is about to decline anyway.
+ * additionally pays one {@link VetoedStrategies} allocation and a field write. It pays no {@code
+ * clone()} of the strategy list and no {@code TraversalStrategies.sortStrategies} — the earlier
+ * clone-and-add form cost roughly 19 us on the production 23-strategy list, of which the re-sort was
+ * all but 0.7 us.
  *
- * <p>The re-sort has one observable beyond its cost. TinkerPop's sort orders strategies by category
+ * <p>Avoiding the re-sort matters beyond its cost. TinkerPop's sort orders strategies by category
  * and by the {@code applyPrior} / {@code applyPost} edges they declare, and resolves everything else
  * by the iteration order of the maps it builds — {@code RepeatUnrollStrategy}, for one, declares no
- * constraints at all. Sorting a set with one more element in it can therefore hand a repeat-bearing
- * traversal a different order among the unconstrained optimizations than an unmarked traversal gets.
- * Every one of those optimizations preserves semantics, so the answer does not move; the native plan
- * can. {@code g.V().repeat(__.out()).times(n).count()} is the case to know about: whether {@code
+ * constraints at all. Sorting a set with one more element in it can hand a repeat-bearing traversal
+ * a different order among the unconstrained optimizations than an unmarked traversal gets. Every one
+ * of those optimizations preserves semantics, so the answer would not move; the native plan could.
+ * {@code g.V().repeat(__.out()).times(n).count()} is the case to know about: whether {@code
  * AdjacentToIncidentStrategy} rewrites the last unrolled hop into an edge hop turns on exactly that
- * unconstrained position.
+ * unconstrained position. A wrapper that forwards {@code iterator()} leaves the order alone, so the
+ * translator-off arm compiles a repeat-bearing traversal to the same native step list it would
+ * without this strategy registered at all.
  */
 public final class RepeatDeclineStrategy
     extends AbstractTraversalStrategy<TraversalStrategy.DecorationStrategy>
@@ -134,11 +165,12 @@ public final class RepeatDeclineStrategy
       }
       var strategies = traversal.getStrategies();
       // Idempotent: a traversal that already carries the marker — a re-applied strategy chain, or a
-      // list a vetoed parent pushed down when it locked — needs no second clone.
-      if (strategies.getStrategy(Veto.class).isPresent()) {
+      // list a vetoed parent pushed down when it locked — needs no second wrapper. Double-wrapping
+      // would still read as vetoed, but each layer adds a hop to every forwarded call.
+      if (strategies instanceof VetoedStrategies) {
         return;
       }
-      traversal.setStrategies(strategies.clone().addStrategies(Veto.instance()));
+      traversal.setStrategies(new VetoedStrategies(strategies));
     } catch (RuntimeException e) {
       // Skipping the veto yields no wrong answer — the translator's own gates then decide, as they
       // did before this strategy existed — so record it at DEBUG and leave the traversal alone.
@@ -153,28 +185,79 @@ public final class RepeatDeclineStrategy
   }
 
   /**
-   * Marker recording "the translator must leave this traversal alone". It carries no behaviour:
-   * {@code apply} does nothing, and the marker is never registered on a graph — {@link
-   * RepeatDeclineStrategy} adds it to one traversal's cloned strategy list, and {@link
-   * GremlinToMatchStrategy} reads it there. Declaring it a {@code DecorationStrategy} keeps
-   * TinkerPop's category sort from placing it among the strategies that do work.
+   * Reads the veto off {@code traversal}. The single reader in production is {@link
+   * GremlinToMatchStrategy}; the marker means "this traversal was written with {@code repeat(...)},
+   * do not translate it" and says nothing about any other traversal in the same tree.
+   *
+   * <p>Answering from the reference's type rather than from the list's contents is what makes the
+   * read O(1) and the mark free of ordering effects. Note that after {@code lock()} a traversal's
+   * reference is overwritten with its parent's, so a descendant of a vetoed root reads as vetoed
+   * once compilation has finished; every production read happens before that, during the strategy
+   * pass, while each traversal still holds its own reference.
    */
-  static final class Veto extends AbstractTraversalStrategy<TraversalStrategy.DecorationStrategy>
-      implements TraversalStrategy.DecorationStrategy {
+  static boolean isVetoed(Admin<?, ?> traversal) {
+    return traversal.getStrategies() instanceof VetoedStrategies;
+  }
 
-    private static final Veto INSTANCE = new Veto();
+  /**
+   * The veto carrier: a {@link TraversalStrategies} view that forwards every operation to the list
+   * it wraps and carries the veto in its own type. It contributes no strategy, so {@code iterator()}
+   * yields the wrapped list unchanged and {@code TraversalStrategies.sortStrategies} never runs.
+   *
+   * <p>The wrapped list may be the process-wide {@code GlobalCache} singleton, so this class must
+   * never mutate it on its own account. It does not: the two mutators below forward verbatim, which
+   * leaves a caller holding a wrapped list in exactly the position it would be in holding the
+   * unwrapped one. Every method here is transparent except {@link #clone()}, which keeps the veto on
+   * the copy — a clone of a vetoed traversal describes the same repeat-bearing query, and keeping
+   * the decline is the safe direction to err in.
+   */
+  static final class VetoedStrategies implements TraversalStrategies {
 
-    private Veto() {
-    }
+    private static final long serialVersionUID = 1L;
 
-    static Veto instance() {
-      return INSTANCE;
+    private final TraversalStrategies delegate;
+
+    VetoedStrategies(TraversalStrategies delegate) {
+      this.delegate = delegate;
     }
 
     @Override
-    public void apply(Admin<?, ?> traversal) {
-      // Nothing to do. RepeatDeclineStrategy took the decision this entry stands for, and the pass
-      // that adds the marker never applies it — applyStrategies captured its iterator first.
+    public Iterator<TraversalStrategy<?>> iterator() {
+      return delegate.iterator();
+    }
+
+    @Override
+    public List<TraversalStrategy<?>> toList() {
+      return delegate.toList();
+    }
+
+    @Override
+    public <T extends TraversalStrategy> Optional<T> getStrategy(Class<T> strategyClass) {
+      return delegate.getStrategy(strategyClass);
+    }
+
+    @Override
+    public TraversalStrategies addStrategies(TraversalStrategy<?>... strategies) {
+      delegate.addStrategies(strategies);
+      return this;
+    }
+
+    @SafeVarargs
+    @Override
+    public final TraversalStrategies removeStrategies(
+        Class<? extends TraversalStrategy>... strategyClasses) {
+      delegate.removeStrategies(strategyClasses);
+      return this;
+    }
+
+    @Override
+    public TraversalStrategies clone() {
+      return new VetoedStrategies(delegate.clone());
+    }
+
+    @Override
+    public String toString() {
+      return delegate.toString();
     }
   }
 }

@@ -75,11 +75,12 @@ import org.slf4j.LoggerFactory;
  *       time the start step is still a plain {@code GraphStep}. Keying on {@code YTDBGraphStep}
  *       would decline every recognized shape. The check is also ordering-robust, since a
  *       {@code YTDBGraphStep} <em>is</em> a {@code GraphStep}.</li>
- *   <li><b>Per-traversal veto.</b> The traversal's strategy list carries a {@link
- *       RepeatDeclineStrategy.Veto} marker, which {@link RepeatDeclineStrategy} adds at decoration
- *       time to every traversal whose subtree was written with {@code repeat(...)}. The marker is
- *       how a decision taken before {@code RepeatUnrollStrategy} flattened the repeat survives into
- *       this pass; see that class for why the decline cannot be made here.</li>
+ *   <li><b>Per-traversal veto.</b> {@link RepeatDeclineStrategy#isVetoed} answers true, because
+ *       {@link RepeatDeclineStrategy} marked the traversal at decoration time — it marks every
+ *       traversal whose subtree was written with {@code repeat(...)}. The marker is how a decision
+ *       taken before {@code RepeatUnrollStrategy} flattened the repeat survives into this pass; see
+ *       that class for why the decline cannot be made here, and for why the marker is carried on
+ *       the traversal's strategies <em>reference</em> without altering the list it points at.</li>
  *   <li><b>Idempotency.</b> The traversal already contains a boundary step ({@link
  *       AbstractMatchPlanStep}, either the single-plan {@link YTDBMatchPlanStep} or any other
  *       concrete boundary form) anywhere in its step list. A traversal's strategy chain can be
@@ -262,8 +263,9 @@ public final class GremlinToMatchStrategy
     // The check keys on the marker's presence and not on this strategy's absence: a child
     // traversal's own strategy list never carries a provider strategy during the strategy pass, so
     // an absence test would decline every sub-traversal rather than the vetoed ones. See
-    // RepeatDeclineStrategy for why the decision has to be taken that early.
-    if (traversal.getStrategies().getStrategy(RepeatDeclineStrategy.Veto.class).isPresent()) {
+    // RepeatDeclineStrategy for why the decision has to be taken that early, and for why the marker
+    // lives on the strategies reference's type rather than in the list itself.
+    if (RepeatDeclineStrategy.isVetoed(traversal)) {
       return;
     }
     if (containsBoundaryStep(traversal)) {
