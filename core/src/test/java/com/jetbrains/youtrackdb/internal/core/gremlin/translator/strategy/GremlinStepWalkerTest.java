@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
@@ -22,8 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
@@ -34,6 +37,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Assert;
 import org.junit.Test;
@@ -813,6 +817,163 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result).isNotNull();
     assertThat(result.inputs().skip()).isNull();
     assertThat(result.inputs().limit()).isNull();
+  }
+
+  // ---------------------------------------------------------------------------
+  // where(...) scope bindings are no longer transparent.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A {@code where} child whose result must equal a labelled traverser declines. While {@code
+   * WhereEndStep} was transparent the comparison was dropped and the translation asked only that
+   * the child produce something, which is a weaker filter than the user wrote.
+   */
+  @Test
+  public void walk_whereChildWithEndLabel_declines() {
+    var admin =
+        graph.traversal().V().as("a").out().as("b").where(__.as("a").out().as("b")).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * The start binding alone is enough to decline, with no end label present. The child must run
+   * from {@code a}, and skipping the binding ran it from the current element instead — a different
+   * question whenever the label is not the current element.
+   */
+  @Test
+  public void walk_whereChildWithStartLabelOnly_declines() {
+    var admin = graph.traversal().V().as("a").out().as("b").where(__.as("a").out()).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * The decline is confined to the labelled family. An unlabelled {@code where(__.has(...))} is a
+   * {@code TraversalFilterStep} whose child carries neither scope class, so it keeps translating —
+   * the boundary the surface-loss claim rests on. The child is a pure filter rather than a hop on
+   * purpose: an edge-bearing child is declined by a separate gate on the child-commit path, which
+   * would mask what this case is here to show.
+   */
+  @Test
+  public void walk_plainWhereChild_stillTranslates() {
+    var admin = graph.traversal().V().where(__.has("name", "Bob")).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+  }
+
+  /**
+   * The scope binding declines on its own, with no hop anywhere in the child. This is the case that
+   * isolates the transparency change: the child is a pure filter, so no edge-bearing-child gate can
+   * account for the decline, and the only thing left to explain it is the {@code WhereStartStep}.
+   * The shape is also one the translation got <em>right</em> before, since {@code a} is the current
+   * element — it is here as the priced surface, not as a defect witness.
+   */
+  @Test
+  public void walk_whereChildLabelledPureFilter_declines() {
+    var admin = graph.traversal().V().as("a").where(__.as("a").has("age", 30)).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * {@code g.V().as(a).out().as(b).where(__.as(a).out().as(b))} returns native's rows once the walk
+   * declines. Before the fix the translated arm returned nothing where native returned the one row
+   * whose hop target matches {@code b}.
+   */
+  @Test
+  public void whereWithEndLabel_declinesAndReturnsNativeRows() {
+    seedOneKnowsEdgeNoSelfLoop();
+
+    assertDeclinesAndMatchesNative(
+        "g.V().as(a).out().as(b).where(__.as(a).out().as(b))",
+        () -> graph.traversal().V().as("a").out().as("b").where(__.as("a").out().as("b")),
+        true);
+  }
+
+  /**
+   * The opposite direction of the same defect: the child asks for a self-loop, the fixture has
+   * none, so native returns nothing. Before the fix the dropped end comparison turned the child
+   * into "has an out-edge" and the translated arm returned a row. Both arms are empty once the walk
+   * declines, so the boundary-step assertion is what carries this case — the mutation below is what
+   * proves it.
+   */
+  @Test
+  public void whereWithSelfComparingEndLabel_declinesAndReturnsNativeRows() {
+    seedOneKnowsEdgeNoSelfLoop();
+
+    assertDeclinesAndMatchesNative(
+        "g.V().as(a).where(__.as(a).out().as(a))",
+        () -> graph.traversal().V().as("a").where(__.as("a").out().as("a")),
+        false);
+  }
+
+  /** Alice knows Bob, plus an isolated vertex. No self-loops, so a child asking for one matches
+   *  nothing natively. */
+  private void seedOneKnowsEdgeNoSelfLoop() {
+    var alice = graph.addVertex(T.label, "Person", "name",
+        "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name",
+        "Bob");
+    graph.addVertex(T.label, "Person", "name", "Solo");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+  }
+
+  /**
+   * Runs {@code shape} with the translator on and again off, asserting the translated arm declined
+   * (no boundary step) and that both arms return the same rows. {@code expectRows} says whether the
+   * shape is one that matches anything at all — passing {@code true} adds a non-empty guard so the
+   * equality is not held over two empty lists; a shape that legitimately matches nothing natively
+   * passes {@code false} and rests on the boundary assertion plus its mutation.
+   */
+  private void assertDeclinesAndMatchesNative(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape, boolean expectRows) {
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      setTranslatorFlag(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn =
+          onAdmin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
+      var onRows = onAdmin.toList().stream().map(String::valueOf).sorted().toList();
+
+      setTranslatorFlag(false);
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var offRows = offAdmin.toList().stream().map(String::valueOf).sorted().toList();
+
+      assertThat(boundaryOn)
+          .as(scenario + ": a where child carrying a scope binding must decline the whole walk")
+          .isEqualTo(0);
+      if (expectRows) {
+        assertThat(offRows)
+            .as(scenario + ": native must return rows, or the equality below is vacuous")
+            .isNotEmpty();
+      }
+      assertThat(onRows)
+          .as(scenario + ": translator-on and translator-off multisets must match")
+          .isEqualTo(offRows);
+    } finally {
+      setTranslatorFlag(original);
+    }
+  }
+
+  private void setTranslatorFlag(boolean enabled) {
+    session
+        .getConfiguration()
+        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
   }
 
   /**

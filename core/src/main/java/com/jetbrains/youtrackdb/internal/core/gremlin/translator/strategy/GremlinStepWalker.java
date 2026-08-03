@@ -25,8 +25,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalSte
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep.WhereEndStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep.WhereStartStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
@@ -120,9 +118,43 @@ final class GremlinStepWalker {
    * bounds the {@code repeat(...)} spelling, which is the one the TinkerPop feature suite drove to
    * a stall; a deep hand-written chain is still translated and still pays the enumeration. Bounding
    * that shape needs a depth or fan-out gate the translator does not have yet.
+   *
+   * <h2>Why the {@code where(...)} scope steps are not here</h2>
+   *
+   * {@code WhereStartStep} and {@code WhereEndStep} were transparent, and that was wrong: they are
+   * not barriers, they are the child's scope binding. {@code WhereStartStep(a)} says the child
+   * starts from the traverser labelled {@code a} rather than from the current element, and {@code
+   * WhereEndStep(b)} says the child's result must <em>equal</em> the traverser labelled {@code b}.
+   * Skipping them dropped both conditions and translated a weaker filter than the user wrote, so a
+   * labelled {@code where} returned a silently different row set. Measured on one {@code knows}
+   * edge plus an isolated vertex, no self-loops:
+   *
+   * <ul>
+   *   <li>{@code g.V().as(a).out().as(b).where(__.as(a).out().as(b))} — empty translated, one row
+   *       native. The end comparison is dropped.
+   *   <li>{@code g.V().as(a).where(__.as(a).out().as(a))} — one row translated, empty native. The
+   *       child asks for a self-loop; without the end comparison it asks only for an out-edge.
+   *   <li>{@code g.V().as(a).out().as(b).where(__.as(a).out())} — empty translated, one row native.
+   *       No end step at all: the start binding alone is load-bearing, because the child runs from
+   *       {@code b} instead of from {@code a}. This is why both classes go rather than only the end
+   *       one.
+   * </ul>
+   *
+   * <p>Removing them from this set is the whole fix. Neither class has a recogniser, so the
+   * all-or-nothing rule declines any traversal whose {@code where} child carries one, and the child
+   * runs on the native pipeline where the bindings mean what they say.
+   *
+   * <p>The price is the labelled {@code where(__.as(a)…)} family, and only that family: a plain
+   * {@code where(__.out(k))} is a {@code TraversalFilterStep} whose child carries neither class, as
+   * are the {@code filter} / {@code and} / {@code not} children, so none of them is affected. Two
+   * spellings that agree today go with it — {@code where(__.as(a).out(k))} where {@code a} is the
+   * current element, and a child whose end label matches what the hop already reaches — because the
+   * walker cannot tell those from the divergent ones without resolving the label to an alias.
+   * Teaching it to do so would recover them, and is the obvious next move if the surface turns out
+   * to matter.
    */
   private static final Set<Class<?>> TRANSPARENT_STEPS =
-      Set.of(NoOpBarrierStep.class, WhereStartStep.class, WhereEndStep.class);
+      Set.of(NoOpBarrierStep.class);
 
   /**
    * Production recogniser registry, keyed on the exact step class. Dispatch is O(1) on the step's

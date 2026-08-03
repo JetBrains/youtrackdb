@@ -86,18 +86,23 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
 
   /**
    * Path-scoped {@code where(__.as("a").has(...))} is a {@link WhereTraversalStep} (not
-   * TraversalFilterStep). Pure-filter child merges into the boundary WHERE.
+   * TraversalFilterStep), and it now declines: the child carries a {@code WhereStartStep}, which
+   * {@link GremlinStepWalker} stopped treating as transparent because the binding decides which
+   * traverser the child runs from. Here {@code a} happens to be the current element, so the merged
+   * boundary predicate this case used to assert was in fact correct — the decline gives that up
+   * because the walker cannot tell this spelling from one whose label points elsewhere without
+   * resolving the label to an alias. See the transparency set's Javadoc for the measured
+   * divergences and the surface this costs.
    */
   @Test
-  public void whereTraversalStep_pathScopedPureFilter_mergesBoundaryPredicate() {
+  public void whereTraversalStep_pathScopedPureFilter_declines() {
     var admin = graph.traversal().V().as("a").where(__.as("a").has("age", P.eq(30))).asAdmin();
     var ctx = contextAfterStartWithRegistry(admin);
     var cursor = cursorAtWhereTraversal(admin);
 
     var outcome = WhereTraversalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(renderBoundaryFilter(ctx)).contains("age");
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
   }
 
