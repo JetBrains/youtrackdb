@@ -46,8 +46,13 @@ final class WherePredicateStepRecogniser implements StepRecogniser {
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
         key -> ctx.isDeclaredStringProperty(ctx.boundaryClassName(), key);
 
+    // The label goes through the walker's label-to-alias map: $matched rows are keyed on pattern
+    // aliases, and a Gremlin as(...) label is never one of them. An unresolved label yields a null
+    // filter and declines, rather than an accessor that reads nothing and drops or keeps every
+    // candidate depending on how the comparison treats a missing operand.
     var expr =
-        GremlinPredicateAdapter.INSTANCE.toMatchedLabelFilter(startLabel, predicate, typeGate);
+        GremlinPredicateAdapter.INSTANCE.toMatchedLabelFilter(
+            startLabel, predicate, typeGate, ctx::resolveUserLabel);
     if (expr == null) {
       return Outcome.DECLINE;
     }

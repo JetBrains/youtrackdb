@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import java.util.List;
 import java.util.function.Supplier;
@@ -29,8 +30,9 @@ import org.junit.Test;
  *
  * <p>Each case runs the <em>same</em> traversal shape twice — once with the strategy enabled, once
  * disabled — and asserts two things (per the track's Validation and Acceptance): (a) boundary-step
- * engagement (a {@code RECOGNIZED} shape has exactly one {@link YTDBMatchPlanStep} with the
- * translator on and none off; a {@code DECLINED} shape has none either way), and (b) result-multiset
+ * engagement (a {@code RECOGNIZED} shape has exactly one {@link AbstractMatchPlanStep} — normally a
+ * {@link YTDBMatchPlanStep} — with the translator on and none off; a {@code DECLINED} shape has none
+ * of either kind either way), and (b) result-multiset
  * equality between the two runs. Multiset equality is checked on sorted RID strings, which preserves
  * multiplicity (a vertex reached twice appears twice), so parallel edges, self-loops, and {@code
  * both()} multiplicity are all covered by the same comparison.
@@ -45,6 +47,9 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   private enum Recognition {
     RECOGNIZED, DECLINED
   }
+
+  /** The alias the walker mints for the root {@code V()} scan — the origin of every hop below it. */
+  private static final String ORIGIN_ALIAS = "$g2m_v0";
 
   // ---------------------------------------------------------------------------
   // Folded bare hops — out(L) / in(L) / both(L).
@@ -885,11 +890,11 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
     var vadasId = modern.vadas().id();
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V(markoId).out().hasId(vadasId);
 
-    assertEquivalent(
-        "g.V(marko).out().hasId(vadas)",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V(markoId).out().hasId(vadasId));
+    assertRootsAtOrigin("g.V(marko).out().hasId(vadas)", traversal);
+    assertEquivalent("g.V(marko).out().hasId(vadas)", Recognition.RECOGNIZED, traversal);
   }
 
   /**
@@ -903,27 +908,52 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   public void postHopHasLabel_onNonRootTarget_returnsSameMultisetAsNative() {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V(markoId).out().hasLabel("Software");
 
-    assertEquivalent(
-        "g.V(marko).out().hasLabel(Software)",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V(markoId).out().hasLabel("Software"));
+    assertRootsAtOrigin("g.V(marko).out().hasLabel(Software)", traversal);
+    assertEquivalent("g.V(marko).out().hasLabel(Software)", Recognition.RECOGNIZED, traversal);
   }
 
   /**
-   * {@code g.V().outE("knows").has("weight", 0.5).inV()} returns only vadas, matching native. The
-   * edge predicate lives on the edge path item and nowhere else, so this is the regression case for
-   * binding target constraints by merge rather than by overwrite: an overwriting rebind would clear
-   * the edge {@code WHERE} and return both {@code knows} targets with no error.
+   * {@code g.V(marko, josh).outE().has("weight", 1.0).inV().has("lang", "java")} returns only ripple,
+   * matching native. Both constraints have to survive together and each is discriminating on its own:
+   * the weight-1.0 edges reach josh and ripple, so dropping the target's {@code lang} predicate
+   * returns two rows; and marko and josh reach lop twice over lower-weight edges, so dropping the
+   * edge predicate returns three.
+   *
+   * <p>That pairing is the point. The edge predicate lives on the edge path item and nowhere else —
+   * the walker's edge-filter map never reaches the plan inputs — while the target predicate arrives
+   * through the alias map and has to be merged onto the closing item. An overwriting rebind clears
+   * the edge {@code WHERE}; a rebind that skips items already carrying one drops the target's. The
+   * shorter {@code g.V().outE("knows").has("weight", 0.5).inV()} form this case used to run reaches
+   * neither branch: with no constraint on the target alias the pass short-circuits on both items.
+   *
+   * <p>The origin is pinned to two RIDs so it wins root selection over the filtered target and the
+   * target's predicate lands on the non-root side, which is the side the path item carries. The
+   * plan assertion pins that; without it a scoring change moves the filter to the root scan and the
+   * multiset comparison stays green while witnessing nothing.
    */
   @Test
   public void edgePathItemFilter_survivesTargetConstraintBinding() {
-    ModernGraphFixture.seed(graph, session);
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+    var joshId = modern.josh().id();
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph
+            .traversal()
+            .V(markoId, joshId)
+            .outE()
+            .has("weight", 1.0d)
+            .inV()
+            .has("lang", "java");
 
+    assertRootsAtOrigin(
+        "g.V(marko, josh).outE().has(weight, 1.0).inV().has(lang, java)", traversal);
     assertEquivalent(
-        "g.V().outE(knows).has(weight, 0.5).inV()",
+        "g.V(marko, josh).outE().has(weight, 1.0).inV().has(lang, java)",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V().outE("knows").has("weight", 0.5d).inV());
+        traversal);
   }
 
   // ---------------------------------------------------------------------------
@@ -1035,6 +1065,58 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Asserts the plan roots at the traversal's origin rather than at the hop's target, so the
+   * target's constraint travels on the path item. Without this pin a root-selection change silently
+   * routes the constraint through the plan inputs and the multiset comparison still passes.
+   */
+  private void assertRootsAtOrigin(String scenario, Supplier<GraphTraversal<?, ?>> traversal) {
+    assertThat(planRootAlias(traversal))
+        .as(scenario + " must root at the origin — otherwise the case no longer witnesses the "
+            + "path-item binding it exists for")
+        .isEqualTo(ORIGIN_ALIAS);
+  }
+
+  /**
+   * The alias the compiled plan roots at, read off the {@code SET <alias>} line {@code prettyPrint}
+   * emits for the scan the planner starts from. The non-root-target cases assert this because the
+   * multiset comparison alone cannot see it: if root selection ever preferred the hop's target, the
+   * target's constraint would reach the executor through the plan inputs instead of through the path
+   * item, the results would stay correct, and the case would go green while witnessing nothing.
+   */
+  private String planRootAlias(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    var text = boundaryPlanText(traversalSupplier);
+    var lines = text.lines().toList();
+    for (var i = 0; i < lines.size() - 1; i++) {
+      if ("+ SET".equals(lines.get(i).strip())) {
+        return lines.get(i + 1).strip();
+      }
+    }
+    throw new AssertionError("plan names no root alias on a SET line:\n" + text);
+  }
+
+  /** Applies strategies with the translator on and returns the boundary step's plan as text. */
+  private String boundaryPlanText(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      setTranslatorEnabled(true);
+      var admin = traversalSupplier.get().asAdmin();
+      admin.applyStrategies();
+      var boundary =
+          admin.getSteps().stream()
+              .filter(YTDBMatchPlanStep.class::isInstance)
+              .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+              .findFirst()
+              .orElseThrow(() -> new AssertionError("expected a translated boundary step"));
+      return boundary.getPlan().prettyPrint(0, 2);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
    * Runs {@code body} with {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT} forced to false, restoring
    * the previous value in a finally block, so the no-undercount case exercises the non-polymorphic
    * mode where an explicit-class recogniser would narrow.
@@ -1060,11 +1142,16 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
     return results.stream().map(v -> ((Vertex) v).id().toString()).sorted().toList();
   }
 
-  /** Counts {@link YTDBMatchPlanStep} occurrences across a step list (raw {@code List<Step>}). */
+  /**
+   * Counts translated boundary steps of <em>any</em> kind across a step list (raw {@code
+   * List<Step>}). The supertype is deliberate: a shape that splices a {@code MultiPlanMatchStep}
+   * instead of a single-plan step is still a translation, and counting only the single-plan subtype
+   * would let such a shape satisfy a decline expectation while the translator in fact accepted it.
+   */
   private static int countBoundarySteps(List<?> steps) {
     var count = 0;
     for (var step : steps) {
-      if (step instanceof YTDBMatchPlanStep<?, ?>) {
+      if (step instanceof AbstractMatchPlanStep<?, ?>) {
         count++;
       }
     }

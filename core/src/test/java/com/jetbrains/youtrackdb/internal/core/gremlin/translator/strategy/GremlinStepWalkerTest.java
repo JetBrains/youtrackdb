@@ -1075,9 +1075,14 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // bindPathItemConstraints — the preservation rules no traversal can reach.
-  // The equivalence suites cover the binding itself end-to-end; these cover what
-  // the binding must NOT do, which a regression would otherwise break silently.
+  // bindPathItemConstraints — the preservation rules, one method per rule.
+  // The equivalence suites cover the binding itself end-to-end, and the
+  // leave-an-unlisted-alias-alone rule as well (EdgeTraversalEquivalenceTest's
+  // edgePathItemFilter_survivesTargetConstraintBinding runs a shape that hits it).
+  // The other rules have no traversal shape that reaches them, so a regression
+  // would break them silently and these unit tests are their only net. When a
+  // shape does reach one, promote it to an equivalence case and delete the unit
+  // test — these exist only for as long as no shape does.
   // ---------------------------------------------------------------------------
 
   /**
@@ -1108,11 +1113,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   /**
    * A path item that already carries a {@code WHERE} keeps it — the alias filter is AND-composed on
-   * top — and a class already on the item is not replaced. Overwriting either would reintroduce the
-   * dropped-constraint defect on a second surface.
+   * top rather than written over it. An overwriting rebind would reintroduce the dropped-constraint
+   * defect on a second surface, this time losing the item's own predicate instead of the alias's.
    */
   @Test
-  public void bindPathItemConstraints_andComposesExistingWhere_andKeepsExistingClass() {
+  public void bindPathItemConstraints_andComposesWithExistingItemWhere() {
     var wb = new MatchWhereBuilder();
     var itemWhere = wb.wrap(wb.eq("since", MatchLiteralBuilder.toLiteral(2020L)));
     var aliasWhere = wb.wrap(wb.eq("name", MatchLiteralBuilder.toLiteral("vadas")));
@@ -1120,14 +1125,51 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         new MatchPatternBuilder()
             .addEdge("a", "t", Direction.OUT, "knows", itemWhere, null, null)
             .build();
-    itemTargeting(ir.pattern(), "t").getFilter().setClassName("Employee");
 
     GremlinStepWalker.bindPathItemConstraints(
-        ir.pattern(), Map.of("t", aliasWhere), Map.of("t", "Person"));
+        ir.pattern(), Map.of("t", aliasWhere), Map.of());
 
-    var targetItem = itemTargeting(ir.pattern(), "t");
-    assertThat(renderWhere(targetItem)).contains("since").contains("name");
-    assertThat(targetItem.getFilter().getClassName(null)).isEqualTo("Employee");
+    assertThat(renderWhere(itemTargeting(ir.pattern(), "t"))).contains("since").contains("name");
+  }
+
+  /**
+   * A class already on the path item is not replaced by the alias map's class. The item's class is
+   * the more specific of the two by construction — it was written by whichever pass already knew the
+   * concrete type — so overwriting it would widen the constraint and return rows native excludes.
+   */
+  @Test
+  public void bindPathItemConstraints_keepsClassAlreadyOnItem() {
+    var ir =
+        new MatchPatternBuilder()
+            .addEdge("a", "t", Direction.OUT, "knows", null, null, null)
+            .build();
+    itemTargeting(ir.pattern(), "t").getFilter().setClassName("Employee");
+
+    GremlinStepWalker.bindPathItemConstraints(ir.pattern(), Map.of(), Map.of("t", "Person"));
+
+    assertThat(itemTargeting(ir.pattern(), "t").getFilter().getClassName(null))
+        .isEqualTo("Employee");
+  }
+
+  /**
+   * The bound {@code WHERE} is a copy, not the instance the alias map holds. The same map is handed
+   * to the planner, so binding the instance itself would leave one mutable AST with two owners —
+   * exactly the arrangement the planner copies to avoid everywhere else it shares a clause.
+   */
+  @Test
+  public void bindPathItemConstraints_bindsACopyOfTheAliasFilter() {
+    var wb = new MatchWhereBuilder();
+    var aliasWhere = wb.wrap(wb.eq("name", MatchLiteralBuilder.toLiteral("vadas")));
+    var ir =
+        new MatchPatternBuilder()
+            .addEdge("a", "t", Direction.OUT, "knows", null, null, null)
+            .build();
+
+    GremlinStepWalker.bindPathItemConstraints(ir.pattern(), Map.of("t", aliasWhere), Map.of());
+
+    assertThat(itemTargeting(ir.pattern(), "t").getFilter().getFilter())
+        .isNotSameAs(aliasWhere);
+    assertThat(renderWhere(itemTargeting(ir.pattern(), "t"))).contains("name");
   }
 
   /**

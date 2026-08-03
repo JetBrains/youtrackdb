@@ -492,7 +492,7 @@ public class MatchPatternBuilderTest {
         new MatchPatternBuilder()
             .addEdge("p", "t", Direction.OUT, "knows", targetWhere, null, null);
 
-    var notExpr = captured.buildNotExpression("p", Map.of());
+    var notExpr = captured.buildNotExpression("p", Map.of(), null);
 
     assertNull(notExpr.getOrigin().getFilter());
     assertEquals("p", notExpr.getOrigin().getAlias());
@@ -519,9 +519,29 @@ public class MatchPatternBuilderTest {
             .addEdge("p", "t", Direction.OUT, "knows", null, null, null)
             .addNode("t", "Software", null, false);
 
-    var notExpr = captured.buildNotExpression("p", Map.of());
+    var notExpr = captured.buildNotExpression("p", Map.of(), null);
 
     assertEquals("Software", notExpr.getItems().getFirst().getFilter().getClassName(null));
+  }
+
+  /**
+   * A registered class the caller names as non-narrowing is dropped instead of bound. A front end
+   * that registers a generic root class on every hop target would otherwise put a class constraint
+   * on every NOT item, which excludes nothing and costs a class check per candidate row — and on a
+   * link whose collection resolves to no schema class the check answers "no match" and keeps a row
+   * the anti-join should have dropped. Only the named class is dropped; the case above pins that a
+   * real class still binds.
+   */
+  @Test
+  public void buildNotExpression_dropsNonNarrowingClassOnLeafItem() {
+    var captured =
+        new MatchPatternBuilder()
+            .addEdge("p", "t", Direction.OUT, "knows", null, null, null)
+            .addNode("t", "V", null, false);
+
+    var notExpr = captured.buildNotExpression("p", Map.of(), "V");
+
+    assertNull(notExpr.getItems().getFirst().getFilter().getClassName(null));
   }
 
   /**
@@ -535,7 +555,7 @@ public class MatchPatternBuilderTest {
     var captured =
         new MatchPatternBuilder().addEdge("p", "t", Direction.OUT, "knows", null, null, null);
 
-    var notExpr = captured.buildNotExpression("p", Map.of("t", supplemental));
+    var notExpr = captured.buildNotExpression("p", Map.of("t", supplemental), null);
 
     var sb = new StringBuilder();
     notExpr.getItems().getFirst().getFilter().getFilter().getBaseExpression()
@@ -554,7 +574,8 @@ public class MatchPatternBuilderTest {
             .addEdge("p", "t1", Direction.OUT, "a", null, null, null)
             .addEdge("p", "t2", Direction.OUT, "b", null, null, null);
 
-    assertThrows(IllegalArgumentException.class, () -> captured.buildNotExpression("p", Map.of()));
+    assertThrows(IllegalArgumentException.class,
+        () -> captured.buildNotExpression("p", Map.of(), null));
   }
 
   // ── hasAlias ──

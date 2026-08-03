@@ -337,12 +337,22 @@ public final class MatchPatternBuilder {
    *
    * <p>Does not call {@link #build()} — the positive one-shot contract stays untouched.
    *
+   * <p>{@code nonNarrowingClassName} names the one registered class the caller wants dropped rather
+   * than bound. A front end that registers a generic root class on every hop target — the Gremlin
+   * translator registers the vertex root on each hop whether or not the user wrote a label — would
+   * otherwise emit a class constraint the user never asked for, which excludes nothing and costs a
+   * class check per candidate row. The caller states the name because only the caller knows which
+   * of its registered classes is generic; pass {@code null} to bind every registered class.
+   *
    * @param originAlias the NOT origin, which must already exist in the caller's positive pattern
    * @param supplementalAliasFilters extra per-alias filters captured by a sub-walk (may be empty)
+   * @param nonNarrowingClassName registered class name to treat as "no class", or {@code null}
    * @return the detached NOT expression ready for {@code MatchPlanInputs.notMatchExpressions}
    */
   public SQLMatchExpression buildNotExpression(
-      @Nonnull String originAlias, Map<String, SQLWhereClause> supplementalAliasFilters) {
+      @Nonnull String originAlias,
+      Map<String, SQLWhereClause> supplementalAliasFilters,
+      @Nullable String nonNarrowingClassName) {
     checkNotBuilt();
     var originNode = pattern.get(originAlias);
     if (originNode == null) {
@@ -362,7 +372,9 @@ public final class MatchPatternBuilder {
       var edge = current.out.iterator().next();
       var item = edge.item.copy();
       var targetAlias = edge.in.alias;
-      item.setFilter(mergedTargetFilter(item.getFilter(), targetAlias, supplementalAliasFilters));
+      item.setFilter(
+          mergedTargetFilter(
+              item.getFilter(), targetAlias, supplementalAliasFilters, nonNarrowingClassName));
       exp.addItem(item);
       current = edge.in;
     }
@@ -377,8 +389,15 @@ public final class MatchPatternBuilder {
   private SQLMatchFilter mergedTargetFilter(
       @Nullable SQLMatchFilter existingItemFilter,
       String alias,
-      Map<String, SQLWhereClause> supplementalAliasFilters) {
+      Map<String, SQLWhereClause> supplementalAliasFilters,
+      @Nullable String nonNarrowingClassName) {
     var className = aliasClasses.get(alias);
+    if (nonNarrowingClassName != null && nonNarrowingClassName.equals(className)) {
+      // The caller's generic root class. It excludes nothing the hop can reach, so binding it only
+      // buys a per-candidate class check — and on a link whose collection resolves to no schema
+      // class the check answers "no match", which keeps a row the anti-join should have dropped.
+      className = null;
+    }
     SQLMatchFilter filter;
     if (existingItemFilter != null) {
       filter = existingItemFilter.copy();

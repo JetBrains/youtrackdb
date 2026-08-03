@@ -611,14 +611,22 @@ final class GremlinStepWalker {
    * <p>The items are mutated in place. {@code Pattern.copy()} shares its path items with the
    * builder's pattern and the planner takes the pattern by reference, so these are the objects the
    * executor reads; the builder is locked by {@code build()} before this runs, so no later
-   * construction call can observe a half-bound item. The filter itself is replaced by a copy rather
-   * than mutated, because a captured sub-walk fragment shares its filter objects with the parent
-   * pattern it was appended into.
+   * construction call can observe a half-bound item. Sharing is at the item level, not the filter
+   * level: every construction path attaches a fresh {@code SQLMatchFilter} per item and {@code
+   * SQLMatchPathItem.copy()} deep-copies it, so no two items hold one filter. What the {@code
+   * existing.copy()} below buys is therefore narrow — the bound filter is a new object, so anything
+   * still holding the pre-bind filter does not observe the binding. It buys no isolation between
+   * patterns: {@code setFilter} on a shared item is visible through every pattern holding that item,
+   * copy or no copy. The bound {@code WHERE} is copied for the same reason the planner copies its
+   * own sub-clauses — one {@code SQLWhereClause} instance would otherwise serve both the path item
+   * and {@code MatchPlanInputs.aliasFilters}, and an AST rewrite on either side would reach both.
    *
-   * <p>Package-private rather than private so the merge rules above can be asserted directly: the
-   * three preservation cases (an alias in neither map, an item that already carries a {@code WHERE},
-   * an item that already carries a class) are the ones a regression would break silently, and the
-   * translator cannot currently build a traversal that reaches them.
+   * <p>Package-private rather than private so the merge rules above can be asserted directly. Only
+   * the leave-an-unlisted-alias-alone rule is reachable end-to-end today — {@code
+   * outE(L).has(p, v).inV().has(q, w)} binds the target while the edge item stays untouched, and an
+   * equivalence case covers it. The other two (an item that already carries a {@code WHERE}, an item
+   * that already carries a class) have no traversal shape that reaches them, so a regression would
+   * break them silently; unit tests against this method are the only net they have.
    */
   static void bindPathItemConstraints(
       Pattern pattern, Map<String, SQLWhereClause> aliasFilters, Map<String, String> aliasClasses) {
@@ -647,7 +655,12 @@ final class GremlinStepWalker {
         }
         if (where != null) {
           var existingWhere = bound.getFilter();
-          bound.setFilter(existingWhere == null ? where : andWhere(existingWhere, where));
+          // A copy rather than the map's own instance: the same map goes to MatchPlanInputs, so
+          // binding the clause itself would leave one mutable AST shared by the path item and the
+          // planner. andWhere reuses its operands' expression nodes, so the copy is taken on both
+          // branches, matching the planner's own copy-before-you-share policy.
+          var isolated = where.copy();
+          bound.setFilter(existingWhere == null ? isolated : andWhere(existingWhere, isolated));
         }
         item.setFilter(bound);
       }

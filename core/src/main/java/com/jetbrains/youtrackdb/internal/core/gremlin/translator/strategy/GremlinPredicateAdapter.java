@@ -460,60 +460,93 @@ final class GremlinPredicateAdapter {
    * {@code where(startLabel, P)}; when {@code null}, the left-hand side is the boundary alias's
    * {@code @rid}. Returns {@code null} to decline (propagated as a whole-traversal decline).
    */
+  /**
+   * Resolves a user-facing Gremlin {@code as(...)} label to the pattern alias the walker minted for
+   * the step it labelled, or {@code null} when the label names no node in the pattern. The
+   * {@code $matched} row the executor evaluates these accessors against is keyed on pattern aliases,
+   * never on Gremlin labels, so an unresolved label has to decline rather than emit an accessor that
+   * silently reads nothing.
+   */
+  @FunctionalInterface
+  interface LabelResolver {
+
+    @Nullable String aliasFor(String userLabel);
+  }
+
   @Nullable SQLBooleanExpression toMatchedLabelFilter(
-      @Nullable String startLabel, P<?> predicate, PropertyTypeGate typeGate) {
+      @Nullable String startLabel,
+      P<?> predicate,
+      PropertyTypeGate typeGate,
+      LabelResolver labelResolver) {
     if (predicate == null) {
       return null;
     }
-    var left = leftMatchedOperand(startLabel);
+    var left = leftMatchedOperand(startLabel, labelResolver);
     if (left == null) {
       return null;
     }
-    return translateMatchedLabelPredicate(left, predicate, typeGate);
+    return translateMatchedLabelPredicate(left, predicate, typeGate, labelResolver);
   }
 
-  private @Nullable SQLExpression leftMatchedOperand(@Nullable String startLabel) {
+  private @Nullable SQLExpression leftMatchedOperand(
+      @Nullable String startLabel, LabelResolver labelResolver) {
     if (startLabel == null) {
       return WHERE.boundaryRidExpression();
     }
-    if (startLabel.isBlank() || startLabel.startsWith("$")) {
+    var alias = resolvedAlias(startLabel, labelResolver);
+    return alias == null ? null : WHERE.matchedAccess(alias, "@rid");
+  }
+
+  /**
+   * The pattern alias {@code userLabel} names, or {@code null} when the label is unusable — blank,
+   * inside the translator's reserved {@code $} namespace, or bound to no pattern node.
+   */
+  private static @Nullable String resolvedAlias(String userLabel, LabelResolver labelResolver) {
+    if (userLabel.isBlank() || userLabel.startsWith("$")) {
       return null;
     }
-    return WHERE.matchedAccess(startLabel, "@rid");
+    return labelResolver.aliasFor(userLabel);
   }
 
   private @Nullable SQLBooleanExpression translateMatchedLabelPredicate(
-      SQLExpression left, P<?> predicate, PropertyTypeGate typeGate) {
+      SQLExpression left, P<?> predicate, PropertyTypeGate typeGate, LabelResolver labelResolver) {
     if (predicate instanceof NotP<?> notP) {
-      var inner = translateMatchedLabelPredicate(left, notP.negate(), typeGate);
+      var inner = translateMatchedLabelPredicate(left, notP.negate(), typeGate, labelResolver);
       return inner == null ? null : WHERE.not(inner);
     }
     if (predicate instanceof AndP<?> andP) {
-      return combineMatchedLabelOperands(left, andP.getPredicates(), /* and= */ true, typeGate);
+      return combineMatchedLabelOperands(
+          left, andP.getPredicates(), /* and= */ true, typeGate, labelResolver);
     }
     if (predicate instanceof OrP<?> orP) {
-      return combineMatchedLabelOperands(left, orP.getPredicates(), /* and= */ false, typeGate);
+      return combineMatchedLabelOperands(
+          left, orP.getPredicates(), /* and= */ false, typeGate, labelResolver);
     }
     var biPredicate = predicate.getBiPredicate();
     var value = predicate.getValue();
     if (biPredicate instanceof Compare compare && value instanceof String refLabel) {
-      if (refLabel.isBlank() || refLabel.startsWith("$")) {
+      var alias = resolvedAlias(refLabel, labelResolver);
+      if (alias == null) {
         return null;
       }
-      var right = WHERE.matchedAccess(refLabel, "@rid");
+      var right = WHERE.matchedAccess(alias, "@rid");
       return WHERE.compareExpressions(left, toOperator(compare), right);
     }
     return null;
   }
 
   private @Nullable SQLBooleanExpression combineMatchedLabelOperands(
-      SQLExpression left, List<? extends P<?>> children, boolean and, PropertyTypeGate typeGate) {
+      SQLExpression left,
+      List<? extends P<?>> children,
+      boolean and,
+      PropertyTypeGate typeGate,
+      LabelResolver labelResolver) {
     if (children == null || children.isEmpty()) {
       return null;
     }
     var translated = new ArrayList<SQLBooleanExpression>(children.size());
     for (var child : children) {
-      var expr = translateMatchedLabelPredicate(left, child, typeGate);
+      var expr = translateMatchedLabelPredicate(left, child, typeGate, labelResolver);
       if (expr == null) {
         return null;
       }

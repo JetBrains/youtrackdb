@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -563,10 +563,16 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
   }
 
+  /**
+   * Counts translated boundary steps of <em>any</em> kind across a step list (raw {@code
+   * List<Step>}). The supertype is deliberate: a shape that splices a {@code MultiPlanMatchStep}
+   * instead of a single-plan step is still a translation, and counting only the single-plan subtype
+   * would let such a shape satisfy a decline expectation while the translator in fact accepted it.
+   */
   private static int countBoundarySteps(List<?> steps) {
     var count = 0;
-    for (Object step : steps) {
-      if (step instanceof YTDBMatchPlanStep) {
+    for (var step : steps) {
+      if (step instanceof AbstractMatchPlanStep<?, ?>) {
         count++;
       }
     }

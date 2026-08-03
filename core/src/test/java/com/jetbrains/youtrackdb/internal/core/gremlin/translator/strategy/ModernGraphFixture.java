@@ -8,8 +8,8 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
  * Seeds TinkerPop's six-vertex "modern" graph — four {@code Person} vertices, two {@code Software}
- * vertices, two {@code knows} edges and four {@code created} edges — shared by the two equivalence
- * fixtures that need it.
+ * vertices, two {@code knows} edges and four {@code created} edges — shared by the equivalence
+ * suites that need it.
  *
  * <p>Two properties of this topology are what the per-alias-filter cases rely on, and neither holds
  * in a smaller fixture:

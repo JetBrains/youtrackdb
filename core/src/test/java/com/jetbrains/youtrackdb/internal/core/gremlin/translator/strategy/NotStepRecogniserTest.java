@@ -156,8 +156,34 @@ public class NotStepRecogniserTest extends GraphBaseTest {
     assertThat(leafFilter).isNotNull();
     assertThat(leafFilter.getAlias()).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(leafFilter.getClassName(null))
-        .as("the NOT path item must carry the target class — under polymorphic mode nothing else does")
+        .as("the NOT path item carries the target class; polymorphic mode puts it nowhere else")
         .isEqualTo("Software");
+  }
+
+  /**
+   * {@code not(out(knows))} with no {@code hasLabel} leaves the NOT path item's class slot empty.
+   * The hop recognisers register the generic vertex root on every target, labelled or not, so the
+   * unguarded reading of that registration would put {@code class: V} on an item the user wrote no
+   * label for. The generic root excludes nothing a vertex hop can reach, so the constraint would be
+   * pure cost — and on a link whose collection resolves to no schema class the per-candidate check
+   * answers "no match", which keeps a row the anti-join should have dropped. This is the counterpart
+   * of the labelled case above; the two together pin that only a real label reaches the item.
+   */
+  @Test
+  public void edgeBearingChildWithoutTargetLabel_leavesNotItemClassUnbound() {
+    var admin = graph.traversal().V().not(__.out("knows")).asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = NotStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.notMatchExpressions).hasSize(1);
+    var leafFilter = ctx.notMatchExpressions.getFirst().getItems().getFirst().getFilter();
+    assertThat(leafFilter).isNotNull();
+    assertThat(leafFilter.getClassName(null))
+        .as("no hasLabel was written, so the generic vertex root must not reach the item")
+        .isNull();
   }
 
   /**
@@ -180,7 +206,7 @@ public class NotStepRecogniserTest extends GraphBaseTest {
 
   /**
    * {@code not(has(city).out(knows))} captures a boundary-alias filter the bare-origin NOT contract
-   * cannot express — decline rather than emit a filterless anti-join (BG1).
+   * cannot express — decline rather than emit a filterless anti-join.
    */
   @Test
   public void edgeBearingChild_withOriginAliasFilter_declines() {

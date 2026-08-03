@@ -87,10 +87,14 @@ final class NotStepRecogniser implements StepRecogniser {
     }
 
     try {
+      // The generic vertex root is registered on every hop target, labelled or not, so it is handed
+      // over as the class that means "no narrowing" — the same rule GremlinStepWalker's positive
+      // binding applies. Without it not(out()) would carry a class the user never wrote.
       var notExpr =
           adapter
               .capturedPattern()
-              .buildNotExpression(boundary, adapter.capturedAliasFilters());
+              .buildNotExpression(
+                  boundary, adapter.capturedAliasFilters(), WalkerContext.VERTEX_ROOT_CLASS);
       ctx.addNotMatchExpression(notExpr);
       return Outcome.ACCEPTED;
     } catch (IllegalArgumentException e) {

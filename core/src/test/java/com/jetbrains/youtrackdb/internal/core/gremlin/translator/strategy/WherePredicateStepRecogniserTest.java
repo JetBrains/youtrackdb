@@ -25,8 +25,9 @@ import org.junit.Test;
 
 /**
  * Unit tests for {@link WherePredicateStepRecogniser}. Label-reference {@code where(P)} shapes emit
- * {@code $matched.<label>} accessors; full end-to-end parity with {@code as(label)} wiring lands in
- * Track 6.
+ * {@code $matched.<alias>} accessors, resolving the user's Gremlin label through the walker's
+ * label-to-alias map first. End-to-end parity against native lives in
+ * {@code PredicateTraversalEquivalenceTest}.
  */
 public class WherePredicateStepRecogniserTest extends GraphBaseTest {
 
@@ -40,6 +41,7 @@ public class WherePredicateStepRecogniserTest extends GraphBaseTest {
   public void labelEq_comparesBoundaryRidToMatchedAlias() {
     var admin = graph.traversal().V().as("a").where(P.eq("a")).asAdmin();
     var ctx = contextWithRegistry(true, null);
+    bindLabelsToBoundary(admin, ctx);
     var cursor = cursorAtWherePredicate(admin);
 
     var outcome = WherePredicateStepRecogniser.INSTANCE.recognize(cursor, ctx);
@@ -47,7 +49,7 @@ public class WherePredicateStepRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     var rendered = renderBoundaryFilter(ctx);
     assertThat(rendered).containsIgnoringCase("@rid");
-    assertThat(rendered).contains("$matched.a.@rid");
+    assertThat(rendered).contains("$matched." + BOUNDARY_ALIAS + ".@rid");
   }
 
   /** {@code where("a", P.eq("b"))} compares two {@code $matched} aliases by {@code @rid}. */
@@ -55,14 +57,36 @@ public class WherePredicateStepRecogniserTest extends GraphBaseTest {
   public void scopedLabelEq_comparesTwoMatchedAliases() {
     var admin = graph.traversal().V().as("a").as("b").where("a", P.eq("b")).asAdmin();
     var ctx = contextWithRegistry(true, null);
+    bindLabelsToBoundary(admin, ctx);
     var cursor = cursorAtWherePredicate(admin);
 
     var outcome = WherePredicateStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     var rendered = renderBoundaryFilter(ctx);
-    assertThat(rendered).contains("$matched.a.@rid");
-    assertThat(rendered).contains("$matched.b.@rid");
+    // Both labels sit on the same node here, so both accessors resolve to the boundary alias.
+    assertThat(rendered).contains("$matched." + BOUNDARY_ALIAS + ".@rid");
+    assertThat(rendered.split(java.util.regex.Pattern.quote("$matched"), -1)).hasSize(3);
+  }
+
+  /**
+   * A label the walker never bound to a pattern node declines. {@code $matched} rows are keyed on
+   * pattern aliases, so an accessor built from a raw Gremlin label reads nothing at execution time
+   * and the comparison either keeps every candidate or drops every candidate — an over- or
+   * under-large multiset with no error either way. Declining hands the shape to native Gremlin,
+   * which is the only exit that cannot be silently wrong.
+   */
+  @Test
+  public void unboundLabelReference_declines() {
+    var admin = graph.traversal().V().as("a").where(P.eq("a")).asAdmin();
+    var ctx = contextWithRegistry(true, null);
+    // Deliberately skip bindLabelsToBoundary: "a" resolves to no pattern alias.
+    var cursor = cursorAtWherePredicate(admin);
+
+    var outcome = WherePredicateStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.aliasFilters).isEmpty();
   }
 
   /** {@code where(P).by(...)} carries a modulator child and declines. */
@@ -110,6 +134,21 @@ public class WherePredicateStepRecogniserTest extends GraphBaseTest {
     ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
     ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
     return ctx;
+  }
+
+  /**
+   * Binds every {@code as(...)} label carried by the steps ahead of the {@code where} onto the
+   * boundary alias, standing in for the walker pass that normally does it. These tests drive the
+   * recogniser in isolation, so without this the labels resolve to nothing and the recogniser
+   * declines.
+   */
+  private static void bindLabelsToBoundary(Traversal.Admin<?, ?> admin, WalkerContext ctx) {
+    for (var step : admin.getSteps()) {
+      if (step instanceof WherePredicateStep) {
+        break;
+      }
+      assertThat(ctx.bindStepLabels(step, BOUNDARY_ALIAS)).isTrue();
+    }
   }
 
   private static StepStreamCursor cursorAtWherePredicate(Traversal.Admin<?, ?> admin) {

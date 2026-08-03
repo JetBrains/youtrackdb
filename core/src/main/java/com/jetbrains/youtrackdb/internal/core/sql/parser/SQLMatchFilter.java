@@ -110,6 +110,11 @@ public class SQLMatchFilter extends SimpleNode {
    * representation matches {@link #fromAliasAndClass}'s, so {@link #getClassName} reads it back the
    * same way regardless of which of the two built the filter.
    *
+   * <p>Both in-tree callers guard on {@code getClassName(null) == null} before calling, so only the
+   * append arm runs today; the rewrite arm exists for symmetry with {@link #setFilter} and for a
+   * caller that binds without the guard. {@code SQLMatchFilterTest} covers both arms so the
+   * documented contract is real rather than aspirational.
+   *
    * <p>Front-ends that construct MATCH AST directly need this when they bind a class onto a filter
    * they did not build — a path item's target filter is created alias-only and its class becomes
    * known only later, once the traversal step that types the target has been read.

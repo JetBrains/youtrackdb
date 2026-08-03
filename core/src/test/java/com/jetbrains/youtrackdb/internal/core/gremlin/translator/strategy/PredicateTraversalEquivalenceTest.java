@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
@@ -24,7 +25,8 @@ import org.junit.Test;
  * has(key, value)}, {@code hasLabel(L)}, {@code hasId(...)}, the {@code has(key)} presence form, and
  * the same-alias AND-composition. Each case runs the same traversal shape twice — translator on, then
  * off — and asserts (a) boundary-step engagement (a RECOGNIZED shape has exactly one {@link
- * YTDBMatchPlanStep} on and none off; a DECLINED shape has none either way) and (b) result-multiset
+ * AbstractMatchPlanStep} on — normally a {@link YTDBMatchPlanStep} — and none off; a DECLINED shape
+ * has none of either kind either way) and (b) result-multiset
  * equality between the two runs. Multiset equality is on sorted RID strings, preserving multiplicity.
  *
  * <p>The {@code hasLabel} cases additionally pin the polymorphism contract on a {@code Person} /
@@ -38,6 +40,9 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   private enum Recognition {
     RECOGNIZED, DECLINED
   }
+
+  /** The alias the walker mints for the root {@code V()} scan — the origin of every hop below it. */
+  private static final String ORIGIN_ALIAS = "$g2m_v0";
 
   // ---------------------------------------------------------------------------
   // Native membership pin: with the translator OFF, hasLabel is leaf-exact
@@ -894,7 +899,10 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   // target, which is a second pattern alias; only the alias the planner picks as
   // root has its filter read from the plan inputs. These cases pin that a
   // predicate on a non-root alias still reaches the executor — directly, inside a
-  // union child, inside a where(...) fragment, and on a not(...) sub-traversal.
+  // where(...) fragment, and on a not(...) sub-traversal. The union-child arm of
+  // the same rule lives in
+  // UnionTraversalEquivalenceTest#unionChildPostHopFilter_returnsSameMultisetAsNative,
+  // which is where the fork's own boundary-step accounting already is.
   // Every one of them returns an over-large multiset when the constraint is
   // dropped, never an error, which is why they are equivalence cases rather than
   // structural assertions.
@@ -910,10 +918,11 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
 
-    assertEquivalent(
-        "g.V(marko).out().has(name, vadas)",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V(markoId).out().has("name", "vadas"));
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V(markoId).out().has("name", "vadas");
+
+    assertRootsAtOrigin("g.V(marko).out().has(name, vadas)", traversal);
+    assertEquivalent("g.V(marko).out().has(name, vadas)", Recognition.RECOGNIZED, traversal);
   }
 
   /**
@@ -953,10 +962,68 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     var markoId = modern.marko().id();
     var joshId = modern.josh().id();
 
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V(markoId, joshId).where(__.out().has("name", "vadas"));
+
+    assertRootsAtOrigin("g.V(marko, josh).where(out().has(name, vadas))", traversal);
     assertEquivalent(
-        "g.V(marko, josh).where(out().has(name, vadas))",
+        "g.V(marko, josh).where(out().has(name, vadas))", Recognition.RECOGNIZED, traversal);
+  }
+
+  /**
+   * The same {@code where(...)} fragment with a predicate that matches <em>two</em> of marko's
+   * out-neighbours returns marko twice from the translated plan and once from native. This is a
+   * defect the step above does not introduce and does not fix: an edge-bearing {@code where(...)}
+   * child is committed as a hop appended to the positive pattern, so the translation is a join that
+   * emits one row per matching path, while native {@code where(...)} is a filter that emits its
+   * input once. The case above passes only because exactly one target matches it.
+   *
+   * <p>Pinned here rather than left implicit because the fix has two exits and neither is this
+   * step's to take. Marking the shape {@code RETURN DISTINCT} restores filter semantics but
+   * collapses path multiplicity the caller may legitimately want; declining an edge-bearing
+   * {@code where(...)} child gives up a translated shape. When either lands, this case flips to an
+   * ordinary equivalence assertion and this javadoc goes away.
+   */
+  @Test
+  public void whereFragmentWithSeveralMatchingTargets_translatedPlanOverEmits() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V(markoId).where(__.out().hasLabel("Person"));
+
+    var translated = translatedSortedIds(traversal);
+    var nativeIds = nativeSortedIds(traversal);
+
+    assertThat(nativeIds)
+        .as("native where(...) is a filter — marko passes once")
+        .containsExactly(markoId.toString());
+    assertThat(translated)
+        .as("translated where(...) joins the fragment's hop, so marko appears once per matching "
+            + "out-neighbour (vadas and josh) — over-emission, not a wrong element set")
+        .containsExactly(markoId.toString(), markoId.toString());
+  }
+
+  /**
+   * {@code g.V().as("a").out().where(P.neq("a"))} returns every out-neighbour that is not its own
+   * source, matching native. The back-reference is the interesting part: {@code where(P)} emits a
+   * {@code $matched.<x>} accessor, and the {@code $matched} row the executor builds is keyed on
+   * pattern aliases, never on the user's Gremlin {@code as(...)} label. The label therefore has to
+   * be resolved through the walker's label-to-alias map before the accessor is built.
+   *
+   * <p>The shape reaches the executor only because the {@code where} lands on the hop's target,
+   * which is not the plan root — an accessor that resolved to nothing would keep or drop every
+   * candidate depending on how the comparison treats a missing operand, and either way the multiset
+   * would move. The modern graph has no self-loops, so a correct translation returns all six
+   * out-edge targets and an accessor that silently matched everything would return none.
+   */
+  @Test
+  public void postHopBackReferenceToOriginLabel_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().as(a).out().where(neq(a))",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V(markoId, joshId).where(__.out().has("name", "vadas")));
+        () -> graph.traversal().V().as("a").out().where(P.neq("a")));
   }
 
   /**
@@ -992,6 +1059,17 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Employee", "name", "Eve");
     graph.tx().commit();
+  }
+
+  /** Runs {@code traversalSupplier} with the translator on and returns sorted vertex id strings. */
+  private List<String> translatedSortedIds(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      return sortedIds(traversalSupplier.get().toList());
+    } finally {
+      setTranslatorEnabled(original);
+    }
   }
 
   /** Runs {@code traversalSupplier} with the translator off and returns sorted vertex id strings. */
@@ -1071,6 +1149,33 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         .isInstanceOf(RuntimeException.class));
   }
 
+  /**
+   * Asserts the plan roots at the traversal's origin rather than at the hop's target, so the
+   * target's constraint travels on the path item. Without this pin a root-selection change silently
+   * routes the constraint through the plan inputs and the multiset comparison still passes.
+   */
+  private void assertRootsAtOrigin(String scenario, Supplier<GraphTraversal<?, ?>> traversal) {
+    assertThat(planRootAlias(traversal))
+        .as(scenario + " must root at the origin — otherwise the case no longer witnesses the "
+            + "path-item binding it exists for")
+        .isEqualTo(ORIGIN_ALIAS);
+  }
+
+  /**
+   * The alias the compiled plan roots at, read off the {@code SET <alias>} line {@code prettyPrint}
+   * emits for the scan the planner starts from.
+   */
+  private String planRootAlias(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    var text = boundaryPlanText(traversalSupplier);
+    var lines = text.lines().toList();
+    for (var i = 0; i < lines.size() - 1; i++) {
+      if ("+ SET".equals(lines.get(i).strip())) {
+        return lines.get(i + 1).strip();
+      }
+    }
+    throw new AssertionError("plan names no root alias on a SET line:\n" + text);
+  }
+
   /** Applies strategies to the supplied traversal (translator on) and returns the boundary step's
    *  compiled plan rendered as text, for scan-shape assertions. */
   private String boundaryPlanText(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
@@ -1139,10 +1244,16 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     return results.stream().map(v -> ((Vertex) v).label()).toList();
   }
 
+  /**
+   * Counts translated boundary steps of <em>any</em> kind across a step list (raw {@code
+   * List<Step>}). The supertype is deliberate: a shape that splices a {@code MultiPlanMatchStep}
+   * instead of a single-plan step is still a translation, and counting only the single-plan subtype
+   * would let such a shape satisfy a decline expectation while the translator in fact accepted it.
+   */
   private static int countBoundarySteps(List<?> steps) {
     var count = 0;
     for (var step : steps) {
-      if (step instanceof YTDBMatchPlanStep<?, ?>) {
+      if (step instanceof AbstractMatchPlanStep<?, ?>) {
         count++;
       }
     }
