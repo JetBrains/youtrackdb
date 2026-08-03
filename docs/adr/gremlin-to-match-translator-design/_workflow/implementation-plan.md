@@ -740,7 +740,7 @@ trade a wrong answer for a failed conformance run.
   > gates (`UnionStepRecogniser`, `RecognitionContext.walkChild`), the
   > `ListShapingOp` javadoc correction and three other stale javadoc sites,
   > composition / boundary / decline / re-arm / clone tests, the per-step scenario
-  > catalogue, and the mirrored JMH classes with their in-track execution test.
+  > catalogue, and three new JMH classes in `jmh-ldbc` with their in-track execution test. "Mirrored" was dropped by A7 — the repository holds no Gremlin JMH benchmark to adapt, so the new class measures its own named shapes on a translator-on-vs-off axis.
   > The LDBC SF 1 baseline numbers are Hetzner-scoped and not a gate.
   > **Depends on:** Tracks 7, 8, and 9.
 
