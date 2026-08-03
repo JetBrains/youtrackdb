@@ -1,144 +1,375 @@
 <!-- MANIFEST
-findings: 2   severity: {blocker: 0, should-fix: 1, suggestion: 1}
+findings: 2   severity: {blocker: 0, should-fix: 2, suggestion: 0}
 index:
-  - {id: CR6, sev: should-fix, loc: "plan/track-9.md:52", anchor: "### CR6 ", cert: C28, basis: "the CR2 fix names UnionStepRecogniser as the home of the post-union suffix allow-list in four places; the allow-list is GremlinStepWalker.POST_UNION_RECOGNISERS"}
-  - {id: CR7, sev: suggestion,  loc: "implementation-plan.md:617", anchor: "### CR7 ", cert: C29, basis: "the CR5 fix reached plan/track-9.md but not the checklist entry, whose Depends-on line still reads Tracks 7 and 8"}
+  - {id: CR6, sev: should-fix, loc: "plan/track-9.md:81", anchor: "### CR6 ", cert: V1, basis: "the newly pinned ./mvnw -pl embedded test resolves youtrackdb-core from ~/.m2 (installed 2026-07-02), so the embedded half of the gate measures a month-old core, not the branch"}
+  - {id: CR7, sev: should-fix, loc: "plan/track-9.md:5", anchor: "### CR7 ", cert: V2, basis: "Purpose, the item-1 diagram node and the In-scope-new artifact line still scope the deliverable to core while acceptance bullet 9 cites the Purpose as the two-runner gate's authority"}
 verdicts:
   - {id: CR1, verdict: VERIFIED}
-  - {id: CR2, verdict: REGRESSION}
+  - {id: CR2, verdict: VERIFIED}
   - {id: CR3, verdict: VERIFIED}
   - {id: CR4, verdict: VERIFIED}
   - {id: CR5, verdict: VERIFIED}
 overall: PASS
 evidence_base: {section: "## Evidence base", certs: 2, matches: 0}
 cert_index:
-  - {id: C28, verdict: MISMATCHES, anchor: "#### C28 "}
-  - {id: C29, verdict: MISMATCHES, anchor: "#### C29 "}
+  - {id: V1, verdict: MISMATCHES, anchor: "#### V1 "}
+  - {id: V2, verdict: MISMATCHES, anchor: "#### V2 "}
 flags: [CONTRACT_OK]
 -->
 
-# Consistency gate verification — iteration 1 (2026-08-01, 10-track plan)
+# Consistency gate verification — iteration 1 (2026-08-03, 11-track plan)
 
-All five iteration-1 fixes landed in the text. CR1, CR3, CR4 and CR5 are clean
-at their flagged locations and in the sections around them. The CR2 fix closes
-the scope contradiction — Track 9 now owns the post-union relaxation in its
-Plan of Work, acceptance lines, scope lists and the plan checklist — but it
-attributes the allow-list to `UnionStepRecogniser` in four places, and the
-allow-list is `GremlinStepWalker.POST_UNION_RECOGNISERS` (CR6, should-fix). The
-CR5 fix reached `plan/track-9.md` but not the plan checklist's Track 9
-`**Depends on:**` line, which still omits Track 10 (CR7, suggestion). No
-blockers, so the gate is PASS.
+All five iteration-1 findings verify. CR3, CR4 and CR5 were mechanical and land exactly as
+proposed; CR1 and CR2 were the two user-decided ones and both fixes hold. Two new findings come out
+of the re-scan, both on CR1's blast radius: the `embedded` runner the fix newly commits to is
+pinned to a command that resolves `youtrackdb-core` from the local repository rather than the
+working tree, and three places in `plan/track-9.md` still describe a `core`-only deliverable —
+including the Purpose that acceptance bullet 9 cites as its own authority. Neither blocks; the
+overall verdict is **PASS**.
 
-`design.md` is untouched by the fix set — `git status` shows four modified
-files, none of them the design — so the freeze held.
+Artifacts re-read: `implementation-plan.md` (Track 9 / Track 11 entries, `## Implementation
+state`), `plan/track-9.md` and `plan/track-11.md` in full, the amended lines in `plan/track-7.md`,
+`plan/track-8.md` and `plan/track-10.md`, the four review files under `plan/track-9/reviews/`, and
+live source under `core/src/main/java` plus `embedded/pom.xml`.
 
-**Reference-accuracy caveat.** mcp-steroid PSI (`steroid_execute_code`) times
-out in this repo, because cold kotlinc exceeds the ~60 s MCP limit; the
-iteration-1 reviewer hit the same wall. Every symbol fact below rests on grep
-plus direct source reads. The one negative result that drives a verdict (no
-`containsStepOfType` on `ExecutionStep`) was confirmed by reading the 45-line
-interface end-to-end, so a polymorphic or Javadoc miss is not possible there.
-CR6's positive result — the allow-list is a field on `GremlinStepWalker` —
-rests on reading the declaration and both of its two read sites, not on search
-alone.
+**Reference-accuracy caveat.** One PSI query was attempted for the CR3 symbol re-check —
+`steroid_execute_code` against the open project (registered as `design.md`, path correct), reading
+declarations and line numbers for `walkChild` / `walkFork` and the four `GremlinStepWalker`
+members. It timed out, the documented cold-kotlinc failure on this repository, now five plan
+reviews running. Per the no-retry instruction the CR3 verdict rests on `grep -rn` over
+`core/src/main/java` plus direct `Read` of the declaration sites; **Verify CR3** is the one verdict
+below that PSI would strengthen. Declaration-level facts (a member exists, at this line, in this
+class) are reliable from grep. The negative half of CR3 — that `GremlinStepWalker` declares neither
+`walkChild` nor `walkFork` — is a same-file absence rather than a repository-wide "no other caller"
+claim, so grep establishes it: the file's only occurrences of either name are javadoc `{@link
+RecognitionContext#walkChild}` references. CR1, CR2, CR4 and CR5 are document-and-build facts with
+no symbol-reference dependency; V1 rests on `embedded/pom.xml`, the module's test sources, and the
+on-disk state of `~/.m2`.
 
 ## Verification certificates
 
-#### Verify CR1: Implementation state stale on Track 8, silent on Track 10
-- **Original issue**: `## Implementation state` said "Tracks 1-7 are executed and complete; Track 8 Phase B is complete (Phase C pending)", table row 8 read `Phase B done`, the decision-conformance paragraph said "Track 8 Phase C still open", and Track 10 appeared nowhere in the section.
-- **Fix applied**: narrative rewritten to "Tracks 1–8 are executed and complete; Track 10 and Track 9 are not started, in that execution order", with the Track 8 sentence de-scoped from "Phase B delivered" to "delivered" and a Track 10 sentence appended; row 8 set to `done` with the "Phase C pending" note dropped; a `| 10 | not started | … |` row inserted above row 9; the conformance sentence changed to "…across Tracks 7–8 and complete."
+#### Verify CR1: Track 11's regression gate reads a baseline half Track 9 never produced
+- **Original issue**: Track 11 item 6 and its acceptance bullet 8 read a two-runner baseline, and
+  Track 9's acceptance bullet 9 committed to both runners, but no Track 9 Plan-of-Work item
+  measured `embedded`. The producing side named it in exactly one place — the acceptance bullet
+  that assumed the work had happened.
+- **Fix applied**: Track 9 item 1 (`plan/track-9.md:68`) now runs `EmbeddedGraphFeatureTest` with
+  its own translator-on/off A/B, its own completion check and its own failure set, landing in the
+  same artifact as a labelled second half, flagged **unsized** with the same ESCALATE trigger. Item
+  3 (`:70`) extends the re-measurement to both runners. A new acceptance bullet (`:81`) pins
+  `./mvnw -pl embedded test`; the artifact bullet (`:82`) now says "for **both** runners". The
+  plan's Track 9 `**Scope:**` line (`implementation-plan.md:688-690`) names the two-runner artifact
+  and flags the `embedded` A/B as unsized until first run.
 - **Re-check**:
-  - Search/trace performed: Read of `implementation-plan.md:619-638`; `grep -n "Track 10\|Track 9"` over the plan; `grep -n "Phase C"` over the plan; `grep -n "^- \[.\] Track 8"`; `tail` of `_workflow/phase-ledger.md`. Grep and Read only — PSI unavailable, and none of this is a Java symbol question.
-  - Code location: `implementation-plan.md:621` (narrative), `:632-634` (table rows 8, 10, 9), `:636` (conformance).
-  - Current state: the three signals the finding cited now agree. Checklist line 551 marks Track 8 `[x]`; `phase-ledger.md` records `phase=C track=8 substate=track-complete` at 2026-08-01T05:23Z; the table says `done`. Track 10 has both a narrative sentence and a table row, placed above Track 9 to match execution order.
-- **Regression check**: checked the five remaining "Phase C" hits in the plan (lines 459, 477, 503, 566, 593) — all are completed-track episode prose or Track 10's rationale, none a status claim. Checked for stale track-count phrasings (`grep` for "nine track", "ten track", "10-track", "eight track") — no hits. The table keeps three columns throughout. Clean.
+  - Search/trace performed: `Read` of `plan/track-9.md` `## Plan of Work` and `## Validation and
+    Acceptance` in full and of `plan/track-11.md` item 6 and acceptance bullets;
+    `grep -n "embedded" plan/track-9.md`; `git diff` against HEAD for the applied hunks. Tool:
+    `grep` plus `Read`.
+  - Code location: `plan/track-9.md:68`, `:70`, `:81`, `:82`, `:89`, `:107`;
+    `plan/track-11.md:68`; `implementation-plan.md:688-690`.
+  - Current state: the supply/consume contract closes. `embedded` now appears on the producing side
+    five times in `plan/track-9.md` — items 1 and 3, acceptance bullets 2 and 9, and the
+    `**Signatures:**` line — where before it appeared only in bullet 9. Track 11 item 6's "Track
+    9's baseline records both and this re-run reads both" now has a producer for each half. The
+    runner is real: `embedded/src/test/java/com/jetbrains/youtrackdb/shade/
+    EmbeddedGraphFeatureTest.java`, `@RunWith(Cucumber.class)` over the same two feature roots the
+    `core` runner uses, its javadoc stating it "runs as part of the default surefire test phase" —
+    so the criterion is reachable by the command shape the bullet pins.
+- **Regression check**: checked four adjacent claims.
+  (1) **The `~8–14 files` Scope figure still holds.** The `embedded` half adds measurement and one
+  labelled section of an artifact Track 9 was already writing, not new files; any `embedded`-side
+  defect it uncovers falls under the same "unsized until localized" clause and ESCALATE trigger the
+  Scope line already carries, which item 1 now restates for the second runner. Clean.
+  (2) **No contradiction with the R6 pinned-commands bullet (`:90`).** R6's "stops at the third"
+  reasoning is specific to `core/pom.xml`'s five surefire executions. `embedded/pom.xml` declares
+  one `maven-surefire-plugin` with no `<executions>` block beyond the default and no group filter,
+  and its three test classes are `EmbeddedGraphFeatureTest`, `ShadedJarSmokeTest` and `ShadedJarIT`
+  (the last failsafe-bound). A single execution runs every class and reports at the end, so there
+  is no early-abort hazard for `-Dmaven.test.failure.ignore=true` to defuse, and R6's universal
+  ("every full-suite gate here") is loose wording rather than a live contradiction. Clean.
+  (3) **Track 11 needed no change.** Item 6 and `**Signatures:**` already name both runners. Its
+  acceptance bullet at `:86` says "the full TinkerPop Cucumber suite" without qualifying the
+  runner, but item 6 two sections earlier is explicit, so a reader is not misled. Clean.
+  (4) **New issues.** The pinned command resolves `youtrackdb-core` from `~/.m2` rather than the
+  reactor (CR6), and three `core`-only descriptions survive in Track 9, one of which acceptance
+  bullet 9 cites by name (CR7).
+- **Verdict**: VERIFIED (fix correct; two adjacent issues raised as CR6 and CR7)
+
+#### Verify CR2: contradicting terminator-ownership lines and an over-broad sweep claim
+- **Original issue**: `96c37d3e74` amended one line in each completed track file and left the next
+  line saying the opposite — `track-7.md:126` ("the ordered post-process carrier that Track 9's
+  terminators register into") directly under an amended `:125`, and `track-8.md:209` ("Track 9's
+  Cucumber re-run validates union end to end") directly under an amended `:208`. Separately,
+  `track-10.md:11` claimed those Track 7 / Track 8 references "carry bracketed amendments of their
+  own" when 24 of 26 did not.
+- **Fix applied**: the user chose fix-the-contradictions-and-narrow-the-claim over a full sweep.
+  Bracketed amendments were added to both `**Inter-track dependencies:**` lines, and
+  `track-10.md:11` was narrowed to claim four amended lines and to record the rest as
+  as-of-completion text the plan file supersedes.
+- **Re-check**:
+  - Search/trace performed: `grep -n "\[Amended" plan/track-7.md plan/track-8.md` and
+    `grep -n "2026-08-03"` over the same two files, to count amended lines independently of the
+    claim; `grep -n "Track 9" implementation-plan.md` with a `Read` of every hit that touches
+    terminator ownership, to test the "supersedes" half. Tool: `grep` plus `Read`.
+  - Code location: `plan/track-7.md:125-126`; `plan/track-8.md:208-209`; `plan/track-10.md:11`;
+    `implementation-plan.md:556`, `:562`, `:606`, `:615`, `:636-644`, `:670`, `:698`, `:721`,
+    `:735`, `:737`.
+  - Current state: **the narrowed claim is literally accurate.** The `2026-08-03` sweep returns
+    exactly four lines across the two files — `track-7.md:125` and `:126`, `track-8.md:208` and
+    `:209` — and they are exactly "each file's **Out of scope** and **Inter-track dependencies**
+    line", as the claim says. Two carry the square-bracket `[Amended 2026-08-03: …]` form and two
+    carry the round-parenthetical form `(Track 11 after the 2026-08-03 split; …)`; "bracketed"
+    covers both, and it is the word the original sentence already used for the parenthetical pair.
+    Both adjacent-line contradictions are gone: a reader of `track-7.md:126` now gets "the split
+    moved the terminators to Track 11 — its four `ListShapingOp` implementations are what register
+    into this carrier" inside the same line, and `track-8.md:209` gets "the split moved the
+    no-regression re-run to Track 11 item 6; Track 9 publishes the baseline that re-run reads".
+    The "supersedes" half also holds: every `Track 9` hit in `implementation-plan.md` that touches
+    terminator ownership carries an inline bracketed correction (`:556`, `:562`, `:606`, `:615`,
+    `:642`), and the operative surfaces — both Checklist entries, the `## Implementation state`
+    narrative and table, and the D3 conformance sentence — assign the terminators to Track 11
+    without qualification.
+- **Regression check**: checked the claim's own precision and the unamended residue. The appositive
+  "the two places a downstream track file points at by name" is loose — it means the two
+  `## Interfaces and Dependencies` sections, one per file, which `plan/track-11.md:102-103` names
+  by track number — but it is not a factual error. Track 8's DR-U4 (`track-8.md:55`) and
+  `track-8.md:185` remain unamended, which is now what `track-10.md:11` says rather than what it
+  denies. The surrounding Numbering-note prose still reads coherently with the longer amendment
+  spliced in. Clean.
 - **Verdict**: VERIFIED
 
-#### Verify CR2: Track 8 assigns the post-union relaxation to Track 9, which excluded it
-- **Original issue**: `track-8.md` DR-U4 and its Surprises entry hand Track 9 the job of relaxing the post-union suffix gate for the list-shaping terminators; `track-9.md` listed `union` / `MultiPlanMatchStep` as out of scope, carried no matching Plan-of-Work item, and had no `union(...).fold()` acceptance line.
-- **Fix applied** (user resolution: Track 9 absorbs the relaxation): new Plan-of-Work item 4 citing DR-U4 and DR-U1, old items 4–6 renumbered 5–7; a `union(...)` multiset-parity acceptance line; `**Out of scope:**` narrowed with an explicit carve-out; `**In scope (modified):**` and `**Signatures:**` extended; the plan checklist gained a relaxation sentence and its scope figure moved ~14–20 → ~15–21 files.
+#### Verify CR3: `walkChild` / `walkFork` attributed to `GremlinStepWalker`
+- **Original issue**: three places attributed `walkChild` and `walkFork` to `GremlinStepWalker`,
+  which declares neither. A decomposer following the plan's Track 11 Scope line would open that
+  class looking for a method that is not there.
+- **Fix applied**: `implementation-plan.md:711` now reads `RecognitionContext.walkChild`;
+  `plan/track-11.md:101` splits the In-scope-modified clause so the `walkChild` combinator path is
+  attributed to `RecognitionContext` and gated through the `SubTraversalPredicateAdapter` override;
+  `:104` splits `walkFork` onto `UnionForkHost` (`:40`) / `UnionForkHostImpl` (`:74`) and
+  `walkChild` onto `RecognitionContext` (`:333`), implemented on `WalkerContext` (`:598`) and
+  `SubTraversalPredicateAdapter` (`:413`).
 - **Re-check**:
-  - Search/trace performed: `git diff -U1` on all three edited files; Read of `plan/track-9.md` end-to-end; Read of `UnionStepRecogniser.java:18-62` and `:112-139`; `grep -rn "postUnionSuffixTranslatable\|POST_UNION"` over the translator strategy package; Read of `GremlinStepWalker.java:183-197`, `:312-329`, `:455-467`; Read of `GremlinToMatchStrategy.java:538-558`; Read of `WalkerContext.pinBoundary`.
-  - Code location: `plan/track-9.md:52` (item 4), `:66` (acceptance), `:82-83` (scope), `:85` (signatures); `implementation-plan.md:605-616` (checklist).
-  - Current state: the scope contradiction is gone. Track 9 scopes the relaxation, states the multiset obligation ("`fold()` after a union yields one list over the concatenated child streams, not one list per child"), and its out-of-scope line carves the allow-list back in instead of excluding it. Item 4's mechanism claim checks out against shipped code: `buildResult` passes `ctx.shaping()` into the multi-plan `TranslationResult` (`GremlinStepWalker.java:466`) and the strategy hands it to `MultiPlanMatchStep` (`GremlinToMatchStrategy.java:554`), so the list-shaping ops Track 9 registers do ride the same carrier over a union, applied once over the `MultipleExecutionStream` concatenation. `pinBoundary` is an unguarded three-field assignment, so a post-union `fold` can re-pin `outputType` to `LIST` — the relaxation is implementable as written.
-  - Where it breaks: the four new text sites all name `UnionStepRecogniser` as the allow-list's home. The allow-list is `private static final Set<StepRecogniser> POST_UNION_RECOGNISERS` on `GremlinStepWalker` (`:193-197`), read by `dispatchAll` (`:322`) and by `postUnionSuffixTranslatable` (`:370-380`). `UnionStepRecogniser` only calls through the `UnionForkHost` seam (`:69`). See C28 and CR6.
-- **Regression check**: checked `track-8.md`'s two statements of the assignment. Line 39 ("Track 9 relaxes this … (DR-U4)") is now correct. The Step 3 episode's "Track 9 **may** relax the 'union is last step' rule" understates a now-committed scope item, but Track 8 is `[x]` and that line is a completed track's historical record; "may" is weaker than reality without contradicting it. Not raised. Checked `track-9.md`'s Purpose and Context sections — neither claims union is out of scope. Checked whether the relaxation forces a `MultiPlanMatchStep` edit that the out-of-scope line forbids: it does not, because shaping already flows through the shared base.
-- **Verdict**: REGRESSION — the original contradiction is resolved, and the fix text introduced a mechanical misattribution (CR6, should-fix).
-
-#### Verify CR3: `ExecutionStep.containsStepOfType` does not exist
-- **Original issue**: Track 10's `**Signatures:**` line named `ExecutionStep.containsStepOfType`; the symbol is a `private static` helper in the test class, and `getSubExecutionPlans()` was attributed to `ExecutionStep` rather than `ExecutionStepInternal`.
-- **Fix applied**: the signatures line now reads `ExecutionStepInternal.getSubSteps()` / `getSubExecutionPlans()` ("the default implementations `MatchFirstStep` inherits") plus `YTDBQueryMetricsStrategyTest.containsStepOfType`, annotated as a private test helper that recurses through `getSubSteps()` only.
-- **Re-check**:
-  - Search/trace performed: `grep -n "containsStepOfType"` over `YTDBQueryMetricsStrategyTest.java`; `grep -n "getSubSteps\|getSubExecutionPlans"` over `ExecutionStepInternal.java`; member listing of `ExecutionStep.java`. Grep plus Read; PSI unavailable.
-  - Code location: helper declared at `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/gremlintest/scenarios/YTDBQueryMetricsStrategyTest.java:1618`, recursing at `:1623` through `step.getSubSteps()`, called at `:292`, `:295`, `:329`. Defaults at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/ExecutionStepInternal.java:145` and `:150`.
-  - Current state: every symbol the line now names resolves to its declaring type. `ExecutionStep` declares `getName`, `getType`, `getDescription`, `getSubSteps`, `getCost` and `toResult` — no `containsStepOfType`, no `getSubExecutionPlans`.
-- **Regression check**: checked the surrounding prose the finding called imprecise. Track 10's failure 3–4 narrative (`:43`) still says a nested fetch plan is "invisible to `ExecutionStep` introspection", which holds as written now that the signatures line pins where each method lives. Concrete step 3 (`:65`) still offers `getSubSteps()` / `getSubExecutionPlans()` as a pair, and the signatures line in the same file now carries the caveat that only a `getSubSteps()` override reaches the existing helper, so the decomposer gets the precision point from the file it is already reading. Clean.
+  - Search/trace performed: **PSI attempted and timed out** (see the caveat above). Fallback:
+    `grep -rn "walkChild" core/src/main/java`, `grep -rn "walkFork" core/src/main/java`, and a
+    declaration-shaped grep for `POST_UNION_RECOGNISERS` / `dispatchAll` /
+    `postUnionSuffixTranslatable` / `subWalk` over `GremlinStepWalker.java`, with a `Read` of
+    `GremlinStepWalker.java:395-425`.
+  - Code location: every cited line resolves. `RecognitionContext.java:333` —
+    `SubTraversalPredicateAdapter walkChild(Traversal.Admin<?, ?> child);` (interface declaration).
+    `WalkerContext.java:598` and `SubTraversalPredicateAdapter.java:413` — both
+    `public SubTraversalPredicateAdapter walkChild(Traversal.Admin<?, ?> child) {`.
+    `UnionForkHost.java:40` — `@Nullable GremlinToMatchTranslator.TranslationResult walkFork(`.
+    `UnionForkHostImpl.java:74` — `public GremlinToMatchTranslator.TranslationResult walkFork(`.
+    The four members still attributed to `GremlinStepWalker` are all declared there:
+    `POST_UNION_RECOGNISERS` at `:193`, `dispatchAll` at `:310`, `postUnionSuffixTranslatable` at
+    `:370`, `subWalk` at `:399`.
+  - Current state: all six line numbers are exact, and `GremlinStepWalker` declares neither
+    `walkChild` nor `walkFork` — its only occurrences of either name are the javadoc `{@link
+    RecognitionContext#walkChild}` at `:389` and the delegation `WalkerContext.walkChild` makes
+    back into `GremlinStepWalker.subWalk`, which the plan already names correctly.
+- **Regression check**: checked three things. (1) A sweep of `_workflow/**` for
+  `GremlinStepWalker.walkChild` / `GremlinStepWalker.walkFork` returns no residue; the one line that
+  still contains both strings is `plan/track-11.md:101`, where a semicolon separates the
+  `GremlinStepWalker` clause from the `walkChild` clause and each carries its own owning class.
+  (2) The two documents now render the gate from different angles — the plan's Scope line calls it
+  `RecognitionContext.walkChild` (the path), the track file calls it `SubTraversalPredicateAdapter`
+  (the gate). CR3's proposed fix admitted both, DR-T2 and item 4 agree with each, and they describe
+  one mechanism. Not a contradiction. (3) The pre-existing `subWalk (:399-411)` range hint is
+  short — the method runs `:399-418`. It predates this fix, C15 recorded the declaration line as
+  correct, and a range hint is not a reference an executor resolves. Not raised.
 - **Verdict**: VERIFIED
 
-#### Verify CR4: query-metrics integration point unrecorded in the plan
-- **Original issue**: neither `### Integration Points` nor the Component Map recorded the boundary-step → query-metrics integration that Track 10 exists to repair.
-- **Fix applied**: a fifth Integration Points bullet describing `YTDBQueryMetricsStep.capturedExecutionPlan()`. The optional Component Map node was not added.
+#### Verify CR4: T9 dropped from Track 9's finding partition
+- **Original issue**: Track 9 listed the terminator-facing findings as "T1–T7, T10–T16, T18" while
+  Track 11 listed "T1–T7, T9–T16, T18". T9 appeared in neither of Track 9's two sets, so by Track
+  9's accounting it belonged to no track.
+- **Fix applied**: `plan/track-9.md:100` now reads `T1–T7, T9–T16, T18`.
 - **Re-check**:
-  - Search/trace performed: Read of `implementation-plan.md:352-365` and of the Component Map at `:62-118`; Read of `YTDBQueryMetricsStep.java:82-109`.
-  - Code location: `core/src/main/java/com/jetbrains/youtrackdb/internal/common/profiler/monitoring/YTDBQueryMetricsStep.java:91-109`.
-  - Current state: the bullet matches the method hop for hop — `YTDBMatchPlanStep` → `getPlan()` (`:92-96`), then `MultiPlanMatchStep` → first non-empty child plan (`:97-105`), then `YTDBGraphStep::getLastExecutionPlan` (`:106-108`). The Track 10 attribution is right.
-  - Component Map, on the orchestrator's question: not a gap. The map's bullet legend scopes it to what the plan builds or refactors — new TinkerPop-side classes, the shared builder package, the preserved MATCH engine — plus the two existing consumers the translator hands work to (`Half`, `GQL`). The metrics step is neither built by this plan nor handed anything by it; it reads the boundary step opportunistically. A node for it would put a read-only observer into a producer graph, and the Integration Points bullet already gives Track 10's decomposer the call path and the file. The original finding marked the node "optional", and the reason it was optional still holds.
-- **Regression check**: checked the four pre-existing Integration Points bullets for overlap or contradiction with the new one — none; the new bullet is the only mention of monitoring anywhere in the plan outside Track 10's entry. Formatting and line width match its neighbours. Clean.
+  - Search/trace performed: `grep -oE '^### [A-Z]+[0-9]+ '` over each of the four files in
+    `plan/track-9/reviews/` to enumerate the actual finding IDs, then set arithmetic against both
+    `## Artifacts and Notes` lists; `grep -rn "T10–T16"` across `_workflow/**` outside the review
+    directories to catch any other copy of the old range. Tool: `grep`.
+  - Code location: `plan/track-9.md:100`; `plan/track-11.md:97`;
+    `plan/track-9/reviews/technical-iter1.md` (T1–T11),
+    `technical-gate-verification-iter2.md` (T12–T16),
+    `technical-gate-verification-iter3.md` (T17–T18), `risk-iter1.md` (R1–R7).
+  - Current state: the on-disk IDs are exactly T1–T18 and R1–R7, and the two lists now agree
+    verbatim. The 18 technical findings partition with no gap and no double-claim:
+    terminator-facing {T1–T7, T9–T16, T18} = 16, this track {T8} = 1, retired {T17} = 1. The seven
+    risk findings partition the same way: {R2, R7} to Track 11, {R1, R3, R4, R5, R6} to Track 9.
+    Every ID appears in exactly one bucket.
+- **Regression check**: the sweep for the old `T10–T16` range returns nothing outside the review
+  directories, so no third copy drifted. `plan/track-11.md:97` was already correct and is
+  unchanged, so the fix converged the two lists rather than moving the disagreement. Clean.
 - **Verdict**: VERIFIED
 
-#### Verify CR5: Track 9 silent about Track 10 and still counting six prior tracks
-- **Original issue**: `plan/track-9.md` listed only Tracks 7 and 8 as inter-track dependencies, never mentioned Track 10, and described itself as validating "all six prior tracks"; the plan checklist carried the parallel "all six tracks' recognisers".
-- **Fix applied**: the `**Inter-track dependencies:**` line now names Track 10 with its rationale; line 5 reads "all prior tracks"; the checklist reads "every prior track's recognisers".
+#### Verify CR5: a bare `(D3)` the same commit's conformance sentence disowns
+- **Original issue**: `implementation-plan.md:719` ended "Track 11 owns the list-shaping terminators
+  and the JMH harness (D3)", tagging the terminators with a decision record that line 735 —
+  rewritten in the same commit — says does not cover them.
+- **Fix applied**: the bare `(D3)` was dropped. The sentence now ends "…the list-shaping terminators
+  and the JMH harness, measured against the baseline Track 9 publishes."
 - **Re-check**:
-  - Search/trace performed: `grep -rn "six\|all prior tracks\|every prior track"` over the plan and both pending track files; Read of `plan/track-9.md:5,84` and `plan/track-10.md:88`; Read of `implementation-plan.md:608-609`.
-  - Code location: `plan/track-9.md:5` and `:84`; `implementation-plan.md:609`.
-  - Current state: both directions of the dependency are recorded. Track 10 states "**Runs before Track 9**" (`track-10.md:88`); Track 9 states it depends on Track 10, "which restores a green `core` unit-test run". The only surviving "six" in either file is Track 10's Surprises entry about six failing problems at the track base, unrelated to track counts. "Last Phase 1 track" on `track-9.md:84` still holds, since Track 10 runs before it.
-- **Regression check**: checked the plan checklist for the same asymmetry and found it — Track 9's `**Depends on:** Tracks 7 and 8.` (`:617`) was not updated alongside the track file. Raised as CR7. The rest of both entries is consistent: Track 10's entry states its own ordering and `**Depends on:** Track 8.`
+  - Search/trace performed: `Read` of `implementation-plan.md:719-740`; `grep -n "(D3)"` over
+    `implementation-plan.md`, `plan/track-9.md` and `plan/track-11.md`. Tool: `grep` plus `Read`.
+  - Code location: `implementation-plan.md:721` (the narrative, renumbered by CR1's two-line
+    insertion in the Track 9 Scope block), `:737` (the conformance sentence).
+  - Current state: the narrative carries no decision-record tag on Track 11, and `:737` still reads
+    "D3 is *all-or-nothing decline*, not the terminators — it is enforced by every recogniser,
+    including Track 11's four, whose mid-traversal and child-path declines are the split's new D3
+    surface." The two sentences now agree.
+- **Regression check**: the remaining `(D3)` occurrences are each correct in their own right —
+  `implementation-plan.md:22` and `:115` state the all-or-nothing rule, `plan/track-11.md:33` and
+  `:65` invoke it as the last-step / mid-traversal decline rule, which is what `:737` says D3 is.
+  Dropping the tag does not leave Track 11 anomalous in the narrative: Track 9's sentence carries no
+  tag either, and the tags that remain (D5 on Track 5, D8 on Track 8) mark decision records those
+  tracks implement. Clean.
 - **Verdict**: VERIFIED
 
 ## Findings
 
 ### CR6 [should-fix]
-**Certificate**: C28
-**Location**: `plan/track-9.md:52` (Plan of Work item 4), `:82` (`**In scope (modified):**`), `:85` (`**Signatures:**`); `implementation-plan.md:606` (Track 9 checklist entry). Code at `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinStepWalker.java:193-197`
-**Issue**: The CR2 fix places the post-union suffix allow-list on `UnionStepRecogniser` in all four new text sites. The allow-list is a private field on `GremlinStepWalker`. A decomposer building Track 9's file roster from `**In scope (modified):**` opens the wrong class, and the scope figure counts the wrong file.
-**Evidence**: `GremlinStepWalker.java:193-197` declares `private static final Set<StepRecogniser> POST_UNION_RECOGNISERS = Set.of(CountGlobalStepRecogniser.INSTANCE, RangeGlobalStepRecogniser.INSTANCE, DedupGlobalStepRecogniser.INSTANCE)`. Its Javadoc (`:188-191`) states the set "is read from two places, and both must read this one field": `dispatchAll`'s per-step gate at `:322` (`if (ctx.hasUnionCarrier() && !POST_UNION_RECOGNISERS.contains(recogniser)) return false;`) and the `postUnionSuffixTranslatable` look-ahead at `:370-380`. `UnionStepRecogniser`'s only involvement is the call at `:69` (`if (!host.postUnionSuffixTranslatable())`), which `UnionForkHostImpl:68-69` forwards to the walker. Two secondary corrections ride along. The set holds recognisers rather than step classes, and `RangeGlobalStepRecogniser` covers `limit` / `range` / `skip`, so "currently `count` / `limit` / `dedup`" understates it — it mirrors the shorthand in the code's own comment at `UnionStepRecogniser.java:126`, while DR-U4 carries the full list. And `GremlinStepWalker` is already an unavoidable edit for item 3, because a new recogniser needs a registry entry there (Track 6's `range` precedent is `Map.entry(RangeGlobalStep.class, …)` at `:163-164`), yet the walker appears nowhere in Track 9's modified-scope list.
-**Proposed fix**: In all four sites, name `GremlinStepWalker.POST_UNION_RECOGNISERS` as the allow-list and `GremlinStepWalker` as the modified file — item 4 becomes something like "**Relax the post-union suffix allow-list** — add the four terminator recognisers to `GremlinStepWalker.POST_UNION_RECOGNISERS`, alongside the count / range / dedup recognisers it already holds (Track 8 DR-U4)". Add `GremlinStepWalker` (recogniser registry entries plus `POST_UNION_RECOGNISERS`) to `**In scope (modified):**`, and note that `UnionStepRecogniser`'s class Javadoc at `:24-29`, which says the list-shaping terminators "are not translated yet", must be updated in the same change.
-**Classification**: mechanical
-**Justification**: Current-state claim about where an existing symbol lives, with one unambiguous correct rendering read off the declaration and both of its call sites. The work Track 9 must do is unchanged; only the file and field it names change.
+**Certificate**: V1
+**Location**: `plan/track-9.md:81` (`## Validation and Acceptance`, the new `embedded` bullet);
+read against `:90` (the R6 pinned-commands bullet) and `plan/track-11.md:68` (item 6, which re-runs
+the same gate)
 
-### CR7 [suggestion]
-**Certificate**: C29
-**Location**: `implementation-plan.md:617` — the Track 9 checklist entry's `**Depends on:**` line
-**Issue**: The CR5 fix updated `plan/track-9.md`'s inter-track dependencies to name Track 10 but left the checklist entry's dependency line reading "Tracks 7 and 8". The asymmetry CR5 flagged now sits one level up, in the surface the orchestrator's track walk reads first.
-**Evidence**: `implementation-plan.md:617` reads `> **Depends on:** Tracks 7 and 8.` while `plan/track-9.md:84` names Tracks 7, 8 and 10. Track 10's own entry records the ordering from its side (`:579` "**Runs before Track 9**", `:591` `**Depends on:** Track 8.`), so the plan states the ordering twice and the dependency list once.
-**Proposed fix**: Change line 617 to `> **Depends on:** Tracks 7, 8, and 10 (green `core` baseline).`
+**Issue**: The command the new bullet pins does not compile the branch's `core`. `./mvnw -pl
+embedded test` puts only the `embedded` module in the reactor, so its `youtrackdb-core` dependency
+resolves from the local repository rather than the working tree. On this machine that resolves to a
+jar installed on 2026-07-02 — before Tracks 7, 8 and 10, and a month before item 2's filter fix.
+The `embedded` completion gate and the `embedded` A/B would both measure a `core` that has none of
+the code they exist to test, and item 3's post-fix re-measurement would show no movement because
+the fix is not in the jar under test.
+
+**Evidence**: `embedded/pom.xml:53-56` declares `io.youtrackdb:youtrackdb-core:${project.version}`
+at compile scope and `:71-76` the matching `test-jar`.
+`~/.m2/repository/io/youtrackdb/youtrackdb-core/0.5.0-SNAPSHOT/` holds
+`youtrackdb-core-0.5.0-SNAPSHOT.jar` dated 2026-07-02 14:05 and `-tests.jar` dated 2026-07-02
+14:11, and `maven-metadata-local.xml` records `<localCopy>true</localCopy>` with
+`lastUpdated 20260702121006`, so Maven prefers that install over the remote timestamped snapshots
+also present in the directory. The test-jar is load-bearing beyond the production classes:
+`EmbeddedGraphFeatureTest`'s `@CucumberOptions` reads
+`classpath:/com/jetbrains/youtrackdb/internal/core/gremlin/gremlintest/features` and binds
+`GraphFeatureWorld`, both of which ship in that jar — so a stale install also means stale local
+feature files, including the `GQL Match Support` feature where the `core` runner stalls. The rest
+of the bullet is sound: the `embedded` module has one surefire execution with no group filter and
+`EmbeddedGraphFeatureTest` runs in the default `test` phase, so the runner is reachable and R6's
+`core`-specific early-abort hazard does not apply here.
+
+**Proposed fix**: Pin a command that builds `core` from source in the same invocation, and say
+which. Three renderings, with different costs. (a) `./mvnw -pl embedded -am test` — rebuilds `core`
+into the reactor, but also runs `core`'s test phase, which R6 documents as ~31 minutes with an
+early abort. (b) `./mvnw -pl core -am install -DskipTests` followed by `./mvnw -pl embedded test` —
+two commands, no `core` test cost, and the shape that matches how the branch's other gates are run.
+(c) `./mvnw -pl core,embedded test -Dmaven.test.failure.ignore=true` — one invocation covering both
+runners, at the full `core` suite cost the track is already paying elsewhere. Whichever is chosen,
+add the note R6 already carries in its own form: a future reader must not mistake a run against an
+installed jar for a run against the branch.
+
+**Classification**: design-decision
+**Justification**: multiple plausible fix renderings whose costs differ materially (a full `core`
+suite run per `embedded` measurement versus a separate install step), so the orchestrator cannot
+pick one without making a gate-cost choice.
+
+### CR7 [should-fix]
+**Certificate**: V2
+**Location**: `plan/track-9.md:5` (`## Purpose / Big Picture`), `:55` (the `## Context and
+Orientation` Mermaid node), `:82` (`## Validation and Acceptance`, the both-runners artifact
+bullet) and `:103` (`## Interfaces and Dependencies` **In scope (new)**); read against `:89`
+(acceptance bullet 9)
+
+**Issue**: Three descriptions of the deliverable still scope it to `core`, and acceptance bullet 9
+cites one of them as its own authority. Bullet 9 reads "a suite that completes in `core` and hangs
+in `embedded` has not met **this track's Purpose**" — but the Purpose at `:5` promises only that
+"the `core` TinkerPop feature suite completes in a single fork with the translator on". Read
+literally, bullet 9's appeal fails: the Purpose it points at is satisfied by a `core`-only run. The
+In-scope-new line and the diagram node carry the same lag in a milder form.
+
+**Evidence**: After the CR1 fix, `plan/track-9.md` commits to both runners in item 1 (`:68`), item 3
+(`:70`), acceptance bullets 1–3 (`:80-82`) and bullet 9 (`:89`), and names
+`EmbeddedGraphFeatureTest` in `**Signatures:**` (`:107`). The three sites above did not move. `:103`
+still describes "the per-directory and single-fork Cucumber baseline artifact" — vocabulary that
+fits only `core`, since item 1 gives the `embedded` half a translator-on/off A/B, a completion check
+and a failure set with no per-directory decomposition. `:82` inherits the same phrasing and asks for
+"the per-directory and single-fork Cucumber failure sets for **both** runners", a shape item 1 does
+not produce for the second one. `:55`'s node label reads "item 1 artifact: per-directory Cucumber
+baseline". The plan-file entry is unaffected: `implementation-plan.md:688-690` names the two-runner
+artifact explicitly.
+
+**Proposed fix**: Widen the three descriptions to the scope the rest of the track already carries.
+At `:5`, name both runners in the opening sentence so bullet 9's cross-reference resolves. At
+`:103`, describe the artifact as one file with a per-runner half rather than by `core`'s run shape,
+and adjust `:82` to ask each runner for its own recorded shape instead of imposing `core`'s. At
+`:55`, relabel the node to "two-runner Cucumber baseline".
+
 **Classification**: mechanical
-**Justification**: Current-state claim about the plan's own track ordering, already settled by the checklist's entry order and by both track files. One unambiguous rendering; no scope or goal changes.
+**Justification**: current-state claim about the track file's own settled scope — the two-runner
+decision is already made and recorded in items 1 and 3 and four acceptance bullets, so aligning the
+three lagging descriptions has one unambiguous rendering and changes nothing the plan is trying to
+achieve.
 
 ## Evidence base
 
-#### C28 Ref: the post-union suffix allow-list's declaring class
-- **Document claim**: `plan/track-9.md:52`, `:82`, `:85` and `implementation-plan.md:606` locate the post-union suffix allow-list on `UnionStepRecogniser`.
-- **Search performed**: `grep -rn "postUnionSuffixTranslatable\|POST_UNION\|postUnion"` over `core/.../gremlin/translator/strategy/`; Read of `GremlinStepWalker.java:183-197` and `:312-329`; Read of `UnionStepRecogniser.java:18-62`, `:112-139`; Read of `UnionForkHostImpl.java:68-69`. PSI unavailable (see caveat); the positive result rests on reading the declaration and both read sites.
-- **Code location**: `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinStepWalker.java:193-197`; read sites at `:322` and `:370-380`; seam at `UnionForkHostImpl.java:68`, reached from `UnionStepRecogniser.java:69`.
-- **Actual signature/role**: `private static final Set<StepRecogniser> POST_UNION_RECOGNISERS` holding `CountGlobalStepRecogniser.INSTANCE`, `RangeGlobalStepRecogniser.INSTANCE`, `DedupGlobalStepRecogniser.INSTANCE`. `UnionStepRecogniser` holds no allow-list; it consults the walker's through `UnionForkHost` and describes the policy in its class Javadoc (`:24-35`).
-- **Verdict**: MISMATCHES
-- **Detail**: Drives CR6. The relaxation mechanism itself is sound — `buildResult` (`:466`) carries `ctx.shaping()` into the multi-plan result and `GremlinToMatchStrategy:554` hands it to `MultiPlanMatchStep`, so terminator ops apply once over the concatenation, and `WalkerContext.pinBoundary` (`:489-494`) permits the `outputType` re-pin a post-union `fold` needs.
+Two certificates, both supporting new findings. Tool recorded per certificate; PSI was attempted
+once and timed out, so every entry rests on `grep`, direct `Read`, and on-disk inspection of
+`~/.m2`. See the reference-accuracy caveat above.
 
-#### C29 Ref: Track 9's dependency list in the plan checklist
-- **Document claim**: `implementation-plan.md:617` — `**Depends on:** Tracks 7 and 8.`
-- **Search performed**: `grep -n "Depends on:"` over `implementation-plan.md`; Read of the Track 9 and Track 10 checklist entries (`:578-617`); Read of `plan/track-9.md:84`.
-- **Code location**: `implementation-plan.md:617`, against `plan/track-9.md:84`.
-- **Actual signature/role**: the track file names Tracks 7, 8 and 10; the checklist entry names Tracks 7 and 8.
+#### V1 Ref: `./mvnw -pl embedded test` dependency resolution
+- **Document claim**: `plan/track-9.md:81` — "`./mvnw -pl embedded test` completes with the
+  translator on, under the same three conditions, with its scenario count in the same range as its
+  own translator-off run."
+- **Search performed**: `Read` of `embedded/pom.xml` (dependencies, surefire and failsafe blocks,
+  profiles); `find embedded/src/test -name "*.java"`; `Read` of
+  `EmbeddedGraphFeatureTest.java:1-60` and `ShadedJarSmokeTest.java:1-40`;
+  `ls -la ~/.m2/repository/io/youtrackdb/youtrackdb-core/0.5.0-SNAPSHOT/` and `cat` of its
+  `maven-metadata-local.xml`.
+- **Code location**: `embedded/pom.xml:53-56` (core, compile scope), `:71-76` (core test-jar),
+  `:405-411` (the single surefire plugin declaration, no `<executions>`), `:376-401` (failsafe,
+  `integration-test` / `verify` only);
+  `embedded/src/test/java/com/jetbrains/youtrackdb/shade/EmbeddedGraphFeatureTest.java:25-42`.
+- **Actual signature/role**: the runner is reachable by the pinned command — one surefire
+  execution, no group filter, `EmbeddedGraphFeatureTest` picked up by the default `*Test` include
+  in the `test` phase, before the shade plugin's `package` binding. What the command does not do is
+  build `core`: without `-am` the reactor holds `embedded` alone, and
+  `youtrackdb-core:0.5.0-SNAPSHOT` resolves to the local install of 2026-07-02, flagged
+  `<localCopy>true</localCopy>`.
 - **Verdict**: MISMATCHES
-- **Detail**: Drives CR7. A residual from the CR5 fix rather than a fresh inconsistency — the ordering itself is recorded correctly in three other places.
+- **Detail**: Feeds CR6. The failure mode runs in the worst direction — a stale `core` predating
+  most of the branch's translator work would very likely complete, so the gate reads as a pass
+  while measuring nothing the track built. The stale test-jar compounds it by supplying the local
+  feature files too. The `~/.m2` timestamps are this machine's state rather than a property of the
+  plan; the resolution semantics that make them load-bearing are not.
+
+#### V2 Ref: `core`-only residue in `plan/track-9.md` after the CR1 widening
+- **Document claim**: `plan/track-9.md:89` — "a suite that completes in `core` and hangs in
+  `embedded` has not met **this track's Purpose**"; `:82` — "The per-directory and single-fork
+  Cucumber failure sets for **both** runners are recorded"; `:103` — "the per-directory and
+  single-fork Cucumber baseline artifact under `plan/track-9/`".
+- **Search performed**: `grep -n "embedded" plan/track-9.md` (5 hits, all listed in Verify CR1); a
+  grep for `per-directory and single-fork`, the `core` TinkerPop-feature-suite phrase, and
+  `per-directory Cucumber baseline` over the same file; `Read` of the Purpose, the Mermaid block
+  and `## Interfaces and Dependencies` in full.
+- **Code location**: `plan/track-9.md:5`, `:55`, `:82`, `:89`, `:103`.
+- **Actual signature/role**: the Purpose sentence names `core` and no other runner; the diagram node
+  reads "item 1 artifact: per-directory Cucumber baseline"; the In-scope-new line describes one
+  artifact in `core`'s run vocabulary. Item 1 gives the `embedded` half no per-directory
+  decomposition, so `:82`'s "per-directory … for **both** runners" over-specifies the second half.
+- **Verdict**: MISMATCHES
+- **Detail**: Feeds CR7. The self-reference at `:89` is what raises this above wording lag: an
+  acceptance bullet justifying itself by pointing at a Purpose that does not say what the bullet
+  claims gives a decomposer a documented reason to narrow the gate back to `core` — the retreat the
+  user declined when choosing the two-runner option.
 
 ## Summary
 
-**PASS.** Four fixes verified clean (CR1, CR3, CR4, CR5). CR2's fix resolves the
-scope contradiction it was raised for and introduces one mechanical
-misattribution (CR6, should-fix). One residual from CR5 remains in the plan
-checklist (CR7, suggestion). No blockers, so Phase 2 can close; both new
-findings are text edits the orchestrator can apply without a further design
-decision.
+**PASS.** All five iteration-1 findings verify: CR1 and CR2 (the two user-decided ones) and CR3, CR4
+and CR5 (mechanical) are each applied correctly, with no fix landing wrong and no prior finding
+still open. No blockers remain.
+
+Two new should-fix findings sit on CR1's blast radius and are carried forward rather than blocking:
+CR6 (design-decision — the pinned `embedded` command resolves `core` from the local repository, so
+the gate can pass against a stale jar) and CR7 (mechanical — Purpose, the item-1 diagram node and
+the In-scope-new artifact line still describe a `core`-only deliverable, and acceptance bullet 9
+cites the Purpose as its authority).
+</content>

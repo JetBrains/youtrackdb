@@ -8,7 +8,7 @@ This track is inserted ahead of Track 9 by the inline replan of 2026-08-01. Trac
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-**Numbering note.** This track executes **before** Track 9 despite the higher number. Renumbering Track 9 was rejected: Track 8's file, its Decision Log (DR-U4), and its cross-track hints all name "Track 9" for the list-shaping terminators, and renumbering would falsify every one of those references. A cosmetic gap in execution order is cheaper than stale cross-references. [Amended 2026-08-03: the split moved the terminators to Track 11 anyway, so those Track 7 / Track 8 references are now stale and carry bracketed amendments of their own.] The `## Checklist` entry is placed before Track 9's so the first-`[ ]` walk selects this track next.
+**Numbering note.** This track executes **before** Track 9 despite the higher number. Renumbering Track 9 was rejected: Track 8's file, its Decision Log (DR-U4), and its cross-track hints all name "Track 9" for the list-shaping terminators, and renumbering would falsify every one of those references. A cosmetic gap in execution order is cheaper than stale cross-references. [Amended 2026-08-03: the split moved the terminators to Track 11 anyway, so those Track 7 / Track 8 references are now stale. Four lines carry bracketed amendments — each file's **Out of scope** and **Inter-track dependencies** line, the two places a downstream track file points at by name. The rest, including Track 8's DR-U4, is as-of-completion text that `implementation-plan.md` supersedes.] The `## Checklist` entry is placed before Track 9's so the first-`[ ]` walk selects this track next.
 
 ## Progress
 - [x] 2026-08-01T07:34Z [ctx=info] Review + decomposition complete
