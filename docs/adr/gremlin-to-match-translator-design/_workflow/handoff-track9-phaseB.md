@@ -114,6 +114,34 @@ baseline, and step 2 has not run either.
 Banked CI figures and their three qualifications are in `## Artifacts and Notes`; they
 are pinned to `b35ac67d2f` and superseded by anything later.
 
+## Steps 2, 4 and 6 should be restructured before they run (proposed, user raised it, not yet applied)
+
+Do not run step 2 in its written shape. Most of what it was going to produce either
+already exists or lost its purpose:
+
+- **`core`'s two-arm A/B exists and is orchestrator-verified** at `55da40dcdd`: on
+  1930 / 42 / 14, off 1930 / 0 / 14. That was step 2's core deliverable.
+- **The per-directory table lost its reason.** It was the baseline shape for item 1's
+  escalation branch, taken only if the single fork never completed. It completes, the
+  branch is not taken, and step 2's own wording defers to "whichever shape step 1
+  established" — which is single-fork.
+- **What genuinely remains unmeasured is `embedded`'s off arm.** CI supplies the on arm
+  (1931 / 41 / 14 at `b35ac67d2f`) and nothing anywhere supplies the off arm. Under
+  DR-S2 that number decides whether `embedded`'s 41 are also this branch's regressions.
+- **Step 4 is now redundant.** Its job was recording drift after the filter fix; the
+  drift is 42 → 27 and it is recorded. The only gap is that 27 is implementer-measured
+  where 42 and 0 are orchestrator-verified — a two-minute re-check, not a step.
+- **Step 6 stays and is the real measurement.** R8 invalidates any baseline on a
+  qualifying commit, and step 7's fix plus all of step 5 are still to land, so the
+  final two-runner A/B has to be taken at the track's last commit regardless. That is
+  the number Track 11 reads.
+
+Proposed shape: step 2 shrinks to `embedded`'s off-arm run plus writing the baseline
+artifact from figures already taken; step 4 is dropped into step 6; step 6 remains the
+single final A/B. The artifact still has to be written either way — those figures live
+in commit messages and a session transcript today, not in a file under `plan/track-9/`.
+**Amend the roster before running any of the three.**
+
 ## Rules the parallel worktrees run under
 
 Repeat these on any re-spawn: never `mvn install`, never `-am` (shared `~/.m2` poisons
