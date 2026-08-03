@@ -22,6 +22,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Text;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.util.AndP;
 import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
@@ -554,6 +557,89 @@ final class GremlinPredicateAdapter {
     }
     var operands = translated.toArray(new SQLBooleanExpression[0]);
     return and ? WHERE.and(operands) : WHERE.or(operands);
+  }
+
+  /**
+   * Reports whether any {@code has(...)} inside {@code traversal} compares a property with one of
+   * the four range comparisons, searching the sub-traversals of nested steps as well as the steps
+   * themselves. A caller that negates a whole sub-traversal declines on a {@code true} here — see
+   * {@link NotStepRecogniser} for the divergence that makes a negated range comparison
+   * untranslatable.
+   *
+   * <p>The search covers both the local children a filter connective carries and the global children
+   * a branching step carries, because negation applies to everything the sub-traversal evaluates,
+   * however deeply the comparison is nested.
+   */
+  static boolean traversalHasRangeComparison(Traversal.Admin<?, ?> traversal) {
+    for (var step : traversal.getSteps()) {
+      if (step instanceof HasContainerHolder<?, ?> holder) {
+        for (var container : holder.getHasContainers()) {
+          if (predicateHasRangeComparison(container.getPredicate())) {
+            return true;
+          }
+        }
+      }
+      if (step instanceof TraversalParent parent) {
+        if (anyTraversalHasRangeComparison(parent.getLocalChildren())
+            || anyTraversalHasRangeComparison(parent.getGlobalChildren())) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private static boolean anyTraversalHasRangeComparison(
+      List<? extends Traversal.Admin<?, ?>> children) {
+    for (var child : children) {
+      if (traversalHasRangeComparison(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Reports whether {@code predicate} contains one of the four range comparisons ({@code lt} /
+   * {@code lte} / {@code gt} / {@code gte}), recursing through the {@code and} / {@code or} /
+   * {@code not} connectives. {@code between} / {@code inside} / {@code outside} need no case of
+   * their own: TinkerPop hands them over already decomposed into an {@link AndP} / {@link OrP} of
+   * range comparisons, so they answer {@code true} through the connective branch.
+   */
+  static boolean predicateHasRangeComparison(@Nullable P<?> predicate) {
+    if (predicate == null) {
+      return false;
+    }
+    if (predicate instanceof NotP<?> notP) {
+      // NotP exposes its wrapped predicate only through negate() — the same route translate() takes.
+      return predicateHasRangeComparison(notP.negate());
+    }
+    if (predicate instanceof AndP<?> andP) {
+      return anyPredicateHasRangeComparison(andP.getPredicates());
+    }
+    if (predicate instanceof OrP<?> orP) {
+      return anyPredicateHasRangeComparison(orP.getPredicates());
+    }
+    // Only the scalar Compare family orders values. Contains membership compares by equality, and
+    // the Text / regex predicates throw on a non-String operand in both pipelines, so neither can
+    // carry the cross-type ordering disagreement the caller declines on.
+    return predicate.getBiPredicate() instanceof Compare compare
+        && switch (compare) {
+          case lt, lte, gt, gte -> true;
+          case eq, neq -> false;
+        };
+  }
+
+  private static boolean anyPredicateHasRangeComparison(@Nullable List<? extends P<?>> children) {
+    if (children == null) {
+      return false;
+    }
+    for (var child : children) {
+      if (predicateHasRangeComparison(child)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

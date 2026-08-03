@@ -5,15 +5,21 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
@@ -31,9 +37,14 @@ import org.junit.Test;
 /**
  * Unit tests for {@link NotStepRecogniser}. Each test drives the recogniser through a {@link
  * StepStreamCursor} over a strategised traversal with a hand-built {@link WalkerContext} that carries
- * the production recogniser registry. End-to-end multiset equivalence for {@code hasNot(key)},
- * {@code not(has(...))}, and {@code not(out(...))} lives in {@link PredicateTraversalEquivalenceTest}
- * and {@link EdgeTraversalEquivalenceTest}.
+ * the production recogniser registry. General end-to-end multiset equivalence for {@code
+ * hasNot(key)}, {@code not(has(...))}, and {@code not(out(...))} lives in {@link
+ * PredicateTraversalEquivalenceTest} and {@link EdgeTraversalEquivalenceTest}.
+ *
+ * <p>The negated-range-comparison cases at the end of this class are the exception. They are
+ * translator-on / translator-off equivalence tests kept here because they pin a decline this
+ * recogniser owns, and the decline's boundary — which predicate families still translate under
+ * {@code not(...)} — reads best beside the recogniser's other branches.
  */
 public class NotStepRecogniserTest extends GraphBaseTest {
 
@@ -279,6 +290,229 @@ public class NotStepRecogniserTest extends GraphBaseTest {
     } finally {
       config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, previous);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Negated range comparisons — translator-on / translator-off equivalence.
+  //
+  // A range comparison under not(...) is the one predicate family the translator cannot reproduce.
+  // Measured on the modern graph: g.V().has("name", P.gt(27)) answers all six on both arms, because
+  // YouTrackDB folds a root has() into its own graph step, whose comparator orders a String above an
+  // Integer rather than calling the comparison undefined. Inside not(...) the child is not folded, so
+  // the native arm runs TinkerPop's rule that a cross-type comparison is unknown: the child yields
+  // nothing and not(...) keeps all six. SQL NOT(name > 27) keeps none. The two native behaviours
+  // disagree with each other, so no translation of the child matches both — the decline is the exit.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V().not(__.has("name", P.gt(27)))} on the modern graph compares a String property with
+   * an Integer comparand. Native keeps all six vertices — the comparison is unknown, so the child
+   * yields nothing and the NOT passes every row — while SQL {@code NOT(name > 27)} keeps none. The
+   * translator must decline so the traversal runs natively and both arms answer the same six.
+   */
+  @Test
+  public void notWithCrossTypeRangeComparison_declinesAndAgreesWithNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().not(has(name, gt(27)))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().not(__.has("name", P.gt(27))));
+
+    // Pin the native answer: multiset equality between two empty results would pass while the shape
+    // returned nothing at all on either arm.
+    withTranslator(
+        false,
+        () -> assertThat(graph.traversal().V().not(__.has("name", P.gt(27))).toList())
+            .as("native not(has(name, gt(27))) keeps every vertex — the cross-type comparison is "
+                + "unknown, so the child yields nothing")
+            .hasSize(6));
+
+    // Pin the SQL side of the disagreement, which is what makes the decline necessary rather than
+    // merely convenient. `name <= 27` is the complement of the clause the withdrawn translation
+    // emitted, and it selects nothing: SQL ranks every String above the Integer, so NOT(name > 27)
+    // would have selected nothing either — the measured 0 against native's 6. The String-comparand
+    // pair is the control: the same operator over a comparand of the property's own type selects
+    // everything, so the empty result above is the cross-type ordering and not a broken clause.
+    withTranslator(true, () -> {
+      assertThat(graph.traversal().V().has("name", P.lte(27)).toList())
+          .as("SQL ranks every String above the Integer 27, so the complement of the withdrawn NOT "
+              + "clause is empty")
+          .isEmpty();
+      assertThat(graph.traversal().V().has("name", P.lte("z")).toList())
+          .as("the same operator over a String comparand selects every vertex")
+          .hasSize(6);
+    });
+  }
+
+  /**
+   * The root-level {@code g.V().has("name", P.gt(27))} is the neighbour the decline must not
+   * disturb. It keeps translating and keeps answering all six on both arms: the native arm folds it
+   * into the graph step, whose comparator ranks the String above the Integer — the same answer SQL
+   * {@code name > 27} gives. This is the half of the native engine the translator agrees with, and
+   * the reason the divergence above cannot be fixed by making the translator type-aware.
+   */
+  @Test
+  public void bareCrossTypeRangeComparison_keepsTranslating_andAnswersSixOnBothArms() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().has(name, gt(27))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", P.gt(27)));
+
+    withTranslator(
+        false,
+        () -> assertThat(graph.traversal().V().has("name", P.gt(27)).toList())
+            .as("the folded native has() ranks the String above the Integer and keeps all six")
+            .hasSize(6));
+  }
+
+  /**
+   * {@code not(has(name, eq("marko")))} keeps translating. Equality is well defined across runtime
+   * types on both sides — a String is simply unequal to a comparand of another type — so the decline
+   * is scoped to the four range comparisons and must not swallow the equality form, which is the
+   * commonest predicate under {@code not(...)}.
+   */
+  @Test
+  public void notWithEqualityPredicate_keepsTranslating() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().not(has(name, eq(marko)))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().not(__.has("name", P.eq("marko"))));
+  }
+
+  /**
+   * The decline reaches a range comparison nested behind a hop: {@code not(out(knows).has(age,
+   * gt(30)))} is an edge-bearing NOT whose child {@code has} sits on the hop target, where the
+   * anti-join negates it exactly as the pure-filter form does. Multiset equality cannot witness this
+   * case on its own — {@code age} is an Integer on every vertex that has it, so both arms agree
+   * either way — so the discriminating assertion is that no boundary step is engaged.
+   */
+  @Test
+  public void notWithRangeComparisonBehindHop_declinesToNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().not(out(knows).has(age, gt(30)))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().not(__.out("knows").has("age", P.gt(30))));
+  }
+
+  /**
+   * {@code between(lo, hi)} never arrives as a predicate of its own — TinkerPop decomposes it into
+   * {@code AndP[gte lo, lt hi]} before the translator sees it — so the decline has to catch it
+   * through the connective recursion. Same for {@code inside} / {@code outside}, which decompose the
+   * same way.
+   */
+  @Test
+  public void notWithBetweenPredicate_declinesToNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().not(has(age, between(28, 33)))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().not(__.has("age", P.between(28, 33))));
+  }
+
+  /** Whether a shape is expected to translate or to fall back to the native pipeline. */
+  private enum Recognition {
+    RECOGNIZED, DECLINED
+  }
+
+  /**
+   * Runs the same traversal shape twice — translator on, then off — and asserts boundary-step
+   * engagement matches {@code expected} and the two result multisets are equal. Multiset equality is
+   * on sorted RID strings, so multiplicity is preserved.
+   */
+  private void assertEquivalent(
+      String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = traversalSupplier.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var onIds = sortedIds(onAdmin.toList());
+
+      setTranslatorEnabled(false);
+      var offAdmin = traversalSupplier.get().asAdmin();
+      offAdmin.applyStrategies();
+      var offIds = sortedIds(offAdmin.toList());
+
+      if (expected == Recognition.RECOGNIZED) {
+        assertThat(boundaryOn)
+            .as(scenario + " (translator on) must engage exactly one boundary step")
+            .isEqualTo(1);
+        assertThat(onIds)
+            .as(scenario + ": a translated shape must return a non-empty result, else the multiset "
+                + "equality below is vacuous")
+            .isNotEmpty();
+      } else {
+        assertThat(boundaryOn)
+            .as(scenario + " (translator on) must decline to native — no boundary step")
+            .isZero();
+      }
+      assertThat(countBoundarySteps(offAdmin.getSteps()))
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isZero();
+      assertThat(onIds)
+          .as(scenario + ": translator-on and translator-off result multisets must match")
+          .isEqualTo(offIds);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /** Runs {@code body} with the translator forced on or off, restoring the previous setting. */
+  private void withTranslator(boolean enabled, Runnable body) {
+    var original = translatorEnabled();
+    setTranslatorEnabled(enabled);
+    try {
+      body.run();
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  private boolean translatorEnabled() {
+    return graphSession()
+        .getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+  }
+
+  private void setTranslatorEnabled(boolean enabled) {
+    graphSession()
+        .getConfiguration()
+        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+  }
+
+  /** The session backing the graph traversals — its configuration carries the translator flag. */
+  private DatabaseSessionEmbedded graphSession() {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    return tx.getDatabaseSession();
+  }
+
+  private static List<String> sortedIds(List<?> results) {
+    return results.stream().map(v -> ((Vertex) v).id().toString()).sorted().toList();
+  }
+
+  /**
+   * Counts translated boundary steps of <em>any</em> kind. The supertype is deliberate: a shape that
+   * splices a multi-plan step instead of a single-plan one is still a translation, and counting only
+   * the single-plan subtype would let such a shape satisfy a decline expectation.
+   */
+  private static int countBoundarySteps(List<?> steps) {
+    var count = 0;
+    for (var step : steps) {
+      if (step instanceof AbstractMatchPlanStep<?, ?>) {
+        count++;
+      }
+    }
+    return count;
   }
 
   private static Map<Class<?>, StepRecogniser> productionRegistry() {

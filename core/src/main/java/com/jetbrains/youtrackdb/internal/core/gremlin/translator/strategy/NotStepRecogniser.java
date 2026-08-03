@@ -23,6 +23,13 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
  *       {@link RecognitionContext#addNotMatchExpression}, with the NOT origin pre-validated against
  *       the positive pattern ({@link RecognitionContext#positivePatternHasAlias}).
  * </ol>
+ *
+ * <p>Both logical forms decline when the sub-traversal carries a range comparison ({@code lt} /
+ * {@code lte} / {@code gt} / {@code gte}), detected by {@link
+ * GremlinPredicateAdapter#traversalHasRangeComparison}. The native engine answers a range comparison
+ * two different ways depending on whether it was folded into the graph step, and only the unfolded
+ * one is reachable under {@code not(...)}; the inline comment at the gate has the mechanism. Every
+ * other predicate family keeps translating under {@code not(...)}.
  */
 final class NotStepRecogniser implements StepRecogniser {
 
@@ -60,7 +67,20 @@ final class NotStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
-    var adapter = ctx.walkChild(children.getFirst());
+    var child = children.getFirst();
+    // A range comparison under not(...) is untranslatable, so the whole traversal declines. Outside
+    // not(...) YouTrackDB folds has(key, range) into its own graph step, whose comparator orders
+    // values of different runtime types (it ranks a String above an Integer) — the same answer the
+    // translated SQL comparison gives, which is why the unnegated form agrees on both arms. Inside
+    // not(...) the child is not folded, so the native arm runs TinkerPop's rule that a cross-type
+    // comparison is unknown: the child yields nothing and the NOT keeps the row, where SQL
+    // NOT(key > v) drops it. The two native behaviours disagree with each other and the property's
+    // runtime type is unknown at translation time, so no translation of the child matches both.
+    if (GremlinPredicateAdapter.traversalHasRangeComparison(child)) {
+      return Outcome.DECLINE;
+    }
+
+    var adapter = ctx.walkChild(child);
     if (adapter.outcome() != Outcome.ACCEPTED) {
       return Outcome.DECLINE;
     }

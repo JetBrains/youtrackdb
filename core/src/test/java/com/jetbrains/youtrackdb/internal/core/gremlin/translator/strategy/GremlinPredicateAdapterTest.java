@@ -24,6 +24,7 @@ import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
@@ -737,6 +738,106 @@ public class GremlinPredicateAdapterTest {
   @Test
   public void nullContainer_declines() {
     assertThat(GremlinPredicateAdapter.INSTANCE.toFilter(null)).isNull();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Range-comparison detection — the shape query a negating caller declines on.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The four range comparisons report true and the two equality forms report false. This is the
+   * exact split {@link NotStepRecogniser} declines on: the range comparisons are the family whose
+   * cross-type answer differs between the folded and unfolded native paths, while equality is well
+   * defined across runtime types on both sides and must keep translating under {@code not(...)}.
+   */
+  @Test
+  public void predicateHasRangeComparison_trueForTheFourRangeForms_falseForEquality() {
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.gt(27))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.gte(27))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.lt(27))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.lte(27))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.eq(27))).isFalse();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.neq(27))).isFalse();
+  }
+
+  /**
+   * Detection recurses through the {@code and} / {@code or} / {@code not} connectives, so a range
+   * comparison buried under any of them is still found. {@code between(lo, hi)} is the case that
+   * matters in practice — TinkerPop decomposes it into {@code AndP[gte lo, lt hi]} before the
+   * translator sees it, so a detection that only inspected leaf predicates would miss every
+   * {@code between} / {@code inside} / {@code outside}.
+   */
+  @Test
+  public void predicateHasRangeComparison_recursesThroughConnectives() {
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.between(1, 5))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.inside(1, 5))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.outside(1, 5))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.not(P.gt(27)))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.eq(1).or(P.lt(5)))).isTrue();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.eq(1).and(P.neq(5))))
+        .as("a connective over equality forms only is still not a range comparison")
+        .isFalse();
+  }
+
+  /**
+   * Membership and string predicates report false. {@code within} / {@code without} compare by
+   * equality and the {@code Text} forms throw on a non-String operand in both pipelines, so neither
+   * carries the cross-type ordering disagreement — reporting them as ranges would decline shapes
+   * that translate correctly under {@code not(...)}.
+   */
+  @Test
+  public void predicateHasRangeComparison_falseForMembershipAndTextPredicates() {
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.within(1, 2))).isFalse();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.without(1, 2))).isFalse();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(TextP.containing("a")))
+        .isFalse();
+    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(null))
+        .as("a container with no predicate is not a range comparison")
+        .isFalse();
+  }
+
+  /**
+   * The traversal form finds a range comparison inside a nested step's sub-traversal, reached
+   * through the local children a filter connective carries and through the global children a
+   * branching step carries. Negation applies to everything the sub-traversal evaluates, so a
+   * detection that stopped at the top-level step list would let the nested forms through.
+   */
+  @Test
+  public void traversalHasRangeComparison_findsNestedLocalAndGlobalChildren() {
+    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
+        __.has("age", P.gt(30)).asAdmin()))
+        .as("a top-level has() is found")
+        .isTrue();
+    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
+        __.and(__.has("name", P.eq("josh")), __.has("age", P.gt(30))).asAdmin()))
+        .as("a local child of a filter connective is searched")
+        .isTrue();
+    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
+        __.union(__.has("age", P.gt(30))).asAdmin()))
+        .as("a global child of a branching step is searched")
+        .isTrue();
+    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
+        __.out("knows").has("age", P.gt(30)).asAdmin()))
+        .as("a has() behind a hop is found")
+        .isTrue();
+  }
+
+  /**
+   * A traversal whose {@code has()} clauses are all equality reports false, at the top level and
+   * nested alike. Over-reporting would withdraw shapes that translate correctly, which is the cost
+   * side of the decline.
+   */
+  @Test
+  public void traversalHasRangeComparison_falseWhenNoRangeComparisonPresent() {
+    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
+        __.has("name", P.eq("josh")).asAdmin()))
+        .isFalse();
+    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
+        __.and(__.has("name", P.eq("josh")), __.out("knows")).asAdmin()))
+        .isFalse();
+    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(__.values("name").asAdmin()))
+        .as("hasNot(key) desugars to this child — no predicate, so nothing to detect")
+        .isFalse();
   }
 
   // ---------------------------------------------------------------------------
