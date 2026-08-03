@@ -1,0 +1,478 @@
+name: Refresh TinkerPop Fork Snapshot
+
+# YouTrackDB compiles against io.youtrackdb:gremlin-*, the JetBrains fork of
+# Apache TinkerPop that lives in JetBrains/ytdb-tinkerpop and is published as a
+# SNAPSHOT. Sonatype deletes snapshots 90 days after they are published, and
+# the fork only publishes on a push to ytdb-fork-3.8-dev. A coordinate that
+# nobody republishes for three months therefore stops resolving, and every
+# YouTrackDB build then fails during dependency resolution, before a single
+# class is compiled. That is what happened to 3.8.1-af9db90-SNAPSHOT: published
+# 2026-04-27, purged 2026-07-26, nightly integration pipeline red on 2026-07-27.
+#
+# This workflow rebuilds the pinned fork commit from source and republishes it
+# under the same coordinate, which resets the 90-day clock without changing the
+# coordinate the build resolves. See
+# docs-internal/dev-workflow/tinkerpop-fork-dependency.md for the full
+# procedure, including how to bump the pin.
+
+on:
+  schedule:
+    # 03:00 UTC on the 1st and 15th of each month, clear of the 01:00 UTC
+    # nightly integration pipeline. Twice a month against a 90-day retention
+    # window means five consecutive runs have to fail before the artifact can
+    # disappear, so a transient Sonatype outage cannot break the build.
+    - cron: '0 3 1,15 * *'
+  workflow_dispatch:
+  push:
+    # Bootstrap only: this workflow's own merge republishes immediately,
+    # recovering the snapshot purged today. Nothing routine edits this file, so
+    # later recoveries go through workflow_dispatch. A gremlin.version bump
+    # deliberately does not fire this — the fork has just published that
+    # coordinate, so its 90-day window has only just started.
+    branches: [ develop ]
+    paths: [ '.github/workflows/gremlin-fork-snapshot-refresh.yml' ]
+
+# Two republishes of the same coordinate must not race each other. A queued run
+# waits instead of being cancelled, because the point of the run is the upload.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORK_REPO: JetBrains/ytdb-tinkerpop
+  # The only branch a pinned commit may come from. Anything else is either a
+  # typo or a commit from a sibling fork of apache/tinkerpop — see the
+  # provenance step below for why that distinction matters.
+  FORK_BRANCH: ytdb-fork-3.8-dev
+  # The ten io.youtrackdb jars this workflow owns: the nine YouTrackDB declares
+  # in <dependencyManagement>, plus gremlin-shaded, which gremlin-core pulls in
+  # transitively. Both the deploy and the verification derive their module
+  # lists from this one string, so the two cannot drift apart.
+  #
+  # -am also republishes gremlin-annotations and gremlin-socket-server, and
+  # neither is listed here because neither is transitive: the fork declares the
+  # first <optional>true</optional> in gremlin-groovy and the second at test
+  # scope in gremlin-driver, so no consumer resolves them. Should the fork drop
+  # that optional flag, gremlin-annotations joins YouTrackDB's compile classpath
+  # and belongs in this list — otherwise its coordinate would quietly count down
+  # to its own purge behind a green refresh.
+  GREMLIN_ARTIFACTS: >-
+    gremlin-core gremlin-groovy gremlin-language gremlin-util gremlin-shaded
+    gremlin-driver gremlin-server gremlin-test gremlin-console tinkergraph-gremlin
+  # Every module above inherits its version from io.youtrackdb:tinkerpop, so
+  # Maven must resolve that pom to build the effective model of any of them. It
+  # is an artifact like the rest and expires like the rest, so it is verified
+  # like the rest — but it is packaging:pom, so it has no jar to check.
+  GREMLIN_POM_ARTIFACTS: tinkerpop
+
+jobs:
+  refresh:
+    name: Rebuild and republish io.youtrackdb:gremlin-*
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Exposed so the failure notification can name the coordinate at risk
+    # instead of sending the responder to the run log for it.
+    outputs:
+      version: ${{ steps.coords.outputs.version }}
+    steps:
+      - name: Checkout YouTrackDB
+        uses: actions/checkout@v7
+        with:
+          # Pinned for the same reason the Deploy Artifacts job pins it: a
+          # workflow_dispatch run must not be able to publish the coordinate
+          # named by an arbitrary branch under the project's group ID. It pins
+          # which pom.xml supplies that coordinate and nothing more — on
+          # workflow_dispatch GitHub still runs the workflow file from the
+          # dispatched ref, which only an environment gate with required
+          # reviewers would constrain.
+          ref: 'develop'
+          fetch-depth: 1
+          # A build of another repository's source runs in this workspace below.
+          # Keep the checkout token off disk while it does.
+          persist-credentials: false
+
+      - name: Resolve the pinned fork coordinate
+        id: coords
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # gremlin.version has the shape <base>-<fork-sha>-SNAPSHOT. The fork's
+          # own pom builds its version from ${revision}${sha1}${changelist}, so
+          # building <fork-sha> with -Dsha1=-<fork-sha> reproduces the exact
+          # coordinate YouTrackDB asks for. Parsed with sed rather than
+          # `mvn help:evaluate` so the coordinate is known before any JDK or
+          # Maven setup, and before any fork source reaches the workspace.
+          pattern='s:.*<gremlin\.version>\(.*\)</gremlin\.version>.*:\1:p'
+          mapfile -t matches < <(sed -n "$pattern" pom.xml)
+          if [ "${#matches[@]}" -ne 1 ]; then
+            echo "::error::Found ${#matches[@]} <gremlin.version> declarations in pom.xml," \
+                 "expected exactly one. A profile override or a commented-out copy makes" \
+                 "the pinned coordinate ambiguous, and this workflow will not guess which" \
+                 "one wins."
+            exit 1
+          fi
+          version="${matches[0]}"
+          if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([0-9a-f]{7,40})-SNAPSHOT$ ]]; then
+            echo "::error::gremlin.version is '$version', which does not match" \
+                 "<base>-<fork-sha>-SNAPSHOT. Either the property moved in pom.xml" \
+                 "or the fork changed its versioning scheme; this workflow cannot" \
+                 "derive the fork commit until it is taught the new shape."
+            exit 1
+          fi
+          short_sha="${BASH_REMATCH[2]}"
+
+          # actions/checkout cannot fetch an abbreviated SHA, so expand it. An
+          # empty answer would be passed on as an empty `ref:`, which silently
+          # checks out the fork's default branch, so treat it as a failure.
+          if ! full_sha="$(gh api "repos/${FORK_REPO}/commits/${short_sha}" --jq .sha)" \
+             || [ -z "$full_sha" ]; then
+            echo "::error::Cannot expand ${short_sha} against ${FORK_REPO}. The commit" \
+                 "was probably garbage-collected after a force-push. Re-pin" \
+                 "gremlin.version to a commit that still exists on ${FORK_BRANCH}."
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "short_sha=$short_sha"
+            echo "full_sha=$full_sha"
+          } >> "$GITHUB_OUTPUT"
+
+          # Recorded in the run summary so a later audit can see exactly which
+          # commit was resolved, not just its seven-character prefix. This runs
+          # before the provenance gate, so it reports the pin, not a publish.
+          echo "Resolved pin: \`io.youtrackdb:gremlin-*:$version\` at" \
+               "\`${FORK_REPO}@$full_sha\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the pinned commit belongs to the fork branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL_SHA: ${{ steps.coords.outputs.full_sha }}
+        # An abbreviated SHA resolves against the shared object store of the
+        # whole apache/tinkerpop fork network, not against refs in
+        # ytdb-tinkerpop, and `git fetch <full-sha>` retrieves such an object
+        # without complaint. Without this gate, a commit authored in any of the
+        # hundreds of sibling forks would be checked out and built with this
+        # repository's Maven Central credentials in the environment. Ancestry is
+        # what pins the source, so assert it before the fork's code reaches the
+        # runner.
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/${FORK_REPO}/compare/${FULL_SHA}...${FORK_BRANCH}" --jq .status)"
+          case "$status" in
+            # identical: the pin is the branch head.
+            # ahead: the branch has moved on, the pin is still an ancestor.
+            identical|ahead) echo "Pin is on ${FORK_BRANCH} (compare status: $status)." ;;
+            *)
+              echo "::error::${FULL_SHA} is not an ancestor of ${FORK_BRANCH} in" \
+                   "${FORK_REPO} (compare status: $status). Refusing to build and" \
+                   "publish a commit that does not come from the fork branch."
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout the TinkerPop fork at the pinned commit
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.FORK_REPO }}
+          ref: ${{ steps.coords.outputs.full_sha }}
+          path: ytdb-tinkerpop
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        # The fork enforces requireJavaVersion [11,18), and JDK 17 is what its
+        # own publish pipeline uses, so the rebuild runs in the same toolchain
+        # that produced the original artifacts. No Maven cache: this job's
+        # output is published, so it builds from what the repositories serve
+        # rather than from whatever a previous run left behind.
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          overwrite-settings: false
+
+      - name: Verify the rebuild produces exactly the pinned coordinate
+        working-directory: ytdb-tinkerpop
+        env:
+          SHORT_SHA: ${{ steps.coords.outputs.short_sha }}
+          VERSION: ${{ steps.coords.outputs.version }}
+        # No -s and no secrets: this step reads the fork's own pom, and reading
+        # it means resolving and instantiating the build extensions the fork
+        # declares. Keep it where it is, after the provenance gate, and keep it
+        # credential-free.
+        #
+        # Ask Maven what it will call the artifacts rather than checking one
+        # component of ${revision}${sha1}${changelist} by hand: a fork-side
+        # change to changelist or to the <version> expression would slip past a
+        # <revision> comparison and publish a coordinate YouTrackDB cannot
+        # resolve. Running it before the deploy costs one Maven startup and
+        # turns a bad publish into a clean refusal. Reading the root pom alone
+        # is enough because no module declares its own <version>; they all
+        # inherit it. This is the same help:evaluate pattern the Deploy
+        # Artifacts and weekly-beta-release jobs use.
+        run: |
+          set -euo pipefail
+          built="$(mvn -q -N -B \
+            -DforceStdout help:evaluate -Dexpression=project.version \
+            -Dsha1="-${SHORT_SHA}" -Dchangelist=-SNAPSHOT \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | tail -n1)"
+          if [ "$built" != "$VERSION" ]; then
+            echo "::error::Fork commit ${SHORT_SHA} builds as '${built}', but" \
+                 "gremlin.version pins '${VERSION}'. Refusing to publish a coordinate" \
+                 "YouTrackDB does not resolve."
+            exit 1
+          fi
+          echo "Rebuild coordinate matches the pin: $built"
+
+      - name: Rebuild and republish the snapshot
+        id: deploy
+        working-directory: ytdb-tinkerpop
+        env:
+          SHORT_SHA: ${{ steps.coords.outputs.short_sha }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+        # The fork declares central-publishing-maven-plugin with
+        # <extensions>true</extensions>, so `deploy` routes through the Central
+        # Portal plugin and uploads to central-portal-snapshots, which is the
+        # repository YouTrackDB's root pom reads from.
+        # -DaltDeploymentRepository would be ignored here, so it is not set.
+        # This repository's own Deploy Artifacts job is the precedent: it runs a
+        # bare `mvn deploy` under the same plugin configuration, declares no
+        # distributionManagement, and its snapshots still land on
+        # central-portal-snapshots.
+        #
+        # -Dchangelist=-SNAPSHOT restates the fork's own default. The plugin
+        # runs with autoPublish=true, so a fork-side change to that default
+        # would turn this into an immutable release deploy that cannot be
+        # retracted; pinning it makes that path unreachable.
+        #
+        # -DskipTests because this rebuilds a commit the fork's own pipeline
+        # already tested when it first published this coordinate. The source is
+        # identical, so the tests would only repeat what that pipeline already
+        # ran, at the cost of wall-clock time.
+        run: |
+          set -euo pipefail
+
+          # Floor for the freshness assertion in the next step, backdated to
+          # absorb clock skew between this runner and Sonatype. The backdating
+          # means an artifact republished by another run inside that window
+          # would read as fresh here; the concurrency group serialises runs and
+          # the cadence is twice monthly, so the simpler floor is preferred to
+          # capturing per-artifact lastUpdated before the deploy.
+          echo "floor=$(date -u -d '10 minutes ago' +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+
+          # A settings.xml holding one server rather than the repository's
+          # shared one. Maven matches <server> entries by id, so a <repository>
+          # the fork declares under the shared file's ytdb-maven-central id
+          # would be sent the mirror credentials. The fork build has no need of
+          # them, so it never sees them; dependencies come from Maven Central
+          # directly, which is cheap at twice a month. The password stays an
+          # env placeholder, so no secret is written to disk.
+          # The id must match the fork's central-publishing-maven-plugin
+          # publishingServerId, which is the plugin default. If the fork ever
+          # overrides it, the deploy fails with a 401 that looks like bad
+          # credentials rather than a missing <server> entry.
+          settings="$RUNNER_TEMP/fork-settings.xml"
+          cat > "$settings" <<'XML'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+            <servers>
+              <server>
+                <id>central</id>
+                <username>${env.MAVEN_USERNAME}</username>
+                <password>${env.MAVEN_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          XML
+
+          # ":a,:b,:c" from the shared artifact list, so the modules named
+          # here and the ones verified afterwards cannot drift apart. -am makes
+          # the deployed set a superset of that list. Unquoted on purpose: the
+          # word splitting is what turns the list into arguments.
+          # shellcheck disable=SC2086
+          projects="$(printf ':%s,' $GREMLIN_ARTIFACTS)"
+          projects="${projects%,}"
+
+          # -am is load-bearing, not a safety net: it is what pulls the
+          # io.youtrackdb:tinkerpop parent pom into the reactor, and every
+          # module above needs that pom to resolve. It also absorbs any new
+          # inter-module dependency the fork adds later.
+          mvn -B -s "$settings" \
+            -Dsha1="-${SHORT_SHA}" \
+            -Dchangelist=-SNAPSHOT \
+            -DskipTests \
+            -pl "$projects" -am \
+            clean deploy
+
+      - name: Verify every pinned artifact republished
+        timeout-minutes: 20
+        env:
+          # Must stay in sync with the central-portal-snapshots <url> in the
+          # root pom.xml; that is the repository consumers actually read.
+          SNAPSHOT_REPO: https://central.sonatype.com/repository/maven-snapshots/io/youtrackdb
+          VERSION: ${{ steps.coords.outputs.version }}
+          FLOOR: ${{ steps.deploy.outputs.floor }}
+          GREMLIN_ARTIFACTS: ${{ env.GREMLIN_ARTIFACTS }}
+          GREMLIN_POM_ARTIFACTS: ${{ env.GREMLIN_POM_ARTIFACTS }}
+        # Existence is not enough. On a routine run the coordinate is still
+        # live, so an artifact the deploy skipped answers with its months-old
+        # metadata and HTTP 200 — the run would go green while that one artifact
+        # kept counting down to its original purge date. So assert freshness
+        # (lastUpdated at or after this run's floor) and then fetch the file the
+        # metadata points at, which is what a consumer's build resolves.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import http.client, os, sys, time, urllib.error, urllib.request
+          import xml.etree.ElementTree as ET
+
+          repo = os.environ["SNAPSHOT_REPO"]
+          version = os.environ["VERSION"]
+          floor = os.environ["FLOOR"]
+
+          ATTEMPTS = 5
+          RETRY_SLEEP = 8
+          # Bound the step as a whole rather than each artifact: eleven targets
+          # each retrying to exhaustion could outlast the job timeout and
+          # surface as an opaque cancellation instead of a named failure.
+          DEADLINE = time.monotonic() + 600
+
+          # urlopen raises TimeoutError and ConnectionResetError on the two most
+          # common transients, and neither is a URLError. Both are OSError, so
+          # catch that; IncompleteRead is not, hence HTTPException beside it.
+          TRANSIENT = (OSError, http.client.HTTPException, ET.ParseError)
+
+          def fetch(url, limit=-1):
+              # A default Python-urllib User-Agent is a common CDN filter target.
+              request = urllib.request.Request(url, headers={"User-Agent": "ytdb-snapshot-refresh"})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return response.read(limit)
+
+          def check(artifact, packaging):
+              """Return None when the artifact is fresh, else (reason, retryable).
+
+              retryable marks the failures Central Portal can still resolve on
+              its own — it lags a few seconds behind a deploy, so a 404, a
+              network error, or metadata that still reads stale may all clear by
+              themselves. A structurally wrong answer never will, and retrying
+              one only burns the deadline that the genuinely slow cases need.
+              """
+              base = f"{repo}/{artifact}/{version}"
+              try:
+                  root = ET.fromstring(fetch(f"{base}/maven-metadata.xml"))
+              except urllib.error.HTTPError as exc:
+                  return (f"metadata HTTP {exc.code}", True)
+              except TRANSIENT as exc:
+                  return (f"metadata unreadable ({exc!r})", True)
+
+              updated = root.findtext("versioning/lastUpdated")
+              if not updated:
+                  return ("metadata carries no versioning/lastUpdated", False)
+              if updated < floor:
+                  return (f"stale: lastUpdated={updated} predates this run ({floor})", True)
+
+              # The main artifact is the snapshotVersion with the packaging
+              # extension and no classifier; sources and tests entries carry one.
+              stamped = next(
+                  (sv.findtext("value")
+                   for sv in root.iterfind("versioning/snapshotVersions/snapshotVersion")
+                   if sv.findtext("extension") == packaging and not sv.findtext("classifier")),
+                  None,
+              )
+              if stamped is None:
+                  return (f"metadata lists no unclassified {packaging}", False)
+
+              url = f"{base}/{artifact}-{stamped}.{packaging}"
+              # Four bytes is enough to tell a jar from an empty body or from a
+              # CDN error page served with HTTP 200, and it avoids pulling tens
+              # of megabytes across ten artifacts. It does not detect a
+              # truncated jar: those keep their zip magic and pass.
+              try:
+                  body = fetch(url, 4 if packaging == "jar" else -1)
+              except urllib.error.HTTPError as exc:
+                  return (f"{packaging} HTTP {exc.code} at {url}", True)
+              except TRANSIENT as exc:
+                  return (f"{packaging} unreachable ({exc!r})", True)
+
+              if packaging == "jar":
+                  if body[:4] != b"PK\x03\x04":
+                      return (f"{url} does not open with the zip magic "
+                              f"({len(body)} bytes read)", False)
+              else:
+                  try:
+                      ET.fromstring(body)
+                  except ET.ParseError as exc:
+                      return (f"{url} is not parseable XML ({exc})", False)
+              return None
+
+          targets = [(a, "jar") for a in os.environ["GREMLIN_ARTIFACTS"].split()]
+          targets += [(a, "pom") for a in os.environ["GREMLIN_POM_ARTIFACTS"].split()]
+
+          failures = {}
+          exhausted = False
+          for artifact, packaging in targets:
+              # Not None, so an ATTEMPTS of zero could never report a pass.
+              result = ("not checked", False)
+              for attempt in range(ATTEMPTS):
+                  result = check(artifact, packaging)
+                  if result is None or not result[1]:
+                      break
+                  if time.monotonic() > DEADLINE:
+                      exhausted = True
+                      break
+                  if attempt < ATTEMPTS - 1:
+                      time.sleep(RETRY_SLEEP)
+              if result is None:
+                  print(f"ok       {artifact} ({packaging})")
+              else:
+                  reason = result[0]
+                  # Otherwise a budget-truncated check reads exactly like a
+                  # settled failure, and the responder chases the wrong cause.
+                  if exhausted:
+                      reason += "  [retry budget exhausted; attempts cut short]"
+                  print(f"FAILED   {artifact} ({packaging}): {reason}")
+                  failures[(artifact, packaging)] = reason
+
+          if failures:
+              named = ", ".join(f"{a} ({p})" for a, p in sorted(failures))
+              print(f"::error::{len(failures)} artifact(s) did not republish: {named}")
+              sys.exit(1)
+          print(f"All {len(targets)} artifacts of {version} republished and resolve.")
+          PY
+
+  notify-failure:
+    name: Notify refresh failure on Zulip
+    needs: [ refresh ]
+    # The snapshot still has whatever is left of its 90-day window when a
+    # refresh fails, so the job posts a low-severity Zulip message instead of
+    # dispatching the CI fix agent. After two consecutive failures, treat the
+    # refresh as urgent.
+    #
+    # Unlike the notify jobs in the integration pipeline, this one does not
+    # exempt workflow_dispatch: a manual run is the documented recovery path for
+    # an already-broken build, so its failure is the case most worth paging on.
+    if: always() && needs.refresh.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Send Zulip Notification
+        uses: zulip/github-actions-zulip/send-message@v2
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **TINKERPOP SNAPSHOT REFRESH FAILED** :warning:
+            `io.youtrackdb:gremlin-*:${{ needs.refresh.outputs.version || 'unknown version' }}` was not republished for repo ${{ github.repository }}.
+            Sonatype purges snapshots 90 days after publication; once that window closes every build fails at dependency resolution.
+            Read the run logs, then either fix the failure or bump the pin — see `docs-internal/dev-workflow/tinkerpop-fork-dependency.md`.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
