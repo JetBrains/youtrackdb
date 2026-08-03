@@ -82,9 +82,10 @@ final class GremlinProjectionAssembler {
    * @param contributePresenceConjunct whether the captured child still emits nothing for an element
    *     without the property once its remaining steps have run. Read only on the captured-child path;
    *     the main line expresses the same drop through shaping and ignores it. {@link
-   *     PropertiesStepRecogniser} decides it by classifying the projection's successor — {@code
-   *     count()} is the one accepted successor that emits for an empty stream, so it turns the flag
-   *     off and an unclassified successor declines the walk outright.
+   *     PropertiesStepRecogniser} decides it by a termination test over what remains of the child: a
+   *     projection that ends the child turns the flag on, a {@code count()} that ends the child turns
+   *     it off (it emits {@code 0} for an empty stream), and every other remaining chain declines the
+   *     walk outright.
    */
   static Outcome configureSingleKeyValues(
       RecognitionContext ctx, String propertyKey, boolean contributePresenceConjunct) {

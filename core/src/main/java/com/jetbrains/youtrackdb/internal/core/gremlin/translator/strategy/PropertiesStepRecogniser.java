@@ -1,8 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.process.traversal.Step;
-import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
@@ -54,7 +51,7 @@ final class PropertiesStepRecogniser implements StepRecogniser {
     }
     var contributePresenceConjunct = false;
     if (!ctx.projectsReturnedPayload()) {
-      var drop = capturedSuccessorDrop(cursor.peek(0));
+      var drop = capturedSuccessorDrop(cursor);
       if (drop == CapturedDrop.UNCLASSIFIED) {
         return Outcome.DECLINE;
       }
@@ -67,61 +64,66 @@ final class PropertiesStepRecogniser implements StepRecogniser {
   /**
    * What the rest of a captured child does to the drop {@code values(key)} performs. A combinator
    * child contributes exactly one thing to its parent — whether it produced a traverser — so the
-   * question the conjunct answers is not "did the projection drop the element" but "does the child
-   * still emit nothing once every remaining step has run".
+   * question the conjunct answers is whether the child still emits nothing once every remaining step
+   * has run.
    */
   private enum CapturedDrop {
-    /** No remaining step can turn the dropped element's empty stream into output — filter on it. */
+    /** Nothing remains that could turn the dropped element's empty stream into output — filter on it. */
     PRESERVED,
-    /** A remaining step emits for an empty stream, so the element survives — contribute nothing. */
+    /** What remains emits for an empty stream, so the element survives — contribute nothing. */
     DESTROYED,
     /** Not classified. The caller declines rather than guess in either direction. */
     UNCLASSIFIED
   }
 
   /**
-   * Classifies the step following a {@code values(key)} projection inside a captured child. Called
-   * only there: on the main line the drop travels as result shaping, which the plan step applies to
-   * the rows it returns, and no successor changes that.
+   * Classifies what remains of a captured child after a {@code values(key)} projection. Called only
+   * there: on the main line the drop travels as result shaping, which the plan step applies to the
+   * rows it returns, and no successor changes that.
    *
-   * <p>Matching on the exact class throughout, mirroring the walker's class-keyed dispatch: an
-   * unregistered subclass declines the walk anyway, so routing it to {@link
-   * CapturedDrop#UNCLASSIFIED} here costs nothing and keeps both classified arms exact.
+   * <p>The classification is a <b>termination test</b>, and only two chain shapes pass it — the
+   * projection ends the child, or a {@code count()} immediately after the projection ends the child.
+   * Anything else is {@link CapturedDrop#UNCLASSIFIED} and declines, whatever its length or members.
+   * The shape of the test is the point. Two earlier versions of this gate asked which single step
+   * followed the projection and answered from a list of tolerated successors, and each list turned
+   * out to be missing an entry. The second admitted {@code dedup()} without looking past it, so
+   * {@code and(values(age).dedup().count())} answered 2 against native's 3. "Nothing remains" is a
+   * positional fact read straight off the cursor and has nothing left to enumerate.
    *
    * <ul>
-   *   <li><b>End of the child</b> — the drop is the child's whole answer. {@link
-   *       CapturedDrop#PRESERVED}.
-   *   <li><b>{@code count()}</b> — counts an empty stream as {@code 0} and emits it, so the element
-   *       survives natively and a presence conjunct would filter a row native keeps. {@link
-   *       CapturedDrop#DESTROYED}.
-   *   <li><b>{@code dedup()}</b> — never turns a non-empty stream empty or an empty one non-empty,
-   *       and {@link DedupGlobalStepRecogniser} refuses every {@code by(...)} modulator, so it
-   *       commits no filter of its own that could interact. {@link CapturedDrop#PRESERVED}.
+   *   <li><b>The projection ends the child</b> — the drop is the child's whole answer, and the
+   *       conjunct is the only carrier that reaches the parent. {@link CapturedDrop#PRESERVED}.
+   *   <li><b>{@code count()} ends the child</b> — {@code count()} counts an empty stream as {@code 0}
+   *       and emits it, so the element survives natively and a presence conjunct would filter a row
+   *       native keeps. {@link CapturedDrop#DESTROYED}. Matched on the exact class, mirroring the
+   *       walker's class-keyed dispatch: an unregistered subclass declines the walk anyway, so
+   *       routing it to {@link CapturedDrop#UNCLASSIFIED} costs nothing and keeps the arm exact.
    * </ul>
    *
-   * <p>Everything else declines, and two reachable successors are deliberately in that bucket rather
-   * than classified. A slice selects by <em>position</em>: {@code limit(0)} empties every stream and
-   * {@code skip(n)} empties a stream of {@code n} values, so it preserves the drop only for some
-   * bounds, and reading those bounds here would restate the slice recogniser's normalisation in a
-   * second place. {@code order()} carries comparator modulators that read properties of their own and
-   * commit their own conjuncts through {@link ByModulatorPresence}, so its child contribution is not
-   * the projection's drop alone. Both spellings translated before this classification existed and
-   * both disagreed with native — {@code and(values(age).limit(1))} and {@code and(values(age).order())}
-   * each returned every vertex against native's key-bearers — so declining them loses no shape that
-   * was answering correctly. That holds for the whole bucket: before this gate a captured child with
-   * any successor committed no conjunct and therefore filtered nothing, which agrees with native only
-   * where the successor emits for an empty stream, and {@code count()} is the only such successor the
-   * registry accepts.
+   * <p>The surface this costs is small and measured. {@code dedup()} after the projection is the only
+   * shape the rule withdraws that was answering correctly, and it is inert where it sits: a captured
+   * child is an existence test — {@link SubTraversalPredicateAdapter#projectsReturnedPayload} answers
+   * {@code false} unconditionally and the payload is never read — so the parent asks only whether any
+   * traverser survived, and {@code dedup()} maps an empty stream to an empty one and a non-empty
+   * stream to a non-empty one. {@code and(values(age).dedup())} selects the same vertices as
+   * {@code and(values(age))}, measured on a fixture where two vertices share an age. The withdrawn
+   * spellings are the ones that wrote a redundant {@code dedup}; {@code and(values(age))} itself is
+   * untouched. A {@code dedup} <em>before</em> the projection is untouched too, because the projection
+   * still ends the child.
+   *
+   * <p>The other reachable successors were already declining and keep declining. A slice selects by
+   * <em>position</em>: {@code limit(0)} empties every stream and {@code skip(n)} empties a stream of
+   * {@code n} values. {@code order()} carries comparator modulators that read properties of their own
+   * and commit their own conjuncts through {@link ByModulatorPresence}.
    */
-  private static CapturedDrop capturedSuccessorDrop(@Nullable Step<?, ?> successor) {
+  private static CapturedDrop capturedSuccessorDrop(StepCursor cursor) {
+    var successor = cursor.peek(0);
     if (successor == null) {
       return CapturedDrop.PRESERVED;
     }
-    if (successor.getClass() == CountGlobalStep.class) {
+    // peek(1) == null is the termination test: nothing significant remains after the count().
+    if (successor.getClass() == CountGlobalStep.class && cursor.peek(1) == null) {
       return CapturedDrop.DESTROYED;
-    }
-    if (successor.getClass() == DedupGlobalStep.class) {
-      return CapturedDrop.PRESERVED;
     }
     return CapturedDrop.UNCLASSIFIED;
   }
@@ -152,6 +154,10 @@ final class PropertiesStepRecogniser implements StepRecogniser {
    *       records: a {@code CountGlobalStep} subclass has no registry entry and would decline the
    *       walk anyway, so treating it as a count here is the one direction that is not fail-closed.
    * </ul>
+   *
+   * <p>This gate answers only whether the element is distinguishable from its payload; inside a
+   * captured child {@link #capturedSuccessorDrop} then applies its own, stricter termination test, so
+   * a count that passes here still declines unless it ends the child.
    *
    * <p>Anything else declines, which is the safe direction: the shape runs natively and the two arms
    * agree by construction. The position that costs the most to lose is a count with a slice between

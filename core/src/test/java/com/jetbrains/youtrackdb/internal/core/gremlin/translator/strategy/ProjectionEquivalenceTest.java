@@ -330,82 +330,128 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
   // A captured child contributes one thing to its parent: whether it emitted a
   // traverser. So the presence conjunct a sub-walk values(key) stands for is
-  // right only where the child's remaining steps leave the drop intact. The
-  // three cases below are the three answers — preserved, destroyed, and not
-  // classified — and each pins the native row set the answer has to reproduce.
+  // right only where nothing left in the child can turn the projection's empty
+  // stream back into output. Two chain shapes qualify — the projection ends the
+  // child, or a count() after it ends the child — and every other chain declines
+  // whatever its length. The cases below are those two shapes, the declines, and
+  // the native row set each has to reproduce.
   // ---------------------------------------------------------------------------
 
   /**
-   * A drop-preserving successor inside a captured child still gets the presence conjunct.
-   * {@code dedup()} cannot turn an empty stream into output, so a vertex without {@code age} produces
-   * no traverser in the child either way and the {@code and} must drop it. The conjunct was gated on
-   * the projection ending its child's walk, which is false here, so both spellings translated with an
-   * empty filter map and returned every seeded vertex. The second spelling adds a sibling child to
-   * show the conjunct composes rather than replacing what the other child contributed.
+   * A {@code values(key)} that ends its captured child gets the presence conjunct, in every
+   * combinator that captures one. The projection is discarded on commit and the conjunct is the only
+   * carrier left for the drop, so a missing conjunct turns the combinator into a no-op that returns
+   * every seeded vertex. The three spellings cover the three commit paths the conjunct travels:
+   * {@code and} conjoins it, {@code or} disjoins two of them, and {@code not} negates a nested
+   * combinator's pair.
    */
   @Test
-  public void subWalkValuesBeforeDedup_keepsThePresenceFilter() {
+  public void subWalkValuesEndingTheChild_keepsThePresenceFilter() {
     seedNameAgeNickGraph();
 
     assertEquivalent(
-        "g.V().and(values(age).dedup())",
+        "g.V().and(values(age))",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V().and(__.values("age").dedup()));
+        () -> graph.traversal().V().and(__.values("age")));
     assertEquivalent(
-        "g.V().and(values(age).dedup(), values(name))",
+        "g.V().or(values(age), values(name))",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V().and(__.values("age").dedup(), __.values("name")));
+        () -> graph.traversal().V().or(__.values("age"), __.values("name")));
+    assertEquivalent(
+        "g.V().not(and(values(age), values(name)))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().not(__.and(__.values("age"), __.values("name"))));
 
-    // Non-vacuity: native filters on both, and to different sizes, so neither equality above is over
-    // the whole scan and the two-child case is not a restatement of the one-child case.
+    // Non-vacuity: the three shapes select three different subsets of the same three seeded
+    // vertices, so none of the equalities above is over the whole scan and none restates another.
     withTranslatorOff(
         () -> {
-          assertThat(graph.traversal().V().and(__.values("age").dedup()).toList())
+          assertThat(graph.traversal().V().and(__.values("age")).toList())
               .as("native keeps the two age-bearing vertices of the three seeded")
               .hasSize(2);
+          assertThat(graph.traversal().V().or(__.values("age"), __.values("name")).toList())
+              .as("every seeded vertex carries one of the two keys, so the or keeps all three")
+              .hasSize(3);
           assertThat(
-              graph.traversal().V().and(__.values("age").dedup(), __.values("name")).toList())
-              .as("native keeps only the vertex carrying both properties")
-              .hasSize(1);
+              graph.traversal().V().not(__.and(__.values("age"), __.values("name"))).toList())
+              .as("only one vertex carries both keys, so the not keeps the other two")
+              .hasSize(2);
         });
   }
 
   /**
-   * A {@code count()} successor inside a captured child gets no conjunct, because it destroys the
-   * drop: native counts an empty stream as {@code 0} and emits it, so a vertex without {@code age}
-   * survives the child and the {@code and} keeps it. Contributing the presence conjunct here would
-   * filter rows native returns, which is why the classification is three-way and not "successor or
-   * no successor".
+   * A {@code count()} that ends the captured child gets no conjunct, because it destroys the drop:
+   * native counts an empty stream as {@code 0} and emits it, so a vertex without {@code age} survives
+   * the child and the combinator keeps it. Contributing the presence conjunct here would filter rows
+   * native returns. The third spelling puts the count child beside a plain projection child to show
+   * the two answers compose — one contributes nothing, the other still contributes its conjunct.
    */
   @Test
-  public void subWalkValuesBeforeCount_keepsEveryElement() {
+  public void subWalkValuesBeforeTerminalCount_keepsEveryElement() {
     seedNameAgeNickGraph();
 
     assertEquivalent(
         "g.V().and(values(age).count())",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().and(__.values("age").count()));
+    assertEquivalent(
+        "g.V().where(values(age).count())",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().where(__.values("age").count()));
+    assertEquivalent(
+        "g.V().and(values(age).count(), values(name))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().and(__.values("age").count(), __.values("name")));
 
-    // Non-vacuity in the opposite direction from the dedup case: this shape must filter nothing, so
-    // the guard is that native returns every seeded vertex. A conjunct leaking in would return two.
+    // Non-vacuity in the opposite direction from the presence cases: the first two must filter
+    // nothing, so the guard is that native returns every seeded vertex and a conjunct leaking in
+    // would return two. The mixed case must filter to the name-bearers and not to the age-bearers,
+    // which separates "no conjunct from the count child" from "no conjunct at all".
     withTranslatorOff(
-        () -> assertThat(graph.traversal().V().and(__.values("age").count()).toList())
-            .as("count() emits 0 for the age-less vertices, so native keeps all three")
-            .hasSize(3));
+        () -> {
+          assertThat(graph.traversal().V().and(__.values("age").count()).toList())
+              .as("count() emits 0 for the age-less vertices, so native keeps all three")
+              .hasSize(3);
+          assertThat(graph.traversal().V().where(__.values("age").count()).toList())
+              .as("the same holds under where(), which captures its child the same way")
+              .hasSize(3);
+          assertThat(
+              graph.traversal().V().and(__.values("age").count(), __.values("name"))
+                  .values("name").toList())
+              .as("the count child keeps everything, so only the name child filters")
+              .containsExactlyInAnyOrder("Alice", "Bob");
+        });
   }
 
   /**
-   * An unclassified successor inside a captured child declines the whole walk. A slice selects by
-   * position — {@code limit(0)} empties every stream and {@code skip(n)} empties a stream of
-   * {@code n} values — so it preserves the drop only for some bounds; {@code order()} carries
-   * comparator modulators that read properties of their own and commit their own conjuncts. Both
-   * translated before the classification existed and both disagreed with native, so the decline
-   * costs no shape that was answering correctly.
+   * Any step surviving after the projection declines the walk, even one that leaves the drop intact.
+   * {@code dedup()} does leave it intact and an earlier gate classified it as such, which was
+   * incomplete in a way the row sets here pin: the gate read one step ahead, so
+   * {@code and(values(age).dedup().count())} kept the conjunct that {@code count()} should have
+   * withdrawn. The rule is a termination test rather than a list of tolerated successors, so the
+   * single-step spellings decline for the same reason the longer ones do.
+   *
+   * <p>The scoped {@code dedup(label)} spelling is here because it reached the same gate: it is a
+   * {@link org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep} like the
+   * unscoped form, and the label-resolving decline in {@code DedupGlobalStepRecogniser} fires only
+   * after the projection has already committed.
    */
   @Test
-  public void subWalkValuesBeforeSliceOrOrder_declinesToNative() {
+  public void subWalkValuesWithAnySurvivingStep_declinesToNative() {
     seedNameAgeNickGraph();
 
+    assertEquivalent(
+        "g.V().and(values(age).dedup())",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.values("age").dedup()));
+    assertEquivalent(
+        "g.V().and(values(age).dedup(), values(name))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.values("age").dedup(), __.values("name")));
+    assertEquivalent(
+        "g.V().as(a).and(values(age).dedup(a))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().as("a").and(__.values("age").dedup("a")));
     assertEquivalent(
         "g.V().and(values(age).limit(1))",
         Recognition.DECLINED,
@@ -415,12 +461,126 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         Recognition.DECLINED,
         () -> graph.traversal().V().and(__.values("age").order()));
 
-    // Non-vacuity: native filters to two of the three seeded vertices, so the decline is guarding a
-    // real divergence — the accepting translation returned all three.
+    // Non-vacuity: native filters, and the two-child spelling filters harder, so the declines are
+    // guarding real row sets rather than agreeing over the whole scan.
     withTranslatorOff(
-        () -> assertThat(graph.traversal().V().and(__.values("age").limit(1)).toList())
-            .as("native keeps the two age-bearing vertices")
-            .hasSize(2));
+        () -> {
+          assertThat(graph.traversal().V().and(__.values("age").dedup()).toList())
+              .as("native keeps the two age-bearing vertices")
+              .hasSize(2);
+          assertThat(
+              graph.traversal().V().and(__.values("age").dedup(), __.values("name")).toList())
+              .as("native keeps only the vertex carrying both properties")
+              .hasSize(1);
+        });
+  }
+
+  /**
+   * A two-step tail after the projection declines in every combinator that captures a child. These
+   * are the shapes a one-step-ahead gate mistranslated: it read the {@code dedup()} as leaving the
+   * drop intact and never looked at the {@code count()} or {@code limit(0)} behind it, so the
+   * conjunct was contributed where native keeps the row ({@code and} and {@code where} returned two
+   * of three, {@code not} returned one of zero) and withheld where native drops it
+   * ({@code limit(0)} returned two of zero). The row sets differ per combinator and two of them are
+   * empty, so a decline that quietly became a shared filter could not satisfy all four.
+   */
+  @Test
+  public void subWalkValuesWithMultiStepTail_declinesToNative() {
+    seedNameAgeNickGraph();
+
+    assertEquivalent(
+        "g.V().and(values(age).dedup().count())",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.values("age").dedup().count()));
+    assertEquivalent(
+        "g.V().where(values(age).dedup().count())",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().where(__.values("age").dedup().count()));
+    assertEquivalent(
+        "g.V().not(values(age).dedup().count())",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().not(__.values("age").dedup().count()));
+    assertEquivalent(
+        "g.V().and(values(age).dedup().limit(0))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.values("age").dedup().limit(0)));
+    // The termination test applies to the count arm too, and this is the spelling that needs it: a
+    // count() classified drop-destroying without checking what follows it hands the walk on to a
+    // slice whose bound the child swallows, so the child contributes nothing and every vertex
+    // survives — against native's none.
+    assertEquivalent(
+        "g.V().and(values(age).count().limit(0))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().and(__.values("age").count().limit(0)));
+
+    // Non-vacuity: the five native answers are three distinct row sets, two of them empty for
+    // opposite reasons — count() emits 0 so not() rejects every vertex, limit(0) emits nothing so
+    // and() rejects every vertex.
+    withTranslatorOff(
+        () -> {
+          assertThat(graph.traversal().V().and(__.values("age").dedup().count()).toList())
+              .as("count() emits 0 for the age-less vertex too, so native keeps all three")
+              .hasSize(3);
+          assertThat(graph.traversal().V().where(__.values("age").dedup().count()).toList())
+              .as("where() reads the same non-empty child, so it also keeps all three")
+              .hasSize(3);
+          assertThat(graph.traversal().V().not(__.values("age").dedup().count()).toList())
+              .as("the child always emits, so not() rejects every vertex")
+              .isEmpty();
+          assertThat(graph.traversal().V().and(__.values("age").dedup().limit(0)).toList())
+              .as("limit(0) empties every child stream, so and() rejects every vertex")
+              .isEmpty();
+          assertThat(graph.traversal().V().and(__.values("age").count().limit(0)).toList())
+              .as("limit(0) discards the count too, so and() rejects every vertex here as well")
+              .isEmpty();
+        });
+  }
+
+  /**
+   * The surface the termination rule withdraws is redundant spellings, not answers: an unscoped
+   * {@code dedup()} inside a captured child is inert. A captured child is an existence test — the
+   * combinator reads only whether a traverser survived — and {@code dedup()} maps an empty stream to
+   * an empty one and a non-empty stream to a non-empty one, so it cannot move the answer. Measured
+   * natively rather than argued, on a fixture where two vertices share an age: a duplicate value is
+   * what a deduplication could act on, and a duplicate set leaking across traversers would drop the
+   * second vertex.
+   *
+   * <p>Native-only by construction. There is no translated arm to compare against — the shapes now
+   * decline, which {@code subWalkValuesWithAnySurvivingStep_declinesToNative} pins — so the guard
+   * against vacuity is that the shared row set is a proper non-empty subset of the fixture.
+   */
+  @Test
+  public void subWalkDedupIsInertInAnExistenceChild() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Carol");
+    graph.tx().commit();
+
+    withTranslatorOff(
+        () -> {
+          var withoutDedup = graph.traversal().V().and(__.values("age")).values("name").toList();
+          assertThat(withoutDedup)
+              .as("the two age-bearers, and not the third vertex — the comparisons below would be "
+                  + "vacuous over an empty or whole-scan row set")
+              .containsExactlyInAnyOrder("Alice", "Bob");
+
+          assertThat(graph.traversal().V().and(__.values("age").dedup()).values("name").toList())
+              .as("dedup() cannot empty a non-empty child, so the and selects the same vertices "
+                  + "even though the two ages are equal")
+              .containsExactlyInAnyOrderElementsOf(withoutDedup);
+          assertThat(
+              graph.traversal().V().as("a").and(__.values("age").dedup("a")).values("name")
+                  .toList())
+              .as("a scoped dedup collapses the child stream by path label and is inert for the "
+                  + "same reason")
+              .containsExactlyInAnyOrderElementsOf(withoutDedup);
+          assertThat(graph.traversal().V().where(__.values("age").dedup()).values("name").toList())
+              .as("where() captures its child identically")
+              .containsExactlyInAnyOrderElementsOf(withoutDedup);
+          assertThat(graph.traversal().V().not(__.values("age").dedup()).values("name").toList())
+              .as("not() reads the same non-emptiness and inverts it")
+              .containsExactly("Carol");
+        });
   }
 
   /**
