@@ -473,8 +473,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // A captured single-plan slice ends the walk — measured translator-on / translator-off
-  // equivalence, not a recogniser unit assertion.
+  // A captured single-plan cardinality clause ends the walk — measured translator-on /
+  // translator-off equivalence, not a recogniser unit assertion.
   // ---------------------------------------------------------------------------
 
   /**
@@ -486,7 +486,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   @Test
   public void limitThenHop_declinesAndReturnsNativeRows() {
     seedSingleHub();
-    assertSliceThenStepDeclines(
+    assertClauseThenStepDeclines(
         "g.V().limit(2).out(knows)",
         () -> graph.traversal().V().limit(2).out("knows"),
         () -> graph.traversal().V().out("knows").limit(2));
@@ -500,7 +500,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   @Test
   public void skipThenHop_declinesAndReturnsNativeRows() {
     seedSingleHub();
-    assertSliceThenStepDeclines(
+    assertClauseThenStepDeclines(
         "g.V().skip(2).out(knows)",
         () -> graph.traversal().V().skip(2).out("knows"),
         () -> graph.traversal().V().out("knows").skip(2));
@@ -528,6 +528,85 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     seedSingleHub();
     assertTranslatesAndMatchesNative(
         "g.V().skip(0).out(knows)", () -> graph.traversal().V().skip(0).out("knows"));
+  }
+
+  /**
+   * The mirror ordering: a slice <em>behind</em> a row-dropping projection. {@code values(age)}
+   * drops property-less rows through post-plan shaping, so a statement-level {@code LIMIT 1} counted
+   * a row the drop then removed and returned nothing, where native drops first and returns the one
+   * age. Both arms enumerate rows in the same order, so this is not order luck — with {@code age}
+   * on the vertex that scans last, the translated arm's {@code LIMIT 1} always lands on a
+   * property-less row.
+   */
+  @Test
+  public void valuesThenLimit_declinesAndReturnsNativeRows() {
+    seedAgeOnLastScannedVertex();
+    assertClauseThenStepDeclines(
+        "g.V().values(age).limit(1)",
+        () -> graph.traversal().V().values("age").limit(1),
+        () -> graph.traversal().V().limit(1).values("age"));
+  }
+
+  /** The skip half of the same defect, and it errs in the opposite direction: the translated arm
+   *  kept the one age where native, having dropped first, has nothing left to skip past. */
+  @Test
+  public void valuesThenSkip_declinesAndReturnsNativeRows() {
+    seedAgeOnLastScannedVertex();
+    assertClauseThenStepDeclines(
+        "g.V().values(age).skip(1)",
+        () -> graph.traversal().V().values("age").skip(1),
+        () -> graph.traversal().V().skip(1).values("age"));
+  }
+
+  /**
+   * The decline is keyed on the projection's own drop, not on projecting at all. When a preceding
+   * {@code order().by(k)} has already contributed {@code k IS DEFINED} into the pattern, the
+   * property-less row never enters the match on either arm and the shaping drop is a no-op, so the
+   * shape keeps translating. The fixture carries a name-less vertex precisely so the drop has
+   * something to bite on.
+   */
+  @Test
+  public void orderThenLimitThenValues_stillTranslates() {
+    graph.addVertex(T.label, "Person", "name", "Carol");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "age", 7);
+    graph.tx().commit();
+
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().order().by(name).limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").limit(2).values("name"));
+  }
+
+  /**
+   * {@code dedup()} captures {@code RETURN DISTINCT}, which MATCH also applies after the pattern, so
+   * a hop after it reads a stream the {@code DISTINCT} has not collapsed yet:
+   * {@code g.V().in("knows").dedup().out("knows")} returned two rows against native's three, the
+   * duplicate being the shared target reached from both of its in-neighbours.
+   */
+  @Test
+  public void dedupThenHop_declinesAndReturnsNativeRows() {
+    seedSharedTargetWithDuplicateNames();
+    assertClauseThenStepDeclines(
+        "g.V().in(knows).dedup().out(knows)",
+        () -> graph.traversal().V().in("knows").dedup().out("knows"),
+        () -> graph.traversal().V().in("knows").out("knows").dedup());
+  }
+
+  /**
+   * The allow-list holds across {@code DISTINCT} too, and the reason rests on a detail:
+   * {@code values(k)} projects the boundary entity alongside the value, so {@code RETURN DISTINCT}
+   * ranges over {@code (entity, name)} and cannot collapse two distinct vertices that share a name
+   * — which is exactly what native {@code dedup()} on elements also refuses to do. The fixture
+   * holds two differently-identified vertices both named {@code Dup}, both reached by the hop, so a
+   * {@code DISTINCT} that ranged over the name alone would return one row here instead of two.
+   */
+  @Test
+  public void dedupThenValues_stillTranslates() {
+    seedSharedTargetWithDuplicateNames();
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().in(knows).dedup().values(name)",
+        () -> graph.traversal().V().in("knows").dedup().values("name"));
   }
 
   /**
@@ -563,6 +642,50 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * of the hub's neighbours or none of them. Two and one are both unreachable natively, so neither
    * case can pass by accident on a lucky scan order.
    */
+  /**
+   * Two vertices pointing at one shared target, which in turn points at a leaf. {@code in(knows)}
+   * reaches the shared target twice — once from each in-neighbour — which is the duplicate
+   * {@code dedup()} exists to remove and the reason a hop after it sees a different row count than
+   * a {@code DISTINCT} applied at the end. The two in-neighbours carry the <em>same</em> name under
+   * different identities, so the fixture separately catches a {@code DISTINCT} that ranged over a
+   * projected value instead of over the element.
+   */
+  /**
+   * Five vertices, then {@code age} put on whichever one scans <em>last</em>, read back at seed time
+   * rather than assumed. Scan order is not stable across JVM forks, so the fixture discovers it
+   * instead of predicting it; what the cases need is only that the aged vertex is not among the
+   * first rows a slice would take. Native drops the four property-less rows before slicing and so
+   * always sees exactly one value; the translated arm slices first and lands on a property-less row.
+   */
+  private void seedAgeOnLastScannedVertex() {
+    for (var i = 0; i < 5; i++) {
+      graph.addVertex(T.label, "Person", "name", "Person" + i);
+    }
+    graph.tx().commit();
+
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var scanned = graph.traversal().V().toList();
+      assertThat(scanned).as("fixture must seed five vertices").hasSize(5);
+      ((Vertex) scanned.get(scanned.size() - 1)).property("age", 44);
+      graph.tx().commit();
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  private void seedSharedTargetWithDuplicateNames() {
+    var first = graph.addVertex(T.label, "Person", "name", "Dup");
+    var second = graph.addVertex(T.label, "Person", "name", "Dup");
+    var shared = graph.addVertex(T.label, "Person", "name", "Shared");
+    var leaf = graph.addVertex(T.label, "Person", "name", "Leaf");
+    first.addEdge("knows", shared);
+    second.addEdge("knows", shared);
+    shared.addEdge("knows", leaf);
+    graph.tx().commit();
+  }
+
   private void seedSingleHub() {
     var hub = graph.addVertex(T.label, "Person", "name", "Hub");
     var ann = graph.addVertex(T.label, "Person", "name", "Ann");
@@ -576,30 +699,32 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Asserts that {@code shape} — a slice followed by another step — declines to the native pipeline
-   * and returns native's rows.
+   * Asserts that {@code shape} — a captured cardinality clause followed by another step — declines
+   * to the native pipeline and returns native's rows. Rows are compared by {@code toString}, which
+   * carries the RID for an element and the value itself for a projection, so the same helper serves
+   * both; sorting keeps the comparison a multiset one.
    *
-   * <p>{@code sliceLastSpelling} is the traversal the pre-gate translation collapsed {@code shape}
+   * <p>{@code clauseLastSpelling} is the traversal the pre-gate translation collapsed {@code shape}
    * onto, and its native result is asserted to <em>differ</em> from {@code shape}'s. That third
    * assertion is what makes the case a witness rather than a tautology: a decline compares native
    * against native, which agrees no matter what the fixture holds, so without it the test would
    * still pass on a fixture where both spellings mean the same thing and would pin nothing.
    */
-  private void assertSliceThenStepDeclines(
+  private void assertClauseThenStepDeclines(
       String scenario,
       Supplier<GraphTraversal<?, ?>> shape,
-      Supplier<GraphTraversal<?, ?>> sliceLastSpelling) {
+      Supplier<GraphTraversal<?, ?>> clauseLastSpelling) {
     var original = translatorEnabled();
     try {
       setTranslatorEnabled(true);
       var onAdmin = shape.get().asAdmin();
       onAdmin.applyStrategies();
       var boundaryOn = countBoundarySteps(onAdmin.getSteps());
-      var onIds = sortedIds(onAdmin.toList());
+      var onIds = sortedStrings(onAdmin.toList());
 
       setTranslatorEnabled(false);
-      var offIds = sortedIds(drain(shape));
-      var sliceLastIds = sortedIds(drain(sliceLastSpelling));
+      var offIds = sortedStrings(drain(shape));
+      var clauseLastIds = sortedStrings(drain(clauseLastSpelling));
 
       // Fixture precondition first: if the two spellings agree natively, the case witnesses
       // nothing and the two assertions below would hold for the wrong reason.
@@ -607,7 +732,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
           .as(scenario + ": the fixture must separate the two spellings, or the assertions below "
               + "witness nothing — native " + scenario + " and its slice-last spelling would then "
               + "be interchangeable and the shared statement harmless")
-          .isNotEqualTo(sliceLastIds);
+          .isNotEqualTo(clauseLastIds);
       assertThat(onIds)
           .as(scenario + ": translator-on and translator-off multisets must match")
           .isEqualTo(offIds);

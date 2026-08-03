@@ -816,6 +816,64 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * The mirror of the slice gate: a slice behind a {@code values(k)} declines, because the
+   * projection's row-dropping rides post-plan shaping and a statement-level {@code LIMIT} would
+   * count rows the drop has not removed yet.
+   */
+  @Test
+  public void walk_valuesThenSlice_declines() {
+    var admin = graph.traversal().V().values("age").limit(1).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * That decline is keyed on a real slice, so a {@code skip(0)} that selects no position leaves the
+   * projection translatable.
+   */
+  @Test
+  public void walk_valuesThenNoopSlice_translates() {
+    var admin = graph.traversal().V().values("age").skip(0).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().skip()).isNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+  }
+
+  /**
+   * {@code valueMap} pins no {@code dropOnAbsent} — absent keys are omitted from the map rather than
+   * dropping the row — so a slice behind one still translates. This keeps the decline above from
+   * being read as covering every projection.
+   */
+  @Test
+  public void walk_valueMapThenSlice_translates() {
+    var admin = graph.traversal().V().valueMap("name").limit(2).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().limit()).isNotNull();
+  }
+
+  /**
+   * {@code RETURN DISTINCT} arms the same gate as a slice: MATCH applies the {@code DISTINCT} after
+   * the pattern, so a hop after {@code dedup()} would traverse from rows the distinct has not
+   * collapsed yet.
+   */
+  @Test
+  public void walk_distinctThenHop_declines() {
+    var admin = graph.traversal().V().in("knows").dedup().out("knows").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
    * A pure projection is the gate's allow-listed exception: {@code values(k)} contributes RETURN
    * columns and result shaping, both applied after the statement's {@code LIMIT}, so the walk
    * survives.

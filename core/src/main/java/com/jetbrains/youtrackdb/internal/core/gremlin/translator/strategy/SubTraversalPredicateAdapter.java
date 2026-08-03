@@ -422,6 +422,17 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // context only; a combinator filter sub-walk never shapes the parent's rows.
   }
 
+  /**
+   * Always false, and not delegated to the parent. Since {@link #setResultShaping} is swallowed
+   * this context never holds a shaping of its own, and the parent's is not the sub-walk's business:
+   * a captured child's rows never reach the boundary, so no slice inside one can be counted against
+   * a drop the parent will apply.
+   */
+  @Override
+  public boolean dropsRowsOnAbsentProperty() {
+    return false;
+  }
+
   @Override
   public void setLastPropertyProjection(
       @Nullable RecognitionContext.PropertyProjection projection) {

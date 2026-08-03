@@ -305,6 +305,15 @@ interface RecognitionContext extends ParamSink {
   void setResultShaping(@Nonnull ResultShaping shaping);
 
   /**
+   * Whether the shaping pinned so far drops rows whose entity lacks a projected property — the
+   * {@code dropOnAbsent} half of {@code values(key)}. {@link RangeGlobalStepRecogniser} reads it to
+   * refuse a slice behind such a projection: the plan step applies the drop to the plan's output,
+   * so a statement-level {@code SKIP} / {@code LIMIT} would count rows the drop has not removed yet
+   * while Gremlin counts only the survivors. See that recogniser for the measured divergence.
+   */
+  boolean dropsRowsOnAbsentProperty();
+
+  /**
    * Whether {@link UnionStepRecogniser} has stashed a multi-plan carrier on this walk. Post-union
    * barriers ({@code count}/{@code limit}/{@code dedup}) branch on this instead of mutating a
    * single-plan {@code MatchPlanInputs}.

@@ -32,6 +32,35 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * gate cannot give back is the pushed-down slice itself: a translated {@code LIMIT} stops the scan
  * inside the engine, and the native {@code RangeGlobalStep} only stops the traverser stream.
  *
+ * <h2>A slice behind a drop-on-absent projection</h2>
+ *
+ * The gate above closes the ordering where the slice comes first. This one closes the other, and
+ * the two are the same collision seen from opposite ends: {@code g.V().limit(2).values(age)} and
+ * {@code g.V().values(age).limit(2)} also compile to one statement, and it means the first.
+ *
+ * <p>{@code values(key)} drops rows whose entity lacks the property, and on the main line that drop
+ * rides {@code dropOnAbsent} result shaping, which the plan step applies to the plan's <em>output</em>.
+ * A statement-level {@code LIMIT} therefore counts rows the drop has not removed yet, where Gremlin
+ * counts only survivors. Measured on five vertices with {@code age} on the one that scans last, both
+ * arms enumerating identically: {@code g.V().values(age).limit(1)} returned {@code []} translated
+ * against {@code [44]} native, and {@code g.V().values(age).skip(1)} returned {@code [44]} against
+ * {@code []}. So this recogniser declines once {@link RecognitionContext#dropsRowsOnAbsentProperty()}
+ * holds.
+ *
+ * <p>Only the projection's own drop is at stake. Where a preceding step already contributed a
+ * presence conjunct into the pattern, rows without the property never enter the match on either arm
+ * and there is nothing left to mis-count — which is why {@code g.V().order().by(k).limit(n).values(k)}
+ * stays translatable: {@code order().by(k)} writes {@code k IS DEFINED}, so the shaping drop is a
+ * no-op. The aggregate path is right for the same reason, writing its conjunct rather than relying
+ * on shaping.
+ *
+ * <p>The price is the {@code values(k).limit(n)} surface, which is a common spelling — a top-N over
+ * a projected property gives up its plan and runs on the native traverser pipeline. Nothing narrower
+ * was available: the drop is a post-plan operation by construction, so no ordering of the existing
+ * clauses expresses it, and making the projection contribute a pattern conjunct instead would change
+ * every {@code values(k)} plan's root-selection estimate. Spelling the slice before the projection
+ * ({@code g.V().limit(n).values(k)}) still translates, and means something different.
+ *
  * <h2>Why a post-union slice needs a following {@code count()}</h2>
  *
  * A slice selects rows <em>by position</em>, and the multi-plan boundary's positions are not
@@ -105,6 +134,12 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     }
     if (normalized.noop()) {
       return Outcome.ACCEPTED;
+    }
+    // A real slice behind a row-dropping projection counts the wrong rows — see the class Javadoc's
+    // "A slice behind a drop-on-absent projection". Checked after the no-op test so skip(0) and
+    // range(0, -1), which select no position, still ride through.
+    if (ctx.dropsRowsOnAbsentProperty()) {
+      return Outcome.DECLINE;
     }
     if (normalized.skip() > 0) {
       ctx.setSkip(ProjectionExpressionFactories.skip(normalized.skip()));

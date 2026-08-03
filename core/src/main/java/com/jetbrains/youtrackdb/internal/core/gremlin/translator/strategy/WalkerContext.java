@@ -618,6 +618,11 @@ final class WalkerContext implements RecognitionContext {
     this.shaping = shaping;
   }
 
+  @Override
+  public boolean dropsRowsOnAbsentProperty() {
+    return shaping.dropOnAbsent();
+  }
+
   /** The boundary row-projection shaping the terminator pinned, read by the walker at result-build
    *  time. {@link ResultShaping#NONE} until a terminator sets it. */
   ResultShaping shaping() {

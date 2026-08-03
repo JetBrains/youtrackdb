@@ -359,10 +359,11 @@ final class GremlinStepWalker {
       if (ctx.hasUnionCarrier() && !POST_UNION_RECOGNISERS.contains(recogniser)) {
         return false;
       }
-      // Single-plan slice gate (see capturedSinglePlanSlice and POST_SLICE_RECOGNISERS). Once a
-      // SKIP / LIMIT is captured, only the pure projections may claim a further step; anything
-      // else would run before the slice in the compiled statement and return a different row set.
-      if (capturedSinglePlanSlice(ctx) && !POST_SLICE_RECOGNISERS.contains(recogniser)) {
+      // Single-plan cardinality gate (see capturedCardinalityClause and the allow-list below).
+      // Once a SKIP / LIMIT / DISTINCT is captured, only the pure projections may claim a further
+      // step; anything else would run before the clause in the compiled statement and so return a
+      // different row set.
+      if (capturedCardinalityClause(ctx) && !POST_CARDINALITY_RECOGNISERS.contains(recogniser)) {
         return false;
       }
       int positionBefore = cursor.position();
@@ -386,42 +387,50 @@ final class GremlinStepWalker {
   }
 
   /**
-   * Whether the walk has already captured a positional slice as a statement-level {@code SKIP} /
-   * {@code LIMIT}, which makes every step after it untranslatable on the single-plan path.
+   * Whether the walk has already captured a statement-level cardinality clause — {@code SKIP},
+   * {@code LIMIT}, or {@code RETURN DISTINCT} — which makes every step after it untranslatable on
+   * the single-plan path.
    *
-   * <p>Those clauses ride the assembled statement and MATCH applies them last — after the pattern,
-   * after every {@code WHERE}, after {@code DISTINCT} and {@code ORDER BY}. Gremlin applies a slice
-   * where the user wrote it, to the stream the next step consumes. A step recognised after the
-   * slice therefore lands on the wrong side of it: {@code g.V().limit(2).out()} compiles to the
-   * same statement as {@code g.V().out().limit(2)} and returns the first two out-neighbours of the
-   * whole graph, where native returns the out-neighbours of the first two vertices. Measured on a
-   * five-vertex fixture whose only edge-bearing vertex has three out-edges — two rows translated
-   * against zero native for {@code limit(2).out()}, one against three for {@code skip(2).out()},
-   * one against zero for {@code limit(2).has(name, x)}, and a different pair of vertices for
-   * {@code limit(2).order().by(name)}.
+   * <p>The rule this gate is one half of: every clause the translator captures at statement level
+   * is applied by MATCH at a fixed point in the statement, while Gremlin applies the corresponding
+   * step where the user wrote it. Two spellings differing only in that step's position compile to
+   * one statement, and the statement can mean only one of them.
+   *
+   * <p>Here that reads: the clauses ride the assembled statement and MATCH applies them after the
+   * pattern and every {@code WHERE}, where Gremlin applies them to the stream the next step
+   * consumes. A step recognised afterwards lands on the wrong side. {@code g.V().limit(2).out()}
+   * compiles to the same statement as {@code g.V().out().limit(2)} and returns the first two
+   * out-neighbours of the whole graph, where native returns the out-neighbours of the first two
+   * vertices. Measured on a five-vertex fixture whose only edge-bearing vertex has three out-edges
+   * — two rows translated against zero native for {@code limit(2).out()}, one against three for
+   * {@code skip(2).out()}, one against zero for {@code limit(2).has(name, x)}, and a different
+   * pair of vertices for {@code limit(2).order().by(name)}. {@code RETURN DISTINCT} behaves the
+   * same way: {@code g.V().in(k).dedup().out(k)} returns two rows translated against three native,
+   * the duplicate being a target reachable from two of its in-neighbours.
    *
    * <p>Almost no suffix is exempt: hops and filters change the row set, {@code order()} changes
-   * which rows the slice selects, {@code dedup()} collapses rows the slice had already counted, and
-   * an aggregate consumes a stream the slice was meant to bound. {@link #POST_SLICE_RECOGNISERS}
-   * holds the exceptions and says why they are ones. A slice that normalises away to nothing
-   * ({@code skip(0)}, {@code range(0, -1)}) never arms the gate at all — {@link
-   * RangeGlobalStepRecogniser} accepts it without setting a clause.
+   * which rows the clause selects, and an aggregate consumes a stream the clause was meant to
+   * bound. {@link #POST_CARDINALITY_RECOGNISERS} holds the exceptions and says why they are ones.
+   * A slice that normalises away to nothing ({@code skip(0)}, {@code range(0, -1)}) never arms the
+   * gate — {@link RangeGlobalStepRecogniser} accepts it without setting a clause.
    *
    * <p>This is the single-plan twin of the post-union gate above, and it lives in the loop for the
-   * same reason: a recogniser added later inherits it without being told. It covers the two slice
-   * clauses only. {@code returnDistinct} has the same shape — {@code in(k).dedup().out(k)} returns
-   * two rows translated against three native, because {@code DISTINCT} also applies after the
-   * pattern — but declining it withdraws a far wider surface than the slice does, so that clause is
-   * left to a change of its own. {@link GremlinAggregateAssembler} still tests all three before an
-   * aggregate; for the two slice clauses this gate now reaches the step first, and the assembler's
-   * own test remains its direct-invocation guard.
+   * same reason: a recogniser added later inherits it without being told.
+   *
+   * <p>{@link GremlinAggregateAssembler} tests the same three clauses before an aggregate, and the
+   * relationship is not the one it looks like. That test is not a second route to this property —
+   * it holds out a call site that would otherwise be <em>safe</em>. The aggregate path writes its
+   * presence conjunct into the pattern, so its row-dropping happens before the clause exactly as
+   * native does it. The unguarded projection path is the wrong one, because its drop rides
+   * post-plan shaping instead; {@link RangeGlobalStepRecogniser} carries the other half of that
+   * story and the decline that closes it.
    */
-  private static boolean capturedSinglePlanSlice(RecognitionContext ctx) {
-    return ctx.skip() != null || ctx.limit() != null;
+  private static boolean capturedCardinalityClause(RecognitionContext ctx) {
+    return ctx.skip() != null || ctx.limit() != null || ctx.returnDistinct();
   }
 
   /**
-   * The only recognisers allowed to claim a step once {@link #capturedSinglePlanSlice} holds — the
+   * The only recognisers allowed to claim a step once {@link #capturedCardinalityClause} holds — the
    * three pure projections, whose entire contribution is RETURN columns, result shaping, and the
    * boundary pin.
    *
@@ -434,6 +443,13 @@ final class GremlinStepWalker {
    * applies to the plan's output — after {@code SKIP} / {@code LIMIT}, which is where Gremlin
    * applies it too. Changing which columns a row carries does not move the row.
    *
+   * <p>Across {@code RETURN DISTINCT} the same members hold, for a reason worth naming because it
+   * rests on a detail: {@code values(k)} projects the boundary entity <em>alongside</em> the value,
+   * so the {@code DISTINCT} ranges over {@code (entity, value)} and cannot collapse two distinct
+   * elements that happen to share a value — which is what native {@code dedup()} on elements also
+   * refuses to do. Were the entity column ever dropped from that projection, this membership would
+   * stop being sound.
+   *
    * <p>The projection family is not admitted wholesale. {@code SelectOneStepRecogniser} and {@code
    * SelectStepRecogniser} call {@code ByModulatorPresence.requireModulatedProperty} for a {@code
    * by(key)} modulator, which contributes {@code key IS DEFINED} into the pattern's alias filters —
@@ -444,7 +460,7 @@ final class GremlinStepWalker {
    * is refused after a slice until someone establishes that its contribution lands on the far side
    * of the clause and adds it here.
    */
-  private static final Set<StepRecogniser> POST_SLICE_RECOGNISERS =
+  private static final Set<StepRecogniser> POST_CARDINALITY_RECOGNISERS =
       Set.of(
           PropertiesStepRecogniser.INSTANCE,
           PropertyMapStepRecogniser.INSTANCE,
