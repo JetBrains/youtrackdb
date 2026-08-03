@@ -81,6 +81,12 @@ public class GremlinAggregateRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnItems.getFirst().toString()).containsIgnoringCase("mean");
     assertThat(ctx.returnItems.getFirst().toString()).doesNotContainIgnoringCase("avg");
     assertThat(ctx.returnItems.getFirst().toString()).contains("age");
+    // The values("age") drop lived in the row projection this recogniser just replaced, so it has
+    // to reappear as a pattern conjunct on the boundary alias. Without it the aggregate reduces the
+    // null-valued rows too and sum()'s zero survives where Gremlin emits no traverser.
+    assertThat(ctx.aliasFilters).containsKey(BOUNDARY_ALIAS);
+    assertThat(ctx.aliasFilters.get(BOUNDARY_ALIAS).toString())
+        .containsIgnoringCase("age is defined");
   }
 
   /** {@code mean()} without a preceding {@code values(key)} declines. */

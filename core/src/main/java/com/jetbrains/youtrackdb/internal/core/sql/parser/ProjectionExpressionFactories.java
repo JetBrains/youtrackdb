@@ -37,6 +37,14 @@ public final class ProjectionExpressionFactories {
     return functionCall("list", bareIdentifier(alias));
   }
 
+  /** {@code list(expr)} with a caller-built expression (e.g. {@code alias.name}). */
+  public static SQLExpression listExpression(SQLExpression expression) {
+    if (expression == null) {
+      throw new IllegalArgumentException("null list expression");
+    }
+    return functionCall("list", expression);
+  }
+
   /**
    * {@code fn(field)} where {@code field} is a bare property name ({@code values("age").mean()}).
    */

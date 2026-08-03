@@ -14,6 +14,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -194,7 +195,14 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().groupCount()", Recognition.RECOGNIZED, () -> graph.traversal().V().groupCount());
   }
 
-  /** Seeded {@code sum}/{@code min}/{@code max}/{@code mean} match native values (exercises all arms). */
+  /**
+   * Seeded {@code sum}/{@code min}/{@code max}/{@code mean} match native values (exercises all
+   * arms). The mean arm is coverage of the plumbing only: ages 10, 20 and 30 average to an integral
+   * 20, which the canonicaliser folds to the same payload {@code avg}'s integer division produces,
+   * so this arm cannot tell the two aggregates apart. {@link
+   * #meanOverIntegerProperty_dividesInFloatingPoint} carries that discrimination on a fixture whose
+   * ages do not divide evenly.
+   */
   @Test
   public void numericAggregates_seeded_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 10);
@@ -500,7 +508,10 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   public void orderByMissingKey_dropsElementLikeNative() {
     seedAgedAndAgeless();
 
-    assertEquivalent(
+    // Ordered comparison: after the drop only Bob (25) and Alice (30) survive and their ages
+    // differ, so the sorted payload is deterministic on both paths and the sort is asserted rather
+    // than sorted away.
+    assertEquivalentOrdered(
         "g.V().order().by(age)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().order().by("age"));
@@ -531,7 +542,14 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().as("a").select("a").by("age"));
   }
 
-  /** The multi-label {@code select(a, n).by(age).by(name)} form drops on the modulated alias too. */
+  /**
+   * The multi-label {@code select(a, n).by(age).by(name)} form drops the elements without
+   * {@code age} too.
+   *
+   * <p>{@code as("a", "n")} labels one element twice, so both labels resolve to the same internal
+   * alias. The fixture therefore pins the drop only — it cannot show <em>which</em> alias each
+   * modulator's conjunct targets, because there is only one alias to target.
+   */
   @Test
   public void multiLabelSelectByMissingKey_dropsElementLikeNative() {
     seedAgedAndAgeless();
@@ -562,10 +580,15 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * The positive control for the drop: under {@code ProductiveByStrategy} a {@code by(key)} yields
-   * {@code null} instead of dropping, so the {@code null} bucket is the correct answer and the
-   * conjunct must not be added. Without this case the four assertions above would be equally green
-   * if the conjunct were added unconditionally, which is the bug this pins.
+   * The positive control for the drop: under the default {@code ProductiveByStrategy} a
+   * {@code by(key)} yields {@code null} instead of dropping, so the {@code null} bucket is the
+   * correct answer and the conjunct must not be added. Without this case the four assertions above
+   * would be equally green if the conjunct were added unconditionally, which is the bug this pins.
+   *
+   * <p>The {@code order()} arm compares multisets rather than sequences on purpose: null-valued
+   * rows survive here, and where {@code ORDER BY} places a null is a known divergence between MATCH
+   * and the native pipeline. The sibling {@code orderByMissingKey_dropsElementLikeNative} has no
+   * nulls left after the drop, so it asserts the stronger ordered form.
    */
   @Test
   public void productiveByStrategy_keepsTheNullBucket() {
@@ -585,6 +608,69 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         Recognition.RECOGNIZED,
         () -> graph.traversal().withStrategies(ProductiveByStrategy.instance()).V().order()
             .by("age"));
+  }
+
+  /**
+   * A configured key set inverts the default: {@code ProductiveByStrategy} wraps — and so makes
+   * productive — every {@code by(key)} whose key the caller did <em>not</em> list, because a listed
+   * key is asserted to be present on every element already. So under
+   * {@code productiveKeys("age")} the {@code by("age")} keeps Gremlin's drop and needs the conjunct,
+   * while {@code by("name")} becomes productive and must not get one. Reading the membership test
+   * the other way round is green under {@link #productiveByStrategy_keepsTheNullBucket}, whose
+   * default instance has an empty key set that short-circuits before the membership test runs.
+   */
+  @Test
+  public void productiveByStrategy_configuredKeysInvertPerKey() {
+    seedAgedAndAgeless();
+    // A second name-less vertex so the unlisted-key arm has a null bucket to keep.
+    graph.addVertex(T.label, "Person", "age", 41);
+    graph.tx().commit();
+
+    var strategy = ProductiveByStrategy.build().productiveKeys("age").create();
+
+    // "age" is listed → not wrapped → still drops → the conjunct is required, no null bucket.
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy(age)).V().groupCount().by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().withStrategies(strategy).V().groupCount().by("age"));
+    // "name" is not listed → wrapped → yields null instead of dropping → the null bucket stays.
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy(age)).V().groupCount().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().withStrategies(strategy).V().groupCount().by("name"));
+  }
+
+  /**
+   * {@code ProductiveByStrategy} cannot reach a {@code values(key)} step — it wraps
+   * {@code ByModulating} traversal parents, and a {@code PropertiesStep} is neither — so the drop a
+   * {@code values(key)} performs in its own right survives the strategy and its restated conjunct
+   * must survive with it. Gating the projection-side conjunct on the same productive-by answer as
+   * the modulator-side one makes {@code values("foo").sum()} emit a zero where Gremlin emits no
+   * traverser at all.
+   */
+  @Test
+  public void productiveByStrategy_doesNotReachTheValuesDrop() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy).V().values(age).groupCount()",
+        Recognition.RECOGNIZED,
+        () -> graph
+            .traversal()
+            .withStrategies(ProductiveByStrategy.instance())
+            .V()
+            .values("age")
+            .groupCount());
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy).V().values(foo).sum()",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph
+            .traversal()
+            .withStrategies(ProductiveByStrategy.instance())
+            .V()
+            .values("foo")
+            .sum());
   }
 
   // --- valueMap / elementMap: tokens do not decide list wrapping, and no keys means decline ------
@@ -623,6 +709,13 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().valueMap(true)", Recognition.DECLINED, () -> graph.traversal().V().valueMap(true));
     assertEquivalent(
         "g.V().elementMap()", Recognition.DECLINED, () -> graph.traversal().V().elementMap());
+    // The fourth spelling is the one the deleted derivation keyed off: with(WithOptions.tokens) is
+    // the second route to a non-zero token bit set on a step carrying no key list, so under
+    // isElementMap = tokens != 0 it skipped the empty-key decline exactly as valueMap(true) did.
+    assertEquivalent(
+        "g.V().valueMap().with(WithOptions.tokens)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().valueMap().with(WithOptions.tokens));
   }
 
   // --- terminators that must read the value a preceding values(key) projected --------------------
@@ -661,18 +754,80 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code group().by(label).count()} counts the maps the grouping emits — one — not the rows that
-   * fed it. The count assembler clears the projection and nulls the GROUP BY, so it declines rather
-   * than turning the shape into a bare {@code count(*)} over the ungrouped rows.
+   * A terminator after a grouping terminator consumes the maps the grouping emits, not the rows
+   * that fed it: {@code group().by(label).count()} is 1, one map, and a second grouping folds that
+   * map into a further bucket. Every assembler here would instead overwrite the grouped plan, so
+   * all three decline.
+   *
+   * <p>The positive control is load-bearing. A decline is also what a prefix that stopped
+   * translating would produce, and the payload comparison holds either way because both arms run
+   * natively once the translator declines — so without pinning that
+   * {@code g.V().group().by(label)} is recognised, none of the three cases below could tell the
+   * grouping gate from a prefix regression.
    */
   @Test
-  public void countAfterGroup_declines() {
+  public void terminatorsAfterGroup_decline() {
     seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().group().by(label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().group().by(T.label));
 
     assertEquivalent(
         "g.V().group().by(label).count()",
         Recognition.DECLINED,
         () -> graph.traversal().V().group().by(T.label).count());
+    assertThat(graph.traversal().V().group().by(T.label).count().next()).isEqualTo(1L);
+
+    // A second grouping over the emitted map: native buckets the map itself, where a translated
+    // plan would re-key the underlying vertex rows and never see the map at all.
+    assertEquivalent(
+        "g.V().group().by(name).groupCount()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().group().by("name").groupCount());
+    assertEquivalent(
+        "g.V().group().by(name).group()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().group().by("name").group());
+  }
+
+  /**
+   * {@code count()} after {@code values(key)} counts the values that step emitted, so the elements
+   * without the key are gone before the count: 2 of the 4 seeded vertices carry {@code age}. The
+   * drop lives in the row projection the count assembler discards, so it has to be restated as a
+   * pattern conjunct — otherwise the {@code count(*)} runs over the unfiltered pattern and answers
+   * 4.
+   */
+  @Test
+  public void countAfterValues_countsOnlyKeyBearers() {
+    seedAgedAndAgeless();
+
+    assertEquivalent(
+        "g.V().values(age).count()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").count());
+    assertThat(graph.traversal().V().values("age").count().next()).isEqualTo(2L);
+  }
+
+  /**
+   * A bare {@code group()} after {@code values(key)} buckets the projected values on both sides of
+   * the map, not just the key side. Native groups a stream of strings, so each bucket holds the
+   * strings; keying on the value while folding the vertices produces a map that looks right on the
+   * half a reader checks first. {@code groupCount()} cannot show this — its value column is
+   * {@code count(*)}.
+   */
+  @Test
+  public void groupAfterValues_bucketsTheProjectedValue() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().values(name).group()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("name").group());
   }
 
   /**

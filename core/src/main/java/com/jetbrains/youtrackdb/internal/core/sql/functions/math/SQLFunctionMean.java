@@ -63,12 +63,12 @@ public class SQLFunctionMean extends SQLFunctionMathAbstract {
       final Object[] iParams,
       CommandContext iContext) {
     if (iParams.length == 1) {
-      if (iParams[0] instanceof Number number) {
-        sum(number);
-      } else if (MultiValue.isMultiValue(iParams[0])) {
+      if (MultiValue.isMultiValue(iParams[0])) {
         for (var n : MultiValue.getMultiValueIterable(iParams[0])) {
-          sum((Number) n);
+          sum(n);
         }
+      } else {
+        sum(iParams[0]);
       }
     } else {
       // Multi-argument form is a row-wise mean of its arguments, not an aggregate, so the running
@@ -76,18 +76,24 @@ public class SQLFunctionMean extends SQLFunctionMathAbstract {
       sum = null;
       total = 0;
       for (var param : iParams) {
-        sum((Number) param);
+        sum(param);
       }
     }
     return getResult();
   }
 
-  private void sum(@Nullable Number value) {
-    if (value == null) {
+  /**
+   * Adds one contributor. Null and non-numeric values are skipped rather than counted, so the
+   * divisor stays the number of values that actually contributed and a string column reaching
+   * {@code mean(name)} leaves the aggregate empty instead of throwing a {@code ClassCastException}
+   * out of the projection.
+   */
+  private void sum(@Nullable Object value) {
+    if (!(value instanceof Number number)) {
       return;
     }
     total++;
-    sum = sum == null ? value : PropertyTypeInternal.increment(sum, value);
+    sum = sum == null ? number : PropertyTypeInternal.increment(sum, number);
   }
 
   @Override

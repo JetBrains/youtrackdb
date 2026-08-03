@@ -34,7 +34,12 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
     assertThat(ctx.shaping().dropOnAbsent()).isTrue();
     assertThat(ctx.lastPropertyProjection).isNotNull();
-    assertThat(ctx.lastPropertyProjection.toString()).contains("name");
+    // Read the halves separately. The projection is a record whose dump carries "name" in three
+    // fields, so a contains() over toString() would still pass if the key half went missing.
+    assertThat(ctx.lastPropertyProjection.propertyKey()).isEqualTo("name");
+    assertThat(ctx.lastPropertyProjection.alias()).isEqualTo(BOUNDARY_ALIAS);
+    assertThat(ctx.lastPropertyProjection.expression().toString())
+        .isEqualTo(BOUNDARY_ALIAS + ".name");
     assertThat(ctx.returnItems).hasSize(2);
     assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("name");
   }

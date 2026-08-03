@@ -39,18 +39,46 @@ final class ByModulatorPresence {
   static void requireModulatedProperty(
       RecognitionContext ctx, String alias, Traversal.Admin<?, ?> modulator) {
     ByModulatorTranslator.keyModulatorPropertyKey(modulator)
-        .ifPresent(key -> requireProperty(ctx, alias, key));
+        .ifPresent(key -> requireModulatedProperty(ctx, alias, key));
   }
 
   /**
-   * Contributes {@code key IS DEFINED} on {@code alias} for an already-resolved property key, or
+   * Contributes {@code key IS DEFINED} on {@code alias} for an already-resolved modulator key, or
    * nothing when {@code ProductiveByStrategy} makes that key productive — see {@link
    * RecognitionContext#byModulatorIsProductive}, where the whole inversion is explained.
    */
-  static void requireProperty(RecognitionContext ctx, String alias, String key) {
+  static void requireModulatedProperty(RecognitionContext ctx, String alias, String key) {
     if (ctx.byModulatorIsProductive(key)) {
       return;
     }
+    contribute(ctx, alias, key);
+  }
+
+  /**
+   * Contributes {@code key IS DEFINED} for the drop a {@code values(key)} step performs in its own
+   * right, which no by-modulator strategy can invert. {@code ProductiveByStrategy.apply} iterates
+   * {@code ByModulating} steps that are also {@code TraversalParent}s, and a {@code PropertiesStep}
+   * is neither, so {@code values(key)} drops an element without the property whatever the strategy
+   * says. Gating this on {@link RecognitionContext#byModulatorIsProductive} would suppress a filter
+   * the native pipeline still applies: {@code g.withStrategies(ProductiveByStrategy).V()
+   * .values("foo").sum()} would emit {@code 0} where Gremlin emits no traverser.
+   */
+  static void requireProjectedProperty(RecognitionContext ctx, String alias, String key) {
+    contribute(ctx, alias, key);
+  }
+
+  /**
+   * @implNote The conjunct is the only filter on the alias whenever the traversal wrote none of its
+   *     own, and the MATCH cost model reads any filter as a narrowing:
+   *     {@code MatchExecutionPlanner.estimateRootEntries} scores an unfiltered alias
+   *     {@code classCount + 1} and a filtered one {@code min(filter.estimate(…), classCount)}, while
+   *     {@code SQLWhereClause.estimate} has no estimator for {@code IS DEFINED} and falls back to
+   *     {@code classCount / 2}. A presence-only alias therefore looks twice as selective as an
+   *     unfiltered one and can win the root slot, scheduling a chain from its tail. The conjunct is
+   *     correct and has to stay; the gap is that the estimator has no notion of a presence
+   *     predicate, which is executor-side work outside the translator.
+   */
+  private static void contribute(RecognitionContext ctx, String alias, String key) {
     ctx.putAliasFilter(alias, WHERE.wrap(WHERE.isDefined(key)));
   }
 }

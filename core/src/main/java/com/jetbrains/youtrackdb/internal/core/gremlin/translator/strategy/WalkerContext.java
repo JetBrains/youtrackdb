@@ -329,10 +329,18 @@ final class WalkerContext implements RecognitionContext {
     this.productiveByKeys = keys;
   }
 
+  /**
+   * Membership in the configured set means <em>not</em> productive. {@code
+   * ProductiveByStrategy.hasKeyNotKnownAsProductive} is
+   * {@code productiveKeys.isEmpty() || !productiveKeys.contains(key)}, and the strategy wraps the
+   * modulator in {@code coalesce(…, null)} — making it productive — exactly when that answers true.
+   * A key the caller lists is one it asserts is already present on every element, so the strategy
+   * leaves that {@code by(key)} alone and its Gremlin-side drop survives.
+   */
   @Override
   public boolean byModulatorIsProductive(String propertyKey) {
     return productiveByKeys != null
-        && (productiveByKeys.isEmpty() || productiveByKeys.contains(propertyKey));
+        && (productiveByKeys.isEmpty() || !productiveByKeys.contains(propertyKey));
   }
 
   // --- RecognitionContext: boundary read --------------------------------------------------------

@@ -104,11 +104,38 @@ public class SQLFunctionMeanTest {
   }
 
   @Test
-  public void nonNumericArgumentLeavesTheAggregateEmpty() {
+  public void nonNumericSingleArgumentLeavesTheAggregateEmpty() {
     // Neither a Number nor a MultiValue: the aggregate must stay untouched rather than throw.
     mean.execute(null, null, null, new Object[] {"abc"}, null);
 
     assertNull(mean.getResult());
+  }
+
+  @Test
+  public void nonNumericCollectionEntriesAreSkippedNotCast() {
+    // The MultiValue branch is the second way in. A string entry must be skipped like a null one,
+    // so this is 2 + 4 over two contributors; casting it to Number would throw out of the
+    // projection instead.
+    List<Object> row = Arrays.asList(2, "abc", 4);
+    mean.execute(null, null, null, new Object[] {row}, null);
+
+    assertEquals(3.0, (double) mean.getResult(), 1.0e-15);
+  }
+
+  @Test
+  public void nonNumericMultiArgumentEntriesAreSkippedNotCast() {
+    // The multi-argument branch is the third way in, and it is the one SELECT mean(name, age) over
+    // a string column reaches from user input. The string contributes nothing and does not count
+    // towards the divisor, so this is 10 + 20 over two.
+    Object row = mean.execute(null, null, null, new Object[] {10, "abc", 20}, null);
+
+    assertEquals(15.0, (double) row, 1.0e-15);
+  }
+
+  @Test
+  public void allNonNumericMultiArgumentRowLeavesTheAggregateEmpty() {
+    // Every argument skipped means no contributor at all, which is null rather than a zero mean.
+    assertNull(mean.execute(null, null, null, new Object[] {"a", "b"}, null));
   }
 
   @Test

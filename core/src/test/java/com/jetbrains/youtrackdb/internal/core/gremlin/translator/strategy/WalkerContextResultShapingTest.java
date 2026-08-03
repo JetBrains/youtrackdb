@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -39,5 +40,28 @@ public class WalkerContextResultShapingTest {
     assertThat(ctx.returnDistinct).isTrue();
     assertThat(ctx.shaping().dropNullRows()).isTrue();
     assertThat(ctx.shaping().dropOnAbsent()).isTrue();
+  }
+
+  /**
+   * The three productive-by states, including the configured-key one that decides per key. An
+   * absent strategy leaves every {@code by(key)} filtering; the strategy's own default (an empty
+   * key set) makes every key productive; a configured set makes productive exactly the keys it does
+   * <em>not</em> list, because a listed key is asserted to be present already and the strategy
+   * leaves that modulator alone. Reading the membership test the other way round is invisible to a
+   * default-instance test, which short-circuits on the empty set before the membership test runs.
+   */
+  @Test
+  public void byModulatorIsProductive_coversAllThreeStates() {
+    var absent = new WalkerContext(true, false);
+    assertThat(absent.byModulatorIsProductive("age")).isFalse();
+
+    var everyKey = new WalkerContext(true, false);
+    everyKey.setProductiveByKeys(Set.of());
+    assertThat(everyKey.byModulatorIsProductive("age")).isTrue();
+
+    var configured = new WalkerContext(true, false);
+    configured.setProductiveByKeys(Set.of("age"));
+    assertThat(configured.byModulatorIsProductive("age")).isFalse();
+    assertThat(configured.byModulatorIsProductive("name")).isTrue();
   }
 }

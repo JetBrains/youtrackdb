@@ -35,6 +35,14 @@ public final class MatchProjectionBuilder {
   }
 
   /**
+   * {@code list(expr)} — collects a caller-built expression rather than a whole element, for
+   * {@code values(key).group()}, which buckets the projected values.
+   */
+  public static SQLExpression listExpression(SQLExpression expression) {
+    return ProjectionExpressionFactories.listExpression(expression);
+  }
+
+  /**
    * {@code fn(property)} for a bare property name emitted by {@code values("age").mean()} and
    * similar shapes.
    */

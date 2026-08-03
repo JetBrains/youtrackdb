@@ -27,16 +27,40 @@ public class MatchProjectionBuilderTest {
   }
 
   /**
-   * The Gremlin translator maps {@code mean()} to the SQL aggregate {@code avg} (there is no {@code
-   * mean} SQL function — see {@code PropertyAggregateStepRecogniser}), so {@code avg(age)} is the
-   * shape production actually emits for a property mean. Pin the builder's {@code avg} output
-   * against the parser-emitted {@code avg(age)} AST; a raw {@code mean(...)} projection is never
-   * produced by the pipeline and would fail plan-build, so it is not worth pinning.
+   * {@code avg} is no longer what the Gremlin translator emits for a property mean — it now emits
+   * the {@code mean} aggregate, which divides in floating point — but hand-written SQL still
+   * reaches {@code avg}, so the builder has to keep agreeing with the parser on it. Pinned beside
+   * {@link #propertyAggregate_mean_matchesParserShape} so the pair states the distinction the new
+   * function was created for.
    */
   @Test
   public void propertyAggregate_avg_matchesParserShape() {
     assertSameProjectionShape(
         MatchProjectionBuilder.propertyAggregate("avg", "age"), "avg(age)");
+  }
+
+  /**
+   * {@code mean(age)} is the shape production emits for {@code values("age").mean()}, from both the
+   * single-plan property aggregate and the group value-side accumulator. {@code mean} is a
+   * brand-new SQL function name, so whether the builder and the parser agree on it is exactly the
+   * question this class answers for every other shape.
+   */
+  @Test
+  public void propertyAggregate_mean_matchesParserShape() {
+    assertSameProjectionShape(
+        MatchProjectionBuilder.propertyAggregate("mean", "age"), "mean(age)");
+  }
+
+  /**
+   * {@code list(alias.name)} is what a bare {@code group()} after {@code values("name")} folds into
+   * the value column — the projected property rather than the whole element. The expression form is
+   * built from a resolved {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression},
+   * so it has no {@code listAlias} spelling to borrow a pin from.
+   */
+  @Test
+  public void listExpression_matchesParserShape() {
+    assertSameProjectionShape(
+        MatchProjectionBuilder.listExpression(parseReturnItem("v.name")), "list(v.name)");
   }
 
   private static void assertSameProjectionShape(
