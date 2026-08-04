@@ -41,4 +41,5 @@
 [2026-08-04T01:20Z] [ctx=warning] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
 [2026-08-04T02:10Z] [ctx=warning] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
 [2026-08-04T04:30Z] [ctx=warning] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
-[2026-08-04T09:15Z] [ctx=safe] phase=C track=9 substate=steps-partial
+[2026-08-04T04:45Z] [ctx=safe] phase=C track=9 substate=steps-partial
+[2026-08-04T06:42Z] [ctx=info] phase=C track=9 substate=steps-done-review-pending
