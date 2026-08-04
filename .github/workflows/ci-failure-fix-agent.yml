@@ -77,11 +77,34 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
-      - name: Install jq
+      - name: Install CLI prerequisites (jq, gh)
         run: |
-          if ! command -v jq &>/dev/null; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          # This job runs on a self-hosted Hetzner image that ships neither jq
+          # nor the GitHub CLI, so both must be installed rather than assumed.
+          # Both are hard prerequisites: jq parses the pre-fetched context and
+          # the result sentinel, and gh performs every GitHub read in "Gather CI
+          # failure context" as well as the `gh pr create` in "Publish fix".
+          # Only jq used to be installed here, so every gh call exited 127 --
+          # invisibly, because the pre-fetch redirected stderr to /dev/null and
+          # fell back to placeholder files, handing the agent an empty context.
+          MISSING=()
+          for TOOL in jq gh; do
+            command -v "$TOOL" >/dev/null 2>&1 || MISSING+=("$TOOL")
+          done
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "Installing: ${MISSING[*]}"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq "${MISSING[@]}"
           fi
+          # Verify instead of assuming the install worked. A tool missing here
+          # is what sent an earlier agent run into a full 6-hour investigation
+          # with no failure data at all, so fail the job now rather than later.
+          for TOOL in jq gh; do
+            if ! command -v "$TOOL" >/dev/null 2>&1; then
+              echo "::error::$TOOL is required by this workflow but is not installed."
+              exit 1
+            fi
+          done
 
       - name: Configure Git
         run: |
@@ -165,6 +188,15 @@ jobs:
 
           Read them (e.g. with `cat` / `jq`) and note the failing test class
           name(s), error message(s), and module.
+
+          A file holding only its placeholder fallback (`{}`, `{"jobs":[]}`,
+          `[]`, or "No failed-job logs available.") means that datum could not
+          be fetched, NOT that the run had no failed jobs, no annotations, or no
+          associated PR. Treat it as unavailable and fall back to local
+          evidence: `git log`, `git show` on the failing commit, and a local
+          test run. When `existing-fix-prs.json` is a placeholder, do the Step
+          0c duplicate check against the local remote-tracking refs
+          (`git branch -r --list 'origin/ci-fix/*'`) instead.
 
           ### 0b: (nothing to do — the failure context is already pre-fetched)
 
@@ -685,23 +717,56 @@ jobs:
           # input directly into the shell (avoids script injection).
           RUN_ID="${FAILED_RUN_URL##*/}"
 
+          # Each fetch stays non-fatal -- one missing datum must not sink the
+          # job -- but is no longer silent. The previous
+          # `2>/dev/null || echo '<fallback>'` form discarded the reason a datum
+          # was missing, so a job-wide breakage (gh absent, token scope, expired
+          # logs) was indistinguishable from a run that legitimately had no
+          # associated PR or no annotations. Capture stderr and surface it.
+          FETCH_ERR="$(mktemp)"
+          fetch() {
+            local out="$1" fallback="$2"
+            shift 2
+            if "$@" > "$out" 2>"$FETCH_ERR"; then
+              return 0
+            fi
+            echo "::warning::Could not fetch $(basename "$out") via '$*': $(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-400)"
+            printf '%s\n' "$fallback" > "$out"
+            # Deliberately reports success: the fallback IS the handled outcome,
+            # and this step runs under `bash -e`, where a non-zero return from a
+            # bare call would abort the pre-fetch and discard the data already
+            # gathered. Callers that must react to a missing datum inspect the
+            # written file instead (see the run.json check below).
+            return 0
+          }
+
           # Run details (conclusion, event, headBranch, headSha, ...)
-          gh run view "$RUN_ID" --repo "$REPO" \
-            --json databaseId,conclusion,event,headBranch,headSha,displayTitle,workflowName,status,url \
-            > "$CTX/run.json" 2>/dev/null || echo '{}' > "$CTX/run.json"
+          fetch "$CTX/run.json" '{}' \
+            gh run view "$RUN_ID" --repo "$REPO" \
+              --json databaseId,conclusion,event,headBranch,headSha,displayTitle,workflowName,status,url
+
+          # The run metadata is the one indispensable datum: headSha drives the
+          # PR lookups below, and without the conclusion and branch the agent
+          # has no failure to investigate. Fail here rather than hand it an
+          # empty {} and let it spend the whole time budget working blind.
+          if ! jq -e 'has("databaseId")' "$CTX/run.json" >/dev/null 2>&1; then
+            echo "::error::Could not fetch metadata for run $RUN_ID in $REPO; aborting before the agent starts."
+            exit 1
+          fi
 
           # Jobs with per-job conclusions and step details
-          gh run view "$RUN_ID" --repo "$REPO" --json jobs \
-            > "$CTX/jobs.json" 2>/dev/null || echo '{"jobs":[]}' > "$CTX/jobs.json"
+          fetch "$CTX/jobs.json" '{"jobs":[]}' \
+            gh run view "$RUN_ID" --repo "$REPO" --json jobs
 
           # Logs of the failed jobs only
-          gh run view "$RUN_ID" --repo "$REPO" --log-failed \
-            > "$CTX/logs.txt" 2>/dev/null || echo "No failed-job logs available." > "$CTX/logs.txt"
+          fetch "$CTX/logs.txt" 'No failed-job logs available.' \
+            gh run view "$RUN_ID" --repo "$REPO" --log-failed
 
           # Check-run annotations (exact test names + error messages) per failed job
           : > "$CTX/annotations.ndjson"
           for JOB_ID in $(jq -r '.jobs[]? | select(.conclusion == "failure") | .databaseId' "$CTX/jobs.json" 2>/dev/null); do
-            gh api "repos/$REPO/check-runs/$JOB_ID/annotations" >> "$CTX/annotations.ndjson" 2>/dev/null || true
+            gh api "repos/$REPO/check-runs/$JOB_ID/annotations" >> "$CTX/annotations.ndjson" 2>"$FETCH_ERR" \
+              || echo "::warning::Could not fetch annotations for job $JOB_ID: $(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-400)"
           done
           if [ -s "$CTX/annotations.ndjson" ]; then
             jq -s 'add' "$CTX/annotations.ndjson" > "$CTX/annotations.json" 2>/dev/null || echo '[]' > "$CTX/annotations.json"
@@ -713,8 +778,8 @@ jobs:
           # PRs associated with the failing commit (headBranch/event live in run.json)
           HEAD_SHA="$(jq -r '.headSha // empty' "$CTX/run.json" 2>/dev/null)"
           if [ -n "$HEAD_SHA" ]; then
-            gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
-              > "$CTX/associated-prs.json" 2>/dev/null || echo '[]' > "$CTX/associated-prs.json"
+            fetch "$CTX/associated-prs.json" '[]' \
+              gh api "repos/$REPO/commits/$HEAD_SHA/pulls"
           else
             echo '[]' > "$CTX/associated-prs.json"
           fi
@@ -722,7 +787,8 @@ jobs:
           # Comments on those associated PRs
           : > "$CTX/pr-comments.ndjson"
           for PR in $(jq -r '.[]?.number' "$CTX/associated-prs.json" 2>/dev/null); do
-            gh api "repos/$REPO/issues/$PR/comments" >> "$CTX/pr-comments.ndjson" 2>/dev/null || true
+            gh api "repos/$REPO/issues/$PR/comments" >> "$CTX/pr-comments.ndjson" 2>"$FETCH_ERR" \
+              || echo "::warning::Could not fetch comments for PR #$PR: $(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-400)"
           done
           if [ -s "$CTX/pr-comments.ndjson" ]; then
             jq -s 'add' "$CTX/pr-comments.ndjson" > "$CTX/pr-comments.json" 2>/dev/null || echo '[]' > "$CTX/pr-comments.json"
@@ -732,12 +798,32 @@ jobs:
           rm -f "$CTX/pr-comments.ndjson"
 
           # Existing OPEN fix PRs targeting develop (duplicate detection)
-          gh pr list --repo "$REPO" --base develop --state open \
-            --json number,title,headRefName,body,labels --limit 50 \
-            > "$CTX/existing-fix-prs.json" 2>/dev/null || echo '[]' > "$CTX/existing-fix-prs.json"
+          fetch "$CTX/existing-fix-prs.json" '[]' \
+            gh pr list --repo "$REPO" --base develop --state open \
+              --json number,title,headRefName,body,labels --limit 50
+
+          rm -f "$FETCH_ERR"
 
           echo "Gathered CI failure context into $CTX:"
           ls -l "$CTX" || true
+
+          # Digest of what the agent is actually being handed. Without it, an
+          # all-placeholder context looks identical in the log to a genuinely
+          # sparse one, which is how the missing gh CLI stayed hidden.
+          FAILED_JOBS="$(jq -r '[.jobs[]? | select(.conclusion == "failure")] | length' "$CTX/jobs.json" 2>/dev/null || echo 0)"
+          echo "Context digest:"
+          echo "  run conclusion: $(jq -r '.conclusion // "unknown"' "$CTX/run.json")"
+          echo "  failed jobs:    $FAILED_JOBS"
+          echo "  log bytes:      $(wc -c < "$CTX/logs.txt")"
+          echo "  annotations:    $(jq -r 'length' "$CTX/annotations.json" 2>/dev/null || echo 0)"
+          echo "  associated PRs: $(jq -r 'length' "$CTX/associated-prs.json" 2>/dev/null || echo 0)"
+
+          # A failed run with no failed jobs is either a workflow startup
+          # failure or a context-gathering problem; either way the agent gets no
+          # test-level detail, and it should be stated rather than inferred.
+          if [ "$FAILED_JOBS" -eq 0 ]; then
+            echo "::warning::No failed jobs found for run $RUN_ID -- the agent will have no test-level failure detail (workflow startup failure, an expired run, or a gathering problem)."
+          fi
 
       - name: Run Fix Agent
         id: run-agent
@@ -911,6 +997,17 @@ jobs:
                 echo "::warning::pr_body_file '$PR_BODY_FILE' resolves outside $RD; using default body."
                 ;;
             esac
+          fi
+
+          # Preflight the CLI that turns the pushed branch into a PR, BEFORE the
+          # push. Checking afterwards would leave an orphan fix branch on the
+          # remote with no PR referencing it. Only the create path needs gh; an
+          # existing PR picks the fix up from the branch push alone.
+          if [ -z "$EXISTING_PR" ] || [ "$EXISTING_PR" = "null" ]; then
+            if ! command -v gh >/dev/null 2>&1; then
+              echo "::error::gh CLI is unavailable, so the pull request cannot be opened; refusing to push an orphan branch."
+              exit 1
+            fi
           fi
 
           # Push the agent's LOCAL fix branch with explicit App-token auth. The
