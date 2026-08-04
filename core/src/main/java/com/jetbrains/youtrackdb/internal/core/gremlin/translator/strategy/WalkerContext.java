@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -123,12 +124,18 @@ final class WalkerContext implements RecognitionContext {
   @Nullable SQLSkip skip;
 
   /**
-   * Boundary row-projection shaping — the seven flags a terminator pins so {@link
-   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep} knows how to
-   * project each row (row dropping, presence checks, valueMap list wrapping, group-map
-   * accumulation, singleton-map unwrapping, elementMap token keys). Defaults to {@link
-   * ResultShaping#NONE} (the element path); a terminator replaces it through {@link
-   * #setResultShaping}.
+   * Boundary row-projection shaping — the seven flags plus the ordered list-shaping ops a
+   * terminator pins so the boundary base ({@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep}) knows
+   * how to project each row: row dropping, presence checks, valueMap list wrapping, group-map
+   * accumulation, singleton-map unwrapping, elementMap token keys, and the {@code fold} /
+   * {@code unfold} / {@code reverse} / {@code tail} stream stages. Defaults to {@link
+   * ResultShaping#NONE} (the element path).
+   *
+   * <p>Two write paths reach it. A flag-pinning terminator replaces the whole record through {@link
+   * #setResultShaping}; a list-shaping terminator appends one op through {@link
+   * #appendListShapingOp}, which preserves whatever is already pinned. See {@link
+   * RecognitionContext#setResultShaping} for what keeps a replace from clobbering an append.
    */
   ResultShaping shaping = ResultShaping.NONE;
 
@@ -635,6 +642,24 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public boolean dropsRowsOnAbsentProperty() {
     return shaping.dropOnAbsent();
+  }
+
+  @Override
+  public void appendListShapingOp(@Nonnull ListShapingOp op) {
+    var ops = new ArrayList<>(shaping.listShapingOps());
+    ops.add(op);
+    this.shaping = shaping.withListShapingOps(ops);
+  }
+
+  /**
+   * Always true: this is the top-level walk's own context, so the shaping it holds is the one the
+   * boundary base reads and an appended op reaches the projected payload stream. {@link
+   * SubTraversalPredicateAdapter#supportsListShaping()} answers {@code false}, which is where the
+   * decline for a combinator child comes from.
+   */
+  @Override
+  public boolean supportsListShaping() {
+    return true;
   }
 
   /** The boundary row-projection shaping the terminator pinned, read by the walker at result-build

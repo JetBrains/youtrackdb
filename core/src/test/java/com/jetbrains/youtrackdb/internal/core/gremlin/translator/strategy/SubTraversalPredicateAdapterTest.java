@@ -478,6 +478,52 @@ public class SubTraversalPredicateAdapterTest {
         .isInstanceOf(IllegalStateException.class);
   }
 
+  /**
+   * The list-shaping decline channel, pinned as a discriminating pair on one fixture rather than as
+   * a bare {@code isFalse()}. The real parent {@link WalkerContext} answers {@code true} — the
+   * positive control proving the assertion below reads the sub-walk's own answer and not a fixture
+   * that answers {@code false} to everything — while the adapter wrapping that same parent answers
+   * {@code false} instead of delegating. The pair is what a list-shaping recogniser reads to accept
+   * at top level and decline inside {@code and} / {@code or} / {@code not} / {@code where} /
+   * {@code filter}. A mocked parent would make the pair vacuous: Mockito answers {@code false} for
+   * any unstubbed {@code boolean}, so both arms would agree for the wrong reason.
+   */
+  @Test
+  public void supportsListShaping_falseOnSubWalk_trueOnTheParentItWraps() {
+    var parent = parentWithBoundary(Map.of());
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+
+    assertThat(parent.supportsListShaping())
+        .as("the top-level walk carries the shaping the boundary base reads")
+        .isTrue();
+    assertThat(adapter.supportsListShaping())
+        .as("a sub-walk declines instead of carrying an op, and never delegates the parent's true")
+        .isFalse();
+  }
+
+  /**
+   * A recogniser that appends without first reading
+   * {@link RecognitionContext#supportsListShaping()} hits a throw, and the parent's shaping stays
+   * untouched. The alternative worth ruling out is a swallow: it would leave
+   * {@code g.V().and(__.out().fold())} translated as an always-true existence filter, because a dry
+   * upstream still emits one empty list, so every row the {@code and} should drop would survive.
+   * The throw is a guard for the recogniser that forgets; it cannot serve as the decline path,
+   * because {@code GremlinToMatchStrategy}'s {@code RuntimeException} net turns it into a decline
+   * with no diagnostic.
+   */
+  @Test
+  public void appendListShapingOp_onSubWalk_throwsAndLeavesTheParentShapingClean() {
+    var parent = parentWithBoundary(Map.of());
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+
+    assertThatThrownBy(() -> adapter.appendListShapingOp(upstream -> upstream))
+        .as("a sub-walk cannot carry a list-shaping op")
+        .isInstanceOf(UnsupportedOperationException.class);
+    assertThat(parent.shaping().listShapingOps())
+        .as("and nothing leaked onto the parent's shaping")
+        .isEmpty();
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers.
   // ---------------------------------------------------------------------------

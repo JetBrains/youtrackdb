@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
@@ -338,12 +339,26 @@ interface RecognitionContext extends ParamSink {
   boolean returnDistinct();
 
   /**
-   * Pins the boundary row-projection shaping — the seven flags a terminator sets to control how
-   * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep}
-   * projects each MATCH row (row dropping, presence checks, valueMap list wrapping, group-map
-   * accumulation, singleton-map unwrapping, elementMap token keys). A terminator builds the exact
-   * combination from {@link ResultShaping#NONE} plus its overrides and calls this once; the
-   * element-path default is {@link ResultShaping#NONE}.
+   * Pins the boundary row-projection shaping — the seven flags plus the ordered list-shaping ops
+   * that control how the boundary base ({@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep}) projects
+   * each MATCH row: row dropping, presence checks, valueMap list wrapping, group-map accumulation,
+   * singleton-map unwrapping, elementMap token keys, and the {@code fold} / {@code unfold} /
+   * {@code reverse} / {@code tail} stream stages. A terminator builds the exact combination from
+   * {@link ResultShaping#NONE} plus its overrides and calls this; the element-path default is
+   * {@link ResultShaping#NONE}.
+   *
+   * <p>This replaces the whole record, {@link ResultShaping#listShapingOps()} included. A
+   * list-shaping terminator therefore contributes through {@link #appendListShapingOp} instead: an
+   * append composes with the ops and flags already pinned, where a rebuild from {@code NONE} would
+   * drop a sibling recogniser's contribution. The append's no-clobber guarantee covers only the
+   * recognisers that use that method — a later {@code setResultShaping} still overwrites every op
+   * appended before it.
+   *
+   * <p>Two rules keep the write paths from colliding. The list-shaping terminators are accepted
+   * only as the traversal's last step, so no flag-pinning terminator can follow one; and {@link
+   * UnionStepRecogniser} calls this with the agreed child shaping before any post-union suffix op
+   * appends, so on that path the replace always precedes the append.
    */
   void setResultShaping(@Nonnull ResultShaping shaping);
 
@@ -355,6 +370,44 @@ interface RecognitionContext extends ParamSink {
    * while Gremlin counts only the survivors. See that recogniser for the measured divergence.
    */
   boolean dropsRowsOnAbsentProperty();
+
+  /**
+   * Appends one ordered list-shaping stage to the shaping pinned so far, keeping the flags and the
+   * ops already there. The four list-shaping terminators ({@code fold} / {@code unfold} /
+   * {@code reverse} / {@code tail}) contribute through this rather than through {@link
+   * #setResultShaping}, because two of them in one traversal ({@code reverse().unfold()}) have to
+   * compose and a sibling recogniser's flags have to survive. Declared order is the order the
+   * boundary base applies the stages in.
+   *
+   * <p>Call this only when {@link #supportsListShaping()} answers {@code true}. A context that
+   * answers {@code false} cannot carry an op, and the recogniser declines the whole walk instead of
+   * appending; see that method for why the pairing is a query the recogniser reads rather than a
+   * silent swallow behind this one.
+   */
+  void appendListShapingOp(@Nonnull ListShapingOp op);
+
+  /**
+   * Whether a {@link ListShapingOp} appended on this context can reach the boundary. Declared
+   * non-default so both implementations state an answer, mirroring {@link
+   * #dropsRowsOnAbsentProperty()} — the same query-then-decline pairing, read by a recogniser
+   * before it contributes rather than reported back after.
+   *
+   * <p>The top-level walk answers {@code true}; a combinator child sub-walk answers {@code false},
+   * and that answer is the decline channel for all four list-shaping terminators. {@link
+   * #walkChild} drives {@code and} / {@code or} / {@code not} / {@code where} / {@code filter}
+   * children through the same recogniser registry the top-level walk uses, so a child's trailing
+   * {@code fold()} reaches the recogniser that would claim it at top level; with no boolean to
+   * read, that recogniser has no way to back out.
+   *
+   * <p>Both simpler alternatives answer wrongly. Swallowing the append the way {@link
+   * SubTraversalPredicateAdapter} swallows {@link #setResultShaping} turns
+   * {@code g.V().and(__.out().fold())} into an existence filter that is always true — a dry
+   * upstream still emits one empty list — so rows disappear with nothing to see. Throwing out of
+   * the append (the shape {@link #appendPostConcatOp} uses) lands in
+   * {@link GremlinToMatchStrategy}'s {@code RuntimeException} net, which degrades it to the same
+   * silent decline minus the diagnostic.
+   */
+  boolean supportsListShaping();
 
   /**
    * Whether {@link UnionStepRecogniser} has stashed a multi-plan carrier on this walk. Post-union

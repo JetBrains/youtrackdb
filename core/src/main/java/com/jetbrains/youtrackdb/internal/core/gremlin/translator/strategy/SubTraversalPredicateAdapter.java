@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
@@ -471,6 +472,38 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public boolean dropsRowsOnAbsentProperty() {
     return false;
+  }
+
+  /**
+   * Always false, and not delegated to the parent — the same query-then-decline shape as {@link
+   * #dropsRowsOnAbsentProperty()}. A captured child's payloads never reach the boundary, so an op
+   * appended here would be discarded with the rest of the capture, and the parent's answer is not
+   * the sub-walk's business either.
+   *
+   * <p>This is the decline channel for the four list-shaping terminators, which is why the answer
+   * is a boolean a recogniser reads rather than a swallow inside {@link #appendListShapingOp}.
+   * {@link RecognitionContext#walkChild} drives {@code and} / {@code or} / {@code not} /
+   * {@code where} / {@code filter} children through the same recogniser registry the top-level walk
+   * uses, so a child's trailing {@code fold()} reaches the same recogniser that claims it at top
+   * level. Under a swallow that recogniser accepts, and {@code g.V().and(__.out().fold())} becomes
+   * an existence filter that is always true — a dry upstream still emits one empty list — so every
+   * row the {@code and} should have dropped survives instead.
+   */
+  @Override
+  public boolean supportsListShaping() {
+    return false;
+  }
+
+  @Override
+  public void appendListShapingOp(@Nonnull ListShapingOp op) {
+    // Unreachable through a correct recogniser: it reads supportsListShaping() first and declines
+    // on this context's false. The throw guards the recogniser that forgets; it cannot serve as the
+    // decline mechanism itself, because GremlinToMatchStrategy's RuntimeException net catches it
+    // and degrades it to a decline with no diagnostic. That is why supportsListShaping() carries
+    // the channel.
+    // Mirrors appendPostConcatOp's "top-level only" default on the interface.
+    throw new UnsupportedOperationException(
+        "list-shaping ops are top-level only; a sub-walk declines through supportsListShaping()");
   }
 
   @Override

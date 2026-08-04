@@ -2,13 +2,17 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import java.util.List;
 import java.util.Set;
 import org.junit.Test;
 
 /**
- * Verifies Track 6 walker foundation fields for result-shaping ({@code DISTINCT}, {@code GROUP BY},
- * order/pagination clauses, and boundary drop flags) default cleanly and accept recogniser writes.
+ * Verifies the walker's result-shaping foundation — {@code DISTINCT}, {@code GROUP BY},
+ * order/pagination clauses, boundary drop flags, and the ordered list-shaping op carrier —
+ * defaults cleanly and accepts recogniser writes through both write paths: the full replace
+ * ({@code setResultShaping}) and the append ({@code appendListShapingOp}).
  */
 public class WalkerContextResultShapingTest {
 
@@ -27,7 +31,63 @@ public class WalkerContextResultShapingTest {
     assertThat(ctx.shaping().presencePropertyKeys()).isEmpty();
     assertThat(ctx.shaping().wrapMapValuesInLists()).isFalse();
     assertThat(ctx.shaping().accumulateMap()).isFalse();
+    assertThat(ctx.shaping().listShapingOps())
+        .as("no list-shaping terminator has run, so the boundary base keeps its structural bypass")
+        .isEmpty();
     assertThat(ctx.lastPropertyProjection).isNull();
+  }
+
+  /**
+   * The append seam composes rather than replaces. Two ops land in declared order — the order the
+   * boundary base applies them in, which is what makes {@code reverse().unfold()} and
+   * {@code unfold().reverse()} observably different shapes — and the flags a sibling recogniser
+   * pinned before the appends survive both of them. The flag assertions are the load-bearing half:
+   * a naive {@code setResultShaping(NONE.withListShapingOps(...))} implementation would satisfy the
+   * order assertion and still wipe {@code dropOnAbsent} and the presence keys, which is the defect
+   * the append method exists to prevent.
+   */
+  @Test
+  public void appendListShapingOp_appendsInDeclaredOrderAndPreservesPinnedFlags() {
+    var ctx = new WalkerContext(true, false);
+    ctx.setResultShaping(
+        ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of("age")));
+    ListShapingOp first = upstream -> upstream;
+    ListShapingOp second = upstream -> upstream;
+
+    ctx.appendListShapingOp(first);
+    ctx.appendListShapingOp(second);
+
+    assertThat(ctx.shaping().listShapingOps())
+        .as("declared order is the application order")
+        .containsExactly(first, second);
+    assertThat(ctx.shaping().dropOnAbsent())
+        .as("a sibling recogniser's flag survives the append")
+        .isTrue();
+    assertThat(ctx.shaping().presencePropertyKeys())
+        .as("and so does its presence-key list")
+        .containsExactly("age");
+  }
+
+  /**
+   * The documented limit of the append's no-clobber guarantee: {@code setResultShaping} replaces
+   * the whole record, {@code listShapingOps} included, so an op appended before it is gone. Pinned
+   * because two rules stated elsewhere depend on this being the behaviour rather than a merge —
+   * the terminators are accepted only as the traversal's last step, and
+   * {@code UnionStepRecogniser} replaces with the agreed child shaping before any post-union suffix
+   * op appends. A change that made the replace merge would leave both rules describing something
+   * the code no longer does.
+   */
+  @Test
+  public void setResultShaping_afterAppend_replacesRatherThanMergesOps() {
+    var ctx = new WalkerContext(true, false);
+    ctx.appendListShapingOp(upstream -> upstream);
+
+    ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true));
+
+    assertThat(ctx.shaping().listShapingOps())
+        .as("the replace drops the appended op")
+        .isEmpty();
+    assertThat(ctx.shaping().accumulateMap()).isTrue();
   }
 
   @Test
