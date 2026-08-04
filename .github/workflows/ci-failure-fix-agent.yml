@@ -56,16 +56,6 @@ jobs:
       # the truncated fragments a bounded stderr tail would produce.
       GH_DEBUG: ''
     steps:
-      # First step in the job, deliberately: the agent writes its summary to this
-      # fixed path and "Prepare Zulip summary" reads it under if: always(), so a
-      # previous job's file on a reused runner would be posted as this run's
-      # result. Any step placed before this one that can fail - including the
-      # prerequisite verify and the run-metadata gate added below - would leave
-      # the stale file in place. `|| true` because a directory at that path would
-      # otherwise abort the job under `bash -e`.
-      - name: Clear stale agent summary
-        run: rm -rf /tmp/fix-agent-summary.md || true
-
       - name: Checkout Source Code
         uses: actions/checkout@v7
         with:
@@ -182,7 +172,7 @@ jobs:
             integration tests take ~60-90 min. Prefer running only the
             specific failing test first, then the full module suite only if
             needed.
-          - At the end, write your final summary to `/tmp/fix-agent-summary.md`.
+          - At the end, write your final summary to `$CI_FIX_RESULT_DIR/summary.md`.
           - If you cannot fix the issue, still write a summary documenting your
             investigation findings.
           - NEVER run multiple test processes simultaneously in the same
@@ -230,19 +220,21 @@ jobs:
           Read them (e.g. with `cat` / `jq`) and note the failing test class
           name(s), error message(s), and module.
 
-          If `logs`, `annotations`, or `jobs` is not marked `ok` or `partial`, the
-          failure detail is missing. Work from local evidence instead: `git log`,
-          `git show` on the failing commit, and at most ONE full local suite run
+          Use whichever of `jobs.json`, `annotations.json`, and `logs.txt` are
+          marked `ok` or `partial`. They come from independent fetches, so one of
+          them being unavailable says nothing about the others — it is simply
+          absent. Only if NONE of the three lets you name a failing test, gate,
+          or compilation error: work from local evidence — `git log`, `git show`
+          on the failing commit, and at most ONE full local suite run
           (`__FULL_TEST_CMD__`) to reproduce. That cap covers the reproduce
           attempt only — the Step 5 and Step 6.8 suite runs are separate and
-          still mandatory. If you still cannot name a failing test, gate, or
-          compilation error, classify as **Insufficient failure context** per
-          Step 1.
+          still mandatory. If that run reproduces nothing either, classify as
+          **Insufficient failure context** per Step 1.
 
-          The other datums do not warrant a reproduce run: an unavailable
-          `existing-fix-prs` is handled in Step 0c, and unavailable
-          `associated-prs` / `pr-comments` mean you have no PR context, so read
-          gate details from `logs.txt` instead. Do not substitute
+          The other datums never warrant a reproduce run: `existing-fix-prs` not
+          marked `ok` is handled in Step 0c, and `associated-prs` / `pr-comments`
+          not marked `ok` or `partial` mean you have no PR context, so read gate
+          details from `logs.txt` instead. Do not substitute
           `git branch -r --list 'origin/ci-fix/*'` for `existing-fix-prs.json`:
           remote refs carry no PR number, title, or open/closed state, so a
           match there cannot drive Step 0c.
@@ -320,7 +312,10 @@ jobs:
              `associated-prs.json` (and `run.json` for `headBranch`/`event`) in
              `$CI_FIX_CONTEXT_DIR`. If it is, read the gate's PR comment in
              `pr-comments.json` — it has specific data (test counts, coverage
-             percentages). If `run.json` shows `event` as `push` and `headBranch`
+             percentages). Check the `pr-comments` status first: if it is not `ok`
+             or `partial`, a missing gate comment is not evidence that the gate
+             posted none, so read the gate's numbers from `logs.txt` instead.
+             If `run.json` shows `event` as `push` and `headBranch`
              as `develop` it ran on `develop` directly, so extract gate details
              from `logs.txt` instead. Read the branch and event from `run.json`
              rather than inferring them from an empty `associated-prs.json`,
@@ -677,7 +672,7 @@ jobs:
 
           ## Step 8: Write summary report
 
-          Write your final summary to `/tmp/fix-agent-summary.md`:
+          Write your final summary to `$CI_FIX_RESULT_DIR/summary.md`:
 
           ```markdown
           ## Status
@@ -791,9 +786,12 @@ jobs:
           # in an id that is itself numeric, so trailing-segment extraction would
           # pass the validation below and then fetch the wrong object. `##` rather
           # than `#` so an owner or repo path segment named "runs" cannot win.
-          RUN_ID="${FAILED_RUN_URL##*/runs/}"
+          # Query string and fragment come off FIRST: either can itself contain
+          # a "/runs/" (e.g. ...?redirect=/runs/999), which would otherwise win
+          # the `##` match.
+          RUN_ID="${FAILED_RUN_URL%%[?#]*}"
+          RUN_ID="${RUN_ID##*/runs/}"
           RUN_ID="${RUN_ID%%/*}"
-          RUN_ID="${RUN_ID%%[?#]*}"
 
           # A run id is always numeric. Validate before use: a URL with no /runs/
           # segment leaves a non-numeric remnant here, and RUN_ID now reaches the
@@ -928,23 +926,33 @@ jobs:
             ANNOTATIONS_STATUS="not attempted: the jobs datum was unavailable"
           fi
           ANN_ONE="$(mktemp -p "$RUNNER_TEMP")"
+          ANN_OK=0
           for JOB_ID in $(jq -r '.jobs[]? | select(.conclusion == "failure") | .databaseId' "$CTX/jobs.json" 2>/dev/null); do
             # Append only on success: gh api writes the error response body to
             # STDOUT as well, so appending unconditionally mixed an error object
             # into the array stream. `jq -s add` then failed with "array and
             # object cannot be added" and the fallback replaced the whole file
             # with [], discarding the annotations of every job that did succeed.
-            if gh api "repos/$REPO/check-runs/$JOB_ID/annotations" > "$ANN_ONE" 2>"$FETCH_ERR"; then
+            # --paginate: the endpoint defaults to 30 per page, and the annotation
+            # naming the failing test can sit on page 2. A silently truncated file
+            # marked `ok` is exactly the false confidence this status file exists
+            # to prevent. jq -s 'add' flattens the concatenated pages unchanged.
+            if gh api --paginate "repos/$REPO/check-runs/$JOB_ID/annotations" > "$ANN_ONE" 2>"$FETCH_ERR"; then
               cat "$ANN_ONE" >> "$CTX/annotations.ndjson"
+              ANN_OK=$((ANN_OK + 1))
             else
               echo "::warning::Could not fetch annotations for job $JOB_ID: $(fetch_err_log)"
               # `partial:` rather than `failed:`: the entries already collected
               # are real, so the agent should use them instead of discarding the
               # file, but it must not read a missing entry as "no annotations".
+              # Downgraded to `failed:` below if nothing at all came back.
               ANNOTATIONS_STATUS="partial: job $JOB_ID failed: $(fetch_err_tail)"
             fi
           done
           rm -f "$ANN_ONE"
+          case "$ANNOTATIONS_STATUS" in
+            partial:*) [ "$ANN_OK" -gt 0 ] || ANNOTATIONS_STATUS="failed:${ANNOTATIONS_STATUS#partial:}" ;;
+          esac
           record annotations "$ANNOTATIONS_STATUS"
           if [ -s "$CTX/annotations.ndjson" ]; then
             jq -s 'add' "$CTX/annotations.ndjson" > "$CTX/annotations.json" 2>/dev/null || echo '[]' > "$CTX/annotations.json"
@@ -972,15 +980,23 @@ jobs:
             PR_COMMENTS_STATUS="not attempted: the associated-prs datum was unavailable"
           fi
           CMT_ONE="$(mktemp -p "$RUNNER_TEMP")"
+          CMT_OK=0
           for PR in $(jq -r '.[]?.number' "$CTX/associated-prs.json" 2>/dev/null); do
-            if gh api "repos/$REPO/issues/$PR/comments" > "$CMT_ONE" 2>"$FETCH_ERR"; then
+            # --paginate for the same reason as the annotations loop: the gate
+            # comment carrying the coverage / test-count numbers is often the most
+            # recent of many, and page 1 holds only the oldest 30.
+            if gh api --paginate "repos/$REPO/issues/$PR/comments" > "$CMT_ONE" 2>"$FETCH_ERR"; then
               cat "$CMT_ONE" >> "$CTX/pr-comments.ndjson"
+              CMT_OK=$((CMT_OK + 1))
             else
               echo "::warning::Could not fetch comments for PR #$PR: $(fetch_err_log)"
               PR_COMMENTS_STATUS="partial: PR $PR failed: $(fetch_err_tail)"
             fi
           done
           rm -f "$CMT_ONE"
+          case "$PR_COMMENTS_STATUS" in
+            partial:*) [ "$CMT_OK" -gt 0 ] || PR_COMMENTS_STATUS="failed:${PR_COMMENTS_STATUS#partial:}" ;;
+          esac
           record pr-comments "$PR_COMMENTS_STATUS"
           if [ -s "$CTX/pr-comments.ndjson" ]; then
             jq -s 'add' "$CTX/pr-comments.ndjson" > "$CTX/pr-comments.json" 2>/dev/null || echo '[]' > "$CTX/pr-comments.json"
@@ -1105,6 +1121,13 @@ jobs:
       - name: Read fix result
         id: fix-result
         if: always()
+        env:
+          # Pinned for the same reason as in "Publish fix", and it must resolve to
+          # the SAME file: this step's outputs gate publishing. Reading an
+          # inherited value here while publish reads a pinned one would let the
+          # agent point the two steps at different sentinels through $GITHUB_ENV,
+          # reporting fix-ready from one file and then failing on the other.
+          CI_FIX_RESULT_FILE: ${{ runner.temp }}/ci-fix/result.json
         run: |
           # Bridge the JSON sentinel to step outputs: an `if:` expression cannot
           # parse JSON, so extract the fields the publish gate needs. A missing
@@ -1116,7 +1139,7 @@ jobs:
           #     "pr_title": "...",
           #     "pr_body_file": "<path>",
           #     "existing_pr": <number|null> }
-          RESULT_FILE="${CI_FIX_RESULT_FILE:-$RUNNER_TEMP/ci-fix/result.json}"
+          RESULT_FILE="$CI_FIX_RESULT_FILE"
           if [ ! -f "$RESULT_FILE" ]; then
             echo "No sentinel at $RESULT_FILE - treating as no-fix."
             {
@@ -1308,8 +1331,12 @@ jobs:
         id: summary
         if: always()
         run: |
-          if [ -f /tmp/fix-agent-summary.md ]; then
-            SUMMARY=$(head -c 3000 /tmp/fix-agent-summary.md)
+          # $RUNNER_TEMP is wiped per job, so unlike a fixed /tmp path this
+          # cannot serve a previous run's summary when the agent never wrote one
+          # (for example when the run-metadata gate aborts the job).
+          SUMMARY_FILE="${CI_FIX_RESULT_DIR:-$RUNNER_TEMP/ci-fix}/summary.md"
+          if [ -f "$SUMMARY_FILE" ]; then
+            SUMMARY=$(head -c 3000 "$SUMMARY_FILE")
           else
             SUMMARY="Agent completed without writing a structured summary. Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
           fi
