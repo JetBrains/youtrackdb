@@ -743,6 +743,20 @@ trade a wrong answer for a failed conformance run.
   > catalogue, and three new JMH classes in `jmh-ldbc` with their in-track execution test. "Mirrored" was dropped by A7 — the repository holds no Gremlin JMH benchmark to adapt, so the new class measures its own named shapes on a translator-on-vs-off axis.
   > The LDBC SF 1 baseline numbers are Hetzner-scoped and not a gate.
   > **Depends on:** Tracks 7, 8, and 9.
+  >
+  > **Correction from Track 9 Phase C (2026-08-04): the no-regression reference
+  > this track reads is `core`-only.** Track 9's acceptance was measured at its
+  > final tree on `core` alone — 1930 scenarios, 0 failures, 14 skipped, on both
+  > the translator-on and translator-off arms — and the `embedded` re-measurement
+  > was stopped by user decision because CI covers that runner's on arm. So the
+  > two-runner baseline described above does not exist as a measured artifact, and
+  > no baseline file was published; the figures live in Track 9's completion
+  > episode and its `## Surprises & Discoveries`. Two consequences for this track:
+  > compare against the `core` figure rather than looking for a four-arm artifact,
+  > and treat `embedded`'s translator-off arm as unverified at Track 9's final
+  > tree rather than as a green reference. Track 9's test-harness backlog also
+  > moved — see plan/track-11.md item 10's 2026-08-04 amendment, which records the
+  > declined-path pin as discharged and re-measures the consolidation's scale.
 
 
 ## Implementation state
