@@ -708,6 +708,26 @@ trade a wrong answer for a failed conformance run.
   > — see `plan/track-9.md` `## Episodes` § Track completion. (10 steps, 0 failed)
   >
   > **Track file:** `plan/track-9.md`
+  >
+  > **Strategy refresh:** ADJUST — Track 9's shape held, and it pushed most of its
+  > own discoveries into Track 11 before closing: item 4's two step-7 constraints,
+  > item 6's absolute-green criterion under DR-S8, item 8's measured label-probe
+  > correction, item 10's re-measured consolidation scale, and the dropped
+  > "mirrored" on this plan's Track 11 Scope line. Four reconciliations were still
+  > owed and are now applied. Item 6 and its acceptance bullet read a two-runner
+  > baseline artifact that does not exist; the reference is `core`-only —
+  > 1930 / 0 / 14 on both kill-switch arms at `215aad384f` — and `embedded`'s off
+  > arm is inference rather than measurement. The post-strategy step-list
+  > obligation, Track 9's five-instance generalisation and item 8's own mechanism,
+  > was missing from a track whose every gate keys on step position; it now sits in
+  > `## Context and Orientation`. The decline-assertion positive-control rule lived
+  > only in Track 9's completion episode and now sits on item 5, where technical
+  > finding T4 lands. And the Scope line below is re-priced: ~14–20 files covers
+  > items 1–7, while items 8–10 are absorbed backlog worth roughly as much again.
+  > Two things need no action: `returnDistinct` and BG3 both took dispositions
+  > inside Track 9 (DR-S10's decline exit, and BG3 to step 5), so no unowned
+  > silent-wrong-answer defect lands on Track 11; and Track 9's five
+  > unowned-defect carry obligations are Phase 4's to move into `design-final.md`.
 
 - [ ] Track 11: List-shaping terminators + JMH harness
   > **Runs after Track 9** (inline replan, 2026-08-03 — the two halves of the
@@ -728,6 +748,15 @@ trade a wrong answer for a failed conformance run.
   > composition / boundary / decline / re-arm / clone tests, the per-step scenario
   > catalogue, and three new JMH classes in `jmh-ldbc` with their in-track execution test. "Mirrored" was dropped by A7 — the repository holds no Gremlin JMH benchmark to adapt, so the new class measures its own named shapes on a translator-on-vs-off axis.
   > The LDBC SF 1 baseline numbers are Hetzner-scoped and not a gate.
+  > **Re-priced 2026-08-04 by the Track 11 Pre-Flight gate: the ~14–20 files above
+  > cover the terminator work, items 1–7.** Items 8, 9 and 10 are absorbed backlog
+  > carrying their own footprints — item 8 one `bindStepLabels`-or-decline call in
+  > `HasStepRecogniser` plus its tests; item 9 a recorded verdict on each of 19
+  > hand-built AST sites across at least seven files; item 10 a consolidation over
+  > nine translator-toggle copies, eleven `countBoundarySteps` copies, six
+  > recognition enums and sixteen hand-mirrored `TRANSPARENT_STEPS` sets. The
+  > realistic bound is ~35–45 files. Decomposition sizes items 8–10 as their own
+  > steps, and the Phase A adversarial pass owns the split-or-keep call.
   > **Depends on:** Tracks 7, 8, and 9.
   >
   > **Correction from Track 9 Phase C (2026-08-04): the no-regression reference
