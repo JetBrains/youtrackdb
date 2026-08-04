@@ -43,6 +43,16 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     RECOGNIZED, DECLINED
   }
 
+  /**
+   * Per-scenario cardinality opt-in for the anti-vacuity guard in {@link #assertEquivalent}. Almost
+   * every scenario here seeds matching data, so an empty result means the fixture broke rather than
+   * that the shape answered; a scenario whose answer is empty by design ({@code hasLabel} on a label
+   * no vertex carries) opts out with {@link #MAY_BE_EMPTY} and pins its own fixture control instead.
+   */
+  private enum Cardinality {
+    NON_EMPTY, MAY_BE_EMPTY
+  }
+
   /** The alias the walker mints for the root {@code V()} scan — the origin of every hop below it. */
   private static final String ORIGIN_ALIAS = "$g2m_v0";
 
@@ -167,13 +177,24 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * {@code g.V().hasLabel("Missing")} on a never-used label declines to native rather than re-typing
    * to a non-existent class (which would make {@code SELECT FROM Missing} error). Native matches no
    * vertex, so the declined run returns empty — the two pipelines agree on emptiness.
+   *
+   * <p>Empty on both arms is exactly the shape the anti-vacuity guard exists to refuse, so the
+   * emptiness has to be attributable to the label rather than to a fixture that seeded nothing: the
+   * translating control below returns both vertices off the same fixture before the decline opts out.
    */
   @Test
   public void hasLabelNonExistentClass_declinesToNative() {
     seedPersonEmployeeHierarchy();
+
+    assertEquivalent(
+        "g.V().hasLabel(Person) (fixture control for the empty decline below)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person"));
+
     assertEquivalent(
         "g.V().hasLabel(Missing) (never-used label)",
         Recognition.DECLINED,
+        Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().hasLabel("Missing"));
   }
 
@@ -1342,6 +1363,18 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    */
   private void assertEquivalent(
       String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    assertEquivalent(scenario, expected, Cardinality.NON_EMPTY, traversalSupplier);
+  }
+
+  /**
+   * As above, with the anti-vacuity guard's cardinality expectation stated explicitly. See {@link
+   * Cardinality}.
+   */
+  private void assertEquivalent(
+      String scenario,
+      Recognition expected,
+      Cardinality cardinality,
+      Supplier<GraphTraversal<?, ?>> traversalSupplier) {
     var original = translatorEnabled();
     try {
       setTranslatorEnabled(true);
@@ -1359,14 +1392,26 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
       if (expected == Recognition.RECOGNIZED) {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must engage exactly one boundary step").isEqualTo(1);
-        assertThat(onIds)
-            .as(scenario + ": a RECOGNIZED fixture must return a non-empty result (else the "
-                + "multiset equality below is vacuous)")
-            .isNotEmpty();
+        if (cardinality == Cardinality.NON_EMPTY) {
+          assertThat(onIds)
+              .as(scenario + ": a RECOGNIZED fixture must return a non-empty result (else the "
+                  + "multiset equality below is vacuous)")
+              .isNotEmpty();
+        }
       } else {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must decline to native — no boundary step")
             .isEqualTo(0);
+        // Anti-vacuity guard, and it matters more here than on the RECOGNIZED branch: a decline makes
+        // both arms the native pipeline by construction, so the multiset equality below cannot fail
+        // whatever the fixture holds. Without this the boundary counts are the only live assertions
+        // and a seed regression that persisted nothing would go green.
+        if (cardinality == Cardinality.NON_EMPTY) {
+          assertThat(offIds)
+              .as(scenario + ": a declined shape must still return a non-empty native result, else "
+                  + "the multiset equality below is vacuous")
+              .isNotEmpty();
+        }
       }
       assertThat(boundaryOff)
           .as(scenario + " (translator off) must never engage a boundary step").isEqualTo(0);

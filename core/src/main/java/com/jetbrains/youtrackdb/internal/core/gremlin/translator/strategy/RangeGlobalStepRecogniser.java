@@ -85,14 +85,28 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * {@code [t2, t1]}. Both unsliced spellings agree, so the slice is what moves the rows.
  *
  * <p>So a real slice declines once an {@code ORDER BY} has been captured. The rule is blunt on
- * purpose. A sort keyed on a unique property does totally order the rows and would be safe, yet
- * nothing here can tell a unique key from a repeated one; the one sort the translator could prove
- * total is a bare {@code order()}, which keys on {@code @rid}, and carving that out buys a shape
- * nobody writes at the cost of a second rule to keep honest. This one costs top-N:
- * {@code g.V().order().by(k).limit(n)} gives up its plan and runs on the native traverser
- * pipeline, the same bill the post-union slice below pays. The exit is a translated order that
- * reproduces native's — a RID tie-break makes the cut deterministic without making it native's,
- * so it closes the arbitrariness and leaves the divergence.
+ * purpose, and no sort this recogniser can see is provably total. A unique index on the sort key
+ * would settle the key itself, but it does not settle the rows: the measured divergence above has a
+ * hop after the sort, and the tie group there comes from the join fanning one sorted root row out to
+ * several result rows, which a unique key does nothing about. A bare {@code order()} is not the
+ * exception it once was either — {@code OrderGlobalStepRecogniser.resolveSortItem} keys a bare
+ * {@code order()} on the preceding {@code values(k)} projection when there is one, so only the
+ * unprojected spelling still keys on {@code @rid}. A carve-out therefore needs a unique-index lookup
+ * the recogniser cannot reach today <em>and</em> a no-fan-out condition on everything after the sort,
+ * which is a new gate rather than a relaxed clause on this one.
+ *
+ * <p>The bill is top-N, and it is paid in resident memory as well as in CPU.
+ * {@code g.V().order().by(k).limit(n)} gives up its plan and runs on the native traverser pipeline,
+ * the same bill the post-union slice below pays. Translated, the sort is bounded: both planners derive
+ * {@code maxResults = skip + limit} and hand it to {@code OrderByStep}, which keeps a min-heap of that
+ * size rather than every row. Natively it is not: TinkerPop's {@code OrderGlobalStep} is a
+ * {@code CollectingBarrierStep} that drains its whole input into a {@code TraverserSet} before
+ * emitting anything, and {@code OrderLimitStrategy} — the one pass that would push the following
+ * limit into it — returns immediately off a {@code GraphComputer}, so an embedded traversal leaves the
+ * step's limit unset. A {@code limit(10)} over a million-vertex class therefore holds a million live
+ * traversers where the plan held ten. The exit is a translated order that reproduces native's — a RID
+ * tie-break makes the cut deterministic without making it native's, so it closes the arbitrariness and
+ * leaves the divergence.
  *
  * <h2>A slice behind a grouping terminator</h2>
  *
@@ -199,7 +213,9 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     // A real slice behind a captured ORDER BY cuts into a tie group the sort does not resolve, and
     // the two pipelines resolve it differently — see the class Javadoc's "A slice behind a captured
     // ORDER BY". Same placement rationale as the guard above: a slice that selects no position
-    // cannot cut into anything.
+    // cannot cut into anything. The decline is not free on memory either: it trades the plan's
+    // bounded top-N heap for the native barrier step's full materialisation, which the same Javadoc
+    // section prices along with what a narrower rule would need.
     if (ctx.orderBy() != null) {
       return Outcome.DECLINE;
     }

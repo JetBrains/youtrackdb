@@ -44,12 +44,14 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Per-scenario cardinality opt-in for the anti-vacuity guard. A seeded {@code RECOGNIZED} case
-   * must return rows ({@link #NON_EMPTY}) or the translator-on / translator-off multiset equality
-   * holds vacuously over two empty lists and verifies nothing. Empty-by-design cases (empty-input
-   * {@code sum}/{@code min}/{@code max}/{@code mean}, which drop the null aggregate row) opt out
-   * with {@link #MAY_BE_EMPTY}. This is deliberately not a blanket {@code isNotEmpty}: the suite
-   * hosts empty-result {@code RECOGNIZED} cases on purpose.
+   * Per-scenario cardinality opt-in for the anti-vacuity guard, applied on both the
+   * {@code RECOGNIZED} and the {@code DECLINED} branch. A seeded case must return rows ({@link
+   * #NON_EMPTY}) or the translator-on / translator-off multiset equality holds vacuously over two
+   * empty lists and verifies nothing — and on a decline the equality cannot fail at all, since both
+   * arms are the native pipeline by construction. Empty-by-design cases (empty-input {@code sum} /
+   * {@code min} / {@code max} / {@code mean}, which drop the null aggregate row; a slice that drops
+   * the single map a grouping terminator emits) opt out with {@link #MAY_BE_EMPTY}. This is
+   * deliberately not a blanket {@code isNotEmpty}: the suite hosts empty-result cases on purpose.
    */
   private enum Cardinality {
     NON_EMPTY, MAY_BE_EMPTY
@@ -497,13 +499,19 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().where(values(age).dedup().count())",
         Recognition.DECLINED,
         () -> graph.traversal().V().where(__.values("age").dedup().count()));
+    // Empty on both arms by design — the child always emits, so not() rejects every vertex. The
+    // withTranslatorOff block below pins that answer, which is what makes the opt-out attributable.
     assertEquivalent(
         "g.V().not(values(age).dedup().count())",
         Recognition.DECLINED,
+        Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().not(__.values("age").dedup().count()));
+    // Empty on both arms by design — limit(0) empties every child stream, so and() rejects every
+    // vertex. Pinned in the withTranslatorOff block below.
     assertEquivalent(
         "g.V().and(values(age).dedup().limit(0))",
         Recognition.DECLINED,
+        Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().and(__.values("age").dedup().limit(0)));
     // The termination test applies to the count arm too, and this is the spelling that needs it: a
     // count() classified drop-destroying without checking what follows it hands the walk on to a
@@ -512,6 +520,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     assertEquivalent(
         "g.V().and(values(age).count().limit(0))",
         Recognition.DECLINED,
+        Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().and(__.values("age").count().limit(0)));
 
     // Non-vacuity: the five native answers are three distinct row sets, two of them empty for
@@ -1429,20 +1438,31 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().groupCount().by(name).limit(1)",
         Recognition.DECLINED,
         () -> graph.traversal().V().groupCount().by("name").limit(1));
+    // Empty on both arms by design — the skip drops the single map the grouping emitted. The
+    // assertion above pins that answer directly, so the opt-out is attributable.
     assertEquivalent(
         "g.V().group().by(name).skip(1)",
         Recognition.DECLINED,
+        Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().group().by("name").skip(1));
   }
 
   /**
    * {@code order().by(key)} after a grouping terminator sorts the maps the grouping emitted, and a
-   * grouping terminator emits exactly one — so the sort has nothing to reorder and never evaluates
-   * the modulator. The map comes through whole, including keys the modulator could not have read.
-   * Translated, the same {@code by(age)} became a pattern conjunct {@code age IS DEFINED} on the
-   * rows feeding the {@code GROUP BY} plus an {@code ORDER BY} over them, which dropped the two
-   * ageless people from the map: {@code {Alice=1, Bob=1}} against native's four entries. The
-   * conjunct is a filter the query never asked for, so the shape declines.
+   * grouping terminator emits exactly one — so the sort has nothing to reorder and the map comes
+   * through whole, including keys no entry holds. Translated, the same {@code by(age)} became a
+   * pattern conjunct {@code age IS DEFINED} on the rows feeding the {@code GROUP BY} plus an
+   * {@code ORDER BY} over them, which dropped the two ageless people from the map:
+   * {@code {Alice=1, Bob=1}} against native's four entries. The conjunct is a filter the query never
+   * asked for, so the shape declines.
+   *
+   * <p>The absent comparison is not the whole reason the map survives. {@code OrderGlobalStep}
+   * projects the modulator per traverser before it sorts anything, and drops a traverser whose
+   * projection is non-productive — over an element that is exactly how {@code order().by(k)} excludes
+   * the elements lacking {@code k}. A {@code by(key)} over a {@code Map} is productive regardless,
+   * yielding {@code map.get(key)} including {@code null}, so the projection cannot drop the map. The
+   * second pin is that mechanism at its extreme: a key <em>nothing</em> in the graph carries still
+   * returns the map whole, which an absent-key drop would have emptied.
    *
    * <p>The map is pinned before the decline is, so that a regression reopening the shape reports the
    * narrowed map rather than only the boundary count. The recognised control is what separates the
@@ -1453,9 +1473,14 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     seedAgedAndAgeless();
 
     assertThat(graph.traversal().V().groupCount().by("name").order().by("age").next())
-        .as("sorting one map reorders nothing and reads no key off it, so every name survives — a "
-            + "translated ORDER BY would filter the grouped rows by an age the query never named")
+        .as("sorting one map reorders nothing, and a map projection is productive even where the key "
+            + "is missing, so every name survives — a translated ORDER BY would filter the grouped "
+            + "rows by an age the query never named")
         .containsOnlyKeys("Alice", "Bob", "Nemo", "Nobody");
+    assertThat(graph.traversal().V().groupCount().by("name").order().by("zzz").toList())
+        .as("a key no vertex carries would empty the stream if the modulator's projection could be "
+            + "non-productive over a map; it cannot, so the one map still comes through")
+        .hasSize(1);
 
     assertEquivalent(
         "g.V().groupCount().by(name)",
@@ -1627,6 +1652,16 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must decline — no boundary step")
             .isEqualTo(0);
+        // Same anti-vacuity guard, and it matters more here than on the RECOGNIZED branch: a decline
+        // makes both arms the native pipeline by construction, so the payload equality below cannot
+        // fail whatever the fixture holds, leaving the boundary counts as the only live assertions.
+        // Empty-by-design declines (a slice that drops the single emitted map) pass MAY_BE_EMPTY.
+        if (cardinality == Cardinality.NON_EMPTY) {
+          assertThat(offPayload)
+              .as(scenario + ": a NON_EMPTY declined shape must still return rows natively "
+                  + "(else the payload equality below is vacuous)")
+              .isNotEmpty();
+        }
       }
       assertThat(boundaryOff)
           .as(scenario + " (translator off) must never engage a boundary step")

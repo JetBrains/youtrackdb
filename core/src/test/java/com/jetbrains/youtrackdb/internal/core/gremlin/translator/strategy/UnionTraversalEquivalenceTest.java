@@ -754,6 +754,59 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         shape);
   }
 
+  /**
+   * A filtered prefix before the union. The prefix's own {@code has} is folded natively, so it must
+   * <em>not</em> take the per-record type guard, while a container inside an arm must. The
+   * bare-{@code g.V()} case above cannot separate the two: its prefix is a single {@code GraphStep},
+   * so the fold latch has one decision point and any boundary that is too small by one still
+   * classifies correctly by accident. With a two-step prefix the boundary has to fall after the
+   * prefix's own {@code HasStep} rather than before it.
+   *
+   * <p>The fixture makes the restrictive off-by-one visible. {@code name} holds a String on two
+   * vertices and the Integer 99 on a third, and the comparand is an Integer: folded, SQL ordering
+   * ranks every String above 27 and all three vertices enter the union; guarded as though it were
+   * unfolded, {@code name.type() IN [numeric block]} keeps only the 99 vertex, whose arms contribute
+   * nothing, and the whole union returns empty against native's two rows.
+   *
+   * <p>Two assertions, because they fail for different reasons. The first pins the premise — with the
+   * translator off, the prefix's {@code name} container does reach a {@code YTDBGraphStep}, which is
+   * what makes native's reading SQL ordering rather than the comparator's partition. The second pins
+   * the rows.
+   */
+  @Test
+  public void unionWithFilteredPrefix_keepsThePrefixFoldedAndAgreesWithNative() {
+    var zed = graph.addVertex(T.label, "Person", "name", "Zed");
+    var abe = graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.addVertex(T.label, "Person", "name", 99);
+    zed.addEdge("knows", abe);
+    graph.tx().commit();
+
+    Supplier<GraphTraversal<?, ?>> shape =
+        () -> graph.traversal().V().has("name", P.gt(27))
+            .union(__.out("knows"), __.in("knows"));
+
+    withTranslatorRestored(
+        () -> {
+          setTranslatorEnabled(false);
+          var admin = shape.get().asAdmin();
+          admin.applyStrategies();
+          assertThat(
+              admin.getSteps().stream()
+                  .filter(YTDBGraphStep.class::isInstance)
+                  .map(s -> (YTDBGraphStep<?, ?>) s)
+                  .anyMatch(s -> s.getHasContainers().stream()
+                      .anyMatch(c -> "name".equals(c.getKey()))))
+              .as("the prefix's container must reach the fold — if it did not, native would be the "
+                  + "unfolded comparator and the row assertion below would measure the wrong rule")
+              .isTrue();
+        });
+
+    assertEquivalent(
+        "g.V().has(name, gt(27)).union(out(knows), in(knows)) — folded prefix",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        shape);
+  }
+
   /** Seeds Alice -knows-> Bob -knows-> Carol. */
   private void seedKnowsChain() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
@@ -803,6 +856,14 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
                 .as(scenario + " (translator on) must decline — no boundary step")
                 .isEqualTo(0);
             assertThat(multiPlanOn).isEqualTo(0);
+            // Anti-vacuity guard, and it matters more here than on the RECOGNIZED branch: a decline
+            // makes both arms the native pipeline by construction, so the multiset equality below
+            // cannot fail whatever the fixture holds. Without this the boundary counts are the only
+            // live assertions and a seed regression that persisted nothing would go green.
+            assertThat(offIds)
+                .as(scenario + ": a declined shape must still return a non-empty native result, "
+                    + "else the multiset equality below is vacuous")
+                .isNotEmpty();
           }
           assertThat(boundaryOff)
               .as(scenario + " (translator off) must never engage a boundary step")

@@ -823,11 +823,69 @@ public class GremlinPredicateAdapterTest {
   @Test
   public void guardedRange_reachesUnderTheConnectives() {
     assertThat(renderWithLiterals(guardedFilter("age", P.between(1, 5))))
-        .as("between decomposes to AndP[gte, lt] — both arms must carry the guard")
+        .as("between decomposes to AndP[gte, lt] — the conjunction must be guarded")
         .contains("age.type() IN [\"BYTE\"");
     assertThat(renderWithLiterals(guardedFilter("age", P.not(P.gt(27)))))
         .as("a negated range comparison guards the inner expression, not the negation")
         .contains("age.type() IN [\"BYTE\"");
+  }
+
+  /**
+   * A conjunction of order comparisons over one comparability block carries <em>one</em> guard, not
+   * one per bound. {@code between} / {@code inside} decompose into an {@code AndP} of two
+   * comparisons, and a per-bound guard made every candidate row evaluate the same seven-name type
+   * list twice; the guard is the expensive half of each conjunct, so the duplicate doubled the
+   * per-record cost of the whole filter. Both bounds must still be present — the shared guard
+   * replaces the duplicate type test, not a bound.
+   */
+  @Test
+  public void guardedConjunction_emitsOneGuardForBothBounds() {
+    var between = renderWithLiterals(guardedFilter("age", P.between(1, 5)));
+    assertThat(occurrencesOf(between, "age.type() IN ["))
+        .as("between(1, 5) must emit a single hoisted guard: " + between)
+        .isEqualTo(1);
+    assertThat(between)
+        .as("both bounds survive the hoist")
+        .contains("age >=")
+        .contains("age <");
+
+    var inside = renderWithLiterals(guardedFilter("age", P.inside(1, 5)));
+    assertThat(occurrencesOf(inside, "age.type() IN ["))
+        .as("inside(1, 5) is the same AndP shape: " + inside)
+        .isEqualTo(1);
+  }
+
+  /**
+   * The hoist applies only where the whole conjunction shares one block. A mixed-block {@code AndP}
+   * — a numeric lower bound and a String upper bound, which {@code P.gte(1).and(P.lt("m"))} builds —
+   * has no single type test that reproduces both comparators, so each child keeps its own guard.
+   * {@code outside} stays per-child for a different reason: it is an {@code OrP}, and hoisting a
+   * guard above a disjunction changes the block's shape rather than deduping inside it.
+   */
+  @Test
+  public void guardedConjunction_keepsPerChildGuardsWhenTheBlocksDiffer() {
+    var mixed =
+        renderWithLiterals(guardedFilter("k", P.<Object>gte(1).and(P.<Object>lt("m"))));
+    assertThat(occurrencesOf(mixed, "k.type() IN ["))
+        .as("a numeric bound and a String bound name different blocks: " + mixed)
+        .isEqualTo(2);
+    assertThat(mixed).contains("k.type() IN [\"STRING\"]");
+
+    var outside = renderWithLiterals(guardedFilter("age", P.outside(1, 5)));
+    assertThat(occurrencesOf(outside, "age.type() IN ["))
+        .as("outside decomposes to OrP[lt, gt], which keeps a guard per disjunct: " + outside)
+        .isEqualTo(2);
+  }
+
+  /** Counts non-overlapping occurrences of {@code needle} in {@code text}. */
+  private static int occurrencesOf(String text, String needle) {
+    var count = 0;
+    var from = text.indexOf(needle);
+    while (from >= 0) {
+      count++;
+      from = text.indexOf(needle, from + needle.length());
+    }
+    return count;
   }
 
   // ---------------------------------------------------------------------------

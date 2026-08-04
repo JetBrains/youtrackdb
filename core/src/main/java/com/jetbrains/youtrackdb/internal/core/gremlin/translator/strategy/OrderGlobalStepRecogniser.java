@@ -17,14 +17,24 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
  * <h2>An {@code order()} after a grouping terminator</h2>
  *
  * A grouping terminator ({@code group()} / {@code groupCount()}) emits one map, so a following
- * {@code order()} sorts a one-element stream: nothing to reorder, and the modulator is never
- * evaluated against the map. Native therefore returns the map whole, whatever key the {@code by()}
- * names. The translation read that {@code by(key)} as a sort over the grouping's <em>input</em>
- * instead — it committed {@code key IS DEFINED} as a pattern conjunct on the rows feeding the
- * {@code GROUP BY} and appended {@code ORDER BY <alias>.key}. Measured on four people, two of whom
- * carry {@code age}: {@code g.V().groupCount().by(name).order().by(age)} returned
- * {@code {Alice=1, Bob=1}} translated against native's four entries, the two ageless names removed
- * by a filter the query never asked for.
+ * {@code order()} sorts a one-element stream and returns the map whole, whatever key the
+ * {@code by()} names. Measured on four people, two of whom carry {@code age}:
+ * {@code g.V().groupCount().by(name).order().by(age)} returns all four entries natively — and so
+ * does {@code order().by(zzz)} for a key nothing in the graph carries. The translation read that
+ * {@code by(key)} as a sort over the grouping's <em>input</em> instead — it committed
+ * {@code key IS DEFINED} as a pattern conjunct on the rows feeding the {@code GROUP BY} and appended
+ * {@code ORDER BY <alias>.key} — returning {@code {Alice=1, Bob=1}}, the two ageless names removed by
+ * a filter the query never asked for.
+ *
+ * <p>Two mechanisms have to line up for the map to survive, and only one of them is the absent sort.
+ * {@code OrderGlobalStep.processAllStarts} projects the modulator once per traverser <em>before</em>
+ * any comparison, and drops a traverser whose projection is non-productive, so a projection is
+ * observable on a one-element stream even though the comparator is not. It survives here because a
+ * {@code by(key)} over a {@code Map} is productive whatever the map holds: {@code ValueTraversal}
+ * reads {@code map.get(key)} and yields the result, including {@code null} for an absent key, where
+ * its {@code Element} branch marks an absent property as having no starts. Over elements the drop is
+ * real — {@code g.V().order().by(k)} does exclude the elements that lack {@code k} — which is why the
+ * pattern conjunct the translation emitted looked equivalent.
  *
  * <p>So a captured {@code GROUP BY} declines here, matching the grouping gates in
  * {@code GremlinAggregateAssembler} and {@code RangeGlobalStepRecogniser}. The cost is the

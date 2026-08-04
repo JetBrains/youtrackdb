@@ -131,6 +131,20 @@ final class GremlinPredicateAdapter {
    *  {@code startingWith} routes to the strict full-scan form (the value type is unknown). */
   static final PropertyTypeGate NO_TYPE_INFO = key -> false;
 
+  /**
+   * Resolves a user-facing Gremlin {@code as(...)} label to the pattern alias the walker minted for
+   * the step it labelled, or {@code null} when the label names no node in the pattern. The
+   * {@code $matched} row the executor evaluates a label-reference accessor against is keyed on
+   * pattern aliases, never on Gremlin labels, so an unresolved label has to decline rather than emit
+   * an accessor that silently reads nothing. Used by
+   * {@link #toMatchedLabelFilter(String, P, PropertyTypeGate, LabelResolver)}.
+   */
+  @FunctionalInterface
+  interface LabelResolver {
+
+    @Nullable String aliasFor(String userLabel);
+  }
+
   private GremlinPredicateAdapter() {
     // Singleton — instantiate via INSTANCE.
   }
@@ -257,6 +271,9 @@ final class GremlinPredicateAdapter {
    * {@code OR}. Any child that declines fails the whole connective (all-or-nothing). Each child
    * carries its own absent-property guard where needed, so the combined block reproduces native
    * membership without a connective-level guard.
+   *
+   * <p>An {@code AndP} whose children are all order comparisons over the same comparability block
+   * takes the shared-guard path instead — see {@link #andWithSingleGuard}.
    */
   private @Nullable SQLBooleanExpression combine(
       String key,
@@ -269,6 +286,16 @@ final class GremlinPredicateAdapter {
       // A connective with no children is degenerate; decline rather than emit an empty block.
       return null;
     }
+    if (and && rangeTypeGuard) {
+      // between / inside decompose into an AndP of two order comparisons over the same block, and
+      // per-child guarding would emit that block's type test twice per record. The eligibility test
+      // reads the predicates only — no literal is bound before it decides — so an ineligible
+      // connective falls through to the per-child path below having pushed nothing into the sink.
+      var sharedBlock = sharedOrderComparisonBlock(children);
+      if (sharedBlock != null) {
+        return andWithSingleGuard(key, children, sharedBlock, typeGate, paramSink);
+      }
+    }
     var translated = new ArrayList<SQLBooleanExpression>(children.size());
     for (var child : children) {
       var expr = translate(key, child, typeGate, paramSink, rangeTypeGuard);
@@ -279,6 +306,85 @@ final class GremlinPredicateAdapter {
     }
     var operands = translated.toArray(new SQLBooleanExpression[0]);
     return and ? WHERE.and(operands) : WHERE.or(operands);
+  }
+
+  /**
+   * The comparability block every child of a conjunction shares, or {@code null} when they do not
+   * share one — a child that is itself a connective, is not an order comparison, or names a
+   * different block (or no block at all) makes the conjunction ineligible for one shared guard.
+   *
+   * <p>Reads the predicates only: it binds no literal and mutates no sink, so a caller may fall
+   * through to the per-child path on {@code null} without having emitted anything.
+   */
+  private static @Nullable List<String> sharedOrderComparisonBlock(List<? extends P<?>> children) {
+    List<String> shared = null;
+    for (var child : children) {
+      var block = orderComparisonBlock(child);
+      if (block == null || (shared != null && !shared.equals(block))) {
+        return null;
+      }
+      shared = block;
+    }
+    return shared;
+  }
+
+  /**
+   * The comparability block a leaf order comparison's literal names, or {@code null} when {@code
+   * predicate} is not one. The connectives are excluded first for the same reason {@link #translate}
+   * dispatches them first: a connective's own bi-predicate is not one of the leaf types, so reading
+   * it would misclassify the whole predicate.
+   */
+  private static @Nullable List<String> orderComparisonBlock(P<?> predicate) {
+    if (predicate instanceof NotP<?> || predicate instanceof AndP<?>
+        || predicate instanceof OrP<?>) {
+      return null;
+    }
+    if (!(predicate.getBiPredicate() instanceof Compare compare) || !isOrderComparison(compare)) {
+      return null;
+    }
+    var value = predicate.getValue();
+    return value == null ? null : comparabilityBlock(value);
+  }
+
+  /**
+   * Emits {@code key.type() IN [block] AND cmp1 AND cmp2 …} — one type guard for a whole
+   * conjunction of order comparisons rather than one per bound. {@code P.between(a, b)} arrives as
+   * an {@code AndP} of {@code gte(a)} and {@code lt(b)}; guarding each bound separately made every
+   * candidate row re-evaluate the same list of type-name literals twice, and the guard is the
+   * expensive half of the conjunct (an {@code IN} over seven string literals for a numeric block,
+   * against one property read and one operator call for the comparison it protects).
+   *
+   * <p>Hoisting is sound only over {@code AND}: {@code g AND (c1 AND c2)} is exactly
+   * {@code (g AND c1) AND (g AND c2)}. The children are translated with the guard suppressed, which
+   * changes no decline decision — with the block already resolved, the only remaining way a leaf
+   * order comparison declines is an unsupported literal class, and that check does not read the
+   * guard flag.
+   *
+   * <p>What this does not reach: two separately spelled containers on the same key
+   * ({@code has("age", gt(x)).has("age", lt(y))}) arrive as two independent {@code toFilter} calls
+   * and still emit a guard each — deduping across containers belongs to whoever merges an alias's
+   * filters. Nor does it remove the surviving guard's per-record cost: the type-name collection is
+   * re-derived from the AST on every row, and a declared property on a resolvable class could drop
+   * the guard outright at compile time. Both need work outside this class (an executor-side
+   * early-calculable {@code IN} right side, and a schema accessor wider than
+   * {@link PropertyTypeGate}).
+   */
+  private @Nullable SQLBooleanExpression andWithSingleGuard(
+      String key,
+      List<? extends P<?>> children,
+      List<String> sharedBlock,
+      PropertyTypeGate typeGate,
+      @Nullable ParamSink paramSink) {
+    var operands = new ArrayList<SQLBooleanExpression>(children.size() + 1);
+    operands.add(WHERE.typeIn(key, sharedBlock));
+    for (var child : children) {
+      var expr = translate(key, child, typeGate, paramSink, /* rangeTypeGuard= */ false);
+      if (expr == null) {
+        return null;
+      }
+      operands.add(expr);
+    }
+    return WHERE.and(operands.toArray(new SQLBooleanExpression[0]));
   }
 
   /**
@@ -305,6 +411,10 @@ final class GremlinPredicateAdapter {
    * <p>Only the four order comparisons are guarded. {@code eq} does not go through the comparator,
    * and {@code neq} is defined as {@code !eq}, so it returns <em>true</em> for operands the order
    * predicates reject — guarding it would invert the answer.
+   *
+   * <p>A conjunction of order comparisons over one block ({@code between} / {@code inside}) carries
+   * a single hoisted guard rather than one per bound; this method emits the per-comparison form only
+   * where {@link #andWithSingleGuard} did not already take the conjunction.
    *
    * <p>An order comparison whose literal names no block declines: an element operand's
    * comparability depends on the id <em>value</em> rather than its type, and a class {@code
@@ -555,24 +665,17 @@ final class GremlinPredicateAdapter {
   }
 
   /**
-   * Translates a {@code where(P)} label-reference predicate into a {@code WHERE} boolean that compares
-   * {@code $matched.<label>} accessors. {@code startLabel} is the optional Gremlin scope label from
+   * Translates a {@code where(P)} label-reference predicate into a {@code WHERE} boolean comparing
+   * {@code $matched.<alias>} accessors — the <em>pattern alias</em> each Gremlin label resolves to,
+   * since the {@code $matched} row the executor evaluates the accessors against is keyed on aliases
+   * and never on labels. {@code startLabel} is the optional Gremlin scope label from
    * {@code where(startLabel, P)}; when {@code null}, the left-hand side is the boundary alias's
    * {@code @rid}. Returns {@code null} to decline (propagated as a whole-traversal decline).
+   *
+   * @param labelResolver resolves each label the predicate names to its pattern alias. A label it
+   *     cannot resolve declines the whole translation rather than emitting an accessor that would
+   *     silently read nothing.
    */
-  /**
-   * Resolves a user-facing Gremlin {@code as(...)} label to the pattern alias the walker minted for
-   * the step it labelled, or {@code null} when the label names no node in the pattern. The
-   * {@code $matched} row the executor evaluates these accessors against is keyed on pattern aliases,
-   * never on Gremlin labels, so an unresolved label has to decline rather than emit an accessor that
-   * silently reads nothing.
-   */
-  @FunctionalInterface
-  interface LabelResolver {
-
-    @Nullable String aliasFor(String userLabel);
-  }
-
   @Nullable SQLBooleanExpression toMatchedLabelFilter(
       @Nullable String startLabel,
       P<?> predicate,

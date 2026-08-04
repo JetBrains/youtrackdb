@@ -1096,6 +1096,14 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must decline to native — no boundary step")
             .isEqualTo(0);
+        // Anti-vacuity guard, and it matters more here than on the RECOGNIZED branch: a decline makes
+        // both arms the native pipeline by construction, so the multiset equality below cannot fail
+        // whatever the fixture holds. Without this the boundary counts are the only live assertions
+        // and a seed regression that persisted nothing would go green.
+        assertThat(offIds)
+            .as(scenario + ": a declined shape must still return a non-empty native result, else "
+                + "the multiset equality below is vacuous")
+            .isNotEmpty();
       }
       assertThat(boundaryOff)
           .as(scenario + " (translator off) must never engage a boundary step")
