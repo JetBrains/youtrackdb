@@ -693,7 +693,7 @@ trade a wrong answer for a failed conformance run.
   > 2026-08-03 inline replan split it into Track 9 (suite completion, baseline,
   > dropped per-alias filter) and Track 11 (terminators, seam, decline gates, JMH
   > harness), which share no file.
-- [ ] Track 9: Cucumber suite completion + the dropped per-alias filter
+- [x] Track 9: Cucumber suite completion + the dropped per-alias filter
   > Delivers the measured baseline the branch does not currently have: the `core`
   > TinkerPop feature suite does not complete with the translator on, while the
   > same command with the kill-switch off returns 1930 scenarios green. This track
@@ -701,28 +701,14 @@ trade a wrong answer for a failed conformance run.
   > It also fixes the dropped per-alias filter, which answers
   > `g.V(marko).out().has(name, vadas)` with 3 rows where native returns 1 and
   > translates rather than declining — detail in plan/track-9.md.
-  > **Scope:** ~8–14 files — the filter-binding fix (`MatchPatternBuilder`'s
-  > positive-path-item construction and `mergedTargetFilter`, or
-  > `MatchExecutionPlanner.rebindFilters`; the choice is a blast-radius decision
-  > the track makes explicitly, since the builder site moves Gremlin and GQL while
-  > the planner site additionally moves SQL `MATCH`), `GqlMatchPatternAssembler`
-  > and the Track 1 GQL prettyPrint regression tests, the equivalence-suite shapes
-  > that do not currently witness the defect, and the two-runner baseline
-  > artifact (`core`'s `gremlin-feature-compliance-tests` plus the `embedded`
-  > module's `EmbeddedGraphFeatureTest`, whose A/B is unsized until first run). The
-  > residue-triage bucket is likewise **unsized until item 3's residue exists**,
-  > and is bounded by a fix-vs-defer rule plus its own ESCALATE trigger rather
-  > than by the file figure above (see `plan/track-9.md` item 4). The
-  > suite-completion diagnosis is **unsized until localized** and carries an
-  > ESCALATE trigger bounded by evidence and budget; `plan/track-9.md`
-  > `## Plan of Work` item 1 owns the exact wording, so this entry does not
-  > restate it. The escalation branch does not stall the track — the
-  > per-directory run becomes the published baseline and the completion criteria
-  > relax to it, with Track 11's dependency restating against that shape.
-  > **Depends on:** Track 10 (the enumerated process-compliance baseline and its
-  > disposition record — not a green run; Track 10's own
-  > `gremlin-feature-compliance-tests` execution was a BUILD FAILURE its
-  > dispositions table never covered).
+  >
+  > **Track episode:** `core` reaches 1930 / 0 / 14 with the translator on,
+  > matching its own off arm, from a suite that did not terminate at track start;
+  > four silent-wrong-answer defects closed, three of them by declining the shape
+  > — see `plan/track-9.md` `## Episodes` § Track completion. (10 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-9.md`
+
 - [ ] Track 11: List-shaping terminators + JMH harness
   > **Runs after Track 9** (inline replan, 2026-08-03 — the two halves of the
   > original final track). Completes the Phase 1 recognised set: the four
