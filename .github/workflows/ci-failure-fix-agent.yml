@@ -781,14 +781,16 @@ jobs:
           # The job-level env already bridges the workflow_dispatch inputs, so we
           # read FAILED_RUN_URL from the env instead of interpolating untrusted
           # input directly into the shell (avoids script injection).
-          # Take the segment after the LAST /runs/, not the trailing path segment.
-          # A pasted job URL (.../runs/<run-id>/job/<job-id>) or attempt URL ends
-          # in an id that is itself numeric, so trailing-segment extraction would
-          # pass the validation below and then fetch the wrong object. `##` rather
-          # than `#` so an owner or repo path segment named "runs" cannot win.
-          # Query string and fragment come off FIRST: either can itself contain
-          # a "/runs/" (e.g. ...?redirect=/runs/999), which would otherwise win
-          # the `##` match.
+          #
+          # Extract the run id in three steps, in this order:
+          #   1. Drop any query string and fragment. Either can itself contain a
+          #      "/runs/" (e.g. ...?redirect=/runs/999) and would win step 2.
+          #   2. Take everything after the LAST "/runs/", so an owner or repo path
+          #      segment named "runs" cannot win it.
+          #   3. Keep only the first remaining segment. A pasted job URL
+          #      (.../runs/<run-id>/job/<job-id>) or attempt URL ends in an id
+          #      that is itself numeric, so taking the trailing segment instead
+          #      would pass the validation below and then fetch the wrong object.
           RUN_ID="${FAILED_RUN_URL%%[?#]*}"
           RUN_ID="${RUN_ID##*/runs/}"
           RUN_ID="${RUN_ID%%/*}"
@@ -953,13 +955,19 @@ jobs:
           case "$ANNOTATIONS_STATUS" in
             partial:*) [ "$ANN_OK" -gt 0 ] || ANNOTATIONS_STATUS="failed:${ANNOTATIONS_STATUS#partial:}" ;;
           esac
-          record annotations "$ANNOTATIONS_STATUS"
+          # Merge BEFORE recording the status: a merge that fails empties the file,
+          # and a datum reported `ok` over an empty file is the same lie the status
+          # file exists to prevent.
           if [ -s "$CTX/annotations.ndjson" ]; then
-            jq -s 'add' "$CTX/annotations.ndjson" > "$CTX/annotations.json" 2>/dev/null || echo '[]' > "$CTX/annotations.json"
+            if ! jq -s 'add' "$CTX/annotations.ndjson" > "$CTX/annotations.json" 2>/dev/null; then
+              echo '[]' > "$CTX/annotations.json"
+              ANNOTATIONS_STATUS="failed: collected annotations could not be merged"
+            fi
           else
             echo '[]' > "$CTX/annotations.json"
           fi
           rm -f "$CTX/annotations.ndjson"
+          record annotations "$ANNOTATIONS_STATUS"
 
           # PRs associated with the failing commit (headBranch/event live in run.json)
           HEAD_SHA="$(jq -r '.headSha // empty' "$CTX/run.json" 2>/dev/null)"
@@ -997,13 +1005,17 @@ jobs:
           case "$PR_COMMENTS_STATUS" in
             partial:*) [ "$CMT_OK" -gt 0 ] || PR_COMMENTS_STATUS="failed:${PR_COMMENTS_STATUS#partial:}" ;;
           esac
-          record pr-comments "$PR_COMMENTS_STATUS"
+          # Merge before recording, as above.
           if [ -s "$CTX/pr-comments.ndjson" ]; then
-            jq -s 'add' "$CTX/pr-comments.ndjson" > "$CTX/pr-comments.json" 2>/dev/null || echo '[]' > "$CTX/pr-comments.json"
+            if ! jq -s 'add' "$CTX/pr-comments.ndjson" > "$CTX/pr-comments.json" 2>/dev/null; then
+              echo '[]' > "$CTX/pr-comments.json"
+              PR_COMMENTS_STATUS="failed: collected PR comments could not be merged"
+            fi
           else
             echo '[]' > "$CTX/pr-comments.json"
           fi
           rm -f "$CTX/pr-comments.ndjson"
+          record pr-comments "$PR_COMMENTS_STATUS"
 
           # Existing OPEN fix PRs targeting develop (duplicate detection)
           fetch existing-fix-prs "$CTX/existing-fix-prs.json" '[]' \
