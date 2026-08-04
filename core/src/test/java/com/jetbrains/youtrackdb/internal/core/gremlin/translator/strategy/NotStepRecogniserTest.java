@@ -330,21 +330,37 @@ public class NotStepRecogniserTest extends GraphBaseTest {
    * a comparand of the property's own type selects every vertex, so the empty result is the
    * cross-type ordering and not a broken clause.
    *
-   * <p>This is an engine-assumption pin, not a code pin — no change to {@link NotStepRecogniser}
-   * can redden it. If it reddens, the SQL comparator's cross-type rule has changed and the premise
-   * for the range-comparison decline has gone with it. Re-evaluate the decline itself rather than
-   * adjusting the expected counts here.
+   * <p>The count assertions are an engine-assumption pin rather than a code pin: no change to
+   * {@link NotStepRecogniser} can redden them. If one reddens, the SQL comparator's cross-type rule
+   * has changed and the premise for the range-comparison decline has gone with it — re-evaluate the
+   * decline itself rather than adjusting the expected counts here.
+   *
+   * <p>The boundary-step assertions are the code-side half, and they are load-bearing. The folded
+   * native graph step answers both shapes identically, so a silent decline would leave the counts
+   * green while they pinned the native comparator instead of the SQL one this test is named for.
    */
   @Test
   public void crossTypeRangeComparison_sqlRanksStringAboveInteger() {
     ModernGraphFixture.seed(graph, session);
 
     withTranslator(true, () -> {
-      assertThat(graph.traversal().V().has("name", P.lte(27)).toList())
+      var integerComparand = graph.traversal().V().has("name", P.lte(27)).asAdmin();
+      integerComparand.applyStrategies();
+      assertThat(countBoundarySteps(integerComparand.getSteps()))
+          .as("the Integer-comparand shape must translate, else the count below pins the native "
+              + "comparator rather than the SQL one")
+          .isEqualTo(1);
+      assertThat(integerComparand.toList())
           .as("SQL ranks every String above the Integer 27, so the complement of the withdrawn NOT "
               + "clause is empty")
           .isEmpty();
-      assertThat(graph.traversal().V().has("name", P.lte("z")).toList())
+
+      var stringComparand = graph.traversal().V().has("name", P.lte("z")).asAdmin();
+      stringComparand.applyStrategies();
+      assertThat(countBoundarySteps(stringComparand.getSteps()))
+          .as("the String-comparand control must translate too, for the same reason")
+          .isEqualTo(1);
+      assertThat(stringComparand.toList())
           .as("the same operator over a String comparand selects every vertex")
           .hasSize(6);
     });
