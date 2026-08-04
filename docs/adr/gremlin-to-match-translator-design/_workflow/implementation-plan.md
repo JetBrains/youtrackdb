@@ -760,7 +760,17 @@ trade a wrong answer for a failed conformance run.
   > sixteen hand-mirrored `TRANSPARENT_STEPS` sets outright — the identifier has
   > zero test-tree occurrences — and found the other four yesterday-exact counts
   > already disagreeing with HEAD. The realistic bound is ~35–45 files, and item
-  > 10's share of it is the least certain part. Decomposition sizes items 8–10 as their own
+  > 10's share of it is the least certain part.
+  > **This exceeds the ~20–25-file split-candidate bound and needs the written
+  > justification `planning.md` § Track descriptions requires (R19).** The
+  > justification is that the alternative does not exist: DR-S1's remedy for an
+  > oversized final track was a split, and this is the last track on the branch, so
+  > a split would create a twelfth track with no PR ahead of it and no reviewer
+  > budget behind it. Items 8, 9 and 10 are also independently droppable — none is
+  > a correctness fix, all three are capability or hygiene work whose absence
+  > leaves the branch no worse than today — so the overflow is shed by descoping
+  > rather than by splitting if Phase B runs long. The Phase A adversarial pass
+  > owns that call. Decomposition sizes items 8–10 as their own
   > steps, and the Phase A adversarial pass owns the split-or-keep call.
   > **Depends on:** Tracks 7, 8, and 9.
   >
