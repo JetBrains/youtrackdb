@@ -143,6 +143,15 @@ interface RecognitionContext extends ParamSink {
    * spellings that <em>do</em> reach the fold get there by {@code InlineFilterStrategy} hoisting the
    * child's steps to top level before the translator runs, so the walker sees them as top-level
    * steps and the latch classifies them correctly without special-casing.)
+   *
+   * <p>The union fork is the second child path and it does not go through a sub-walk.
+   * {@code UnionForkHostImpl.walkFork} re-enters the top-level {@link GremlinStepWalker#walk} with a
+   * synthesised list of the recognised prefix followed by one arm's steps, so an arm's leading
+   * {@code has} would sit right after the prefix's {@code GraphStep} and read as folded. It is not
+   * folded natively — {@code rebuildTraversal} does not descend into a union child — so the fork
+   * hands the prefix length in as a child-scope boundary and the latch closes across the seam. See
+   * {@link GremlinStepWalker#walk(org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin,
+   * int)}.
    */
   boolean atTraversalStart();
 

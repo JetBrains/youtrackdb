@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -359,6 +360,35 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
         List.of("loose_zulu"));
   }
 
+  /**
+   * A composite predicate arrives as a connective over range leaves, so the guard has to recurse
+   * into it rather than only wrap the top. {@code P.outside(lo, hi)} is the shape that shows it:
+   * TinkerPop decomposes it into {@code OrP[lt(lo), gt(hi)]} before the translator sees it, and both
+   * arms are unbounded, so a foreign runtime type falls inside one of them under SQL ordering.
+   *
+   * <p>On the two-runtime-type {@code Loose} class, {@code loose_zulu} holds the String
+   * {@code "zulu"} under the same key {@code loose_num} holds the Integer {@code 99}. Natively the
+   * container is unfolded (it sits in a {@code not(…)} child), so the String never compares with an
+   * Integer comparand and the inner predicate is false for it — the {@code NOT} keeps it. A
+   * translation that guarded only the top and left the two {@code OrP} arms bare would emit
+   * {@code NOT(name < 28 OR name > 33)}: SQL ranks every String above every number, so
+   * {@code "zulu" > 33} is true, the inner is true, and the row is dropped. The expected list is
+   * therefore the discriminating assertion, not decoration.
+   *
+   * <p>{@code between} / {@code inside} decompose the same way but cannot witness this: both arms
+   * are bounded, so a type that sorts entirely above or entirely below the numbers fails one arm
+   * whether or not it is guarded, and the two translations agree by accident.
+   */
+  @Test
+  public void notWithOutsideOverMixedRuntimeTypes_needsBothConnectiveArmsGuarded() {
+    seedMixedTypeFixture();
+
+    assertAgreesWithNative(
+        "g.V().hasLabel(Loose).not(has(name, outside(28, 33)))",
+        () -> graph.traversal().V().hasLabel("Loose").not(__.has("name", P.outside(28, 33))),
+        List.of("loose_zulu"));
+  }
+
   // ---------------------------------------------------------------------------
   // The comparability partition, one value of each runtime type.
   // ---------------------------------------------------------------------------
@@ -419,10 +449,21 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
    * translating unguarded. {@code java.time.Instant} is the case in hand: TinkerPop types it as
    * unknown rather than as a date, and the SQL type accessor reports {@code null} for a stored one,
    * so there is no list of type names that describes the rows it compares with.
+   *
+   * <p>The control runs first and is what keeps the decline meaningful. The declined shape's native
+   * answer is legitimately empty — TinkerPop's comparator rejects an {@code Instant} against every
+   * stored value — so its row comparison is empty against empty and cannot fail. The control pins
+   * that the same shape with a nameable literal does translate and does return rows on this
+   * fixture, so a decline here is the {@code Instant} and not the fixture having drifted empty.
    */
   @Test
   public void literalWithNoComparabilityBlock_declinesToNative() {
     seedOneValueOfEachType();
+
+    assertAgreesWithNative(
+        "control: the same shape with a comparable literal translates and returns rows",
+        () -> typesRange(P.gt(27)),
+        List.of("t_decimal", "t_double", "t_float", "t_long"));
 
     assertDeclinesAndMatchesNative(
         "v > Instant — no block can be named",
@@ -444,6 +485,20 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
    * hash join. The guard is emitted as an {@code IN} condition rather than an equality precisely to
    * stay out of that branch, and the row count here is what makes the estimator run at all rather
    * than bail early.
+   *
+   * <p>Which assertion carries which claim, since they are not interchangeable. The rendered alias
+   * filter is the one that sees the node form, and it is the end-to-end witness for the choice: it
+   * exercises the whole walker → adapter → builder path, where
+   * {@code MatchWhereBuilderTest.typeIn_buildsAnInConditionOverTheMethodCall} pins the builder in
+   * isolation. The plan-root and index-fetch assertions <em>cannot</em> see the form — measured, by
+   * rebuilding {@code typeIn} in the equality form and re-running this class, which stayed green.
+   * Both estimator paths are blind to it on a one-edge pattern: {@code SQLWhereClause.estimate}'s
+   * equality path is gated on {@code isBaseIdentifier()}, which a {@code .type()} modifier fails
+   * whatever the operator, and the tier-3 default the paragraph above names lives on
+   * {@code estimateFilterSelectivity}, which feeds edge ordering and the hash-join forecast —
+   * neither of which exists with one edge. What those two assertions do pin is that the plan shape
+   * is the unguarded one, which is worth having and is a different claim. The compiled plan's
+   * pretty-print cannot carry the form either: it collapses an alias's filter into the pattern line.
    */
   @Test
   public void guardedAliasAboveTheEstimatorThreshold_doesNotCaptureThePlanRoot() {
@@ -456,6 +511,19 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
     // the guard fired: unguarded SQL ranks the String above 27 and returns it too.
     assertAgreesWithNative(
         "guarded alias on a 604-row class", shape, List.of("b601"));
+
+    // The node-form witness runs on a String comparand rather than on the shape above, because a
+    // single-name block is the only case where an equality is expressible at all: a numeric
+    // literal's block names seven types and `=` cannot carry them. Same pattern, same guarded
+    // alias, so what it observes is the same emission path.
+    var singleNameBlock = (Supplier<GraphTraversal<?, ?>>) () -> graph.traversal().V()
+        .hasLabel("Bulk").has("k", P.gt("k000")).out("chain").has("mixed", P.gt("a"));
+    assertThat(renderedAliasFilterMentioning(singleNameBlock, "mixed"))
+        .as("the guard must reach the walk as an IN condition — an equality is the one node shape "
+            + "the filter-selectivity estimator does score, and nothing else in this case can tell "
+            + "the two apart")
+        .contains("mixed.type() IN [")
+        .doesNotContain("mixed.type() =");
 
     var plan = boundaryPlanText(shape);
     assertThat(planRootAlias(plan))
@@ -585,9 +653,17 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
 
   /**
    * Runs {@code shape} with the translator on and again off, asserting that the translated arm
-   * engaged exactly one boundary step, that both arms returned {@code expectedTags}, and hence that
-   * they agree. Pinning the expected tags rather than only comparing the two arms is what stops an
-   * empty-on-both-sides regression from passing.
+   * engaged exactly one boundary step, that the native arm engaged none, that both arms returned
+   * {@code expectedTags}, and hence that they agree. Pinning the expected tags rather than only
+   * comparing the two arms is what stops an empty-on-both-sides regression from passing.
+   *
+   * <p>The off arm's boundary count is pinned at zero for the reason the sibling helpers in this
+   * package pin it: the flag defaults on, and {@code setTranslatorEnabled} resolves its target
+   * through {@code graphSession()}, so a write that landed on a handle the traversal does not read
+   * would leave both arms translated and turn every case in this class into the guarded engine
+   * compared against itself. The hand-written {@code expectedTags} would not catch it either — they
+   * were derived from a run, so a run with both arms translated would have encoded translated
+   * behaviour into them.
    */
   private void assertAgreesWithNative(
       String scenario, Supplier<GraphTraversal<?, ?>> shape, List<String> expectedTags) {
@@ -600,12 +676,19 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
       var onTags = tagsOf(onAdmin.toList());
 
       setTranslatorEnabled(false);
-      var offTags = tagsOf(shape.get().toList());
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offTags = tagsOf(offAdmin.toList());
 
       assertThat(boundaryOn)
           .as(scenario + " (translator on) must engage exactly one boundary step — a decline would "
               + "make the row comparison below trivially true")
           .isEqualTo(1);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step — otherwise the "
+              + "\"native\" arm is the translated one and the comparison below is self-agreement")
+          .isZero();
       assertThat(offTags).as(scenario + " (native) rows").isEqualTo(expectedTags);
       assertThat(onTags).as(scenario + " (translated) rows").isEqualTo(expectedTags);
     } finally {
@@ -613,8 +696,15 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
     }
   }
 
-  /** Asserts the shape declines (no boundary step with the translator on) and that both arms still
-   *  return the same rows. */
+  /**
+   * Asserts the shape declines (no boundary step with the translator on) and that both arms still
+   * return the same rows.
+   *
+   * <p>The row half of this helper cannot fail on its own: a declined on arm <em>is</em> the native
+   * pipeline, so the comparison is native against native. What carries the case is the decline
+   * assertion, plus the off arm's zero-boundary pin (see {@link #assertAgreesWithNative} for why
+   * that pin exists) and, at the call site, a control shape that does translate on the same fixture.
+   */
   private void assertDeclinesAndMatchesNative(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
     var original = translatorEnabled();
@@ -627,8 +717,13 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
           .isEqualTo(0);
       var onTags = tagsOf(onAdmin.toList());
       setTranslatorEnabled(false);
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      assertThat(countBoundarySteps(offAdmin.getSteps()))
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isZero();
       assertThat(onTags).as(scenario + " must still return native's rows")
-          .isEqualTo(tagsOf(shape.get().toList()));
+          .isEqualTo(tagsOf(offAdmin.toList()));
     } finally {
       setTranslatorEnabled(original);
     }
@@ -689,6 +784,36 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
       }
     }
     return count;
+  }
+
+  /**
+   * Renders the walk's alias filter that mentions {@code key}, with inline literals preserved.
+   *
+   * <p>Rendered with an empty parameter map rather than {@code toGenericStatement}, because the
+   * latter collapses every string literal to {@code ?} — including the comparability-block names,
+   * which are exactly what the caller needs to read. A bound comparison value renders as
+   * {@code null} under an empty map, which is harmless here.
+   */
+  private String renderedAliasFilterMentioning(
+      Supplier<GraphTraversal<?, ?>> shape, String key) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var result = GremlinStepWalker.production().walk(shape.get().asAdmin());
+      assertThat(result).as("the shape must translate for it to have alias filters").isNotNull();
+      var inputs = result.inputs();
+      assertThat(inputs).as("a single-plan shape must carry MatchPlanInputs").isNotNull();
+      for (var clause : inputs.aliasFilters().values()) {
+        var rendered = new StringBuilder();
+        clause.toString(Map.of(), rendered);
+        if (rendered.indexOf(key) >= 0) {
+          return rendered.toString();
+        }
+      }
+      throw new AssertionError("no alias filter mentions " + key);
+    } finally {
+      setTranslatorEnabled(original);
+    }
   }
 
   /** Applies strategies with the translator on and renders the boundary step's compiled plan. */

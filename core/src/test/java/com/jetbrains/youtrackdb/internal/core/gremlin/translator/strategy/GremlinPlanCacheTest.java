@@ -115,6 +115,71 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(sortedNames(secondRun)).containsExactly("Bob");
   }
 
+  /**
+   * The range type guard's comparability-block names are part of the plan's shape, so two guards
+   * naming different blocks must not share a cache entry — while two guards naming the same block
+   * and differing only in the compared value must.
+   *
+   * <p>{@code STRING} and {@code BOOLEAN} are the pair that matters: both are one-name blocks, so a
+   * rendering that collapses the names to placeholders makes the two keys byte-identical. The guard
+   * reaches the key through the alias-filter section only, which is why an edge-free shape such as
+   * {@code not(has(…))} is where the collision would land — a shape with a hop carries its filter on
+   * a path item, and path items are already rendered verbatim.
+   */
+  @Test
+  public void guardBlockNames_discriminateFingerprints_whileValuesDoNot() {
+    var booleanBlock = walk(() -> graph.traversal().V().not(__.has("v", P.lt(true))));
+    var stringBlock = walk(() -> graph.traversal().V().not(__.has("v", P.lt("m"))));
+    assertThat(fingerprint(booleanBlock))
+        .as("a BOOLEAN-block guard and a STRING-block guard are different plans")
+        .isNotEqualTo(fingerprint(stringBlock));
+
+    var otherStringValue = walk(() -> graph.traversal().V().not(__.has("v", P.lt("z"))));
+    assertThat(fingerprint(stringBlock))
+        .as("two guards naming the same block must still share one entry — the compared value is "
+            + "rebound per execution, so splitting on it would cost plan reuse for nothing")
+        .isEqualTo(fingerprint(otherStringValue));
+  }
+
+  /**
+   * The row-level consequence of the fingerprint above: after a guarded shape has been compiled and
+   * cached, the same shape with a literal of another runtime type must answer for its own guard, not
+   * be served the cached one.
+   *
+   * <p>Values of five runtime types sit under one undeclared key. Natively — the container is inside
+   * a {@code not(…)} child and therefore unfolded — a range comparison only relates operands of the
+   * same comparability block, so {@code lt(true)} sees the two Booleans and {@code lt("m")} sees the
+   * three Strings. Served the Boolean run's cached plan, the String run would keep {@code s_alpha}
+   * as well, because a {@code BOOLEAN} type conjunct is false for a String and the enclosing
+   * {@code NOT} then passes the row: five rows against native's four.
+   */
+  @Test
+  public void cachedGuardedPlan_isNotServedToAnotherLiteralType() {
+    graph.addVertex(T.label, "Types", "name", "s_alpha", "v", "alpha");
+    graph.addVertex(T.label, "Types", "name", "s_zulu", "v", "zulu");
+    graph.addVertex(T.label, "Types", "name", "b_true", "v", true);
+    graph.addVertex(T.label, "Types", "name", "b_false", "v", false);
+    graph.addVertex(T.label, "Types", "name", "n_ten", "v", 10);
+    graph.tx().commit();
+
+    var booleanRun = apply(() -> graph.traversal().V().not(__.has("v", P.lt(true))));
+    assertThat(sortedNames(booleanRun))
+        .as("not(v < true) withdraws only the Boolean below true")
+        .containsExactly("b_true", "n_ten", "s_alpha", "s_zulu");
+    assertThat(
+        GremlinPlanCache.instance(graphSession())
+            .contains(fingerprint(walk(() -> graph.traversal().V()
+                .not(__.has("v", P.lt(true)))))))
+        .as("the Boolean-guard plan must be cached, else the second run cannot be served it")
+        .isTrue();
+
+    var stringRun = apply(() -> graph.traversal().V().not(__.has("v", P.lt("m"))));
+    assertThat(sortedNames(stringRun))
+        .as("not(v < \"m\") withdraws only the String below \"m\" — being served the Boolean run's "
+            + "guard would keep s_alpha too")
+        .containsExactly("b_false", "b_true", "n_ten", "s_zulu");
+  }
+
   /** {@code within} with different element counts does not collide on fingerprint. */
   @Test
   public void withinDifferentSizes_distinctFingerprints() {

@@ -6,8 +6,10 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import java.util.List;
 import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -703,6 +705,53 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
       previous = current;
     }
     graph.tx().commit();
+  }
+
+  /**
+   * A union arm's leading {@code has} is not folded, so a cross-type range inside it must carry the
+   * per-record type guard and answer what TinkerPop's comparator answers.
+   *
+   * <p>The fork builds each arm's walk out of the recognised prefix followed by the arm's steps, in
+   * one flat list. That puts the arm's {@code has} directly after the prefix's {@code GraphStep},
+   * which is the shape the fold latch reads as folded — but natively the arm is a child traversal
+   * that {@code YTDBGraphStepStrategy.rebuildTraversal}'s top-level scan never descends into, so its
+   * {@code HasStep} survives and the incomparable-operands rule applies.
+   *
+   * <p>Two assertions, because they fail for different reasons. The first pins the post-strategy
+   * step list: with the translator off, no {@code name} container may reach a {@code YTDBGraphStep},
+   * which is what makes the native side the unfolded comparator rather than SQL ordering. The second
+   * pins the rows. {@code name} is a String on all three vertices and the comparand is an Integer,
+   * so the first arm contributes nothing natively while an unguarded translation of it would rank
+   * every String above 27 and contribute all three; the second arm is there so the expected multiset
+   * is non-empty and the divergence shows up as three extra rows rather than as empty-versus-empty.
+   */
+  @Test
+  public void unionArmCrossTypeRange_isGuardedAndAgreesWithNative() {
+    seedKnowsChain();
+    Supplier<GraphTraversal<?, ?>> shape =
+        () -> graph.traversal().V()
+            .union(__.has("name", P.gt(27)), __.has("name", P.eq("Alice")));
+
+    withTranslatorRestored(
+        () -> {
+          setTranslatorEnabled(false);
+          var admin = shape.get().asAdmin();
+          admin.applyStrategies();
+          assertThat(
+              admin.getSteps().stream()
+                  .filter(YTDBGraphStep.class::isInstance)
+                  .map(s -> (YTDBGraphStep<?, ?>) s)
+                  .anyMatch(s -> s.getHasContainers().stream()
+                      .anyMatch(c -> "name".equals(c.getKey()))))
+              .as("no union arm's container may reach the fold — if one did, the native arm would "
+                  + "be SQL ordering and the row assertion below would be measuring the wrong rule")
+              .isFalse();
+        });
+
+    assertEquivalent(
+        "g.V().union(has(name, gt(27)), has(name, eq(Alice)))",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        shape);
   }
 
   /** Seeds Alice -knows-> Bob -knows-> Carol. */

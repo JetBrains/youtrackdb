@@ -159,17 +159,6 @@ final class GremlinPredicateAdapter {
   }
 
   /**
-   * Translates one {@link HasContainer} with optional positional-parameter binding through {@code
-   * paramSink} and no range-comparison type guard. Production recognisers pass {@code ctx::bindParam}
-   * and choose the guard explicitly through the four-argument overload; unit tests pass {@code null}
-   * to keep inline literals.
-   */
-  @Nullable SQLBooleanExpression toFilter(
-      HasContainer container, PropertyTypeGate typeGate, @Nullable ParamSink paramSink) {
-    return toFilter(container, typeGate, paramSink, /* rangeTypeGuard= */ false);
-  }
-
-  /**
    * Translates one {@link HasContainer}, optionally emitting the per-record type guard beside every
    * order comparison ({@code gt} / {@code gte} / {@code lt} / {@code lte}).
    *
@@ -177,6 +166,13 @@ final class GremlinPredicateAdapter {
    * into {@code YTDBGraphStep} — see {@link RecognitionContext#atTraversalStart()} for why the two
    * positions need different translations, and the guard's own description on
    * {@link #translateCompare} for what it emits.
+   *
+   * <p>This is the only overload that takes a {@code paramSink}, and therefore the only one a
+   * recogniser can call. There is deliberately no shorter form that binds parameters and defaults
+   * the guard: a recogniser added later has to state its fold position or fail to compile, rather
+   * than inherit a fail-open {@code false} and diverge from native in an unfolded position. The
+   * shorter overloads above pass {@code null} for the sink, which makes them unit-test-only —
+   * production always binds.
    */
   @Nullable SQLBooleanExpression toFilter(
       HasContainer container,

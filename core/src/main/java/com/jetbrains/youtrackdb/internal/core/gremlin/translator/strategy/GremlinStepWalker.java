@@ -164,6 +164,12 @@ final class GremlinStepWalker {
       Set.of(NoOpBarrierStep.class);
 
   /**
+   * Child-scope boundary meaning "every step in this list is top level". No step index can reach
+   * {@code Integer.MAX_VALUE}, so the fold latch's boundary term is unconditionally true under it.
+   */
+  static final int NO_CHILD_SCOPE = Integer.MAX_VALUE;
+
+  /**
    * Production recogniser registry, keyed on the exact step class. Dispatch is O(1) on the step's
    * runtime class, and a step whose class is not a key declines the whole traversal (all-or-nothing),
    * so an unregistered or unexpected subclass fails safe to the native pipeline rather than being
@@ -298,6 +304,25 @@ final class GremlinStepWalker {
    * null}.
    */
   @Nullable GremlinToMatchTranslator.TranslationResult walk(Traversal.Admin<?, ?> traversal) {
+    return walk(traversal, NO_CHILD_SCOPE);
+  }
+
+  /**
+   * As {@link #walk(Traversal.Admin)}, but treats every step from index {@code childScopeBoundary}
+   * onwards as child-scoped for the fold latch: no container at or past that index is ever
+   * classified as folded, however the steps before it are classified.
+   *
+   * <p>Only the union fork passes a real boundary. {@link UnionForkHostImpl#walkFork} synthesises a
+   * traversal out of the recognised prefix plus one arm's steps, so the arm's leading {@code has}
+   * follows the prefix's {@code GraphStep} in a flat list and would otherwise read as folded.
+   * Natively it is not: {@code rebuildTraversal} scans only the parent's top level and never
+   * descends into a union child, so the arm's {@code HasStep} survives and TinkerPop's comparator
+   * answers it. The boundary is what keeps the synthesised list from telling the latch otherwise.
+   * See {@link RecognitionContext#atTraversalStart()} for the two positions and why they translate
+   * differently.
+   */
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -353,7 +378,7 @@ final class GremlinStepWalker {
 
     // Cursor-driven dispatch. A missing recogniser or a DECLINE declines the whole traversal
     // (all-or-nothing), returning false; the shared driver is reused by the sub-walk below.
-    if (!dispatchAll(cursor, ctx, recognisers)) {
+    if (!dispatchAll(cursor, ctx, recognisers, childScopeBoundary)) {
       return null;
     }
 
@@ -382,9 +407,16 @@ final class GremlinStepWalker {
    * sub-walk: the sub-walk needs exactly this loop and none of {@code walk}'s surrounding
    * machinery — the reserved-prefix scan, the once-per-walk flag resolution, the terminator invariant,
    * and {@code buildResult} are top-level-only.
+   *
+   * <p>{@code childScopeBoundary} is the index from which the step list stops being top level. Pass
+   * {@link #NO_CHILD_SCOPE} for a genuine top-level walk; the union fork passes its prefix length
+   * (see {@link #walk(Traversal.Admin, int)}).
    */
   private static boolean dispatchAll(
-      StepStreamCursor cursor, RecognitionContext ctx, Map<Class<?>, StepRecogniser> recognisers) {
+      StepStreamCursor cursor,
+      RecognitionContext ctx,
+      Map<Class<?>, StepRecogniser> recognisers,
+      int childScopeBoundary) {
     Step<?, ?> head;
     while (true) {
       // Read the position before peek(), because peek() advances past any transparent steps at the
@@ -441,9 +473,15 @@ final class GremlinStepWalker {
       // registered recogniser other than StartStepRecogniser can consume a GraphStep, so a fold can
       // never open from a step the loop did not classify. Read before the update by the recogniser
       // that just ran, so a HasStep sees the state of the run it closes rather than joins.
+      //
+      // The cursor's new position is the index of the next head, so comparing it against
+      // childScopeBoundary closes the latch across the prefix/child seam of a synthesised step list
+      // — see walk(Traversal.Admin, int). On a genuine top-level walk the boundary is
+      // NO_CHILD_SCOPE and the term is always true.
       ctx.setAtTraversalStart(
-          head instanceof GraphStep<?, ?>
-              || (head instanceof HasStep<?> && ctx.atTraversalStart()));
+          (head instanceof GraphStep<?, ?>
+              || (head instanceof HasStep<?> && ctx.atTraversalStart()))
+              && cursor.position() < childScopeBoundary);
     }
   }
 
@@ -630,8 +668,12 @@ final class GremlinStepWalker {
       return adapter;
     }
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
+    // NO_CHILD_SCOPE, not 0: the sub-walk's adapter answers atTraversalStart() with a hard false
+    // and swallows every write, so the boundary term has nothing to add here.
     adapter.markOutcome(
-        dispatchAll(cursor, adapter, recognisers) ? Outcome.ACCEPTED : Outcome.DECLINE);
+        dispatchAll(cursor, adapter, recognisers, NO_CHILD_SCOPE)
+            ? Outcome.ACCEPTED
+            : Outcome.DECLINE);
     return adapter;
   }
 

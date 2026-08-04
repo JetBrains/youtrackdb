@@ -1608,8 +1608,6 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     }
   }
 
-  /** Alice knows Bob, plus an isolated vertex. No self-loops, so a child asking for one matches
-   *  nothing natively. */
   /** One {@code knows} edge whose two endpoints have different ages, so a filter on {@code age}
    *  separates "run it against the start label" from "run it against the hop target". */
   private void seedAgedKnowsEdge() {
@@ -1619,6 +1617,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     graph.tx().commit();
   }
 
+  /** Alice knows Bob, plus an isolated vertex. No self-loops, so a child asking for one matches
+   *  nothing natively. */
   private void seedOneKnowsEdgeNoSelfLoop() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");

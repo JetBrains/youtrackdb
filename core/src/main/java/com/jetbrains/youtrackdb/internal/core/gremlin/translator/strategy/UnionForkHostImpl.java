@@ -84,7 +84,12 @@ final class UnionForkHostImpl implements UnionForkHost {
     for (Step<?, ?> step : childSuffix) {
       forked.addStep(step.clone());
     }
-    return GremlinStepWalker.production().walk(forked);
+    // The forked list is prefix ++ childSuffix, flat, so the child's steps sit at top level as far
+    // as the walk can tell. Handing the prefix length in as the fold latch's child-scope boundary
+    // is what keeps a leading has() in the arm from reading as folded: natively the arm is a child
+    // traversal, rebuildTraversal never descends into it, and its HasStep survives unfolded for
+    // TinkerPop's comparator to answer. See GremlinStepWalker.walk(Traversal.Admin, int).
+    return GremlinStepWalker.production().walk(forked, prefix.size());
   }
 
   @Override

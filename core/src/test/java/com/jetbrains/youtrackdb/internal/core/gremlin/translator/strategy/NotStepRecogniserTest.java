@@ -433,8 +433,18 @@ public class NotStepRecogniserTest extends GraphBaseTest {
    * {@code between(lo, hi)} never arrives as a predicate of its own — TinkerPop decomposes it into
    * {@code AndP[gte lo, lt hi]} before the translator sees it — so the guard has to reach it through
    * the connective recursion, once per arm. Same for {@code inside} / {@code outside}, which
-   * decompose the same way. A guard applied only to leaf predicates at the top would leave both arms
-   * unguarded and this case would answer differently from native.
+   * decompose the same way. This case pins that a negated {@code between} translates and returns
+   * native's rows; the boundary-step assertion is the discriminating half.
+   *
+   * <p>It does <em>not</em> witness the recursion, and no {@code between} case could. {@code age} is
+   * an Integer on all four {@code Person} vertices and absent on both {@code Software} vertices, so
+   * the type conjunct is true wherever the comparison can be true; and even on a mixed-type fixture
+   * both {@code between} arms are bounded, so a foreign runtime type fails one of them guarded or
+   * not. Two other cases carry the recursion:
+   * {@code GremlinPredicateAdapterTest.guardedRange_reachesUnderTheConnectives} at render level, and
+   * {@code RangeTypeGuardEquivalenceTest}'s {@code outside(…)} case at row level, where the
+   * connective's arms are unbounded and a String really does fall inside one of them under SQL
+   * ordering.
    */
   @Test
   public void notWithBetweenPredicate_translatesToTheSameRows() {

@@ -106,12 +106,33 @@ final class GremlinPlanFingerprint {
     }
   }
 
+  /**
+   * Appends each alias filter, rendered with {@code toString(NO_PARAMS, …)} rather than
+   * {@code toGenericStatement}, for the same reason limit / skip below use it: an alias filter can
+   * carry a literal that is part of the plan's <em>shape</em> rather than a rebindable value, and
+   * {@code toGenericStatement} collapses every literal — including those — to {@code ?}.
+   *
+   * <p>The per-record range type guard is the case that forces it. It emits
+   * {@code key.type() IN ['STRING']} with the comparability-block names as inline string literals,
+   * so under {@code toGenericStatement} a guard naming {@code STRING} and a guard naming
+   * {@code BOOLEAN} both render as {@code IN [?]} and produce a byte-identical key. The second
+   * traversal to compile would then be served the first one's cached plan, guard included, and
+   * answer a different row set. Only the {@code ;F:} section is exposed — {@code ;E:} already
+   * renders bound path items verbatim — so an edge-free pattern (a root-level {@code not(…)} or
+   * {@code or(…)} arm, a filter behind a barrier) is where the collision lands.
+   *
+   * <p>Value-independence is preserved. Every production comparison value binds through
+   * {@code ParamSink} into an {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter}, which renders as
+   * {@code null} under an empty parameter map, so two traversals differing only in a bound value
+   * still share one key and still share one plan.
+   */
   private static void appendAliasFilters(StringBuilder sb,
       Map<String, SQLWhereClause> aliasFilters) {
     sb.append(";F:");
     for (var entry : aliasFilters.entrySet()) {
       appendToken(sb, entry.getKey());
-      appendRendered(sb, scratch -> entry.getValue().toGenericStatement(scratch));
+      appendRendered(sb, scratch -> entry.getValue().toString(NO_PARAMS, scratch));
     }
   }
 
