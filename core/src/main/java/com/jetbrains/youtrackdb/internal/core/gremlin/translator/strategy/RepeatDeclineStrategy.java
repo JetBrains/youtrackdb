@@ -193,7 +193,9 @@ public final class RepeatDeclineStrategy
    * read O(1) and the mark free of ordering effects. Note that after {@code lock()} a traversal's
    * reference is overwritten with its parent's, so a descendant of a vetoed root reads as vetoed
    * once compilation has finished; every production read happens before that, during the strategy
-   * pass, while each traversal still holds its own reference.
+   * pass, while each traversal still holds its own reference. Both halves of that — the propagation
+   * and the read's position relative to it — are measured in {@code RepeatDeclineStrategyTest}, so a
+   * reader added after {@code lock()} shows up there as a translation loss rather than as silence.
    */
   static boolean isVetoed(Admin<?, ?> traversal) {
     return traversal.getStrategies() instanceof VetoedStrategies;

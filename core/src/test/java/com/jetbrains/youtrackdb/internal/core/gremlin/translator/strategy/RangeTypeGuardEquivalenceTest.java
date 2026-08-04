@@ -278,6 +278,33 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
         List.of("alpha", "bravo"));
   }
 
+  /**
+   * The edge-side witness for the guard. The case above cannot fail when the guard is removed,
+   * because its four {@code since} values are all Integers and the comparand is an Integer too — the
+   * emitted {@code since.type() IN [numeric block]} is then true for every candidate row and the
+   * guarded and unguarded translations select the same rows. This fixture stores one {@code since}
+   * as a String, which is where the two comparators disagree: SQL ordering ranks a String above
+   * every number and would admit that edge for {@code gt(2025)}, while TinkerPop's comparator
+   * refuses to compare the two and drops it. {@code EdgeHopRecogniser} hardcodes the guard on rather
+   * than computing it the way {@code HasStepRecogniser} does, so the vertex-side coverage transfers
+   * nothing here.
+   */
+  @Test
+  public void crossTypeEdgePropertyRange_matchesTheComparatorNotSqlOrdering() {
+    seedCrossTypeEdgeFixture();
+
+    assertAgreesWithNative(
+        "g.V().outE(bond).has(since, gt(2025)).inV() — one since is a String",
+        () -> graph.traversal().V().outE("bond").has("since", P.gt(2025)).inV(),
+        List.of("late_one", "late_two"));
+    // The other direction of the same partition: below the comparand the String is excluded too, so
+    // a guard that admitted it would show up as an extra row here rather than a missing one.
+    assertAgreesWithNative(
+        "g.V().outE(bond).has(since, lt(2025)).inV()",
+        () -> graph.traversal().V().outE("bond").has("since", P.lt(2025)).inV(),
+        List.of("early_one"));
+  }
+
   // ---------------------------------------------------------------------------
   // Scoping — the folded positions must keep their current answers.
   // ---------------------------------------------------------------------------
@@ -613,6 +640,32 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
     root.addEdge("link", bravo, "since", 2024);
     root.addEdge("link", charlie, "since", 2030);
     root.addEdge("link", delta, "since", 2031);
+    graph.tx().commit();
+  }
+
+  /**
+   * Four {@code bond} edges out of one hub, three carrying a numeric {@code since} and one a String,
+   * so one undeclared edge-property key holds two runtime types. Kept apart from {@link
+   * #seedMixedTypeFixture} on purpose: the cases there pin exact row lists over {@code out("link")}
+   * and over the whole vertex set, and a fifth link target would move several of them for reasons
+   * unrelated to the guard.
+   */
+  private void seedCrossTypeEdgeFixture() {
+    session.createVertexClass("Node");
+    session.createEdgeClass("bond");
+
+    var hub = graph.addVertex(T.label, "Node", "tag", "hub");
+    var earlyOne = graph.addVertex(T.label, "Node", "tag", "early_one");
+    var lateOne = graph.addVertex(T.label, "Node", "tag", "late_one");
+    var lateTwo = graph.addVertex(T.label, "Node", "tag", "late_two");
+    var wordy = graph.addVertex(T.label, "Node", "tag", "wordy");
+
+    hub.addEdge("bond", earlyOne, "since", 2020);
+    hub.addEdge("bond", lateOne, "since", 2030);
+    hub.addEdge("bond", lateTwo, "since", 2031);
+    // The String value is the whole point of this fixture: SQL ordering ranks it above 2025, the
+    // TinkerPop comparator refuses to rank it against 2025 at all.
+    hub.addEdge("bond", wordy, "since", "recently");
     graph.tx().commit();
   }
 

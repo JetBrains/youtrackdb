@@ -13,6 +13,22 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
  * Recogniser for {@link OrderGlobalStep}: {@code order()} / {@code order().by(...)} → {@link
  * SQLOrderBy}. Bare {@code order()} and identity modulators sort by {@code @rid}; {@code
  * Order.shuffle} declines.
+ *
+ * <h2>An {@code order()} after a grouping terminator</h2>
+ *
+ * A grouping terminator ({@code group()} / {@code groupCount()}) emits one map, so a following
+ * {@code order()} sorts a one-element stream: nothing to reorder, and the modulator is never
+ * evaluated against the map. Native therefore returns the map whole, whatever key the {@code by()}
+ * names. The translation read that {@code by(key)} as a sort over the grouping's <em>input</em>
+ * instead — it committed {@code key IS DEFINED} as a pattern conjunct on the rows feeding the
+ * {@code GROUP BY} and appended {@code ORDER BY <alias>.key}. Measured on four people, two of whom
+ * carry {@code age}: {@code g.V().groupCount().by(name).order().by(age)} returned
+ * {@code {Alice=1, Bob=1}} translated against native's four entries, the two ageless names removed
+ * by a filter the query never asked for.
+ *
+ * <p>So a captured {@code GROUP BY} declines here, matching the grouping gates in
+ * {@code GremlinAggregateAssembler} and {@code RangeGlobalStepRecogniser}. The cost is the
+ * {@code group().by(k).order().by(k2)} surface, which runs on the native traverser pipeline instead.
  */
 final class OrderGlobalStepRecogniser implements StepRecogniser {
 
@@ -43,6 +59,12 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     }
     // A second order() has no clear MATCH composition rule in Phase 1.
     if (ctxHasOrderBy(ctx)) {
+      return Outcome.DECLINE;
+    }
+    // An order() after a grouping terminator sorts the single map that terminator emitted, not the
+    // rows that fed it — see the class Javadoc's "An order() after a grouping terminator". Checked
+    // before the comparator loop so the declining path commits no presence conjunct.
+    if (ctx.groupBy() != null) {
       return Outcome.DECLINE;
     }
 

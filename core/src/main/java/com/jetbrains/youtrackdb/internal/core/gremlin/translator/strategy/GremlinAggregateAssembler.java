@@ -49,8 +49,19 @@ final class GremlinAggregateAssembler {
    * g.V().group().by(label).count()} is 1, one map, and {@code g.V().group().by(name).groupCount()}
    * counts the single emitted map. Every assembler here would instead overwrite the grouped plan —
    * {@code configureCount} clears the projection and nulls the GROUP BY, the two grouping methods
-   * call {@code setGroupBy} over the top of the existing one — so all three decline and let the
-   * native pipeline consume the grouped output.
+   * call {@code setGroupBy} over the top of the existing one — so they decline and let the native
+   * pipeline consume the grouped output.
+   *
+   * <p>All four assemblers read this: {@link #configureCount}, {@link #configureGroup}, {@link
+   * #configureGroupCount} and {@link #configurePropertyAggregate}. The fourth is additionally
+   * protected by the property projection both grouping assemblers null before returning, so it
+   * would decline on a null projection even without this gate; it carries the gate anyway so the
+   * rule does not depend on writes in two other methods.
+   *
+   * <p>The two slice recognisers hold the same line for the clauses they set: {@code
+   * RangeGlobalStepRecogniser} and {@code OrderGlobalStepRecogniser} both decline on a captured
+   * {@code GROUP BY}, because a statement-level {@code SKIP} / {@code LIMIT} / {@code ORDER BY}
+   * lands on the grouped rows rather than on the single map the terminator emitted.
    */
   private static boolean hasGrouping(RecognitionContext ctx) {
     return ctx.groupBy() != null;
@@ -145,7 +156,12 @@ final class GremlinAggregateAssembler {
    * dropNullRows} so empty input emits no traverser.
    */
   static Outcome configurePropertyAggregate(RecognitionContext ctx, String functionName) {
-    if (hasPreAggregateCardinalityClause(ctx)) {
+    // The grouping gate is here for the same reason it is in the other three assemblers, even
+    // though no shape reaches it today: both grouping assemblers null the property projection
+    // before returning, so a sum() after a group() declines two lines below on a null projection
+    // instead. That leaves this method's safety resting on two writes in two other methods, so the
+    // gate states the rule locally.
+    if (hasPreAggregateCardinalityClause(ctx) || hasGrouping(ctx)) {
       return Outcome.DECLINE;
     }
     var boundary = ctx.boundaryAlias();

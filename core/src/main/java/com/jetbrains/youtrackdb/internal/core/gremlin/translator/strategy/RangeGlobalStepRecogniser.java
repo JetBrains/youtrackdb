@@ -94,6 +94,28 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * reproduces native's — a RID tie-break makes the cut deterministic without making it native's,
  * so it closes the arbitrariness and leaves the divergence.
  *
+ * <h2>A slice behind a grouping terminator</h2>
+ *
+ * A grouping terminator ({@code group()} / {@code groupCount()}) drains every row the statement
+ * returns into one map and emits one traverser, so the positions a following slice selects among are
+ * maps, of which there is exactly one. A statement-level {@code SKIP} / {@code LIMIT} lands on the
+ * {@code GROUP BY} rows instead. Measured on three people with distinct names:
+ * {@code g.V().groupCount().by(name).limit(1)} returned the one-entry map {@code {Bob=1}} translated
+ * — a different entry per run, since which group row survives {@code LIMIT 1} is unconstrained —
+ * against native's three entries, and {@code g.V().group().by(name).skip(1)} returned a two-entry
+ * map of the rows the {@code SKIP} left against native's nothing.
+ *
+ * <p>Three neighbouring gates cover the adjacent orderings and none covered this one — {@link
+ * GremlinStepWalker}'s dispatch loop refuses a step after a captured clause, {@code
+ * GremlinAggregateAssembler.hasPreAggregateCardinalityClause} refuses a clause before an aggregate,
+ * and its {@code hasGrouping} refuses a terminator after a grouping one — so this recogniser
+ * declines on a captured {@code GROUP BY} of its own account.
+ *
+ * <p>The cost is the same shape the other slice guards give up: {@code group().by(k).limit(n)} runs
+ * end to end on the native traverser pipeline. Nothing narrower was available, because the fold into
+ * one map is a post-plan operation and no ordering of the statement's clauses expresses a slice over
+ * its output.
+ *
  * <h2>Why a post-union slice needs a following {@code count()}</h2>
  *
  * A slice selects rows <em>by position</em>, and the multi-plan boundary's positions are not
@@ -179,6 +201,12 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     // ORDER BY". Same placement rationale as the guard above: a slice that selects no position
     // cannot cut into anything.
     if (ctx.orderBy() != null) {
+      return Outcome.DECLINE;
+    }
+    // A real slice behind a grouping terminator would slice the GROUP BY rows instead of the single
+    // map the terminator emits — see the class Javadoc's "A slice behind a grouping terminator".
+    // Same placement rationale as the two guards above.
+    if (ctx.groupBy() != null) {
       return Outcome.DECLINE;
     }
     if (normalized.skip() > 0) {

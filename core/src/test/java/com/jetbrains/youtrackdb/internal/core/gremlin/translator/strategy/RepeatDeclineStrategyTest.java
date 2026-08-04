@@ -61,10 +61,12 @@ import org.junit.Test;
  * recogniser emits differs between them, and a decline that only held under one mode would leave the
  * other translating.
  *
- * <p>Eight further cases stand alone: {@link #repeatInsideAChildStartingAtV_vetoesThatChildToo} (a
+ * <p>Nine further cases stand alone: {@link #repeatInsideAChildStartingAtV_vetoesThatChildToo} (a
  * repeat one nesting level down, in a child the translator would otherwise fold on its own), {@link
  * #childWithoutARepeat_stillTranslates} (the other side of that boundary), {@link
  * #theVeto_doesNotLeakToASiblingOrToARepeatFreeChild} (the marker is per-traversal, not per-tree),
+ * {@link #afterLock_theVetoReachesARepeatFreeChildThatAlreadyTranslated} (what the framework does to
+ * that reference once compilation finishes, and why the production read is timed the way it is),
  * {@link #translatorAlreadyRemovedFromTheSource_needsNoVeto} (a source that dropped the translator
  * itself), {@link #veto_leavesTheProcessWideStrategyCacheIntact} (the veto never edits the
  * JVM-global strategy set), {@link #translatorOff_leavesTranslatorAndUnrollRegistered} (the
@@ -333,11 +335,51 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * A smoke test that the veto tolerates a source which has already dropped the translator: the
-   * traversal runs natively and returns the native two-hop result. "No boundary step" holds by
-   * construction here — the translator is not in the source's strategy list, so it never runs — and
-   * the case exists because this is the one path in the class that reaches TinkerPop's in-place
-   * {@code removeStrategies} through {@code withoutStrategies}.
+   * The post-{@code lock()} state of the marker, measured rather than read off the production
+   * Javadoc. {@code DefaultTraversal.lock()} copies the parent's strategies reference into every
+   * non-root traversal as the last act of that traversal's compilation, so a repeat-free child of a
+   * vetoed root reads as vetoed once compilation has finished — even though it translated during the
+   * strategy pass, while it still held its own reference. Both halves are asserted: the propagation
+   * is a fact about TinkerPop that this case notices if it ever changes, and the child's boundary
+   * step is the evidence that the production read happened before the copy. A future reader placed
+   * after {@code lock()} would flip the second assertion and cost translation on a shape the veto was
+   * never meant to reach.
+   */
+  @Test
+  public void afterLock_theVetoReachesARepeatFreeChildThatAlreadyTranslated() {
+    seedKnowsChain();
+    setTranslatorEnabled(true);
+
+    GraphTraversal<Object, String> child = __.<Object>V().out("knows").values("name");
+    var vetoedRoot = graph.traversal().V().repeat(__.out()).times(2).map(child).asAdmin();
+    vetoedRoot.applyStrategies();
+
+    assertThat(RepeatDeclineStrategy.isVetoed(vetoedRoot))
+        .as("precondition: the root carries the repeat, so the veto fired on it")
+        .isTrue();
+    assertThat(RepeatDeclineStrategy.isVetoed(child.asAdmin()))
+        .as("after lock() the repeat-free child reads as vetoed, because it now holds the root's "
+            + "strategies reference rather than its own")
+        .isTrue();
+    assertThat(countBoundarySteps(child.asAdmin()))
+        .as("yet the child was translated: the translator read the marker during the strategy pass, "
+            + "before lock() copied the root's reference down")
+        .isEqualTo(1);
+  }
+
+  /**
+   * The veto tolerates a source which has already dropped the translator: the two mechanisms
+   * compose, and the traversal runs natively and returns the native two-hop result. This is the one
+   * path in the class that reaches TinkerPop's in-place {@code removeStrategies} through {@code
+   * withoutStrategies}.
+   *
+   * <p>The zero boundary count and the native rows hold under either mechanism alone, so they cannot
+   * tell the two apart — drop the {@code withoutStrategies} call and the veto still declines the
+   * traversal; unregister the veto and the source still has no translator to engage. The two
+   * assertions above them are what separate them: the strategy list genuinely no longer carries the
+   * translator, and the marker is on the list anyway. Without the first, a {@code VetoedStrategies}
+   * wrapper that swallowed the removal would look the same; without the second, a veto that gave up
+   * on an unfamiliar strategy list would.
    */
   @Test
   public void translatorAlreadyRemovedFromTheSource_needsNoVeto() {
@@ -354,6 +396,13 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
             .asAdmin();
     admin.applyStrategies();
 
+    assertThat(admin.getStrategies().getStrategy(GremlinToMatchStrategy.class))
+        .as("withoutStrategies must really have removed the translator from this traversal's list, "
+            + "and the veto carrier must forward the read rather than mask it")
+        .isEmpty();
+    assertThat(RepeatDeclineStrategy.isVetoed(admin))
+        .as("and the veto still fires on top of that removal, so the two mechanisms compose")
+        .isTrue();
     assertThat(countBoundarySteps(admin))
         .as("a source without the translator must produce no boundary step")
         .isZero();

@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -1315,6 +1316,30 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().values("name").order());
   }
 
+  /**
+   * The descending direction of the same re-point. {@code order().by(Order.desc)} keeps the identity
+   * value traversal and changes only the comparator, so it resolves through the same branch as the
+   * ascending case — and a branch that resolved the property but dropped the direction would still
+   * pass the ascending case above. The three names are seeded so that neither insertion order nor
+   * ascending order matches the expected descending sequence.
+   */
+  @Test
+  public void descendingOrderAfterValues_sortsByTheValueDescending() {
+    graph.addVertex(T.label, "Person", "name", "Mallory");
+    graph.addVertex(T.label, "Person", "name", "Zoe");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().values(name).order().by(Order.desc)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("name").order().by(Order.desc));
+    assertThat(graph.traversal().V().values("name").order().by(Order.desc).toList())
+        .as("the descending sequence is what both arms must produce — an ascending or "
+            + "insertion-ordered answer differs from it on this seed")
+        .containsExactly("Zoe", "Mallory", "Alice");
+  }
+
   /** {@code values("name").groupCount()} keys on the names, not on the vertices that carry them. */
   @Test
   public void groupCountAfterValues_keysOnTheProjectedValue() {
@@ -1366,6 +1391,81 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().group().by(name).group()",
         Recognition.DECLINED,
         () -> graph.traversal().V().group().by("name").group());
+  }
+
+  /**
+   * A slice after a grouping terminator selects among the maps the grouping emitted, and a grouping
+   * terminator emits exactly one. Native {@code limit(1)} therefore keeps that whole map and
+   * {@code skip(1)} drops it; a statement-level {@code LIMIT} / {@code SKIP} would instead cut the
+   * {@code GROUP BY} rows that feed the map, returning a one-entry map for the first spelling and a
+   * two-entry map for the second. Three distinct names make both directions visible.
+   *
+   * <p>The {@code skip} arm's payload comparison is vacuous by itself — both arms end up empty — so
+   * the emptiness is pinned directly, and the recognised {@code groupCount().by(name)} case is what
+   * separates the grouping gate from a prefix that stopped translating.
+   */
+  @Test
+  public void slicesAfterGroup_decline() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.tx().commit();
+
+    // The answers come first so that a regression reopening either shape reports the wrong map
+    // rather than only the boundary count.
+    assertThat(graph.traversal().V().groupCount().by("name").limit(1).next())
+        .as("limit(1) keeps the single emitted map whole — every name is still a key")
+        .containsOnlyKeys("Alice", "Bob", "Cleo");
+    assertThat(graph.traversal().V().group().by("name").skip(1).toList())
+        .as("skip(1) drops the one emitted map, so nothing is returned")
+        .isEmpty();
+
+    assertEquivalent(
+        "g.V().groupCount().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().groupCount().by("name"));
+
+    assertEquivalent(
+        "g.V().groupCount().by(name).limit(1)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().groupCount().by("name").limit(1));
+    assertEquivalent(
+        "g.V().group().by(name).skip(1)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().group().by("name").skip(1));
+  }
+
+  /**
+   * {@code order().by(key)} after a grouping terminator sorts the maps the grouping emitted, and a
+   * grouping terminator emits exactly one — so the sort has nothing to reorder and never evaluates
+   * the modulator. The map comes through whole, including keys the modulator could not have read.
+   * Translated, the same {@code by(age)} became a pattern conjunct {@code age IS DEFINED} on the
+   * rows feeding the {@code GROUP BY} plus an {@code ORDER BY} over them, which dropped the two
+   * ageless people from the map: {@code {Alice=1, Bob=1}} against native's four entries. The
+   * conjunct is a filter the query never asked for, so the shape declines.
+   *
+   * <p>The map is pinned before the decline is, so that a regression reopening the shape reports the
+   * narrowed map rather than only the boundary count. The recognised control is what separates the
+   * grouping gate from a prefix that stopped translating.
+   */
+  @Test
+  public void orderByKeyAfterGroup_declines() {
+    seedAgedAndAgeless();
+
+    assertThat(graph.traversal().V().groupCount().by("name").order().by("age").next())
+        .as("sorting one map reorders nothing and reads no key off it, so every name survives — a "
+            + "translated ORDER BY would filter the grouped rows by an age the query never named")
+        .containsOnlyKeys("Alice", "Bob", "Nemo", "Nobody");
+
+    assertEquivalent(
+        "g.V().groupCount().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().groupCount().by("name"));
+
+    assertEquivalent(
+        "g.V().groupCount().by(name).order().by(age)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().groupCount().by("name").order().by("age"));
   }
 
   /**
