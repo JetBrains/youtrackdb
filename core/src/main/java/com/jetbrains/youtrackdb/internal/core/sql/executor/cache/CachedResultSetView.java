@@ -41,7 +41,7 @@ import javax.annotation.Nullable;
  * the per-RID material lives entirely in the entry's {@link AggregateState}. The view carries the
  * replayed delta copy ({@link DeltaBuilder#buildForAggregate}) and emits at most one row, {@link
  * AggregateState#toResult}, then drains. {@code hasNext()} is true at most once: a value aggregate
- * (SUM/AVG/MEAN/MIN/MAX) over an empty contributor set emits no row, matching fresh execution.
+ * (SUM/AVG/MIN/MAX) over an empty contributor set emits no row, matching fresh execution.
  *
  * <p><b>Stream-pull unification.</b> Both paths share one {@link #pullOneFromStream} helper. On the
  * RECORD path it drops any pulled row whose RID is in the delta skip-set (closing the lazy-pull gap:
@@ -289,8 +289,8 @@ public final class CachedResultSetView implements ResultSet {
   /**
    * Aggregate single-row emit: returns the replayed {@link AggregateState#toResult} the first time and
    * {@code null} thereafter, so {@code hasNext()} is true at most once. There is no stream to pull and
-   * no cache cursor; the scalar was fully computed at delta build. A SUM/AVG/MEAN/MIN/MAX whose
-   * contributor set drained to empty emits zero rows (see {@link AggregateState#emitsNoRow}), matching a fresh
+   * no cache cursor; the scalar was fully computed at delta build. A SUM/AVG/MIN/MAX whose contributor
+   * set drained to empty emits zero rows (see {@link AggregateState#emitsNoRow}), matching a fresh
    * execution, which returns no row for those kinds over an empty input; only COUNT emits a 0 row.
    */
   @Nullable private Result computeNextAggregate() {

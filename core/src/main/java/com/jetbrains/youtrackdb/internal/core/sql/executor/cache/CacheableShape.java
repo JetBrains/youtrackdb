@@ -12,8 +12,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
  *       reconcile one record at a time (add a tx-CREATED row, drop a tx-DELETED row, re-position a
  *       tx-UPDATED row). A single-alias MATCH folds onto this shape.
  *   <li>The {@code AGGREGATE_*} family ({@link #AGGREGATE_COUNT}, {@link #AGGREGATE_SUM}, {@link
- *       #AGGREGATE_AVG}, {@link #AGGREGATE_MEAN}, {@link #AGGREGATE_MIN}, {@link #AGGREGATE_MAX})
- *       — single-aggregate SELECTs
+ *       #AGGREGATE_AVG}, {@link #AGGREGATE_MIN}, {@link #AGGREGATE_MAX}) — single-aggregate SELECTs
  *       replayed through an {@link AggregateState}. {@link #AGGREGATE_COUNT_DISTINCT} is not produced
  *       by {@link ShapeClassifier#classify} as an entry shape; it is the {@code AggregateState} kind
  *       that backs {@link #DISTINCT_VALUES} (and a reserved future scalar distinct-count shape).
@@ -41,15 +40,6 @@ public enum CacheableShape {
 
   /** {@code AVG(prop)} single-aggregate SELECT. */
   AGGREGATE_AVG,
-
-  /**
-   * {@code MEAN(prop)} single-aggregate SELECT. Shares {@link #AGGREGATE_AVG}'s running sum and
-   * contributor count and differs only in the final division: {@code mean} always divides in
-   * floating point where {@code avg} divides in the input's own arithmetic. It needs its own shape
-   * rather than folding onto {@code AGGREGATE_AVG} because the replayed scalar has to match the
-   * function the query actually named.
-   */
-  AGGREGATE_MEAN,
 
   /** {@code MIN(prop)} single-aggregate SELECT. */
   AGGREGATE_MIN,
@@ -97,7 +87,6 @@ public enum CacheableShape {
     return this == CacheableShape.AGGREGATE_COUNT
         || this == CacheableShape.AGGREGATE_SUM
         || this == CacheableShape.AGGREGATE_AVG
-        || this == CacheableShape.AGGREGATE_MEAN
         || this == CacheableShape.AGGREGATE_MIN
         || this == CacheableShape.AGGREGATE_MAX
         || this == CacheableShape.AGGREGATE_COUNT_DISTINCT;

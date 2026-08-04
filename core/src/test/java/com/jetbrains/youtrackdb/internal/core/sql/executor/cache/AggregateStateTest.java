@@ -31,9 +31,8 @@ import org.junit.Test;
 
 /**
  * Verifies {@link AggregateState} in isolation: per-kind {@code observe}/{@code applyMutation}
- * transitions, the SUM/AVG/MEAN storage-parity fold, AVG integer-truncation and BigDecimal HALF_UP
- * finalisation against MEAN's floating-point and DECIMAL128 finalisation of the same input,
- * MIN/MAX extremum transitions including the O(n) recompute, COUNT_DISTINCT bucket
+ * transitions, the SUM/AVG storage-parity fold, AVG integer-truncation and BigDecimal HALF_UP
+ * finalisation, MIN/MAX extremum transitions including the O(n) recompute, COUNT_DISTINCT bucket
  * lifecycle, the collapse case (a {@code CREATED}-typed op already a contributor dispatched
  * by membership, not op type), {@code copy} isolation, and the contributor cap overflow callback.
  *
@@ -214,95 +213,6 @@ public class AggregateStateTest {
                 newRec(new BigDecimal("5"))));
     // BigDecimal(35).divide(BigDecimal(3), HALF_UP) at scale 0 is 12.
     assertEquals(new BigDecimal("12"), scalarOf(s));
-    db.rollback();
-  }
-
-  /**
-   * MEAN over the same integer input AVG truncates divides in floating point: 10/20/5 sum to Integer
-   * 35, and 35 over 3 contributors is 11.666… where AVG answers 11. This is the whole reason the two
-   * shapes are separate — a MEAN entry replayed through AVG's finalisation would serve 11.
-   */
-  @Test
-  public void meanIntegerInputDividesInFloatingPointWhereAvgTruncates() {
-    db.begin();
-    var recs = List.of(newRec(10), newRec(20), newRec(5));
-    var mean = populate(CacheableShape.AGGREGATE_MEAN, FIELD, recs);
-    var avg = populate(CacheableShape.AGGREGATE_AVG, FIELD, recs);
-    assertEquals(35.0d / 3.0d, (Double) scalarOf(mean), 1.0e-12);
-    assertEquals(11, scalarOf(avg));
-    db.rollback();
-  }
-
-  /**
-   * MEAN over BigDecimal input divides under {@code DECIMAL128} rather than at the operands' scale:
-   * 35 over 3 has no exact decimal expansion, so the quotient carries the context's 34 significant
-   * digits where AVG's HALF_UP-at-scale-0 finalisation answers 12. Without a rounding context the
-   * divide would throw instead of answering, so this case also pins that the replay path inherits
-   * {@code SQLFunctionMean}'s context and not a bare divide.
-   */
-  @Test
-  public void meanBigDecimalInputDividesUnderDecimal128() {
-    db.begin();
-    var s =
-        populate(
-            CacheableShape.AGGREGATE_MEAN,
-            FIELD,
-            List.of(
-                newRec(new BigDecimal("10")),
-                newRec(new BigDecimal("20")),
-                newRec(new BigDecimal("5"))));
-    var scalar = (BigDecimal) scalarOf(s);
-    assertEquals(34, scalar.precision());
-    assertEquals(
-        0, new BigDecimal("11.66666666666666666666666666666667").compareTo(scalar));
-    db.rollback();
-  }
-
-  /**
-   * MEAN reconciles a post-populate transaction record by record instead of re-executing the scan,
-   * which is the property it would lose by classifying as an unreplayable shape. All three
-   * transitions are driven in one replay and the scalar is asserted after each: a value change on an
-   * existing contributor, a tx-created record joining (divisor grows with the sum), and a delete
-   * dropping one out.
-   */
-  @Test
-  public void meanReconcilesPostPopulateMutationsRecordByRecord() {
-    var a = committedRec(10);
-    var b = committedRec(20);
-    var s = populate(CacheableShape.AGGREGATE_MEAN, FIELD, List.of(a, b));
-    assertEquals(15.0d, (Double) scalarOf(s), 1.0e-12);
-
-    // T->T: a's value moves, so the whole set re-folds: (40 + 20) / 2.
-    a.setProperty(FIELD, 40);
-    s.applyMutation((RecordAbstract) a, RecordOperation.UPDATED, true);
-    assertEquals("MEAN re-folds after a contributor's value changes", 30.0d, (Double) scalarOf(s),
-        1.0e-12);
-
-    // F->T: a tx-created record joins; the divisor must grow with the sum, giving (40 + 20 + 3) / 3.
-    var c = newRec(3);
-    s.applyMutation((RecordAbstract) c, RecordOperation.CREATED, true);
-    assertEquals("MEAN counts a tx-created contributor in its divisor", 21.0d,
-        (Double) scalarOf(s), 1.0e-12);
-
-    // T->F: b is deleted, leaving (40 + 3) / 2 — what a fresh mean(v) over the survivors returns.
-    s.applyMutation((RecordAbstract) b, RecordOperation.DELETED, true);
-    assertEquals("MEAN drops a deleted contributor from sum and divisor together", 21.5d,
-        (Double) scalarOf(s), 1.0e-12);
-    db.rollback();
-  }
-
-  /**
-   * MEAN drained to empty is null, never a divide-by-zero: dropping the sole contributor leaves
-   * {@code count==0} with a null accumulator, and {@code computeMean(null, 0)} answers null. Matching
-   * {@code SQLFunctionMean.getResult}, which returns null for an empty aggregate rather than zero.
-   */
-  @Test
-  public void meanDrainsToNullNotDivideByZero() {
-    var only = committedRec(10);
-    var s = populate(CacheableShape.AGGREGATE_MEAN, FIELD, List.of(only));
-    assertEquals(10.0d, (Double) scalarOf(s), 1.0e-12);
-    s.applyMutation((RecordAbstract) only, RecordOperation.DELETED, true);
-    assertEquals("MEAN over an emptied set is null, never a divide-by-zero", null, scalarOf(s));
     db.rollback();
   }
 

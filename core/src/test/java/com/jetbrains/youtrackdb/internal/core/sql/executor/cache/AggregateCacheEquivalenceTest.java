@@ -34,7 +34,7 @@ import org.junit.experimental.categories.Category;
  * <p>The tappable shape is {@code SELECT <agg>(price) FROM C WHERE active = true}: a non-indexed WHERE
  * forces the planner to build a real {@code AggregateProjectionCalculationStep} the side-tap can splice
  * above, unlike the hardwired bare/indexed {@code COUNT(*)} forms. Per-kind cases (COUNT / SUM / AVG /
- * MEAN / MIN / MAX) cross the four mutation patterns and the collapse case; separate cases pin the
+ * MIN / MAX) cross the four mutation patterns and the collapse case; separate cases pin the
  * hardwired-COUNT(*) fallback, the {@code count(*) + 1} and {@code count(distinct(prop))} K0_NONE
  * routings, the contributor-cap overflow, a cache hit on repeat, and the no-exception-leak fallback.
  *
@@ -246,24 +246,6 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
     var fresh = runWithTarget(false, "avg(" + VALUE + ")", rid -> changeValue(rid, 100));
     var cached = runWithTarget(true, "avg(" + VALUE + ")", rid -> changeValue(rid, 100));
     assertEquals("AVG after a value UPDATE must match fresh (integer truncation)", fresh, cached);
-  }
-
-  @Test
-  public void meanEquivalence_createAfterPopulate() {
-    assertEquivalent("mean(" + VALUE + ")", new int[] {10, 20, 30}, createMatching(40));
-  }
-
-  /**
-   * MEAN after a value UPDATE must match fresh. The target's new value leaves the set {10, 20, 100},
-   * whose mean 43.33… has no exact integer or decimal form, so a replay that borrowed AVG's
-   * integer-truncating finalisation would answer 43 and diverge from the fresh run.
-   */
-  @Test
-  public void meanEquivalence_valueUpdateAfterPopulate() {
-    var fresh = runWithTarget(false, "mean(" + VALUE + ")", rid -> changeValue(rid, 100));
-    var cached = runWithTarget(true, "mean(" + VALUE + ")", rid -> changeValue(rid, 100));
-    assertEquals("MEAN after a value UPDATE must match fresh (floating-point division)", fresh,
-        cached);
   }
 
   @Test
@@ -730,7 +712,7 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
   /**
    * The whole per-kind matrix exercising the splice, eager drive, and replay must complete without any
    * exception leaking to the caller. This is the no-leak floor: every aggregate query above returned a
-   * scalar (a thrown exception would have failed the test), and this case re-runs all six kinds in one
+   * scalar (a thrown exception would have failed the test), and this case re-runs all five kinds in one
    * transaction to confirm the splice and fallback never throw.
    */
   @Test
@@ -747,11 +729,10 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
         "count(*)", 2.0,
         "sum(" + VALUE + ")", 30.0,
         "avg(" + VALUE + ")", 15.0,
-        "mean(" + VALUE + ")", 15.0,
         "min(" + VALUE + ")", 10.0,
         "max(" + VALUE + ")", 20.0);
     for (var agg : new String[] {"count(*)", "sum(" + VALUE + ")", "avg(" + VALUE + ")",
-        "mean(" + VALUE + ")", "min(" + VALUE + ")", "max(" + VALUE + ")"}) {
+        "min(" + VALUE + ")", "max(" + VALUE + ")"}) {
       var s = scalar(session.query(aggSql(agg)));
       assertTrue(
           "every aggregate kind returns a non-null numeric scalar over a non-empty set: " + agg,
@@ -763,10 +744,10 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
   }
 
   /**
-   * SUM / AVG / MEAN / MIN / MAX over a single contributor that is DELETED after populate must emit ZERO rows,
+   * SUM / AVG / MIN / MAX over a single contributor that is DELETED after populate must emit ZERO rows,
    * matching a fresh execution. The other aggregate equivalence tests seed multiple records so the
    * contributor set never empties end-to-end; this drives the all-contributors-deleted transition
-   * through the splice + build + view pipeline for every value-aggregate kind. A fresh SUM/AVG/MEAN/MIN/MAX
+   * through the splice + build + view pipeline for every value-aggregate kind. A fresh SUM/AVG/MIN/MAX
    * over an empty input emits no row (only COUNT emits a single {@code 0}), so the cached aggregate view
    * must also emit zero rows rather than a single (null- or zero-scalar) row. Asserting the row COUNT is
    * load-bearing: before the {@code emitsNoRow} fix the cached view always emitted one row here,
@@ -775,8 +756,8 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
    */
   @Test
   public void valueAggregatesEmitNoRowWhenAllContributorsDeleted() {
-    for (var agg : new String[] {"sum(" + VALUE + ")", "avg(" + VALUE + ")", "mean(" + VALUE + ")",
-        "min(" + VALUE + ")", "max(" + VALUE + ")"}) {
+    for (var agg : new String[] {"sum(" + VALUE + ")", "avg(" + VALUE + ")", "min(" + VALUE + ")",
+        "max(" + VALUE + ")"}) {
       var fresh = runSingleContributorDeleteRows(false, agg);
       var cached = runSingleContributorDeleteRows(true, agg);
       assertEquals("a fresh " + agg + " over the emptied set emits zero rows", 0, fresh.size());

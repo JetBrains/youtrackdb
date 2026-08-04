@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
 import static com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionAverage.computeAverage;
-import static com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionMean.computeMean;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
@@ -22,27 +21,23 @@ import javax.annotation.Nullable;
 
 /**
  * The replay state for one cached single-aggregate query ({@code SELECT
- * COUNT|SUM|AVG|MEAN|MIN|MAX|COUNT(DISTINCT prop) FROM C [WHERE p]}). It is seeded during populate,
- * before the entry is stored, by the aggregate side-tap, which {@link #observe}s every contributing
- * record before the aggregation step collapses them into a scalar; at view construction the delta
- * builder {@link #copy copies} it and {@link #applyMutation replays} the transaction's
- * post-populate mutations onto the copy, so {@link #toResult} returns exactly the scalar a fresh
- * uncached execution would compute at that moment.
+ * COUNT|SUM|AVG|MIN|MAX|COUNT(DISTINCT prop) FROM C [WHERE p]}). It is seeded during populate, before
+ * the entry is stored, by the aggregate side-tap, which {@link #observe}s every contributing record before the aggregation step
+ * collapses them into a scalar; at view construction the delta builder {@link #copy copies} it and
+ * {@link #applyMutation replays} the transaction's post-populate mutations onto the copy, so {@link
+ * #toResult} returns exactly the scalar a fresh uncached execution would compute at that moment.
  *
- * <p><b>Storage parity.</b> SUM, AVG and MEAN fold their values through the same {@link
+ * <p><b>Storage parity.</b> SUM and AVG fold their values through the same {@link
  * PropertyTypeInternal#increment} call storage's {@code SQLFunctionSum.sum} / {@code
  * SQLFunctionAverage.sum} make: the first contributing value is seeded verbatim, every later value is
  * {@code increment}ed onto the running {@link #sumAccumulator}. Because {@code PropertyTypeInternal}
  * exposes no symmetric subtract, a mutation that changes the contributing set (T&rarr;T value change,
  * T&rarr;F drop, F&rarr;T add) triggers a full re-fold of {@link #contributingValues} from scratch
  * rather than an incremental adjust. This reproduces storage's numeric-promotion, Long-overflow, and
- * Long&rarr;Double precision-loss behaviour bit-for-bit. AVG and MEAN additionally track the
- * contributor count in {@link #count} and finalise through the same division helper storage's own
- * function calls, not a plain {@code sum / count}: {@code SQLFunctionAverage.computeAverage} for
- * AVG (integer truncation for Integer/Long, {@code HALF_UP} for BigDecimal) and {@code
- * SQLFunctionMean.computeMean} for MEAN (always floating point, {@code DECIMAL128} for BigDecimal).
- * The two divide differently on the same folded sum, which is why MEAN carries its own kind instead
- * of borrowing AVG's.
+ * Long&rarr;Double precision-loss behaviour bit-for-bit. AVG additionally tracks the contributor
+ * count in {@link #count} and finalises through the same type-dispatched division {@code
+ * SQLFunctionAverage.computeAverage} uses (integer truncation for Integer/Long, {@code HALF_UP} for
+ * BigDecimal), not a plain {@code sum / count}.
  *
  * <p><b>MIN/MAX.</b> The running extremum is held in {@link #currentScalar} with the RID that
  * produced it in {@link #extremumRid}. Per-value material lives in {@link #contributingValues} so the
@@ -304,7 +299,7 @@ public final class AggregateState {
   /** F->T add: route to the kind-specific accumulator and record the per-RID value. */
   private void addContributor(@Nonnull RID rid, @Nonnull Object value) {
     switch (kind) {
-      case AGGREGATE_SUM, AGGREGATE_AVG, AGGREGATE_MEAN -> {
+      case AGGREGATE_SUM, AGGREGATE_AVG -> {
         contributingValues.put(rid, value);
         sumDirty = true;
       }
@@ -326,7 +321,7 @@ public final class AggregateState {
   /** T->F drop: remove the per-RID value and re-derive the scalar per kind. */
   private void removeContributor(@Nonnull RID rid) {
     switch (kind) {
-      case AGGREGATE_SUM, AGGREGATE_AVG, AGGREGATE_MEAN -> {
+      case AGGREGATE_SUM, AGGREGATE_AVG -> {
         contributingValues.remove(rid);
         sumDirty = true;
       }
@@ -348,7 +343,7 @@ public final class AggregateState {
   /** T->T value change of an existing contributor: update per-RID value and re-derive the scalar. */
   private void updateContributor(@Nonnull RID rid, @Nonnull Object newValue) {
     switch (kind) {
-      case AGGREGATE_SUM, AGGREGATE_AVG, AGGREGATE_MEAN -> {
+      case AGGREGATE_SUM, AGGREGATE_AVG -> {
         contributingValues.put(rid, newValue);
         sumDirty = true;
       }
@@ -389,9 +384,9 @@ public final class AggregateState {
 
   /**
    * Folds {@link #sumAccumulator}/{@link #count} from {@link #contributingValues} only when {@link
-   * #sumDirty} is set, then clears the flag. Called lazily on every read of the SUM/AVG/MEAN scalar
-   * so the fold runs once per build (after the replay loop has applied all membership/value
-   * changes) rather than once per mutation.
+   * #sumDirty} is set, then clears the flag. Called lazily on every read of the SUM/AVG scalar so the
+   * fold runs once per build (after the replay loop has applied all membership/value changes) rather
+   * than once per mutation.
    */
   private void ensureSumFolded() {
     if (sumDirty) {
@@ -407,7 +402,7 @@ public final class AggregateState {
    * symmetric subtract, and only re-folding from scratch reproduces storage's numeric-promotion and
    * overflow behaviour bit-for-bit. The fold walks {@link #contributingValues} in insertion (==
    * observe == scan) order so the result matches storage's scan-order fold bit-for-bit. Also recomputes
-   * {@link #count} (the AVG / MEAN divisor).
+   * {@link #count} (the AVG divisor).
    */
   private void refoldSum() {
     Number acc = null;
@@ -542,9 +537,8 @@ public final class AggregateState {
    * The single scalar row this aggregate produces, shaped like the original execution's output: one
    * property under the projection {@link #alias} carrying the finalised scalar. SUM over an empty set
    * is {@code 0} (matching {@code SQLFunctionSum.getResult}); COUNT is the contributor count;
-   * COUNT(DISTINCT) is the live bucket count; AVG and MEAN finalise through the same division
-   * helper storage uses (integer-truncating for AVG, floating-point for MEAN); MIN/MAX is the
-   * current extremum (null when no contributor remains).
+   * COUNT(DISTINCT) is the live bucket count; AVG finalises through the same type-dispatched division
+   * storage uses; MIN/MAX is the current extremum (null when no contributor remains).
    */
   @Nonnull
   public Result toResult(@Nullable DatabaseSessionEmbedded session) {
@@ -556,15 +550,14 @@ public final class AggregateState {
   /**
    * Whether a fresh execution emits NO row for the current contributor set, so the cached scalar view
    * must suppress its single row to match. A non-GROUP-BY aggregate over an empty input set emits one
-   * row only for {@code COUNT} (count = 0); {@code SUM} / {@code AVG} / {@code MEAN} / {@code MIN}
-   * / {@code MAX} emit zero rows (verified against the engine: a fresh {@code SELECT min(x) FROM C
-   * WHERE <no-match>} returns no rows, while {@code count(*)} returns a single {@code 0}).
-   * Suppression therefore applies exactly when a value aggregate has no remaining contributor;
-   * COUNT and COUNT_DISTINCT always emit.
+   * row only for {@code COUNT} (count = 0); {@code SUM} / {@code AVG} / {@code MIN} / {@code MAX} emit
+   * zero rows (verified against the engine: a fresh {@code SELECT min(x) FROM C WHERE <no-match>}
+   * returns no rows, while {@code count(*)} returns a single {@code 0}). Suppression therefore applies
+   * exactly when a value aggregate has no remaining contributor; COUNT and COUNT_DISTINCT always emit.
    */
   public boolean emitsNoRow() {
     return switch (kind) {
-      case AGGREGATE_SUM, AGGREGATE_AVG, AGGREGATE_MEAN, AGGREGATE_MIN, AGGREGATE_MAX ->
+      case AGGREGATE_SUM, AGGREGATE_AVG, AGGREGATE_MIN, AGGREGATE_MAX ->
           contributingValues.isEmpty();
       default -> false;
     };
@@ -593,12 +586,6 @@ public final class AggregateState {
       case AGGREGATE_AVG -> {
         ensureSumFolded();
         yield computeAverage(sumAccumulator, count);
-      }
-      // mean reuses AVG's folded sum and count and swaps only the division, so the replayed scalar
-      // comes out of the same helper SQLFunctionMean.getResult calls.
-      case AGGREGATE_MEAN -> {
-        ensureSumFolded();
-        yield computeMean(sumAccumulator, count);
       }
       case AGGREGATE_MIN, AGGREGATE_MAX -> currentScalar;
       default -> throw new IllegalStateException("scalar() on non-aggregate kind " + kind);
