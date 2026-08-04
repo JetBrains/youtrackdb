@@ -817,18 +817,54 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().order().by("name").values("name"));
   }
 
-  /** {@code limit(2)} after order matches native. */
+  /**
+   * A real slice behind {@code order().by(k)} declines, because MATCH's {@code ORDER BY} on a
+   * repeated key is a partial order and a bound cutting inside a tie group keeps an arbitrary
+   * member of it. Three of the four vertices here share the name {@code Tie}, so {@code LIMIT 2}
+   * cuts inside that group: before the decline the translated arm returned {@code [t1, t2]} where
+   * native's stable sort returned {@code [t2, t1]}.
+   *
+   * <p>The comparison is the ordered one because {@code order()} makes the sequence the answer.
+   * Where the same cut falls behind a hop it costs a row outright rather than a position — that
+   * case lives beside the other cardinality-clause equivalences in
+   * {@code OrderRangeStepRecogniserTest}.
+   */
   @Test
-  public void orderLimit_matchNative() {
-    graph.addVertex(T.label, "Person", "name", "Carol");
-    graph.addVertex(T.label, "Person", "name", "Alice");
-    graph.addVertex(T.label, "Person", "name", "Bob");
+  public void orderThenLimit_declinesOnTiedSortKey() {
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t3");
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t1");
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t2");
+    graph.addVertex(T.label, "Person", "name", "Zzz", "tag", "z");
     graph.tx().commit();
 
+    // Fixture precondition: the bound is load-bearing only if the sort key ties across it. If
+    // positions 1 and 2 of native's ordered answer carried different names, ORDER BY alone would
+    // determine which rows LIMIT 2 keeps and the decline would be guarding nothing.
+    var nativeKeys = nativeOrderedNames();
+    assertThat(nativeKeys)
+        .as("the fixture must supply at least three rows for the LIMIT 2 boundary to sit inside")
+        .hasSizeGreaterThan(2);
+    assertThat(nativeKeys.get(1))
+        .as("the fixture must tie the sort key across the LIMIT 2 boundary")
+        .isEqualTo(nativeKeys.get(2));
+
     assertEquivalentOrdered(
-        "g.V().order().by(name).limit(2).values(name)",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().order().by("name").limit(2).values("name"));
+        "g.V().order().by(name).limit(2).values(tag)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().order().by("name").limit(2).values("tag"));
+  }
+
+  /** Native's ordered name sequence, read translator-off so the sort is Gremlin's own stable one. */
+  private List<String> nativeOrderedNames() {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
+      admin.applyStrategies();
+      return admin.toList().stream().map(String::valueOf).toList();
+    } finally {
+      setTranslatorEnabled(original);
+    }
   }
 
   /** {@code dedup()} matches native vertex multiset. */

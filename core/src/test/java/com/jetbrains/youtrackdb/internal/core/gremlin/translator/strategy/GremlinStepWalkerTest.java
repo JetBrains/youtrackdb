@@ -888,6 +888,12 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * {@code g.V().as(a).out().as(b).where(__.as(a).out().as(b))} returns native's rows once the walk
    * declines. Before the fix the translated arm returned nothing where native returned the one row
    * whose hop target matches {@code b}.
+   *
+   * <p>The transparent reading passed as the control is what the pre-fix walk collapsed the shape
+   * onto: with both scope steps skipped the child was the bare {@code out()}. Natively the two
+   * spellings disagree on this fixture — the shape returns Bob, the reading returns nothing, since
+   * Bob has no out-edge — which is what stops the equality below from holding for a reason
+   * unrelated to the binding.
    */
   @Test
   public void whereWithEndLabel_declinesAndReturnsNativeRows() {
@@ -896,15 +902,19 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertDeclinesAndMatchesNative(
         "g.V().as(a).out().as(b).where(__.as(a).out().as(b))",
         () -> graph.traversal().V().as("a").out().as("b").where(__.as("a").out().as("b")),
-        true);
+        () -> graph.traversal().V().as("a").out().as("b").where(__.out()));
   }
 
   /**
    * The opposite direction of the same defect: the child asks for a self-loop, the fixture has
    * none, so native returns nothing. Before the fix the dropped end comparison turned the child
-   * into "has an out-edge" and the translated arm returned a row. Both arms are empty once the walk
-   * declines, so the boundary-step assertion is what carries this case — the mutation below is what
-   * proves it.
+   * into "has an out-edge" and the translated arm returned a row.
+   *
+   * <p>Both arms are empty once the walk declines, so the multiset equality carries nothing on its
+   * own here. What carries the case is the boundary assertion together with the transparent-reading
+   * control: {@code g.V().where(__.out())} is exactly the traversal the skipped scope steps left
+   * behind, and it returns Alice where the shape returns nothing. The separation is the fixture
+   * property the case depends on, so it is asserted rather than described.
    */
   @Test
   public void whereWithSelfComparingEndLabel_declinesAndReturnsNativeRows() {
@@ -913,68 +923,12 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertDeclinesAndMatchesNative(
         "g.V().as(a).where(__.as(a).out().as(a))",
         () -> graph.traversal().V().as("a").where(__.as("a").out().as("a")),
-        false);
+        () -> graph.traversal().V().where(__.out()));
   }
 
-  /** Alice knows Bob, plus an isolated vertex. No self-loops, so a child asking for one matches
-   *  nothing natively. */
-  private void seedOneKnowsEdgeNoSelfLoop() {
-    var alice = graph.addVertex(T.label, "Person", "name",
-        "Alice");
-    var bob = graph.addVertex(T.label, "Person", "name",
-        "Bob");
-    graph.addVertex(T.label, "Person", "name", "Solo");
-    alice.addEdge("knows", bob);
-    graph.tx().commit();
-  }
-
-  /**
-   * Runs {@code shape} with the translator on and again off, asserting the translated arm declined
-   * (no boundary step) and that both arms return the same rows. {@code expectRows} says whether the
-   * shape is one that matches anything at all — passing {@code true} adds a non-empty guard so the
-   * equality is not held over two empty lists; a shape that legitimately matches nothing natively
-   * passes {@code false} and rests on the boundary assertion plus its mutation.
-   */
-  private void assertDeclinesAndMatchesNative(
-      String scenario, Supplier<GraphTraversal<?, ?>> shape, boolean expectRows) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    try {
-      setTranslatorFlag(true);
-      var onAdmin = shape.get().asAdmin();
-      onAdmin.applyStrategies();
-      var boundaryOn =
-          onAdmin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
-      var onRows = onAdmin.toList().stream().map(String::valueOf).sorted().toList();
-
-      setTranslatorFlag(false);
-      var offAdmin = shape.get().asAdmin();
-      offAdmin.applyStrategies();
-      var offRows = offAdmin.toList().stream().map(String::valueOf).sorted().toList();
-
-      assertThat(boundaryOn)
-          .as(scenario + ": a where child carrying a scope binding must decline the whole walk")
-          .isEqualTo(0);
-      if (expectRows) {
-        assertThat(offRows)
-            .as(scenario + ": native must return rows, or the equality below is vacuous")
-            .isNotEmpty();
-      }
-      assertThat(onRows)
-          .as(scenario + ": translator-on and translator-off multisets must match")
-          .isEqualTo(offRows);
-    } finally {
-      setTranslatorFlag(original);
-    }
-  }
-
-  private void setTranslatorFlag(boolean enabled) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
-  }
+  // ---------------------------------------------------------------------------
+  // A captured cardinality clause ends the single-plan walk.
+  // ---------------------------------------------------------------------------
 
   /**
    * The mirror of the slice gate: a slice behind a {@code values(k)} declines, because the
@@ -1599,5 +1553,78 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     } finally {
       config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
     }
+  }
+
+  /** Alice knows Bob, plus an isolated vertex. No self-loops, so a child asking for one matches
+   *  nothing natively. */
+  private void seedOneKnowsEdgeNoSelfLoop() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Solo");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+  }
+
+  /**
+   * Runs {@code shape} with the translator on and again off, asserting the translated arm declined
+   * and that both arms return the same rows.
+   *
+   * <p>A decline makes the translator-on arm <em>be</em> the native pipeline, so the multiset
+   * equality compares native against native and holds whatever the fixture contains. Two things
+   * stop that from making the case vacuous. The boundary count on the on arm is what the decline
+   * itself is measured by, and the off arm's count is pinned at zero so a kill-switch flip that
+   * never reached the traversal cannot go unnoticed — the flag defaults on. {@code
+   * transparentReading} is the traversal the pre-fix walk collapsed the shape onto, with the scope
+   * steps skipped, and its native answer is asserted to differ from the shape's: without that, the
+   * case would pass on a fixture where the binding makes no difference and would pin nothing.
+   */
+  private void assertDeclinesAndMatchesNative(
+      String scenario,
+      Supplier<GraphTraversal<?, ?>> shape,
+      Supplier<GraphTraversal<?, ?>> transparentReading) {
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      setTranslatorFlag(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn =
+          onAdmin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
+      var onRows = onAdmin.toList().stream().map(String::valueOf).sorted().toList();
+
+      setTranslatorFlag(false);
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff =
+          offAdmin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
+      var offRows = offAdmin.toList().stream().map(String::valueOf).sorted().toList();
+      var readingAdmin = transparentReading.get().asAdmin();
+      readingAdmin.applyStrategies();
+      var readingRows = readingAdmin.toList().stream().map(String::valueOf).sorted().toList();
+
+      assertThat(offRows)
+          .as(scenario + ": the fixture must separate the shape from its transparent reading, or "
+              + "the assertions below witness nothing")
+          .isNotEqualTo(readingRows);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
+      assertThat(boundaryOn)
+          .as(scenario + ": a where child carrying a scope binding must decline the whole walk")
+          .isEqualTo(0);
+      assertThat(onRows)
+          .as(scenario + ": translator-on and translator-off multisets must match")
+          .isEqualTo(offRows);
+    } finally {
+      setTranslatorFlag(original);
+    }
+  }
+
+  private void setTranslatorFlag(boolean enabled) {
+    session
+        .getConfiguration()
+        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
   }
 }

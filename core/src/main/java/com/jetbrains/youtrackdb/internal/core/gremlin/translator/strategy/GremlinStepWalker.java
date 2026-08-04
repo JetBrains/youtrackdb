@@ -446,6 +446,13 @@ final class GremlinStepWalker {
    * A slice that normalises away to nothing ({@code skip(0)}, {@code range(0, -1)}) never arms the
    * gate — {@link RangeGlobalStepRecogniser} accepts it without setting a clause.
    *
+   * <p>This gate says nothing about the complement ordering, where the slice comes last: there the
+   * statement applies the clause where the user wrote it, so the two spellings do not collide. That
+   * ordering carries a hazard of its own. A slice last behind a captured {@code ORDER BY} cuts into
+   * a tie group the sort leaves unordered, and the two pipelines resolve the tie differently — the
+   * measured case is in {@link RangeGlobalStepRecogniser}'s "A slice behind a captured {@code ORDER
+   * BY}", which declines the shape from the recogniser's own side rather than here.
+   *
    * <p>This is the single-plan twin of the post-union gate above, and it lives in the loop for the
    * same reason: a recogniser added later inherits it without being told.
    *

@@ -192,6 +192,31 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.limit).isNull();
   }
 
+  /**
+   * A real slice declines once an {@code ORDER BY} is on the context, and it sets neither clause on
+   * the way out. MATCH's {@code ORDER BY} on a repeated key is a partial order, so a bound cutting
+   * inside a tie group keeps an arbitrary member where Gremlin's stable sort keeps arrival order —
+   * measured end to end in {@link #orderThenHopThenLimit_declinesAndReturnsNativeRows}. This is the
+   * recogniser-level pin on the same guard.
+   */
+  @Test
+  public void sliceAfterCapturedOrderBy_declines() {
+    var admin = graph.traversal().V().order().by("name").limit(2).asAdmin();
+    var ctx = seededContext();
+    assertThat(
+        OrderGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, OrderGlobalStep.class),
+            ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy).isNotNull();
+
+    var outcome =
+        RangeGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, RangeGlobalStep.class), ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.limit).isNull();
+    assertThat(ctx.skip).isNull();
+  }
+
   /** A second range/limit after one already captured declines (no Phase-1 composition). */
   @Test
   public void secondLimit_declines() {
@@ -559,23 +584,40 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The decline is keyed on the projection's own drop, not on projecting at all. When a preceding
-   * {@code order().by(k)} has already contributed {@code k IS DEFINED} into the pattern, the
-   * property-less row never enters the match on either arm and the shaping drop is a no-op, so the
-   * shape keeps translating. The fixture carries a name-less vertex precisely so the drop has
-   * something to bite on.
+   * A real slice declines once an {@code ORDER BY} has been captured, and this is the shape where
+   * the divergence reaches the row set rather than only its order. Two hubs of two targets each,
+   * seeded so insertion order and sorted order disagree, give {@code order().by(name).out(knows)}
+   * four rows in two tie groups of two — the sort key is the hub, so a hub's two targets tie.
+   * {@code limit(3)} cuts inside the second tie group, and before the decline the translated arm
+   * kept {@code ZedTarget1} where native kept {@code ZedTarget2}: a different row, silently,
+   * under a switch that defaults on.
+   *
+   * <p>The comparison is ordered because {@code order()} makes the sequence the answer. The control
+   * the helper takes is the same traversal without the {@code order()} prefix, which still
+   * translates — so the decline is attributable to the captured {@code ORDER BY} and not to some
+   * other gate this path crosses.
    */
   @Test
-  public void orderThenLimitThenValues_stillTranslates() {
-    graph.addVertex(T.label, "Person", "name", "Carol");
-    graph.addVertex(T.label, "Person", "name", "Alice");
-    graph.addVertex(T.label, "Person", "name", "Bob");
-    graph.addVertex(T.label, "Person", "age", 7);
-    graph.tx().commit();
+  public void orderThenHopThenLimit_declinesAndReturnsNativeRows() {
+    seedTwoHubsWithTiedSortKey();
+    assertOrderedSliceDeclines(
+        "g.V().order().by(name).out(knows).limit(3).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").limit(3).values("name"),
+        () -> graph.traversal().V().out("knows").limit(3).values("name"));
+  }
 
+  /**
+   * The {@code ORDER BY} decline is keyed on a real slice, exactly as the drop-on-absent one is: a
+   * {@code skip(0)} selects no position, so it can cut into no tie group and rides through. This
+   * pins where the new guard sits in {@link RangeGlobalStepRecogniser#recognize} — moving it above
+   * the no-op normalisation would decline this shape.
+   */
+  @Test
+  public void orderThenNoopSliceThenValues_stillTranslates() {
+    seedTwoHubsWithTiedSortKey();
     assertTranslatesAndMatchesNativeValues(
-        "g.V().order().by(name).limit(2).values(name)",
-        () -> graph.traversal().V().order().by("name").limit(2).values("name"));
+        "g.V().order().by(name).skip(0).values(name)",
+        () -> graph.traversal().V().order().by("name").skip(0).values("name"));
   }
 
   /**
@@ -635,22 +677,6 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Five vertices where exactly one — the hub — carries outgoing {@code knows} edges, three of
-   * them. That asymmetry is what makes the slice-then-hop cases discriminate under any scan order:
-   * the hop's full output is three rows, so a statement-level {@code LIMIT 2} yields two and a
-   * {@code SKIP 2} yields one, while native slices the scan first and so reaches either all three
-   * of the hub's neighbours or none of them. Two and one are both unreachable natively, so neither
-   * case can pass by accident on a lucky scan order.
-   */
-  /**
-   * Two vertices pointing at one shared target, which in turn points at a leaf. {@code in(knows)}
-   * reaches the shared target twice — once from each in-neighbour — which is the duplicate
-   * {@code dedup()} exists to remove and the reason a hop after it sees a different row count than
-   * a {@code DISTINCT} applied at the end. The two in-neighbours carry the <em>same</em> name under
-   * different identities, so the fixture separately catches a {@code DISTINCT} that ranged over a
-   * projected value instead of over the element.
-   */
-  /**
    * Five vertices, then {@code age} put on whichever one scans <em>last</em>, read back at seed time
    * rather than assumed. Scan order is not stable across JVM forks, so the fixture discovers it
    * instead of predicting it; what the cases need is only that the aged vertex is not among the
@@ -675,6 +701,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Two vertices pointing at one shared target, which in turn points at a leaf. {@code in(knows)}
+   * reaches the shared target twice — once from each in-neighbour — which is the duplicate
+   * {@code dedup()} exists to remove and the reason a hop after it sees a different row count than
+   * a {@code DISTINCT} applied at the end. The two in-neighbours carry the <em>same</em> name under
+   * different identities, so the fixture separately catches a {@code DISTINCT} that ranged over a
+   * projected value instead of over the element.
+   */
   private void seedSharedTargetWithDuplicateNames() {
     var first = graph.addVertex(T.label, "Person", "name", "Dup");
     var second = graph.addVertex(T.label, "Person", "name", "Dup");
@@ -686,6 +720,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     graph.tx().commit();
   }
 
+  /**
+   * Five vertices where exactly one — the hub — carries outgoing {@code knows} edges, three of
+   * them. That asymmetry is what makes the slice-then-hop cases discriminate under any scan order:
+   * the hop's full output is three rows, so a statement-level {@code LIMIT 2} yields two and a
+   * {@code SKIP 2} yields one, while native slices the scan first and so reaches either all three
+   * of the hub's neighbours or none of them. Two and one are both unreachable natively, so neither
+   * case can pass by accident on a lucky scan order.
+   */
   private void seedSingleHub() {
     var hub = graph.addVertex(T.label, "Person", "name", "Hub");
     var ann = graph.addVertex(T.label, "Person", "name", "Ann");
@@ -695,6 +737,28 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     hub.addEdge("knows", ann);
     hub.addEdge("knows", ben);
     hub.addEdge("knows", cal);
+    graph.tx().commit();
+  }
+
+  /**
+   * Two hubs of two {@code knows} targets each, seeded {@code Zed} before {@code Abe} so insertion
+   * order and sorted order disagree — the branch has already retracted one measurement taken on a
+   * fixture where they coincided, and a fixture that cannot tell RID order from sorted order cannot
+   * witness an ordering defect. Sorting by {@code name} keys the hop's four rows on their hub, so
+   * each hub's two targets tie; a {@code LIMIT 3} therefore cuts inside the second tie group, which
+   * is the only place the two pipelines are free to disagree.
+   */
+  private void seedTwoHubsWithTiedSortKey() {
+    var zed = graph.addVertex(T.label, "Person", "name", "Zed");
+    var zedTargetOne = graph.addVertex(T.label, "Person", "name", "ZedTarget1");
+    var zedTargetTwo = graph.addVertex(T.label, "Person", "name", "ZedTarget2");
+    var abe = graph.addVertex(T.label, "Person", "name", "Abe");
+    var abeTargetOne = graph.addVertex(T.label, "Person", "name", "AbeTarget1");
+    var abeTargetTwo = graph.addVertex(T.label, "Person", "name", "AbeTarget2");
+    zed.addEdge("knows", zedTargetOne);
+    zed.addEdge("knows", zedTargetTwo);
+    abe.addEdge("knows", abeTargetOne);
+    abe.addEdge("knows", abeTargetTwo);
     graph.tx().commit();
   }
 
@@ -709,6 +773,11 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * assertion is what makes the case a witness rather than a tautology: a decline compares native
    * against native, which agrees no matter what the fixture holds, so without it the test would
    * still pass on a fixture where both spellings mean the same thing and would pin nothing.
+   *
+   * <p>The off arm is built through {@code applyStrategies()} rather than drained blind, so its
+   * boundary count is available and pinned at zero. That pin is what would catch a kill-switch flip
+   * that never reached the traversal: the flag defaults on, and a stuck-on off arm would satisfy
+   * every other assertion here.
    */
   private void assertClauseThenStepDeclines(
       String scenario,
@@ -723,7 +792,10 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       var onIds = sortedStrings(onAdmin.toList());
 
       setTranslatorEnabled(false);
-      var offIds = sortedStrings(drain(shape));
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offIds = sortedStrings(offAdmin.toList());
       var clauseLastIds = sortedStrings(drain(clauseLastSpelling));
 
       // Fixture precondition first: if the two spellings agree natively, the case witnesses
@@ -733,6 +805,9 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
               + "witness nothing — native " + scenario + " and its slice-last spelling would then "
               + "be interchangeable and the shared statement harmless")
           .isNotEqualTo(clauseLastIds);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
       assertThat(onIds)
           .as(scenario + ": translator-on and translator-off multisets must match")
           .isEqualTo(offIds);
@@ -745,9 +820,66 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * The {@code ORDER BY} sibling of {@link #assertClauseThenStepDeclines}: {@code shape} carries an
+   * {@code order()} before a real slice, must decline, and must return native's rows <em>in native's
+   * order</em>. The comparison is ordered rather than a multiset one because {@code order()} makes
+   * the sequence part of the answer, and the tie-group divergence this decline closes shows up in
+   * the sequence even on the fixtures where it leaves the row set alone.
+   *
+   * <p>{@code sameShapeWithoutOrder} is the control, and it is what stops the case being satisfied
+   * by some other gate: strip the {@code order()} prefix and the identical suffix must still
+   * translate. Without it, a boundary count of zero would be consistent with the walk declining for
+   * any reason at all, which is the failure shape this package keeps rediscovering.
+   */
+  private void assertOrderedSliceDeclines(
+      String scenario,
+      Supplier<GraphTraversal<?, ?>> shape,
+      Supplier<GraphTraversal<?, ?>> sameShapeWithoutOrder) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var onRows = onAdmin.toList().stream().map(String::valueOf).toList();
+
+      var controlAdmin = sameShapeWithoutOrder.get().asAdmin();
+      controlAdmin.applyStrategies();
+      var boundaryControl = countBoundarySteps(controlAdmin.getSteps());
+
+      setTranslatorEnabled(false);
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offRows = offAdmin.toList().stream().map(String::valueOf).toList();
+
+      assertThat(boundaryControl)
+          .as(scenario + ": the same suffix without the order() prefix must still translate, or "
+              + "the decline below is not attributable to the captured ORDER BY")
+          .isEqualTo(1);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
+      assertThat(onRows)
+          .as(scenario + " must return rows, or the comparison is vacuous")
+          .isNotEmpty();
+      assertThat(boundaryOn)
+          .as(scenario + ": a real slice behind a captured ORDER BY must decline the whole walk")
+          .isEqualTo(0);
+      assertThat(onRows)
+          .as(scenario + ": translator-on and translator-off rows must match in native's order")
+          .isEqualTo(offRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
    * The complement: {@code shape} engages exactly one boundary step with the translator on and
    * returns the same non-empty multiset either way. The non-empty guard keeps the multiset
-   * comparison from holding vacuously over two empty results.
+   * comparison from holding vacuously over two empty results, and the off arm's boundary count is
+   * pinned at zero so a kill-switch flip that never reached the traversal cannot leave both arms
+   * translated and the equality trivially true.
    */
   private void assertTranslatesAndMatchesNative(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
@@ -760,11 +892,17 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       var onIds = sortedIds(onAdmin.toList());
 
       setTranslatorEnabled(false);
-      var offIds = sortedIds(drain(shape));
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offIds = sortedIds(offAdmin.toList());
 
       assertThat(boundaryOn)
           .as(scenario + " must translate — exactly one boundary step")
           .isEqualTo(1);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
       assertThat(onIds).as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();
       assertThat(onIds)
@@ -777,7 +915,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   /**
    * The {@link #assertTranslatesAndMatchesNative} sibling for shapes whose rows are values rather
-   * than elements, compared on {@code toString} because a projected value has no RID to sort on.
+   * than elements, compared on {@code toString} because a projected value has no RID to sort on. It
+   * carries the same off-arm boundary pin and for the same reason.
    */
   private void assertTranslatesAndMatchesNativeValues(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
@@ -790,11 +929,17 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       var onRows = sortedStrings(onAdmin.toList());
 
       setTranslatorEnabled(false);
-      var offRows = sortedStrings(drain(shape));
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offRows = sortedStrings(offAdmin.toList());
 
       assertThat(boundaryOn)
           .as(scenario + " must translate — exactly one boundary step")
           .isEqualTo(1);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
       assertThat(onRows)
           .as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();

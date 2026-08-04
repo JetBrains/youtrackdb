@@ -47,12 +47,16 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * {@code []}. So this recogniser declines once {@link RecognitionContext#dropsRowsOnAbsentProperty()}
  * holds.
  *
- * <p>Only the projection's own drop is at stake. Where a preceding step already contributed a
- * presence conjunct into the pattern, rows without the property never enter the match on either arm
- * and there is nothing left to mis-count — which is why {@code g.V().order().by(k).limit(n).values(k)}
- * stays translatable: {@code order().by(k)} writes {@code k IS DEFINED}, so the shaping drop is a
- * no-op. The aggregate path is right for the same reason, writing its conjunct rather than relying
- * on shaping.
+ * <p>The guard reads one boolean, {@link RecognitionContext#dropsRowsOnAbsentProperty()}, which the
+ * projection recogniser writes. So the decline covers exactly the orderings where the projection was
+ * recognised first, and the reverse spelling {@code g.V().limit(n).values(k)} is accepted because
+ * the slice reached this recogniser before any shaping existed — taking {@code n} rows and then
+ * dropping is what native does in that spelling too. The boolean says nothing about the pattern's
+ * conjuncts. A preceding {@code order().by(k)} writes {@code k IS DEFINED}, which would make the
+ * shaping drop a no-op and the slice safe, and the guard neither reads that nor needs to: it is
+ * strictly more conservative than the rule that conjunct would license, so it costs coverage and
+ * never correctness. The aggregate path needs no guard at all, writing its presence conjunct into
+ * the pattern rather than relying on shaping.
  *
  * <p>The price is the {@code values(k).limit(n)} surface, which is a common spelling — a top-N over
  * a projected property gives up its plan and runs on the native traverser pipeline. Nothing narrower
@@ -60,6 +64,35 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * clauses expresses it, and making the projection contribute a pattern conjunct instead would change
  * every {@code values(k)} plan's root-selection estimate. Spelling the slice before the projection
  * ({@code g.V().limit(n).values(k)}) still translates, and means something different.
+ *
+ * <h2>A slice behind a captured {@code ORDER BY}</h2>
+ *
+ * A slice selects rows by position, and a captured {@code ORDER BY} fixes positions only as far as
+ * the sort key separates the rows. MATCH's {@code ORDER BY a.name} is a partial order: rows sharing
+ * a name form one tie group whose internal order the statement does not constrain, so a bound that
+ * cuts inside a tie group keeps an arbitrary member of it. Gremlin's {@code order()} is a stable
+ * sort and keeps traverser arrival order among ties, so its cut is reproducible. When the cut falls
+ * inside a tie group the two arms keep different rows, which puts the divergence in the row set and
+ * not only in its order.
+ *
+ * <p>Measured on six vertices — two hubs with two {@code knows} targets each, inserted so that
+ * insertion order and sorted order disagree. {@code g.V().order().by(name).out(knows).values(name)}
+ * agrees on both arms; adding {@code .limit(3)} returns {@code [AbeTarget1, AbeTarget2, ZedTarget1]}
+ * translated against {@code [AbeTarget1, AbeTarget2, ZedTarget2]} native, the bound cutting the
+ * {@code Zed} tie group with each arm keeping a different member. Without a hop the divergence is a
+ * reordering: on four vertices three of which share a name,
+ * {@code g.V().order().by(name).limit(2).values(tag)} returns {@code [t1, t2]} against
+ * {@code [t2, t1]}. Both unsliced spellings agree, so the slice is what moves the rows.
+ *
+ * <p>So a real slice declines once an {@code ORDER BY} has been captured. The rule is blunt on
+ * purpose. A sort keyed on a unique property does totally order the rows and would be safe, yet
+ * nothing here can tell a unique key from a repeated one; the one sort the translator could prove
+ * total is a bare {@code order()}, which keys on {@code @rid}, and carving that out buys a shape
+ * nobody writes at the cost of a second rule to keep honest. This one costs top-N:
+ * {@code g.V().order().by(k).limit(n)} gives up its plan and runs on the native traverser
+ * pipeline, the same bill the post-union slice below pays. The exit is a translated order that
+ * reproduces native's — a RID tie-break makes the cut deterministic without making it native's,
+ * so it closes the arbitrariness and leaves the divergence.
  *
  * <h2>Why a post-union slice needs a following {@code count()}</h2>
  *
@@ -139,6 +172,13 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     // "A slice behind a drop-on-absent projection". Checked after the no-op test so skip(0) and
     // range(0, -1), which select no position, still ride through.
     if (ctx.dropsRowsOnAbsentProperty()) {
+      return Outcome.DECLINE;
+    }
+    // A real slice behind a captured ORDER BY cuts into a tie group the sort does not resolve, and
+    // the two pipelines resolve it differently — see the class Javadoc's "A slice behind a captured
+    // ORDER BY". Same placement rationale as the guard above: a slice that selects no position
+    // cannot cut into anything.
+    if (ctx.orderBy() != null) {
       return Outcome.DECLINE;
     }
     if (normalized.skip() > 0) {
