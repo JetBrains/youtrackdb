@@ -354,3 +354,111 @@ undeclared properties, keep the whole edge-filter surface translating, and remov
 class-context propagation entirely. It needs its own measurement: the exact category mapping against
 `GremlinValueComparator`, and what the extra conjunct does to index selection. If it works, step (3)
 disappears and with it most of the blast radius.
+
+## The per-record `.type()` route
+
+**Viable. Measured, a per-record type guard closes all five live divergences, keeps the whole edge-filter surface translating, and fully subsumes step 13's decline — the decline disappears from the design entirely.** With a throwaway patch emitting `key.type() = 'A' OR key.type() = 'B' … AND key > lit` on every range comparison, and step 13's `NotStepRecogniser` gate disabled, every shape in the earlier composition table agrees with native and translates, including the schema-less mixed-type class and the doubly-nested `not`. Nothing depends on the declared schema type, so the class-context propagation problem disappears with it.
+
+**One condition, and it is the one DR-S16 already identified.** The guard must be scoped to unfolded positions. Applied everywhere it breaks eight folded shapes that are correct today — measured, not assumed. The `isTraversalStart` latch derived above is exactly the scope.
+
+**What killed the previous design does not recur here.** The `.type()` conjunct does not block index selection and does not move the MATCH root.
+
+Measured on the same worktree and fixture, plus a second probe (`Step15TypeRouteProbe.java`, uncommitted, raw output `/tmp/step15-measure/typeroute.txt`). Production patches were reverted; the tree carries no production change.
+
+### The category mapping
+
+`SQLMethodType` returns the enum constant name of `PropertyTypeInternal.getTypeByValue`, measured per stored runtime type:
+
+| stored | `.type()` | | stored | `.type()` |
+|---|---|---|---|---|
+| `String` | `STRING` | | `BigDecimal` | `DECIMAL` |
+| `Byte` | `BYTE` | | `Boolean` | `BOOLEAN` |
+| `Short` | `SHORT` | | `java.util.Date` | `DATETIME` |
+| `Integer` | `INTEGER` | | absent property | `null` |
+| `Long` | `LONG` | | `java.time.Instant` | `null` |
+| `Float` | `FLOAT` | | | |
+| `Double` | `DOUBLE` | | | |
+
+It works inside a MATCH where-clause, which is the position the translator emits into: `MATCH {as: a, class: Types, where: (v.type() = 'STRING')} RETURN a.tag` returned exactly the three String-valued rows.
+
+The comparator's partition, read from `javap -c -p` on `org.apache.tinkerpop.gremlin.util.GremlinValueComparator` in `gremlin-core-3.8.1-67860f6-SNAPSHOT` (no sources jar ships for the fork): `comparable(f, s)` types both operands through a 16-member `Type` enum and, for every scalar case, returns `ft == st`. The blocks are `{all java.lang.Number subtypes}`, `{String}`, `{Boolean}`, `{java.util.Date and subclasses}`, `{UUID}`, `{null}`, and per-element blocks for Vertex / Edge / VertexProperty. `Compare.gt/gte/lt/lte` each compile to `comparable(f,s) && compare(f,s) ⋈ 0` and **return `false`, never throw**, when `comparable` says no.
+
+Numeric widening is the case DR-S16's alternative was most likely to break, and it does not: `Type.Number` is `java.lang.Number.isInstance(o)` with no whitelist, so Integer against Long, Double, BigDecimal, Short and Byte are all comparable, and the `.type()` names for exactly those runtime types are the seven the guard lists.
+
+**The conjunct shape that gets the partition right** is a membership test over the literal's block:
+
+> `key.type() IN [<names of the literal's comparability block>] AND key ⋈ literal`
+
+with the block chosen from the literal's Java type at translation time — Number → the seven numeric names, String → `['STRING']`, Boolean → `['BOOLEAN']`, `java.util.Date` → `['DATE','DATETIME']`. The literal's type is static, so the list is built once at recognition time and costs nothing at runtime.
+
+Measured against TinkerPop on every combination, both directions, on a fixture holding one value of each type:
+
+| literal | direction | TinkerPop | plain SQL (today) | guarded SQL |
+|---|---|---|---|---|
+| `27` Integer | `>` | `[h_float, j_double, k_decimal]` | `[…, r_string_lo, s_string, u_string_hi, w_date_late]` | `[h_float, j_double, k_decimal]` |
+| `27` Integer | `<` | `[]` | `[t_date, y_boolean_f]` | `[]` |
+| `27.5` Double | `>` | `[]` | `[r_string_lo, s_string, u_string_hi, w_date_late]` | `[]` |
+| `27.5` Double | `<` | `[b_byte, c_integer, d_short, e_long]` | `[… , t_date, y_boolean_f]` | `[b_byte, c_integer, d_short, e_long]` |
+| `27L` Long | `>` | `[h_float, j_double, k_decimal]` | `[…, 4 non-numeric rows]` | `[h_float, j_double, k_decimal]` |
+| `27L` Long | `<` | `[]` | `[t_date, y_boolean_f]` | `[]` |
+| `'m'` String | `>` | `[u_string_hi]` | `[u_string_hi, z_boolean]` | `[u_string_hi]` |
+| `'m'` String | `<` | `[r_string_lo]` | `[r_string_lo]` | `[r_string_lo]` |
+| `true` Boolean | `>` | `[]` | `[u_string_hi]` | `[]` |
+| `true` Boolean | `<` | `[y_boolean_f]` | `[r_string_lo, s_string, y_boolean_f]` | `[y_boolean_f]` |
+
+Ten of ten. The guard reproduces the partition exactly where plain SQL is wrong in eight of the ten.
+
+### The three places a type-name guard could have failed, and what each measured
+
+**NaN — closes itself.** TinkerPop's `comparable` has an `eitherAreNaN` guard at bytecode offset 19, so NaN is incomparable with everything including NaN — the relation is not even reflexive. `.type()` reports a NaN as `DOUBLE`, so the guard admits it. Measured, that costs nothing: `v <= 1000` returned the same seven numeric rows on both arms and excluded the NaN on both, because IEEE makes every one of the four SQL comparisons false on NaN exactly as TinkerPop does. Measured for `<=` and reasoned for the other three from IEEE; worth a pin rather than a re-derivation.
+
+**`java.time` — closes itself, for a different reason.** TinkerPop types `java.time.*` as `Unknown`, not `Date`, so an `Instant` and a `java.util.Date` are not comparable. `.type()` on a stored `Instant` returns `null`, the same as an absent property, so a `['DATE','DATETIME']` guard excludes it — which is the answer TinkerPop gives. The residual is narrow and in the other direction: a *literal* whose type maps to `null` has no block to name, so those decline. A `P.gt(Instant)` is the shape that hits it.
+
+**Element and `Unknown` operands — genuinely inexpressible, and correctly out of scope.** Two Vertices are comparable only if `comparable(id(), id())` holds, and `YTDBElementImpl.id()` returns `RID`, which has three sibling implementations none of which is an instance of another. The `Unknown` fallback is `(both Comparable && one isInstance the other) || a.equals(b)`, so comparability there depends on the *value*, not the type — two vertices with same-valued ids of different `RID` impl classes are comparable, two with different-valued ids of different impl classes are not. No static conjunct expresses a value-dependent relation. The design consequence is a decline, but only for a range literal that is an element or an unrecognised class, which is a far narrower residual than "every undeclared property".
+
+Two more facts from the same read, worth carrying into the step because they are easy to get wrong: `neq` is `!eq`, so it returns **true** for incomparable operands while all four order predicates return false — the guard must not be applied to `neq`. And `order()` uses a *different* relation (`ORDERABILITY` total-orders by type priority and never rejects), so a guard justified by one must not be reused for the other.
+
+### Index selection and root choice
+
+**The guard does not block the index.** `EXPLAIN SELECT FROM Idx WHERE k > 'k005'` and the same query with `k.type() = 'STRING' AND …` both plan `FETCH FROM INDEX Idx_k / k > "k005"`; the guard appears only in the downstream `FILTER ITEMS WHERE`. The mechanism is that `SQLBinaryCondition.getRelatedIndexPropertyName` returns null once a modifier is present, so the conjunct never enters the index-key map and survives as a post-filter. Same on the MATCH side, and the same for the `IN` form.
+
+**The guard did not move the MATCH root.** The PF1 shape was reproduced deliberately: alias `a` carrying a weak indexed range that matches nearly every row, alias `b` carrying nothing, then `.type() = 'STRING'`, then `.type() IN ['STRING']`, then `IS DEFINED`, on a 604-row class chosen to clear `SQLWhereClause.estimate`'s `THRESHOLD = 100` early bail. All four planned `{a}.out("link"){b}` — same root, same direction. A three-alias chain with the guard on the middle alias likewise kept `{a}.out{b}` then `{b}.out{c}`. Root identity is read off the schedule direction rather than a printed alias, so the readout is one inference deep.
+
+**One hazard survives as a code-read, unreproduced.** `SQLWhereClause.estimate` cannot see the conjunct at all (`matchesField` requires `isBaseIdentifier()`, false once a modifier is present), so root sorting is unaffected — that part is consistent with the measurement. But `MatchExecutionPlanner.estimateFilterSelectivity` is a *second* estimator, and `key.type() = 'STRING'` is an `SQLBinaryCondition` with `=`, so unlike `IS DEFINED` it is accepted, falls through `getRelatedIndexPropertyName` and `resolveDistinctCount` to the tier-3 default, and is scored `1.0 / classCount` — the alias looks like a one-row alias to the edge-cost model, which feeds `edgeCosts`, the edge sort and the hash-join forecast. It did not fire on this fixture. Two mitigations, both cheap: emit the `IN` form rather than `=`, since `SQLInCondition` is not an `SQLBinaryCondition` and never reaches that branch; and pin a plan-shape test on a pattern large enough to clear the threshold. This is the one place the step should measure again rather than trust the probe.
+
+### Correctness on the live shapes, with the prototype in
+
+Throwaway patch: a `methodCallOnProperty` factory in the parser package (the `SQLMethodCall.methodName` and `SQLModifier.methodCall` fields are package-private, so the factory cannot live in `…executor.match.builder`), a `typeGuard` builder, and an unconditional guard on `gt/gte/lt/lte` in `GremlinPredicateAdapter.translateCompare`. Deliberately unconditional, so question 4 is measured rather than assumed.
+
+All five live divergences close, and the two same-type controls stay correct:
+
+| traversal | before (on / off) | with guard (on / off) |
+|---|---|---|
+| `g.V().out().has(name, gt(27))` | 4 / 0 DIVERGE | 0 / 0 AGREE |
+| `g.V().or(has(name, gt(27)), has(num, eq(10)))` | 6 / 2 DIVERGE | 2 / 2 AGREE |
+| `g.V().hasLabel(Item).or(has(name, gt(27)), …)` | 4 / 1 DIVERGE | 1 / 1 AGREE |
+| `g.V().out().or(has(name, gt(27)), …)` | 4 / 1 DIVERGE | 1 / 1 AGREE |
+| `g.V().out().where(has(name, gt(27)))` | 4 / 0 DIVERGE | 0 / 0 AGREE |
+| `g.V().out().hasLabel(Item).has(name, gt(27))` | 4 / 0 DIVERGE | 0 / 0 AGREE |
+| `g.V().out().has(num, gt(25))` control | 2 / 2 AGREE | 2 / 2 AGREE |
+| `g.V().out().hasLabel(Item).has(num, gt(25))` control | 2 / 2 AGREE | 2 / 2 AGREE |
+
+**The edge-filter surface keeps translating.** `g.V().outE(link).has(since, lt(2025)).inV()`, with `since` undeclared — the shape that stood for the ten `EdgeTraversalEquivalenceTest` methods the decline would have withdrawn — stays at boundary 1 and 2 / 2 AGREE. The blast radius from the previous section is gone.
+
+**Scoping to unfolded positions is necessary, measured.** Eight folded shapes that agree today diverge under the unconditional guard, because in the folded position the fold's comparator *is* native's answer and the guard contradicts it: `g.V().has(name, gt(27))` 1 / 6, `g.V().hasLabel(Item).has(name, gt(27))` 0 / 4, `g.V().hasLabel(Loose).has(name, gt(27))` 1 / 2, `g.V().hasLabel(Anyp).has(val, gt(27))` 0 / 1, `g.V().hasLabel(Item).has(extra, gt(27))` 0 / 1, plus the three shapes that reach the fold through inlining — `where`, `filter`, and the all-filter `and`. That last group is why the latch has to key on the post-inlining step list rather than on the traversal the user wrote.
+
+**The guard subsumes step 13's decline entirely.** With the `traversalHasRangeComparison` gate disabled and the guard in place, every negated shape translates and agrees: `g.V().not(has(name, gt(27)))` boundary 1, 8 / 8; `g.V().hasLabel(Item).not(…)` boundary 1, 4 / 4; `g.V().not(not(…))` boundary 1, 1 / 1; `g.V().not(out().has(name, gt(27)))` boundary 1, 9 / 9; `g.V().out().not(…)` boundary 1, 4 / 4. The mixed schema-less case agrees too — `g.V().hasLabel(Loose).not(has(name, gt(27)))` boundary 1, 1 / 1 — which is the case no static gate could ever have answered. `NotStepRecogniser`'s gate can be deleted rather than narrowed.
+
+### Revised sizing
+
+**Two steps, seven production files, and the decline survives in one narrow place.**
+
+Step A — the fold latch, no behaviour change. `WalkerContext` and `GremlinStepWalker` carry the `isTraversalStart` boolean mirroring `rebuildTraversal`, including the restart on any `GraphStep`. Ships with the two pinning tests: one on the fold's own answer, one on `where` / `filter` / all-filter-`and` inlining into the fold, so a TinkerPop upgrade that changes `InlineFilterStrategy` breaks loudly.
+
+Step B — the guard. `ProjectionExpressionFactories` (the `field.method()` factory, ~12 lines, must live in the parser package for field visibility), `MatchWhereBuilder` (the `IN`-form guard, ~6 lines), `GremlinPredicateAdapter` (literal type → block, and the guard on `gt/gte/lt/lte` only, never `neq`, only when the latch says unfolded), and `NotStepRecogniser` (delete the gate). `EdgeHopRecogniser` needs nothing new — its range filters route through the same adapter path.
+
+`WalkerContext.declaredPropertyType`, DR-S15's accessor, is **no longer needed**. Nothing in this route reads the schema. The class-context propagation change and its `startingWith` plan-shape blast radius are both off the table.
+
+**The decline survives only where no block can be named**: a range literal that is an element, or of a class `PropertyTypeInternal.getTypeByValue` does not recognise — `java.time.*` among them. That is a handful of shapes, none of them in the current test corpus, against the twenty-four Cucumber scenarios and ten equivalence methods the declared-type route would have withdrawn.
+
+**Tests.** No existing test flips: the edge-filter methods keep translating and the folded assertions are untouched by a latch-scoped guard. New coverage is the two fold pins, the ten partition rows as an equivalence table, the five closed divergences, the folded-position pins that prove the scoping, and one plan-shape test on a class above the estimator threshold guarding the `estimateFilterSelectivity` hazard.
