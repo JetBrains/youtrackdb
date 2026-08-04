@@ -15,10 +15,10 @@
  */
 package com.jetbrains.youtrackdb.benchmarks;
 
-public class SchemaCreationBenchmark {
+public class TxSchemaCreationBenchmark {
 
   public static void main(String[] args) {
     SchemaCreationWorkload.runMain(
-        SchemaCreationWorkload.Policy.NONE, SchemaCreationWorkload.PropertyPath.SAFE);
+        SchemaCreationWorkload.Policy.ALL, SchemaCreationWorkload.PropertyPath.SAFE);
   }
 }
