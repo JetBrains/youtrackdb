@@ -32,8 +32,21 @@ round-trip.
 
 ### Constraints
 
-- **Multiset equality is the contract.** Translator-on and translator-off must
+- **Multiset equality is the contract**, with one named bounded exception added
+  2026-08-04 (A11). Translator-on and translator-off must
   return the same elements the same number of times for every recognized shape.
+  **The exception: shapes whose native answer is wrong because of a defect that
+  ships on `develop`.** Track 11 item 8 binds `as()` labels on the `has()` step
+  that `FilterRankingStrategy` relocates them onto, which makes the translated arm
+  answer correctly a family of spellings the native arm answers as `[]` — the
+  `YTDBGraphStepStrategy.rebuildTraversal` `else` branch inserts a
+  `YTDBHasLabelStep` and drops the original `HasStep`'s labels with no
+  `copyLabels` call, measured on the native pipeline and identical on
+  `origin/develop`. For those spellings the two arms **must** differ, and the
+  translated arm is asserted against a hand-computed oracle rather than against
+  native. The exception is bounded to spellings routing through that branch, each
+  named at its assertion with this rationale; it is not a general licence, and any
+  other on-vs-off divergence remains a defect under the rule above.
   Element order is explicitly **not** pinned — MATCH's planner reorders, and
   pinning order would erase the optimization. [Amended 2026-08-03: the green
   constraint below is superseded by an enumerated-baseline contract — the suite
@@ -762,15 +775,31 @@ trade a wrong answer for a failed conformance run.
   > already disagreeing with HEAD. The realistic bound is ~35–45 files, and item
   > 10's share of it is the least certain part.
   > **This exceeds the ~20–25-file split-candidate bound and needs the written
-  > justification `planning.md` § Track descriptions requires (R19).** The
-  > justification is that the alternative does not exist: DR-S1's remedy for an
-  > oversized final track was a split, and this is the last track on the branch, so
-  > a split would create a twelfth track with no PR ahead of it and no reviewer
-  > budget behind it. Items 8, 9 and 10 are also independently droppable — none is
-  > a correctness fix, all three are capability or hygiene work whose absence
-  > leaves the branch no worse than today — so the overflow is shed by descoping
-  > rather than by splitting if Phase B runs long. The Phase A adversarial pass
-  > owns that call. Decomposition sizes items 8–10 as their own
+  > justification `planning.md` § Track descriptions requires (R19). The Phase A
+  > adversarial pass delivered that call on 2026-08-04: KEEP ONE TRACK, under four
+  > conditions (A12).** A twelfth track buys a cleaner PR boundary and costs a full
+  > Phase A/B/C cycle for capability and hygiene work, which is the wrong trade this
+  > late in the branch. The justification stands on descoping-with-destinations
+  > dominating that overhead — **not** on a split being impossible, which A12
+  > refuted from the branch's own history: DR-S1 split the then-final track on
+  > 2026-08-03, which is how this track exists, so the same move is available and
+  > "no PR ahead of it" describes every final track including this one. The earlier
+  > claim that items 8, 9 and 10 are freely droppable was also wrong on two of the
+  > three. The four conditions:
+  > (1) decomposition orders item 10's shared-support extraction **ahead of** item 5,
+  > so the terminator tests consume the shared harness instead of adding to the
+  > duplication item 10 exists to retire — the mechanism already observed when Track
+  > 9's Phase C added the sixth recognition-enum copy while item 10 sat in backlog;
+  > (2) every descoped item takes a YouTrack issue or a `### Non-Goals` amendment
+  > before track close, which extends `plan/track-11.md` item 6's rule 3
+  > ("'deferred' with no owner is not a disposition") from gate residue to
+  > descoping, so a dropped item does not vanish with the Phase-4 `_workflow/`
+  > deletion; (3) dropping item 9 or item 8 goes to the **user**, because item 9's
+  > provenance records their requirement that it "come out clean rather than
+  > partially done"; (4) item 10 is not a free drop either — its sweep now owns a
+  > correctness-relevant question (whether Track 9 step 10's retirement of harness
+  > divergence (b) rested on a comparison that could not fail, recorded in
+  > `plan/track-11.md` `## Surprises & Discoveries`). Decomposition sizes items 8–10 as their own
   > steps, and the Phase A adversarial pass owns the split-or-keep call.
   > **Depends on:** Tracks 7, 8, and 9.
   >
