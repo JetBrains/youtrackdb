@@ -177,3 +177,5 @@ Strategic invariants/constraints remain in implementation-plan.md § High-level 
 ## Base commit
 <!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
 cumulative track diff (conventions-execution.md §2.1 §15). -->
+
+f5dbfd55711bfc5ab5a838519c3fd55f35f71ca6
