@@ -751,11 +751,16 @@ trade a wrong answer for a failed conformance run.
   > **Re-priced 2026-08-04 by the Track 11 Pre-Flight gate: the ~14–20 files above
   > cover the terminator work, items 1–7.** Items 8, 9 and 10 are absorbed backlog
   > carrying their own footprints — item 8 one `bindStepLabels`-or-decline call in
-  > `HasStepRecogniser` plus its tests; item 9 a recorded verdict on each of 19
-  > hand-built AST sites across at least seven files; item 10 a consolidation over
-  > nine translator-toggle copies, eleven `countBoundarySteps` copies, six
-  > recognition enums and sixteen hand-mirrored `TRANSPARENT_STEPS` sets. The
-  > realistic bound is ~35–45 files. Decomposition sizes items 8–10 as their own
+  > `HasStepRecogniser` plus its tests; item 9 a recorded verdict on each of **18**
+  > hand-built AST sites across seven files (corrected from 19 by technical finding
+  > T12 — DR-S1's plus-one holds for the raw `new SQL` grep total, 23 to 24, but the
+  > added site is the `toArray` array idiom rather than a hand-built node, so item
+  > 9's own figure never moved); item 10 a consolidation whose scale must be
+  > **re-enumerated** before it is sized, since technical finding T10 refuted the
+  > sixteen hand-mirrored `TRANSPARENT_STEPS` sets outright — the identifier has
+  > zero test-tree occurrences — and found the other four yesterday-exact counts
+  > already disagreeing with HEAD. The realistic bound is ~35–45 files, and item
+  > 10's share of it is the least certain part. Decomposition sizes items 8–10 as their own
   > steps, and the Phase A adversarial pass owns the split-or-keep call.
   > **Depends on:** Tracks 7, 8, and 9.
   >
