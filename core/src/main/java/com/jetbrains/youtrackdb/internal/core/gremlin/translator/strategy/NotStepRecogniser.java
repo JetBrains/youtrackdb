@@ -85,6 +85,14 @@ final class NotStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
+    // A nested not(hop) leaves the child holding a detached anti-join, and neither branch below can
+    // carry one out: the pure-filter branch reads a single boundary WHERE, and buildNotExpression
+    // takes only the captured pattern plus its alias filters. Accepting would negate the rest of the
+    // child and silently drop the inner anti-join.
+    if (!adapter.capturedNotExpressions().isEmpty()) {
+      return Outcome.DECLINE;
+    }
+
     if (!adapter.hasEdges()) {
       var expr = ConnectiveStepSupport.singleCapturedFilter(adapter, boundary);
       if (expr == null) {

@@ -9,6 +9,14 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversal
  * filter, because appending the hop would emit one row per matching path instead of testing
  * existence (see {@link ConnectiveStepSupport#anyEdgeBearing}). Both paths are shared with {@link
  * AndStepRecogniser} through {@link ConnectiveStepSupport#commitPositiveFilterChild}.
+ *
+ * <p>Neither path is reachable from a traversal today. TinkerPop builds this step class only when
+ * the {@code where} child carries a start or end label, and it always inserts a {@code
+ * WhereStartStep} to hold the scope binding — a class {@link GremlinStepWalker} has no recogniser
+ * for, so every child sub-walk declines first. The recogniser is kept because the binding is
+ * resolvable in principle: once the walker maps a scope label to its alias, this class is where the
+ * resolved shape lands, and the gates below are the ones it will need. See the transparency set's
+ * Javadoc in {@link GremlinStepWalker} for why skipping the scope steps is not an option.
  */
 final class WhereTraversalStepRecogniser implements StepRecogniser {
 

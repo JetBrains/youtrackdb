@@ -516,11 +516,6 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
-  public void appendPattern(MatchPatternBuilder captured) {
-    patternBuilder.appendFrom(captured);
-  }
-
-  @Override
   public void pinBoundary(String alias, BoundaryOutputType type,
       Class<? extends Element> returnClass) {
     this.boundaryAlias = alias;

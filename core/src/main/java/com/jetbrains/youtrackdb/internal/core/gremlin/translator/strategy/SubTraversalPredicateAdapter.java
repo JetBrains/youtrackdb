@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +61,22 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * combinator reads the buffers and commits them itself, per-connective. This is the capture boundary
  * the {@code decline_doesNotCommitPartialStateToOuterContext} unit test pins.
  *
+ * <p>A detached anti-join from {@code not(hop)} is captured too, in {@link
+ * #capturedNotExpressions()}. Forwarding it straight to the parent was a silent wrong answer under
+ * OR: the expression reached the plan's top-level {@code notMatchExpressions} sink, where the
+ * planner applies it conjunctively over the whole match, while the OR arm that produced it read
+ * back only its own boundary filter. {@code g.V().or(__.not(__.out("a")).has("name", "x"),
+ * __.has("age", 30))} then answered {@code (no out-a) AND (name = x OR age = 30)} instead of the
+ * disjunction the user wrote, dropping every row that passed only the second arm. Capturing it lets
+ * each connective decide: AND and the positive filters forward it (they are conjunctive, so the
+ * plan-level sink is the right destination), OR and an enclosing NOT decline.
+ *
+ * <p>Three contributions still write straight through to the parent, deliberately: {@link
+ * #bindParam}, {@link #markRidBearing}, and the two alias minters. All three are walk-global rather
+ * than per-connective — a parameter slot, a plan-cache flag, and one alias sequence shared by the
+ * whole walk — and a captured child that ends up discarded leaves behind at most an unused slot, an
+ * over-conservative cache bypass, or a gap in the alias sequence, none of which changes an answer.
+ *
  * <h2>Classification the combinator reads back</h2>
  *
  * After a driven walk the adapter exposes {@link #outcome()} and the captured state:
@@ -70,9 +87,9 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  *       boundary-node re-type: a folded {@code hasLabel(L)} narrows the existing boundary alias's
  *       class through {@link #addNode}, which lands in {@link #capturedPattern()} but introduces no
  *       edge, so it stays pure-filter;
- *   <li>an <b>edge-bearing</b> child contributes at least one hop through {@link #addEdge} / {@link
- *       #addEdgeAsNode} / {@link #appendPattern} of an edge-bearing fragment ({@link #hasEdges()} is
- *       {@code true}, {@link #capturedPattern()} carries the edge fragment).
+ *   <li>an <b>edge-bearing</b> child contributes at least one hop through {@link #addEdge} or {@link
+ *       #addEdgeAsNode} ({@link #hasEdges()} is {@code true}, {@link #capturedPattern()} carries the
+ *       edge fragment).
  * </ul>
  *
  * The distinction drives every combinator: AND supports both, OR declines any edge-bearing child, NOT
@@ -109,11 +126,17 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  child never leaves a partial fragment on the parent's pattern builder. */
   private final MatchPatternBuilder capturedPattern = new MatchPatternBuilder();
 
-  /** Whether the child contributed an edge/hop ({@link #addEdge}, {@link #addEdgeAsNode}, or an
-   *  {@link #appendPattern} merge of an edge-bearing fragment). {@code false} marks a pure-filter
-   *  child; {@code true} an edge-bearing one. A bare {@link #addNode} does not flip it — a folded
-   *  {@code hasLabel(L)} re-types the boundary node through {@code addNode} without adding a hop,
-   *  which is pure-filter. */
+  /** Captured detached anti-join expressions from a {@code not(hop)} inside this child. Buffered
+   *  rather than forwarded so the enclosing connective decides whether a conjunctive plan-level NOT
+   *  is the right reading of its own semantics — see the class Javadoc "Capture boundary". */
+  private final List<SQLMatchExpression> capturedNotExpressions = new ArrayList<>();
+
+  /** Whether the child contributed an edge/hop ({@link #addEdge} or {@link #addEdgeAsNode}).
+   *  {@code false} marks a pure-filter child; {@code true} an edge-bearing one. A bare {@link
+   *  #addNode} does not flip it — a folded {@code hasLabel(L)} re-types the boundary node through
+   *  {@code addNode} without adding a hop, which is pure-filter. A {@code not(hop)} does not flip it
+   *  either: the hop lands in the grandchild adapter and leaves this child a detached anti-join, not
+   *  a fragment of the positive pattern. */
   private boolean hasEdges;
 
   /**
@@ -165,6 +188,12 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   /** The captured pattern fragments the child contributed. */
   MatchPatternBuilder capturedPattern() {
     return capturedPattern;
+  }
+
+  /** The detached anti-join expressions the child contributed, in contribution order. Empty for
+   *  every child that carries no {@code not(hop)}. */
+  List<SQLMatchExpression> capturedNotExpressions() {
+    return capturedNotExpressions;
   }
 
   // --- RecognitionContext: reads and alias minting delegate to the parent ---------------------
@@ -309,7 +338,9 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Override
   public void addNotMatchExpression(SQLMatchExpression expression) {
-    parent.addNotMatchExpression(expression);
+    // Captured, not forwarded — the enclosing connective owns the decision. See the class Javadoc
+    // "Capture boundary" for the OR shape a straight forward answered wrongly.
+    capturedNotExpressions.add(expression);
   }
 
   @Override
@@ -320,18 +351,6 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void markRidBearing() {
     parent.markRidBearing();
-  }
-
-  @Override
-  public void appendPattern(MatchPatternBuilder captured) {
-    // Nested combinators (e.g. and(and(out(a), out(b)), has(...))) merge grandchild hops through
-    // appendPattern rather than addEdge. Flip hasEdges when the source contributed any hop so the
-    // enclosing adapter is classified edge-bearing and commitEdgeBearingChild keeps the topology.
-    var sourceHadEdges = captured.edgeCount() > 0;
-    capturedPattern.appendFrom(captured);
-    if (sourceHadEdges) {
-      hasEdges = true;
-    }
   }
 
   /**

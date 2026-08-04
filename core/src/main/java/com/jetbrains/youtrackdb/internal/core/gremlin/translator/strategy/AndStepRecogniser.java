@@ -40,13 +40,16 @@ final class AndStepRecogniser implements StepRecogniser {
     if (adapters == null) {
       return Outcome.DECLINE;
     }
-    // Check every child before committing any of them: a mixed AND must leave the outer context
-    // untouched when one arm is edge-bearing, not commit the pure-filter arms and then decline.
+    // Check every child before committing any of them: a mixed AND must commit nothing to the outer
+    // pattern or filters when one arm is edge-bearing, rather than commit the pure-filter arms and
+    // then decline. The child walks above have already forwarded any bound parameter, RID marking,
+    // and minted alias to the parent; those are walk-global and survive only if the enclosing walk
+    // translates, which a DECLINE here prevents.
     if (ConnectiveStepSupport.anyEdgeBearing(adapters)) {
       return Outcome.DECLINE;
     }
     for (var adapter : adapters) {
-      ConnectiveStepSupport.commitPureFilterChild(ctx, adapter);
+      ConnectiveStepSupport.commitPureFilterChild(ctx, adapter, ctx.boundaryAlias());
     }
     return Outcome.ACCEPTED;
   }

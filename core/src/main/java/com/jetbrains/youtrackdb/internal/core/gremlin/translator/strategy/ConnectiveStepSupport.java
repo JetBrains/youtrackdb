@@ -48,16 +48,35 @@ final class ConnectiveStepSupport {
   }
 
   /**
-   * Commits a pure-filter child: AND-composes captured alias filters into {@code ctx} and applies any
+   * Commits a pure-filter child: AND-composes captured alias filters into {@code ctx}, applies any
    * boundary-node re-types the child captured in its pattern buffer (a folded {@code hasLabel(L)}
-   * re-types through {@code addNode} without flipping {@link SubTraversalPredicateAdapter#hasEdges()}).
+   * re-types through {@code addNode} without flipping {@link SubTraversalPredicateAdapter#hasEdges()}),
+   * and forwards any detached anti-join the child captured from a {@code not(hop)}.
+   *
+   * <p>Forwarding the anti-join is sound on this path and only on this path. Both callers are
+   * conjunctive — an AND arm and a positive {@code where} / {@code filter} child both have to hold
+   * for the row to pass — and the plan-level {@code notMatchExpressions} sink applies its
+   * expressions conjunctively over the whole match, so the two agree. The OR path must not forward
+   * (see {@link #collectOrExpressions}), and neither may an enclosing {@code not(...)}.
+   *
+   * <p>Only {@code boundary} may be re-typed. A hop target always arrives with an {@code addEdge}
+   * that flips {@code hasEdges} and sends the child down the decline, so any other alias reaching
+   * here means a recogniser registered a node the parent's pattern has no edge to — a disconnected
+   * pattern rather than a filter. The assert states that as an invariant rather than committing the
+   * node silently; {@link #singleCapturedFilter} declines the same case on the OR path.
    */
-  static void commitPureFilterChild(RecognitionContext ctx, SubTraversalPredicateAdapter adapter) {
+  static void commitPureFilterChild(
+      RecognitionContext ctx, SubTraversalPredicateAdapter adapter, String boundary) {
     for (var entry : adapter.capturedAliasFilters().entrySet()) {
       ctx.putAliasFilter(entry.getKey(), entry.getValue());
     }
     for (var entry : adapter.capturedPattern().registeredAliasClasses().entrySet()) {
+      assert boundary == null || boundary.equals(entry.getKey())
+          : "pure-filter child re-typed non-boundary alias " + entry.getKey();
       ctx.addNode(entry.getKey(), entry.getValue());
+    }
+    for (var notExpression : adapter.capturedNotExpressions()) {
+      ctx.addNotMatchExpression(notExpression);
     }
   }
 
@@ -84,10 +103,12 @@ final class ConnectiveStepSupport {
    * SubTraversalPredicateAdapter} swallows {@code setReturnDistinct} (and the slice setters) so that
    * only alias filters and pattern writes survive into the parent.
    *
-   * <p>{@code not(t)} is unaffected and keeps translating: an anti-join emits its input at most
-   * once, so it never over-emits. {@link OrStepRecogniser} already declines edge-bearing children
-   * for a different reason (an OR arm has to be one boolean operand), so all four connective
-   * surfaces now agree that a hop inside a boolean filter stays native.
+   * <p>{@code not(t)} is the exception: it keeps translating an edge-bearing child, because an
+   * anti-join emits its input at most once and so never over-emits. The four connective surfaces
+   * therefore agree on <em>conjunctive composition</em>, not on keeping hops native — a
+   * {@code not(hop)} still translates wherever the surrounding context is a conjunction, and
+   * declines wherever it is not ({@link #collectOrExpressions} on the OR path, {@link
+   * NotStepRecogniser} for a nested {@code not}).
    */
   static boolean anyEdgeBearing(List<SubTraversalPredicateAdapter> adapters) {
     for (var adapter : adapters) {
@@ -114,14 +135,23 @@ final class ConnectiveStepSupport {
     if (adapter.hasEdges()) {
       return Outcome.DECLINE;
     }
-    commitPureFilterChild(ctx, adapter);
+    commitPureFilterChild(ctx, adapter, ctx.boundaryAlias());
     return Outcome.ACCEPTED;
   }
 
   /**
    * Collects one composable {@link SQLBooleanExpression} per accepted pure-filter child from the
    * child's captured boundary filters. Returns {@code null} when any child is edge-bearing, when a
-   * child contributed no filter, or when {@code boundary} is {@code null}.
+   * child captured a detached anti-join, when a child contributed no filter, or when
+   * {@code boundary} is {@code null}.
+   *
+   * <p>The anti-join check is what keeps a {@code not(hop)} arm out of a disjunction. An OR arm has
+   * to reduce to one boolean operand on {@code boundary}, and a detached {@code SQLMatchExpression}
+   * is not one: the only place it can go is the plan-level sink, which the planner applies
+   * conjunctively over the whole match. Composing the arm's other operands into the OR and letting
+   * the anti-join travel to that sink reads
+   * {@code or(not(out(a)).has(name, x), has(age, 30))} as {@code (no out-a) AND (name = x OR age =
+   * 30)} and drops every row that passed only the second arm.
    */
   static SQLBooleanExpression collectOrExpressions(
       ConnectiveStep<?> connective, RecognitionContext ctx, String boundary) {
@@ -134,7 +164,7 @@ final class ConnectiveStepSupport {
     }
     var exprs = new ArrayList<SQLBooleanExpression>();
     for (var adapter : adapters) {
-      if (adapter.hasEdges()) {
+      if (adapter.hasEdges() || !adapter.capturedNotExpressions().isEmpty()) {
         return null;
       }
       var expr = singleCapturedFilter(adapter, boundary);

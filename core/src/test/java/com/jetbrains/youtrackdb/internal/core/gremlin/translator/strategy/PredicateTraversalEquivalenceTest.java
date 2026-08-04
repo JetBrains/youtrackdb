@@ -895,17 +895,131 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // not(hop) inside another connective. A not(hop) becomes a detached anti-join
+  // that the planner applies conjunctively over the whole match, so the shape is
+  // translatable exactly where its surroundings are a conjunction. These cases pin
+  // both directions: the disjunction must decline, and the conjunctive spellings
+  // must keep translating. The failure mode on this surface is UNDER-emission —
+  // a leaked anti-join drops rows that passed a sibling arm — so each case names
+  // the row the fixture supplies for the leak to lose.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V().or(__.not(__.out("a")).has("name", "x"), __.has("age", 30))} declines and returns
+   * native's {@code [x, y]}.
+   *
+   * <p>The arm's anti-join has only one destination — the plan's top-level {@code
+   * notMatchExpressions} sink, which the planner applies over the whole match. Composing the arm's
+   * remaining operand into the OR and letting the anti-join travel there reads the query as
+   * {@code (no out-a) AND (name = x OR age = 30)}, which drops {@code y}: {@code y} has an
+   * {@code a} edge and passes only on the second arm. The arm has no hop of its own — the hop is
+   * inside the {@code not} — so the OR cannot see it through the edge-bearing check and has to read
+   * the captured anti-join.
+   */
+  @Test
+  public void orArmWithEdgeBearingNot_declinesAndMatchesNative() {
+    seedAntiJoinDisjunction();
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V()
+            .or(__.not(__.out("a")).has("name", P.eq("x")), __.has("age", P.eq(30)));
+
+    assertThat(nativeSortedIds(() -> graph.traversal().V().has("age", P.eq(30)).out("a")))
+        .as("the fixture must hold a vertex that passes only the second arm and has an out-a edge, "
+            + "or a leaked anti-join loses nothing and this case witnesses nothing")
+        .hasSize(1);
+    assertThat(namesOf(traversal, false))
+        .as("native reads the disjunction arm-wise: x passes the first arm, y the second")
+        .containsExactly("x", "y");
+    assertEquivalent(
+        "g.V().or(not(out(a)).has(name, x), has(age, 30))", Recognition.DECLINED, traversal);
+  }
+
+  /**
+   * The same {@code not(__.out("a"))} arm inside an AND keeps translating and matches native's
+   * {@code [t, x]} with one boundary step. The arm's anti-join reaches the plan sink through the
+   * connective's commit path, which is conjunctive and therefore agrees with how the planner reads
+   * the sink.
+   *
+   * <p>Paired with the OR case above on purpose. The decline there is scoped to the disjunction, and
+   * a gate that declined every {@code not(hop)} inside a connective would take this shape — plus the
+   * one below — down with it while fixing nothing.
+   *
+   * <p>The barrier keeps the case honest. {@code InlineFilterStrategy} unwraps a plain
+   * {@code and(not(out(a)), has(age, 1))} into a bare {@code NotStep} plus a {@code HasStep}, which
+   * the walker handles at top level and never routes through a captured child at all; the barrier
+   * blocks the unwrap and is transparent to the walker, so the arm really is a captured child. The
+   * {@code xa} vertex is what the two readings disagree on: it is aged 1 but has an {@code a} edge,
+   * so a commit path that dropped the captured anti-join would admit it.
+   */
+  @Test
+  public void andArmWithEdgeBearingNot_matchesNative() {
+    seedAntiJoinDisjunction();
+
+    assertEquivalent(
+        "g.V().and(not(out(a)).barrier(), has(age, 1))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .and(__.not(__.out("a")).barrier(), __.has("age", P.eq(1))));
+  }
+
+  /**
+   * {@code g.V().where(__.not(__.out("a")).barrier())} keeps translating and matches native's
+   * {@code [t, x]}. A positive {@code where} is conjunctive with the rest of the match, the same
+   * reading the plan-level anti-join sink gives, so the captured expression is forwarded rather than
+   * declined. The barrier is there for the reason given on the AND case above — without it the
+   * {@code where} collapses to a bare {@code NotStep} and the captured-child path is never taken.
+   */
+  @Test
+  public void whereWithEdgeBearingNot_matchesNative() {
+    seedAntiJoinDisjunction();
+
+    assertEquivalent(
+        "g.V().where(not(out(a)).barrier())",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().where(__.not(__.out("a")).barrier()));
+  }
+
+  /**
+   * {@code g.V().not(__.not(__.out("a")).has("name", "x"))} declines and matches native's
+   * {@code [t, x, y]} — every vertex except the one that has no {@code a} edge and is named
+   * {@code x}.
+   *
+   * <p>A detached anti-join cannot be negated again. The outer {@code not} either wraps a single
+   * boundary WHERE or builds one anti-join from the child's captured pattern, and the inner
+   * expression fits neither, so accepting would negate the {@code name = x} half and drop the
+   * anti-join. That reading answers {@code NOT(name = x)}, which loses {@code xa} — same name, but
+   * it has an {@code a} edge, so native's inner filter never selects it and the outer {@code not}
+   * keeps it.
+   */
+  @Test
+  public void nestedNotOverEdgeBearingChild_declinesAndMatchesNative() {
+    seedAntiJoinDisjunction();
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V().not(__.not(__.out("a")).has("name", P.eq("x")));
+
+    assertThat(namesOf(traversal, false))
+        .as("native drops only the a-edgeless x; the a-bearing namesake survives, and it is the "
+            + "row a NOT(name = x) reading would lose")
+        .containsExactly("t", "x", "y");
+    assertEquivalent(
+        "g.V().not(not(out(a)).has(name, x))", Recognition.DECLINED, traversal);
+  }
+
+  // ---------------------------------------------------------------------------
   // Predicates on a non-root alias. A predicate after a hop constrains the hop's
   // target, which is a second pattern alias; only the alias the planner picks as
-  // root has its filter read from the plan inputs. These cases pin that a
-  // predicate on a non-root alias still reaches the executor — directly, inside a
-  // where(...) fragment, and on a not(...) sub-traversal. The union-child arm of
-  // the same rule lives in
+  // root has its filter read from the plan inputs. Two arms of that rule still
+  // translate and are pinned here: the predicate applied directly after the hop,
+  // and the one on a not(...) sub-traversal. Each returns an over-large multiset
+  // when the constraint is dropped, never an error, which is why they are
+  // equivalence cases rather than structural assertions. The union-child arm lives
+  // in
   // UnionTraversalEquivalenceTest#unionChildPostHopFilter_returnsSameMultisetAsNative,
   // which is where the fork's own boundary-step accounting already is.
-  // Every one of them returns an over-large multiset when the constraint is
-  // dropped, never an error, which is why they are equivalence cases rather than
-  // structural assertions.
+  //
+  // The where(...)-fragment cases share the section for shape reasons only. All of
+  // them now decline on the edge-bearing filter gate and build no plan, so what
+  // they witness is the decline and the native multiset, not the binding rule.
   // ---------------------------------------------------------------------------
 
   /**
@@ -949,9 +1063,15 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * fragment's predicate — exactly one of marko's three out-neighbours is named vadas, which is why
    * the case was green. The sibling case below drives the same fragment with a predicate that
    * matches two, and it is that one that would have failed.
+   *
+   * <p>The result assertion is what keeps this case honest. For a declined expectation {@link
+   * #assertEquivalent} compares two runs that both execute natively, so its multiset equality holds
+   * however the fixture drifts; pinning {@code [marko]} is the only assertion here that a seed
+   * change can break. The name no longer says {@code pinnedOrigin} because root selection does not
+   * run for a shape that builds no plan.
    */
   @Test
-  public void whereFragmentPostHopFilter_pinnedOrigin_declinesAndMatchesNative() {
+  public void whereFragmentPostHopFilter_singleMatchingTarget_declinesAndMatchesNative() {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
     var joshId = modern.josh().id();
@@ -959,6 +1079,9 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     Supplier<GraphTraversal<?, ?>> traversal =
         () -> graph.traversal().V(markoId, joshId).where(__.out().has("name", "vadas"));
 
+    assertThat(nativeSortedIds(traversal))
+        .as("marko has an out-neighbour named vadas and josh does not")
+        .containsExactly(markoId.toString());
     assertEquivalent(
         "g.V(marko, josh).where(out().has(name, vadas))", Recognition.DECLINED, traversal);
   }
@@ -1024,10 +1147,26 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         .containsExactly(joshId.toString());
     assertEquivalent(
         "g.V(marko).out(knows).where(out(created))", Recognition.DECLINED, traversal);
+  }
 
-    // The same shape with a values(...) tail, the spelling that first surfaced the over-emission
-    // outside this suite. The projection must not reintroduce the join reading: one row per source,
-    // not one per created-edge.
+  /**
+   * The same shape with a {@code values("name")} tail — the spelling that first surfaced the
+   * over-emission outside this suite — must yield josh's name once, not once per {@code created}
+   * edge. Split from the element-returning case above rather than appended to it: the two differ in
+   * return type (the projection needs a string drain, because the id helpers cast to {@code
+   * Vertex}), and bundled they would report a projection failure under a method name that mentions
+   * no projection, and would not run at all if the first half failed.
+   */
+  @Test
+  public void wherePostHop_edgeBearingChild_valuesTail_matchesNative() {
+    var modern = ModernGraphFixture.seed(graph, session);
+    var markoId = modern.marko().id();
+    var joshId = modern.josh().id();
+
+    assertThat(nativeSortedIds(() -> graph.traversal().V(joshId).out("created")))
+        .as("the fixture must fan out — josh created two things, so a join reading emits him twice")
+        .hasSize(2);
+
     Supplier<GraphTraversal<?, ?>> projected =
         () -> graph.traversal().V(markoId).out("knows").where(__.out("created")).values("name");
     assertThat(drainAsStrings(projected, true))
@@ -1035,6 +1174,34 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
             + "with native, which yields josh's name once and not once per created-edge")
         .isEqualTo(drainAsStrings(projected, false))
         .containsExactly("josh");
+  }
+
+  /**
+   * {@code g.V().as("a").out("knows").where(__.as("a").has("age", 30))} declines and returns
+   * native's {@code [Bob]}. The {@code as("a")} names the scan origin, and the {@code where} child
+   * runs from that binding rather than from the hop target the cursor is sitting on. Translating it
+   * would key the {@code age} predicate on Bob (40) instead of Alice (30) and return nothing, so
+   * the shape has to stay native until the walker resolves a scope label to its alias.
+   *
+   * <p>The result assertion is the discriminating one: a decline expectation alone would also hold
+   * if the shape started translating <em>correctly</em>, while {@code [Bob]} is exactly what the
+   * wrong-alias reading loses.
+   */
+  @Test
+  public void pathScopedWhereAfterHop_declinesAndMatchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V().as("a").out("knows").where(__.as("a").has("age", P.eq(30)));
+
+    assertThat(namesOf(traversal, false))
+        .as("native applies the scoped predicate to Alice, so her knows-target passes")
+        .containsExactly("Bob");
+    assertEquivalent(
+        "g.V().as(a).out(knows).where(as(a).has(age, 30))", Recognition.DECLINED, traversal);
   }
 
   /**
@@ -1085,6 +1252,46 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
   // Fixture + assertion helpers.
   // ---------------------------------------------------------------------------
+
+  /**
+   * Seeds the fixture the {@code not(hop)}-in-a-connective cases share. Each vertex is there to
+   * separate one reading from another:
+   *
+   * <ul>
+   *   <li>{@code y} has an {@code a} edge and is the only one aged 30, so it passes the OR's second
+   *       arm alone — it is the row a leaked anti-join drops.
+   *   <li>{@code x} has no {@code a} edge and is the row the first arm selects.
+   *   <li>{@code t} passes neither arm.
+   *   <li>{@code xa} shares {@code x}'s name but has an {@code a} edge, so a translation that kept
+   *       the {@code name = x} half of a nested {@code not} and lost its anti-join answers
+   *       differently from native on it.
+   * </ul>
+   */
+  private void seedAntiJoinDisjunction() {
+    var y = graph.addVertex(T.label, "Person", "name", "y", "age", 30);
+    var t = graph.addVertex(T.label, "Person", "name", "t", "age", 1);
+    graph.addVertex(T.label, "Person", "name", "x", "age", 1);
+    var xa = graph.addVertex(T.label, "Person", "name", "x", "age", 1);
+    y.addEdge("a", t);
+    xa.addEdge("a", t);
+    graph.tx().commit();
+  }
+
+  /** Sorted {@code name} values of the traversal's vertices, run with the translator forced to
+   *  {@code enabled}. Names read better than RIDs in the {@code not(hop)} cases, whose fixture
+   *  names each vertex after the arm it passes. */
+  private List<String> namesOf(Supplier<GraphTraversal<?, ?>> traversalSupplier, boolean enabled) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(enabled);
+      return traversalSupplier.get().toList().stream()
+          .map(v -> ((Vertex) v).<Object>value("name").toString())
+          .sorted()
+          .toList();
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
 
   /** Seeds one {@code Person} and one {@code Employee} (a subclass of {@code Person}). */
   private void seedPersonEmployeeHierarchy() {

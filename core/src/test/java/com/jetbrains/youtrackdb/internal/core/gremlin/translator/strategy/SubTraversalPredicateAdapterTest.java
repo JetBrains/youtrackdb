@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -229,35 +230,58 @@ public class SubTraversalPredicateAdapterTest {
   }
 
   /**
-   * Nested combinator children merge captured hop fragments through {@link
-   * RecognitionContext#appendPattern} into the enclosing adapter's pattern buffer, and the merge
-   * flips {@link SubTraversalPredicateAdapter#hasEdges()} so the enclosing combinator treats the
-   * child as edge-bearing.
+   * A {@code not(hop)} inside a combinator child leaves its detached anti-join in the child's own
+   * buffer and writes nothing to the parent, so the enclosing connective is the one that decides
+   * whether a conjunctive plan-level NOT is the right reading. Forwarding it directly was the shape
+   * that answered {@code or(not(out(a)).has(...), has(...))} as a conjunction and dropped rows: the
+   * expression reached the plan sink while the OR arm read back only its own boundary filter.
+   *
+   * <p>The child stays classified pure-filter — the hop lives in the grandchild adapter, not in this
+   * child's positive pattern — which is exactly why the OR path cannot detect the arm by
+   * {@code hasEdges} alone and has to read the buffer.
    */
   @Test
-  public void appendPattern_mergesCapturedHopIntoAdapter() {
-    var parent = parentWithBoundary(Map.of());
-    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+  public void notHopChild_capturesAntiJoinWithoutWritingToParent() {
+    var parent =
+        parentWithBoundary(
+            Map.of(
+                VertexStep.class, VertexHopRecogniser.INSTANCE,
+                NotStep.class, NotStepRecogniser.INSTANCE));
 
-    var nested = new MatchPatternBuilder();
-    nested.addNode(BOUNDARY_ALIAS, "V", null, false);
-    nested.addNode(FIRST_ANON_ALIAS, "V", null, false);
-    nested.addEdge(
-        BOUNDARY_ALIAS,
-        FIRST_ANON_ALIAS,
-        MatchPatternBuilder.Direction.OUT,
-        "knows",
-        null,
-        null,
-        null);
+    var sub = parent.walkChild(__.not(__.out("a")).asAdmin());
 
-    adapter.appendPattern(nested);
+    assertThat(sub.outcome()).isEqualTo(Outcome.ACCEPTED);
+    assertThat(sub.capturedNotExpressions())
+        .as("the anti-join stays in the child's buffer")
+        .hasSize(1);
+    assertThat(parent.notMatchExpressions)
+        .as("nothing reaches the parent's plan-level NOT sink before a connective commits it")
+        .isEmpty();
+    assertThat(sub.hasEdges())
+        .as("a not(hop) child is pure-filter — the hop is inside the grandchild adapter")
+        .isFalse();
+  }
 
-    assertThat(adapter.hasEdges())
-        .as("merging a hop fragment must classify the enclosing adapter as edge-bearing")
-        .isTrue();
-    assertThat(adapter.capturedPattern().hasAlias(FIRST_ANON_ALIAS)).isTrue();
-    assertThat(adapter.capturedPattern().build().pattern().getNumOfEdges()).isEqualTo(1);
+  /**
+   * {@link ConnectiveStepSupport#commitPureFilterChild} is the conjunctive commit path, so it hands
+   * the captured anti-join on to the parent's plan-level sink. AND arms and positive
+   * {@code where} / {@code filter} children both have to hold for a row to pass, which is the same
+   * reading the planner gives the sink.
+   */
+  @Test
+  public void commitPureFilterChild_forwardsCapturedAntiJoinToParent() {
+    var parent =
+        parentWithBoundary(
+            Map.of(
+                VertexStep.class, VertexHopRecogniser.INSTANCE,
+                NotStep.class, NotStepRecogniser.INSTANCE));
+    var sub = parent.walkChild(__.not(__.out("a")).asAdmin());
+
+    ConnectiveStepSupport.commitPureFilterChild(parent, sub, BOUNDARY_ALIAS);
+
+    assertThat(parent.notMatchExpressions)
+        .as("the conjunctive commit path forwards the anti-join")
+        .hasSize(1);
   }
 
   /**
@@ -271,7 +295,7 @@ public class SubTraversalPredicateAdapterTest {
     adapter.addNode(BOUNDARY_ALIAS, "Person");
     adapter.putAliasFilter(BOUNDARY_ALIAS, whereClause("age"));
 
-    ConnectiveStepSupport.commitPureFilterChild(parent, adapter);
+    ConnectiveStepSupport.commitPureFilterChild(parent, adapter, BOUNDARY_ALIAS);
 
     assertThat(parent.patternBuilder.registeredAliasClasses().get(BOUNDARY_ALIAS))
         .isEqualTo("Person");
@@ -363,9 +387,12 @@ public class SubTraversalPredicateAdapterTest {
 
   /**
    * Two sibling children mint distinct anonymous aliases because minting delegates to the parent's
-   * single sequence. A per-child counter would give both children {@code
-   * $g2m_anon_0}, collapsing {@code and(__.out("a"), __.out("b"))} onto one binding; here the second
-   * child gets {@code $g2m_anon_1}.
+   * single sequence. A per-child counter would give both children {@code $g2m_anon_0}, and in MATCH
+   * one alias is one binding, so the two hops would silently collapse onto "both edges reach the
+   * same vertex". The live shape that depends on this is a connective whose arms each hold a hop
+   * inside a {@code not} — {@code and(__.not(__.out("a")), __.not(__.out("b")))} still translates,
+   * while a bare {@code and(__.out("a"), __.out("b"))} declines on the edge-bearing gate before the
+   * second alias is minted. Here the second child gets {@code $g2m_anon_1}.
    */
   @Test
   public void siblingChildren_mintDistinctAliasesFromParentSequence() {

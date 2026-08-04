@@ -33,9 +33,11 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
 
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
   private static final String FIRST_ANON_ALIAS = "$g2m_anon_0";
-  private static final Set<Class<?>> TRANSPARENT =
-      Set.of(NoOpBarrierStep.class, WhereTraversalStep.WhereStartStep.class,
-          WhereTraversalStep.WhereEndStep.class);
+  /** Mirrors {@link GremlinStepWalker}'s production transparency set. The {@code where(...)} scope
+   *  steps are deliberately absent from both: they carry the child's scope binding, so skipping them
+   *  translates a weaker filter than the user wrote. Keeping the two sets equal is what makes a
+   *  decline observed here mean the same thing as a decline in production. */
+  private static final Set<Class<?>> TRANSPARENT = Set.of(NoOpBarrierStep.class);
 
   /** {@code where(has(age))} merges the captured pure-filter child into the boundary WHERE. */
   @Test
@@ -107,10 +109,16 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The path-scoped {@link WhereTraversalStep} class reaches the same edge-bearing gate as the
-   * {@code TraversalFilterStep} spelling above: {@code where(__.as("a").out("knows"))} declines and
-   * commits nothing. Pinned separately because the two spellings enter through different recogniser
-   * classes, and a gate added on only one of them would leave the over-emission live on the other.
+   * {@code where(__.as("a").out("knows"))} declines and commits nothing. The decline comes from the
+   * scope binding, not from the edge-bearing gate: TinkerPop only builds a {@link WhereTraversalStep}
+   * when the child carries a start or end label, and it always inserts a {@code WhereStartStep} for
+   * one, which has no recogniser. Every child of this step class therefore fails the sub-walk before
+   * the recogniser can classify it, so the edge-bearing gate below it is unreachable until the walker
+   * learns to resolve a scope label to an alias.
+   *
+   * <p>Kept as a separate case from the pure-filter one above because the two shapes would diverge
+   * the moment that resolution lands: this one must keep declining on the hop, the other one becomes
+   * translatable.
    */
   @Test
   public void whereTraversalStep_edgeBearingChild_declines() {

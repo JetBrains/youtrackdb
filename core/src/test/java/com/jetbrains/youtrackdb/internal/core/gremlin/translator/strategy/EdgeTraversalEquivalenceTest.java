@@ -748,7 +748,11 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Connective AND over edge filters — alias-isolation trap.
+  // Connective AND over edge-bearing arms — the existence test that must not
+  // become a join. Both cases decline before an anonymous alias is minted, so the
+  // alias-isolation half of the shape is no longer reachable end to end; it is
+  // pinned at unit level in
+  // SubTraversalPredicateAdapterTest#siblingChildren_mintDistinctAliasesFromParentSequence.
   // ---------------------------------------------------------------------------
 
   /**
@@ -775,10 +779,10 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Nested {@code g.V().and(__.and(__.out("a"), __.out("b")), __.has("age", 30))} declines too: the
-   * inner combinator's hops reach the outer one through the middle adapter's {@code hasEdges}
-   * classification, so the outer AND sees an edge-bearing child and withdraws. A regression that
-   * left the middle adapter classified pure-filter would translate the shape and drop the hops.
+   * Nested {@code g.V().and(__.and(__.out("a"), __.out("b")), __.has("age", 30))} declines too. The
+   * inner combinator hits the edge-bearing gate itself and its sub-walk is marked declined, which
+   * the outer AND reads off the child outcome before it inspects any classification. A regression
+   * that let the inner AND accept would translate the shape and drop the hops.
    */
   @Test
   public void nestedAndOfOutHops_thenHas_declinesAndMatchesNative() {
@@ -1008,7 +1012,8 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
 
   /**
    * Seeds a hub vertex with {@code a} and {@code b} edges to <em>different</em> targets plus a leaf
-   * with only one of the labels — the fixture for {@link #andTwoOutHops_differingTargets_matchesNative}.
+   * with only one of the labels — the fixture for {@link
+   * #andTwoOutHops_differingTargets_declinesAndMatchesNative}.
    */
   private void seedDualLabeledOutEdges() {
     var hub = graph.addVertex(T.label, "Person", "name", "Hub");
@@ -1110,8 +1115,11 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
    * comparison would stay green even if the hop were appended to the pattern again. The two shapes
    * here separate the readings: {@code filterShape} is the case under test, {@code joinShape} is the
    * same shape with the child's hop re-appended after it, which is what a join reading would emit.
-   * Requiring strictly more rows from the join shape fails loudly if a later fixture edit removes
-   * the fan-out and quietly makes the case vacuous.
+   *
+   * <p>The two {@code hasSize} pins are what a fixture edit breaks — they are measured against the
+   * graph. The strictly-more-rows check that follows is measured too, over the same two drained
+   * lists rather than over the caller's expectations, so it stays a real guard if the pins are ever
+   * relaxed to a range.
    */
   private void assertNativeFanOut(
       String scenario,
@@ -1125,16 +1133,18 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
             .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
     try {
       setTranslatorEnabled(false);
-      assertThat(filterShape.get().toList())
+      var filterRows = filterShape.get().toList();
+      var joinRows = joinShape.get().toList();
+      assertThat(filterRows)
           .as(scenario + ": native row count under filter semantics")
           .hasSize(expectedFilterRows);
-      assertThat(joinShape.get().toList())
+      assertThat(joinRows)
           .as(scenario + ": row count the join reading would produce")
           .hasSize(expectedJoinRows);
-      assertThat(expectedJoinRows)
+      assertThat(joinRows.size())
           .as(scenario + ": the fixture must fan out, or the equivalence assertion cannot tell a "
               + "filter from a join")
-          .isGreaterThan(expectedFilterRows);
+          .isGreaterThan(filterRows.size());
     } finally {
       setTranslatorEnabled(original);
     }

@@ -6,15 +6,17 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
@@ -50,7 +52,8 @@ public class AndStepRecogniserTest extends GraphBaseTest {
   @Test
   public void pureFilterChildren_andComposesFiltersOnBoundary() {
     var admin =
-        graph.traversal().V().and(__.has("age", P.eq(30)), __.has("city", P.eq("NYC"))).asAdmin();
+        graph.traversal().V().and(__.has("age", P.eq(30)).barrier(), __.has("city", P.eq("NYC")))
+            .asAdmin();
     var ctx = contextWithRegistry(true, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
@@ -91,7 +94,7 @@ public class AndStepRecogniserTest extends GraphBaseTest {
   @Test
   public void mixedChildren_declineWithoutCommittingThePureFilterArm() {
     var admin =
-        graph.traversal().V().and(__.out("knows"), __.has("age", P.eq(30))).asAdmin();
+        graph.traversal().V().and(__.out("knows"), __.has("age", P.eq(30)).barrier()).asAdmin();
     var ctx = contextWithRegistry(true, null);
     var cursor = cursorAfterStart(admin);
 
@@ -103,11 +106,11 @@ public class AndStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Nested {@code and(and(out(a), out(b)), has(age))} declines. The inner combinator merges its edges
-   * into the middle adapter via {@link RecognitionContext#appendPattern}, which flips
-   * {@code hasEdges} — that classification is what the outer combinator reads to decline, so a
-   * regression that left the middle adapter classified pure-filter would translate the shape and
-   * drop the hops.
+   * Nested {@code and(and(out(a), out(b)), has(age))} declines, and the decline propagates outward
+   * rather than being re-derived at each level: the inner combinator hits the edge-bearing gate
+   * itself, {@link ConnectiveStepSupport#walkAcceptedChildren} sees the middle adapter's DECLINE
+   * outcome, and the outer AND withdraws before it reads any classification. A regression that let
+   * the inner AND accept would translate the shape and drop the hops.
    */
   @Test
   public void nestedAndOfOutHops_thenHas_declines() {
@@ -115,7 +118,7 @@ public class AndStepRecogniserTest extends GraphBaseTest {
         graph
             .traversal()
             .V()
-            .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30)))
+            .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30)).barrier())
             .asAdmin();
     var ctx = contextWithRegistry(true, null);
     var cursor = cursorAfterStart(admin);
@@ -159,7 +162,8 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     graph.tx().commit();
 
     var admin =
-        graph.traversal().V().and(__.has("age", P.eq(30)), __.has("name", P.eq("Hub"))).asAdmin();
+        graph.traversal().V().and(__.has("age", P.eq(30)).barrier(), __.has("name", P.eq("Hub")))
+            .asAdmin();
     var translation = GremlinToMatchTranslator.translate(admin);
     assertThat(translation).isNotNull();
     var cmdCtx = new BasicCommandContext(session);
@@ -201,6 +205,13 @@ public class AndStepRecogniserTest extends GraphBaseTest {
   /**
    * Recursive optimization (as in {@code applyStrategies}) must not break whole-traversal translation
    * of the pure-filter AND that still translates.
+   *
+   * <p>The barrier in the first arm is load-bearing, not decoration. {@code InlineFilterStrategy}
+   * rewrites a plain {@code and(has, has)} into a {@code has}-chain and deletes the {@code AndStep}
+   * outright, so the un-barriered spelling would assert AND coverage over a traversal that no longer
+   * contains an {@code AndStep}. A {@code NoOpBarrierStep} blocks the inlining and is already in the
+   * walker's transparent set, so the arm stays a pure filter. The step-survival assertion below pins
+   * that, because it is the assertion whose absence let the hole open.
    */
   @Test
   public void recursiveOptimizationPreservesPureFilterAndTranslation() {
@@ -208,12 +219,18 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     graph.tx().commit();
 
     var admin =
-        graph.traversal().V().and(__.has("age", P.eq(30)), __.has("name", P.eq("Hub"))).asAdmin();
+        graph.traversal().V()
+            .and(__.has("age", P.eq(30)).barrier(), __.has("name", P.eq("Hub")))
+            .asAdmin();
     for (TraversalStrategy<?> strategy : admin.getStrategies().toList()) {
       if (strategy instanceof TraversalStrategy.OptimizationStrategy) {
         TraversalHelper.applyTraversalRecursively(strategy::apply, admin);
       }
     }
+    assertThat(TraversalHelper.hasStepOfClass(AndStep.class, admin))
+        .as("the optimised traversal must still carry an AndStep, or this case witnesses nothing "
+            + "about AND")
+        .isTrue();
     assertThat(GremlinToMatchTranslator.translate(admin)).isNotNull();
   }
 
@@ -222,6 +239,13 @@ public class AndStepRecogniserTest extends GraphBaseTest {
    * for the pure-filter AND. Both halves in one test because the discriminating claim is the
    * contrast: a zero-count assertion alone would also pass if the strategy had stopped engaging
    * altogether.
+   *
+   * <p>Both halves first check that an {@code AndStep} is still there for the translator to see.
+   * {@code InlineFilterStrategy} rewrites a plain {@code and(has, has)} into a {@code has}-chain and
+   * deletes the step outright, so the pure-filter half would otherwise assert AND coverage over a
+   * traversal with no AND in it; the barrier in the first arm blocks that rewrite and is transparent
+   * to the walker. The survival check runs on a translator-off pass because a translated traversal
+   * is replaced wholesale by the boundary step, leaving nothing to inspect.
    */
   @Test
   public void applyStrategies_engagesBoundaryStepOnlyForThePureFilterAnd() {
@@ -230,26 +254,55 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     hub.addEdge("b", graph.addVertex(T.label, "Person", "name", "TargetB"));
     graph.tx().commit();
 
+    Supplier<GraphTraversal<?, ?>> edgeBearing =
+        () -> graph.traversal().V().and(__.out("a"), __.out("b"));
+    Supplier<GraphTraversal<?, ?>> pureFilter =
+        () -> graph.traversal().V()
+            .and(__.has("age", P.eq(30)).barrier(), __.has("name", P.eq("Hub")));
+
     var config = session.getConfiguration();
     var previous =
         config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
     try {
-      var edgeBearing = graph.traversal().V().and(__.out("a"), __.out("b")).asAdmin();
-      edgeBearing.applyStrategies();
-      assertThat(countBoundarySteps(edgeBearing))
+      assertAndStepReachesTheTranslator("edge-bearing and(out(a), out(b))", edgeBearing);
+      assertAndStepReachesTheTranslator(
+          "pure-filter and(has(age).barrier(), has(name))", pureFilter);
+
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+      var edgeBearingAdmin = edgeBearing.get().asAdmin();
+      edgeBearingAdmin.applyStrategies();
+      assertThat(countBoundarySteps(edgeBearingAdmin))
           .as("an edge-bearing and(...) must decline to the native pipeline")
           .isZero();
 
-      var pureFilter =
-          graph.traversal().V().and(__.has("age", P.eq(30)), __.has("name", P.eq("Hub"))).asAdmin();
-      pureFilter.applyStrategies();
-      assertThat(countBoundarySteps(pureFilter))
+      var pureFilterAdmin = pureFilter.get().asAdmin();
+      pureFilterAdmin.applyStrategies();
+      assertThat(countBoundarySteps(pureFilterAdmin))
           .as("a pure-filter and(...) must still engage the boundary step")
           .isEqualTo(1);
     } finally {
       config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, previous);
     }
+  }
+
+  /**
+   * Asserts the shape still carries an {@code AndStep} once TinkerPop's optimisation strategies have
+   * run, which is the step list the translator is handed. Driven with the translator off: those
+   * strategies run identically either way (they precede the provider stage the translator is in),
+   * and an accepted translation replaces the whole step list with the boundary step, so the on-run
+   * cannot answer the question.
+   */
+  private void assertAndStepReachesTheTranslator(
+      String scenario, Supplier<GraphTraversal<?, ?>> supplier) {
+    session
+        .getConfiguration()
+        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+    var admin = supplier.get().asAdmin();
+    admin.applyStrategies();
+    assertThat(TraversalHelper.hasStepOfClass(AndStep.class, admin))
+        .as(scenario + ": the AndStep must survive optimisation, or the boundary-step count below "
+            + "says nothing about AND")
+        .isTrue();
   }
 
   /**
@@ -259,7 +312,7 @@ public class AndStepRecogniserTest extends GraphBaseTest {
    */
   @Test
   public void declinedChild_declinesWholeAndStep() {
-    var admin = graph.traversal().V().and(__.has("age", P.eq(30)), __.count()).asAdmin();
+    var admin = graph.traversal().V().and(__.has("age", P.eq(30)).barrier(), __.count()).asAdmin();
     var ctx = contextWithRegistry(true, null);
     var cursor = cursorAfterStart(admin);
 
@@ -273,7 +326,7 @@ public class AndStepRecogniserTest extends GraphBaseTest {
   /** Without a pinned boundary the recogniser declines rather than inventing an origin alias. */
   @Test
   public void nullBoundary_declines() {
-    var admin = graph.traversal().V().and(__.has("age", P.eq(30))).asAdmin();
+    var admin = graph.traversal().V().and(__.has("age", P.eq(30)).barrier()).asAdmin();
     var ctx = new WalkerContext(true, false, null, productionRegistry());
     var cursor = cursorAfterStart(admin);
 
@@ -319,9 +372,15 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     return cursor;
   }
 
-  /** Boundary steps spliced into {@code admin} — one when the walk translated, zero when it declined. */
+  /**
+   * Boundary steps spliced into {@code admin} — one when the walk translated, zero when it declined.
+   * Counts the shared {@link AbstractMatchPlanStep} supertype rather than the single-plan subtype,
+   * matching the sibling equivalence fixtures: a shape spliced as a multi-plan step is still a
+   * translation, and counting only {@code YTDBMatchPlanStep} would let it satisfy the decline
+   * expectation above while the translator in fact accepted it.
+   */
   private static long countBoundarySteps(Traversal.Admin<?, ?> admin) {
-    return admin.getSteps().stream().filter(YTDBMatchPlanStep.class::isInstance).count();
+    return admin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
   }
 
   private static String renderBoundaryFilter(WalkerContext ctx) {
