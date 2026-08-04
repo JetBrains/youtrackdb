@@ -436,15 +436,20 @@ public class NotStepRecogniserTest extends GraphBaseTest {
    * decompose the same way. This case pins that a negated {@code between} translates and returns
    * native's rows; the boundary-step assertion is the discriminating half.
    *
-   * <p>It does <em>not</em> witness the recursion, and no {@code between} case could. {@code age} is
-   * an Integer on all four {@code Person} vertices and absent on both {@code Software} vertices, so
-   * the type conjunct is true wherever the comparison can be true; and even on a mixed-type fixture
-   * both {@code between} arms are bounded, so a foreign runtime type fails one of them guarded or
-   * not. Two other cases carry the recursion:
-   * {@code GremlinPredicateAdapterTest.guardedRange_reachesUnderTheConnectives} at render level, and
-   * {@code RangeTypeGuardEquivalenceTest}'s {@code outside(…)} case at row level, where the
-   * connective's arms are unbounded and a String really does fall inside one of them under SQL
-   * ordering.
+   * <p>It does <em>not</em> witness the recursion, and neither does any other case in this class.
+   * {@code age} is an Integer on all four {@code Person} vertices and absent on both
+   * {@code Software} vertices, so the type conjunct is true wherever the comparison can be true,
+   * and dropping it moves no row. Measured, by rebuilding the adapter's connective recursion to
+   * hand every connective child an off guard: all eighteen cases here stay green under that build,
+   * while two cases in {@code RangeTypeGuardEquivalenceTest} redden.
+   *
+   * <p>Those two are the row-level witnesses — its {@code outside(…)} case for the {@code OrP}
+   * half, on a String that falls inside an unbounded arm under SQL ordering, and its
+   * {@code between} case for the {@code AndP} half, on a stored Date and Boolean that a numeric
+   * bound converts into and so admits inside a bounded window. Both need stored types the modern
+   * graph does not carry: a String and an Integer under one key for the first, a Date or a Boolean
+   * for the second. {@code GremlinPredicateAdapterTest.guardedRange_reachesUnderTheConnectives}
+   * pins the same recursion at render level.
    */
   @Test
   public void notWithBetweenPredicate_translatesToTheSameRows() {

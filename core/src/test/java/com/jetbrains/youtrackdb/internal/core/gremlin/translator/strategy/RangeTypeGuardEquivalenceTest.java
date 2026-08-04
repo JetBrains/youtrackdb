@@ -375,9 +375,11 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
    * {@code "zulu" > 33} is true, the inner is true, and the row is dropped. The expected list is
    * therefore the discriminating assertion, not decoration.
    *
-   * <p>{@code between} / {@code inside} decompose the same way but cannot witness this: both arms
-   * are bounded, so a type that sorts entirely above or entirely below the numbers fails one arm
-   * whether or not it is guarded, and the two translations agree by accident.
+   * <p>{@code between} / {@code inside} decompose the same way, into bounded arms, so a String
+   * cannot witness them — it sorts above both bounds and fails the upper arm guarded or not. A
+   * stored type that a numeric bound converts <em>into</em> witnesses them anyway; that is the case
+   * below, {@link #betweenOverStoredDatesAndBooleans_needsBothConnectiveArmsGuarded}, which carries
+   * the {@code AndP} half as this one carries the {@code OrP} half.
    */
   @Test
   public void notWithOutsideOverMixedRuntimeTypes_needsBothConnectiveArmsGuarded() {
@@ -387,6 +389,41 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
         "g.V().hasLabel(Loose).not(has(name, outside(28, 33)))",
         () -> graph.traversal().V().hasLabel("Loose").not(__.has("name", P.outside(28, 33))),
         List.of("loose_zulu"));
+  }
+
+  /**
+   * The {@code AndP} half of the same recursion. {@code P.between(lo, hi)} decomposes into
+   * {@code AndP[gte lo, lt hi]}, whose arms are both bounded, and a String cannot witness that
+   * shape: SQL converts each numeric bound to a String, every stored String here sorts above both,
+   * and the upper arm rejects it guarded or not. A stored {@code Date} or {@code Boolean} does
+   * witness it, because the conversion carries the literal rather than ranking the classes.
+   * {@code SQLBinaryCompareOperator.doCompare} converts the <em>literal</em> into the stored
+   * value's class, and {@code DATETIME} reads a {@code Number} as epoch millis, so
+   * {@code t_date_early}'s 1000 ms sits inside {@code [0, 1_000_000_000)}; a numeric bound converts
+   * to a Boolean the same way, which is why {@code t_bool_false} clears both bounds while
+   * {@code t_bool_true} fails the upper one. Natively the container is unfolded, so
+   * {@code GremlinValueComparator} puts a Date and a Boolean in different blocks from a numeric
+   * comparand and excludes both rows.
+   *
+   * <p>Measured rather than argued: rebuilding the adapter's connective recursion to hand every
+   * {@code AndP} / {@code OrP} child an off guard makes the translated arm return
+   * {@code t_bool_false} and {@code t_date_early} on top of the seven numerics, so the expected
+   * list is the discriminating assertion. {@code t_date_late} holds 9e9 ms and stays above the
+   * upper bound either way, so only one of the two Dates leaks.
+   *
+   * <p>Runs on the {@code Types} fixture rather than the mixed-type one because that is where the
+   * stored Dates and Booleans live. Bounds are Integers on purpose: with {@code Long} bounds an
+   * unguarded arm throws inside {@code PropertyTypeInternal.castComparableNumber}, which would end
+   * the case in an error before the rows could be compared.
+   */
+  @Test
+  public void betweenOverStoredDatesAndBooleans_needsBothConnectiveArmsGuarded() {
+    seedOneValueOfEachType();
+
+    assertAgreesWithNative(
+        "g.V().hasLabel(Hub).out(holds).has(v, between(0, 1_000_000_000))",
+        () -> typesRange(P.between(0, 1_000_000_000)),
+        List.of("t_byte", "t_decimal", "t_double", "t_float", "t_integer", "t_long", "t_short"));
   }
 
   // ---------------------------------------------------------------------------
@@ -491,8 +528,12 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
    * exercises the whole walker → adapter → builder path, where
    * {@code MatchWhereBuilderTest.typeIn_buildsAnInConditionOverTheMethodCall} pins the builder in
    * isolation. The plan-root and index-fetch assertions <em>cannot</em> see the form — measured, by
-   * rebuilding {@code typeIn} in the equality form and re-running this class, which stayed green.
-   * Both estimator paths are blind to it on a one-edge pattern: {@code SQLWhereClause.estimate}'s
+   * rebuilding {@code typeIn} to emit {@code =} for a single-name block. Under that build the
+   * node-form assertion above is the one that reddens — the walk renders
+   * {@code mixed.type() = "STRING"} — and it aborts the test before the two
+   * assertions below run; with it suspended they both still pass, and no other case in this class
+   * moves, because {@code = 'STRING'} and {@code IN ['STRING']} select the same rows. Both
+   * estimator paths are blind to the form on a one-edge pattern: {@code SQLWhereClause.estimate}'s
    * equality path is gated on {@code isBaseIdentifier()}, which a {@code .type()} modifier fails
    * whatever the operator, and the tier-3 default the paragraph above names lives on
    * {@code estimateFilterSelectivity}, which feeds edge ordering and the hash-join forecast —
