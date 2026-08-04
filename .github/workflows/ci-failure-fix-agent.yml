@@ -91,9 +91,9 @@ jobs:
           # Both are hard prerequisites: jq parses the pre-fetched context and
           # the result sentinel, and gh performs every GitHub read in "Gather CI
           # failure context" as well as the `gh pr create` in "Publish fix".
-          # Only jq used to be installed here, so every gh call exited 127 --
-          # invisibly, because the pre-fetch redirected stderr to /dev/null and
-          # fell back to placeholder files, handing the agent an empty context.
+          # Only jq used to be installed here, so every gh call exited 127, and
+          # invisibly: the pre-fetch redirected stderr to /dev/null and fell back
+          # to placeholder files, handing the agent an empty context.
           TOOLS=(jq gh)
           MISSING=()
           for TOOL in "${TOOLS[@]}"; do
