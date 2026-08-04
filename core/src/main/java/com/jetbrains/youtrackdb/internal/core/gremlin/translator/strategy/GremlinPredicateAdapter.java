@@ -567,8 +567,16 @@ final class GremlinPredicateAdapter {
    * untranslatable.
    *
    * <p>The search covers both the local children a filter connective carries and the global children
-   * a branching step carries, because negation applies to everything the sub-traversal evaluates,
-   * however deeply the comparison is nested.
+   * a branching step carries, because negation applies to everything the sub-traversal evaluates, so
+   * a {@code has(...)} is found however deeply it is nested.
+   *
+   * <p>The reach stops at {@link HasContainerHolder}. A step that keeps its predicate in a field of
+   * its own rather than in a {@code HasContainer} is not searched — {@code WherePredicateStep} is
+   * the one such step the recogniser registry accepts — so a {@code false} means "no range
+   * comparison among the {@code has(...)} clauses", not "no ordering comparison anywhere below".
+   * {@code where(P.gt("a"))} inside a negated sub-traversal therefore passes the gate. Both arms
+   * order the compared elements by RID there, so that shape does not carry the divergence the
+   * caller declines on.
    */
   static boolean traversalHasRangeComparison(Traversal.Admin<?, ?> traversal) {
     for (var step : traversal.getSteps()) {

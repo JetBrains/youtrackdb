@@ -780,13 +780,14 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
-   * Membership and string predicates report false. {@code within} / {@code without} compare by
-   * equality and the {@code Text} forms throw on a non-String operand in both pipelines, so neither
-   * carries the cross-type ordering disagreement — reporting them as ranges would decline shapes
-   * that translate correctly under {@code not(...)}.
+   * The predicates that order nothing report false: membership, the string forms, and the absent
+   * predicate a bare container carries. {@code within} / {@code without} compare by equality and
+   * the {@code Text} forms throw on a non-String operand in both pipelines, so neither carries the
+   * cross-type ordering disagreement — reporting them as ranges would decline shapes that translate
+   * correctly under {@code not(...)}.
    */
   @Test
-  public void predicateHasRangeComparison_falseForMembershipAndTextPredicates() {
+  public void predicateHasRangeComparison_falseForNonOrderingPredicates() {
     assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.within(1, 2))).isFalse();
     assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.without(1, 2))).isFalse();
     assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(TextP.containing("a")))
@@ -797,13 +798,13 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
-   * The traversal form finds a range comparison inside a nested step's sub-traversal, reached
-   * through the local children a filter connective carries and through the global children a
-   * branching step carries. Negation applies to everything the sub-traversal evaluates, so a
+   * The traversal form finds a range comparison at every depth it can occur: at the top level, in
+   * the local children a filter connective carries, in the global children a branching step
+   * carries, and behind a hop. Negation applies to everything the sub-traversal evaluates, so a
    * detection that stopped at the top-level step list would let the nested forms through.
    */
   @Test
-  public void traversalHasRangeComparison_findsNestedLocalAndGlobalChildren() {
+  public void traversalHasRangeComparison_findsRangeAtEveryDepth() {
     assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
         __.has("age", P.gt(30)).asAdmin()))
         .as("a top-level has() is found")

@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import java.util.List;
@@ -38,13 +37,14 @@ import org.junit.Test;
  * Unit tests for {@link NotStepRecogniser}. Each test drives the recogniser through a {@link
  * StepStreamCursor} over a strategised traversal with a hand-built {@link WalkerContext} that carries
  * the production recogniser registry. General end-to-end multiset equivalence for {@code
- * hasNot(key)}, {@code not(has(...))}, and {@code not(out(...))} lives in {@link
- * PredicateTraversalEquivalenceTest} and {@link EdgeTraversalEquivalenceTest}.
+ * hasNot(key)} and {@code not(out(...))} lives in {@link PredicateTraversalEquivalenceTest} and
+ * {@link EdgeTraversalEquivalenceTest}.
  *
- * <p>The negated-range-comparison cases at the end of this class are the exception. They are
- * translator-on / translator-off equivalence tests kept here because they pin a decline this
- * recogniser owns, and the decline's boundary — which predicate families still translate under
- * {@code not(...)} — reads best beside the recogniser's other branches.
+ * <p>The cases at the end of this class are the exception: the boundary cases for the
+ * range-comparison decline — which predicate families still translate under {@code not(...)} and
+ * which withdraw the whole traversal to the native pipeline. They are translator-on /
+ * translator-off equivalence tests, kept here beside the recogniser branch that owns the decline,
+ * and they are the tree's only end-to-end coverage of {@code not(has(...))}.
  */
 public class NotStepRecogniserTest extends GraphBaseTest {
 
@@ -276,20 +276,13 @@ public class NotStepRecogniserTest extends GraphBaseTest {
     alice.addEdge("knows", graph.addVertex(T.label, "Person", "name", "Bob"));
     graph.tx().commit();
 
-    var config = session.getConfiguration();
-    var previous =
-        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
-    try {
-      var admin =
-          graph.traversal().V().has("age", 30).not(__.out("knows")).asAdmin();
+    withTranslator(true, () -> {
+      var admin = graph.traversal().V().has("age", 30).not(__.out("knows")).asAdmin();
       admin.applyStrategies();
-      var boundaryCount =
-          admin.getSteps().stream().filter(YTDBMatchPlanStep.class::isInstance).count();
-      assertThat(boundaryCount).isEqualTo(1);
-    } finally {
-      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, previous);
-    }
+      assertThat(countBoundarySteps(admin.getSteps()))
+          .as("a translated NOT shape must engage exactly one boundary step")
+          .isEqualTo(1);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -327,13 +320,25 @@ public class NotStepRecogniserTest extends GraphBaseTest {
             .as("native not(has(name, gt(27))) keeps every vertex — the cross-type comparison is "
                 + "unknown, so the child yields nothing")
             .hasSize(6));
+  }
 
-    // Pin the SQL side of the disagreement, which is what makes the decline necessary rather than
-    // merely convenient. `name <= 27` is the complement of the clause the withdrawn translation
-    // emitted, and it selects nothing: SQL ranks every String above the Integer, so NOT(name > 27)
-    // would have selected nothing either — the measured 0 against native's 6. The String-comparand
-    // pair is the control: the same operator over a comparand of the property's own type selects
-    // everything, so the empty result above is the cross-type ordering and not a broken clause.
+  /**
+   * Pins the engine assumption the decline above rests on: YouTrackDB's SQL comparator ranks every
+   * String above the Integer 27, so {@code name <= 27} — the complement of the clause the withdrawn
+   * translation emitted — selects nothing, and {@code NOT(name > 27)} would have selected nothing
+   * either, against native's six. The String-comparand pair is the control: the same operator over
+   * a comparand of the property's own type selects every vertex, so the empty result is the
+   * cross-type ordering and not a broken clause.
+   *
+   * <p>This is an engine-assumption pin, not a code pin — no change to {@link NotStepRecogniser}
+   * can redden it. If it reddens, the SQL comparator's cross-type rule has changed and the premise
+   * for the range-comparison decline has gone with it. Re-evaluate the decline itself rather than
+   * adjusting the expected counts here.
+   */
+  @Test
+  public void crossTypeRangeComparison_sqlRanksStringAboveInteger() {
+    ModernGraphFixture.seed(graph, session);
+
     withTranslator(true, () -> {
       assertThat(graph.traversal().V().has("name", P.lte(27)).toList())
           .as("SQL ranks every String above the Integer 27, so the complement of the withdrawn NOT "
@@ -417,6 +422,44 @@ public class NotStepRecogniserTest extends GraphBaseTest {
         () -> graph.traversal().V().not(__.has("age", P.between(28, 33))));
   }
 
+  // ---------------------------------------------------------------------------
+  // Helpers.
+  // ---------------------------------------------------------------------------
+
+  private static Map<Class<?>, StepRecogniser> productionRegistry() {
+    return Map.of(
+        GraphStep.class, StartStepRecogniser.INSTANCE,
+        VertexStep.class, VertexStepRecogniser.INSTANCE,
+        VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
+        HasStep.class, HasStepRecogniser.INSTANCE,
+        TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE,
+        AndStep.class, AndStepRecogniser.INSTANCE,
+        OrStep.class, OrStepRecogniser.INSTANCE,
+        NotStep.class, NotStepRecogniser.INSTANCE);
+  }
+
+  private WalkerContext contextWithRegistry(boolean polymorphic, Schema schema) {
+    var ctx = new WalkerContext(polymorphic, false, schema, productionRegistry());
+    ctx.addNode(BOUNDARY_ALIAS, "V");
+    ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
+    return ctx;
+  }
+
+  private static StepStreamCursor cursorAfterStart(Traversal.Admin<?, ?> admin) {
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    cursor.take();
+    return cursor;
+  }
+
+  private static String renderBoundaryFilter(WalkerContext ctx) {
+    var clause = ctx.aliasFilters.get(BOUNDARY_ALIAS);
+    assertThat(clause).isNotNull();
+    var sb = new StringBuilder();
+    clause.getBaseExpression().toGenericStatement(sb);
+    return sb.toString();
+  }
+
   /** Whether a shape is expected to translate or to fall back to the native pipeline. */
   private enum Recognition {
     RECOGNIZED, DECLINED
@@ -454,6 +497,10 @@ public class NotStepRecogniserTest extends GraphBaseTest {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must decline to native — no boundary step")
             .isZero();
+        assertThat(offIds)
+            .as(scenario + ": a declined shape must still return a non-empty native result, else "
+                + "the multiset equality below is vacuous")
+            .isNotEmpty();
       }
       assertThat(countBoundarySteps(offAdmin.getSteps()))
           .as(scenario + " (translator off) must never engage a boundary step")
@@ -513,39 +560,5 @@ public class NotStepRecogniserTest extends GraphBaseTest {
       }
     }
     return count;
-  }
-
-  private static Map<Class<?>, StepRecogniser> productionRegistry() {
-    return Map.of(
-        GraphStep.class, StartStepRecogniser.INSTANCE,
-        VertexStep.class, VertexStepRecogniser.INSTANCE,
-        VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
-        HasStep.class, HasStepRecogniser.INSTANCE,
-        TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE,
-        AndStep.class, AndStepRecogniser.INSTANCE,
-        OrStep.class, OrStepRecogniser.INSTANCE,
-        NotStep.class, NotStepRecogniser.INSTANCE);
-  }
-
-  private WalkerContext contextWithRegistry(boolean polymorphic, Schema schema) {
-    var ctx = new WalkerContext(polymorphic, false, schema, productionRegistry());
-    ctx.addNode(BOUNDARY_ALIAS, "V");
-    ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
-    ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
-    return ctx;
-  }
-
-  private static StepStreamCursor cursorAfterStart(Traversal.Admin<?, ?> admin) {
-    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
-    cursor.take();
-    return cursor;
-  }
-
-  private static String renderBoundaryFilter(WalkerContext ctx) {
-    var clause = ctx.aliasFilters.get(BOUNDARY_ALIAS);
-    assertThat(clause).isNotNull();
-    var sb = new StringBuilder();
-    clause.getBaseExpression().toGenericStatement(sb);
-    return sb.toString();
   }
 }
