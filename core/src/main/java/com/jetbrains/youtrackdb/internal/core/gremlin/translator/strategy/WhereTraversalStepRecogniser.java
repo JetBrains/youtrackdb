@@ -11,9 +11,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversal
  * AndStepRecogniser} through {@link ConnectiveStepSupport#commitPositiveFilterChild}.
  *
  * <p>Neither path is reachable from a traversal today. TinkerPop builds this step class only when
- * the {@code where} child carries a start or end label, and it always inserts a {@code
- * WhereStartStep} to hold the scope binding — a class {@link GremlinStepWalker} has no recogniser
- * for, so every child sub-walk declines first. The recogniser is kept because the binding is
+ * the {@code where} child carries a start or end label, and it holds that binding in a scope step
+ * inside the child: a {@code WhereStartStep} for a labelled start, a {@code WhereEndStep} for a
+ * labelled end, and, when the child is headed by a connective, the scope step inside one of its
+ * arms. {@link GremlinStepWalker} registers a recogniser for neither class, so the child sub-walk
+ * declines under all three shapes before this recogniser classifies anything. The recogniser is kept
+ * because the binding is
  * resolvable in principle: once the walker maps a scope label to its alias, this class is where the
  * resolved shape lands, and the gates below are the ones it will need. See the transparency set's
  * Javadoc in {@link GremlinStepWalker} for why skipping the scope steps is not an option.

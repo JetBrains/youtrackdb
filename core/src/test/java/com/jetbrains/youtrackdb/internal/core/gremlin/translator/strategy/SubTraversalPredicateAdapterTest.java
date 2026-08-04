@@ -16,8 +16,11 @@ import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.InlineFilterStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
@@ -390,12 +393,25 @@ public class SubTraversalPredicateAdapterTest {
    * single sequence. A per-child counter would give both children {@code $g2m_anon_0}, and in MATCH
    * one alias is one binding, so the two hops would silently collapse onto "both edges reach the
    * same vertex". The live shape that depends on this is a connective whose arms each hold a hop
-   * inside a {@code not} — {@code and(__.not(__.out("a")), __.not(__.out("b")))} still translates,
+   * inside a {@code not}, with a barrier keeping the connective intact:
+   * {@code and(__.not(__.out("a")).barrier(), __.not(__.out("b")).barrier())} still translates,
    * while a bare {@code and(__.out("a"), __.out("b"))} declines on the edge-bearing gate before the
    * second alias is minted. Here the second child gets {@code $g2m_anon_1}.
+   *
+   * <p>The barrier is not decoration and the first assertion below observes it. Without one,
+   * {@code InlineFilterStrategy} unwraps the connective into two top-level {@code NotStep}s, which
+   * mint from the top-level context directly and never drive a captured child at all — the shape
+   * this rationale names would not be a shape that reaches the code under test.
    */
   @Test
   public void siblingChildren_mintDistinctAliasesFromParentSequence() {
+    var cited = __.and(__.not(__.out("a")).barrier(), __.not(__.out("b")).barrier()).asAdmin();
+    TraversalHelper.applyTraversalRecursively(InlineFilterStrategy.instance()::apply, cited);
+    assertThat(cited.getSteps().stream().anyMatch(AndStep.class::isInstance))
+        .as("the shape this test's rationale names must survive InlineFilterStrategy as a "
+            + "connective, or its arms are never captured children and the rationale names nothing")
+        .isTrue();
+
     var parent = parentWithBoundary(Map.of(VertexStep.class, VertexHopRecogniser.INSTANCE));
 
     var first = parent.walkChild(__.out("a").asAdmin());

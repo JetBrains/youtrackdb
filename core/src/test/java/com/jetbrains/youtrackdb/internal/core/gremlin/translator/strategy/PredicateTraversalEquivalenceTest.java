@@ -16,6 +16,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -947,19 +949,24 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * <p>The barrier keeps the case honest. {@code InlineFilterStrategy} unwraps a plain
    * {@code and(not(out(a)), has(age, 1))} into a bare {@code NotStep} plus a {@code HasStep}, which
    * the walker handles at top level and never routes through a captured child at all; the barrier
-   * blocks the unwrap and is transparent to the walker, so the arm really is a captured child. The
-   * {@code xa} vertex is what the two readings disagree on: it is aged 1 but has an {@code a} edge,
-   * so a commit path that dropped the captured anti-join would admit it.
+   * blocks the unwrap and is transparent to the walker, so the arm really is a captured child. That
+   * is a claim about the traversal, so {@link #assertConnectiveReachesTheTranslator} observes it
+   * before the equivalence runs — without it the case would stay green on the top-level path and
+   * witness nothing about the commit path it exists for. The {@code xa} vertex is what the two
+   * readings disagree on: it is aged 1 but has an {@code a} edge, so a commit path that dropped the
+   * captured anti-join would admit it.
    */
   @Test
   public void andArmWithEdgeBearingNot_matchesNative() {
     seedAntiJoinDisjunction();
-
-    assertEquivalent(
-        "g.V().and(not(out(a)).barrier(), has(age, 1))",
-        Recognition.RECOGNIZED,
+    Supplier<GraphTraversal<?, ?>> traversal =
         () -> graph.traversal().V()
-            .and(__.not(__.out("a")).barrier(), __.has("age", P.eq(1))));
+            .and(__.not(__.out("a")).barrier(), __.has("age", P.eq(1)));
+
+    assertConnectiveReachesTheTranslator(
+        "g.V().and(not(out(a)).barrier(), has(age, 1))", AndStep.class, traversal);
+    assertEquivalent(
+        "g.V().and(not(out(a)).barrier(), has(age, 1))", Recognition.RECOGNIZED, traversal);
   }
 
   /**
@@ -967,16 +974,21 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * {@code [t, x]}. A positive {@code where} is conjunctive with the rest of the match, the same
    * reading the plan-level anti-join sink gives, so the captured expression is forwarded rather than
    * declined. The barrier is there for the reason given on the AND case above — without it the
-   * {@code where} collapses to a bare {@code NotStep} and the captured-child path is never taken.
+   * {@code where} collapses to a bare {@code NotStep} and the captured-child path is never taken —
+   * and the wrapper assertion is what observes that rather than asserting it in prose. The wrapper
+   * here is a {@code TraversalFilterStep}, the class {@code where(traversal)} produces when the
+   * child carries no scope label.
    */
   @Test
   public void whereWithEdgeBearingNot_matchesNative() {
     seedAntiJoinDisjunction();
+    Supplier<GraphTraversal<?, ?>> traversal =
+        () -> graph.traversal().V().where(__.not(__.out("a")).barrier());
 
+    assertConnectiveReachesTheTranslator(
+        "g.V().where(not(out(a)).barrier())", TraversalFilterStep.class, traversal);
     assertEquivalent(
-        "g.V().where(not(out(a)).barrier())",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal().V().where(__.not(__.out("a")).barrier()));
+        "g.V().where(not(out(a)).barrier())", Recognition.RECOGNIZED, traversal);
   }
 
   /**
@@ -1388,6 +1400,31 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     withTranslator(false, () -> assertThatThrownBy(() -> traversalSupplier.get().toList())
         .as(scenario + " (native) must throw on a Text predicate over a non-String value")
         .isInstanceOf(RuntimeException.class));
+  }
+
+  /**
+   * Asserts the shape still carries {@code wrapper} at the top level once TinkerPop's optimisation
+   * strategies have run, which is the step list the translator is handed.
+   *
+   * <p>{@code InlineFilterStrategy} unwraps a connective whose arms are single filter steps, and a
+   * case that lost its wrapper still translates and still returns native's rows — it merely
+   * exercises the top-level path instead of the captured-child one it was written for. A barrier in
+   * one arm blocks the unwrap; this is the assertion that observes the barrier did its job.
+   *
+   * <p>Driven with the translator off. Those strategies run identically either way (they precede the
+   * provider stage the translator occupies), and an accepted translation replaces the whole step
+   * list with the boundary step, so the translator-on run has nothing left to inspect.
+   */
+  private void assertConnectiveReachesTheTranslator(
+      String scenario, Class<?> wrapper, Supplier<GraphTraversal<?, ?>> supplier) {
+    withTranslator(false, () -> {
+      var admin = supplier.get().asAdmin();
+      admin.applyStrategies();
+      assertThat(admin.getSteps().stream().anyMatch(wrapper::isInstance))
+          .as(scenario + ": the " + wrapper.getSimpleName() + " must survive optimisation, or the "
+              + "case exercises the top-level path instead of the captured-child one")
+          .isTrue();
+    });
   }
 
   /**
