@@ -26,6 +26,7 @@ First half of the split final track (inline replan, 2026-08-03 — see `## Decis
 - [x] 2026-08-03T13:20Z [ctx=safe] Step 8 complete (commit `55da40dcdd`). Repeat veto marker moved to `getSideEffects()`; the translator-off arm is byte-identical to `develop` again. No step-level review, by user decision — see `## Decision Log` DR-S4.
 - [x] 2026-08-03T11:23Z [ctx=info] Step 1 complete (commit `107de3ef34`). Feature suite completes single-fork: 1930 / 42 / 14. Step-level review ran 5 dimensions, 17 findings, 15 fixed, 2 recorded as skipped.
 - [x] 2026-08-03T02:57Z [ctx=info] Review + decomposition complete. Predicted complexity tag `high`; `max(step tags)` over the six-step roster is also `high`, so the reconciliation finds no divergence and no missed strategic reviewer is owed.
+- [x] 2026-08-04T08:16Z [ctx=safe] Track-level code review iteration 1 complete (commit `ee8ae3620b`). Seven dimensions, 53 findings, no blockers as graded with 2 upgraded on the severity backstop — both silent wrong answers on a recognised shape, closed by declining exactly the defective suffix. Eight findings in scope this iteration, all eight fixed with mutation proofs on the three vacuous tests.
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
