@@ -71,8 +71,11 @@ public class SQLFunctionMean extends SQLFunctionMathAbstract {
         sum(iParams[0]);
       }
     } else {
-      // Multi-argument form is a row-wise mean of its arguments, not an aggregate, so the running
-      // total restarts on every call the same way avg's does.
+      // Multi-argument form is a row-wise mean of its arguments, not an aggregate, so both
+      // accumulators restart on every call. This is where mean diverges from avg: avg clears only
+      // its sum and lets the divisor keep accumulating across rows, so every row after the first
+      // divides by too large a count. mean clears both, so row two of mean(a, b, c) divides by 3
+      // rather than by 6.
       sum = null;
       total = 0;
       for (var param : iParams) {

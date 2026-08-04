@@ -19,8 +19,9 @@ import org.junit.Test;
  * <p>The cases that matter most are the ones that tell the two functions apart, so every numeric
  * fixture below is chosen not to divide evenly: on an evenly-dividing input {@code mean} and
  * {@code avg} agree and the test would pass against either implementation. The rest cover the empty
- * aggregate, null skipping, the multi-value and multi-argument entry shapes, and the {@link
- * BigDecimal} branch that stays in exact arithmetic.
+ * aggregate, null skipping, the multi-value and multi-argument entry shapes, and both {@link
+ * BigDecimal} cases — a quotient that divides exactly, and one that does not and is answerable only
+ * because the divide carries a rounding context.
  */
 public class SQLFunctionMeanTest {
 
@@ -91,6 +92,26 @@ public class SQLFunctionMeanTest {
     Object result = mean.getResult();
     assertTrue("Expected BigDecimal, got " + result.getClass(), result instanceof BigDecimal);
     assertEquals(0, new BigDecimal("1.50").compareTo((BigDecimal) result));
+  }
+
+  @Test
+  public void nonTerminatingBigDecimalQuotientDividesUnderDecimal128() {
+    // 10 over three contributors has no exact decimal expansion, which is the only input that makes
+    // the MathContext argument observable: with it the divide rounds to DECIMAL128's 34 significant
+    // digits, without it BigDecimal.divide throws ArithmeticException("Non-terminating decimal
+    // expansion") out of the projection while a SELECT mean(price) is executing. The exactly
+    // dividing fixture above answers 1.50 either way and so cannot stand in for this one.
+    mean.execute(null, null, null, new Object[] {new BigDecimal("10")}, null);
+    mean.execute(null, null, null, new Object[] {BigDecimal.ZERO}, null);
+    mean.execute(null, null, null, new Object[] {BigDecimal.ZERO}, null);
+
+    Object result = mean.getResult();
+    assertTrue("Expected BigDecimal, got " + result.getClass(), result instanceof BigDecimal);
+    assertEquals(34, ((BigDecimal) result).precision());
+    assertEquals(
+        0,
+        new BigDecimal("3.333333333333333333333333333333333")
+            .compareTo((BigDecimal) result));
   }
 
   @Test

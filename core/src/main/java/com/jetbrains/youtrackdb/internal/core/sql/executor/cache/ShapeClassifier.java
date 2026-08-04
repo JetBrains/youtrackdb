@@ -960,7 +960,7 @@ public final class ShapeClassifier {
    * Maps a recognised aggregate function name to its shape. Every {@code count} (DISTINCT or not) maps
    * to {@code AGGREGATE_COUNT} here; the DISTINCT form is split off to {@code K0_NONE} by {@link
    * #singleAggregateShape}, while keeping the name recognised so {@link #projectionContainsAggregate}
-   * still treats it as an aggregate. {@code SUM/AVG/MIN/MAX} map directly, because {@link
+   * still treats it as an aggregate. {@code SUM/AVG/MEAN/MIN/MAX} map directly, because {@link
    * AggregateState} can replay each of them from a running scalar. The builtin aggregates it cannot
    * replay map to {@code K0_NONE} — still recognised as aggregates, so a projection carrying one never
    * reaches the per-record RECORD path, but re-executed under the version gate rather than
@@ -977,14 +977,16 @@ public final class ShapeClassifier {
       case "count" -> CacheableShape.AGGREGATE_COUNT;
       case "sum" -> CacheableShape.AGGREGATE_SUM;
       case "avg" -> CacheableShape.AGGREGATE_AVG;
+      case "mean" -> CacheableShape.AGGREGATE_MEAN;
       case "min" -> CacheableShape.AGGREGATE_MIN;
       case "max" -> CacheableShape.AGGREGATE_MAX;
-      // Aggregates with no AggregateState arm. Left unrecognised they fell through to RECORD, which
-      // hands a scalar row with no RID to the per-record delta builder. mean divides in floating
-      // point where avg divides in integers, so it cannot borrow AGGREGATE_AVG's replay either; the
-      // other five have no running-scalar formulation at all. K0_NONE re-executes on any mutation,
-      // which is the answer the engine itself produces.
-      case "mean", "median", "mode", "variance", "stddev", "percentile" -> CacheableShape.K0_NONE;
+      // Aggregates with no AggregateState replay arm today. Left unrecognised they fell through to
+      // RECORD, which hands a scalar row with no RID to the per-record delta builder. median, mode
+      // and percentile need the whole multiset at finalisation, so a running scalar cannot stand in
+      // for one; variance and stddev do have streaming formulations and could be replayed if an arm
+      // were added, but none exists. K0_NONE re-executes on any mutation, which is the answer the
+      // engine itself produces.
+      case "median", "mode", "variance", "stddev", "percentile" -> CacheableShape.K0_NONE;
       default -> null;
     };
   }

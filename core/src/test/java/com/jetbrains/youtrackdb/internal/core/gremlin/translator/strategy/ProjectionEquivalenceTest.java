@@ -1539,6 +1539,27 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().values("age").mean());
   }
 
+  /**
+   * The group value side reaches the same {@code mean} SQL function through a different builder
+   * call than {@code values(k).mean()} does: a grouped RETURN column rather than a single-plan
+   * property aggregate. It resolves only because that function is registered — before the
+   * registration the shape translated and then failed at execution — so it needs its own case. The
+   * ages do not divide evenly inside the two-member bucket, so a regression to {@code avg} surfaces
+   * as an integer payload rather than as an equal one.
+   */
+  @Test
+  public void groupValueSideMean_dividesInFloatingPointPerBucket() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "city", "NYC", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "NYC", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "Carol", "city", "LON", "age", 41);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().group().by(city).by(values(age).mean())",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().group().by("city").by(__.values("age").mean()));
+  }
+
   /** Seeds {@code count} Person vertices with distinct names and ages for the B1 cardinality cases. */
   private void seedPeople(int count) {
     for (var i = 0; i < count; i++) {

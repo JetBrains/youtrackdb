@@ -301,16 +301,29 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
+   * {@code mean} classifies as its own replayable aggregate shape rather than joining the
+   * unreplayable bucket below. It cannot borrow {@code AGGREGATE_AVG} — {@code avg}'s integer
+   * division is the whole reason {@code mean} exists — but it needs nothing beyond the running sum
+   * and contributor count that shape already keeps, so {@code AggregateState} reconciles it record by
+   * record instead of re-executing the scan after every write.
+   */
+  @Test
+  public void meanProjectionClassifiesAsItsOwnReplayableAggregate() {
+    Assert.assertEquals(
+        CacheableShape.AGGREGATE_MEAN,
+        ShapeClassifier.classify(parse("select mean(age) from OUser")));
+  }
+
+  /**
    * A builtin aggregate with no {@code AggregateState} replay arm must classify K0_NONE, never
    * RECORD: its single row is a scalar with no RID, and the per-record delta builder has nothing to
-   * reconcile it against. {@code mean} is the one a user reaching for a floating-point average
-   * types — {@code avg}'s integer division is why it exists, so it cannot borrow {@code
-   * AGGREGATE_AVG}'s replay either.
+   * reconcile it against. {@code median}, {@code mode} and {@code percentile} need the whole multiset
+   * at finalisation; {@code variance} and {@code stddev} have streaming formulations but no arm
+   * implementing one.
    */
   @Test
   public void unreplayableAggregateProjectionClassifiesAsK0None() {
     for (var sql : new String[] {
-        "select mean(age) from OUser",
         "select median(age) from OUser",
         "select mode(age) from OUser",
         "select variance(age) from OUser",
@@ -322,11 +335,16 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
-   * The same names buried in a mixed projection must not reach RECORD either — recognising them as
-   * aggregates is what keeps {@code projectionContainsAggregate} true for the mixed shape.
+   * Buried in a mixed projection, neither family may reach RECORD — recognising the name as an
+   * aggregate at all is what keeps {@code projectionContainsAggregate} true for the mixed shape, and
+   * a mixed projection is never a clean single-aggregate shape however replayable the aggregate is on
+   * its own.
    */
   @Test
-  public void unreplayableAggregateMixedWithFieldClassifiesAsK0None() {
+  public void aggregateMixedWithFieldClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select name, median(age) from OUser")));
     Assert.assertEquals(
         CacheableShape.K0_NONE,
         ShapeClassifier.classify(parse("select name, mean(age) from OUser")));
@@ -355,12 +373,21 @@ public class ShapeClassifierTest extends DbTestBase {
     Assert.assertEquals("sum(age)", md.alias());
   }
 
-  /** MIN/MAX/AVG likewise carry the bare property name they read from each contributing record. */
+  /**
+   * MIN/MAX/AVG/MEAN likewise carry the bare property name they read from each contributing record.
+   * MEAN is asserted on its kind as well, because it is the one whose metadata derivation would go
+   * silently wrong if {@code isAggregate()} disagreed with the classifier about it.
+   */
   @Test
-  public void aggregateMetadataForMinMaxAvgCarryProperty() {
+  public void aggregateMetadataForMinMaxAvgMeanCarryProperty() {
     Assert.assertEquals("age", metadata("select min(age) from OUser").propertyName());
     Assert.assertEquals("age", metadata("select max(age) from OUser").propertyName());
     Assert.assertEquals("age", metadata("select avg(age) from OUser").propertyName());
+
+    var meanMetadata = metadata("select mean(age) from OUser");
+    Assert.assertEquals(CacheableShape.AGGREGATE_MEAN, meanMetadata.kind());
+    Assert.assertEquals("age", meanMetadata.propertyName());
+    Assert.assertEquals("mean(age)", meanMetadata.alias());
   }
 
   /**

@@ -240,6 +240,42 @@ public class ByModulatorTranslatorTest extends GraphBaseTest {
   }
 
   /**
+   * The presence conjunct's gate, read directly over each outcome its contract names: a property key
+   * comes back, a record attribute does not, and neither does an unrecognised or absent body. The
+   * record-attribute arm cannot be observed through rows at all — every record carries a RID and a
+   * class, so an {@code IS DEFINED} conjunct on one filters nothing and a case that dropped the
+   * filter would keep passing — while the spurious conjunct still distorts root selection, so this is
+   * the only place the arm can be checked.
+   *
+   * <p>Both spellings of each arm are driven: the {@code ValueTraversal} / {@code TokenTraversal}
+   * bodies production delivers after TinkerPop's by-modulator optimisation, and the hand-built step
+   * bodies that reach the classifier unrewritten.
+   */
+  @Test
+  public void keyModulatorPropertyKey_returnsPropertyKeysOnly() {
+    var valueTraversalBody =
+        postStrategyModulator(graph.traversal().V().group().by("age").by(__.count()), 0);
+    assertThat(ByModulatorTranslator.keyModulatorPropertyKey(valueTraversalBody))
+        .as("by(\"age\") names a property, so the presence conjunct is on age")
+        .contains("age");
+
+    var tokenTraversalBody =
+        postStrategyModulator(graph.traversal().V().group().by(T.label).by(__.count()), 0);
+    assertThat(ByModulatorTranslator.keyModulatorPropertyKey(tokenTraversalBody))
+        .as("by(T.label) names @class, which every record has, so no conjunct is contributed")
+        .isEmpty();
+
+    assertThat(ByModulatorTranslator.keyModulatorPropertyKey(__.values("age").asAdmin()))
+        .contains("age");
+    assertThat(ByModulatorTranslator.keyModulatorPropertyKey(__.id().asAdmin())).isEmpty();
+    assertThat(ByModulatorTranslator.keyModulatorPropertyKey(__.label().asAdmin())).isEmpty();
+    assertThat(ByModulatorTranslator.keyModulatorPropertyKey(__.out("knows").asAdmin()))
+        .as("an edge traversal is not a key the conjunct can name")
+        .isEmpty();
+    assertThat(ByModulatorTranslator.keyModulatorPropertyKey(null)).isEmpty();
+  }
+
+  /**
    * The {@code by(...)} body at {@code childIndex} after TinkerPop's strategies have run. Hand-built
    * bodies are not what production delivers — {@code AdjacentToIncidentStrategy} rewrites a
    * {@code values(key)} in front of a {@code count()} into the element form, and the by-modulator
