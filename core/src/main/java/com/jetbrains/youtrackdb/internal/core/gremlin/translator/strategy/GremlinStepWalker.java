@@ -144,12 +144,19 @@ final class GremlinStepWalker {
    * all-or-nothing rule declines any traversal whose {@code where} child carries one, and the child
    * runs on the native pipeline where the bindings mean what they say.
    *
-   * <p>The price is the labelled {@code where(__.as(a)…)} family, and only that family: a plain
-   * {@code where(__.out(k))} is a {@code TraversalFilterStep} whose child carries neither class, as
-   * are the {@code filter} / {@code and} / {@code not} children, so none of them is affected. Two
-   * spellings that agree today go with it — {@code where(__.as(a).out(k))} where {@code a} is the
-   * current element, and a child whose end label matches what the hop already reaches — because the
-   * walker cannot tell those from the divergent ones without resolving the label to an alias.
+   * <p>The price is every {@code WhereTraversalStep}, which is every {@code where} whose child
+   * carries a scope label at either end — not only the {@code where(__.as(a)…)} spelling the three
+   * measured bullets above use. {@code WhereTraversalStep.configureStartAndEndSteps} inserts a
+   * {@code WhereStartStep} both for a labelled start and, with a null label, for a child whose
+   * <em>end</em> step is labelled, so {@code where(__.out().as(b))} carries one too. What stays
+   * unaffected is the rest of the filter surface: a plain {@code where(__.out(k))} is a {@code
+   * TraversalFilterStep} whose child carries neither class, as are the {@code filter} / {@code and}
+   * / {@code not} children. {@link WhereTraversalStepRecogniser}'s own Javadoc records what that
+   * leaves the class reachable for.
+   *
+   * <p>Two spellings that agree today go with it — {@code where(__.as(a).out(k))} where {@code a} is
+   * the current element, and a child whose end label matches what the hop already reaches — because
+   * the walker cannot tell those from the divergent ones without resolving the label to an alias.
    * Teaching it to do so would recover them, and is the obvious next move if the surface turns out
    * to matter.
    */
@@ -379,7 +386,19 @@ final class GremlinStepWalker {
   private static boolean dispatchAll(
       StepStreamCursor cursor, RecognitionContext ctx, Map<Class<?>, StepRecogniser> recognisers) {
     Step<?, ?> head;
-    while ((head = cursor.peek()) != null) {
+    while (true) {
+      // Read the position before peek(), because peek() advances past any transparent steps at the
+      // head. rebuildTraversal has no transparency rule: a NoOpBarrierStep is an ordinary "else"
+      // step there and clears isTraversalStart, so a barrier the cursor swallowed still breaks the
+      // fold. Comparing the two positions is how the loop observes a swallowed one.
+      int positionBeforePeek = cursor.position();
+      head = cursor.peek();
+      if (cursor.position() > positionBeforePeek) {
+        ctx.setAtTraversalStart(false);
+      }
+      if (head == null) {
+        return true;
+      }
       var recogniser = recognisers.get(head.getClass());
       if (recogniser == null) {
         return false;
@@ -414,8 +433,18 @@ final class GremlinStepWalker {
       if (cursor.position() <= positionBefore) {
         return false;
       }
+      // Advance the fold latch, mirroring YTDBGraphStepStrategy.rebuildTraversal's isTraversalStart:
+      // a GraphStep opens a fold (any GraphStep, not only the first — a mid-traversal V() restarts
+      // one there too), a HasStep leaves an open fold open, and every other step closes it. Only the
+      // head is classified: a recogniser that consumes several steps at once starts with a
+      // non-HasStep head (an edge hop's outE, a union's UnionStep), which closes the fold, and no
+      // registered recogniser other than StartStepRecogniser can consume a GraphStep, so a fold can
+      // never open from a step the loop did not classify. Read before the update by the recogniser
+      // that just ran, so a HasStep sees the state of the run it closes rather than joins.
+      ctx.setAtTraversalStart(
+          head instanceof GraphStep<?, ?>
+              || (head instanceof HasStep<?> && ctx.atTraversalStart()));
     }
-    return true;
   }
 
   /**

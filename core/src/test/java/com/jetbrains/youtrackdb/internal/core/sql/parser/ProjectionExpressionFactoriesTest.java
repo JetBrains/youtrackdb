@@ -115,4 +115,28 @@ public class ProjectionExpressionFactoriesTest {
     assertThat(render(built)).contains("name FROM V WHERE 1=1--");
     assertThat(render(built)).startsWith("v.");
   }
+
+  /**
+   * {@code propertyKey.type()} renders exactly as the parser renders the same fragment, so the
+   * hand-built method-call node is the shape the executor already knows how to evaluate rather than
+   * a lookalike.
+   */
+  @Test
+  public void propertyMethodCall_rendersLikeParser() throws ParseException {
+    var parsed = parse("SELECT age.type() FROM V").getProjection().getItems().getFirst()
+        .getExpression();
+    assertThat(render(ProjectionExpressionFactories.propertyMethodCall("age", "type")))
+        .isEqualTo(render(parsed));
+  }
+
+  /**
+   * A property key carrying SQL metacharacters stays one literal identifier under a method call —
+   * the same injection-surface closure the field-access factories give, on the path the Gremlin
+   * type guard supplies its key through.
+   */
+  @Test
+  public void propertyMethodCall_injectionKeyStaysLiteral() {
+    var built = ProjectionExpressionFactories.propertyMethodCall("k FROM V WHERE 1=1--", "type");
+    assertThat(render(built)).contains("k FROM V WHERE 1=1--").endsWith(".type()");
+  }
 }

@@ -115,7 +115,11 @@ final class EdgeHopRecogniser implements StepRecogniser {
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
     for (HasStep<?> has : hasSteps) {
       for (HasContainer container : has.getHasContainers()) {
-        var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, paramSink);
+        // An edge property filter is never folded into YTDBGraphStep — the fold only reaches the
+        // HasSteps that directly follow the traversal's own GraphStep, and an edge hop's outE()
+        // always sits between. So the range comparisons here always take the per-record type guard.
+        var filter = GremlinPredicateAdapter.INSTANCE.toFilter(
+            container, typeGate, paramSink, /* rangeTypeGuard= */ true);
         if (filter == null) {
           return Outcome.DECLINE;
         }

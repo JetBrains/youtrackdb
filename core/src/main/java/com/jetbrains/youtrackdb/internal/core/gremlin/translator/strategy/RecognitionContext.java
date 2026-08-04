@@ -113,6 +113,47 @@ interface RecognitionContext extends ParamSink {
    */
   boolean projectsReturnedPayload();
 
+  // --- The fold latch ---------------------------------------------------------------------------
+
+  /**
+   * Whether the step now being dispatched sits in the run of steps that {@code YTDBGraphStepStrategy}
+   * folds into its {@code YTDBGraphStep} — true exactly when the step is dispatched from the
+   * top-level walk and every step consumed at top level since the most recent {@code GraphStep} was
+   * itself a {@code HasStep}.
+   *
+   * <p>The distinction is load-bearing because a folded {@code has(key, range)} and an unfolded one
+   * are evaluated by different comparators once the translator declines. Folded, the native arm runs
+   * {@code YTDBGraphStep}'s SQL-backed comparison, which orders values of different runtime types
+   * (it ranks a String above an Integer) — the same answer the translated SQL gives. Unfolded, the
+   * native arm runs TinkerPop's {@code GremlinValueComparator}, whose rule is that operands of
+   * different comparability blocks never compare, so a range comparison across types matches
+   * nothing. A translation that reproduces one of those two answers contradicts the other, so the
+   * per-record type guard {@link GremlinPredicateAdapter} emits is scoped to unfolded positions
+   * only. Applying it in folded positions was measured to break eight shapes that agree today.
+   *
+   * <p>The latch mirrors {@code YTDBGraphStepStrategy.rebuildTraversal}'s {@code isTraversalStart}
+   * variable, including its restart on <em>any</em> {@code GraphStep} rather than only the first —
+   * a mid-traversal {@code V()} restarts the fold there, and a latch that special-cased the first
+   * step would drift from it. {@link GremlinStepWalker} owns the update rule; see
+   * {@link #setAtTraversalStart(boolean)}.
+   *
+   * <p>A sub-walk answers {@code false} unconditionally: a child traversal's steps are never visited
+   * by {@code rebuildTraversal}'s top-level scan, so nothing inside a {@code where} / {@code and} /
+   * {@code not} child is ever folded. (The {@code where} / {@code filter} / all-filter-{@code and}
+   * spellings that <em>do</em> reach the fold get there by {@code InlineFilterStrategy} hoisting the
+   * child's steps to top level before the translator runs, so the walker sees them as top-level
+   * steps and the latch classifies them correctly without special-casing.)
+   */
+  boolean atTraversalStart();
+
+  /**
+   * Sets the fold latch read by {@link #atTraversalStart()}. Called only by
+   * {@link GremlinStepWalker}'s dispatch loop, which owns the update rule; a recogniser reads the
+   * latch and never writes it. A sub-walk swallows the write, so a child's steps cannot arm the
+   * parent's latch.
+   */
+  void setAtTraversalStart(boolean atStart);
+
   // --- Schema-aware type gating -----------------------------------------------------------------
 
   /**

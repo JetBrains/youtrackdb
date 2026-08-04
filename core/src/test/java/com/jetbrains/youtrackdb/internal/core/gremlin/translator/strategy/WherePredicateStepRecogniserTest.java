@@ -32,9 +32,11 @@ import org.junit.Test;
 public class WherePredicateStepRecogniserTest extends GraphBaseTest {
 
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
-  private static final Set<Class<?>> TRANSPARENT =
-      Set.of(NoOpBarrierStep.class, WhereTraversalStep.WhereStartStep.class,
-          WhereTraversalStep.WhereEndStep.class);
+  /** Mirrors {@link GremlinStepWalker}'s production transparency set. The {@code where(...)} scope
+   *  steps are absent from both: they carry the child's scope binding, so skipping them would
+   *  translate a weaker filter than the user wrote. Keeping the two sets equal is what makes a
+   *  decline observed here mean the same thing as a decline in production. */
+  private static final Set<Class<?>> TRANSPARENT = Set.of(NoOpBarrierStep.class);
 
   /** {@code where(P.eq("a"))} maps to {@code @rid = $matched.a.@rid} on the boundary alias. */
   @Test

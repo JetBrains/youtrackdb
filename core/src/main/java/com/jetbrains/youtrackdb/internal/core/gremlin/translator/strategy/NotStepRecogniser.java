@@ -24,12 +24,13 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
  *       the positive pattern ({@link RecognitionContext#positivePatternHasAlias}).
  * </ol>
  *
- * <p>Both logical forms decline when the sub-traversal carries a range comparison ({@code lt} /
- * {@code lte} / {@code gt} / {@code gte}), detected by {@link
- * GremlinPredicateAdapter#traversalHasRangeComparison}. The native engine answers a range comparison
- * two different ways depending on whether it was folded into the graph step, and only the unfolded
- * one is reachable under {@code not(...)}; the inline comment at the gate has the mechanism. Every
- * other predicate family keeps translating under {@code not(...)}.
+ * <p>A range comparison under {@code not(...)} used to decline here, because the native engine
+ * answers one two different ways depending on whether the container was folded into the graph step
+ * and only the unfolded answer is reachable under {@code not(...)}. The per-record type guard
+ * {@link GremlinPredicateAdapter} now emits in unfolded positions reproduces the unfolded answer
+ * directly, so the gate is gone and every negated range shape translates — including {@code
+ * hasLabel(L).not(has(k, gt(n)))} on a schema-less class holding mixed runtime types, which no
+ * static gate could have answered.
  */
 final class NotStepRecogniser implements StepRecogniser {
 
@@ -68,18 +69,6 @@ final class NotStepRecogniser implements StepRecogniser {
     }
 
     var child = children.getFirst();
-    // A range comparison under not(...) is untranslatable, so the whole traversal declines. Outside
-    // not(...) YouTrackDB folds has(key, range) into its own graph step, whose comparator orders
-    // values of different runtime types (it ranks a String above an Integer) — the same answer the
-    // translated SQL comparison gives, which is why the unnegated form agrees on both arms. Inside
-    // not(...) the child is not folded, so the native arm runs TinkerPop's rule that a cross-type
-    // comparison is unknown: the child yields nothing and the NOT keeps the row, where SQL
-    // NOT(key > v) drops it. The two native behaviours disagree with each other and the property's
-    // runtime type is unknown at translation time, so no translation of the child matches both.
-    if (GremlinPredicateAdapter.traversalHasRangeComparison(child)) {
-      return Outcome.DECLINE;
-    }
-
     var adapter = ctx.walkChild(child);
     if (adapter.outcome() != Outcome.ACCEPTED) {
       return Outcome.DECLINE;

@@ -254,6 +254,27 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return parent.returnDistinct();
   }
 
+  /**
+   * Always {@code false}: nothing inside a captured child traversal is folded into the graph step,
+   * because {@code YTDBGraphStepStrategy.rebuildTraversal} only scans the top-level step list. Not
+   * delegated to the parent — the parent's latch describes the parent's own step run, and reading it
+   * here would let a {@code g.V().not(has(k, range))} child inherit the root's folded position.
+   */
+  @Override
+  public boolean atTraversalStart() {
+    return false;
+  }
+
+  /**
+   * Swallowed, like the other statement-level setters above: a child's steps must not arm the
+   * parent's fold latch. The sub-walk shares {@code dispatchAll} with the top-level walk, so the
+   * loop calls this on every child step; the no-op is what keeps the two walks separated.
+   */
+  @Override
+  public void setAtTraversalStart(boolean atStart) {
+    // Intentionally empty — see the Javadoc above.
+  }
+
   @Override
   public boolean isDeclaredStringProperty(@Nullable String className, String propertyKey) {
     return parent.isDeclaredStringProperty(className, propertyKey);

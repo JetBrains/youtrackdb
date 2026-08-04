@@ -129,6 +129,11 @@ final class HasStepRecogniser implements StepRecogniser {
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
         key -> ctx.isDeclaredStringProperty(typeClass, key);
     ParamSink paramSink = ctx::bindParam;
+    // A range comparison needs the per-record type guard exactly when this HasStep will NOT be
+    // folded into YTDBGraphStep — folded, the native fallback runs the same SQL-style comparison the
+    // translation emits; unfolded, it runs TinkerPop's comparability rule instead. See
+    // RecognitionContext.atTraversalStart().
+    var rangeTypeGuard = !ctx.atTraversalStart();
 
     // Second pass: translate every id / property container into a WHERE expression BEFORE any
     // contribution (so an untranslatable container declines with zero context mutation).
@@ -147,7 +152,8 @@ final class HasStepRecogniser implements StepRecogniser {
         whereExprs.add(ridExpr);
         continue;
       }
-      var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, paramSink);
+      var filter =
+          GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, paramSink, rangeTypeGuard);
       if (filter == null) {
         return Outcome.DECLINE;
       }

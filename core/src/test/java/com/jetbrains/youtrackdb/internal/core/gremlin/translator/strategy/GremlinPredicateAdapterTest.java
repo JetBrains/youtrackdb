@@ -24,7 +24,6 @@ import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
@@ -741,109 +740,119 @@ public class GremlinPredicateAdapterTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Range-comparison detection — the shape query a negating caller declines on.
+  // The per-record type guard on an unfolded range comparison.
   // ---------------------------------------------------------------------------
 
   /**
-   * The four range comparisons report true and the two equality forms report false. This is the
-   * exact split {@link NotStepRecogniser} declines on: the range comparisons are the family whose
-   * cross-type answer differs between the folded and unfolded native paths, while equality is well
-   * defined across runtime types on both sides and must keep translating under {@code not(...)}.
+   * With the guard requested, {@code has("age", P.gt(27))} emits {@code age.type() IN ['BYTE',
+   * 'SHORT', 'INTEGER', 'LONG', 'FLOAT', 'DOUBLE', 'DECIMAL'] AND age > 27} — the numeric
+   * comparability block, which is one block rather than seven because TinkerPop's comparator types
+   * a numeric operand as a bare {@code java.lang.Number} with no per-subtype whitelist. Without the
+   * guard the same container emits the bare comparison, which is what a folded position needs.
    */
   @Test
-  public void predicateHasRangeComparison_trueForTheFourRangeForms_falseForEquality() {
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.gt(27))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.gte(27))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.lt(27))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.lte(27))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.eq(27))).isFalse();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.neq(27))).isFalse();
+  public void guardedNumericRange_emitsTheWholeNumericBlockBesideTheComparison() {
+    var guarded = guardedFilter("age", P.gt(27));
+    assertThat(renderWithLiterals(guarded))
+        .contains("age.type() IN [\"BYTE\", \"SHORT\", \"INTEGER\", \"LONG\", \"FLOAT\", "
+            + "\"DOUBLE\", \"DECIMAL\"]")
+        .contains("age >");
+
+    assertThat(renderWithLiterals(
+        GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("age", P.gt(27)))))
+        .as("the unguarded overload — the folded position — must stay a bare comparison")
+        .doesNotContainIgnoringCase("type()");
   }
 
   /**
-   * Detection recurses through the {@code and} / {@code or} / {@code not} connectives, so a range
-   * comparison buried under any of them is still found. {@code between(lo, hi)} is the case that
-   * matters in practice — TinkerPop decomposes it into {@code AndP[gte lo, lt hi]} before the
-   * translator sees it, so a detection that only inspected leaf predicates would miss every
-   * {@code between} / {@code inside} / {@code outside}.
+   * Each non-numeric literal class names its own block: a String guards on {@code STRING}, a
+   * Boolean on {@code BOOLEAN}, and a {@code java.util.Date} on both date names (the type accessor
+   * reports a stored {@code Date} under either, depending on the value).
    */
   @Test
-  public void predicateHasRangeComparison_recursesThroughConnectives() {
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.between(1, 5))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.inside(1, 5))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.outside(1, 5))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.not(P.gt(27)))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.eq(1).or(P.lt(5)))).isTrue();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.eq(1).and(P.neq(5))))
-        .as("a connective over equality forms only is still not a range comparison")
-        .isFalse();
+  public void guardedRange_namesTheBlockOfTheLiteralsOwnClass() {
+    assertThat(renderWithLiterals(guardedFilter("name", P.gt("m"))))
+        .contains("name.type() IN [\"STRING\"]");
+    assertThat(renderWithLiterals(guardedFilter("flag", P.lt(true))))
+        .contains("flag.type() IN [\"BOOLEAN\"]");
+    assertThat(renderWithLiterals(guardedFilter("at", P.gte(new java.util.Date(0)))))
+        .contains("at.type() IN [\"DATE\", \"DATETIME\"]");
   }
 
   /**
-   * The predicates that order nothing report false: membership, the string forms, and the absent
-   * predicate a bare container carries. {@code within} / {@code without} compare by equality and
-   * the {@code Text} forms throw on a non-String operand in both pipelines, so neither carries the
-   * cross-type ordering disagreement — reporting them as ranges would decline shapes that translate
-   * correctly under {@code not(...)}.
+   * The guard is confined to the four order comparisons. {@code eq} does not route through the
+   * comparator at all, and {@code neq} is defined as {@code !eq} — it answers <em>true</em> for the
+   * operand pairs the order predicates reject, so guarding it would invert the answer instead of
+   * reproducing it. Both must come out exactly as they do unguarded.
    */
   @Test
-  public void predicateHasRangeComparison_falseForNonOrderingPredicates() {
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.within(1, 2))).isFalse();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(P.without(1, 2))).isFalse();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(TextP.containing("a")))
-        .isFalse();
-    assertThat(GremlinPredicateAdapter.predicateHasRangeComparison(null))
-        .as("a container with no predicate is not a range comparison")
-        .isFalse();
+  public void guardedRequest_leavesEqualityAndInequalityAlone() {
+    assertThat(renderWithLiterals(guardedFilter("age", P.eq(27))))
+        .doesNotContainIgnoringCase("type()");
+    var neq = renderWithLiterals(guardedFilter("age", P.neq(27)));
+    assertThat(neq).doesNotContainIgnoringCase("type()");
+    assertThat(neq)
+        .as("neq keeps its absent-property presence guard")
+        .containsIgnoringCase("age is defined");
   }
 
   /**
-   * The traversal form finds a range comparison at every depth it can occur: at the top level, in
-   * the local children a filter connective carries, in the global children a branching step
-   * carries, and behind a hop. Negation applies to everything the sub-traversal evaluates, so a
-   * detection that stopped at the top-level step list would let the nested forms through.
+   * An order comparison whose literal names no comparability block declines rather than translating
+   * unguarded. A {@code java.time.Instant} is the shape in hand: TinkerPop types it as {@code
+   * Unknown} rather than as a Date, and the SQL type accessor reports {@code null} for it, so no
+   * list of type names describes the rows that compare with it.
    */
   @Test
-  public void traversalHasRangeComparison_findsRangeAtEveryDepth() {
-    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
-        __.has("age", P.gt(30)).asAdmin()))
-        .as("a top-level has() is found")
-        .isTrue();
-    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
-        __.and(__.has("name", P.eq("josh")), __.has("age", P.gt(30))).asAdmin()))
-        .as("a local child of a filter connective is searched")
-        .isTrue();
-    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
-        __.union(__.has("age", P.gt(30))).asAdmin()))
-        .as("a global child of a branching step is searched")
-        .isTrue();
-    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
-        __.out("knows").has("age", P.gt(30)).asAdmin()))
-        .as("a has() behind a hop is found")
-        .isTrue();
+  public void guardedRange_declinesWhenTheLiteralNamesNoBlock() {
+    assertThat(guardedFilter("at", P.gt(java.time.Instant.ofEpochMilli(0))))
+        .as("no comparability block can be named for a java.time literal")
+        .isNull();
+    assertThat(guardedFilter("id", P.lt(java.util.UUID.randomUUID())))
+        .as("nor for a UUID, which the SQL type accessor does not recognise")
+        .isNull();
   }
 
   /**
-   * A traversal whose {@code has()} clauses are all equality reports false, at the top level and
-   * nested alike. Over-reporting would withdraw shapes that translate correctly, which is the cost
-   * side of the decline.
+   * The guard reaches range comparisons nested under the connectives, because {@code between} /
+   * {@code inside} / {@code outside} arrive already decomposed into {@code AndP} / {@code OrP} of
+   * range comparisons — a guard applied only to leaf predicates at the top would miss every one of
+   * them. Under {@code not(...)} the composition is what makes the answer right: the guarded inner
+   * expression is false for an incomparable row, so the negation keeps it, which is exactly what
+   * TinkerPop's {@code NotP} does.
    */
   @Test
-  public void traversalHasRangeComparison_falseWhenNoRangeComparisonPresent() {
-    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
-        __.has("name", P.eq("josh")).asAdmin()))
-        .isFalse();
-    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(
-        __.and(__.has("name", P.eq("josh")), __.out("knows")).asAdmin()))
-        .isFalse();
-    assertThat(GremlinPredicateAdapter.traversalHasRangeComparison(__.values("name").asAdmin()))
-        .as("hasNot(key) desugars to this child — no predicate, so nothing to detect")
-        .isFalse();
+  public void guardedRange_reachesUnderTheConnectives() {
+    assertThat(renderWithLiterals(guardedFilter("age", P.between(1, 5))))
+        .as("between decomposes to AndP[gte, lt] — both arms must carry the guard")
+        .contains("age.type() IN [\"BYTE\"");
+    assertThat(renderWithLiterals(guardedFilter("age", P.not(P.gt(27)))))
+        .as("a negated range comparison guards the inner expression, not the negation")
+        .contains("age.type() IN [\"BYTE\"");
   }
 
   // ---------------------------------------------------------------------------
   // Helpers.
   // ---------------------------------------------------------------------------
+
+  /**
+   * Renders a boolean expression with its literals inlined rather than as bound {@code ?}
+   * placeholders, so a guard assertion can name the type-name list it expects. {@link #render} uses
+   * {@code toGenericStatement}, which parameterises every literal.
+   */
+  private static String renderWithLiterals(SQLBooleanExpression expr) {
+    var sb = new StringBuilder();
+    expr.toString(new HashMap<>(), sb);
+    return sb.toString();
+  }
+
+  /** Translates {@code has(key, predicate)} with the per-record range type guard requested. */
+  private static SQLBooleanExpression guardedFilter(String key, P<?> predicate) {
+    return GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer(key, predicate),
+        GremlinPredicateAdapter.NO_TYPE_INFO,
+        null,
+        /* rangeTypeGuard= */ true);
+  }
 
   /**
    * Translates {@code has(key, predicate)} and asserts the result is a scalar {@link

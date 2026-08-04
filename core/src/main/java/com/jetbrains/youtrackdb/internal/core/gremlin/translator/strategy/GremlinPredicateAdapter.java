@@ -22,9 +22,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Text;
-import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
-import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
-import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.util.AndP;
 import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
@@ -146,7 +143,7 @@ final class GremlinPredicateAdapter {
    * range.
    */
   @Nullable SQLBooleanExpression toFilter(HasContainer container) {
-    return toFilter(container, NO_TYPE_INFO, null);
+    return toFilter(container, NO_TYPE_INFO, null, /* rangeTypeGuard= */ false);
   }
 
   /**
@@ -158,16 +155,34 @@ final class GremlinPredicateAdapter {
    * values render as inline literals.
    */
   @Nullable SQLBooleanExpression toFilter(HasContainer container, PropertyTypeGate typeGate) {
-    return toFilter(container, typeGate, null);
+    return toFilter(container, typeGate, null, /* rangeTypeGuard= */ false);
   }
 
   /**
    * Translates one {@link HasContainer} with optional positional-parameter binding through {@code
-   * paramSink}. Production recognisers pass {@code ctx::bindParam}; unit tests pass {@code null}
+   * paramSink} and no range-comparison type guard. Production recognisers pass {@code ctx::bindParam}
+   * and choose the guard explicitly through the four-argument overload; unit tests pass {@code null}
    * to keep inline literals.
    */
   @Nullable SQLBooleanExpression toFilter(
       HasContainer container, PropertyTypeGate typeGate, @Nullable ParamSink paramSink) {
+    return toFilter(container, typeGate, paramSink, /* rangeTypeGuard= */ false);
+  }
+
+  /**
+   * Translates one {@link HasContainer}, optionally emitting the per-record type guard beside every
+   * order comparison ({@code gt} / {@code gte} / {@code lt} / {@code lte}).
+   *
+   * <p>{@code rangeTypeGuard} must be {@code true} exactly where the container is <em>not</em> folded
+   * into {@code YTDBGraphStep} — see {@link RecognitionContext#atTraversalStart()} for why the two
+   * positions need different translations, and the guard's own description on
+   * {@link #translateCompare} for what it emits.
+   */
+  @Nullable SQLBooleanExpression toFilter(
+      HasContainer container,
+      PropertyTypeGate typeGate,
+      @Nullable ParamSink paramSink,
+      boolean rangeTypeGuard) {
     if (container == null) {
       return null;
     }
@@ -184,7 +199,7 @@ final class GremlinPredicateAdapter {
     if (predicate == null) {
       return null;
     }
-    return translate(key, predicate, typeGate, paramSink);
+    return translate(key, predicate, typeGate, paramSink, rangeTypeGuard);
   }
 
   /**
@@ -194,30 +209,36 @@ final class GremlinPredicateAdapter {
    * Returns {@code null} to decline (propagated to a whole-traversal decline by the caller).
    */
   private @Nullable SQLBooleanExpression translate(
-      String key, P<?> predicate, PropertyTypeGate typeGate, @Nullable ParamSink paramSink) {
+      String key,
+      P<?> predicate,
+      PropertyTypeGate typeGate,
+      @Nullable ParamSink paramSink,
+      boolean rangeTypeGuard) {
     if (predicate instanceof NotP<?> notP) {
       // NotP has no public getter for its wrapped predicate, but negate() returns it (a NotP is
       // built by P.negate(), and negating it back yields the original). Translate the inner
       // predicate positively, negate the SQL, and guard for absent: native NotP excludes an absent
       // property (HasContainer.test's empty iterator is false whatever the inner predicate), so
       // without IS DEFINED the NOT of a false-on-absent inner would wrongly include absent rows.
-      var inner = translate(key, notP.negate(), typeGate, paramSink);
+      var inner = translate(key, notP.negate(), typeGate, paramSink, rangeTypeGuard);
       if (inner == null) {
         return null;
       }
       return guarded(key, WHERE.not(inner));
     }
     if (predicate instanceof AndP<?> andP) {
-      return combine(key, andP.getPredicates(), /* and= */ true, typeGate, paramSink);
+      return combine(key, andP.getPredicates(), /* and= */ true, typeGate, paramSink,
+          rangeTypeGuard);
     }
     if (predicate instanceof OrP<?> orP) {
-      return combine(key, orP.getPredicates(), /* and= */ false, typeGate, paramSink);
+      return combine(key, orP.getPredicates(), /* and= */ false, typeGate, paramSink,
+          rangeTypeGuard);
     }
     // Leaf predicate — dispatch on the concrete bi-predicate type.
     var biPredicate = predicate.getBiPredicate();
     var value = predicate.getValue();
     if (biPredicate instanceof Compare compare) {
-      return translateCompare(key, compare, value, paramSink);
+      return translateCompare(key, compare, value, paramSink, rangeTypeGuard);
     }
     if (biPredicate instanceof Contains contains) {
       return translateContains(key, contains, value, paramSink);
@@ -246,14 +267,15 @@ final class GremlinPredicateAdapter {
       List<? extends P<?>> children,
       boolean and,
       PropertyTypeGate typeGate,
-      @Nullable ParamSink paramSink) {
+      @Nullable ParamSink paramSink,
+      boolean rangeTypeGuard) {
     if (children == null || children.isEmpty()) {
       // A connective with no children is degenerate; decline rather than emit an empty block.
       return null;
     }
     var translated = new ArrayList<SQLBooleanExpression>(children.size());
     for (var child : children) {
-      var expr = translate(key, child, typeGate, paramSink);
+      var expr = translate(key, child, typeGate, paramSink, rangeTypeGuard);
       if (expr == null) {
         return null;
       }
@@ -265,10 +287,41 @@ final class GremlinPredicateAdapter {
 
   /**
    * Translates a scalar {@link Compare}. Handles the {@code eq(null)} / {@code neq(null)} rewrites
-   *, the singleton-collection decline, and the {@code neq} absent-property guard.
+   *, the singleton-collection decline, the {@code neq} absent-property guard, and — when {@code
+   * rangeTypeGuard} is set — the per-record type guard on the four order comparisons.
+   *
+   * <h2>The type guard</h2>
+   *
+   * In an unfolded position the native arm compares through TinkerPop's {@code
+   * GremlinValueComparator}, which types both operands and returns {@code false} — never throwing —
+   * whenever they fall in different comparability blocks. Plain SQL has no such rule: it orders a
+   * String above an Integer and answers rows native excludes. Emitting
+   *
+   * <pre>{@code key.type() IN [<the literal's block>] AND key <cmp> literal}</pre>
+   *
+   * reproduces the comparator's partition per record, without needing the property's declared type
+   * (which is unavailable for a schema-less class, an undeclared key, or any position past a hop).
+   * The blocks are read off the comparator's own type enum: every {@code java.lang.Number} subtype
+   * is one block (so Integer against Long, Double or BigDecimal all compare), String, Boolean and
+   * {@code java.util.Date} are each their own, and everything else is either value-dependent
+   * (element ids) or unrecognised.
+   *
+   * <p>Only the four order comparisons are guarded. {@code eq} does not go through the comparator,
+   * and {@code neq} is defined as {@code !eq}, so it returns <em>true</em> for operands the order
+   * predicates reject — guarding it would invert the answer.
+   *
+   * <p>An order comparison whose literal names no block declines: an element operand's
+   * comparability depends on the id <em>value</em> rather than its type, and a class {@code
+   * PropertyTypeInternal.getTypeByValue} does not recognise ({@code java.time.*}, {@code UUID}) has
+   * no type name to test against. No static conjunct expresses either, so those shapes stay on the
+   * native pipeline.
    */
   private @Nullable SQLBooleanExpression translateCompare(
-      String key, Compare compare, @Nullable Object value, @Nullable ParamSink paramSink) {
+      String key,
+      Compare compare,
+      @Nullable Object value,
+      @Nullable ParamSink paramSink,
+      boolean rangeTypeGuard) {
     if (value == null) {
       // Only eq/neq have a defined absent-safe null rewrite; a range comparison against null has no
       // membership meaning and declines.
@@ -285,6 +338,13 @@ final class GremlinPredicateAdapter {
         && value instanceof Collection<?> collection && collection.size() == 1) {
       return null;
     }
+    // Resolve the comparability block before binding the literal, so a shape that must decline does
+    // not first push a positional parameter into the sink.
+    var guardTypeNames = isOrderComparison(compare) && rangeTypeGuard ? comparabilityBlock(value)
+        : null;
+    if (isOrderComparison(compare) && rangeTypeGuard && guardTypeNames == null) {
+      return null;
+    }
     SQLExpression literal;
     try {
       literal = valueExpression(value, paramSink);
@@ -292,10 +352,51 @@ final class GremlinPredicateAdapter {
       return null;
     }
     var comparison = WHERE.op(key, toOperator(compare), literal);
+    if (guardTypeNames != null) {
+      return WHERE.and(WHERE.typeIn(key, guardTypeNames), comparison);
+    }
     // neq (<>) is true on an absent property (SQLNeqOperator negates QueryOperatorEquals.equals,
     // which is false on a null operand → true), so guard it. The other five comparisons are false
     // on absent already and need no guard.
     return compare == Compare.neq ? guarded(key, comparison) : comparison;
+  }
+
+  /** The four comparisons TinkerPop routes through {@code GremlinValueComparator}'s ordering. */
+  private static boolean isOrderComparison(Compare compare) {
+    return compare == Compare.gt
+        || compare == Compare.gte
+        || compare == Compare.lt
+        || compare == Compare.lte;
+  }
+
+  /** Every numeric {@code PropertyType} name — one comparability block, because the comparator
+   *  types a numeric operand as a bare {@code java.lang.Number} with no per-subtype whitelist. */
+  private static final List<String> NUMERIC_TYPE_NAMES =
+      List.of("BYTE", "SHORT", "INTEGER", "LONG", "FLOAT", "DOUBLE", "DECIMAL");
+
+  /**
+   * The {@code PropertyType} names a stored value must report for it to be comparable with {@code
+   * literal} under {@code GremlinValueComparator}, or {@code null} when the literal's own class
+   * names no block (see {@link #translateCompare}'s decline clause).
+   *
+   * <p>{@code DATE} rides along with {@code DATETIME} because the comparator's Date block is
+   * {@code java.util.Date} and its subclasses, which the type accessor may report under either
+   * name depending on the stored value.
+   */
+  private static @Nullable List<String> comparabilityBlock(Object literal) {
+    if (literal instanceof Number) {
+      return NUMERIC_TYPE_NAMES;
+    }
+    if (literal instanceof String) {
+      return List.of("STRING");
+    }
+    if (literal instanceof Boolean) {
+      return List.of("BOOLEAN");
+    }
+    if (literal instanceof java.util.Date) {
+      return List.of("DATE", "DATETIME");
+    }
+    return null;
   }
 
   /**
@@ -557,97 +658,6 @@ final class GremlinPredicateAdapter {
     }
     var operands = translated.toArray(new SQLBooleanExpression[0]);
     return and ? WHERE.and(operands) : WHERE.or(operands);
-  }
-
-  /**
-   * Reports whether any {@code has(...)} inside {@code traversal} compares a property with one of
-   * the four range comparisons, searching the sub-traversals of nested steps as well as the steps
-   * themselves. A caller that negates a whole sub-traversal declines on a {@code true} here — see
-   * {@link NotStepRecogniser} for the divergence that makes a negated range comparison
-   * untranslatable.
-   *
-   * <p>The search covers both the local children a filter connective carries and the global children
-   * a branching step carries, because negation applies to everything the sub-traversal evaluates, so
-   * a {@code has(...)} is found however deeply it is nested.
-   *
-   * <p>The reach stops at {@link HasContainerHolder}. A step that keeps its predicate in a field of
-   * its own rather than in a {@code HasContainer} is not searched — {@code WherePredicateStep} is
-   * the one such step the recogniser registry accepts — so a {@code false} means "no range
-   * comparison among the {@code has(...)} clauses", not "no ordering comparison anywhere below".
-   * {@code where(P.gt("a"))} inside a negated sub-traversal therefore passes the gate. Both arms
-   * order the compared elements by RID there, so that shape does not carry the divergence the
-   * caller declines on.
-   */
-  static boolean traversalHasRangeComparison(Traversal.Admin<?, ?> traversal) {
-    for (var step : traversal.getSteps()) {
-      if (step instanceof HasContainerHolder<?, ?> holder) {
-        for (var container : holder.getHasContainers()) {
-          if (predicateHasRangeComparison(container.getPredicate())) {
-            return true;
-          }
-        }
-      }
-      if (step instanceof TraversalParent parent) {
-        if (anyTraversalHasRangeComparison(parent.getLocalChildren())
-            || anyTraversalHasRangeComparison(parent.getGlobalChildren())) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  private static boolean anyTraversalHasRangeComparison(
-      List<? extends Traversal.Admin<?, ?>> children) {
-    for (var child : children) {
-      if (traversalHasRangeComparison(child)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Reports whether {@code predicate} contains one of the four range comparisons ({@code lt} /
-   * {@code lte} / {@code gt} / {@code gte}), recursing through the {@code and} / {@code or} /
-   * {@code not} connectives. {@code between} / {@code inside} / {@code outside} need no case of
-   * their own: TinkerPop hands them over already decomposed into an {@link AndP} / {@link OrP} of
-   * range comparisons, so they answer {@code true} through the connective branch.
-   */
-  static boolean predicateHasRangeComparison(@Nullable P<?> predicate) {
-    if (predicate == null) {
-      return false;
-    }
-    if (predicate instanceof NotP<?> notP) {
-      // NotP exposes its wrapped predicate only through negate() — the same route translate() takes.
-      return predicateHasRangeComparison(notP.negate());
-    }
-    if (predicate instanceof AndP<?> andP) {
-      return anyPredicateHasRangeComparison(andP.getPredicates());
-    }
-    if (predicate instanceof OrP<?> orP) {
-      return anyPredicateHasRangeComparison(orP.getPredicates());
-    }
-    // Only the scalar Compare family orders values. Contains membership compares by equality, and
-    // the Text / regex predicates throw on a non-String operand in both pipelines, so neither can
-    // carry the cross-type ordering disagreement the caller declines on.
-    return predicate.getBiPredicate() instanceof Compare compare
-        && switch (compare) {
-          case lt, lte, gt, gte -> true;
-          case eq, neq -> false;
-        };
-  }
-
-  private static boolean anyPredicateHasRangeComparison(@Nullable List<? extends P<?>> children) {
-    if (children == null) {
-      return false;
-    }
-    for (var child : children) {
-      if (predicateHasRangeComparison(child)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**

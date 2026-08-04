@@ -109,6 +109,37 @@ public final class MatchWhereBuilder {
   }
 
   /**
+   * Builds {@code field.type() IN ['STRING', …]} — a per-record guard on the stored value's runtime
+   * type, using the {@code type()} SQL method (which reports the {@code PropertyType} constant name
+   * of the stored value, or {@code null} for an absent property or an unrecognised class).
+   *
+   * <p>The {@code IN} form is deliberate rather than the equivalent {@code field.type() = 'STRING'}
+   * for a single name. {@code MatchExecutionPlanner}'s filter-selectivity estimator accepts an
+   * {@link SQLBinaryCondition} with {@code =}, cannot resolve a distinct count for a modifier-
+   * bearing left side, and falls through to a tier-3 default of {@code 1.0 / classCount} — which
+   * makes the alias look like a one-row alias to the edge-cost model that drives edge ordering and
+   * the hash-join forecast. {@link SQLInCondition} is not an {@code SQLBinaryCondition} and never
+   * reaches that branch, so the guard stays invisible to the estimator. Index selection is
+   * unaffected either way: a modifier on the left makes {@code getRelatedIndexPropertyName} return
+   * null, so the conjunct survives as a post-filter while the comparison beside it still drives
+   * {@code FETCH FROM INDEX}.
+   */
+  public SQLBooleanExpression typeIn(String field, List<String> typeNames) {
+    if (typeNames == null || typeNames.isEmpty()) {
+      throw new IllegalArgumentException("type guard needs at least one type name");
+    }
+    var names = new ArrayList<SQLExpression>(typeNames.size());
+    for (var name : typeNames) {
+      names.add(stringExpression(name));
+    }
+    var condition = new SQLInCondition(-1);
+    condition.setLeft(ProjectionExpressionFactories.propertyMethodCall(field, "type"));
+    condition.setRightMathExpression(literalCollectionExpression(names));
+    condition.setOperator(new SQLInOperator(-1));
+    return condition;
+  }
+
+  /**
    * Builds {@code NOT (field IN [v1, v2, …])}. Composes via {@link #not(SQLBooleanExpression)}
    * instead of producing an {@code SQLNotInCondition} directly — that AST class has no public
    * setters reachable from outside the parser package.

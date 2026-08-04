@@ -847,4 +847,33 @@ public class MatchWhereBuilderTest {
     expr.toGenericStatement(sb);
     return sb.toString();
   }
+
+  /**
+   * {@code typeIn} builds {@code field.type() IN ['A', 'B']} as an {@link SQLInCondition}, and the
+   * node type is the point of the method rather than an implementation detail: {@code
+   * MatchExecutionPlanner}'s filter-selectivity estimator special-cases {@link SQLBinaryCondition},
+   * cannot resolve a distinct count for a left side carrying a modifier, and would score the alias
+   * as a one-row alias. An {@code SQLInCondition} never reaches that branch. A single-name guard
+   * must therefore stay an {@code IN} rather than collapse to an equality.
+   */
+  @Test
+  public void typeIn_buildsAnInConditionOverTheMethodCall() {
+    var multi = b.typeIn("age", List.of("INTEGER", "LONG"));
+    assertTrue(multi instanceof SQLInCondition);
+    assertEquals("age.type() IN [\"INTEGER\", \"LONG\"]", render(multi));
+
+    var single = b.typeIn("name", List.of("STRING"));
+    assertTrue("a one-name guard must not collapse to an equality — that is the node shape the "
+        + "selectivity estimator accepts", single instanceof SQLInCondition);
+    assertFalse(single instanceof SQLBinaryCondition);
+    assertEquals("name.type() IN [\"STRING\"]", render(single));
+  }
+
+  /** An empty or null type list is a programming error rather than a match-nothing guard, so it
+   *  throws instead of emitting {@code field.type() IN []}. */
+  @Test
+  public void typeIn_rejectsAnEmptyTypeList() {
+    assertThrows(IllegalArgumentException.class, () -> b.typeIn("age", List.of()));
+    assertThrows(IllegalArgumentException.class, () -> b.typeIn("age", null));
+  }
 }

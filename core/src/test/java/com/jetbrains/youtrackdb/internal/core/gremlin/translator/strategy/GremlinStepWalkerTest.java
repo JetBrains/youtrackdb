@@ -827,6 +827,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * A {@code where} child whose result must equal a labelled traverser declines. While {@code
    * WhereEndStep} was transparent the comparison was dropped and the translation asked only that
    * the child produce something, which is a weaker filter than the user wrote.
+   *
+   * <p>The child hops, so this case does not discriminate the scope-binding decline on its own: an
+   * edge-bearing positive-filter child declines at {@code ConnectiveStepSupport}'s gate whether or
+   * not the scope steps are transparent. It is here for the shape's end-to-end outcome; {@link
+   * #walk_whereChildStartLabelOffCurrentElement_declines} is the case that isolates the binding.
    */
   @Test
   public void walk_whereChildWithEndLabel_declines() {
@@ -842,6 +847,10 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * The start binding alone is enough to decline, with no end label present. The child must run
    * from {@code a}, and skipping the binding ran it from the current element instead — a different
    * question whenever the label is not the current element.
+   *
+   * <p>Like the case above, the child hops, so the edge-bearing gate would decline it anyway. The
+   * shape is worth pinning because it is the no-end-label spelling, but the mechanism it witnesses
+   * is the edge-bearing gate rather than the binding.
    */
   @Test
   public void walk_whereChildWithStartLabelOnly_declines() {
@@ -885,6 +894,23 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * The divergent pure-filter shape: the start binding points at a traverser that is <em>not</em>
+   * the current element, so skipping it ran the filter against the hop target {@code b} instead of
+   * against {@code a} and returned a different row set. No hop in the child, so the edge-bearing
+   * gate cannot account for the decline — this is the case whose answer the transparency change
+   * actually alters, and the one that fails if the scope steps go back into the transparency set.
+   */
+  @Test
+  public void walk_whereChildStartLabelOffCurrentElement_declines() {
+    var admin =
+        graph.traversal().V().as("a").out().as("b").where(__.as("a").has("age", 30)).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isNull();
+  }
+
+  /**
    * {@code g.V().as(a).out().as(b).where(__.as(a).out().as(b))} returns native's rows once the walk
    * declines. Before the fix the translated arm returned nothing where native returned the one row
    * whose hop target matches {@code b}.
@@ -894,6 +920,10 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * spellings disagree on this fixture — the shape returns Bob, the reading returns nothing, since
    * Bob has no out-edge — which is what stops the equality below from holding for a reason
    * unrelated to the binding.
+   *
+   * <p>What this pins is the shape's end-to-end outcome, not the binding's own mechanism: the child
+   * hops, so the edge-bearing gate declines it either way. {@link
+   * #whereChildStartLabelOffCurrentElement_declinesAndReturnsNativeRows} carries the mechanism.
    */
   @Test
   public void whereWithEndLabel_declinesAndReturnsNativeRows() {
@@ -915,6 +945,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * control: {@code g.V().where(__.out())} is exactly the traversal the skipped scope steps left
    * behind, and it returns Alice where the shape returns nothing. The separation is the fixture
    * property the case depends on, so it is asserted rather than described.
+   *
+   * <p>Like its sibling above, the child hops, so the decline it observes is one the edge-bearing
+   * gate would also produce.
    */
   @Test
   public void whereWithSelfComparingEndLabel_declinesAndReturnsNativeRows() {
@@ -924,6 +957,26 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         "g.V().as(a).where(__.as(a).out().as(a))",
         () -> graph.traversal().V().as("a").where(__.as("a").out().as("a")),
         () -> graph.traversal().V().where(__.out()));
+  }
+
+  /**
+   * End-to-end for the shape whose answer the transparency change alters. The child is a pure
+   * filter, so no edge-bearing gate can account for the decline, and its start label points at
+   * {@code a} while the current element is the hop target {@code b}.
+   *
+   * <p>The transparent reading is the traversal the skipped binding left behind — the same filter
+   * with no start label, which runs against {@code b}. On this fixture the two disagree: Alice is
+   * 30 and Bob is 40, so the shape returns Bob and the reading returns nothing. Before the fix the
+   * translated arm returned the reading's answer while native returned the shape's.
+   */
+  @Test
+  public void whereChildStartLabelOffCurrentElement_declinesAndReturnsNativeRows() {
+    seedAgedKnowsEdge();
+
+    assertDeclinesAndMatchesNative(
+        "g.V().as(a).out().as(b).where(__.as(a).has(age, 30))",
+        () -> graph.traversal().V().as("a").out().as("b").where(__.as("a").has("age", 30)),
+        () -> graph.traversal().V().as("a").out().as("b").where(__.has("age", 30)));
   }
 
   // ---------------------------------------------------------------------------
@@ -1557,6 +1610,15 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   /** Alice knows Bob, plus an isolated vertex. No self-loops, so a child asking for one matches
    *  nothing natively. */
+  /** One {@code knows} edge whose two endpoints have different ages, so a filter on {@code age}
+   *  separates "run it against the start label" from "run it against the hop target". */
+  private void seedAgedKnowsEdge() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+  }
+
   private void seedOneKnowsEdgeNoSelfLoop() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");

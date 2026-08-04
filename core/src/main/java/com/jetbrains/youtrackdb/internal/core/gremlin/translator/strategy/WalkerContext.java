@@ -138,6 +138,13 @@ final class WalkerContext implements RecognitionContext {
    */
   @Nullable RecognitionContext.PropertyProjection lastPropertyProjection;
 
+  /**
+   * The fold latch — see {@link RecognitionContext#atTraversalStart()} for what it means and
+   * {@link GremlinStepWalker}'s dispatch loop for the update rule. Starts {@code false}: no step
+   * precedes the traversal's own {@code GraphStep}, so nothing is folded until one is consumed.
+   */
+  private boolean atTraversalStart;
+
   /** Whether the traversal runs as a polymorphic query, resolved once from the traversal's YTDB
    *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}) by {@link GremlinStepWalker}.
    *
@@ -385,6 +392,18 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public boolean returnDistinct() {
     return returnDistinct;
+  }
+
+  // --- RecognitionContext: the fold latch --------------------------------------------------------
+
+  @Override
+  public boolean atTraversalStart() {
+    return atTraversalStart;
+  }
+
+  @Override
+  public void setAtTraversalStart(boolean atStart) {
+    this.atTraversalStart = atStart;
   }
 
   // --- RecognitionContext: schema-aware type gating ---------------------------------------------

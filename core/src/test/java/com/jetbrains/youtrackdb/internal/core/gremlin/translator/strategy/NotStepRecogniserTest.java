@@ -288,28 +288,35 @@ public class NotStepRecogniserTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
   // Negated range comparisons — translator-on / translator-off equivalence.
   //
-  // A range comparison under not(...) is the one predicate family the translator cannot reproduce.
-  // Measured on the modern graph: g.V().has("name", P.gt(27)) answers all six on both arms, because
-  // YouTrackDB folds a root has() into its own graph step, whose comparator orders a String above an
-  // Integer rather than calling the comparison undefined. Inside not(...) the child is not folded, so
-  // the native arm runs TinkerPop's rule that a cross-type comparison is unknown: the child yields
-  // nothing and not(...) keeps all six. SQL NOT(name > 27) keeps none. The two native behaviours
-  // disagree with each other, so no translation of the child matches both — the decline is the exit.
+  // A range comparison under not(...) used to decline outright. Measured on the modern graph:
+  // g.V().has("name", P.gt(27)) answers all six on both arms, because YouTrackDB folds a root has()
+  // into its own graph step, whose comparator orders a String above an Integer rather than calling
+  // the comparison undefined. Inside not(...) the child is not folded, so the native arm runs
+  // TinkerPop's rule that a cross-type comparison is unknown: the child yields nothing and not(...)
+  // keeps all six, while a plain SQL NOT(name > 27) keeps none. The two native behaviours disagree
+  // with each other, so no unguarded translation of the child matched both.
+  //
+  // The per-record type guard reproduces the unfolded rule directly — an unfolded range comparison
+  // emits key.type() IN [<the literal's block>] beside it — so these shapes translate now and agree.
+  // The decline is gone; what these cases pin is that the translated answer is still native's.
+  // RangeTypeGuardEquivalenceTest carries the mechanism and its scoping.
   // ---------------------------------------------------------------------------
 
   /**
    * {@code g.V().not(__.has("name", P.gt(27)))} on the modern graph compares a String property with
    * an Integer comparand. Native keeps all six vertices — the comparison is unknown, so the child
-   * yields nothing and the NOT passes every row — while SQL {@code NOT(name > 27)} keeps none. The
-   * translator must decline so the traversal runs natively and both arms answer the same six.
+   * yields nothing and the NOT passes every row — while a plain SQL {@code NOT(name > 27)} would
+   * keep none. The guarded translation keeps all six too: the type conjunct is false for a String
+   * {@code name} against a numeric literal, so the inner expression is false and the NOT passes the
+   * row, which is what TinkerPop's own {@code NotP} does with an incomparable pair.
    */
   @Test
-  public void notWithCrossTypeRangeComparison_declinesAndAgreesWithNative() {
+  public void notWithCrossTypeRangeComparison_translatesAndAgreesWithNative() {
     ModernGraphFixture.seed(graph, session);
 
     assertEquivalent(
         "g.V().not(has(name, gt(27)))",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().not(__.has("name", P.gt(27))));
 
     // Pin the native answer: multiset equality between two empty results would pass while the shape
@@ -323,17 +330,17 @@ public class NotStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Pins the engine assumption the decline above rests on: YouTrackDB's SQL comparator ranks every
-   * String above the Integer 27, so {@code name <= 27} — the complement of the clause the withdrawn
-   * translation emitted — selects nothing, and {@code NOT(name > 27)} would have selected nothing
-   * either, against native's six. The String-comparand pair is the control: the same operator over
-   * a comparand of the property's own type selects every vertex, so the empty result is the
-   * cross-type ordering and not a broken clause.
+   * Pins the engine assumption the cases above rest on: YouTrackDB's SQL comparator ranks every
+   * String above the Integer 27, so {@code name <= 27} selects nothing and an unguarded {@code
+   * NOT(name > 27)} would select nothing too, against native's six. That gap is what the per-record
+   * type guard exists to close. The String-comparand pair is the control: the same operator over a
+   * comparand of the property's own type selects every vertex, so the empty result is the cross-type
+   * ordering and not a broken clause.
    *
    * <p>The count assertions are an engine-assumption pin rather than a code pin: no change to
    * {@link NotStepRecogniser} can redden them. If one reddens, the SQL comparator's cross-type rule
-   * has changed and the premise for the range-comparison decline has gone with it — re-evaluate the
-   * decline itself rather than adjusting the expected counts here.
+   * has changed, and with it the reason a folded position and an unfolded one need different
+   * translations — re-evaluate the guard's scoping rather than adjusting the expected counts here.
    *
    * <p>The boundary-step assertions are the code-side half, and they are load-bearing. The folded
    * native graph step answers both shapes identically, so a silent decline would leave the counts
@@ -367,11 +374,11 @@ public class NotStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The root-level {@code g.V().has("name", P.gt(27))} is the neighbour the decline must not
-   * disturb. It keeps translating and keeps answering all six on both arms: the native arm folds it
-   * into the graph step, whose comparator ranks the String above the Integer — the same answer SQL
-   * {@code name > 27} gives. This is the half of the native engine the translator agrees with, and
-   * the reason the divergence above cannot be fixed by making the translator type-aware.
+   * The root-level {@code g.V().has("name", P.gt(27))} is the neighbour the guard must not disturb.
+   * It keeps translating and keeps answering all six on both arms: the native arm folds it into the
+   * graph step, whose comparator ranks the String above the Integer — the same answer SQL {@code
+   * name > 27} gives. This is the half of the native engine the translator agrees with, and the
+   * reason the guard is scoped to unfolded positions rather than applied everywhere.
    */
   @Test
   public void bareCrossTypeRangeComparison_keepsTranslating_andAnswersSixOnBothArms() {
@@ -406,35 +413,36 @@ public class NotStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The decline reaches a range comparison nested behind a hop: {@code not(out(knows).has(age,
-   * gt(30)))} is an edge-bearing NOT whose child {@code has} sits on the hop target, where the
-   * anti-join negates it exactly as the pure-filter form does. Multiset equality cannot witness this
-   * case on its own — {@code age} is an Integer on every vertex that has it, so both arms agree
-   * either way — so the discriminating assertion is that no boundary step is engaged.
+   * A range comparison nested behind a hop inside the NOT: {@code not(out(knows).has(age, gt(30)))}
+   * is an edge-bearing NOT whose child {@code has} sits on the hop target, where the anti-join
+   * negates it exactly as the pure-filter form does. It translates now, and the discriminating
+   * assertion is the boundary step — {@code age} is an Integer on every vertex that has it, so the
+   * multiset equality would hold either way.
    */
   @Test
-  public void notWithRangeComparisonBehindHop_declinesToNative() {
+  public void notWithRangeComparisonBehindHop_translatesToTheSameRows() {
     ModernGraphFixture.seed(graph, session);
 
     assertEquivalent(
         "g.V().not(out(knows).has(age, gt(30)))",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().not(__.out("knows").has("age", P.gt(30))));
   }
 
   /**
    * {@code between(lo, hi)} never arrives as a predicate of its own — TinkerPop decomposes it into
-   * {@code AndP[gte lo, lt hi]} before the translator sees it — so the decline has to catch it
-   * through the connective recursion. Same for {@code inside} / {@code outside}, which decompose the
-   * same way.
+   * {@code AndP[gte lo, lt hi]} before the translator sees it — so the guard has to reach it through
+   * the connective recursion, once per arm. Same for {@code inside} / {@code outside}, which
+   * decompose the same way. A guard applied only to leaf predicates at the top would leave both arms
+   * unguarded and this case would answer differently from native.
    */
   @Test
-  public void notWithBetweenPredicate_declinesToNative() {
+  public void notWithBetweenPredicate_translatesToTheSameRows() {
     ModernGraphFixture.seed(graph, session);
 
     assertEquivalent(
         "g.V().not(has(age, between(28, 33)))",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().not(__.has("age", P.between(28, 33))));
   }
 

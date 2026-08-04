@@ -149,6 +149,25 @@ public final class ProjectionExpressionFactories {
     return new SQLExpression(new SQLIdentifier(MATCHED_VARIABLE), first);
   }
 
+  /**
+   * {@code propertyKey.methodName()} — a zero-argument SQL method call chained onto a bare property
+   * name, e.g. {@code age.type()}. Built as AST, so a caller-supplied key or method name can never
+   * be re-tokenized into extra syntax.
+   *
+   * <p>This factory lives in the parser package rather than beside its only caller because {@link
+   * SQLMethodCall#methodName} and {@link SQLModifier#methodCall} are package-private: a builder in
+   * {@code …executor.match.builder} cannot assemble the two nodes at all.
+   */
+  public static SQLExpression propertyMethodCall(String propertyKey, String methodName) {
+    requireNonBlank(propertyKey, "property key");
+    requireNonBlank(methodName, "method name");
+    var call = new SQLMethodCall(-1);
+    call.methodName = new SQLIdentifier(methodName);
+    var modifier = new SQLModifier(-1);
+    modifier.methodCall = call;
+    return new SQLExpression(new SQLIdentifier(propertyKey), modifier);
+  }
+
   private static SQLModifier segmentModifier(String segment) {
     return segment.startsWith(RECORD_ATTRIBUTE_PREFIX)
         ? recordAttributeModifier(segment)

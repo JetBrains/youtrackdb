@@ -269,8 +269,13 @@ public final class MatchPatternBuilder {
   }
 
   /**
-   * Returns the number of edges accumulated so far without locking the builder. A sub-walk capture
-   * context uses this to classify a merged fragment as edge-bearing after {@link #appendFrom}.
+   * Returns the number of edges accumulated so far without locking the builder.
+   *
+   * <p>Written for the Gremlin sub-walk capture path, which classified a merged fragment as
+   * edge-bearing after an {@link #appendFrom}. That path no longer merges builders — the capture
+   * context tracks edge-bearing directly — so this accessor has no caller today. It is kept as part
+   * of the builder's read surface rather than removed with the merge path, because this builder is
+   * shared by every MATCH IR front-end and a read-only accessor costs nothing to carry.
    */
   public int edgeCount() {
     return pattern.getNumOfEdges();
@@ -282,8 +287,14 @@ public final class MatchPatternBuilder {
    * from {@code source}'s pattern graph, skipping duplicates that share the same endpoints and path
    * item. Both builders must not yet have called {@link #build()}.
    *
-   * <p>An {@code AndStep} edge-bearing child uses this to append its captured hop fragments to the
-   * parent's positive pattern — MATCH composes multiple edges from the same origin by AND (join).
+   * <p>Written for the Gremlin combinator path: an edge-bearing {@code and(...)} child appended its
+   * captured hop fragments to the parent's positive pattern, MATCH composing multiple edges from
+   * the same origin by AND (join). That path was rewritten and no longer merges two builders, so
+   * the only exerciser today is this class's own unit test. Retained rather than removed because
+   * this builder is the construction surface shared by the GQL and Gremlin MATCH front-ends, and
+   * pattern composition is the operation a second front-end is most likely to want back; a caller
+   * arriving later should not have to re-derive the duplicate-edge and filter-only-alias rules
+   * below.
    */
   public MatchPatternBuilder appendFrom(MatchPatternBuilder source) {
     checkNotBuilt();

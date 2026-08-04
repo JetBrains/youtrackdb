@@ -134,7 +134,13 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.aliasFilters).isEmpty();
   }
 
-  /** Path-scoped where whose child declines (e.g. {@code count()}) declines the whole filter. */
+  /**
+   * A path-scoped {@code where} whose child would also fail for a second reason still declines. The
+   * {@code count()} is not what stops it: the child's first step is the {@code WhereStartStep} the
+   * scope binding put there, so dispatch fails at index 0 and never reaches the count. The case is
+   * kept because the child shape is one a reader expects to see covered, but the mechanism it
+   * observes is the scope binding, the same as its two neighbours above.
+   */
   @Test
   public void whereTraversalStep_declinedChild_declines() {
     var admin = graph.traversal().V().as("a").where(__.as("a").count()).asAdmin();
