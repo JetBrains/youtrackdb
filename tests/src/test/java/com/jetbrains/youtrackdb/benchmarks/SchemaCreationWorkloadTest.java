@@ -57,9 +57,9 @@ public class SchemaCreationWorkloadTest {
 
   private static final String CSV_HEADER =
       "timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,indexes,"
-          + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,totalNs,schemaWorkMs,"
-          + "durabilityBarrierMs,totalMs,topLevelTransactions,unsafePropertyCreations,"
-          + "verificationRan,jvmArgs,assertionsEnabled,storageCallFsync,"
+          + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,"
+          + "shutdownNs,schemaWorkMs,durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,"
+          + "unsafePropertyCreations,verificationRan,jvmArgs,assertionsEnabled,storageCallFsync,"
           + "storageFullCheckpointAfterCreate,osOpenFileSoftLimit,osOpenFileHardLimit,"
           + "resolvedOpenFilesLimit,gitCommit,gitDirty,coreImplementationVersion,coreBuildNumber,"
           + "coreBuildVersion,coreCodeSource,javaVersion,osName,garbageCollectors,hostName,"
@@ -104,6 +104,17 @@ public class SchemaCreationWorkloadTest {
     completedRuns.add(runCase("per-class-unsafe", Policy.PER_CLASS, 50,
         PropertyPath.UNSAFE, 3, 9));
     completedRuns.add(runCase("all-unsafe", Policy.ALL, 50, PropertyPath.UNSAFE, 1, 9));
+    var barrierOff =
+        runCase("all-safe-no-barrier", Policy.ALL, 50, PropertyPath.SAFE, 1, 0, false);
+    completedRuns.add(barrierOff);
+    for (var phaseResult : barrierOff.phases()) {
+      assertFalse(phaseResult.durabilityBarrierRan());
+      assertEquals(0, phaseResult.durabilityBarrierNs());
+    }
+    var barrierOffRows = Files.readAllLines(
+        temporaryDirectory.resolve("all-safe-no-barrier/results.csv"), StandardCharsets.UTF_8);
+    assertTrue(barrierOffRows.stream().skip(1).allMatch(row -> csvField(row, 12).equals("0")));
+    assertTrue(barrierOffRows.stream().skip(1).allMatch(row -> csvField(row, 13).equals("false")));
 
     var splitDirectory = temporaryDirectory.resolve("split");
     var splitCsv = splitDirectory.resolve("results.csv");
@@ -280,6 +291,24 @@ public class SchemaCreationWorkloadTest {
       PropertyPath propertyPath,
       int expectedTransactions,
       int expectedUnsafeProperties) throws IOException {
+    return runCase(
+        name,
+        policy,
+        batchSize,
+        propertyPath,
+        expectedTransactions,
+        expectedUnsafeProperties,
+        true);
+  }
+
+  private RunResult runCase(
+      String name,
+      Policy policy,
+      int batchSize,
+      PropertyPath propertyPath,
+      int expectedTransactions,
+      int expectedUnsafeProperties,
+      boolean durabilityBarrier) throws IOException {
     var directory = temporaryDirectory.resolve(name);
     var csv = directory.resolve("results.csv");
     var result = SchemaCreationWorkload.run(configuration(
@@ -293,7 +322,8 @@ public class SchemaCreationWorkloadTest {
         Phase.AB,
         3,
         3,
-        3));
+        3,
+        durabilityBarrier));
     assertEquals(2, result.phases().size(), "AB must report one result for each phase");
     assertPhase(result, Phase.A, expectedTransactions, expectedUnsafeProperties);
     assertPhase(result, Phase.B, expectedTransactions, 0);
@@ -347,6 +377,34 @@ public class SchemaCreationWorkloadTest {
       int classes,
       int properties,
       int indexes) {
+    return configuration(
+        databasePath,
+        databaseName,
+        csv,
+        manifest,
+        policy,
+        batchSize,
+        propertyPath,
+        phase,
+        classes,
+        properties,
+        indexes,
+        true);
+  }
+
+  private static Configuration configuration(
+      Path databasePath,
+      String databaseName,
+      Path csv,
+      Path manifest,
+      Policy policy,
+      int batchSize,
+      PropertyPath propertyPath,
+      Phase phase,
+      int classes,
+      int properties,
+      int indexes,
+      boolean durabilityBarrier) {
     return new Configuration(
         classes,
         properties,
@@ -361,6 +419,7 @@ public class SchemaCreationWorkloadTest {
         csv,
         manifest,
         true,
+        durabilityBarrier,
         "smoke");
   }
 
@@ -371,7 +430,7 @@ public class SchemaCreationWorkloadTest {
     assertEquals(expectedDataRows + 1, lines.size(), "CSV must contain one row per phase");
     assertEquals(1, lines.stream().filter(CSV_HEADER::equals).count(),
         "CSV header must occur exactly once");
-    assertTrue(lines.stream().skip(1).allMatch(line -> csvField(line, 19).equals("true")),
+    assertTrue(lines.stream().skip(1).allMatch(line -> csvField(line, 22).equals("true")),
         "verified runs must record verificationRan=true");
 
     var details = Files.readAllLines(result.detailFile(), StandardCharsets.UTF_8);

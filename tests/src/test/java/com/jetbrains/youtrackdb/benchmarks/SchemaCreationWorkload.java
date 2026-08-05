@@ -92,6 +92,9 @@ import java.util.stream.Collectors;
  *       target/benchmark-results/manifest.txt}</td><td>Sets the canonical manifest file.</td></tr>
  *   <tr><td>{@code bench.verify}</td><td>{@code true}</td><td>Verifies persistence. It also proves
  *       indexes after phase B.</td></tr>
+ *   <tr><td>{@code bench.durabilityBarrier}</td><td>{@code true}</td><td>Synchronizes storage after
+ *       each phase when true. When false, deferred work may land in the next phase or at
+ *       shutdown.</td></tr>
  *   <tr><td>{@code bench.label}</td><td>empty</td><td>Sets the free-text result label.</td></tr>
  * </table>
  *
@@ -120,8 +123,10 @@ import java.util.stream.Collectors;
  * <p>One instrumentation count:
  * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.verify=false -Dbench.jvmAddArgs="-agentpath:/path/to/libasyncProfiler.so=start,event=alloc,interval=0,file=alloc.jfr" verify}</pre>
  *
- * <p>Compare {@code totalNs}. It adds schema work to the durability barrier. Never compare {@code
- * schemaWorkNs} alone. Transactional work can remain pending until storage synchronization.
+ * <p>The schema-work time is the latency a user feels while the schema is created. This number
+ * matches the reported complaint. The barrier time and the shutdown time show where deferred work
+ * lands. Their sum with the schema-work time shows whether a policy removes work or only moves it.
+ * No single number is the answer. A conclusion must name which of the three it uses and why.
  *
  * <p>Turn verification off for every profiling run. Otherwise the profile includes manifest work,
  * database reopen, proof-record insertion, and index lookup. Use one profiler event per run. Run
@@ -141,9 +146,9 @@ public final class SchemaCreationWorkload {
   private static final String CLASS_PREFIX = "TestClass";
   private static final String CSV_HEADER =
       "timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,indexes,"
-          + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,totalNs,schemaWorkMs,"
-          + "durabilityBarrierMs,totalMs,topLevelTransactions,unsafePropertyCreations,"
-          + "verificationRan,jvmArgs,"
+          + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,"
+          + "shutdownNs,schemaWorkMs,durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,"
+          + "unsafePropertyCreations,verificationRan,jvmArgs,"
           + "assertionsEnabled,storageCallFsync,storageFullCheckpointAfterCreate,"
           + "osOpenFileSoftLimit,osOpenFileHardLimit,resolvedOpenFilesLimit,gitCommit,gitDirty,"
           + "coreImplementationVersion,coreBuildNumber,coreBuildVersion,coreCodeSource,javaVersion,"
@@ -196,8 +201,14 @@ public final class SchemaCreationWorkload {
   private RunResult runInternal(Configuration config, SessionListener listener) throws IOException {
     var runId = UUID.randomUUID().toString();
     var phaseResults = new ArrayList<PhaseResult>();
-    StorageEnvironment storageEnvironment;
-    try (var manager = manager(config.dbPath)) {
+    StorageEnvironment storageEnvironment = null;
+    YouTrackDBImpl manager = null;
+    DatabaseSessionEmbedded session = null;
+    Throwable workFailure = null;
+    Throwable closeFailure = null;
+    long shutdownNs;
+    try {
+      manager = manager(config.dbPath);
       if (config.phase != Phase.B) {
         if (manager.exists(config.dbName)) {
           manager.drop(config.dbName);
@@ -207,27 +218,53 @@ public final class SchemaCreationWorkload {
         throw new IllegalStateException("Phase B requires existing database " + config.dbName);
       }
 
-      try (var session = manager.open(config.dbName, USER, PASSWORD)) {
-        if (listener != null) {
-          session.registerListener(listener);
-        }
-        storageEnvironment = captureStorageEnvironment(session);
-        if (config.phase.runsA()) {
-          phaseResults.add(
-              runPhase(config, session, Phase.A, this::createClassAndProperties));
-        }
-        if (config.phase.runsB()) {
-          phaseResults.add(runPhase(config, session, Phase.B, this::createIndexes));
-        }
+      session = manager.open(config.dbName, USER, PASSWORD);
+      if (listener != null) {
+        session.registerListener(listener);
       }
+      storageEnvironment = captureStorageEnvironment(session);
+      if (config.phase.runsA()) {
+        phaseResults.add(runPhase(config, session, Phase.A, this::createClassAndProperties));
+      }
+      if (config.phase.runsB()) {
+        phaseResults.add(runPhase(config, session, Phase.B, this::createIndexes));
+      }
+    } catch (Throwable failure) {
+      workFailure = failure;
+    } finally {
+      var shutdownStart = System.nanoTime();
+      closeFailure = closeFirstSessionAndManager(session, manager);
+      shutdownNs = System.nanoTime() - shutdownStart;
     }
 
-    var manifest = config.verify ? Optional.of(verify(config)) : Optional.<String>empty();
+    if (workFailure != null) {
+      if (closeFailure != null) {
+        workFailure.addSuppressed(closeFailure);
+      }
+      rethrow(workFailure);
+    }
+
+    var manifest = Optional.<String>empty();
+    var verificationRan = false;
+    if (closeFailure == null && config.verify) {
+      manifest = Optional.of(verify(config));
+      verificationRan = true;
+    }
     var runtimeEnvironment = captureRuntimeEnvironment();
     var detailFile = detailFile(config.resultFile);
     for (var result : phaseResults) {
-      appendCsv(config, runId, result, storageEnvironment, runtimeEnvironment);
+      appendCsv(
+          config,
+          runId,
+          result,
+          shutdownNs,
+          verificationRan,
+          storageEnvironment,
+          runtimeEnvironment);
       appendTimingDetails(detailFile, runId, result);
+    }
+    if (closeFailure != null) {
+      rethrow(closeFailure);
     }
     return new RunResult(
         runId,
@@ -235,7 +272,8 @@ public final class SchemaCreationWorkload {
         manifest,
         config.manifestFile,
         detailFile,
-        config.verify && config.phase.runsB());
+        shutdownNs,
+        verificationRan && config.phase.runsB());
   }
 
   private PhaseResult runPhase(
@@ -271,11 +309,14 @@ public final class SchemaCreationWorkload {
     }
 
     // AbstractStorage.synch() freezes writes, flushes index engines and dirty histograms, flushes
-    // all storage data and the WAL, then unfreezes writes. This is the durability work that would
-    // otherwise be deferred until storage shutdown and hidden from the mode comparison.
-    var durabilityStart = System.nanoTime();
-    session.getStorage().synch();
-    var durabilityBarrierNs = System.nanoTime() - durabilityStart;
+    // all storage data and the WAL, then unfreezes writes. Disabling it preserves the natural flow
+    // in which deferred work may land in the next phase or in the measured shutdown.
+    var durabilityBarrierNs = 0L;
+    if (config.durabilityBarrier) {
+      var durabilityStart = System.nanoTime();
+      session.getStorage().synch();
+      durabilityBarrierNs = System.nanoTime() - durabilityStart;
+    }
     var totalNs = schemaWorkNs + durabilityBarrierNs;
     System.out.printf(
         "Finished phase %s: schema %,d ms, durability %,d ms, total %,d ms%n",
@@ -287,6 +328,7 @@ public final class SchemaCreationWorkload {
         phase,
         schemaWorkNs,
         durabilityBarrierNs,
+        config.durabilityBarrier,
         totalNs,
         transactionCount,
         counters.unsafePropertyCreations,
@@ -480,6 +522,8 @@ public final class SchemaCreationWorkload {
       Configuration config,
       String runId,
       PhaseResult result,
+      long shutdownNs,
+      boolean verificationRan,
       StorageEnvironment storage,
       RuntimeEnvironment runtime) throws IOException {
     var values = List.of(
@@ -496,13 +540,16 @@ public final class SchemaCreationWorkload {
         Boolean.toString(config.uniquePropertyNames),
         Long.toString(result.schemaWorkNs),
         Long.toString(result.durabilityBarrierNs),
+        Boolean.toString(result.durabilityBarrierRan),
         Long.toString(result.totalNs),
+        Long.toString(shutdownNs),
         Long.toString(TimeUnit.NANOSECONDS.toMillis(result.schemaWorkNs)),
         Long.toString(TimeUnit.NANOSECONDS.toMillis(result.durabilityBarrierNs)),
         Long.toString(TimeUnit.NANOSECONDS.toMillis(result.totalNs)),
+        Long.toString(TimeUnit.NANOSECONDS.toMillis(shutdownNs)),
         Integer.toString(result.topLevelTransactions),
         Integer.toString(result.unsafePropertyCreations),
-        Boolean.toString(config.verify),
+        Boolean.toString(verificationRan),
         runtime.jvmArgs,
         Boolean.toString(runtime.assertionsEnabled),
         Boolean.toString(storage.callFsync),
@@ -721,6 +768,43 @@ public final class SchemaCreationWorkload {
     return (YouTrackDBImpl) YourTracks.instance(databasePath.toString());
   }
 
+  private static Throwable closeFirstSessionAndManager(
+      DatabaseSessionEmbedded session, YouTrackDBImpl manager) {
+    Throwable failure = null;
+    if (session != null) {
+      try {
+        session.close();
+      } catch (Throwable closeFailure) {
+        failure = closeFailure;
+      }
+    }
+    if (manager != null) {
+      try {
+        manager.close();
+      } catch (Throwable closeFailure) {
+        if (failure == null) {
+          failure = closeFailure;
+        } else {
+          failure.addSuppressed(closeFailure);
+        }
+      }
+    }
+    return failure;
+  }
+
+  private static void rethrow(Throwable failure) throws IOException {
+    if (failure instanceof IOException ioFailure) {
+      throw ioFailure;
+    }
+    if (failure instanceof RuntimeException runtimeFailure) {
+      throw runtimeFailure;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    throw new IOException("Benchmark failed", failure);
+  }
+
   private static void createParentDirectories(Path file) throws IOException {
     var parent = file.toAbsolutePath().getParent();
     if (parent != null) {
@@ -786,6 +870,7 @@ public final class SchemaCreationWorkload {
       Phase phase,
       long schemaWorkNs,
       long durabilityBarrierNs,
+      boolean durabilityBarrierRan,
       long totalNs,
       int topLevelTransactions,
       int unsafePropertyCreations,
@@ -810,6 +895,7 @@ public final class SchemaCreationWorkload {
       Optional<String> manifestText,
       Path manifestFile,
       Path detailFile,
+      long shutdownNs,
       boolean functionalIndexProofRan) {
   }
 
@@ -859,6 +945,7 @@ public final class SchemaCreationWorkload {
       Path resultFile,
       Path manifestFile,
       boolean verify,
+      boolean durabilityBarrier,
       String label) {
 
     private static Configuration fromSystemProperties(
@@ -880,6 +967,7 @@ public final class SchemaCreationWorkload {
           Path.of(systemProperty(
               "bench.manifestFile", "target/benchmark-results/manifest.txt")),
           Boolean.parseBoolean(systemProperty("bench.verify", "true")),
+          Boolean.parseBoolean(systemProperty("bench.durabilityBarrier", "true")),
           systemProperty("bench.label", ""));
     }
 
