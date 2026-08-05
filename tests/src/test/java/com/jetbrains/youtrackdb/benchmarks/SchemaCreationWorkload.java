@@ -120,8 +120,12 @@ import java.util.stream.Collectors;
  * <p>One sampling profile:
  * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.verify=false -Dbench.jvmAddArgs="-agentpath:/path/to/libasyncProfiler.so=start,event=cpu,file=cpu.jfr" verify}</pre>
  *
- * <p>One instrumentation count:
- * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.verify=false -Dbench.jvmAddArgs="-agentpath:/path/to/libasyncProfiler.so=start,event=alloc,interval=0,file=alloc.jfr" verify}</pre>
+ * <p>One instrumentation count for the selective schema-serialization overload:
+ * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.mainClass=com.jetbrains.youtrackdb.benchmarks.TxSchemaCreationBenchmark -Dbench.verify=false -Dbench.jvmAddArgs="-agentpath:/path/to/libasyncProfiler.so=start,event=com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared.toStream(Lcom/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded;Ljava/util/Set;Z)Lcom/jetbrains/youtrackdb/internal/core/record/impl/EntityImpl;,file=schema-serialization.html" verify}</pre>
+ *
+ * <p>{@code SchemaShared.toStream} has two overloads. An event that ends at the method name counts
+ * entries to both. Append the JVM method descriptor to select one overload; the command above uses
+ * {@code (Lcom/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded;Ljava/util/Set;Z)Lcom/jetbrains/youtrackdb/internal/core/record/impl/EntityImpl;} to select the three-argument overload.
  *
  * <p>The schema-work time is the latency a user feels while the schema is created. This number
  * matches the reported complaint. The barrier time and the shutdown time show where deferred work
