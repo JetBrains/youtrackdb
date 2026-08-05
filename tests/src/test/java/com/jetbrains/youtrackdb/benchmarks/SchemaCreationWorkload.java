@@ -125,8 +125,14 @@ import java.util.stream.Collectors;
  *
  * <p>The schema-work time is the latency a user feels while the schema is created. This number
  * matches the reported complaint. The barrier time and the shutdown time show where deferred work
- * lands. Their sum with the schema-work time shows whether a policy removes work or only moves it.
- * No single number is the answer. A conclusion must name which of the three it uses and why.
+ * lands. {@code totalNs} contains the schema-work time and the barrier time. It does not contain
+ * the shutdown time. Their sum with the shutdown time shows whether a policy removes work or only
+ * moves it. No single number is the answer. A conclusion must name which of the three it uses and
+ * why.
+ *
+ * <p>The harness measures shutdown once per run. It repeats that value on every phase row in the
+ * run. Deduplicate shutdown by {@code runId} before summing rows, or the sum counts shutdown more
+ * than once.
  *
  * <p>Turn verification off for every profiling run. Otherwise the profile includes manifest work,
  * database reopen, proof-record insertion, and index lookup. Use one profiler event per run. Run
@@ -148,7 +154,7 @@ public final class SchemaCreationWorkload {
       "timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,indexes,"
           + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,"
           + "shutdownNs,schemaWorkMs,durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,"
-          + "unsafePropertyCreations,verificationRan,jvmArgs,"
+          + "unsafePropertyCreations,verificationState,jvmArgs,"
           + "assertionsEnabled,storageCallFsync,storageFullCheckpointAfterCreate,"
           + "osOpenFileSoftLimit,osOpenFileHardLimit,resolvedOpenFilesLimit,gitCommit,gitDirty,"
           + "coreImplementationVersion,coreBuildNumber,coreBuildVersion,coreCodeSource,javaVersion,"
@@ -245,10 +251,14 @@ public final class SchemaCreationWorkload {
     }
 
     var manifest = Optional.<String>empty();
-    var verificationRan = false;
-    if (closeFailure == null && config.verify) {
-      manifest = Optional.of(verify(config));
-      verificationRan = true;
+    var verificationState = VerificationState.NOT_REQUESTED;
+    if (config.verify) {
+      if (closeFailure == null) {
+        manifest = Optional.of(verify(config));
+        verificationState = VerificationState.COMPLETED;
+      } else {
+        verificationState = VerificationState.SKIPPED_CLOSE_FAILED;
+      }
     }
     var runtimeEnvironment = captureRuntimeEnvironment();
     var detailFile = detailFile(config.resultFile);
@@ -258,7 +268,7 @@ public final class SchemaCreationWorkload {
           runId,
           result,
           shutdownNs,
-          verificationRan,
+          verificationState,
           storageEnvironment,
           runtimeEnvironment);
       appendTimingDetails(detailFile, runId, result);
@@ -273,7 +283,8 @@ public final class SchemaCreationWorkload {
         config.manifestFile,
         detailFile,
         shutdownNs,
-        verificationRan && config.phase.runsB());
+        verificationState,
+        verificationState == VerificationState.COMPLETED && config.phase.runsB());
   }
 
   private PhaseResult runPhase(
@@ -312,10 +323,12 @@ public final class SchemaCreationWorkload {
     // all storage data and the WAL, then unfreezes writes. Disabling it preserves the natural flow
     // in which deferred work may land in the next phase or in the measured shutdown.
     var durabilityBarrierNs = 0L;
+    var durabilityBarrierRan = false;
     if (config.durabilityBarrier) {
       var durabilityStart = System.nanoTime();
       session.getStorage().synch();
       durabilityBarrierNs = System.nanoTime() - durabilityStart;
+      durabilityBarrierRan = true;
     }
     var totalNs = schemaWorkNs + durabilityBarrierNs;
     System.out.printf(
@@ -328,7 +341,7 @@ public final class SchemaCreationWorkload {
         phase,
         schemaWorkNs,
         durabilityBarrierNs,
-        config.durabilityBarrier,
+        durabilityBarrierRan,
         totalNs,
         transactionCount,
         counters.unsafePropertyCreations,
@@ -523,7 +536,7 @@ public final class SchemaCreationWorkload {
       String runId,
       PhaseResult result,
       long shutdownNs,
-      boolean verificationRan,
+      VerificationState verificationState,
       StorageEnvironment storage,
       RuntimeEnvironment runtime) throws IOException {
     var values = List.of(
@@ -549,7 +562,7 @@ public final class SchemaCreationWorkload {
         Long.toString(TimeUnit.NANOSECONDS.toMillis(shutdownNs)),
         Integer.toString(result.topLevelTransactions),
         Integer.toString(result.unsafePropertyCreations),
-        Boolean.toString(verificationRan),
+        verificationState.name(),
         runtime.jvmArgs,
         Boolean.toString(runtime.assertionsEnabled),
         Boolean.toString(storage.callFsync),
@@ -839,6 +852,10 @@ public final class SchemaCreationWorkload {
     SAFE, UNSAFE
   }
 
+  public enum VerificationState {
+    NOT_REQUESTED, COMPLETED, SKIPPED_CLOSE_FAILED
+  }
+
   public enum Phase {
     A, B, AB;
 
@@ -896,6 +913,7 @@ public final class SchemaCreationWorkload {
       Path manifestFile,
       Path detailFile,
       long shutdownNs,
+      VerificationState verificationState,
       boolean functionalIndexProofRan) {
   }
 

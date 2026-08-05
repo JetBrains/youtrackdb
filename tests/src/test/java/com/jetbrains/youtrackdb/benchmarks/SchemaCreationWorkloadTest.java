@@ -59,7 +59,7 @@ public class SchemaCreationWorkloadTest {
       "timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,indexes,"
           + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,"
           + "shutdownNs,schemaWorkMs,durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,"
-          + "unsafePropertyCreations,verificationRan,jvmArgs,assertionsEnabled,storageCallFsync,"
+          + "unsafePropertyCreations,verificationState,jvmArgs,assertionsEnabled,storageCallFsync,"
           + "storageFullCheckpointAfterCreate,osOpenFileSoftLimit,osOpenFileHardLimit,"
           + "resolvedOpenFilesLimit,gitCommit,gitDirty,coreImplementationVersion,coreBuildNumber,"
           + "coreBuildVersion,coreCodeSource,javaVersion,osName,garbageCollectors,hostName,"
@@ -327,6 +327,16 @@ public class SchemaCreationWorkloadTest {
     assertEquals(2, result.phases().size(), "AB must report one result for each phase");
     assertPhase(result, Phase.A, expectedTransactions, expectedUnsafeProperties);
     assertPhase(result, Phase.B, expectedTransactions, 0);
+    for (var phaseResult : result.phases()) {
+      assertEquals(durabilityBarrier, phaseResult.durabilityBarrierRan());
+      if (durabilityBarrier) {
+        assertTrue(phaseResult.durabilityBarrierNs() > 0,
+            "an executed barrier must have a positive duration");
+      } else {
+        assertEquals(0, phaseResult.durabilityBarrierNs());
+      }
+    }
+    assertTrue(result.shutdownNs() > 0, "shutdown must have a positive duration");
     assertCsvAndDetails(result, csv, 2, 6);
     return result;
   }
@@ -430,8 +440,26 @@ public class SchemaCreationWorkloadTest {
     assertEquals(expectedDataRows + 1, lines.size(), "CSV must contain one row per phase");
     assertEquals(1, lines.stream().filter(CSV_HEADER::equals).count(),
         "CSV header must occur exactly once");
-    assertTrue(lines.stream().skip(1).allMatch(line -> csvField(line, 22).equals("true")),
-        "verified runs must record verificationRan=true");
+    assertTrue(lines.stream().skip(1)
+        .allMatch(line -> csvField(line, 22).equals("COMPLETED")),
+        "verified runs must record verificationState=COMPLETED");
+    assertTrue(result.shutdownNs() > 0, "the returned shutdown time must be positive");
+    for (var line : lines.stream()
+        .skip(1)
+        .filter(row -> csvField(row, 1).equals(result.runId()))
+        .toList()) {
+      var phase = Phase.valueOf(csvField(line, 6));
+      var phaseResult = result.phases().stream()
+          .filter(candidate -> candidate.phase() == phase)
+          .findFirst()
+          .orElseThrow();
+      assertEquals(phaseResult.durabilityBarrierNs(), Long.parseLong(csvField(line, 12)));
+      assertEquals(
+          phaseResult.durabilityBarrierRan(), Boolean.parseBoolean(csvField(line, 13)));
+      assertEquals(result.shutdownNs(), Long.parseLong(csvField(line, 15)));
+      assertTrue(Long.parseLong(csvField(line, 15)) > 0,
+          "the CSV shutdown time must be positive");
+    }
 
     var details = Files.readAllLines(result.detailFile(), StandardCharsets.UTF_8);
     assertEquals(DETAIL_HEADER, details.getFirst());
