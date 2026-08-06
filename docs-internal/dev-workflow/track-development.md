@@ -56,28 +56,32 @@ owned by track-workflow.md § Peer review.
 
 ## Verification integration
 
-This section is the authoritative verification protocol for work inside a track. The
-always-injected `docs-internal/agents/orchestrator-guidelines.md` and
+This section owns the *mechanics* of verification inside a track: which command gates a
+commit, how the module sets are computed, when the expensive gate re-runs, and how coverage
+is measured. The always-injected `docs-internal/agents/orchestrator-guidelines.md` and
 `docs-internal/agents/thread-guidelines.md` carry only the short rule plus a pointer here,
-per AGENTS.md § Load Guidance Documents on Demand — so everything an agent needs to execute
-a gate is below, not there. What stays owned elsewhere: the 85%/70% thresholds and the
-test-authorship obligation (orchestrator-guidelines § Test Policy), the integration-test
-decision rules and the serial-test-execution scheduling invariant
+per AGENTS.md § Load Guidance Documents on Demand. Ownership is split rather than
+duplicated — these rules stay where they are and are not restated below: the 85%/70%
+thresholds and the test-authorship obligation (orchestrator-guidelines § Test Policy), the
+integration-test decision rules and the serial-test-execution scheduling invariant
 (orchestrator-guidelines § Pre-Commit Verification), and the raw build-command catalogue
-(thread-guidelines § Build Commands).
+(thread-guidelines § Build Commands). Read those for the rules they own; read this for how a
+gate is executed.
 
-Verification is attached to two distinct events, not to every commit. Intermediate commits
+Verification is attached to distinct events, not to every commit. Intermediate commits
 inside a track never reach `develop` — one PR is one squashed commit — so a per-commit unit
 test and coverage rule buys latency on every step and protects nothing that survives the
-merge. The cheap gate runs on every commit; the expensive gate runs once per track, at the
-point where its result is actually read.
+merge. The cheap gate runs on every commit. The expensive gate runs at least once per track,
+before that track's agent code review, and again before the track's closing event whenever
+anything but prose landed in between — the re-run rule below decides. It is a per-track gate
+rather than a per-commit one, but not a strictly once-per-track one either.
 
 ### Mid-track commit gate
 
 A commit inside a track requires exactly this to pass:
 
 ```bash
-./mvnw -pl <affected modules> -am test-compile
+./mvnw -pl <modules with changed files> -am -amd test-compile
 ```
 
 No unit tests, no integration tests, no coverage. `test-compile` is the floor rather than
@@ -94,57 +98,115 @@ annotation-processor resolution channel as well — with the processor deliberat
 the reactor build used the freshly built processor rather than the installed jar. It costs
 nothing worth optimizing: about 40s with versus 48s without on `core`.
 
-**Shading exception.** A change that affects the `embedded` module's shaded artifact uses
-`./mvnw -pl embedded -am package` instead, because shading binds to the `package` phase and
-`test-compile` never exercises it.
+**`-amd` is what reaches downstream consumers.** `-am` (`--also-make`) adds the *upstream*
+dependencies of the named modules; `-amd` (`--also-make-dependents`) adds the *downstream*
+modules that depend on them. They select opposite directions of the dependency graph, so
+neither substitutes for the other, and the compile gate needs both: `-am` so siblings are
+built from the working tree instead of resolved from the local repository, `-amd` so a
+consumer that no longer compiles against a changed API is not invisible. On a widely
+consumed module such as `core` this expands to a near-reactor-wide `test-compile`; that
+expansion is the intent of the gate, not an accident of the flag. Enumerating consumers by
+hand in `-pl` instead is allowed, but then the completeness of the downstream set is yours
+to justify.
+
+**Shading exception.** A change that affects the `embedded` module's shaded artifact
+replaces the phase in the command above, because shading binds to the `package` phase and
+`test-compile` never exercises it:
+
+```bash
+./mvnw -pl embedded -am -amd package -DskipTests
+```
+
+`-DskipTests` is not optional here — it is what keeps this variant consistent with "no unit
+tests at the mid-track gate". A bare `package` runs surefire, including the Cucumber suites
+configured in `embedded`, turning a compile gate into a full test run. Do not reach for
+`-Dmaven.test.skip=true` instead: it also skips test *compilation*, which is exactly what
+`test-compile` was chosen to protect.
+
+**Build files that belong to no module.** The root `pom.xml`, `.mvn/jvm.config`, and
+`project-config/eclipse-formatter.xml` affect every module and live in none, so module
+selection has nothing to name. Their compile gate is reactor-wide — no `-pl`, so no `-am` or
+`-amd` either:
+
+```bash
+./mvnw test-compile
+```
 
 **No-Maven changes.** A change with no Java files and no module content — documentation,
 `.pi/` configuration, prompts — carries no Maven gate at all. There is nothing for
 `test-compile` to say about it.
 
-### What "affected modules" means
+### Two module sets: compile gate vs test gates
 
-Affected modules are the modules containing changed files **plus their downstream consumers
-in the reactor**. `-am` builds upstream dependencies only, so a downstream module that no
-longer compiles against the change is invisible unless it is named in `-pl`. A change to a
-widely consumed API surface therefore uses a reactor-wide `test-compile` rather than an
-enumeration.
+"Affected modules" is not a single set. The compile gate and the test gates need different
+ones, and carrying the compile-gate definition into a test gate silently converts it into a
+reactor-wide test run — the exact cost this protocol exists to avoid.
 
-Downstream consumers are read off the reactor order, which Maven resolves from the
-dependency graph (it is not the module order listed in the root `pom.xml`):
+**Compile-gate set** — the modules containing changed files **plus their downstream
+consumers in the reactor**, which is what `-am -amd` expresses. This set is deliberately
+wide: building dependents is cheap at `test-compile` and it is the only thing that catches
+an API break in a consumer. Do not narrow it. A green `-pl core -am test-compile` says
+nothing about whether `server` still compiles.
+
+**Test-gate set** — the modules containing changed files, plus any downstream module whose
+own tests exercise the changed behavior. There is no automatic `-amd` fan-out here: a
+dependent that merely compiles against a changed API is already covered by the compile gate,
+and re-running its suites costs tens of minutes for no new signal. This is the set the
+end-of-track gate below and § After the flip call the test-gate modules, and the set the
+short "affected modules" phrasing in the guideline documents refers to. When the changed
+behavior does reach a dependent's tests, name that dependent in `-pl` explicitly rather than
+switching the run to `-amd`.
+
+For the build files that belong to no module, the compile-gate set is the whole reactor (as
+above) and the test-gate set is the modules whose behavior the change can actually alter — a
+dependency-version bump in the root `pom.xml` means the modules consuming that dependency —
+falling back to the whole reactor when the change cannot be bounded that way.
+
+Both sets are read off the reactor order, which Maven resolves from the dependency graph (it
+is not the module order listed in the root `pom.xml`):
 
 > youtrackdb-parent → test-commons → gremlin-annotations → core → driver → server → tests
 > → embedded → examples → console → docker-tests → jmh-ldbc
 
-Everything to the right of a changed module is a candidate consumer; include those that
-actually depend on it.
+Everything to the right of a changed module is a candidate consumer; only those that
+actually depend on it are consumers. `-amd` computes that for you at the compile gate; read
+the order when you need to predict what `-amd` will pull in, or to bound a test-gate set by
+hand.
 
 ### End-of-track gate
 
 At the end of each track's implementation, and **before** that track's agent code review,
 the full verification runs:
 
-1. **Unit tests** for the affected modules, green.
+1. **Unit tests** for the test-gate modules, green.
 2. **Integration tests** (`-P ci-integration-tests`) where the change hits areas the
    integration-test decision rules in orchestrator-guidelines § Pre-Commit Verification
    name — storage, WAL, index, Gremlin integration, transaction handling.
 3. **The coverage gate** at 85% line / 70% branch over the changed lines, run by the
    procedure below.
 
-The placement matters in both directions. Gating only at the marker commit would have
-reviewers reviewing unverified code; gating only before the review would let review-fix
-commits land unverified. Both holes are closed by the pre-review gate plus the re-run rule
-below.
+The placement matters in both directions. Gating only at the track's closing event (below)
+would have reviewers reviewing unverified code; gating only before the review would let
+review-fix commits land unverified. Both holes are closed by the pre-review gate plus the
+re-run rule below.
 
 **This applies at every tier, including single-track changes.** A single-track change has
 no marker commit, but it still runs the gate before its agent code review — not merely
 before the ready-for-review flip. Exempting the most common tier would reinstate exactly
 the defect the pre-review placement exists to remove.
 
-### Re-running the gate before the marker commit
+### Re-running the gate before the track's closing event
 
-The gate must be re-run before the track's marker commit **unless every commit landed since
+Every track has a **closing event**: the marker commit for a track inside a multi-track
+change, and the ready-for-review flip for a single-track change, which has no marker commit.
+
+The gate must be re-run before the track's closing event **unless every commit landed since
 the gate is provably outcome-neutral — documentation or comments only.**
+
+The obligation is keyed to the closing event rather than to the marker commit on purpose. A
+marker-commit trigger leaves single-track changes — the most common tier — with no trigger
+at all, while review-fix commits, the very commits this rule exists to catch, are as common
+there as anywhere else.
 
 This is deliberately an exclusion rule, not an allowlist of "safe" paths. Stating it as
 "re-run unless nothing but prose changed" covers build-affecting files by construction:
@@ -152,9 +214,12 @@ module POMs, `.mvn/jvm.config`, and formatter configuration all change the outco
 build without being source files, and none of them has to be remembered and listed. If you
 cannot show that the only thing that changed was prose, re-run.
 
-**Approval reopening.** Any commit that lands after the user has approved the track's gate
-result reopens the user review for those commits, before the marker commit is made. A
-marker commit never certifies code the user has not seen.
+**Approval reopening.** The approval in question is the MANDATORY user review of the track
+(`.pi/npm/node_modules/ytdb-slate/docs/track-workflow.md` § Track loop, step 4) — there is
+no separate "gate approval" event to look for. Any commit that lands after that review has
+approved the track reopens it for those commits, before the closing event. A marker commit
+never certifies code the user has not seen, and the same holds for the ready-for-review flip
+of a single-track change.
 
 ### Coverage measurement procedure
 
@@ -232,13 +297,16 @@ not required; committing on top of a build or test run you watched fail is forbi
 keep the rule checkable rather than aspirational, the agent reports which gate command it
 ran and what the outcome was — the command line and its result, not an assurance.
 
-**Landing red** is possible only with explicit user approval, recorded in the PR's Risks &
-accepted trade-offs, naming the failing tests and the track that will fix them.
+**Landing red is the one carve-out from that prohibition**, and it is not one the agent may
+take on its own. It requires explicit user approval, recorded in the PR's Risks & accepted
+trade-offs, naming the failing tests and the track that will fix them. With that record in
+place the track may close over precisely the named red result. Everything else stays
+under the prohibition — any red result not named in that record still blocks the commit.
 
 ### After the flip
 
-Any post-flip commit that touches code runs the affected-module tests before being pushed.
-Once the PR is non-draft, CI enforces on every push regardless — including the coverage
+Any post-flip commit that touches code runs the test-gate modules' tests before being
+pushed. Once the PR is non-draft, CI enforces on every push regardless — including the coverage
 gate, which runs only on non-draft PRs and so re-engages automatically at the
 ready-for-review flip. During the draft phase there is no CI at all, which is why the
 end-of-track gate is the only verification signal that exists while a track is being
