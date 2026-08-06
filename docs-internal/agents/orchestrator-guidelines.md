@@ -27,31 +27,24 @@ prompt, config, or doc is a repository change and takes the same gates.
 - **All code changes must have associated tests** that cover the new or modified behavior.
 - **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
-- **Coverage target**: 85% line coverage and 70% branch coverage for new/changed code (enforced by CI coverage gate).
-- **Coverage verification**: Always check coverage with the `.github/scripts/coverage-gate.py` script instead of computing it by hand — the exact invocation and the reason manual arithmetic gives wrong results are in `docs-internal/agents/thread-guidelines.md`.
+- **Coverage target**: 85% line coverage and 70% branch coverage for new/changed code.
 
-## Pre-Commit Verification
+How to run and diagnose coverage verification is defined in
+`docs-internal/dev-workflow/coverage-verification.md`.
 
-**Every task MUST be verified before committing.** The decision rules are below; the exact
-`./mvnw` command lines are in `docs-internal/agents/thread-guidelines.md`.
+## Verification Gates
 
-1. **Run unit tests** for the affected module(s) before committing. If unsure which modules are
-   affected, run the full unit test suite.
-2. **Run related integration tests** (`-P ci-integration-tests`) if the change touches areas
-   covered by integration tests.
-3. **Check coverage of changed code** by running tests with the `coverage` profile and verifying
-   coverage locally with `.github/scripts/coverage-gate.py` against the thresholds in
-   [Test Policy](#test-policy) above. If coverage is below the threshold, add or improve tests
-   for uncovered lines before committing.
-4. **Do not commit if tests fail.** Fix the failures first, then re-run the tests.
-5. **Determining which tests to run:**
-   - Changes to `core` module: always run the `core` unit tests
-   - Changes to `server` module: run the `server` unit tests
-   - Changes to storage, WAL, or index code: also run integration tests
-   - Changes to Gremlin integration or transaction handling: also run integration tests
-   - Changes to `embedded` module: run the `embedded` unit tests (includes Cucumber feature tests)
-   - Changes to `tests` module: run the `tests` module unit tests
-   - If in doubt, run the full unit test suite
+Mid-track commits run `./mvnw -pl <modules with changed files> -am -amd test-compile` over the
+compile-gate set. At the end of a track's implementation, before its agent code review, full
+verification runs at every
+tier: unit tests for the test-gate set, integration tests under the decision rules below, and
+coverage at the 85% line / 70% branch thresholds. The complete gate protocol — including module
+selection, exceptions, and re-run rules — is in
+`docs-internal/dev-workflow/track-development.md` § Verification integration.
+
+Run related integration tests (`-P ci-integration-tests`) when a change touches areas covered by
+integration tests; storage, WAL, index, Gremlin integration, and transaction handling are examples.
+If in doubt, run the full unit test suite.
 
 ### Serial Test Execution (Scheduling Invariant)
 
@@ -70,7 +63,11 @@ dispatch a build there while another build or test run is in progress.
 - `main` - Used for delivery of artifacts once all tests on `develop` have passed (auto-merged from develop nightly after integration tests pass)
 
 ### Commit Messages
-- Commit-message format and rules live in `docs-internal/agents/thread-guidelines.md` § Committing — workers execute the commits, so supply the intended message (or point at that section) when dispatching a commit task.
+- Commit-message format and rules live in `docs-internal/agents/thread-guidelines.md`
+  § Committing — workers execute the commits, so supply the intended message (or point at that
+  section) when dispatching a commit task. Never commit over a red result actually observed;
+  running tests mid-track is not required. See
+  `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
 ### Force Pushing
 - **Always use `--force-with-lease`** instead of `--force` when force pushing. This prevents accidentally overwriting commits pushed by others since your last fetch.

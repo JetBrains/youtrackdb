@@ -19,11 +19,15 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # Run integration tests (separate from PR pipeline, used by nightly CI)
 ./mvnw clean verify -P ci-integration-tests
 
-# Run integration tests for the affected module(s)
+# Run integration tests for one module
 ./mvnw -pl core clean verify -P ci-integration-tests
 
-# If changes span multiple modules, test all affected ones
+# If the test-gate set spans multiple modules, test them all
 ./mvnw -pl core,server clean test
+
+# Mid-track compile gate (read Verification integration to select the compile-gate set)
+./mvnw -pl <modules with changed files> -am -amd test-compile
+./mvnw -pl embedded -am -amd package -DskipTests
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images
@@ -88,7 +92,7 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 
 ### Test Execution
 
-**NEVER run multiple test processes simultaneously in the same worktree/directory.** Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another in the same working directory. Running tests in parallel within the same worktree causes classloading errors, database file locking conflicts, and false test failures. This applies to all test execution — unit tests, integration tests, and coverage runs. Tests in separate worktrees/directories do not conflict. The rule extends to any concurrent Maven invocations in the same worktree — wait for a running build to complete before starting another build or test run there.
+**NEVER run multiple test processes simultaneously in the same worktree/directory.** Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another in the same working directory. Running tests in parallel within the same worktree causes classloading errors, database file locking conflicts, and false test failures. This applies to all test execution — unit tests, integration tests, and coverage runs. Tests in separate worktrees/directories do not conflict. The rule extends to any concurrent Maven invocations in the same worktree — wait for a running build to complete before starting another build or test run there. Running tests mid-track is not required.
 
 ### Test Modules at a Glance
 - **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
@@ -99,23 +103,17 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 
 ### Coverage Verification
 
-Always use the `coverage-gate.py` script (invocation below) to check coverage instead of computing it by hand. The script contains special-case logic — for example, it excludes Java `assert` statement lines (including multi-line continuations) from both line and branch coverage calculations, because JaCoCo reports phantom uncovered branches and unreachable failure-message lines for asserts. Manual arithmetic will not account for these exclusions and will give incorrect results.
-
-```bash
-# Run unit tests with coverage collection
-./mvnw clean package -P coverage
-
-# Check coverage of changed lines against thresholds (85% line, 70% branch)
-python3 .github/scripts/coverage-gate.py \
-  --line-threshold 85 \
-  --branch-threshold 70 \
-  --compare-branch origin/develop \
-  --coverage-dir .coverage/reports
-```
+Always use `coverage-gate.py`, not hand arithmetic. Before running it, read
+`docs-internal/dev-workflow/coverage-verification.md` for the mandatory procedure.
 
 ## Committing
 
-- **Never commit if tests fail.** Fix the failures first, then re-run the tests.
+- **Never commit over a red result you actually observed.** Running tests mid-track is not
+  required. Before a mid-track commit, read
+  `docs-internal/dev-workflow/track-development.md` § Verification integration to select the
+  compile-gate set and apply exceptions. Changes with no Java files or module content require no
+  Maven gate; otherwise run the applicable gate above. Report the command and outcome when a gate
+  runs.
 - The YTDB issue number is carried in the PR title only (auto-prefixed from the branch name by `.github/workflows/pr-title-prefix.yml`). Individual commit subjects do not need it — the squash-merge takes its message from the PR title and description.
 - **Format**:
   ```
