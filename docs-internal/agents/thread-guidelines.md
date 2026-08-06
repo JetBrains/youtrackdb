@@ -104,8 +104,7 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 ### Coverage Verification
 
 Always use `coverage-gate.py`, not hand arithmetic. Before running it, read
-`docs-internal/dev-workflow/track-development.md` § Verification integration for the mandatory
-procedure.
+`docs-internal/dev-workflow/coverage-verification.md` for the mandatory procedure.
 
 ## Committing
 

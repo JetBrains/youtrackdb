@@ -29,8 +29,8 @@ prompt, config, or doc is a repository change and takes the same gates.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
 - **Coverage target**: 85% line coverage and 70% branch coverage for new/changed code.
 
-How and when verification runs is defined in
-`docs-internal/dev-workflow/track-development.md` § Verification integration.
+How to run and diagnose coverage verification is defined in
+`docs-internal/dev-workflow/coverage-verification.md`.
 
 ## Verification Gates
 
@@ -38,8 +38,8 @@ Mid-track commits run `./mvnw -pl <modules with changed files> -am -amd test-com
 compile-gate set. At the end of a track's implementation, before its agent code review, full
 verification runs at every
 tier: unit tests for the test-gate set, integration tests under the decision rules below, and
-coverage at the 85% line / 70% branch thresholds. The complete protocol — including module
-selection, exceptions, coverage measurement, and re-run rules — is in
+coverage at the 85% line / 70% branch thresholds. The complete gate protocol — including module
+selection, exceptions, and re-run rules — is in
 `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
 Run related integration tests (`-P ci-integration-tests`) when a change touches areas covered by
