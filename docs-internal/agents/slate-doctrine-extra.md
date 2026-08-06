@@ -27,9 +27,10 @@ itself, for changes of any size:
    routing table marks measured for that model, and MUST NOT be sized
    down to the cheapest model that looks like it would clear them:
    adversarial review, agent code review, the design-review and
-   PR-description statements, the ready-for-review flip, end-of-track Maven
-   test/coverage runs, commits and pushes, and any change to
-   storage, WAL, index, transaction or crash-recovery code.
+   PR-description statements, the ready-for-review flip, all Maven
+   test/coverage verification runs (including end-of-track and post-flip
+   runs), commits and pushes, and any change to storage, WAL, index,
+   transaction or crash-recovery code.
 
 Rationale, model-list maintenance and the machine-local prerequisite:
 `docs-internal/dev-workflow/track-development.md` § Model routing.

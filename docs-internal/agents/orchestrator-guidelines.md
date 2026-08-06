@@ -32,7 +32,7 @@ prompt, config, or doc is a repository change and takes the same gates.
 How and when verification runs is defined in
 `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
-## Pre-Commit Verification
+## Verification Gates
 
 Mid-track commits require `./mvnw -pl <affected modules> -am test-compile`. At the end of a
 track's implementation, before its agent code review, full verification runs at every tier:
@@ -41,8 +41,9 @@ at the 85% line / 70% branch thresholds. The complete protocol — including mod
 exceptions, coverage measurement, and re-run rules — is in
 `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
-Run integration tests (`-P ci-integration-tests`) when a change touches storage, WAL, index,
-Gremlin integration, or transaction handling.
+Run related integration tests (`-P ci-integration-tests`) when a change touches areas covered by
+integration tests; storage, WAL, index, Gremlin integration, and transaction handling are examples.
+If in doubt, run the full unit test suite.
 
 ### Serial Test Execution (Scheduling Invariant)
 
