@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -141,8 +142,14 @@ import java.util.stream.Collectors;
  * indexes per class, no single-property indexes, {@code UNRELATED} security filtering, the
  * {@code ALL} policy (one transaction per phase), verification, and a dedicated result file:
  * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.mainClass=com.jetbrains.youtrackdb.benchmarks.TxSchemaCreationBenchmark -Dbench.classes=100 -Dbench.properties=20 -Dbench.indexes=0 -Dbench.compositeIndexes=10 -Dbench.compositeIndexWidth=2 -Dbench.securityFilter=UNRELATED -Dbench.policy=ALL -Dbench.phase=AB -Dbench.verify=true -Dbench.resultFile=target/benchmark-results/schema-creation-composite.csv verify}</pre>
- * Composite runs are a NEW baseline stratum and must never be compared against the existing
- * 62-run matrix.
+ * Composite or security-filtered runs are a NEW baseline stratum and must never be compared
+ * against the existing 62-run matrix. The harness rejects attempts to mix that stratum with plain
+ * single-property runs in one result file.
+ *
+ * <p>Qualification requires a paired control with the same composite configuration and {@code
+ * bench.securityFilter=NONE}. Repeat both {@code NONE} and {@code UNRELATED} runs; one timing
+ * cannot distinguish security-check cost from run-to-run noise. Both arms belong to the same new
+ * stratum and may share its dedicated result file.
  *
  * <p>There is deliberately no colliding-policy mode. Binding a policy over an already indexed
  * property fails during setup with a different exception, which could be misread as proof that
@@ -179,6 +186,15 @@ import java.util.stream.Collectors;
  * <p>When counting immutable-schema construction, count every construction in the total,
  * independent of which caller triggered it. An ancestor-scoped count can read zero while the work
  * merely moved to another caller.
+ *
+ * <p>Do not count {@code IndexManagerEmbedded.checkSecurityConstraintsForIndexCreate} to prove the
+ * composite security path. The method is entered for single-property indexes too; its early return
+ * is inside the method, and independent profiling measured nine entries against nine. At this
+ * revision, the discriminating event is {@code
+ * com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded.lambda$checkSecurityConstraintsForIndexCreate$12(Ljava/util/List;Lcom/jetbrains/youtrackdb/internal/core/metadata/security/SecurityResourceProperty;)Z},
+ * which measured four entries for composite indexes and zero for the single-property control.
+ * Reconfirm the synthetic method name and descriptor with {@code javap -p -s} after product-code
+ * changes because compiler-generated lambda numbering can move.
  *
  * <p>Measure phase A for every policy and property-path pair. The property path does not affect
  * phase B. Run phase B once per transaction policy. The non-transactional index path pays listener
@@ -234,7 +250,7 @@ public final class SchemaCreationWorkload {
 
   static RunResult run(Configuration configuration, SessionListener listener) throws IOException {
     configuration.validate();
-    requireCompatibleHeader(configuration.resultFile, CSV_HEADER);
+    requireCompatibleResultFile(configuration.resultFile, configuration);
     requireCompatibleHeader(detailFile(configuration.resultFile), DETAIL_HEADER);
     return new SchemaCreationWorkload().runInternal(configuration, listener);
   }
@@ -281,7 +297,7 @@ public final class SchemaCreationWorkload {
         phaseResults.add(runPhase(config, session, Phase.A, this::createClassAndProperties));
       }
       if (config.phase.runsB()) {
-        installSecurityFilters(config, session);
+        prepareSecurityFilters(config, session);
         phaseResults.add(runPhase(config, session, Phase.B, this::createIndexes));
       }
     } catch (Throwable failure) {
@@ -335,7 +351,7 @@ public final class SchemaCreationWorkload {
         detailFile,
         shutdownNs,
         verificationState,
-        verificationState == VerificationState.COMPLETED && config.phase.runsB());
+        verificationState.functionalIndexProofCompleted() && config.phase.runsB());
   }
 
   private PhaseResult runPhase(
@@ -461,20 +477,36 @@ public final class SchemaCreationWorkload {
     return unsafePropertyCreations;
   }
 
-  private void installSecurityFilters(
+  private void prepareSecurityFilters(
       Configuration config, DatabaseSessionEmbedded session) {
+    var existingFilters = benchmarkSecurityFilters(session);
+    if (!existingFilters.isEmpty()) {
+      throw new IllegalStateException(
+          "bench.securityFilter=" + config.securityFilter
+              + " requires a clean property-security state for the benchmark classes, but found "
+              + existingFilters);
+    }
     if (config.securityFilter == SecurityFilter.NONE) {
       return;
     }
 
+    var security = session.getSharedContext().getSecurity();
+    if (security.getSecurityPolicy(session, UNRELATED_SECURITY_POLICY) != null) {
+      throw new IllegalStateException(
+          "bench.securityFilter=UNRELATED cannot install policy " + UNRELATED_SECURITY_POLICY
+              + " because it already exists");
+    }
     session.begin();
     try {
-      var security = session.getSharedContext().getSecurity();
       var policy = security.createSecurityPolicy(session, UNRELATED_SECURITY_POLICY);
       policy.setActive(true);
       policy.setReadRule("false");
       security.saveSecurityPolicy(session, policy);
       var reader = security.getRole(session, "reader");
+      if (reader == null) {
+        throw new IllegalStateException(
+            "bench.securityFilter=UNRELATED requires the reader security role");
+      }
       for (var classIndex = 0; classIndex < config.classes; classIndex++) {
         // The synthetic resource does not name a schema property, so it cannot accidentally
         // collide with either index family as benchmark dimensions change.
@@ -487,6 +519,26 @@ public final class SchemaCreationWorkload {
       session.rollback();
       throw failure;
     }
+
+    var installedFilters = benchmarkSecurityFilters(session);
+    for (var classIndex = 0; classIndex < config.classes; classIndex++) {
+      var expected = className(classIndex) + "." + UNRELATED_SECURITY_PROPERTY;
+      if (!installedFilters.contains(expected)) {
+        throw new IllegalStateException(
+            "bench.securityFilter=UNRELATED did not install expected rule " + expected
+                + " before phase B; observed " + installedFilters);
+      }
+    }
+  }
+
+  private static List<String> benchmarkSecurityFilters(DatabaseSessionEmbedded session) {
+    return session.getSharedContext().getSecurity().getAllFilteredProperties(session).stream()
+        .filter(resource -> resource.isAllClasses()
+            || resource.getClassName().startsWith(CLASS_PREFIX))
+        .map(resource -> (resource.isAllClasses() ? "*" : resource.getClassName()) + "."
+            + resource.getPropertyName())
+        .sorted()
+        .toList();
   }
 
   private int createIndexes(
@@ -679,6 +731,7 @@ public final class SchemaCreationWorkload {
       VerificationState verificationState,
       StorageEnvironment storage,
       RuntimeEnvironment runtime) throws IOException {
+    requireCompatibleResultFile(config.resultFile, config);
     var values = List.of(
         CSV_SCHEMA_VERSION,
         Instant.now().toString(),
@@ -742,19 +795,65 @@ public final class SchemaCreationWorkload {
     }
   }
 
-  private static void appendRow(Path file, String header, List<String> values) throws IOException {
+  static void appendRow(Path file, String header, List<String> values) throws IOException {
     createParentDirectories(file);
     requireCompatibleHeader(file, header);
     var newFile = Files.notExists(file) || Files.size(file) == 0;
+    var separatorRequired = !newFile && !endsWithLineSeparator(file);
     try (var writer = Files.newBufferedWriter(
         file, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
       if (newFile) {
         writer.write(header);
         writer.newLine();
+      } else if (separatorRequired) {
+        writer.newLine();
       }
       writer
           .write(values.stream().map(SchemaCreationWorkload::csv).collect(Collectors.joining(",")));
       writer.newLine();
+    }
+  }
+
+  private static boolean endsWithLineSeparator(Path file) throws IOException {
+    var lastByte = ByteBuffer.allocate(1);
+    try (var channel = Files.newByteChannel(file, StandardOpenOption.READ)) {
+      channel.position(channel.size() - 1);
+      channel.read(lastByte);
+    }
+    var value = lastByte.array()[0];
+    return value == '\n' || value == '\r';
+  }
+
+  private static void requireCompatibleResultFile(Path file, Configuration config)
+      throws IOException {
+    requireCompatibleHeader(file, CSV_HEADER);
+    if (Files.notExists(file) || Files.size(file) == 0) {
+      return;
+    }
+
+    var incoming = ResultStratum.from(config.compositeIndexes, config.securityFilter.name());
+    var rows = Files.readAllLines(file, StandardCharsets.UTF_8);
+    var columns = List.of(CSV_HEADER.split(",", -1));
+    var compositeColumn = columns.indexOf("compositeIndexes");
+    var securityColumn = columns.indexOf("securityFilter");
+    for (var line = 1; line < rows.size(); line++) {
+      if (rows.get(line).isBlank()) {
+        continue;
+      }
+      var values = parseCsvRow(file, line + 1, rows.get(line));
+      if (values.size() != columns.size()) {
+        throw new IOException(
+            "Cannot append to " + file + ": row " + (line + 1) + " has " + values.size()
+                + " values but header has " + columns.size());
+      }
+      var existing = ResultStratum.from(
+          values.get(compositeColumn), values.get(securityColumn), file, line + 1);
+      if (incoming.extended != existing.extended) {
+        throw new IOException(
+            "Cannot append run with " + incoming.description() + " to " + file + ": row "
+                + (line + 1) + " has " + existing.description()
+                + "; plain single-property and composite-or-security-filtered strata must not mix");
+      }
     }
   }
 
@@ -771,6 +870,35 @@ public final class SchemaCreationWorkload {
           "Cannot append to " + file + ": existing header <" + existingHeader
               + "> does not match this run's header <" + expectedHeader + ">");
     }
+  }
+
+  private static List<String> parseCsvRow(Path file, int lineNumber, String row)
+      throws IOException {
+    var values = new ArrayList<String>();
+    var value = new StringBuilder();
+    var quoted = false;
+    for (var index = 0; index < row.length(); index++) {
+      var character = row.charAt(index);
+      if (character == '"') {
+        if (quoted && index + 1 < row.length() && row.charAt(index + 1) == '"') {
+          value.append('"');
+          index++;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (character == ',' && !quoted) {
+        values.add(value.toString());
+        value.setLength(0);
+      } else {
+        value.append(character);
+      }
+    }
+    if (quoted) {
+      throw new IOException(
+          "Cannot append to " + file + ": row " + lineNumber + " has an unterminated quote");
+    }
+    values.add(value.toString());
+    return values;
   }
 
   private static StorageEnvironment captureStorageEnvironment(DatabaseSessionEmbedded session) {
@@ -1055,7 +1183,11 @@ public final class SchemaCreationWorkload {
   }
 
   public enum VerificationState {
-    NOT_REQUESTED, COMPLETED, COMPLETED_COMPOSITE_INDEX_PROOF, SKIPPED_CLOSE_FAILED
+    NOT_REQUESTED, COMPLETED, COMPLETED_COMPOSITE_INDEX_PROOF, SKIPPED_CLOSE_FAILED;
+
+    private boolean functionalIndexProofCompleted() {
+      return this == COMPLETED || this == COMPLETED_COMPOSITE_INDEX_PROOF;
+    }
   }
 
   public enum Phase {
@@ -1123,6 +1255,52 @@ public final class SchemaCreationWorkload {
   }
 
   private record StorageEnvironment(boolean callFsync, boolean fullCheckpointAfterCreate) {
+  }
+
+  private record ResultStratum(
+      boolean extended, String compositeIndexes, String securityFilter) {
+
+    private static ResultStratum from(int compositeIndexes, String securityFilter) {
+      return new ResultStratum(
+          compositeIndexes > 0 || !SecurityFilter.NONE.name().equals(securityFilter),
+          Integer.toString(compositeIndexes),
+          securityFilter);
+    }
+
+    private static ResultStratum from(
+        String compositeIndexes, String securityFilter, Path file, int lineNumber)
+        throws IOException {
+      final int parsedCompositeIndexes;
+      try {
+        parsedCompositeIndexes = Integer.parseInt(compositeIndexes);
+      } catch (NumberFormatException failure) {
+        throw new IOException(
+            "Cannot append to " + file + ": row " + lineNumber
+                + " has invalid compositeIndexes=" + compositeIndexes,
+            failure);
+      }
+      if (parsedCompositeIndexes < 0) {
+        throw new IOException(
+            "Cannot append to " + file + ": row " + lineNumber
+                + " has invalid compositeIndexes=" + compositeIndexes);
+      }
+      try {
+        SecurityFilter.valueOf(securityFilter);
+      } catch (IllegalArgumentException failure) {
+        throw new IOException(
+            "Cannot append to " + file + ": row " + lineNumber
+                + " has invalid securityFilter=" + securityFilter,
+            failure);
+      }
+      return from(parsedCompositeIndexes, securityFilter);
+    }
+
+    private String description() {
+      var name = extended ? "composite-or-security-filtered stratum"
+          : "plain single-property stratum";
+      return "compositeIndexes=" + compositeIndexes + ", securityFilter=" + securityFilter
+          + " (" + name + ")";
+    }
   }
 
   private record GitIdentity(String commit, String dirty) {
@@ -1218,22 +1396,27 @@ public final class SchemaCreationWorkload {
         throw new IllegalArgumentException("bench.classes must be positive");
       }
       if (properties < 0) {
-        throw new IllegalArgumentException("bench.properties must not be negative");
+        throw new IllegalArgumentException(
+            "bench.properties must not be negative: " + properties);
       }
       if (indexes < 0 || indexes > properties) {
         throw new IllegalArgumentException(
-            "bench.indexes must be between zero and bench.properties");
+            "bench.indexes=" + indexes + " must be between zero and bench.properties="
+                + properties);
       }
       if (compositeIndexes < 0) {
-        throw new IllegalArgumentException("bench.compositeIndexes must not be negative");
+        throw new IllegalArgumentException(
+            "bench.compositeIndexes must not be negative: " + compositeIndexes);
       }
       if (compositeIndexWidth < 2) {
-        throw new IllegalArgumentException("bench.compositeIndexWidth must be at least two");
+        throw new IllegalArgumentException(
+            "bench.compositeIndexWidth must be at least two: " + compositeIndexWidth);
       }
       if (compositeIndexes > 0 && compositeIndexWidth > properties) {
         throw new IllegalArgumentException(
-            "bench.compositeIndexWidth must not exceed bench.properties when composite indexes "
-                + "are requested");
+            "bench.compositeIndexWidth=" + compositeIndexWidth
+                + " must not exceed bench.properties=" + properties
+                + " when bench.compositeIndexes=" + compositeIndexes + " is requested");
       }
       if (batchSize <= 0) {
         throw new IllegalArgumentException("bench.batchSize must be positive");
