@@ -210,6 +210,10 @@
         <bench.classes></bench.classes>
         <bench.properties></bench.properties>
         <bench.indexes></bench.indexes>
+        <bench.singleIndexes></bench.singleIndexes>
+        <bench.compositeIndexes></bench.compositeIndexes>
+        <bench.compositeIndexWidth></bench.compositeIndexWidth>
+        <bench.securityFilter></bench.securityFilter>
         <bench.policy></bench.policy>
         <bench.batchSize></bench.batchSize>
         <bench.propertyPath></bench.propertyPath>
@@ -241,7 +245,7 @@
                   <classpathScope>test</classpathScope>
                   <!-- exec-maven-plugin tokenizes this itself and expands %classpath. There is no
                        shell interpolation, so metacharacters are passed to java as data. -->
-                  <commandlineArgs>-da -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED ${bench.jvmBaseArgs} ${bench.jvmAddArgs} -classpath "${project.build.testOutputDirectory}${path.separator}%classpath" "-Dbench.classes=${bench.classes}" "-Dbench.properties=${bench.properties}" "-Dbench.indexes=${bench.indexes}" "-Dbench.policy=${bench.policy}" "-Dbench.batchSize=${bench.batchSize}" "-Dbench.propertyPath=${bench.propertyPath}" "-Dbench.phase=${bench.phase}" "-Dbench.uniquePropertyNames=${bench.uniquePropertyNames}" "-Dbench.dbPath=${bench.dbPath}" "-Dbench.dbName=${bench.dbName}" "-Dbench.resultFile=${bench.resultFile}" "-Dbench.manifestFile=${bench.manifestFile}" "-Dbench.verify=${bench.verify}" "-Dbench.durabilityBarrier=${bench.durabilityBarrier}" "-Dbench.label=${bench.label}" ${bench.mainClass}</commandlineArgs>
+                  <commandlineArgs>-da -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED ${bench.jvmBaseArgs} ${bench.jvmAddArgs} -classpath "${project.build.testOutputDirectory}${path.separator}%classpath" "-Dbench.classes=${bench.classes}" "-Dbench.properties=${bench.properties}" "-Dbench.indexes=${bench.indexes}" "-Dbench.singleIndexes=${bench.singleIndexes}" "-Dbench.compositeIndexes=${bench.compositeIndexes}" "-Dbench.compositeIndexWidth=${bench.compositeIndexWidth}" "-Dbench.securityFilter=${bench.securityFilter}" "-Dbench.policy=${bench.policy}" "-Dbench.batchSize=${bench.batchSize}" "-Dbench.propertyPath=${bench.propertyPath}" "-Dbench.phase=${bench.phase}" "-Dbench.uniquePropertyNames=${bench.uniquePropertyNames}" "-Dbench.dbPath=${bench.dbPath}" "-Dbench.dbName=${bench.dbName}" "-Dbench.resultFile=${bench.resultFile}" "-Dbench.manifestFile=${bench.manifestFile}" "-Dbench.verify=${bench.verify}" "-Dbench.durabilityBarrier=${bench.durabilityBarrier}" "-Dbench.label=${bench.label}" ${bench.mainClass}</commandlineArgs>
                 </configuration>
               </execution>
             </executions>

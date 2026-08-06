@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -43,6 +44,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -70,8 +72,21 @@ import java.util.stream.Collectors;
  *       agents here.</td></tr>
  *   <tr><td>{@code bench.classes}</td><td>{@code 100}</td><td>Sets the class count.</td></tr>
  *   <tr><td>{@code bench.properties}</td><td>{@code 20}</td><td>Sets the properties per class.</td></tr>
- *   <tr><td>{@code bench.indexes}</td><td>{@code 20}</td><td>Sets the indexes per class. This value
- *       must not exceed {@code bench.properties}.</td></tr>
+ *   <tr><td>{@code bench.indexes}</td><td>{@code 20}</td><td>Sets the single-property indexes per
+ *       class. This keeps its original meaning. It must not exceed {@code bench.properties}.</td></tr>
+ *   <tr><td>{@code bench.singleIndexes}</td><td>{@code 20} (effective)</td><td>Aliases
+ *       {@code bench.indexes}. When set, it takes precedence; if both names are set, they must
+ *       have the same value or setup
+ *       fails. Thus an existing command using only {@code bench.indexes} does exactly the same
+ *       work as before.</td></tr>
+ *   <tr><td>{@code bench.compositeIndexes}</td><td>{@code 0}</td><td>Sets the genuinely composite
+ *       indexes per class.</td></tr>
+ *   <tr><td>{@code bench.compositeIndexWidth}</td><td>{@code 2}</td><td>Sets the number of distinct,
+ *       stably ordered properties in every composite index. The width must be at least two.</td></tr>
+ *   <tr><td>{@code bench.securityFilter}</td><td>{@code NONE}</td><td>Selects {@code NONE} or
+ *       {@code UNRELATED}. {@code UNRELATED} installs property-level security rules on properties
+ *       that no index covers, making the composite-index security check measurable without
+ *       rejecting index creation.</td></tr>
  *   <tr><td>{@code bench.policy}</td><td>{@code NONE} for {@code SchemaCreationBenchmark}; {@code
  *       ALL} for {@code TxSchemaCreationBenchmark}</td><td>Selects the transaction policy.</td></tr>
  *   <tr><td>{@code bench.batchSize}</td><td>{@code 50}</td><td>Sets the classes per {@code BATCH}
@@ -100,7 +115,12 @@ import java.util.stream.Collectors;
  *
  * <p>An explicitly set value wins. Otherwise the entry point's default applies. Otherwise the
  * built-in default applies. An empty value counts as not set. The Maven profile forwards empty
- * values so that each entry point keeps its own defaults.
+ * values so that each entry point keeps its own defaults. For the index-count alias specifically,
+ * {@code bench.singleIndexes} takes precedence when present, while a simultaneously present
+ * {@code bench.indexes} must agree; contradictory values fail fast.
+ *
+ * <p>This harness is a manual performance tool run through the Maven {@code bench} profile. It is
+ * not a continuous-integration regression gate.
  *
  * <p>Use these commands exactly. The {@code -am} flag builds the upstream modules and prevents a
  * stale core jar from entering the run.
@@ -116,6 +136,17 @@ import java.util.stream.Collectors;
  *
  * <p>One phase:
  * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.phase=A verify}</pre>
+ *
+ * <p>The canonical composite-index qualification run uses 100 classes, 10 width-two composite
+ * indexes per class, no single-property indexes, {@code UNRELATED} security filtering, the
+ * {@code ALL} policy (one transaction per phase), verification, and a dedicated result file:
+ * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.mainClass=com.jetbrains.youtrackdb.benchmarks.TxSchemaCreationBenchmark -Dbench.classes=100 -Dbench.properties=20 -Dbench.indexes=0 -Dbench.compositeIndexes=10 -Dbench.compositeIndexWidth=2 -Dbench.securityFilter=UNRELATED -Dbench.policy=ALL -Dbench.phase=AB -Dbench.verify=true -Dbench.resultFile=target/benchmark-results/schema-creation-composite.csv verify}</pre>
+ * Composite runs are a NEW baseline stratum and must never be compared against the existing
+ * 62-run matrix.
+ *
+ * <p>There is deliberately no colliding-policy mode. Binding a policy over an already indexed
+ * property fails during setup with a different exception, which could be misread as proof that
+ * the composite-index creation check worked.
  *
  * <p>One sampling profile:
  * <pre>{@code ./mvnw -pl tests -am -Pbench -DskipTests -Dbench.verify=false -Dbench.jvmAddArgs="-agentpath:/path/to/libasyncProfiler.so=start,event=cpu,file=cpu.jfr" verify}</pre>
@@ -138,9 +169,16 @@ import java.util.stream.Collectors;
  * run. Deduplicate shutdown by {@code runId} before summing rows, or the sum counts shutdown more
  * than once.
  *
+ * <p>Both CSV outputs carry schema version {@code 2}. Before appending, the harness requires the
+ * existing header to exactly match the header for this run; use a new file when the schema changes.
+ *
  * <p>Turn verification off for every profiling run. Otherwise the profile includes manifest work,
  * database reopen, proof-record insertion, and index lookup. Use one profiler event per run. Run
  * sampling and instrumentation separately. Never report an instrumentation run as a timing.
+ *
+ * <p>When counting immutable-schema construction, count every construction in the total,
+ * independent of which caller triggered it. An ancestor-scoped count can read zero while the work
+ * merely moved to another caller.
  *
  * <p>Measure phase A for every policy and property-path pair. The property path does not affect
  * phase B. Run phase B once per transaction policy. The non-transactional index path pays listener
@@ -154,18 +192,22 @@ public final class SchemaCreationWorkload {
   private static final String USER = "admin";
   private static final String PASSWORD = "admin";
   private static final String CLASS_PREFIX = "TestClass";
+  private static final String COMPOSITE_INDEX_PREFIX = "TestCompositeIndex";
+  private static final String UNRELATED_SECURITY_PROPERTY = "SecurityUnrelatedProperty";
+  private static final String UNRELATED_SECURITY_POLICY = "SchemaBenchmarkUnrelatedPolicy";
+  private static final String CSV_SCHEMA_VERSION = "2";
   private static final String CSV_HEADER =
-      "timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,indexes,"
-          + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,"
-          + "shutdownNs,schemaWorkMs,durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,"
-          + "unsafePropertyCreations,verificationState,jvmArgs,"
-          + "assertionsEnabled,storageCallFsync,storageFullCheckpointAfterCreate,"
-          + "osOpenFileSoftLimit,osOpenFileHardLimit,resolvedOpenFilesLimit,gitCommit,gitDirty,"
-          + "coreImplementationVersion,coreBuildNumber,coreBuildVersion,coreCodeSource,javaVersion,"
-          + "osName,garbageCollectors,"
-          + "hostName,availableProcessors,maxHeapBytes,effectiveDatabasePath";
+      "schemaVersion,timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,"
+          + "indexes,compositeIndexes,compositeIndexWidth,securityFilter,uniquePropertyNames,"
+          + "schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,shutdownNs,schemaWorkMs,"
+          + "durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,unsafePropertyCreations,"
+          + "verificationState,jvmArgs,assertionsEnabled,storageCallFsync,"
+          + "storageFullCheckpointAfterCreate,osOpenFileSoftLimit,osOpenFileHardLimit,"
+          + "resolvedOpenFilesLimit,gitCommit,gitDirty,coreImplementationVersion,coreBuildNumber,"
+          + "coreBuildVersion,coreCodeSource,javaVersion,osName,garbageCollectors,hostName,"
+          + "availableProcessors,maxHeapBytes,effectiveDatabasePath";
   private static final String DETAIL_HEADER =
-      "runId,phase,completedClasses,cumulativeSchemaWorkNs";
+      "schemaVersion,runId,phase,completedClasses,cumulativeSchemaWorkNs";
 
   private SchemaCreationWorkload() {
   }
@@ -192,6 +234,8 @@ public final class SchemaCreationWorkload {
 
   static RunResult run(Configuration configuration, SessionListener listener) throws IOException {
     configuration.validate();
+    requireCompatibleHeader(configuration.resultFile, CSV_HEADER);
+    requireCompatibleHeader(detailFile(configuration.resultFile), DETAIL_HEADER);
     return new SchemaCreationWorkload().runInternal(configuration, listener);
   }
 
@@ -237,6 +281,7 @@ public final class SchemaCreationWorkload {
         phaseResults.add(runPhase(config, session, Phase.A, this::createClassAndProperties));
       }
       if (config.phase.runsB()) {
+        installSecurityFilters(config, session);
         phaseResults.add(runPhase(config, session, Phase.B, this::createIndexes));
       }
     } catch (Throwable failure) {
@@ -259,7 +304,9 @@ public final class SchemaCreationWorkload {
     if (config.verify) {
       if (closeFailure == null) {
         manifest = Optional.of(verify(config));
-        verificationState = VerificationState.COMPLETED;
+        verificationState = config.compositeIndexes > 0 && config.phase.runsB()
+            ? VerificationState.COMPLETED_COMPOSITE_INDEX_PROOF
+            : VerificationState.COMPLETED;
       } else {
         verificationState = VerificationState.SKIPPED_CLOSE_FAILED;
       }
@@ -414,6 +461,34 @@ public final class SchemaCreationWorkload {
     return unsafePropertyCreations;
   }
 
+  private void installSecurityFilters(
+      Configuration config, DatabaseSessionEmbedded session) {
+    if (config.securityFilter == SecurityFilter.NONE) {
+      return;
+    }
+
+    session.begin();
+    try {
+      var security = session.getSharedContext().getSecurity();
+      var policy = security.createSecurityPolicy(session, UNRELATED_SECURITY_POLICY);
+      policy.setActive(true);
+      policy.setReadRule("false");
+      security.saveSecurityPolicy(session, policy);
+      var reader = security.getRole(session, "reader");
+      for (var classIndex = 0; classIndex < config.classes; classIndex++) {
+        // The synthetic resource does not name a schema property, so it cannot accidentally
+        // collide with either index family as benchmark dimensions change.
+        var resource = "database.class." + className(classIndex) + "."
+            + UNRELATED_SECURITY_PROPERTY;
+        security.setSecurityPolicy(session, reader, resource, policy);
+      }
+      session.commit();
+    } catch (Throwable failure) {
+      session.rollback();
+      throw failure;
+    }
+  }
+
   private int createIndexes(
       Configuration config, DatabaseSessionEmbedded session, int classIndex) {
     var schemaClass = session.getSchema().getClass(className(classIndex));
@@ -421,15 +496,29 @@ public final class SchemaCreationWorkload {
       throw new IllegalStateException("Missing class for phase B: " + className(classIndex));
     }
     for (var index = 0; index < config.indexes; index++) {
-      var propertyName = propertyName(config, classIndex, index);
-      if (!schemaClass.existsProperty(propertyName)) {
-        throw new IllegalStateException(
-            "Missing property for phase B: " + className(classIndex) + "." + propertyName);
+      var property = propertyName(config, classIndex, index);
+      requireProperty(schemaClass, property);
+      schemaClass.createIndex(
+          indexName(classIndex, index), SchemaClass.INDEX_TYPE.UNIQUE, property);
+    }
+    for (var index = 0; index < config.compositeIndexes; index++) {
+      var properties = compositeProperties(config, classIndex, index);
+      for (var property : properties) {
+        requireProperty(schemaClass, property);
       }
       schemaClass.createIndex(
-          indexName(classIndex, index), SchemaClass.INDEX_TYPE.UNIQUE, propertyName);
+          compositeIndexName(classIndex, index),
+          SchemaClass.INDEX_TYPE.UNIQUE,
+          properties.toArray(String[]::new));
     }
     return 0;
+  }
+
+  private static void requireProperty(SchemaClass schemaClass, String property) {
+    if (!schemaClass.existsProperty(property)) {
+      throw new IllegalStateException(
+          "Missing property for phase B: " + schemaClass.getName() + "." + property);
+    }
   }
 
   private String verify(Configuration config) throws IOException {
@@ -496,12 +585,14 @@ public final class SchemaCreationWorkload {
         + ": one manifest ended early");
   }
 
-  private void proveIndexes(Configuration config, DatabaseSessionEmbedded session) {
+  static void proveIndexes(Configuration config, DatabaseSessionEmbedded session) {
+    verifyIndexDefinitions(config, session);
+
     session.begin();
     try {
       for (var classIndex = 0; classIndex < config.classes; classIndex++) {
         var entity = session.newEntity(className(classIndex));
-        for (var propertyIndex = 0; propertyIndex < config.indexes; propertyIndex++) {
+        for (var propertyIndex : indexedPropertyIndexes(config)) {
           entity.setProperty(
               propertyName(config, classIndex, propertyIndex),
               indexedValue(classIndex, propertyIndex));
@@ -516,22 +607,67 @@ public final class SchemaCreationWorkload {
     for (var classIndex = 0; classIndex < config.classes; classIndex++) {
       for (var indexNumber = 0; indexNumber < config.indexes; indexNumber++) {
         var name = indexName(classIndex, indexNumber);
-        var index = session.getSharedContext().getIndexManager().getIndex(session, name);
-        if (index == null) {
-          throw new IllegalStateException("Index manager cannot find " + name);
-        }
-        if (index.getIndexId() < 0) {
-          throw new IllegalStateException("Index has no real identifier: " + name);
-        }
-        if (((AbstractStorage) session.getStorage()).loadIndexEngine(name) < 0) {
-          throw new IllegalStateException("Storage cannot load index engine: " + name);
-        }
-        var value = indexedValue(classIndex, indexNumber);
-        var found = session.computeInTx(tx -> index.getRids(session, value).findAny().isPresent());
-        if (!found) {
-          throw new IllegalStateException("Index " + name + " cannot find inserted value " + value);
-        }
+        proveIndexLookup(
+            session, name, indexedValue(classIndex, indexNumber));
       }
+      for (var indexNumber = 0; indexNumber < config.compositeIndexes; indexNumber++) {
+        var name = compositeIndexName(classIndex, indexNumber);
+        var values = new ArrayList<String>(config.compositeIndexWidth);
+        for (var propertyIndex : compositePropertyIndexes(config, indexNumber)) {
+          values.add(indexedValue(classIndex, propertyIndex));
+        }
+        proveIndexLookup(session, name, new CompositeKey(values));
+      }
+    }
+  }
+
+  private static void verifyIndexDefinitions(
+      Configuration config, DatabaseSessionEmbedded session) {
+    for (var classIndex = 0; classIndex < config.classes; classIndex++) {
+      for (var indexNumber = 0; indexNumber < config.indexes; indexNumber++) {
+        requireIndexFields(
+            session,
+            indexName(classIndex, indexNumber),
+            List.of(propertyName(config, classIndex, indexNumber)));
+      }
+      for (var indexNumber = 0; indexNumber < config.compositeIndexes; indexNumber++) {
+        requireIndexFields(
+            session,
+            compositeIndexName(classIndex, indexNumber),
+            compositeProperties(config, classIndex, indexNumber));
+      }
+    }
+  }
+
+  private static void requireIndexFields(
+      DatabaseSessionEmbedded session, String name, List<String> expectedFields) {
+    var index = session.getSharedContext().getIndexManager().getIndex(session, name);
+    if (index == null) {
+      throw new IllegalStateException("Index manager cannot find " + name);
+    }
+    var actualFields = index.getDefinition().getFieldsToIndex();
+    if (!expectedFields.equals(actualFields)) {
+      throw new IllegalStateException(
+          "Index " + name + " has fields " + actualFields + " (width " + actualFields.size()
+              + "), expected " + expectedFields + " (width " + expectedFields.size() + ")");
+    }
+  }
+
+  private static void proveIndexLookup(
+      DatabaseSessionEmbedded session, String name, Object key) {
+    var index = session.getSharedContext().getIndexManager().getIndex(session, name);
+    if (index == null) {
+      throw new IllegalStateException("Index manager cannot find " + name);
+    }
+    if (index.getIndexId() < 0) {
+      throw new IllegalStateException("Index has no real identifier: " + name);
+    }
+    if (((AbstractStorage) session.getStorage()).loadIndexEngine(name) < 0) {
+      throw new IllegalStateException("Storage cannot load index engine: " + name);
+    }
+    var found = session.computeInTx(tx -> index.getRids(session, key).findAny().isPresent());
+    if (!found) {
+      throw new IllegalStateException("Index " + name + " cannot find inserted key " + key);
     }
   }
 
@@ -544,6 +680,7 @@ public final class SchemaCreationWorkload {
       StorageEnvironment storage,
       RuntimeEnvironment runtime) throws IOException {
     var values = List.of(
+        CSV_SCHEMA_VERSION,
         Instant.now().toString(),
         runId,
         config.label,
@@ -554,6 +691,9 @@ public final class SchemaCreationWorkload {
         Integer.toString(config.classes),
         Integer.toString(config.properties),
         Integer.toString(config.indexes),
+        Integer.toString(config.compositeIndexes),
+        Integer.toString(config.compositeIndexWidth),
+        config.securityFilter.name(),
         Boolean.toString(config.uniquePropertyNames),
         Long.toString(result.schemaWorkNs),
         Long.toString(result.durabilityBarrierNs),
@@ -594,6 +734,7 @@ public final class SchemaCreationWorkload {
       throws IOException {
     for (var detail : result.timingDetails) {
       appendRow(detailFile, DETAIL_HEADER, List.of(
+          CSV_SCHEMA_VERSION,
           runId,
           result.phase.name(),
           Integer.toString(detail.completedClasses),
@@ -603,6 +744,7 @@ public final class SchemaCreationWorkload {
 
   private static void appendRow(Path file, String header, List<String> values) throws IOException {
     createParentDirectories(file);
+    requireCompatibleHeader(file, header);
     var newFile = Files.notExists(file) || Files.size(file) == 0;
     try (var writer = Files.newBufferedWriter(
         file, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
@@ -613,6 +755,21 @@ public final class SchemaCreationWorkload {
       writer
           .write(values.stream().map(SchemaCreationWorkload::csv).collect(Collectors.joining(",")));
       writer.newLine();
+    }
+  }
+
+  static void requireCompatibleHeader(Path file, String expectedHeader) throws IOException {
+    if (Files.notExists(file) || Files.size(file) == 0) {
+      return;
+    }
+    String existingHeader;
+    try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+      existingHeader = reader.readLine();
+    }
+    if (!expectedHeader.equals(existingHeader)) {
+      throw new IOException(
+          "Cannot append to " + file + ": existing header <" + existingHeader
+              + "> does not match this run's header <" + expectedHeader + ">");
     }
   }
 
@@ -844,6 +1001,43 @@ public final class SchemaCreationWorkload {
     return "TestIndex_" + classIndex + "_" + indexNumber;
   }
 
+  private static String compositeIndexName(int classIndex, int indexNumber) {
+    return COMPOSITE_INDEX_PREFIX + "_" + classIndex + "_" + indexNumber;
+  }
+
+  private static List<String> compositeProperties(
+      Configuration config, int classIndex, int indexNumber) {
+    return compositePropertyIndexes(config, indexNumber).stream()
+        .map(propertyIndex -> propertyName(config, classIndex, propertyIndex))
+        .toList();
+  }
+
+  private static List<Integer> compositePropertyIndexes(
+      Configuration config, int indexNumber) {
+    var firstProperty = (int) (((long) indexNumber * config.compositeIndexWidth)
+        % config.properties);
+    var properties = new ArrayList<Integer>(config.compositeIndexWidth);
+    for (var offset = 0; offset < config.compositeIndexWidth; offset++) {
+      properties.add((firstProperty + offset) % config.properties);
+    }
+    return properties;
+  }
+
+  private static List<Integer> indexedPropertyIndexes(Configuration config) {
+    var indexed = new ArrayList<Integer>();
+    for (var propertyIndex = 0; propertyIndex < config.indexes; propertyIndex++) {
+      indexed.add(propertyIndex);
+    }
+    for (var indexNumber = 0; indexNumber < config.compositeIndexes; indexNumber++) {
+      for (var propertyIndex : compositePropertyIndexes(config, indexNumber)) {
+        if (!indexed.contains(propertyIndex)) {
+          indexed.add(propertyIndex);
+        }
+      }
+    }
+    return indexed;
+  }
+
   private static String indexedValue(int classIndex, int propertyIndex) {
     return "value_" + classIndex + "_" + propertyIndex;
   }
@@ -856,8 +1050,12 @@ public final class SchemaCreationWorkload {
     SAFE, UNSAFE
   }
 
+  public enum SecurityFilter {
+    NONE, UNRELATED
+  }
+
   public enum VerificationState {
-    NOT_REQUESTED, COMPLETED, SKIPPED_CLOSE_FAILED
+    NOT_REQUESTED, COMPLETED, COMPLETED_COMPOSITE_INDEX_PROOF, SKIPPED_CLOSE_FAILED
   }
 
   public enum Phase {
@@ -957,6 +1155,9 @@ public final class SchemaCreationWorkload {
       int classes,
       int properties,
       int indexes,
+      int compositeIndexes,
+      int compositeIndexWidth,
+      SecurityFilter securityFilter,
       Policy policy,
       int batchSize,
       PropertyPath propertyPath,
@@ -970,27 +1171,46 @@ public final class SchemaCreationWorkload {
       boolean durabilityBarrier,
       String label) {
 
-    private static Configuration fromSystemProperties(
+    static Configuration fromSystemProperties(
         Policy defaultPolicy, PropertyPath defaultPropertyPath) {
+      return fromProperties(System::getProperty, defaultPolicy, defaultPropertyPath);
+    }
+
+    static Configuration fromProperties(
+        Function<String, String> properties,
+        Policy defaultPolicy,
+        PropertyPath defaultPropertyPath) {
       return new Configuration(
-          integer("bench.classes", 100),
-          integer("bench.properties", 20),
-          integer("bench.indexes", 20),
-          enumeration("bench.policy", defaultPolicy, Policy.class),
-          integer("bench.batchSize", 50),
-          enumeration("bench.propertyPath", defaultPropertyPath, PropertyPath.class),
-          enumeration("bench.phase", Phase.AB, Phase.class),
-          Boolean.parseBoolean(systemProperty("bench.uniquePropertyNames", "true")),
+          integer(properties, "bench.classes", 100),
+          integer(properties, "bench.properties", 20),
+          singleIndexes(properties),
+          integer(properties, "bench.compositeIndexes", 0),
+          integer(properties, "bench.compositeIndexWidth", 2),
+          enumeration(properties, "bench.securityFilter", SecurityFilter.NONE,
+              SecurityFilter.class),
+          enumeration(properties, "bench.policy", defaultPolicy, Policy.class),
+          integer(properties, "bench.batchSize", 50),
+          enumeration(properties, "bench.propertyPath", defaultPropertyPath, PropertyPath.class),
+          enumeration(properties, "bench.phase", Phase.AB, Phase.class),
+          Boolean.parseBoolean(systemProperty(
+              properties, "bench.uniquePropertyNames", "true")),
           Path.of(systemProperty(
-              "bench.dbPath", "./target/databases/benchmarks/schemaCreationBenchmark")),
-          systemProperty("bench.dbName", "schemaBenchmark"),
+              properties,
+              "bench.dbPath",
+              "./target/databases/benchmarks/schemaCreationBenchmark")),
+          systemProperty(properties, "bench.dbName", "schemaBenchmark"),
           Path.of(systemProperty(
-              "bench.resultFile", "target/benchmark-results/schema-creation.csv")),
+              properties,
+              "bench.resultFile",
+              "target/benchmark-results/schema-creation.csv")),
           Path.of(systemProperty(
-              "bench.manifestFile", "target/benchmark-results/manifest.txt")),
-          Boolean.parseBoolean(systemProperty("bench.verify", "true")),
-          Boolean.parseBoolean(systemProperty("bench.durabilityBarrier", "true")),
-          systemProperty("bench.label", ""));
+              properties,
+              "bench.manifestFile",
+              "target/benchmark-results/manifest.txt")),
+          Boolean.parseBoolean(systemProperty(properties, "bench.verify", "true")),
+          Boolean.parseBoolean(systemProperty(
+              properties, "bench.durabilityBarrier", "true")),
+          systemProperty(properties, "bench.label", ""));
     }
 
     private void validate() {
@@ -1004,24 +1224,62 @@ public final class SchemaCreationWorkload {
         throw new IllegalArgumentException(
             "bench.indexes must be between zero and bench.properties");
       }
+      if (compositeIndexes < 0) {
+        throw new IllegalArgumentException("bench.compositeIndexes must not be negative");
+      }
+      if (compositeIndexWidth < 2) {
+        throw new IllegalArgumentException("bench.compositeIndexWidth must be at least two");
+      }
+      if (compositeIndexes > 0 && compositeIndexWidth > properties) {
+        throw new IllegalArgumentException(
+            "bench.compositeIndexWidth must not exceed bench.properties when composite indexes "
+                + "are requested");
+      }
       if (batchSize <= 0) {
         throw new IllegalArgumentException("bench.batchSize must be positive");
       }
     }
 
-    private static int integer(String name, int defaultValue) {
-      return Integer.parseInt(systemProperty(name, Integer.toString(defaultValue)));
+    private static int singleIndexes(Function<String, String> properties) {
+      var legacy = explicitProperty(properties, "bench.indexes");
+      var alias = explicitProperty(properties, "bench.singleIndexes");
+      if (alias.isPresent()) {
+        var aliasValue = Integer.parseInt(alias.orElseThrow());
+        if (legacy.isPresent()) {
+          var legacyValue = Integer.parseInt(legacy.orElseThrow());
+          if (legacyValue != aliasValue) {
+            throw new IllegalArgumentException(
+                "bench.singleIndexes=" + aliasValue + " contradicts bench.indexes="
+                    + legacyValue);
+          }
+        }
+        return aliasValue;
+      }
+      return legacy.map(Integer::parseInt).orElse(20);
+    }
+
+    private static int integer(
+        Function<String, String> properties, String name, int defaultValue) {
+      return Integer.parseInt(
+          systemProperty(properties, name, Integer.toString(defaultValue)));
     }
 
     private static <E extends Enum<E>> E enumeration(
-        String name, E defaultValue, Class<E> type) {
+        Function<String, String> properties, String name, E defaultValue, Class<E> type) {
       return Enum.valueOf(
-          type, systemProperty(name, defaultValue.name()).toUpperCase(Locale.ROOT));
+          type,
+          systemProperty(properties, name, defaultValue.name()).toUpperCase(Locale.ROOT));
     }
 
-    private static String systemProperty(String name, String defaultValue) {
-      var value = System.getProperty(name);
-      return value == null || value.isBlank() ? defaultValue : value;
+    private static Optional<String> explicitProperty(
+        Function<String, String> properties, String name) {
+      var value = properties.apply(name);
+      return value == null || value.isBlank() ? Optional.empty() : Optional.of(value);
+    }
+
+    private static String systemProperty(
+        Function<String, String> properties, String name, String defaultValue) {
+      return explicitProperty(properties, name).orElse(defaultValue);
     }
   }
 

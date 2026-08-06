@@ -29,10 +29,14 @@ import com.jetbrains.youtrackdb.benchmarks.SchemaCreationWorkload.Phase;
 import com.jetbrains.youtrackdb.benchmarks.SchemaCreationWorkload.Policy;
 import com.jetbrains.youtrackdb.benchmarks.SchemaCreationWorkload.PropertyPath;
 import com.jetbrains.youtrackdb.benchmarks.SchemaCreationWorkload.RunResult;
+import com.jetbrains.youtrackdb.benchmarks.SchemaCreationWorkload.SecurityFilter;
+import com.jetbrains.youtrackdb.benchmarks.SchemaCreationWorkload.VerificationState;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
@@ -42,6 +46,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 import org.junit.jupiter.api.Test;
@@ -56,17 +61,17 @@ import org.junit.jupiter.api.io.TempDir;
 public class SchemaCreationWorkloadTest {
 
   private static final String CSV_HEADER =
-      "timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,indexes,"
-          + "uniquePropertyNames,schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,"
-          + "shutdownNs,schemaWorkMs,durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,"
-          + "unsafePropertyCreations,verificationState,jvmArgs,assertionsEnabled,storageCallFsync,"
+      "schemaVersion,timestamp,runId,label,policy,batchSize,propertyPath,phase,classes,properties,"
+          + "indexes,compositeIndexes,compositeIndexWidth,securityFilter,uniquePropertyNames,"
+          + "schemaWorkNs,durabilityBarrierNs,durabilityBarrierRan,totalNs,shutdownNs,schemaWorkMs,"
+          + "durabilityBarrierMs,totalMs,shutdownMs,topLevelTransactions,unsafePropertyCreations,"
+          + "verificationState,jvmArgs,assertionsEnabled,storageCallFsync,"
           + "storageFullCheckpointAfterCreate,osOpenFileSoftLimit,osOpenFileHardLimit,"
           + "resolvedOpenFilesLimit,gitCommit,gitDirty,coreImplementationVersion,coreBuildNumber,"
           + "coreBuildVersion,coreCodeSource,javaVersion,osName,garbageCollectors,hostName,"
-          + "availableProcessors,maxHeapBytes,"
-          + "effectiveDatabasePath";
+          + "availableProcessors,maxHeapBytes,effectiveDatabasePath";
   private static final String DETAIL_HEADER =
-      "runId,phase,completedClasses,cumulativeSchemaWorkNs";
+      "schemaVersion,runId,phase,completedClasses,cumulativeSchemaWorkNs";
   private static final String EXPECTED_MANIFEST = """
       class TestClass0
         property TestClass0Prop0 type=STRING
@@ -113,8 +118,8 @@ public class SchemaCreationWorkloadTest {
     }
     var barrierOffRows = Files.readAllLines(
         temporaryDirectory.resolve("all-safe-no-barrier/results.csv"), StandardCharsets.UTF_8);
-    assertTrue(barrierOffRows.stream().skip(1).allMatch(row -> csvField(row, 12).equals("0")));
-    assertTrue(barrierOffRows.stream().skip(1).allMatch(row -> csvField(row, 13).equals("false")));
+    assertTrue(barrierOffRows.stream().skip(1).allMatch(row -> csvField(row, 16).equals("0")));
+    assertTrue(barrierOffRows.stream().skip(1).allMatch(row -> csvField(row, 17).equals("false")));
 
     var splitDirectory = temporaryDirectory.resolve("split");
     var splitCsv = splitDirectory.resolve("results.csv");
@@ -213,6 +218,161 @@ public class SchemaCreationWorkloadTest {
   }
 
   @Test
+  void compositeIndexesUseStableDistinctFieldsAtWidthsTwoAndThree() throws IOException {
+    var widthTwo = runCompositeCase(
+        "composite-width-two", 1, 6, 0, 2, 2, SecurityFilter.NONE);
+    var widthTwoManifest = widthTwo.manifestText().orElseThrow();
+    assertTrue(widthTwoManifest.contains(
+        "index TestCompositeIndex_0_0 type=UNIQUE fields=TestClass0Prop0,TestClass0Prop1"));
+    assertTrue(widthTwoManifest.contains(
+        "index TestCompositeIndex_0_1 type=UNIQUE fields=TestClass0Prop2,TestClass0Prop3"));
+    assertEquals(
+        VerificationState.COMPLETED_COMPOSITE_INDEX_PROOF, widthTwo.verificationState());
+
+    var widthThree = runCompositeCase(
+        "composite-width-three", 1, 6, 0, 2, 3, SecurityFilter.NONE);
+    var widthThreeManifest = widthThree.manifestText().orElseThrow();
+    assertTrue(widthThreeManifest.contains(
+        "index TestCompositeIndex_0_0 type=UNIQUE fields=TestClass0Prop0,TestClass0Prop1,"
+            + "TestClass0Prop2"));
+    assertTrue(widthThreeManifest.contains(
+        "index TestCompositeIndex_0_1 type=UNIQUE fields=TestClass0Prop3,TestClass0Prop4,"
+            + "TestClass0Prop5"));
+  }
+
+  @Test
+  void compositeAndSingleIndexesCanBeMeasuredTogether() throws IOException {
+    var result = runCompositeCase(
+        "mixed-indexes", 1, 4, 2, 1, 2, SecurityFilter.NONE);
+    var manifest = result.manifestText().orElseThrow();
+    assertTrue(manifest.contains("index TestIndex_0_0 type=UNIQUE fields=TestClass0Prop0"));
+    assertTrue(manifest.contains("index TestIndex_0_1 type=UNIQUE fields=TestClass0Prop1"));
+    assertTrue(manifest.contains(
+        "index TestCompositeIndex_0_0 type=UNIQUE fields=TestClass0Prop0,TestClass0Prop1"));
+  }
+
+  @Test
+  void absentNewOptionsPreserveTheLegacyWorkloadShape() throws IOException {
+    var defaults = Configuration.fromProperties(
+        name -> null, Policy.NONE, PropertyPath.SAFE);
+    assertEquals(100, defaults.classes());
+    assertEquals(20, defaults.properties());
+    assertEquals(20, defaults.indexes());
+    assertEquals(0, defaults.compositeIndexes());
+    assertEquals(2, defaults.compositeIndexWidth());
+    assertEquals(SecurityFilter.NONE, defaults.securityFilter());
+
+    var legacy = runCustomCase("legacy-default-options", 1, 3, 3);
+    var expected = EXPECTED_MANIFEST.lines()
+        .takeWhile(line -> !line.equals("class TestClass1"))
+        .collect(java.util.stream.Collectors.joining("\n", "", "\n"));
+    assertEquals(expected, legacy.manifestText().orElseThrow(),
+        "omitting every new option must preserve the legacy manifest byte for byte");
+  }
+
+  @Test
+  void verificationRejectsCompositeIndexesWithWrongFieldsOrWidth() {
+    assertMalformedCompositeRejected(
+        "wrong-composite-fields",
+        List.of("TestClass0Prop0", "TestClass0Prop2"),
+        "expected [TestClass0Prop0, TestClass0Prop1] (width 2)");
+    assertMalformedCompositeRejected(
+        "wrong-composite-width",
+        List.of("TestClass0Prop0", "TestClass0Prop1", "TestClass0Prop2"),
+        "width 3");
+  }
+
+  @Test
+  void incompatibleResultAndDetailHeadersAreRejectedBeforeWorkStarts() throws IOException {
+    var resultDirectory = temporaryDirectory.resolve("bad-result-header");
+    var resultFile = resultDirectory.resolve("results.csv");
+    Files.createDirectories(resultDirectory);
+    Files.writeString(resultFile, "legacy-result-header\n", StandardCharsets.UTF_8);
+    var resultFailure = assertThrows(IOException.class,
+        () -> SchemaCreationWorkload.run(configuration(
+            resultDirectory.resolve("database"),
+            "bad_result_header",
+            resultFile,
+            resultDirectory.resolve("manifest.txt"),
+            Policy.ALL,
+            1,
+            PropertyPath.SAFE,
+            Phase.AB,
+            1,
+            1,
+            1)));
+    assertTrue(resultFailure.getMessage().contains("legacy-result-header"));
+    assertTrue(resultFailure.getMessage().contains(CSV_HEADER));
+    assertFalse(Files.exists(resultDirectory.resolve("database")),
+        "header validation must happen before database work");
+
+    var detailDirectory = temporaryDirectory.resolve("bad-detail-header");
+    var detailResult = detailDirectory.resolve("results.csv");
+    var detailFile = detailResult.resolveSibling(detailResult.getFileName() + ".detail.csv");
+    Files.createDirectories(detailDirectory);
+    Files.writeString(detailResult, CSV_HEADER + "\n", StandardCharsets.UTF_8);
+    Files.writeString(detailFile, "legacy-detail-header\n", StandardCharsets.UTF_8);
+    var detailFailure = assertThrows(IOException.class,
+        () -> SchemaCreationWorkload.run(configuration(
+            detailDirectory.resolve("database"),
+            "bad_detail_header",
+            detailResult,
+            detailDirectory.resolve("manifest.txt"),
+            Policy.ALL,
+            1,
+            PropertyPath.SAFE,
+            Phase.AB,
+            1,
+            1,
+            1)));
+    assertTrue(detailFailure.getMessage().contains("legacy-detail-header"));
+    assertTrue(detailFailure.getMessage().contains(DETAIL_HEADER));
+  }
+
+  @Test
+  void unrelatedSecurityRulesReachCompositeCheckWithoutBlockingCreation() throws IOException {
+    var result = runCompositeCase(
+        "unrelated-security", 2, 4, 1, 1, 2, SecurityFilter.UNRELATED);
+    assertEquals(
+        VerificationState.COMPLETED_COMPOSITE_INDEX_PROOF, result.verificationState());
+
+    var databasePath = temporaryDirectory.resolve("unrelated-security/database");
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(databasePath.toString());
+        var session = manager.open("unrelated_security", "admin", "admin")) {
+      var filtered = session.getSharedContext().getSecurity().getAllFilteredProperties(session);
+      for (var classIndex = 0; classIndex < 2; classIndex++) {
+        var className = "TestClass" + classIndex;
+        assertTrue(filtered.stream().anyMatch(resource -> className.equals(resource.getClassName())
+            && "SecurityUnrelatedProperty".equals(resource.getPropertyName())));
+        var coveredFields =
+            session.getSharedContext().getIndexManager().getIndexes(session).stream()
+                .filter(index -> index.getDefinition() != null)
+                .filter(index -> className.equals(index.getDefinition().getClassName()))
+                .flatMap(index -> index.getDefinition().getFieldsToIndex().stream())
+                .toList();
+        assertFalse(coveredFields.contains("SecurityUnrelatedProperty"));
+      }
+    }
+  }
+
+  @Test
+  void singleIndexAliasHasExplicitPrecedenceAndRejectsContradictions() {
+    assertEquals(20, parsedConfiguration(Map.of()).indexes());
+    assertEquals(7, parsedConfiguration(Map.of("bench.indexes", "7")).indexes());
+    assertEquals(6, parsedConfiguration(Map.of("bench.singleIndexes", "6")).indexes());
+    assertEquals(5, parsedConfiguration(Map.of(
+        "bench.indexes", "5", "bench.singleIndexes", "5")).indexes());
+    assertEquals(4, parsedConfiguration(Map.of(
+        "bench.indexes", "", "bench.singleIndexes", "4")).indexes());
+
+    var contradiction = assertThrows(IllegalArgumentException.class,
+        () -> parsedConfiguration(Map.of(
+            "bench.indexes", "3", "bench.singleIndexes", "4")));
+    assertTrue(contradiction.getMessage().contains("bench.singleIndexes=4"));
+    assertTrue(contradiction.getMessage().contains("bench.indexes=3"));
+  }
+
+  @Test
   void invalidAndMissingInputsFailInsteadOfContinuing() {
     var missing = configuration(
         temporaryDirectory.resolve("missing/database"),
@@ -245,6 +405,72 @@ public class SchemaCreationWorkloadTest {
     var mismatch = assertThrows(IllegalStateException.class,
         () -> SchemaCreationWorkload.requireEqualManifests("class Expected\n", "class Actual\n"));
     assertTrue(mismatch.getMessage().contains("Manifest differs at line 1"));
+  }
+
+  private RunResult runCompositeCase(
+      String name,
+      int classes,
+      int properties,
+      int indexes,
+      int compositeIndexes,
+      int compositeIndexWidth,
+      SecurityFilter securityFilter) throws IOException {
+    var directory = temporaryDirectory.resolve(name);
+    var resultFile = directory.resolve("results.csv");
+    var result = SchemaCreationWorkload.run(configurationWithIndexes(
+        directory.resolve("database"),
+        name.replace('-', '_'),
+        resultFile,
+        directory.resolve("manifest.txt"),
+        Phase.AB,
+        classes,
+        properties,
+        indexes,
+        compositeIndexes,
+        compositeIndexWidth,
+        securityFilter));
+    assertPhase(result, Phase.A, 1, 0);
+    assertPhase(result, Phase.B, 1, 0);
+    assertCsvAndDetails(result, resultFile, 2, classes * 2);
+    return result;
+  }
+
+  private void assertMalformedCompositeRejected(
+      String name, List<String> actualFields, String expectedMessage) {
+    var directory = temporaryDirectory.resolve(name);
+    var databaseName = name.replace('-', '_');
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(directory.toString())) {
+      manager.create(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
+      try (var session = manager.open(databaseName, "admin", "admin")) {
+        var schemaClass = session.getSchema().createClass("TestClass0");
+        for (var propertyIndex = 0; propertyIndex < 3; propertyIndex++) {
+          schemaClass.createProperty("TestClass0Prop" + propertyIndex, PropertyType.STRING);
+        }
+        schemaClass.createIndex(
+            "TestCompositeIndex_0_0",
+            SchemaClass.INDEX_TYPE.UNIQUE,
+            actualFields.toArray(String[]::new));
+        var config = configurationWithIndexes(
+            directory,
+            databaseName,
+            temporaryDirectory.resolve(name + ".csv"),
+            temporaryDirectory.resolve(name + ".txt"),
+            Phase.B,
+            1,
+            3,
+            0,
+            1,
+            2,
+            SecurityFilter.NONE);
+        var failure = assertThrows(IllegalStateException.class,
+            () -> SchemaCreationWorkload.proveIndexes(config, session));
+        assertTrue(failure.getMessage().contains(expectedMessage), failure.getMessage());
+      }
+    }
+  }
+
+  private static Configuration parsedConfiguration(Map<String, String> values) {
+    return Configuration.fromProperties(values::get, Policy.NONE, PropertyPath.SAFE);
   }
 
   private void assertObservedCommits(
@@ -375,6 +601,39 @@ public class SchemaCreationWorkloadTest {
         phaseResult.totalNs());
   }
 
+  private static Configuration configurationWithIndexes(
+      Path databasePath,
+      String databaseName,
+      Path csv,
+      Path manifest,
+      Phase phase,
+      int classes,
+      int properties,
+      int indexes,
+      int compositeIndexes,
+      int compositeIndexWidth,
+      SecurityFilter securityFilter) {
+    return new Configuration(
+        classes,
+        properties,
+        indexes,
+        compositeIndexes,
+        compositeIndexWidth,
+        securityFilter,
+        Policy.ALL,
+        classes,
+        PropertyPath.SAFE,
+        phase,
+        true,
+        databasePath,
+        databaseName,
+        csv,
+        manifest,
+        true,
+        true,
+        "smoke");
+  }
+
   private static Configuration configuration(
       Path databasePath,
       String databaseName,
@@ -419,6 +678,9 @@ public class SchemaCreationWorkloadTest {
         classes,
         properties,
         indexes,
+        0,
+        2,
+        SecurityFilter.NONE,
         policy,
         batchSize,
         propertyPath,
@@ -440,30 +702,34 @@ public class SchemaCreationWorkloadTest {
     assertEquals(expectedDataRows + 1, lines.size(), "CSV must contain one row per phase");
     assertEquals(1, lines.stream().filter(CSV_HEADER::equals).count(),
         "CSV header must occur exactly once");
+    assertTrue(lines.stream().skip(1).allMatch(line -> csvField(line, 0).equals("2")),
+        "every result row must identify CSV schema version 2");
     assertTrue(lines.stream().skip(1)
-        .allMatch(line -> csvField(line, 22).equals("COMPLETED")),
-        "verified runs must record verificationState=COMPLETED");
+        .allMatch(line -> csvField(line, 26).equals(result.verificationState().name())),
+        "verified runs must record their exact verification state");
     assertTrue(result.shutdownNs() > 0, "the returned shutdown time must be positive");
     for (var line : lines.stream()
         .skip(1)
-        .filter(row -> csvField(row, 1).equals(result.runId()))
+        .filter(row -> csvField(row, 2).equals(result.runId()))
         .toList()) {
-      var phase = Phase.valueOf(csvField(line, 6));
+      var phase = Phase.valueOf(csvField(line, 7));
       var phaseResult = result.phases().stream()
           .filter(candidate -> candidate.phase() == phase)
           .findFirst()
           .orElseThrow();
-      assertEquals(phaseResult.durabilityBarrierNs(), Long.parseLong(csvField(line, 12)));
+      assertEquals(phaseResult.durabilityBarrierNs(), Long.parseLong(csvField(line, 16)));
       assertEquals(
-          phaseResult.durabilityBarrierRan(), Boolean.parseBoolean(csvField(line, 13)));
-      assertEquals(result.shutdownNs(), Long.parseLong(csvField(line, 15)));
-      assertTrue(Long.parseLong(csvField(line, 15)) > 0,
+          phaseResult.durabilityBarrierRan(), Boolean.parseBoolean(csvField(line, 17)));
+      assertEquals(result.shutdownNs(), Long.parseLong(csvField(line, 19)));
+      assertTrue(Long.parseLong(csvField(line, 19)) > 0,
           "the CSV shutdown time must be positive");
     }
 
     var details = Files.readAllLines(result.detailFile(), StandardCharsets.UTF_8);
     assertEquals(DETAIL_HEADER, details.getFirst());
     assertEquals(expectedDetailRows + 1, details.size());
+    assertTrue(details.stream().skip(1).allMatch(line -> csvField(line, 0).equals("2")),
+        "every detail row must identify CSV schema version 2");
     var currentRunDetailRows = result.phases().stream()
         .mapToInt(phase -> phase.timingDetails().size())
         .sum();
