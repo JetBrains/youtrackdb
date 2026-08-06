@@ -358,7 +358,7 @@ public class SchemaCreationWorkloadTest {
   }
 
   @Test
-  void appendGuardHandlesLateMismatchMissingNewlineAndEmptyFiles() throws IOException {
+  void preAppendHeaderGuardRejectsMismatchIntroducedAfterPreflight() throws IOException {
     var lateMismatch = temporaryDirectory.resolve("late-header-mismatch.csv");
     Files.writeString(lateMismatch, CSV_HEADER + "\n", StandardCharsets.UTF_8);
     var mismatch = assertThrows(IOException.class,
@@ -366,7 +366,54 @@ public class SchemaCreationWorkloadTest {
             lateMismatch, "changed-after-preflight", List.of("value")));
     assertTrue(mismatch.getMessage().contains(CSV_HEADER));
     assertTrue(mismatch.getMessage().contains("changed-after-preflight"));
+  }
 
+  @Test
+  void preExistingEmptyResultFileReceivesHeaderAndRows() throws IOException {
+    var directory = temporaryDirectory.resolve("empty-result-file");
+    Files.createDirectories(directory);
+    var emptyResult = directory.resolve("results.csv");
+    Files.createFile(emptyResult);
+    var result = SchemaCreationWorkload.run(configuration(
+        directory.resolve("database"),
+        "empty_result_file",
+        emptyResult,
+        directory.resolve("manifest.txt"),
+        Policy.ALL,
+        1,
+        PropertyPath.SAFE,
+        Phase.AB,
+        1,
+        1,
+        1));
+    assertCsvAndDetails(result, emptyResult, 2, 2);
+  }
+
+  @Test
+  void preExistingEmptyDetailFileReceivesHeaderAndRows() throws IOException {
+    var directory = temporaryDirectory.resolve("empty-detail-file");
+    Files.createDirectories(directory);
+    var resultFile = directory.resolve("results.csv");
+    var emptyDetail = directory.resolve("results.csv.detail.csv");
+    Files.writeString(resultFile, CSV_HEADER + "\n", StandardCharsets.UTF_8);
+    Files.createFile(emptyDetail);
+    var result = SchemaCreationWorkload.run(configuration(
+        directory.resolve("database"),
+        "empty_detail_file",
+        resultFile,
+        directory.resolve("manifest.txt"),
+        Policy.ALL,
+        1,
+        PropertyPath.SAFE,
+        Phase.AB,
+        1,
+        1,
+        1));
+    assertCsvAndDetails(result, resultFile, 2, 2);
+  }
+
+  @Test
+  void appendAfterUnterminatedLastLineKeepsRecordsSeparate() throws IOException {
     var missingNewline = temporaryDirectory.resolve("missing-newline.csv");
     Files.writeString(
         missingNewline, CSV_HEADER + "\n\"existing\"", StandardCharsets.UTF_8);
@@ -376,26 +423,6 @@ public class SchemaCreationWorkloadTest {
         "append must add a separator after an unterminated existing record");
     assertEquals("\"existing\"", separatedLines.get(1));
     assertEquals("\"next\"", separatedLines.get(2));
-
-    var emptyDirectory = temporaryDirectory.resolve("empty-output-files");
-    Files.createDirectories(emptyDirectory);
-    var emptyResult = emptyDirectory.resolve("results.csv");
-    var emptyDetail = emptyDirectory.resolve("results.csv.detail.csv");
-    Files.createFile(emptyResult);
-    Files.createFile(emptyDetail);
-    var result = SchemaCreationWorkload.run(configuration(
-        emptyDirectory.resolve("database"),
-        "empty_output_files",
-        emptyResult,
-        emptyDirectory.resolve("manifest.txt"),
-        Policy.ALL,
-        1,
-        PropertyPath.SAFE,
-        Phase.AB,
-        1,
-        1,
-        1));
-    assertCsvAndDetails(result, emptyResult, 2, 2);
   }
 
   @Test
