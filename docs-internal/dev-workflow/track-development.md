@@ -60,8 +60,10 @@ This section owns the *mechanics* of verification inside a track: which command 
 commit, how the module sets are computed, when the expensive gate re-runs, and how coverage
 is measured. The always-injected `docs-internal/agents/orchestrator-guidelines.md` and
 `docs-internal/agents/thread-guidelines.md` carry only the short rule plus a pointer here,
-per AGENTS.md § Load Guidance Documents on Demand. Ownership is split rather than
-duplicated — these rules stay where they are and are not restated below: the 85%/70%
+per AGENTS.md § Load Guidance Documents on Demand. Ownership is split rather than duplicated.
+The rules below are owned elsewhere, and this section cites them instead of redefining them —
+where a command line needs one of their values, such as the 85/70 flags in the coverage
+invocation, it reproduces the owner's value rather than setting its own: the 85%/70%
 thresholds and the test-authorship obligation (orchestrator-guidelines § Test Policy), the
 integration-test decision rules and the serial-test-execution scheduling invariant
 (orchestrator-guidelines § Verification Gates), and the raw build-command catalogue
@@ -138,9 +140,12 @@ selection has nothing to name. Their compile gate is reactor-wide — no `-pl`, 
 
 ### Two module sets: compile gate vs test gates
 
-"Affected modules" is not a single set. The compile gate and the test gates need different
+Module selection is not one set. The compile gate and the test gates need different
 ones, and carrying the compile-gate definition into a test gate silently converts it into a
-reactor-wide test run — the exact cost this protocol exists to avoid.
+reactor-wide test run — the exact cost this protocol exists to avoid. Both names below —
+**compile-gate set** and **test-gate set** — are the terms the injected guideline documents
+use as well, so a short rule stated there in terms of either set resolves to the definition
+here.
 
 **Compile-gate set** — the modules containing changed files **plus their downstream
 consumers in the reactor**, which is what `-am -amd` expresses. This set is deliberately
@@ -152,8 +157,7 @@ nothing about whether `server` still compiles.
 own tests exercise the changed behavior. There is no automatic `-amd` fan-out here: a
 dependent that merely compiles against a changed API is already covered by the compile gate,
 and re-running its suites costs tens of minutes for no new signal. This is the set the
-end-of-track gate below and § After the flip call the test-gate modules, and the set the
-short "affected modules" phrasing in the guideline documents refers to. When the changed
+end-of-track gate below and § After the flip mean by the test-gate modules. When the changed
 behavior does reach a dependent's tests, name that dependent in `-pl` explicitly rather than
 switching the run to `-amd`.
 
@@ -179,11 +183,12 @@ At the end of each track's implementation, and **before** that track's agent cod
 the full verification runs:
 
 1. **Unit tests** for the test-gate modules, green.
-2. **Integration tests** (`-P ci-integration-tests`) where the change hits areas the
-   integration-test decision rules in orchestrator-guidelines § Verification Gates
-   name — storage, WAL, index, Gremlin integration, transaction handling.
-3. **The coverage gate** at 85% line / 70% branch over the changed lines, run by the
-   procedure below.
+2. **Integration tests** (`-P ci-integration-tests`) when the change touches areas covered by
+   integration tests. That trigger is owned by orchestrator-guidelines § Verification Gates
+   and is deliberately general, not a closed list of areas — read it there rather than
+   working from an enumeration here.
+3. **The coverage gate** over the changed lines, at the thresholds owned by
+   orchestrator-guidelines § Test Policy, run by the procedure below.
 
 The placement matters in both directions. Gating only at the track's closing event (below)
 would have reviewers reviewing unverified code; gating only before the review would let
@@ -287,10 +292,15 @@ turns on which of the two reasons for a missing report applies:
   the module selection or the build and re-run: a percentage that clears the thresholds is
   still wrong.
 
-Cross-check the count while you are there. The script prints `Found N JaCoCo report(s)`,
-where N counts the `jacoco.xml` files it globbed — one per report directory — so N below the
-size of the expected report set means a report is missing, and N above it means stale
-directories survived step 1.
+Cross-check the count while you are there, but read it in one direction only. The script
+prints `Found N JaCoCo report(s)`, where N counts the `jacoco.xml` files it globbed — one per
+report directory. N **larger** than the expected report set is normal rather than a symptom:
+`-am` builds the upstream modules too, and every upstream module that has test sources writes
+its own report. A change confined to `server` builds `gremlin-annotations` and `core` on the
+way there, so three reports appear where the coverage set names one. Nor can the surplus be
+stale, since step 1 emptied the directory before the run. The direction that matters is the
+other one: N below the expected count, or `ls` showing no directory for a coverage-set module
+that has `src/test`, is the missing-report defect above.
 
 Always use `coverage-gate.py` rather than computing coverage by hand; the reason manual
 arithmetic gives wrong answers (the JaCoCo `assert`-statement trap) is in
