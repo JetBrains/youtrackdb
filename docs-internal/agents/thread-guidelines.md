@@ -86,7 +86,7 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 
 ### Test Authorship
 
-- **All code changes must have associated tests** that cover the new or modified behavior; bug fixes must include a regression test reproducing the bug, unless one already exists. Tests for a track's code must exist by that track's agent code review; substantial test work may be its own task within the same track, completed before that review.
+- **All code changes must have associated tests** that cover the new or modified behavior; bug fixes must include a regression test reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope; only create new test classes when there is no suitable existing one.
 - Coverage target for new/changed code: 85% line / 70% branch — verify with `coverage-gate.py` (see [Coverage Verification](#coverage-verification) below).
 
@@ -103,11 +103,17 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 
 ### Coverage Verification
 
-Coverage is verified at the end of the track's implementation, not per commit. Always use `coverage-gate.py` rather than hand arithmetic: its `assert`-line exclusions avoid JaCoCo's phantom uncovered branches and unreachable failure-message lines. For the mandatory hygiene procedure (`.coverage/reports` removal, the report-set assertion, and when a "skip" is not a pass), see `docs-internal/dev-workflow/track-development.md` § Verification integration.
+Always use `coverage-gate.py`, not hand arithmetic. Before running it, read
+`docs-internal/dev-workflow/track-development.md` § Verification integration for the mandatory
+procedure.
 
 ## Committing
 
-- **Never commit over a red result you actually observed.** Running tests mid-track is not required; a mid-track commit requires only that the affected modules compile through `./mvnw -pl <module>[,<module>] -am test-compile` (or the `embedded` shading exception above). Report which gate command you ran and its outcome.
+- **Never commit over a red result you actually observed.** Running tests mid-track is not
+  required. Before a mid-track commit, read
+  `docs-internal/dev-workflow/track-development.md` § Verification integration to select modules
+  and apply gate exceptions. Changes with no Java files or module content require no Maven gate;
+  otherwise run the applicable gate above. Report the command and outcome when a gate runs.
 - The YTDB issue number is carried in the PR title only (auto-prefixed from the branch name by `.github/workflows/pr-title-prefix.yml`). Individual commit subjects do not need it — the squash-merge takes its message from the PR title and description.
 - **Format**:
   ```
