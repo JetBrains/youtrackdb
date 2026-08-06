@@ -64,7 +64,7 @@ per AGENTS.md § Load Guidance Documents on Demand. Ownership is split rather th
 duplicated — these rules stay where they are and are not restated below: the 85%/70%
 thresholds and the test-authorship obligation (orchestrator-guidelines § Test Policy), the
 integration-test decision rules and the serial-test-execution scheduling invariant
-(orchestrator-guidelines § Pre-Commit Verification), and the raw build-command catalogue
+(orchestrator-guidelines § Verification Gates), and the raw build-command catalogue
 (thread-guidelines § Build Commands). Read those for the rules they own; read this for how a
 gate is executed.
 
@@ -180,7 +180,7 @@ the full verification runs:
 
 1. **Unit tests** for the test-gate modules, green.
 2. **Integration tests** (`-P ci-integration-tests`) where the change hits areas the
-   integration-test decision rules in orchestrator-guidelines § Pre-Commit Verification
+   integration-test decision rules in orchestrator-guidelines § Verification Gates
    name — storage, WAL, index, Gremlin integration, transaction handling.
 3. **The coverage gate** at 85% line / 70% branch over the changed lines, run by the
    procedure below.
@@ -223,13 +223,16 @@ of a single-track change.
 
 ### Coverage measurement procedure
 
-Run it as a sequence, in this order:
+Run it as a sequence, in this order. The set built here is a third set, distinct from the two
+above: the **coverage set** is the modules containing changed Java files — no downstream
+fan-out (unlike the compile-gate set) and no judgment call about which suites exercise the
+change (unlike the test-gate set).
 
 ```bash
 # 1. Mandatory: mvn clean does NOT remove this directory.
 rm -rf .coverage/reports
 
-# 2. Build the modules containing changed Java files, with -am.
+# 2. Build the coverage set - modules with changed Java files - with -am.
 ./mvnw -pl <modules with changed Java files> -am clean package -P coverage
 
 # 3. Gate the changed lines against the thresholds.
@@ -249,38 +252,120 @@ Stale reports merge into fresh ones on a max-covered-wins basis, so a line cover
 yesterday's run counts as covered today. Leaving the directory in place biases coverage
 upward and the bias is invisible in the output.
 
-**Step 4, the report-set assertion.** `.coverage/reports` must contain a report directory
-for **every** module with changed Java files. Changed files in an unreported module are
-silently dropped from the coverage denominator: the gate reports a confident number
-computed over a subset of the diff. If a module is missing, the measurement is wrong even
-when the printed percentage clears the thresholds — fix the module selection and re-run.
+**Report directories are named by artifactId, not by module directory.** The `coverage`
+profile in the root `pom.xml` writes the unit-test report to
+`.coverage/reports/${project.artifactId}` and the integration-test report to
+`.coverage/reports/${project.artifactId}-it`. Every module's artifactId is
+`youtrackdb-<directory name>`, so the `core` directory reports under
+`.coverage/reports/youtrackdb-core`, not `.coverage/reports/core`. When in doubt, derive it
+instead of guessing:
+
+```bash
+./mvnw -q -pl <module dir> help:evaluate -Dexpression=project.artifactId -DforceStdout
+```
+
+The `-it` directories appear only when the run reaches the integration-test phases, so a
+local `package` run produces the plain directories only.
+
+**Step 4, the report-set assertion.** `.coverage/reports` must contain a
+`youtrackdb-<module>` directory for every module of the coverage set that **has test sources
+of its own** (`src/test`). A module with no `src/test` never produces execution data, so the
+JaCoCo report goal is skipped and no directory is ever written — as of this writing that is
+`driver`, `console` and `test-commons`; check with `ls -d <module>/src/test` rather than
+trusting the list. Demanding a directory for those modules is unsatisfiable, so the assertion
+turns on which of the two reasons for a missing report applies:
+
+- **Missing, and the module has no `src/test`** — expected, not a defect. A module's JaCoCo
+  report only covers that module's own classes, so its changed lines are outside the
+  measurement in CI too. Say so when reporting the gate instead of presenting the printed
+  percentage as covering the whole diff; what guards those lines is the test-gate modules'
+  tests, not the coverage gate.
+- **Missing, and the module has `src/test`** — a defect in the measurement. The module was
+  left out of `-pl`, its tests were skipped, or the build never reached `prepare-package`
+  (the phase the report goal is bound to). Its changed lines are silently dropped from the
+  denominator and the gate prints a confident number computed over a subset of the diff. Fix
+  the module selection or the build and re-run: a percentage that clears the thresholds is
+  still wrong.
+
+Cross-check the count while you are there. The script prints `Found N JaCoCo report(s)`,
+where N counts the `jacoco.xml` files it globbed — one per report directory — so N below the
+size of the expected report set means a report is missing, and N above it means stale
+directories survived step 1.
 
 Always use `coverage-gate.py` rather than computing coverage by hand; the reason manual
 arithmetic gives wrong answers (the JaCoCo `assert`-statement trap) is in
 thread-guidelines § Coverage Verification.
 
+**Local and CI coverage runs are not the same run.** CI collects coverage in the `test-linux`
+x86 / JDK 21 leg of `.github/workflows/maven-pipeline.yml`, from a **full-reactor**
+`./mvnw clean package -P docker-images,coverage` carrying
+`-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci`; that leg uploads
+`.coverage/reports/` as an artifact and a separate `coverage-gate` job runs this same script
+against `origin/<PR base branch>`, on non-draft PRs only. Three consequences for a locally
+green run:
+
+- CI has reports for every module with tests, so changed lines that your `-pl` selection
+  never reported locally are counted there. A local pass can flip to a CI failure purely
+  through denominator size — which is exactly what the report-set assertion guards.
+- CI runs disk storage (`-Dyoutrackdb.test.env=ci`) while the local default is in-memory, so
+  different code paths are exercised and per-line coverage differs in both directions.
+- CI measures coverage even when tests fail (`-Dmaven.test.failure.ignore=true`), so a red
+  test leg still produces a coverage number.
+
+The CI gate is authoritative — it is what blocks the PR. The local procedure is a prediction
+whose job is to make the CI result unsurprising; do not replace it with the CI command, since
+a full-reactor coverage build is priced in hours and that price is why the per-module
+procedure exists.
+
 ### When a coverage "skip" is a pass
 
-A skip counts as a pass **only** when the change genuinely has no changed Java files.
-Verify that, do not assume it:
+A skip counts as a pass **only** when the change genuinely has no changed Java files. Verify
+that with the same diff the script itself uses — `--diff-filter=ACM` is part of the check,
+not decoration:
 
 ```bash
-git diff origin/develop...HEAD --name-only -- '*.java'
+git diff origin/develop...HEAD --name-only --diff-filter=ACM -- '*.java'
 ```
 
+Without `--diff-filter=ACM` the check also lists **deleted** Java files. A deletion-only
+change then looks like "coverage applies", while the script's own diff — which passes
+`--diff-filter=ACM` in `get_changed_lines` — comes back empty, so the run takes path 1 below
+and prints a skip. The unfiltered check says Java changed, the rule below says a skip on a
+Java change is a failed measurement, and there is nothing left to fix: a loop with no exit.
+Matching the filter removes it — a deletion-only change legitimately has nothing to measure.
+
 Empty output — a real pass. Non-empty output plus a skip — the *measurement* failed and must
-be investigated, not recorded as a green gate. The script has five paths that print
-something reassuring without measuring anything, and all five look like success:
+be investigated, not recorded as a green gate. Five paths print something reassuring without
+measuring anything. These are the strings the script actually writes to stdout, so real
+output can be mapped onto them literally:
 
-1. **No changed Java files** — the only legitimate skip.
-2. **No JaCoCo report found** for a module, so its changed lines are not counted.
-3. **Zero coverable lines in the diff** ("no coverable lines in diff").
-4. **Zero branches in the changed lines** ("no branches in changed lines").
-5. **Both zero** — line and branch checks each vacuously satisfied.
+1. `No changed Java files found. Skipping coverage gate.` — a **skip line**: the script
+   returns immediately, printing no PASSED line at all. The only legitimate skip, and only
+   when the diff above is also empty. On a change that does touch Java it means the compare
+   branch or the diff filter is wrong.
+2. `No JaCoCo XML files found. Skipping coverage gate.` — also a **skip line** with no PASSED
+   line. It fires only when the *entire* coverage directory contains no `**/jacoco.xml`;
+   nothing was measured. In the markdown report this is the single `:warning:` case rather
+   than a check mark.
+3. `Line coverage: PASSED — no coverable lines in diff` — a **PASSED-style line**: the line
+   total was zero, so the threshold was vacuously satisfied. Markdown counterpart:
+   `## Line Coverage: :white_check_mark: No coverable lines in diff`.
+4. `Branch coverage: PASSED — no branches in changed lines` — a **PASSED-style line**: the
+   branch total was zero. Markdown counterpart:
+   `## Branch Coverage: :white_check_mark: No branches in changed lines`.
+5. Both of the two lines above, followed by
+   `PASSED: All coverage meets thresholds (85% line, 70% branch)` and exit 0 — an entirely
+   vacuous green.
 
-"Skipping coverage gate" on a change that touches Java is finding number 2, 3, 4 or 5 until
-proven otherwise. Hardening the script against these paths is deferred follow-up work; until
-then this protocol is the only guard.
+Paths 3–5 are also how a *per-module* missing report surfaces: the script never names a
+missing module. It prints `Found N JaCoCo report(s)` and `Checking coverage for M changed
+file(s)`, matches those M files against whatever XML it found, and then reports PASSED over
+whatever matched — including nothing. A PASSED line is therefore not evidence that the diff
+was measured; only the report-set assertion above is.
+
+Once the `--diff-filter=ACM` diff above is non-empty, every one of the five outputs — path 1
+included — is a measurement failure until proven otherwise. Hardening the script against
+these paths is deferred follow-up work; until then this protocol is the only guard.
 
 ### Deferred test authorship
 
