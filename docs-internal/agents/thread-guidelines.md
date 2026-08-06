@@ -19,15 +19,15 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # Run integration tests (separate from PR pipeline, used by nightly CI)
 ./mvnw clean verify -P ci-integration-tests
 
-# Run integration tests for the affected module(s)
+# Run integration tests for the test-gate set
 ./mvnw -pl core clean verify -P ci-integration-tests
 
-# If changes span multiple modules, test all affected ones
+# If the test-gate set spans multiple modules, test them all
 ./mvnw -pl core,server clean test
 
-# Mid-track commit gates (-am is mandatory; use package when embedded shading is affected)
-./mvnw -pl <module>[,<module>] -am test-compile
-./mvnw -pl embedded -am package
+# Mid-track compile gate (read Verification integration to select the compile-gate set)
+./mvnw -pl <modules with changed files> -am -amd test-compile
+./mvnw -pl embedded -am -amd package -DskipTests
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images
@@ -111,9 +111,10 @@ procedure.
 
 - **Never commit over a red result you actually observed.** Running tests mid-track is not
   required. Before a mid-track commit, read
-  `docs-internal/dev-workflow/track-development.md` § Verification integration to select modules
-  and apply gate exceptions. Changes with no Java files or module content require no Maven gate;
-  otherwise run the applicable gate above. Report the command and outcome when a gate runs.
+  `docs-internal/dev-workflow/track-development.md` § Verification integration to select the
+  compile-gate set and apply exceptions. Changes with no Java files or module content require no
+  Maven gate; otherwise run the applicable gate above. Report the command and outcome when a gate
+  runs.
 - The YTDB issue number is carried in the PR title only (auto-prefixed from the branch name by `.github/workflows/pr-title-prefix.yml`). Individual commit subjects do not need it — the squash-merge takes its message from the PR title and description.
 - **Format**:
   ```
