@@ -25,6 +25,10 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # If changes span multiple modules, test all affected ones
 ./mvnw -pl core,server clean test
 
+# Mid-track commit gates (-am is mandatory; use package when embedded shading is affected)
+./mvnw -pl <module>[,<module>] -am test-compile
+./mvnw -pl embedded -am package
+
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images
 
@@ -82,13 +86,13 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 
 ### Test Authorship
 
-- **All code changes must have associated tests** that cover the new or modified behavior; bug fixes must include a regression test reproducing the bug, unless one already exists.
+- **All code changes must have associated tests** that cover the new or modified behavior; bug fixes must include a regression test reproducing the bug, unless one already exists. Tests for a track's code must exist by that track's agent code review; substantial test work may be its own task within the same track, completed before that review.
 - Prefer adding tests to **existing test classes** when the change fits their scope; only create new test classes when there is no suitable existing one.
 - Coverage target for new/changed code: 85% line / 70% branch — verify with `coverage-gate.py` (see [Coverage Verification](#coverage-verification) below).
 
 ### Test Execution
 
-**NEVER run multiple test processes simultaneously in the same worktree/directory.** Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another in the same working directory. Running tests in parallel within the same worktree causes classloading errors, database file locking conflicts, and false test failures. This applies to all test execution — unit tests, integration tests, and coverage runs. Tests in separate worktrees/directories do not conflict. The rule extends to any concurrent Maven invocations in the same worktree — wait for a running build to complete before starting another build or test run there.
+**NEVER run multiple test processes simultaneously in the same worktree/directory.** Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another in the same working directory. Running tests in parallel within the same worktree causes classloading errors, database file locking conflicts, and false test failures. This applies to all test execution — unit tests, integration tests, and coverage runs. Tests in separate worktrees/directories do not conflict. The rule extends to any concurrent Maven invocations in the same worktree — wait for a running build to complete before starting another build or test run there. Running tests mid-track is not required.
 
 ### Test Modules at a Glance
 - **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
@@ -99,23 +103,11 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 
 ### Coverage Verification
 
-Always use the `coverage-gate.py` script (invocation below) to check coverage instead of computing it by hand. The script contains special-case logic — for example, it excludes Java `assert` statement lines (including multi-line continuations) from both line and branch coverage calculations, because JaCoCo reports phantom uncovered branches and unreachable failure-message lines for asserts. Manual arithmetic will not account for these exclusions and will give incorrect results.
-
-```bash
-# Run unit tests with coverage collection
-./mvnw clean package -P coverage
-
-# Check coverage of changed lines against thresholds (85% line, 70% branch)
-python3 .github/scripts/coverage-gate.py \
-  --line-threshold 85 \
-  --branch-threshold 70 \
-  --compare-branch origin/develop \
-  --coverage-dir .coverage/reports
-```
+Coverage is verified at the end of the track's implementation, not per commit. Always use `coverage-gate.py` rather than hand arithmetic: its `assert`-line exclusions avoid JaCoCo's phantom uncovered branches and unreachable failure-message lines. For the mandatory hygiene procedure (`.coverage/reports` removal, the report-set assertion, and when a "skip" is not a pass), see `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
 ## Committing
 
-- **Never commit if tests fail.** Fix the failures first, then re-run the tests.
+- **Never commit over a red result you actually observed.** Running tests mid-track is not required; a mid-track commit requires only that the affected modules compile through `./mvnw -pl <module>[,<module>] -am test-compile` (or the `embedded` shading exception above). Report which gate command you ran and its outcome.
 - The YTDB issue number is carried in the PR title only (auto-prefixed from the branch name by `.github/workflows/pr-title-prefix.yml`). Individual commit subjects do not need it — the squash-merge takes its message from the PR title and description.
 - **Format**:
   ```
