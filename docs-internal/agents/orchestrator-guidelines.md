@@ -34,8 +34,9 @@ How and when verification runs is defined in
 
 ## Verification Gates
 
-Mid-track commits run `./mvnw -pl <modules> -am -amd test-compile` over the compile-gate set. At
-the end of a track's implementation, before its agent code review, full verification runs at every
+Mid-track commits run `./mvnw -pl <modules with changed files> -am -amd test-compile` over the
+compile-gate set. At the end of a track's implementation, before its agent code review, full
+verification runs at every
 tier: unit tests for the test-gate set, integration tests under the decision rules below, and
 coverage at the 85% line / 70% branch thresholds. The complete protocol — including module
 selection, exceptions, coverage measurement, and re-run rules — is in
