@@ -19,7 +19,7 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # Run integration tests (separate from PR pipeline, used by nightly CI)
 ./mvnw clean verify -P ci-integration-tests
 
-# Run integration tests for the test-gate set
+# Run integration tests for one module
 ./mvnw -pl core clean verify -P ci-integration-tests
 
 # If the test-gate set spans multiple modules, test them all
