@@ -16,13 +16,14 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # Full build with unit tests on disk storage (as CI does)
 ./mvnw clean package -Dyoutrackdb.test.env=ci
 
-# Run one or several affected integration test classes
-./mvnw -pl core clean verify -P ci-integration-tests \
-  -Dit.test='BTreeTestIT,FreeSpaceMapTestIT'
+# Run an affected integration test method without unit tests
+./mvnw -pl core test-compile failsafe:integration-test failsafe:verify \
+  -P ci-integration-tests -Dit.test='FreeSpaceMapTestIT#findSinglePage'
 
 # Run integration tests with dependencies built by Maven
-./mvnw -pl core -am clean verify -P ci-integration-tests \
-  -Dit.test='BTreeTestIT' -Dfailsafe.failIfNoSpecifiedTests=false
+./mvnw -pl core -am test-compile failsafe:integration-test failsafe:verify \
+  -P ci-integration-tests -Dit.test='FreeSpaceMapTestIT#findSinglePage' \
+  -Dfailsafe.failIfNoSpecifiedTests=false
 
 # If the test-gate set spans multiple modules, test them all
 ./mvnw -pl core,server clean test
@@ -98,10 +99,10 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 
 ### Test Modules at a Glance
 - **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
-- **Integration test selection**: Integration classes use Failsafe's default `*IT.java` naming pattern. Select affected classes with a comma-separated `-Dit.test='SomeIT,OtherIT'` list. Patterns such as `-Dit.test='*Histogram*IT'` select several classes. Use `-Dit.test='SomeIT#someMethod'` for one method.
+- **Integration test selection**: Integration classes use Failsafe's default `*IT.java` naming pattern. Select affected classes with a comma-separated `-Dit.test='SomeIT,OtherIT'` list. Patterns such as `-Dit.test='*Histogram*IT'` select several classes. Use `-Dit.test='SomeIT#someMethod'` for one method. Run `test-compile` before direct Failsafe goals because a clean checkout has no compiled test classes. Keep `failsafe:verify`, which makes integration failures fail the build.
 - **Module scope**: Add `-pl <module>` to limit the run. Failsafe uses `-Dit.test=`. Surefire uses `-Dtest=`, which does not select integration tests.
 - **Dependency builds**: Adding `-am` propagates the selector to upstream modules. Those modules fail when no test matches. Add `-Dfailsafe.failIfNoSpecifiedTests=false` to prevent that failure.
-- **Full integration suite**: Do not run the full suite locally. The pull request pipeline runs it. If affected classes are unclear, escalate verification to that run.
+- **Full integration suite**: Do not run the full suite locally. The pipeline runs it after the pull request becomes ready for review. If affected classes are unclear, report that uncertainty so the orchestrator can choose the verification path.
 - **Test utilities**: `test-commons` provides `TestBuilder`, `TestFactory`, `ConcurrentTestHelper`.
 
 For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDBC and legacy JMH benchmarks, and the per-test JVM properties (`bufferSize`, `createDefaultUsers`, `checksumMode`, `directMemory.trackMode`): see `.claude/docs/testing-details.md`.
