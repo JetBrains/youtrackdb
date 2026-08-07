@@ -9,7 +9,7 @@ Two title tags change which checks run:
 
 Integration test run conditions:
 
-- Integration tests run when a pull request becomes ready for review.
+- Integration tests run unless the pull request is a draft.
 - Integration tests do not run for a draft pull request.
 - Integration tests do not run when the pull request branch lives in a fork.
 - Integration tests do not run when every changed file is a Markdown file.
