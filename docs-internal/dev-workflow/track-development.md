@@ -364,6 +364,55 @@ but not its order, since `nonPreferred` sorts that model last on both sides of t
 measured levels, route-for/avoid-for guidance and the profiled model set itself change
 whenever the package is republished.
 
+## MCP server configuration
+
+The `pi-mcp-adapter` package in `.pi/settings.json` gives every pi session an MCP client.
+MCP means Model Context Protocol, a standard interface between agents and external tools.
+The package registers two tools: a gateway tool named `mcp` and a scripting tool named
+`mcpScript`. `.pi/slate.json` lists the package in `workerExtensions`, so worker threads
+receive both tools as well.
+
+**Machine-local prerequisite.** The adapter ships no servers. Each developer configures
+their own, and the repository holds none, because a server entry carries a credential. The
+adapter reads `mcp.json` from six locations and merges every file it finds. Later locations
+win:
+
+1. `~/.config/mcp/mcp.json`
+2. `~/.agents/mcp.json`
+3. `~/.agents/mcp/mcp.json`
+4. `~/.pi/agent/mcp.json`
+5. `<repo>/.mcp.json`
+6. `<repo>/.pi/mcp.json`
+
+Use the user-global location, `~/.pi/agent/mcp.json`. The two repository locations are
+listed in `.gitignore`. The adapter's `/mcp` panel can write them. A local server entry
+must never reach a commit.
+
+Keep the credential out of `mcp.json`. A value that starts with `!` is run as a command,
+and its trimmed output becomes the value. Store the token in its own file with owner-only
+permissions and point at that file. The YouTrack setup used by this project looks like
+this:
+
+```json
+{
+  "mcpServers": {
+    "youtrack": {
+      "url": "https://youtrack.jetbrains.com/mcp",
+      "headers": {
+        "Authorization": "!cat /home/<user>/.config/youtrack/mcp-auth-header"
+      }
+    }
+  }
+}
+```
+
+The token file holds the complete header value, including the `Bearer ` prefix. Give it
+mode 0600. Use an absolute path. The adapter runs the command through a shell, so a tilde
+also expands. An absolute path avoids any dependence on the environment.
+
+Without any `mcp.json` the adapter still loads. It then registers its two tools, reports no
+servers, and costs roughly 950 prompt tokens per request.
+
 ## Package pin bumps
 
 Changing the `ytdb-slate` version pin in `.pi/settings.json` is a tracked change like any
