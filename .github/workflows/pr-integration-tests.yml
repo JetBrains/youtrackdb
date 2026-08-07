@@ -1,3 +1,4 @@
+# Configure integration-status as the required status check in branch protection.
 name: PR Integration Tests
 
 on:
@@ -90,7 +91,8 @@ jobs:
       contents: read
       checks: write
     runs-on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
-    timeout-minutes: 360
+    # Lower caps can terminate legitimate long-running integration tests.
+    timeout-minutes: 600
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
@@ -182,4 +184,34 @@ jobs:
           large_files: true
           comment_mode: off
           compare_to_earlier_commit: false
-          check_name: Integration Tests Results (Linux x86, JDK 21 - temurin)
+          check_name: PR Integration Test Results (Linux x86, JDK 21 - temurin)
+
+  integration-status:
+    if: always()
+    needs: [ decide, integration-tests ]
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Integration Test Results
+        env:
+          DECIDE_RESULT: ${{ needs.decide.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+        run: |
+          if [[ "$DECIDE_RESULT" != "success" ]]; then
+            echo "The decision job did not succeed. Result: $DECIDE_RESULT."
+            exit 1
+          fi
+
+          if [[ "$INTEGRATION_RESULT" == "success" ]]; then
+            echo "Integration tests passed."
+            exit 0
+          fi
+
+          if [[ "$INTEGRATION_RESULT" == "skipped" ]]; then
+            echo "Integration tests were skipped by the decision job."
+            exit 0
+          fi
+
+          echo "Integration tests did not succeed. Result: $INTEGRATION_RESULT."
+          exit 1
