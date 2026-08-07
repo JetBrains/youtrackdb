@@ -43,7 +43,7 @@ jobs:
           fi
 
           # Use a three-dot diff to inspect only changes introduced by this pull request.
-          CHANGED_FILES=$(git diff --name-only "$PR_BASE_SHA...HEAD")
+          CHANGED_FILES=$(git diff --no-renames --name-only "$PR_BASE_SHA...HEAD")
 
           if [[ -n "$CHANGED_FILES" ]]; then
             ONLY_MARKDOWN=true
@@ -92,6 +92,15 @@ jobs:
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Verify Integration Test Reports
+        if: success()
+        run: |
+          if ! find . -path '*/target/failsafe-reports/TEST-*.xml' -type f -print -quit \
+              | grep -q .; then
+            echo "::error::No Failsafe integration test report was produced."
+            exit 1
+          fi
 
       - name: Print VMLens Data Race Report
         if: always()
@@ -146,6 +155,7 @@ jobs:
             **/target/surefire-reports/TEST-*.xml
             **/target/failsafe-reports/TEST-*.xml
           action_fail: true
+          action_fail_on_inconclusive: true
           large_files: true
           comment_mode: off
           compare_to_earlier_commit: false
