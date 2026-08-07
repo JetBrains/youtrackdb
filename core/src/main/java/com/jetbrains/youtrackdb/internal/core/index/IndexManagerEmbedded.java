@@ -1039,14 +1039,15 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return;
     }
 
+    var indexedFieldNames = new HashSet<String>(indexedFields);
     Predicate<SecurityResourceProperty> isIndexedProperty =
-        property -> indexedFields.contains(property.getPropertyName());
+        property -> indexedFieldNames.contains(property.getPropertyName());
     var allFilteredProperties = security.getAllFilteredProperties(database);
-    Set<SecurityResourceProperty> potentiallyFilteredProperties;
+    boolean hasPotentiallyFilteredProperties;
     try (var stream = allFilteredProperties.stream()) {
-      potentiallyFilteredProperties = stream.filter(isIndexedProperty).collect(Collectors.toSet());
+      hasPotentiallyFilteredProperties = stream.anyMatch(isIndexedProperty);
     }
-    if (potentiallyFilteredProperties.isEmpty()) {
+    if (!hasPotentiallyFilteredProperties) {
       return;
     }
 
