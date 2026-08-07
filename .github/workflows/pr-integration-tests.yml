@@ -19,6 +19,9 @@ permissions:
 
 jobs:
   decide:
+    permissions:
+      contents: read
+      checks: write
     runs-on: ubuntu-latest
     outputs:
       run_its: ${{ steps.decision.outputs.run_its }}
@@ -93,6 +96,28 @@ jobs:
           echo "run_its=true" >> "$GITHUB_OUTPUT"
           echo "skip_reason=" >> "$GITHUB_OUTPUT"
           echo "Integration tests will run."
+
+      - name: Mark Integration Tests as Running
+        if: steps.decision.outputs.run_its == 'true'
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api --method POST "repos/$GH_REPO/check-runs" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            --input - <<EOF
+          {
+            "name": "integration-status",
+            "head_sha": "$HEAD_SHA",
+            "status": "in_progress",
+            "output": {
+              "title": "Integration tests are running",
+              "summary": "Integration tests are running. This check will update when they finish."
+            }
+          }
+          EOF
 
   integration-tests:
     needs: decide
