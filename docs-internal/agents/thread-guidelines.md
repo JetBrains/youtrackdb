@@ -125,8 +125,8 @@ Always use `coverage-gate.py`, not hand arithmetic. Before running it, read
   ```
   [Imperative summary, under 50 chars]
 
-  [Detailed explanation of WHY this change was made — motivation, context,
-  trade-offs. Not a restatement of the diff.]
+  [State what had to be implemented. Then explain how the result differs and why.
+  Never restate the diff.]
   ```
 
 ## Web Tools

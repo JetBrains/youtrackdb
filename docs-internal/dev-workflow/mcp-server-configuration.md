@@ -67,7 +67,7 @@ servers, and costs roughly 950 prompt tokens per request.
 
 ## Worker threads
 
-Worker threads have no MCP tools, and the omission is deliberate. Slate 0.9.0 creates worker
+Worker threads have no MCP tools, and the omission is deliberate. Slate 0.10.0 creates worker
 sessions without the lifecycle event the adapter initializes on. A worker that receives the tool
 definitions gets calls that fail in about two milliseconds with `MCP not initialized`. The defect
 is tracked upstream as issue 50 of `JetBrains/ytdb-slate`, and the comment thread there carries

@@ -15,7 +15,7 @@ itself, for changes of any size:
    observations as normal post-flip commits and keeps the PR
    description in sync (pr-publishing.md § After the flip).
 3. Peer review supplements, never replaces, the mandatory per-track
-   user review (track-workflow.md § Peer review).
+   user review (`track-workflow.md § Peer review (project-layered)`).
 
 ## Model routing
 
@@ -23,16 +23,19 @@ itself, for changes of any size:
    takes the other from a default you did not choose.
 2. Name neither only for bulk mechanical work: the dispatch then rides
    the thread's base, which is sized for nothing else.
-3. Gate and verification actions MUST name both, on a level the live
-   routing table marks measured for that model: adversarial review,
-   agent code review, the design-review and PR-description
-   statements, the ready-for-review flip, all Maven test/coverage
-   verification runs (including end-of-track and post-flip runs),
-   commits and pushes, and any change to storage, WAL, index,
-   transaction or crash-recovery code. Those actions MUST NOT be
-   sized down to the cheapest model that looks like it would clear
-   them. This project configures the router to warn about an
-   unmeasured level rather than refuse it.
+3. Gate and verification actions MUST name both arguments.
+   Use a level that the live routing table marks as measured for that model.
+   This rule covers change-class confirmation and each required high-level design presentation.
+   It covers design adversarial review for complex and risky changes.
+   It covers agent code review and every finding-verification gate.
+   It covers the implementation-stage escape-hatch adversarial review.
+
+   It covers draft PR creation and the ready-for-review flip.
+   It covers every Maven test or coverage run, including end-of-track and post-flip runs.
+   It covers commits, pushes, and changes to storage, write-ahead log, index, or transaction code.
+   It also covers crash-recovery code changes.
+   Do not reduce these actions to the cheapest model that might clear them.
+   This project warns about an unmeasured level instead of refusing it.
 
 Rationale, model-list maintenance and the machine-local prerequisite:
 `docs-internal/dev-workflow/track-development.md` § Model routing.

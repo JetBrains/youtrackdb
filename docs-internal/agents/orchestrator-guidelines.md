@@ -9,11 +9,9 @@ automatically by the slate extension). Hands-on command references live in
 
 All changes follow the track-based flow. The generic protocol ships with the `ytdb-slate`
 npm package (pinned in `.pi/settings.json`) as two documents, cited by absolute path in the
-orchestrator doctrine: track-workflow.md — research, lazy research log, mandatory user
-design review, mandatory pre-implementation adversarial review, the per-track loop (agent
-code review → mandatory user review → marker commit), and the change-size scaling table —
-and pr-publishing.md — umbrella draft PR before implementation, description rules,
-ready-for-review flip, user-performed merge (draft-PR publishing is enabled for this repo).
+orchestrator doctrine. track-workflow.md defines change classes, class-scaled design gates,
+the research log, and the per-track loop. pr-publishing.md defines the umbrella draft PR,
+description rules, the ready-for-review flip, and the user-performed merge.
 YTDB deltas — the `develop` base branch, issue-prefix/PR-template conventions, the
 umbrella-PR peer-review policy, the action-level model-routing setup, and the package
 pin-bump rule — live in `docs-internal/dev-workflow/track-development.md`.
@@ -35,9 +33,9 @@ How to run and diagnose coverage verification is defined in
 ## Verification Gates
 
 Mid-track commits run `./mvnw -pl <modules with changed files> -am -amd test-compile` over the
-compile-gate set. At each tier, full verification runs after track implementation and before
-agent code review. It covers unit tests for the test-gate set, integration tests for the
-integration-gate set, and coverage at the 85% line / 70% branch thresholds. The complete gate
+compile-gate set. Every change class runs full verification after track implementation. It
+precedes agent code review when that review is required. Verification covers the test-gate set,
+the integration-gate set, and the 85% line and 70% branch coverage thresholds. The complete
 protocol is in `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
 Dispatch the integration-gate set defined in that protocol. The full integration suite is no

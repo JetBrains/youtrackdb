@@ -5,19 +5,16 @@ the `ytdb-slate` npm package (pinned in `.pi/settings.json`) as two documents, c
 absolute path in the orchestrator doctrine so agents can read the authoritative text on
 demand:
 
-- **track-workflow.md** — research phase, lazy research log, mandatory user design review,
-  mandatory pre-implementation adversarial review, the per-track loop (agent code review →
-  mandatory user review → marker commit), marker-commit mechanics, and the change-size
-  scaling table.
-- **pr-publishing.md** — umbrella draft PR mechanics: creation before implementation,
-  description rules (Motivation, Planned changes, Tracks, plus the 16,384-UTF-8-byte body
-  target and the size exception that must carry measurements), ready-for-review flip
-  checklist, user-performed merge.
+- **track-workflow.md** — research, change-class confirmation, class-scaled design gates,
+  the per-track loop, marker commits, and size-based track splitting.
+- **pr-publishing.md** — umbrella draft PR mechanics, description rules, Suggestions,
+  the 16,384-UTF-8-byte body target, the ready-for-review flip, and user-performed merge.
 
 This document carries ONLY the YTDB-specific deltas layered on that baseline. Draft-PR
 publishing is ENABLED for this repository (`workflow.draftPRs` in `.pi/slate.json`), so
-pr-publishing.md applies in full: every change gets an umbrella draft PR before
-implementation, and the research log folds into its description.
+pr-publishing.md applies in full. Every change gets an umbrella draft PR before
+implementation. Relevant research-log content enters its description, while the log remains
+until delivery.
 
 ## Base branch
 
@@ -52,7 +49,7 @@ extension (`doctrineExtraPath` → `docs-internal/agents/slate-doctrine-extra.md
 review is optional and, when the user wants it, runs directly on the ready umbrella PR at
 the ready-for-review flip — there are no separate review branches or PRs. The rule that
 layered peer review supplements, never replaces, the mandatory per-track user review is
-owned by track-workflow.md § Peer review.
+owned by `track-workflow.md § Peer review (project-layered)`.
 
 ## Verification integration
 
@@ -227,7 +224,8 @@ full verification runs:
    not be reported as one: its report-set assertion is what separates a measured pass from a
    vacuous one, and nothing in this section can tell them apart.
 
-The full local integration suite is no longer a gate at any tier. It takes about five hours.
+The full local integration suite is no longer a gate for any change class. It takes about five
+hours.
 Integration tests run unless the pull request is a draft. Worker threads do most work during the
 draft phase. The pipeline skips integration tests for a pull request whose branch lives in a
 fork.
@@ -240,16 +238,14 @@ Gating only at the track's closing event would have reviewers reviewing unverifi
 only before the review would let review-fix commits land unverified. Both holes are closed by
 this pre-review placement plus the re-run rule below.
 
-**This applies at every tier, including single-track changes.** A single-track change has no
-marker commit, but it still runs the gate before its agent code review, not merely before the
-ready-for-review flip.
+**This applies to every change class, including single-track changes.** A single-track change
+has no marker commit. It still runs the gate before any required agent code review.
 
 ### Re-running the gate before the track's closing event
 
 Every track has a **closing event**: the marker commit for a track inside a multi-track change,
 and the ready-for-review flip for a single-track change, which has no marker commit. Keying the
-obligation to the closing event is what keeps the single-track tier — the most common one — from
-having no trigger at all.
+obligation to the closing event gives a single-track change a verification trigger.
 
 The gate must be re-run before the closing event **unless every commit landed since the gate is
 provably outcome-neutral — documentation or comments only.** It is an exclusion rule rather than
@@ -265,10 +261,9 @@ certifies code the user has not seen.
 
 ### Deferred test authorship
 
-When test work for a track is substantial enough to be split out, it becomes **its own task
-within the same track**, landing before that track's agent code review. Promoting it to a track
-of its own requires explicit user approval. It cannot be deferred to a follow-up issue or PR:
-the CI coverage gate hard-fails a ready PR with no bypass, so the debt cannot leave this PR.
+When test work becomes substantial, the orchestrator may split it into its own track without a
+user approval gate. The test track lands before review of the affected behavior. Test work
+cannot move to a follow-up issue or pull request. The coverage gate has no bypass for that debt.
 
 ### Committing, and landing red
 
@@ -323,10 +318,14 @@ side those are a value that is not an object, an unknown key under it, a non-arr
 a malformed entry, and a non-boolean `allowUnmeasuredEffort` or `showWarnings`. This project
 enables `writing` too, which adds a malformed `writing` object, an unknown key under it, a
 non-boolean `check` or `remind`, and a `remindPercent` that is not a finite number in
-(0, 100]. `threadChoice` is the exception: Slate reads its shape at the first continuation
-dispatch, not at session start. A fault there reaches that dispatch's warnings, and the
-acceptance check below never sees it. Candidate resolution — profile lookup, registry and
-credential checks, effort-ladder readability, failover coverage — is memoized and runs at
+(0, 100]. A non-boolean `workflow.followUpIssues` also warns at session start and defaults to
+`false`. This repository leaves that key unset to keep the default.
+
+`threadChoice` is the exception. Slate reads its shape at the first continuation dispatch. A
+fault there reaches that dispatch's warnings. The acceptance check below never sees it.
+
+Candidate resolution covers profile lookup, registry checks, and credential checks. It also
+covers effort-ladder readability and failover coverage. Slate memoizes resolution and runs it at
 the FIRST consultation instead: the doctrine build in orchestrator mode, or the first
 dispatch outside it. A session that builds no doctrine and dispatches nothing emits none of
 those warnings, which is what the acceptance check below has to work around. Resolution
@@ -412,21 +411,42 @@ narrower than `claude-opus-5` (1,000,000), so a long thread is substituted off t
 Anthropic candidate rather than the reverse. The override is deliberately not reproduced
 repo-side: `models.json` is a user-global pi file, not project config.
 
-**Acceptance check.** Router health is invisible to a bare `pi -p "<prompt>"`: the
-orchestrator-mode auto-seed is gated to TUI sessions, so a print-mode run builds no doctrine,
-never consults the resolver, and emits ZERO router warnings however broken the list is. Turn
-the mode on in the same session instead — `pi -p "/slate on" "hi"`, which runs the command
-first and the prompt second — and the warnings reach stderr. A healthy configuration emits
-one general note about untraced research-table data, then one model-data note per model in
-the candidate list above. Those notes name those models, in that order, and no
-configuration-fault line appears. Match each note's model id against that list, position by
-position, rather than counting notes. A missing note, an extra one, a note naming a model
-the list does not, or ids in a different order: each is a finding, and each is what a
-silently dropped or swapped candidate looks like. The notes are visible because
-`router.showWarnings` is `true`. No hidden-warnings summary line appears. This check
-deliberately omits per-model fact counts, because package model data can change. A
-configuration-fault line, a hidden-warnings summary line, or a non-zero exit is a finding
-too.
+**Acceptance check.** A bare `pi -p "<prompt>"` does not consult the router. Run this command
+in a new session:
+
+```bash
+set -o pipefail
+pi -p "/slate on" "hi" 2>&1 | tee /tmp/slate-router.log
+```
+
+A healthy run exits successfully. It emits exactly one discoverability line for hidden router
+warnings. It emits no router configuration fault. Inspect every additional `slate:` router line as a
+fault. Do not require a fixed hidden-warning count. Package data and registry state can change
+that count.
+
+With `router.showWarnings` set to `false`, the package hides the model data notes. Those notes
+can no longer reveal a missing machine-local `~/.pi/agent/models.json` override. Check that
+prerequisite directly:
+
+```bash
+node - <<'NODE'
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const file = path.join(os.homedir(), '.pi', 'agent', 'models.json');
+const models = JSON.parse(fs.readFileSync(file, 'utf8'));
+const overrides = models.providers?.openai?.modelOverrides ?? {};
+for (const id of ['gpt-5.6-sol', 'gpt-5.6-luna']) {
+  if (overrides[id]?.contextWindow !== 1050000) {
+    throw new Error(`${id} must set contextWindow to 1050000 in ${file}`);
+  }
+}
+console.log(`model overrides valid: ${file}`);
+NODE
+```
+
+The package provides no hidden-note detail while warnings remain off. The direct file check is
+the replacement detector.
 
 **Authority.** The routing table Slate renders into the doctrine each turn is the single
 authority on per-model guidance, prices and measured levels. Leave every such fact in that
@@ -451,14 +471,17 @@ worker-thread limitation live in `mcp-server-configuration.md` in this directory
 ## Package pin bumps
 
 Changing the `ytdb-slate` version pin in `.pi/settings.json` is a tracked change like any
-other — it takes the full workflow. In addition, whoever bumps the pin MUST re-read this
-document and `docs-internal/agents/slate-doctrine-extra.md` against the NEW package docs and
-fix any skew: the deltas here are valid only relative to the package version they were
-written against.
+other. It takes the full workflow. The person who bumps the pin MUST compare this document
+and `docs-internal/agents/slate-doctrine-extra.md` with the new package documents. Fix every
+resulting mismatch.
 
-Last reconciled against **ytdb-slate 0.9.0**: track-workflow.md, pr-publishing.md,
-model-routing.md, model-failover.md, review-rules.md, writing-guidance.md,
-thread-cache-cost.md and context-budget.md. Those are the package documents these deltas
-rest on. This reconciliation read each of them against the six `.pi/slate.json` switches
-that this change turned on across `router`, `writing` and `threadChoice`. The list
-deliberately omits design-principles.md, because no delta here rests on it.
+A pin bump takes effect at the next session start. A running session keeps the rules from the
+package version that it already loaded.
+
+Last reconciled against **ytdb-slate 0.10.0**. This reconciliation read track-workflow.md,
+pr-publishing.md, model-routing.md, model-failover.md, and review-rules.md. It also read
+writing-guidance.md, thread-cache-cost.md, context-budget.md, and design-principles.md. The check
+covered configured `router`, `writing`, `threadChoice`, `modelFailover`, and `workflow` behavior.
+
+The 0.10.0 check confirmed the four routing facts restated above. It also confirmed that every
+listed model has a measured effort level. Recheck those facts after every later pin bump.
