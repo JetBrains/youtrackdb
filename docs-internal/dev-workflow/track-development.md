@@ -372,10 +372,14 @@ The package registers two tools: a gateway tool named `mcp` and a scripting tool
 `mcpScript`. `.pi/slate.json` lists the package in `workerExtensions`, so worker threads
 receive both tools as well.
 
+The gateway tool named `mcp` searches the available MCP tools, describes one, and calls it.
+Use it for a single call. The scripting tool named `mcpScript` runs a short script that makes
+several calls in one turn. Use it to chain calls or to loop over them.
+
 **Machine-local prerequisite.** The adapter ships no servers. Each developer configures
-their own, and the repository holds none, because a server entry carries a credential. The
-adapter reads `mcp.json` from six locations and merges every file it finds. Later locations
-win:
+their own, and the repository holds none. A server entry can carry a credential. Machine-local
+configuration keeps every credential out of the repository. The adapter reads `mcp.json` from
+six locations and merges every file it finds. Later locations win:
 
 1. `~/.config/mcp/mcp.json`
 2. `~/.agents/mcp.json`
@@ -387,6 +391,12 @@ win:
 Use the user-global location, `~/.pi/agent/mcp.json`. The two repository locations are
 listed in `.gitignore`. The adapter's `/mcp` panel can write them. A local server entry
 must never reach a commit.
+
+That ignore rule has a second effect worth knowing. The two repository locations take
+precedence over the user-global one, and `git status` does not list them. A value that starts
+with `!` runs as a shell command, so an unexpected file at either path can run code you never
+wrote. Run `git status --ignored` and check both paths when a server behaves in a way you did
+not configure.
 
 Keep the credential out of `mcp.json`. A value that starts with `!` is run as a command,
 and its trimmed output becomes the value. Store the token in its own file with owner-only
@@ -412,6 +422,11 @@ also expands. An absolute path avoids any dependence on the environment.
 
 Without any `mcp.json` the adapter still loads. It then registers its two tools, reports no
 servers, and costs roughly 950 prompt tokens per request.
+
+Worker threads receive both tools. The scripting tool does not fully contain its sandbox, so
+a script can reach the file system and the network. A worker that already holds the shell tool
+gains nothing new. A worker dispatched with a narrowed tool list keeps that reach anyway. A
+narrowed list is not a security boundary while this tool is present.
 
 ## Package pin bumps
 

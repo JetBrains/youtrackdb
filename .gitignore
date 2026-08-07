@@ -222,5 +222,5 @@ __pycache__/
 !/.issues/README.md
 
 # MCP server configuration written by the pi MCP adapter panel (local only)
-/.mcp.json
+.mcp.json
 .pi/mcp.json
