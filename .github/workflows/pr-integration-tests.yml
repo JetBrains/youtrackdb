@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_its: ${{ steps.decision.outputs.run_its }}
+      skip_reason: ${{ steps.decision.outputs.skip_reason }}
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
@@ -41,6 +42,7 @@ jobs:
         run: |
           if [[ "$EVENT_NAME" == "merge_group" ]]; then
             echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=merge-group" >> "$GITHUB_OUTPUT"
             echo "The pull request head already ran the full integration test suite."
             echo "The nightly pipeline still covers develop after the merge."
             exit 0
@@ -48,6 +50,7 @@ jobs:
 
           if [[ "$HEAD_REPOSITORY" != "$CURRENT_REPOSITORY" ]]; then
             echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=fork" >> "$GITHUB_OUTPUT"
             echo "Fork pull request detected. Untrusted code must not run on a self-hosted runner."
             echo "The private Maven mirror rejects fork builds, so this run could never pass."
             exit 0
@@ -55,12 +58,14 @@ jobs:
 
           if [[ "$PR_DRAFT" == "true" ]]; then
             echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=draft" >> "$GITHUB_OUTPUT"
             echo "Pull request is a draft. Integration tests will be skipped."
             exit 0
           fi
 
           if [[ "$PR_TITLE" == *"[no-it-tests]"* ]]; then
             echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=no-it-tests" >> "$GITHUB_OUTPUT"
             echo "PR title contains [no-it-tests]. Integration tests will be skipped."
             exit 0
           fi
@@ -79,12 +84,14 @@ jobs:
 
             if [[ "$ONLY_MARKDOWN" == "true" ]]; then
               echo "run_its=false" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=markdown-only" >> "$GITHUB_OUTPUT"
               echo "Every changed file ends in .md. Integration tests will be skipped."
               exit 0
             fi
           fi
 
           echo "run_its=true" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=" >> "$GITHUB_OUTPUT"
           echo "Integration tests will run."
 
   integration-tests:
@@ -200,6 +207,7 @@ jobs:
         env:
           DECIDE_RESULT: ${{ needs.decide.result }}
           INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+          SKIP_REASON: ${{ needs.decide.outputs.skip_reason }}
         run: |
           if [[ "$DECIDE_RESULT" != "success" ]]; then
             echo "The decision job did not succeed. Result: $DECIDE_RESULT."
@@ -212,7 +220,12 @@ jobs:
           fi
 
           if [[ "$INTEGRATION_RESULT" == "skipped" ]]; then
-            echo "Integration tests were skipped by the decision job."
+            if [[ "$SKIP_REASON" == "draft" ]]; then
+              echo "Integration tests have not run yet because the pull request is a draft."
+              exit 1
+            fi
+
+            echo "Integration tests were skipped by the decision job. Reason: $SKIP_REASON."
             exit 0
           fi
 
