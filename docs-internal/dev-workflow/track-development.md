@@ -402,14 +402,15 @@ warning that above 272K total input the whole request bills at GPT-5.6's long-co
 }
 ```
 
-Slate's profile records 1,050,000 for those models while the base registry reports 272,000,
-and the window guard judges against the REGISTRY figure. A developer without the override
-sees three extra warnings per session — a context-window divergence for `gpt-5.6-luna`, one
-for `gpt-5.6-sol`, and one aggregate line noting that the registry window equals those
-models' own long-context billing threshold — and the guard then treats both GPT models as
-narrower than `claude-opus-5` (1,000,000), so a long thread is substituted off them onto an
-Anthropic candidate rather than the reverse. The override is deliberately not reproduced
-repo-side: `models.json` is a user-global pi file, not project config.
+Slate's profile records 1,050,000 for those models while the base registry reports 272,000.
+The window guard judges against the registry figure. Without the override, resolution produces
+three additional model data notes. With `router.showWarnings` set to `false`, Slate hides those
+notes and shows one discoverability line for all hidden notes.
+
+The line does not identify the missing override. The guard still treats both GPT models as
+narrower than `claude-opus-5`.
+A long thread therefore moves from those models to an Anthropic candidate. The override remains
+outside the repository because `models.json` is a user-global pi file.
 
 **Acceptance check.** A bare `pi -p "<prompt>"` does not consult the router. Run this command
 in a new session:
@@ -428,12 +429,25 @@ With `router.showWarnings` set to `false`, the package hides the model data note
 can no longer reveal a missing machine-local `~/.pi/agent/models.json` override. Check that
 prerequisite directly:
 
-```bash
+```sh
 node - <<'NODE'
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const file = path.join(os.homedir(), '.pi', 'agent', 'models.json');
+const home = os.homedir()
+const configuredDir = process.env.PI_CODING_AGENT_DIR
+const agentDir = !configuredDir
+  ? path.join(home, '.pi', 'agent')
+  : configuredDir === '~'
+    ? home
+    : configuredDir.startsWith('~/') || configuredDir.startsWith('~\\')
+      ? path.join(home, configuredDir.slice(2))
+      : configuredDir
+const file = `${agentDir}${path.sep}models.json`
+if (!fs.existsSync(file)) {
+  console.error(`models file not found: ${file}`)
+  process.exit(1)
+}
 const models = JSON.parse(fs.readFileSync(file, 'utf8'));
 const overrides = models.providers?.openai?.modelOverrides ?? {};
 for (const id of ['gpt-5.6-sol', 'gpt-5.6-luna']) {
@@ -445,8 +459,13 @@ console.log(`model overrides valid: ${file}`);
 NODE
 ```
 
-The package provides no hidden-note detail while warnings remain off. The direct file check is
-the replacement detector.
+The package provides no hidden-note detail while warnings remain off. The direct check follows
+pi's agent-directory environment rule. It establishes that the effective file parses as JSON.
+It also checks the expected windows for the two routed OpenAI models.
+
+It does not prove that a running session loaded those values. Router resolution freezes
+registry data at its first consultation. Start a new pi session after changing the file. The check
+does not validate other model settings or credentials.
 
 **Authority.** The routing table Slate renders into the doctrine each turn is the single
 authority on per-model guidance, prices and measured levels. Leave every such fact in that
