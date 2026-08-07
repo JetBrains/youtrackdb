@@ -220,13 +220,16 @@ jobs:
           fi
 
           if [[ "$INTEGRATION_RESULT" == "skipped" ]]; then
-            if [[ "$SKIP_REASON" == "draft" ]]; then
-              echo "Integration tests have not run yet because the pull request is a draft."
-              exit 1
-            fi
-
-            echo "Integration tests were skipped by the decision job. Reason: $SKIP_REASON."
-            exit 0
+            case "$SKIP_REASON" in
+              merge-group|fork|no-it-tests|markdown-only)
+                echo "Integration tests were skipped by the decision job. Reason: $SKIP_REASON."
+                exit 0
+                ;;
+              *)
+                echo "Integration tests were skipped with an unrecognised reason. Received: '$SKIP_REASON'."
+                exit 1
+                ;;
+            esac
           fi
 
           echo "Integration tests did not succeed. Result: $INTEGRATION_RESULT."
