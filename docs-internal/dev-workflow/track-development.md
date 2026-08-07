@@ -132,16 +132,61 @@ dependent's tests, name that dependent in `-pl` explicitly.
 changed files. This set names classes, not modules, because module scope alone still runs the
 whole module suite.
 
-Derive the integration-gate set in two steps. Map each changed file to its subsystem. Then map
-that subsystem to its covering integration test classes. Existing coverage includes storage,
-write-ahead log (WAL), index, Gremlin integration, and transaction handling.
+Derive the integration-gate set with two searches for each changed main source file. Use this
+process for storage, write-ahead log (WAL), index, Gremlin integration, transaction handling,
+and any other subsystem.
+
+First, search by package proximity. These commands search the same package in the same module:
+
+```bash
+changed='<module>/src/main/java/<package>/<Class>.java'
+module=${changed%%/*}
+package_path=${changed#*/src/main/java/}
+package_path=${package_path%/*}
+find "$module/src/test/java/$package_path" -type f -name '*IT.java' -print | sort
+```
+
+If this returns nothing, remove one trailing segment with
+`package_path=${package_path%/*}` and repeat the `find` command.
+
+Second, search integration test sources for references to the changed class's simple name:
+
+```bash
+simple_name=$(basename "$changed" .java)
+grep -Rlw --include='*IT.java' -- "$simple_name" "$module/src/test/java" | sort
+```
+
+Combine and deduplicate both result sets. Review each candidate and include every class that
+exercises the changed behavior.
+
+For example, use `FreeSpaceMap.java` as the changed file:
+
+```bash
+changed='core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/FreeSpaceMap.java'
+```
+
+The package search returns:
+
+```text
+core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/FreeSpaceMapTestIT.java
+core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/LocalPaginatedCollectionV2TestIT.java
+```
+
+The reference search returns:
+
+```text
+core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/FreeSpaceMapTestIT.java
+```
+
+When both searches return nothing, report the commands and empty results. Do not run the full
+suite. Do not silently assume that integration coverage is absent.
 
 For build files belonging to no module, the compile-gate set is the whole reactor and the
 test-gate set is the modules whose behavior the change can actually alter — a dependency-version
 bump in the root `pom.xml` means that dependency's consumers — falling back to the whole reactor
 when it cannot be bounded that way.
 
-The two module sets are read off the reactor order, which Maven resolves from the dependency
+The reactor order determines the two module sets. Maven resolves this order from the dependency
 graph, not from the module order listed in the root `pom.xml`:
 
 > youtrackdb-parent → test-commons → gremlin-annotations → core → driver → server → tests
@@ -157,9 +202,9 @@ full verification runs:
 
 1. **Unit tests** for the test-gate modules, green.
 2. **Integration tests** for the integration-gate set, green. Follow
-   `docs-internal/agents/thread-guidelines.md` for command syntax. If the set cannot be
-   determined, escalate verification to the pull request pipeline. Do not substitute the full
-   local suite.
+   `docs-internal/agents/thread-guidelines.md` for command syntax. If the set remains uncertain,
+   record the searches and results in the thread report. The orchestrator then chooses the
+   verification path.
 3. **The coverage gate** over the changed lines, at the thresholds owned by
    orchestrator-guidelines § Test Policy. **Read
    `docs-internal/dev-workflow/coverage-verification.md` and follow it before producing the
@@ -167,9 +212,10 @@ full verification runs:
    not be reported as one: its report-set assertion is what separates a measured pass from a
    vacuous one, and nothing in this section can tell them apart.
 
-The full local integration suite is no longer a gate at any tier. It takes about five hours,
-and the pull request pipeline now covers it. The pipeline runs the full suite for every pull
-request whose branch lives in this repository.
+The full local integration suite is no longer a gate at any tier. It takes about five hours.
+The pipeline starts the full suite after the pull request becomes ready for review. Integration
+tests do not run while the pull request is a draft. Worker threads do most work during the draft
+phase. The pipeline skips integration tests for a pull request whose branch lives in a fork.
 
 A title tag is a bracketed keyword in the pull request title. The `[no-it-tests]` title tag means
 no integration tests and skips that pipeline run. Use it only when the change cannot affect
