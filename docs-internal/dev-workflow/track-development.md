@@ -240,25 +240,35 @@ that still routes — read the warnings, or the typo passes for a working config
 entry drops, the router turns OFF entirely and dispatches fall back to the host session's
 model.
 
-**When warnings appear.** Only config-SHAPE checks run at session start: a `router` value
-that is not an object, an unknown key under it, a non-array `models`, a malformed entry, a
-non-boolean `allowUnmeasuredEffort`. Candidate resolution — profile lookup, registry and
+**When warnings appear.** Only config-SHAPE checks run at session start. On the `router`
+side those are a value that is not an object, an unknown key under it, a non-array `models`,
+a malformed entry, and a non-boolean `allowUnmeasuredEffort` or `showWarnings`. This project
+enables `writing` too, which adds a malformed `writing` object, an unknown key under it, a
+non-boolean `check` or `remind`, and a `remindPercent` that is not a finite number in
+(0, 100]. `threadChoice` is the exception: Slate reads its shape at the first continuation
+dispatch, not at session start. A fault there reaches that dispatch's warnings, and the
+acceptance check below never sees it. Candidate resolution — profile lookup, registry and
 credential checks, effort-ladder readability, failover coverage — is memoized and runs at
 the FIRST consultation instead: the doctrine build in orchestrator mode, or the first
 dispatch outside it. A session that builds no doctrine and dispatches nothing emits none of
-those warnings, which is what the acceptance check below has to work around.
+those warnings, which is what the acceptance check below has to work around. Resolution
+warnings now carry a class, and Slate gates only one of the two. A configuration fault
+always reaches the user, and a candidate with no `modelFailover` entry is one.
+`router.showWarnings: true` is what reveals the model data notes, and the package's
+model-routing.md owns which warning is which.
 
-**Effort policy.** `router.allowUnmeasuredEffort` is `false`, so an explicit level that sits
-on the model's ladder but carries no capability measurement is refused rather than warned
-about. Only a level the dispatch NAMES can be refused: omit `effort` and the router derives
-the model's lowest measured level, which by construction clears the guard. What the setting
-costs, per model: `off`, `low`, `high` and `xhigh` on `gpt-5.6-luna`; `off` and `low` on
-`gpt-5.6-sol`; `off` and `minimal` on `claude-opus-5`; `minimal`, `low` and `medium` on
-`claude-sonnet-5`. Of those, the ones this project would otherwise have reached for are
-`luna@high` and `luna@xhigh` (escalating luna instead of routing to sol) and `sol@low`. Two
-nearby refusals come from elsewhere and stand whatever this key says: `minimal` is off-ladder
-on both `gpt-5.6` models, and `off` on `claude-sonnet-5` is rejected outright by the
-provider — which is why `off` is absent from that model's list above.
+**Effort policy.** `router.allowUnmeasuredEffort` is `true`. Slate therefore warns about an
+explicit level that sits on the model's ladder but carries no capability measurement, rather
+than refusing it. The dispatch runs. A ⚠ notice calls the result unevidenced. Slate marks the
+episode header `(unmeasured level)`. Only a level the dispatch names can draw that notice or
+a refusal. Every model on this project's candidate list carries measured levels, so a
+dispatch that omits `effort` gets one of them. A failover retry is the exception. It names no
+level, so it can land on an unevidenced one. The episode header then carries no marker to say
+so. What failover ignores records that case. Two nearby refusals come from elsewhere and
+stand whatever this key says: a level off the model's ladder, and one the provider rejects
+outright. One rule alone keeps a review or a gate action on a measured level: the Model
+routing rule in `docs-internal/agents/slate-doctrine-extra.md`. The package states it as
+doctrine only, not a code-enforced guard.
 
 **Unsized dispatches.** A dispatch that names neither `model` nor `effort` runs on the
 thread's base. For a NEW thread that base is `openai/gpt-5.6-luna@medium` — the cheapest
@@ -291,11 +301,10 @@ compressor), `gpt-5.6-sol → claude-opus-5`, `gpt-5.6-luna → claude-opus-5`.
 **What failover ignores.** A failover switch bypasses the list and effort guards entirely —
 the package's deliberate carve-out, since a model that just failed is worse than an unlisted
 one that works — and it requests no level, so pi re-applies the session's current level to
-the fallback model. `allowUnmeasuredEffort: false` therefore does not constrain the retry, and
-the episode header drops its `(unmeasured level)` marker whenever the model changed
-mid-action, so an unmeasured retry level leaves no trace there either. Each pair above retries
-on a level its target has a measurement at, with one accepted residual: `claude-opus-5@low`
-retries as `gpt-5.6-sol@low`, and sol carries no measurement at `low`.
+the fallback model. The episode header drops its `(unmeasured level)` marker whenever the
+model changed mid-action, so an unmeasured retry level leaves no trace there either. Each
+pair above retries on a level its target has a measurement at, with one accepted residual:
+`claude-opus-5@low` retries as `gpt-5.6-sol@low`, and sol carries no measurement at `low`.
 
 **Machine-local prerequisite.** Routing here assumes a per-developer, untracked
 `~/.pi/agent/models.json` that raises the registry context window of the `gpt-5.6-*` models
@@ -329,22 +338,31 @@ repo-side: `models.json` is a user-global pi file, not project config.
 orchestrator-mode auto-seed is gated to TUI sessions, so a print-mode run builds no doctrine,
 never consults the resolver, and emits ZERO router warnings however broken the list is. Turn
 the mode on in the same session instead — `pi -p "/slate on" "hi"`, which runs the command
-first and the prompt second — and the warnings reach stderr. A healthy configuration prints
-exactly four, one per routable model, each reporting unknown routing-critical data and that
-routing decisions for that model are provisional. Anything beyond those four is a finding:
-context-window-divergence or long-context-billing lines mean the `models.json` override is
-missing, a failover-coverage line means a candidate lost its `modelFailover` entry, a
-"no benchmark data" or "not in pi's model registry" line means a spec is misspelled, and an
-`allowUnmeasuredEffort` line means the key is no longer a boolean.
+first and the prompt second — and the warnings reach stderr. A healthy configuration emits
+one general note about untraced research-table data, then one model-data note per model in
+the candidate list above. Those notes name those models, in that order, and no
+configuration-fault line appears. Match each note's model id against that list, position by
+position, rather than counting notes. A missing note, an extra one, a note naming a model
+the list does not, or ids in a different order: each is a finding, and each is what a
+silently dropped or swapped candidate looks like. The notes are visible because
+`router.showWarnings` is `true`. No hidden-warnings summary line appears. This check
+deliberately omits per-model fact counts, because package model data can change. A
+configuration-fault line, a hidden-warnings summary line, or a non-zero exit is a finding
+too.
 
 **Authority.** The routing table Slate renders into the doctrine each turn is the single
-authority on per-model guidance, prices and measured levels; do not restate it under
-`docs-internal/`. The effort-policy enumeration above is the one deliberate exception — it
-explains a project setting rather than the table — and it is re-checked at every pin bump.
-The figures drift: prices are dated schedules (`claude-sonnet-5`'s step up 50% on 2026-09-01,
-which changes the table's numbers but not its order, since `nonPreferred` sorts that model
-last on both sides of the step), and measured levels, route-for/avoid-for guidance and the
-profiled model set itself change whenever the package is republished.
+authority on per-model guidance, prices and measured levels. Leave every such fact in that
+table. This section restates it in exactly four deliberate places, each recording a project
+decision that a reader cannot follow without the fact it rests on: the profile markers the
+candidate list cites to justify every inclusion and exclusion, the base model-and-level pairs
+under Unsized dispatches, the accepted residual under What failover ignores, and the dated
+price step this paragraph names next. Every pin bump re-checks those four. A pin bump also
+re-checks the Effort policy claim that every listed model carries measured levels. A new
+list entry or a refreshed profile table can falsify it. The figures drift: prices are dated
+schedules (`claude-sonnet-5`'s step up 50% on 2026-09-01, which changes the table's numbers
+but not its order, since `nonPreferred` sorts that model last on both sides of the step), and
+measured levels, route-for/avoid-for guidance and the profiled model set itself change
+whenever the package is republished.
 
 ## Package pin bumps
 
@@ -354,5 +372,9 @@ document and `docs-internal/agents/slate-doctrine-extra.md` against the NEW pack
 fix any skew: the deltas here are valid only relative to the package version they were
 written against.
 
-Last reconciled against **ytdb-slate 0.5.1**: track-workflow.md, pr-publishing.md,
-model-routing.md and model-failover.md — the package documents these deltas actually rest on.
+Last reconciled against **ytdb-slate 0.9.0**: track-workflow.md, pr-publishing.md,
+model-routing.md, model-failover.md, review-rules.md, writing-guidance.md,
+thread-cache-cost.md and context-budget.md. Those are the package documents these deltas
+rest on. This reconciliation read each of them against the six `.pi/slate.json` switches
+that this change turned on across `router`, `writing` and `threadChoice`. The list
+deliberately omits design-principles.md, because no delta here rests on it.
