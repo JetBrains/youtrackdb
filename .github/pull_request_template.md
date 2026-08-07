@@ -2,11 +2,11 @@
 
 If this PR is related to an issue, prefix the title with the issue number (e.g., `YTDB-123: Imperative summary under 50 chars`).
 
-Integration tests run as a blocking check on every pull request that is ready for review.
-Add `[no-it-tests]` to the title to skip that check.
+Integration tests run on every pull request that is ready for review.
+Add `[no-it-tests]` to the title to skip that run.
 Use the tag only when the change cannot affect integration tests.
-A pull request with only Markdown file changes skips the check automatically.
-Documentation-only changes do not need the tag.
+A pull request that changes only Markdown files skips the run automatically.
+A documentation-only change needs no tag.
 
 #### Motivation:
 
