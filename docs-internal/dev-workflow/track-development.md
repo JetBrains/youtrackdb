@@ -259,15 +259,18 @@ model-routing.md owns which warning is which.
 
 **Effort policy.** `router.allowUnmeasuredEffort` is `true`. Slate therefore warns about an
 explicit level that sits on the model's ladder but carries no capability measurement, rather
-than refusing it: the dispatch runs, a ⚠ notice calls the result unevidenced, and Slate marks
-the episode header `(unmeasured level)`. The guards judge only a level the dispatch NAMES:
-omit `effort` and the router derives a measured level instead. One path escapes that rule. A
-failover retry names no level, so it can land on an unevidenced level, and it leaves no
-marker behind — What failover ignores records the case. Two nearby refusals come from
-elsewhere and stand whatever this key says: a level off the model's ladder, and one the
-provider rejects outright. One rule alone keeps a review or a gate action on a measured
-level: the Model routing rule in `docs-internal/agents/slate-doctrine-extra.md`. The package
-states it as doctrine only, not a code-enforced guard.
+than refusing it. The dispatch runs. A ⚠ notice calls the result unevidenced. Slate marks the
+episode header `(unmeasured level)`. The guards judge whichever level the action ends up on,
+named by the dispatch or not, and only a named one can fail them. A dispatch that omits
+`effort` leaves the router a measured level by construction: it derives the routed model's
+lowest measured level, or re-validates the thread's stored base level and re-derives it when
+that level no longer reads measured. One path escapes that rule. A failover retry names no
+level, so it can land on an unevidenced level, and it leaves no marker behind — What failover
+ignores records the case. Two nearby refusals come from elsewhere and stand whatever this
+key says: a level off the model's ladder, and one the provider rejects outright. One rule
+alone keeps a review or a gate action on a measured level: the Model routing rule in
+`docs-internal/agents/slate-doctrine-extra.md`. The package states it as doctrine only, not
+a code-enforced guard.
 
 **Unsized dispatches.** A dispatch that names neither `model` nor `effort` runs on the
 thread's base. For a NEW thread that base is `openai/gpt-5.6-luna@medium` — the cheapest
@@ -350,17 +353,16 @@ configuration-fault line, a hidden-warnings summary line, or a non-zero exit is 
 too.
 
 **Authority.** The routing table Slate renders into the doctrine each turn is the single
-authority on per-model guidance, prices and measured levels; do not restate it under
-`docs-internal/`. Four restatements here are deliberate. Each records a project decision
-that a reader cannot follow without the fact it rests on: the profile markers the candidate
-list cites to justify every inclusion and exclusion, the base model-and-level pairs under
-Unsized dispatches, the accepted residual under What failover ignores, and the dated price
-step this paragraph names next. Those four are the only restatements here, and every pin
-bump re-checks them. The figures drift: prices are dated schedules (`claude-sonnet-5`'s step
-up 50% on 2026-09-01, which changes the table's numbers but not its order, since
-`nonPreferred` sorts that model last on both sides of the step), and measured levels,
-route-for/avoid-for guidance and the profiled model set itself change whenever the package
-is republished.
+authority on per-model guidance, prices and measured levels. Leave every such fact in that
+table. This section restates it in exactly four deliberate places, each recording a project
+decision that a reader cannot follow without the fact it rests on: the profile markers the
+candidate list cites to justify every inclusion and exclusion, the base model-and-level pairs
+under Unsized dispatches, the accepted residual under What failover ignores, and the dated
+price step this paragraph names next. Every pin bump re-checks those four. The figures
+drift: prices are dated schedules (`claude-sonnet-5`'s step up 50% on 2026-09-01, which
+changes the table's numbers but not its order, since `nonPreferred` sorts that model last on
+both sides of the step), and measured levels, route-for/avoid-for guidance and the profiled
+model set itself change whenever the package is republished.
 
 ## Package pin bumps
 
@@ -373,6 +375,6 @@ written against.
 Last reconciled against **ytdb-slate 0.9.0**: track-workflow.md, pr-publishing.md,
 model-routing.md, model-failover.md, review-rules.md, writing-guidance.md,
 thread-cache-cost.md and context-budget.md. Those are the package documents these deltas
-rest on, re-read against the six `.pi/slate.json` switches this change turned on across
-`router`, `writing` and `threadChoice`. The list deliberately omits design-principles.md,
-because no delta here rests on it.
+rest on. This reconciliation read each of them against the six `.pi/slate.json` switches
+that this change turned on across `router`, `writing` and `threadChoice`. The list
+deliberately omits design-principles.md, because no delta here rests on it.
