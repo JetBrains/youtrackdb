@@ -1,4 +1,5 @@
-# Configure integration-status as the required status check in branch protection.
+# Configure this and `ci-status` from the `Java CI/CD Pipeline` workflow
+# as required status checks in branch protection.
 name: PR Integration Tests
 
 on:
