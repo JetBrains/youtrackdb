@@ -4,7 +4,7 @@
   "defaultThinkingLevel": "xhigh",
   "hideThinkingBlock": true,
   "packages": [
-    "npm:ytdb-slate@0.5.1",
+    "npm:ytdb-slate@0.9.0",
     "npm:pi-smart-fetch@0.3.17",
     "npm:pi-web-search@1.3.1"
   ]

@@ -14,7 +14,16 @@
       "openai/gpt-5.6-sol",
       "openai/gpt-5.6-luna"
     ],
-    "allowUnmeasuredEffort": false
+    "allowUnmeasuredEffort": true,
+    "showWarnings": true
+  },
+  "writing": {
+    "check": true,
+    "remind": true
+  },
+  "threadChoice": {
+    "report": true,
+    "act": true
   },
   "modelFailover": {
     "anthropic/claude-opus-5": "openai/gpt-5.6-sol",
