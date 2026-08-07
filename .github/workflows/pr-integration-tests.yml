@@ -250,6 +250,10 @@ jobs:
                 echo "Integration tests were skipped by the decision job. Reason: $SKIP_REASON."
                 exit 0
                 ;;
+              draft)
+                echo "Integration tests have not run yet because the pull request is a draft. They will run when it becomes ready for review."
+                exit 1
+                ;;
               *)
                 echo "Integration tests were skipped with an unrecognised reason. Received: '$SKIP_REASON'."
                 exit 1
