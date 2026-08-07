@@ -164,12 +164,12 @@ public class SecuritySharedTest extends DbTestBase {
   }
 
   /**
-   * Verifies that an immutable empty result from filtered-property calculation is cached as a
-   * mutable defensive copy, so the later in-place refresh can clear and repopulate it.
+   * Verifies that an immutable empty result from the initial filtered-property calculation is
+   * cached as a mutable defensive copy, so a later in-place refresh can add calculated content.
    */
   @Test
   public void testImmutableEmptyFilteredPropertiesCanBeRefreshedInPlace() {
-    var security = new EmptyFilteredPropertiesSecurity();
+    var security = new InitiallyEmptyFilteredPropertiesSecurity();
     var user = session.getCurrentUser();
 
     try {
@@ -180,7 +180,9 @@ public class SecuritySharedTest extends DbTestBase {
     }
 
     security.updateAllFilteredPropertiesInternal(session);
-    Assert.assertTrue(security.getAllFilteredProperties(session).isEmpty());
+    Assert.assertEquals(
+        Collections.singleton(SecurityResourceProperty.ALL_PROPERTIES),
+        security.getAllFilteredProperties(session));
   }
 
   /**
@@ -372,16 +374,21 @@ public class SecuritySharedTest extends DbTestBase {
         versionAfter > versionBefore);
   }
 
-  private static final class EmptyFilteredPropertiesSecurity extends SecurityShared {
+  private static final class InitiallyEmptyFilteredPropertiesSecurity extends SecurityShared {
 
-    private EmptyFilteredPropertiesSecurity() {
+    private int calculationCount;
+
+    private InitiallyEmptyFilteredPropertiesSecurity() {
       super(null);
     }
 
     @Override
     protected Set<SecurityResourceProperty> calculateAllFilteredProperties(
         com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded database) {
-      return Collections.emptySet();
+      if (calculationCount++ == 0) {
+        return Collections.emptySet();
+      }
+      return Collections.singleton(SecurityResourceProperty.ALL_PROPERTIES);
     }
   }
 }

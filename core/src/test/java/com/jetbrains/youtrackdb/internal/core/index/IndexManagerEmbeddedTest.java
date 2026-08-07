@@ -463,6 +463,26 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   /**
+   * A rule on an unrelated class may share an indexed field's name and reach the slow path, but it
+   * must not block composite-index creation after the indexed class family is resolved.
+   */
+  @Test
+  public void compositeIndexAllowsSameNamedFilteredPropertyOnUnrelatedClass() {
+    var unrelatedClassName = "ImeUnrelatedSecurityClass";
+    var unrelated = session.getMetadata().getSchema().createClass(unrelatedClassName);
+    unrelated.createProperty("name", PropertyType.STRING);
+    setFilteredPropertyRule(
+        "unrelatedClassPropertyPolicy",
+        "database.class." + unrelatedClassName + ".name");
+
+    var indexName = CLS + ".compositeUnrelatedClassRule";
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val", "name");
+
+    assertNotNull(session.getSharedContext().getIndexManager().getIndex(indexName));
+  }
+
+  /**
    * A class-specific rule naming an indexed field still rejects composite creation with the exact
    * pre-optimization exception type and message.
    */
