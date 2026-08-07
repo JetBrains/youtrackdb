@@ -370,7 +370,8 @@ The `pi-mcp-adapter` package in `.pi/settings.json` gives every pi session an MC
 MCP means Model Context Protocol, a standard interface between agents and external tools.
 The package registers two tools: a gateway tool named `mcp` and a scripting tool named
 `mcpScript`. `.pi/slate.json` lists the package in `workerExtensions`, so worker threads
-receive both tools as well.
+receive both tool definitions as well. Those definitions do not work in a worker yet. Read
+the limitation at the end of this section before you plan any work around them.
 
 The gateway tool named `mcp` searches the available MCP tools, describes one, and calls it.
 Use it for a single call. The scripting tool named `mcpScript` runs a short script that makes
@@ -423,10 +424,27 @@ also expands. An absolute path avoids any dependence on the environment.
 Without any `mcp.json` the adapter still loads. It then registers its two tools, reports no
 servers, and costs roughly 950 prompt tokens per request.
 
-Worker threads receive both tools. The scripting tool does not fully contain its sandbox, so
-a script can reach the file system and the network. A worker that already holds the shell tool
-gains nothing new. A worker dispatched with a narrowed tool list keeps that reach anyway. A
-narrowed list is not a security boundary while this tool is present.
+**Do not use this from a worker thread yet.** A worker thread receives both tool definitions,
+and every call fails in about two milliseconds with `MCP not initialized`. The main pi session
+works normally. The cause sits in slate 0.9.0, which creates worker sessions without the
+lifecycle event the adapter initializes on. The defect is tracked upstream as issue 50 of
+`JetBrains/ytdb-slate`, and the comment thread there carries the measured evidence.
+
+A workaround exists, and this project rejected it. Declaring `"lifecycle": "eager"` on a server
+reaches a second initialization path and makes worker calls succeed. The price is one connection
+to the server for every dispatched worker thread, plus a health-check timer. Worker disposal
+releases neither. Eager mode also disables the idle sweep, so both survive for the life of the
+pi process.
+
+Two consequences hold until the upstream fix lands. Do not dispatch a worker thread to do
+YouTrack work through this tool. Expect both tool definitions to cost prompt tokens in every
+worker while providing no capability there.
+
+One security note applies once the fix lands. The scripting tool does not fully contain its
+sandbox, so a script can reach the file system and the network. A worker that already holds the
+shell tool gains nothing new. A worker dispatched with a narrowed tool list keeps that reach
+anyway. A narrowed tool list is therefore not a security boundary once this tool works in
+workers.
 
 ## Package pin bumps
 
