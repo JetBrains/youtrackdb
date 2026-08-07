@@ -57,7 +57,7 @@ owned by track-workflow.md § Peer review.
 ## Verification integration
 
 This section is the gate reference for work inside a track: which command gates a commit, how
-the module sets are computed, which gate runs when, and when a gate must be re-run. The
+the verification sets are computed, which gate runs when, and when a gate must be re-run. The
 coverage measurement procedure — how to produce a coverage number, and how to tell a real pass
 from a vacuous one — is in `docs-internal/dev-workflow/coverage-verification.md`.
 
@@ -111,11 +111,11 @@ nothing to name. Their compile gate is reactor-wide:
 **No-Maven changes.** A change with no Java files and no module content — documentation, `.pi/`
 configuration, prompts — carries no Maven gate at all.
 
-### Two module sets: compile gate vs test gates
+### Three gate sets: compile, test, and integration
 
-Module selection is not one set, and carrying the compile-gate definition into a test gate
-silently converts that gate into a reactor-wide test run. Both names below are the terms the
-injected guideline documents use as well.
+Verification scope is not one set. Carrying the compile-gate definition into a test gate
+silently converts that gate into a reactor-wide test run. The three names below distinguish
+each scope.
 
 **Compile-gate set** — the modules containing changed files **plus their downstream consumers
 in the reactor**, which is what `-am -amd` expresses. Deliberately wide, and not to be
@@ -128,13 +128,21 @@ compiles against a changed API is already covered by the compile gate, and re-ru
 suites costs tens of minutes for no new signal. When the changed behavior does reach a
 dependent's tests, name that dependent in `-pl` explicitly.
 
+**Integration-gate set** — the integration test classes covering the subsystems touched by the
+changed files. This set names classes, not modules, because module scope alone still runs the
+whole module suite.
+
+Derive the integration-gate set in two steps. Map each changed file to its subsystem. Then map
+that subsystem to its covering integration test classes. Existing coverage includes storage,
+write-ahead log (WAL), index, Gremlin integration, and transaction handling.
+
 For build files belonging to no module, the compile-gate set is the whole reactor and the
 test-gate set is the modules whose behavior the change can actually alter — a dependency-version
 bump in the root `pom.xml` means that dependency's consumers — falling back to the whole reactor
 when it cannot be bounded that way.
 
-Both sets are read off the reactor order, which Maven resolves from the dependency graph, not
-from the module order listed in the root `pom.xml`:
+The two module sets are read off the reactor order, which Maven resolves from the dependency
+graph, not from the module order listed in the root `pom.xml`:
 
 > youtrackdb-parent → test-commons → gremlin-annotations → core → driver → server → tests
 > → embedded → examples → console → docker-tests → jmh-ldbc
@@ -148,15 +156,24 @@ At the end of each track's implementation, and **before** that track's agent cod
 full verification runs:
 
 1. **Unit tests** for the test-gate modules, green.
-2. **Integration tests** (`-P ci-integration-tests`) when the change touches areas covered by
-   integration tests. That trigger is owned by orchestrator-guidelines § Verification Gates and
-   is deliberately general, not a closed list of areas — read it there.
+2. **Integration tests** for the integration-gate set, green. Follow
+   `docs-internal/agents/thread-guidelines.md` for command syntax. If the set cannot be
+   determined, escalate verification to the pull request pipeline. Do not substitute the full
+   local suite.
 3. **The coverage gate** over the changed lines, at the thresholds owned by
    orchestrator-guidelines § Test Policy. **Read
    `docs-internal/dev-workflow/coverage-verification.md` and follow it before producing the
    number.** A coverage result produced without that procedure is not a gate result and must
    not be reported as one: its report-set assertion is what separates a measured pass from a
    vacuous one, and nothing in this section can tell them apart.
+
+The full local integration suite is no longer a gate at any tier. It takes about five hours,
+and the pull request pipeline now covers it. The pipeline runs the full suite for every pull
+request whose branch lives in this repository.
+
+A title tag is a bracketed keyword in the pull request title. The `[no-it-tests]` title tag means
+no integration tests and skips that pipeline run. Use it only when the change cannot affect
+integration tests.
 
 Gating only at the track's closing event would have reviewers reviewing unverified code; gating
 only before the review would let review-fix commits land unverified. Both holes are closed by
