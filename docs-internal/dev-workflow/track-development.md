@@ -383,9 +383,10 @@ model changed mid-action, so an unmeasured retry level leaves no trace there eit
 pair above retries on a level its target has a measurement at, with one accepted residual:
 `claude-opus-5@low` retries as `gpt-5.6-sol@low`, and sol carries no measurement at `low`.
 
-**Machine-local prerequisite.** Routing here assumes a per-developer, untracked
-`~/.pi/agent/models.json` that raises the registry context window of the `gpt-5.6-*` models
-to 1,050,000. pi documents this exact override in its own `docs/models.md` § Per-model
+**Machine-local prerequisite.** Routing assumes an untracked `models.json` in pi's effective
+agent directory. `PI_CODING_AGENT_DIR` selects that directory when set. Otherwise pi uses
+`~/.pi/agent`. The file raises the registry context window of the `gpt-5.6-*` models to
+1,050,000. pi documents this exact override in its own `docs/models.md` § Per-model
 Overrides (installed with the `@earendil-works/pi-coding-agent` package), including the
 warning that above 272K total input the whole request bills at GPT-5.6's long-context rates:
 
@@ -426,8 +427,8 @@ fault. Do not require a fixed hidden-warning count. Package data and registry st
 that count.
 
 With `router.showWarnings` set to `false`, the package hides the model data notes. Those notes
-can no longer reveal a missing machine-local `~/.pi/agent/models.json` override. Check that
-prerequisite directly:
+can no longer reveal a missing override in the effective agent directory. Check that file
+directly:
 
 ```sh
 node - <<'NODE'
@@ -440,7 +441,8 @@ const agentDir = !configuredDir
   ? path.join(home, '.pi', 'agent')
   : configuredDir === '~'
     ? home
-    : configuredDir.startsWith('~/') || configuredDir.startsWith('~\\')
+    : configuredDir.startsWith('~/')
+      || (process.platform === 'win32' && configuredDir.startsWith('~\\'))
       ? path.join(home, configuredDir.slice(2))
       : configuredDir
 const file = `${agentDir}${path.sep}models.json`
@@ -459,9 +461,10 @@ console.log(`model overrides valid: ${file}`);
 NODE
 ```
 
-The package provides no hidden-note detail while warnings remain off. The direct check follows
-pi's agent-directory environment rule. It establishes that the effective file parses as JSON.
-It also checks the expected windows for the two routed OpenAI models.
+The package provides no hidden-note detail while warnings remain off. The direct check uses
+`PI_CODING_AGENT_DIR` when set. Otherwise it uses `~/.pi/agent`. It establishes that
+`models.json` in the effective directory parses as JSON. It also checks the expected windows
+for the two routed OpenAI models.
 
 It does not prove that a running session loaded those values. Router resolution freezes
 registry data at its first consultation. Start a new pi session after changing the file. The check
