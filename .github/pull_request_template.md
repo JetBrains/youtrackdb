@@ -2,11 +2,12 @@
 
 If this PR is related to an issue, prefix the title with the issue number (e.g., `YTDB-123: Imperative summary under 50 chars`).
 
-Integration tests run on every pull request that is ready for review.
+Integration tests run once a pull request from a branch in this repository is ready for review.
+Pull requests from forks do not run integration tests.
+A maintainer runs the integration tests before merging.
 Add `[no-it-tests]` to the title to skip that run.
 Use the tag only when the change cannot affect integration tests.
-A pull request that changes only Markdown files skips the run automatically.
-A documentation-only change needs no tag.
+A pull request that changes only Markdown files skips the run automatically, so a documentation-only change needs no tag.
 
 #### Motivation:
 
