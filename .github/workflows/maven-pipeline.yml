@@ -822,8 +822,8 @@ jobs:
   # ------------------------------------------------------------------
   # GATE JOB: CI STATUS
   # Always runs — reports success when build is skipped or all jobs pass.
-  # Configure this and `integration-status` from the pull request (PR) workflow named
-  # `PR Integration Tests` as required status checks in branch protection.
+  # Branch protection requires two status checks: the job `ci-status` in this
+  # workflow, and the job `integration-status` in the `PR Integration Tests` workflow.
   # ------------------------------------------------------------------
   ci-status:
     name: CI Status
