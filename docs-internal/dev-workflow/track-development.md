@@ -132,9 +132,18 @@ dependent's tests, name that dependent in `-pl` explicitly.
 changed files. This set names classes, not modules, because module scope alone still runs the
 whole module suite.
 
-Derive the integration-gate set with two searches for each changed main source file. Use this
-process for storage, write-ahead log (WAL), index, Gremlin integration, transaction handling,
-and any other subsystem.
+The two searches below apply only to main source files inside a module with a package path.
+Do not pass other changed files to them. Report each other path and its potential effect for an
+orchestrator decision.
+
+Other files include a build file such as `pom.xml`, anything under `.mvn/`, a Maven wrapper, a
+workflow file, or a documentation file. A root build file can change behavior in every module.
+No local integration subset is trustworthy for that case. The thread reports the situation,
+and the pull request run covers it after the pull request becomes ready for review.
+
+Derive the integration-gate set with two searches for each applicable file. Use this process
+for storage, write-ahead log (WAL), index, Gremlin integration, transaction handling, and any
+other subsystem.
 
 First, search by package proximity. These commands search the same package in the same module:
 
@@ -143,17 +152,20 @@ changed='<module>/src/main/java/<package>/<Class>.java'
 module=${changed%%/*}
 package_path=${changed#*/src/main/java/}
 package_path=${package_path%/*}
-find "$module/src/test/java/$package_path" -type f -name '*IT.java' -print | sort
+test_root="$module/src/test/java"
+[ ! -d "$test_root/$package_path" ] ||
+  find "$test_root/$package_path" -type f -name '*IT.java' -print | sort
 ```
 
 If this returns nothing, remove one trailing segment with
-`package_path=${package_path%/*}` and repeat the `find` command.
+`package_path=${package_path%/*}` and repeat the guarded `find` command.
 
 Second, search integration test sources for references to the changed class's simple name:
 
 ```bash
 simple_name=$(basename "$changed" .java)
-grep -Rlw --include='*IT.java' -- "$simple_name" "$module/src/test/java" | sort
+[ ! -d "$test_root" ] ||
+  grep -Rlw --include='*IT.java' -- "$simple_name" "$test_root" | sort
 ```
 
 Combine and deduplicate both result sets. Review each candidate and include every class that
