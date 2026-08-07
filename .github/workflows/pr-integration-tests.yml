@@ -3,14 +3,15 @@ name: PR Integration Tests
 on:
   pull_request:
     types: [ opened, synchronize, reopened, ready_for_review, edited ]
+  merge_group:
+    types: [ checks_requested ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
   decide:
@@ -22,14 +23,32 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Decide Whether to Run Integration Tests
         id: decision
         env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          if [[ "$EVENT_NAME" == "merge_group" ]]; then
+            echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "The pull request head already ran the full integration test suite."
+            echo "The nightly pipeline still covers develop after the merge."
+            exit 0
+          fi
+
+          if [[ "$HEAD_REPOSITORY" != "$CURRENT_REPOSITORY" ]]; then
+            echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "Fork pull request detected. Untrusted code must not run on a self-hosted runner."
+            echo "The private Maven mirror rejects fork builds, so this run could never pass."
+            exit 0
+          fi
+
           if [[ "$PR_DRAFT" == "true" ]]; then
             echo "run_its=false" >> "$GITHUB_OUTPUT"
             echo "Pull request is a draft. Integration tests will be skipped."
@@ -67,13 +86,17 @@ jobs:
   integration-tests:
     needs: decide
     if: needs.decide.outputs.run_its == 'true'
+    permissions:
+      contents: read
+      checks: write
     runs-on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
-    timeout-minutes: 600
+    timeout-minutes: 360
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
