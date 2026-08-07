@@ -1,5 +1,6 @@
-# Configure this and `ci-status` from the `Java CI/CD Pipeline` workflow
-# as required status checks in branch protection.
+# Branch protection requires two status checks: the job `integration-status` in
+# this workflow, and the job `ci-status` in the `Java CI/CD Pipeline` workflow.
+# Never require `integration-tests` instead. A failed `decide` job would then pass unnoticed.
 name: PR Integration Tests
 
 on:
