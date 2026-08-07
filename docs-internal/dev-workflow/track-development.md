@@ -240,31 +240,34 @@ that still routes — read the warnings, or the typo passes for a working config
 entry drops, the router turns OFF entirely and dispatches fall back to the host session's
 model.
 
-**When warnings appear.** Only config-SHAPE checks run at session start: a `router` value
-that is not an object, an unknown key under it, a non-array `models`, a malformed entry, a
-non-boolean `allowUnmeasuredEffort` or `showWarnings`, and — since this project now enables
-it too — a malformed `writing` object, an unknown key under it, or a non-boolean value
-inside it. `threadChoice` is the exception: its shape is read at the first continuation
-dispatch rather than at session start, so a fault in it reaches that dispatch's warnings and
-never the acceptance check below. Candidate resolution — profile lookup, registry and
+**When warnings appear.** Only config-SHAPE checks run at session start. On the `router`
+side those are a value that is not an object, an unknown key under it, a non-array `models`,
+a malformed entry, and a non-boolean `allowUnmeasuredEffort` or `showWarnings`. This project
+enables `writing` too, which adds a malformed `writing` object, an unknown key under it, a
+non-boolean `check` or `remind`, and a `remindPercent` that is not a finite number in
+(0, 100]. `threadChoice` is the exception: Slate reads its shape at the first continuation
+dispatch, not at session start. A fault there reaches that dispatch's warnings, and the
+acceptance check below never sees it. Candidate resolution — profile lookup, registry and
 credential checks, effort-ladder readability, failover coverage — is memoized and runs at
 the FIRST consultation instead: the doctrine build in orchestrator mode, or the first
 dispatch outside it. A session that builds no doctrine and dispatches nothing emits none of
 those warnings, which is what the acceptance check below has to work around. Resolution
-warnings now carry a class, and only one of the two is gated: a configuration fault always
-reaches the user — a candidate with no `modelFailover` entry is one — while
-`router.showWarnings: true` is what reveals the model data notes. The package's
+warnings now carry a class, and Slate gates only one of the two. A configuration fault
+always reaches the user, and a candidate with no `modelFailover` entry is one.
+`router.showWarnings: true` is what reveals the model data notes, and the package's
 model-routing.md owns which warning is which.
 
-**Effort policy.** `router.allowUnmeasuredEffort` is `true`, so an explicit level that sits
-on the model's ladder but carries no capability measurement is warned about rather than
-refused: the dispatch runs, a ⚠ notice says the result is unevidenced, and the episode
-header is marked `(unmeasured level)`. Only a level the dispatch NAMES can be unevidenced —
-omit `effort` and the router derives the model's lowest measured level. Two nearby refusals
-come from elsewhere and stand whatever this key says: a level off the model's ladder, and
-one the provider rejects outright. Nothing therefore keeps a review or a gate action on a
-measured level except the rule in `docs-internal/agents/slate-doctrine-extra.md` § Model
-routing, which the package states as doctrine only, not a code-enforced guard.
+**Effort policy.** `router.allowUnmeasuredEffort` is `true`. Slate therefore warns about an
+explicit level that sits on the model's ladder but carries no capability measurement, rather
+than refusing it: the dispatch runs, a ⚠ notice calls the result unevidenced, and Slate marks
+the episode header `(unmeasured level)`. The guards judge only a level the dispatch NAMES:
+omit `effort` and the router derives a measured level instead. One path escapes that rule. A
+failover retry names no level, so it can land on an unevidenced level, and it leaves no
+marker behind — What failover ignores records the case. Two nearby refusals come from
+elsewhere and stand whatever this key says: a level off the model's ladder, and one the
+provider rejects outright. One rule alone keeps a review or a gate action on a measured
+level: the Model routing rule in `docs-internal/agents/slate-doctrine-extra.md`. The package
+states it as doctrine only, not a code-enforced guard.
 
 **Unsized dispatches.** A dispatch that names neither `model` nor `effort` runs on the
 thread's base. For a NEW thread that base is `openai/gpt-5.6-luna@medium` — the cheapest
@@ -336,23 +339,28 @@ never consults the resolver, and emits ZERO router warnings however broken the l
 the mode on in the same session instead — `pi -p "/slate on" "hi"`, which runs the command
 first and the prompt second — and the warnings reach stderr. A healthy configuration emits
 one general note about untraced research-table data, then one model-data note per model in
-the candidate list above, naming those models and in that order, with zero
-configuration-fault lines. Read the ids, not just the count: a note missing, one too many,
-one naming a model the list does not, or the set arriving in another order is a finding —
-that is what a silently dropped or swapped candidate looks like. The notes are visible
-because `router.showWarnings` is `true`; there is no hidden-warnings summary line. Per-model
-fact counts are deliberately not specified because package model data can change. A
+the candidate list above. Those notes name those models, in that order, and no
+configuration-fault line appears. Match each note's model id against that list, position by
+position, rather than counting notes. A missing note, an extra one, a note naming a model
+the list does not, or ids in a different order: each is a finding, and each is what a
+silently dropped or swapped candidate looks like. The notes are visible because
+`router.showWarnings` is `true`. No hidden-warnings summary line appears. This check
+deliberately omits per-model fact counts, because package model data can change. A
 configuration-fault line, a hidden-warnings summary line, or a non-zero exit is a finding
 too.
 
 **Authority.** The routing table Slate renders into the doctrine each turn is the single
 authority on per-model guidance, prices and measured levels; do not restate it under
-`docs-internal/`. Nothing here claims an exception to that: the effort-policy paragraph
-above names this project's setting and what follows from it, never the table's per-model
-levels. The figures drift: prices are dated schedules (`claude-sonnet-5`'s step up 50% on
-2026-09-01, which changes the table's numbers but not its order, since `nonPreferred` sorts
-that model last on both sides of the step), and measured levels, route-for/avoid-for
-guidance and the profiled model set itself change whenever the package is republished.
+`docs-internal/`. Four restatements here are deliberate. Each records a project decision
+that a reader cannot follow without the fact it rests on: the profile markers the candidate
+list cites to justify every inclusion and exclusion, the base model-and-level pairs under
+Unsized dispatches, the accepted residual under What failover ignores, and the dated price
+step this paragraph names next. Those four are the only restatements here, and every pin
+bump re-checks them. The figures drift: prices are dated schedules (`claude-sonnet-5`'s step
+up 50% on 2026-09-01, which changes the table's numbers but not its order, since
+`nonPreferred` sorts that model last on both sides of the step), and measured levels,
+route-for/avoid-for guidance and the profiled model set itself change whenever the package
+is republished.
 
 ## Package pin bumps
 
@@ -363,6 +371,8 @@ fix any skew: the deltas here are valid only relative to the package version the
 written against.
 
 Last reconciled against **ytdb-slate 0.9.0**: track-workflow.md, pr-publishing.md,
-model-routing.md, model-failover.md, review-rules.md, writing-guidance.md and
-thread-cache-cost.md — the package documents these deltas and the four enabled
-`.pi/slate.json` features actually rest on.
+model-routing.md, model-failover.md, review-rules.md, writing-guidance.md,
+thread-cache-cost.md and context-budget.md. Those are the package documents these deltas
+rest on, re-read against the six `.pi/slate.json` switches this change turned on across
+`router`, `writing` and `threadChoice`. The list deliberately omits design-principles.md,
+because no delta here rests on it.

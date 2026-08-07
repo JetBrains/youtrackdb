@@ -24,9 +24,10 @@ itself, for changes of any size:
 2. Name neither only for bulk mechanical work: the dispatch then rides
    the thread's base, which is sized for nothing else.
 3. Gate and verification actions MUST name both, on a level the live
-   routing table marks measured for that model — Slate now warns about
-   an unmeasured level instead of refusing it — and MUST NOT be sized
-   down to the cheapest model that looks like it would clear them:
+   routing table marks measured for that model — this project
+   configures the router to warn about an unmeasured level rather
+   than refuse it — and MUST NOT be sized down to the cheapest model
+   that looks like it would clear them:
    adversarial review, agent code review, the design-review and
    PR-description statements, the ready-for-review flip, all Maven
    test/coverage verification runs (including end-of-track and post-flip
