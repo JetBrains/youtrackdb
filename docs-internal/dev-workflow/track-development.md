@@ -364,6 +364,12 @@ but not its order, since `nonPreferred` sorts that model last on both sides of t
 measured levels, route-for/avoid-for guidance and the profiled model set itself change
 whenever the package is republished.
 
+## MCP server configuration
+
+The `pi-mcp-adapter` package needs a machine-local server configuration, in the same way that
+model routing needs a machine-local `models.json`. Setup, credential handling, and the current
+worker-thread limitation live in `mcp-server-configuration.md` in this directory.
+
 ## Package pin bumps
 
 Changing the `ytdb-slate` version pin in `.pi/settings.json` is a tracked change like any

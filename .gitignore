@@ -220,3 +220,7 @@ __pycache__/
 # Agent-authored issue reports (local only, not committed)
 /.issues/*
 !/.issues/README.md
+
+# MCP server configuration written by the pi MCP adapter panel (local only)
+.mcp.json
+.pi/mcp.json
