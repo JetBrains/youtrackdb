@@ -1,0 +1,267 @@
+# This workflow contributes `integration-status` to branch protection.
+# Other workflows contribute checks such as `CI Status` and `check-merges`.
+# Never require `integration-tests` instead of `integration-status`.
+# A failed `decide` job would then pass unnoticed.
+name: PR Integration Tests
+
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review, edited ]
+  merge_group:
+    types: [ checks_requested ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  decide:
+    permissions:
+      contents: read
+      checks: write
+    runs-on: ubuntu-latest
+    outputs:
+      run_its: ${{ steps.decision.outputs.run_its }}
+      skip_reason: ${{ steps.decision.outputs.skip_reason }}
+    steps:
+      - name: Mark Integration Tests as Running
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api --method POST "repos/$GH_REPO/check-runs" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            --input - <<EOF
+          {
+            "name": "integration-status",
+            "head_sha": "$HEAD_SHA",
+            "status": "in_progress",
+            "output": {
+              "title": "Integration test result is pending",
+              "summary": "The integration test result is pending. This check will update when the workflow finishes."
+            }
+          }
+          EOF
+
+      - name: Checkout Source Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Decide Whether to Run Integration Tests
+        id: decision
+        env:
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "merge_group" ]]; then
+            echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=merge-group" >> "$GITHUB_OUTPUT"
+            echo "The pull request head already ran the full integration test suite."
+            echo "The nightly pipeline still covers develop after the merge."
+            exit 0
+          fi
+
+          if [[ "$HEAD_REPOSITORY" != "$CURRENT_REPOSITORY" ]]; then
+            echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=fork" >> "$GITHUB_OUTPUT"
+            echo "Fork pull request detected. Untrusted code must not run on a self-hosted runner."
+            echo "The private Maven mirror rejects fork builds, so this run could never pass."
+            exit 0
+          fi
+
+          if [[ "$PR_DRAFT" == "true" ]]; then
+            echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=draft" >> "$GITHUB_OUTPUT"
+            echo "Pull request is a draft. Integration tests will be skipped."
+            exit 0
+          fi
+
+          if [[ "$PR_TITLE" == *"[no-it-tests]"* ]]; then
+            echo "run_its=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=no-it-tests" >> "$GITHUB_OUTPUT"
+            echo "PR title contains [no-it-tests]. Integration tests will be skipped."
+            exit 0
+          fi
+
+          # Use a three-dot diff to inspect only changes introduced by this pull request.
+          CHANGED_FILES=$(git diff --no-renames --name-only "$PR_BASE_SHA...HEAD")
+
+          if [[ -n "$CHANGED_FILES" ]]; then
+            ONLY_MARKDOWN=true
+            while IFS= read -r file; do
+              if [[ "$file" != *.md ]]; then
+                ONLY_MARKDOWN=false
+                break
+              fi
+            done <<< "$CHANGED_FILES"
+
+            if [[ "$ONLY_MARKDOWN" == "true" ]]; then
+              echo "run_its=false" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=markdown-only" >> "$GITHUB_OUTPUT"
+              echo "Every changed file ends in .md. Integration tests will be skipped."
+              exit 0
+            fi
+          fi
+
+          echo "run_its=true" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=" >> "$GITHUB_OUTPUT"
+          echo "Integration tests will run."
+
+  integration-tests:
+    needs: decide
+    if: needs.decide.outputs.run_its == 'true'
+    permissions:
+      contents: read
+      checks: write
+    runs-on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
+    # Lower caps can terminate legitimate long-running integration tests.
+    timeout-minutes: 600
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          architecture: x64
+          overwrite-settings: false
+
+      - name: Run Maven Test
+        id: tests
+        run: >-
+          ./mvnw -s .github/workflows/settings.xml clean verify -B
+          -Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images
+          -Ddocker.platforms=linux/amd64
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Verify Integration Test Reports
+        if: success()
+        run: |
+          if ! find . -path '*/target/failsafe-reports/TEST-*.xml' -type f -print -quit \
+              | grep -q .; then
+            echo "::error::No Failsafe integration test report was produced."
+            exit 1
+          fi
+
+      - name: Print VMLens Data Race Report
+        if: always()
+        run: |
+          REPORT_DIR="core/target/vmlens-report"
+          if [ -d "$REPORT_DIR" ]; then
+            echo "::group::VMLens Data Race Report"
+            echo "Report files:"
+            find "$REPORT_DIR" -type f | sort
+            echo ""
+            for f in "$REPORT_DIR"/*.html; do
+              [ -f "$f" ] || continue
+              echo "=== $(basename "$f") ==="
+              sed 's/<[^>]*>//g; s/&nbsp;/ /g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' "$f" \
+                | sed '/^[[:space:]]*$/d'
+              echo ""
+            done
+            echo "::endgroup::"
+          else
+            echo "No VMLens report directory found at $REPORT_DIR"
+          fi
+
+      - name: Upload VMLens Report
+        uses: actions/upload-artifact@v7
+        if: "!cancelled()"
+        with:
+          name: vmlens-report-pr-integration-jdk21-temurin
+          path: 'core/target/vmlens-report/'
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # Upload diagnostics before publishing results so timeout evidence gets priority.
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-diagnostics-pr-integration-jdk21-temurin-attempt${{ github.run_attempt }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          action_fail_on_inconclusive: true
+          large_files: true
+          comment_mode: off
+          compare_to_earlier_commit: false
+          check_name: PR Integration Test Results (Linux x86, JDK 21 - temurin)
+
+  integration-status:
+    if: always()
+    needs: [ decide, integration-tests ]
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Integration Test Results
+        env:
+          DECIDE_RESULT: ${{ needs.decide.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+          SKIP_REASON: ${{ needs.decide.outputs.skip_reason }}
+        run: |
+          if [[ "$DECIDE_RESULT" != "success" ]]; then
+            echo "The decision job did not succeed. Result: $DECIDE_RESULT."
+            exit 1
+          fi
+
+          if [[ "$INTEGRATION_RESULT" == "success" ]]; then
+            echo "Integration tests passed."
+            exit 0
+          fi
+
+          if [[ "$INTEGRATION_RESULT" == "skipped" ]]; then
+            case "$SKIP_REASON" in
+              merge-group|fork|no-it-tests|markdown-only)
+                echo "Integration tests were skipped by the decision job. Reason: $SKIP_REASON."
+                exit 0
+                ;;
+              draft)
+                echo "Integration tests have not run yet because the pull request is a draft. They will run when it becomes ready for review."
+                exit 1
+                ;;
+              *)
+                echo "Integration tests were skipped with an unrecognised reason. Received: '$SKIP_REASON'."
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "Integration tests did not succeed. Result: $INTEGRATION_RESULT."
+          exit 1

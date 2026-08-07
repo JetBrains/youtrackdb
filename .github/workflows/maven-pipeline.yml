@@ -822,7 +822,8 @@ jobs:
   # ------------------------------------------------------------------
   # GATE JOB: CI STATUS
   # Always runs — reports success when build is skipped or all jobs pass.
-  # Configure this as the single required status check in branch protection.
+  # This workflow contributes `CI Status` to branch protection.
+  # Other workflows contribute checks such as `integration-status` and `check-merges`.
   # ------------------------------------------------------------------
   ci-status:
     name: CI Status

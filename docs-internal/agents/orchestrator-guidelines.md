@@ -35,15 +35,14 @@ How to run and diagnose coverage verification is defined in
 ## Verification Gates
 
 Mid-track commits run `./mvnw -pl <modules with changed files> -am -amd test-compile` over the
-compile-gate set. At the end of a track's implementation, before its agent code review, full
-verification runs at every
-tier: unit tests for the test-gate set, integration tests under the decision rules below, and
-coverage at the 85% line / 70% branch thresholds. The complete gate protocol — including module
-selection, exceptions, and re-run rules — is in
-`docs-internal/dev-workflow/track-development.md` § Verification integration.
+compile-gate set. At each tier, full verification runs after track implementation and before
+agent code review. It covers unit tests for the test-gate set, integration tests for the
+integration-gate set, and coverage at the 85% line / 70% branch thresholds. The complete gate
+protocol is in `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
-Run related integration tests (`-P ci-integration-tests`) when a change touches areas covered by
-integration tests; storage, WAL, index, Gremlin integration, and transaction handling are examples.
+Dispatch the integration-gate set defined in that protocol. The full integration suite is no
+longer a local gate. The pull request pipeline runs it instead. Follow
+`docs-internal/agents/thread-guidelines.md` for command syntax.
 If in doubt, run the full unit test suite.
 
 ### Serial Test Execution (Scheduling Invariant)
@@ -84,6 +83,7 @@ dispatch a build there while another build or test run is in progress.
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
 - **Keep the PR title and description in sync with follow-up commits** — the squash-merge builds the commit message from them, not from individual commit messages, so stale text ships to `develop`'s history; sync rules owned by pr-publishing.md § Keeping the PR in sync.
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
+- **Integration test bypass**: Add `[no-it-tests]` to the pull request title to skip the pipeline's integration tests. Use this only when the change cannot affect integration tests. Pull requests whose branches live in forks do not run integration tests.
 - **Planned changes & Tracks sections**: The PR template includes "Planned changes" and "Tracks" sections, mandatory for non-trivial changes. The umbrella draft PR's description is kept in sync as work proceeds — description rules in pr-publishing.md (ytdb-slate package); YTDB template deltas in `docs-internal/dev-workflow/track-development.md`.
 - **Peer review** is optional and, when the user wants it, runs directly on the ready umbrella PR at the ready-for-review flip — no separate review branches or PRs are created; see `docs-internal/agents/slate-doctrine-extra.md`.
 

@@ -2,6 +2,17 @@
 
 If this PR is related to an issue, prefix the title with the issue number (e.g., `YTDB-123: Imperative summary under 50 chars`).
 
+Two title tags change which checks run:
+
+- `[no-it-tests]` skips the integration test run. Use it only when the change cannot affect integration tests.
+- `[no-test-number-check]` skips the test count gate. Use it only for an intentional test refactoring that does not reduce coverage.
+
+Integration test run conditions:
+
+- Integration tests run unless the pull request is a draft.
+- Integration tests do not run when the pull request branch lives in a fork.
+- Integration tests do not run when every changed file is a Markdown file.
+
 #### Motivation:
 
 Explain WHY this change was made — the problem, context, and trade-offs.
