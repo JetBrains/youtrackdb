@@ -260,17 +260,15 @@ model-routing.md owns which warning is which.
 **Effort policy.** `router.allowUnmeasuredEffort` is `true`. Slate therefore warns about an
 explicit level that sits on the model's ladder but carries no capability measurement, rather
 than refusing it. The dispatch runs. A ⚠ notice calls the result unevidenced. Slate marks the
-episode header `(unmeasured level)`. The guards judge whichever level the action ends up on,
-named by the dispatch or not, and only a named one can fail them. A dispatch that omits
-`effort` leaves the router a measured level by construction: it derives the routed model's
-lowest measured level, or re-validates the thread's stored base level and re-derives it when
-that level no longer reads measured. One path escapes that rule. A failover retry names no
-level, so it can land on an unevidenced level, and it leaves no marker behind — What failover
-ignores records the case. Two nearby refusals come from elsewhere and stand whatever this
-key says: a level off the model's ladder, and one the provider rejects outright. One rule
-alone keeps a review or a gate action on a measured level: the Model routing rule in
-`docs-internal/agents/slate-doctrine-extra.md`. The package states it as doctrine only, not
-a code-enforced guard.
+episode header `(unmeasured level)`. Only a level the dispatch names can draw that notice or
+a refusal. Every model on this project's candidate list carries measured levels, so a
+dispatch that omits `effort` gets one of them. A failover retry is the exception. It names no
+level, so it can land on an unevidenced one. The episode header then carries no marker to say
+so. What failover ignores records that case. Two nearby refusals come from elsewhere and
+stand whatever this key says: a level off the model's ladder, and one the provider rejects
+outright. One rule alone keeps a review or a gate action on a measured level: the Model
+routing rule in `docs-internal/agents/slate-doctrine-extra.md`. The package states it as
+doctrine only, not a code-enforced guard.
 
 **Unsized dispatches.** A dispatch that names neither `model` nor `effort` runs on the
 thread's base. For a NEW thread that base is `openai/gpt-5.6-luna@medium` — the cheapest
@@ -358,11 +356,13 @@ table. This section restates it in exactly four deliberate places, each recordin
 decision that a reader cannot follow without the fact it rests on: the profile markers the
 candidate list cites to justify every inclusion and exclusion, the base model-and-level pairs
 under Unsized dispatches, the accepted residual under What failover ignores, and the dated
-price step this paragraph names next. Every pin bump re-checks those four. The figures
-drift: prices are dated schedules (`claude-sonnet-5`'s step up 50% on 2026-09-01, which
-changes the table's numbers but not its order, since `nonPreferred` sorts that model last on
-both sides of the step), and measured levels, route-for/avoid-for guidance and the profiled
-model set itself change whenever the package is republished.
+price step this paragraph names next. Every pin bump re-checks those four. A pin bump also
+re-checks the Effort policy claim that every listed model carries measured levels. A new
+list entry or a refreshed profile table can falsify it. The figures drift: prices are dated
+schedules (`claude-sonnet-5`'s step up 50% on 2026-09-01, which changes the table's numbers
+but not its order, since `nonPreferred` sorts that model last on both sides of the step), and
+measured levels, route-for/avoid-for guidance and the profiled model set itself change
+whenever the package is republished.
 
 ## Package pin bumps
 
