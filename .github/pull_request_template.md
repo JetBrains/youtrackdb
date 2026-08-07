@@ -6,6 +6,9 @@ Two title tags change which checks run:
 
 - `[no-it-tests]` skips the integration test run. Use it only when the change cannot affect integration tests.
 - `[no-test-number-check]` skips the test count gate. Use it only for an intentional test refactoring that does not reduce coverage.
+
+Integration test run conditions:
+
 - Integration tests run when a pull request becomes ready for review.
 - Integration tests do not run for a draft pull request.
 - Integration tests do not run when the pull request branch lives in a fork.
