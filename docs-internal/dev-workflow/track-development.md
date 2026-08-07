@@ -366,85 +366,9 @@ whenever the package is republished.
 
 ## MCP server configuration
 
-The `pi-mcp-adapter` package in `.pi/settings.json` gives every pi session an MCP client.
-MCP means Model Context Protocol, a standard interface between agents and external tools.
-The package registers two tools: a gateway tool named `mcp` and a scripting tool named
-`mcpScript`. `.pi/slate.json` lists the package in `workerExtensions`, so worker threads
-receive both tool definitions as well. Those definitions do not work in a worker yet. Read
-the limitation at the end of this section before you plan any work around them.
-
-The gateway tool named `mcp` searches the available MCP tools, describes one, and calls it.
-Use it for a single call. The scripting tool named `mcpScript` runs a short script that makes
-several calls in one turn. Use it to chain calls or to loop over them.
-
-**Machine-local prerequisite.** The adapter ships no servers. Each developer configures
-their own, and the repository holds none. A server entry can carry a credential. Machine-local
-configuration keeps every credential out of the repository. The adapter reads `mcp.json` from
-six locations and merges every file it finds. Later locations win:
-
-1. `~/.config/mcp/mcp.json`
-2. `~/.agents/mcp.json`
-3. `~/.agents/mcp/mcp.json`
-4. `~/.pi/agent/mcp.json`
-5. `<repo>/.mcp.json`
-6. `<repo>/.pi/mcp.json`
-
-Use the user-global location, `~/.pi/agent/mcp.json`. The two repository locations are
-listed in `.gitignore`. The adapter's `/mcp` panel can write them. A local server entry
-must never reach a commit.
-
-That ignore rule has a second effect worth knowing. The two repository locations take
-precedence over the user-global one, and `git status` does not list them. A value that starts
-with `!` runs as a shell command, so an unexpected file at either path can run code you never
-wrote. Run `git status --ignored` and check both paths when a server behaves in a way you did
-not configure.
-
-Keep the credential out of `mcp.json`. A value that starts with `!` is run as a command,
-and its trimmed output becomes the value. Store the token in its own file with owner-only
-permissions and point at that file. The YouTrack setup used by this project looks like
-this:
-
-```json
-{
-  "mcpServers": {
-    "youtrack": {
-      "url": "https://youtrack.jetbrains.com/mcp",
-      "headers": {
-        "Authorization": "!cat /home/<user>/.config/youtrack/mcp-auth-header"
-      }
-    }
-  }
-}
-```
-
-The token file holds the complete header value, including the `Bearer ` prefix. Give it
-mode 0600. Use an absolute path. The adapter runs the command through a shell, so a tilde
-also expands. An absolute path avoids any dependence on the environment.
-
-Without any `mcp.json` the adapter still loads. It then registers its two tools, reports no
-servers, and costs roughly 950 prompt tokens per request.
-
-**Do not use this from a worker thread yet.** A worker thread receives both tool definitions,
-and every call fails in about two milliseconds with `MCP not initialized`. The main pi session
-works normally. The cause sits in slate 0.9.0, which creates worker sessions without the
-lifecycle event the adapter initializes on. The defect is tracked upstream as issue 50 of
-`JetBrains/ytdb-slate`, and the comment thread there carries the measured evidence.
-
-A workaround exists, and this project rejected it. Declaring `"lifecycle": "eager"` on a server
-reaches a second initialization path and makes worker calls succeed. The price is one connection
-to the server for every dispatched worker thread, plus a health-check timer. Worker disposal
-releases neither. Eager mode also disables the idle sweep, so both survive for the life of the
-pi process.
-
-Two consequences hold until the upstream fix lands. Do not dispatch a worker thread to do
-YouTrack work through this tool. Expect both tool definitions to cost prompt tokens in every
-worker while providing no capability there.
-
-One security note applies once the fix lands. The scripting tool does not fully contain its
-sandbox, so a script can reach the file system and the network. A worker that already holds the
-shell tool gains nothing new. A worker dispatched with a narrowed tool list keeps that reach
-anyway. A narrowed tool list is therefore not a security boundary once this tool works in
-workers.
+The `pi-mcp-adapter` package needs a machine-local server configuration, in the same way that
+model routing needs a machine-local `models.json`. Setup, credential handling, and the current
+worker-thread limitation live in `mcp-server-configuration.md` in this directory.
 
 ## Package pin bumps
 
