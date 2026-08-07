@@ -45,8 +45,8 @@ jobs:
             "head_sha": "$HEAD_SHA",
             "status": "in_progress",
             "output": {
-              "title": "Integration tests are running",
-              "summary": "Integration tests are running. This check will update when they finish."
+              "title": "Integration test result is pending",
+              "summary": "The integration test result is pending. This check will update when the workflow finishes."
             }
           }
           EOF
