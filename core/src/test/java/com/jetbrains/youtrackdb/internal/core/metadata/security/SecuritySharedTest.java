@@ -2,7 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -159,6 +161,26 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertFalse(
         "calculateAllFilteredProperties must not leak an implicit transaction",
         session.isTxActive());
+  }
+
+  /**
+   * Verifies that an immutable empty result from filtered-property calculation is cached as a
+   * mutable defensive copy, so the later in-place refresh can clear and repopulate it.
+   */
+  @Test
+  public void testImmutableEmptyFilteredPropertiesCanBeRefreshedInPlace() {
+    var security = new EmptyFilteredPropertiesSecurity();
+    var user = session.getCurrentUser();
+
+    try {
+      session.setUser(null);
+      security.updateAllFilteredProperties(session);
+    } finally {
+      session.setUser(user);
+    }
+
+    security.updateAllFilteredPropertiesInternal(session);
+    Assert.assertTrue(security.getAllFilteredProperties(session).isEmpty());
   }
 
   /**
@@ -348,5 +370,18 @@ public class SecuritySharedTest extends DbTestBase {
 
     Assert.assertTrue("version must increase after incrementVersion",
         versionAfter > versionBefore);
+  }
+
+  private static final class EmptyFilteredPropertiesSecurity extends SecurityShared {
+
+    private EmptyFilteredPropertiesSecurity() {
+      super(null);
+    }
+
+    @Override
+    protected Set<SecurityResourceProperty> calculateAllFilteredProperties(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded database) {
+      return Collections.emptySet();
+    }
   }
 }

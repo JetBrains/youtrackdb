@@ -6,11 +6,25 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -406,6 +420,284 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
 
     assertNotNull("the rolled-back rename must restore the old-name resolution",
         mgr.getClassIndex(session, CLS, IDX));
+  }
+
+  // -----------------------------------------------------------------------
+  //  Composite-index security checks
+  // -----------------------------------------------------------------------
+
+  /**
+   * A composite index with no filtered-property rules is created successfully. The direct,
+   * narrowly scoped invocation of the security check proves that the check itself never asks for
+   * schema metadata on this fast path; unrelated work in a cold security cache is outside the
+   * assertion.
+   */
+  @Test
+  public void compositeIndexWithoutFilteredPropertiesSkipsSecuritySnapshot() {
+    var indexName = CLS + ".compositeNoRules";
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val", "name");
+
+    assertNotNull(session.getSharedContext().getIndexManager().getIndex(indexName));
+    assertSecurityCheckSkipsSnapshot(Collections.emptySet());
+  }
+
+  /**
+   * A filtered-property rule for a field outside the composite index does not block creation, and
+   * the security check returns before touching schema metadata after applying its property-name
+   * pre-filter.
+   */
+  @Test
+  public void compositeIndexWithUnrelatedFilteredPropertySkipsSecuritySnapshot() {
+    var cls = session.getMetadata().getSchema().getClass(CLS);
+    cls.createProperty("unindexed", PropertyType.STRING);
+    setFilteredPropertyRule(
+        "unrelatedPropertyPolicy", "database.class." + CLS + ".unindexed");
+
+    var indexName = CLS + ".compositeUnrelatedRule";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val", "name");
+
+    assertNotNull(session.getSharedContext().getIndexManager().getIndex(indexName));
+    assertSecurityCheckSkipsSnapshot(
+        Set.of(filteredProperty(CLS, "unindexed")));
+  }
+
+  /**
+   * A class-specific rule naming an indexed field still rejects composite creation with the exact
+   * pre-optimization exception type and message.
+   */
+  @Test
+  public void compositeIndexOnFilteredPropertyKeepsExactRejection() {
+    setFilteredPropertyRule(
+        "indexedPropertyPolicy", "database.class." + CLS + ".name");
+
+    var exception = assertThrows(
+        IndexException.class,
+        () -> session.getMetadata().getSchema().getClass(CLS)
+            .createIndex(CLS + ".compositeRejected", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+                "val", "name"));
+
+    assertEquals(expectedSecurityMessage(CLS, "name"), exception.getMessage());
+  }
+
+  /**
+   * A rule attached to a superclass remains effective for a composite index created on its
+   * subclass, proving superclass traversal is unchanged on the slow path.
+   */
+  @Test
+  public void compositeIndexRejectsFilteredPropertyInheritedFromSuperclass() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("ImeSecurityParent");
+    parent.createProperty("secret", PropertyType.STRING);
+    parent.createProperty("other", PropertyType.STRING);
+    var child = schema.createClass("ImeSecurityChild", parent);
+    setFilteredPropertyRule(
+        "superclassPropertyPolicy", "database.class.ImeSecurityParent.secret");
+
+    var exception = assertThrows(
+        IndexException.class,
+        () -> child.createIndex("ImeSecurityChild.compositeRejected",
+            SchemaClass.INDEX_TYPE.NOTUNIQUE, "secret", "other"));
+
+    assertEquals(expectedSecurityMessage("ImeSecurityChild", "secret"), exception.getMessage());
+  }
+
+  /**
+   * A rule attached to a subclass remains effective for a composite index created on its
+   * superclass, proving subclass traversal is unchanged on the slow path.
+   */
+  @Test
+  public void compositeIndexRejectsFilteredPropertyDeclaredBySubclass() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("ImeSecurityBase");
+    parent.createProperty("secret", PropertyType.STRING);
+    parent.createProperty("other", PropertyType.STRING);
+    schema.createClass("ImeSecurityDerived", parent);
+    setFilteredPropertyRule(
+        "subclassPropertyPolicy", "database.class.ImeSecurityDerived.secret");
+
+    var exception = assertThrows(
+        IndexException.class,
+        () -> parent.createIndex("ImeSecurityBase.compositeRejected",
+            SchemaClass.INDEX_TYPE.NOTUNIQUE, "secret", "other"));
+
+    assertEquals(expectedSecurityMessage("ImeSecurityBase", "secret"), exception.getMessage());
+  }
+
+  /**
+   * Property-name matching remains case-sensitive: a rule for {@code Name} is unrelated to an
+   * index on {@code name}, so composite creation succeeds and the fast path skips metadata.
+   */
+  @Test
+  public void compositeIndexPropertyRuleMatchingRemainsCaseSensitive() {
+    setFilteredPropertyRule(
+        "caseSensitivePropertyPolicy", "database.class." + CLS + ".Name");
+
+    var indexName = CLS + ".compositeCaseSensitive";
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val", "name");
+
+    assertNotNull(session.getSharedContext().getIndexManager().getIndex(indexName));
+    assertSecurityCheckSkipsSnapshot(Set.of(filteredProperty(CLS, "Name")));
+  }
+
+  /**
+   * A wildcard-class filtered-property rule still rejects every class and preserves the exact
+   * exception contract.
+   */
+  @Test
+  public void compositeIndexAllClassesRuleKeepsExactRejection() {
+    setFilteredPropertyRule("allClassesPropertyPolicy", "database.class.*.name");
+
+    var exception = assertThrows(
+        IndexException.class,
+        () -> session.getMetadata().getSchema().getClass(CLS)
+            .createIndex(CLS + ".compositeWildcardRejected",
+                SchemaClass.INDEX_TYPE.NOTUNIQUE, "val", "name"));
+
+    assertEquals(expectedSecurityMessage(CLS, "name"), exception.getMessage());
+  }
+
+  /**
+   * Single-property indexes retain their original unconditional early return even when a rule
+   * names the indexed field; neither filtered rules nor schema metadata are consulted by the
+   * check.
+   */
+  @Test
+  public void singlePropertyIndexSecurityCheckRemainsUnchanged() {
+    setFilteredPropertyRule(
+        "singlePropertyPolicy", "database.class." + CLS + ".name");
+    var indexName = CLS + ".singleFiltered";
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    assertNotNull(session.getSharedContext().getIndexManager().getIndex(indexName));
+
+    var fixture = securityCheckFixture(Set.of(filteredProperty("Indexed", "first")));
+    when(fixture.definition().getProperties()).thenReturn(List.of("first"));
+    invokeSecurityCheck(fixture.database(), fixture.definition());
+    verify(fixture.security(), never()).getAllFilteredProperties(fixture.database());
+    verify(fixture.database(), never()).getMetadata();
+  }
+
+  /**
+   * When a relevant property rule reaches the slow path but the indexed class is absent, the
+   * existing early return remains in place and no second, decision-making rule read occurs.
+   */
+  @Test
+  public void compositeIndexSecurityCheckKeepsAbsentClassEarlyReturn() {
+    var fixture = securityCheckFixture(Set.of(filteredProperty("Missing", "first")));
+    var metadata = mock(MetadataDefault.class);
+    var schema = mock(ImmutableSchema.class);
+    when(fixture.database().getMetadata()).thenReturn(metadata);
+    when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    when(schema.getClass("Missing")).thenReturn(null);
+    when(fixture.definition().getClassName()).thenReturn("Missing");
+
+    invokeSecurityCheck(fixture.database(), fixture.definition());
+
+    verify(fixture.security(), times(1)).getAllFilteredProperties(fixture.database());
+    verify(schema).getClass("Missing");
+  }
+
+  /**
+   * The pre-filter is only a necessary-condition check. Once class-family resolution is required,
+   * the post-resolution rule read remains the effective decision point: removing the rule between
+   * the two reads allows creation exactly as the old decision point would.
+   */
+  @Test
+  public void compositeIndexSecuritySlowPathDecidesFromSecondRuleRead() {
+    var fixture = securityCheckFixture(Set.of(filteredProperty("Indexed", "first")));
+    when(fixture.security().getAllFilteredProperties(fixture.database()))
+        .thenReturn(Set.of(filteredProperty("Indexed", "first")), Collections.emptySet());
+    var metadata = mock(MetadataDefault.class);
+    var schema = mock(ImmutableSchema.class);
+    var clazz = mock(SchemaClass.class);
+    when(fixture.database().getMetadata()).thenReturn(metadata);
+    when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    when(schema.getClass("Indexed")).thenReturn(clazz);
+    when(clazz.getAllSubclasses()).thenReturn(Collections.emptyList());
+    when(clazz.getAllSuperClasses()).thenReturn(Collections.emptyList());
+
+    invokeSecurityCheck(fixture.database(), fixture.definition());
+
+    verify(fixture.security(), times(2)).getAllFilteredProperties(fixture.database());
+  }
+
+  private void setFilteredPropertyRule(String policyName, String resource) {
+    var security = session.getSharedContext().getSecurity();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, policyName);
+    policy.setActive(true);
+    policy.setReadRule("name = 'allowed'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(
+        session, security.getRole(session, "reader"), resource, policy);
+    session.commit();
+  }
+
+  private String expectedSecurityMessage(String className, String propertyName) {
+    return "Cannot create index on "
+        + className
+        + "["
+        + propertyName
+        + " because of existing column security rules\r\n\tDB Name=\""
+        + session.getDatabaseName()
+        + "\"";
+  }
+
+  private static void assertSecurityCheckSkipsSnapshot(
+      Set<SecurityResourceProperty> filteredProperties) {
+    var fixture = securityCheckFixture(filteredProperties);
+
+    invokeSecurityCheck(fixture.database(), fixture.definition());
+
+    verify(fixture.database(), never()).getMetadata();
+  }
+
+  private static SecurityCheckFixture securityCheckFixture(
+      Set<SecurityResourceProperty> filteredProperties) {
+    var database = mock(DatabaseSessionEmbedded.class);
+    var sharedContext = mock(SharedContext.class);
+    var security = mock(SecurityInternal.class);
+    var definition = mock(IndexDefinition.class);
+    when(database.getSharedContext()).thenReturn(sharedContext);
+    when(sharedContext.getSecurity()).thenReturn(security);
+    when(security.getAllFilteredProperties(database)).thenReturn(filteredProperties);
+    when(definition.getClassName()).thenReturn("Indexed");
+    when(definition.getProperties()).thenReturn(List.of("first", "second"));
+    return new SecurityCheckFixture(database, security, definition);
+  }
+
+  private static SecurityResourceProperty filteredProperty(
+      String className, String propertyName) {
+    return new SecurityResourceProperty(
+        "database.class." + className + "." + propertyName, className, propertyName);
+  }
+
+  private static void invokeSecurityCheck(
+      DatabaseSessionEmbedded database, IndexDefinition definition) {
+    try {
+      var method = IndexManagerEmbedded.class.getDeclaredMethod(
+          "checkSecurityConstraintsForIndexCreate",
+          DatabaseSessionEmbedded.class,
+          IndexDefinition.class);
+      method.setAccessible(true);
+      method.invoke(null, database, definition);
+    } catch (InvocationTargetException exception) {
+      if (exception.getCause() instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+      throw new AssertionError("Unexpected checked exception from security check",
+          exception.getCause());
+    } catch (ReflectiveOperationException exception) {
+      throw new AssertionError("Cannot invoke composite-index security check", exception);
+    }
+  }
+
+  private record SecurityCheckFixture(
+      DatabaseSessionEmbedded database,
+      SecurityInternal security,
+      IndexDefinition definition) {
   }
 
   // -----------------------------------------------------------------------
