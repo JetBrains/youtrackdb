@@ -132,14 +132,17 @@ dependent's tests, name that dependent in `-pl` explicitly.
 changed files. This set names classes, not modules, because module scope alone still runs the
 whole module suite.
 
+A changed or added integration test class always belongs to the integration-gate set before any
+search runs.
+
 The two searches below apply only to main source files inside a module with a package path.
 Do not pass other changed files to them. Report each other path and its potential effect for an
 orchestrator decision.
 
 Other files include a build file such as `pom.xml`, anything under `.mvn/`, a Maven wrapper, a
 workflow file, or a documentation file. A root build file can change behavior in every module.
-No local integration subset is trustworthy for that case. The thread reports the situation,
-and the pull request run covers it after the pull request becomes ready for review.
+No local integration subset is trustworthy for that case. The thread reports the situation for
+pull request verification.
 
 Derive the integration-gate set with two searches for each applicable file. Use this process
 for storage, write-ahead log (WAL), index, Gremlin integration, transaction handling, and any
@@ -225,9 +228,9 @@ full verification runs:
    vacuous one, and nothing in this section can tell them apart.
 
 The full local integration suite is no longer a gate at any tier. It takes about five hours.
-The pipeline starts the full suite after the pull request becomes ready for review. Integration
-tests do not run while the pull request is a draft. Worker threads do most work during the draft
-phase. The pipeline skips integration tests for a pull request whose branch lives in a fork.
+Integration tests run unless the pull request is a draft. Worker threads do most work during the
+draft phase. The pipeline skips integration tests for a pull request whose branch lives in a
+fork.
 
 A title tag is a bracketed keyword in the pull request title. The `[no-it-tests]` title tag means
 no integration tests and skips that pipeline run. Use it only when the change cannot affect
