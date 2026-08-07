@@ -102,7 +102,7 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - **Integration test selection**: Integration classes use Failsafe's default `*IT.java` naming pattern. Select affected classes with a comma-separated `-Dit.test='SomeIT,OtherIT'` list. Patterns such as `-Dit.test='*Histogram*IT'` select several classes. Use `-Dit.test='SomeIT#someMethod'` for one method. Run `test-compile` before direct Failsafe goals because a clean checkout has no compiled test classes. Keep `failsafe:verify`, which makes integration failures fail the build.
 - **Module scope**: Add `-pl <module>` to limit the run. Failsafe uses `-Dit.test=`. Surefire uses `-Dtest=`, which does not select integration tests.
 - **Dependency builds**: Adding `-am` propagates the selector to upstream modules. Those modules fail when no test matches. Add `-Dfailsafe.failIfNoSpecifiedTests=false` to prevent that failure.
-- **Full integration suite**: Do not run the full suite locally. The pipeline runs it after the pull request becomes ready for review. If affected classes are unclear, report that uncertainty so the orchestrator can choose the verification path.
+- **Full integration suite**: Do not run the full suite locally. Integration tests run unless the pull request is a draft. If affected classes are unclear, report that uncertainty so the orchestrator can choose the verification path.
 - **Test utilities**: `test-commons` provides `TestBuilder`, `TestFactory`, `ConcurrentTestHelper`.
 
 For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDBC and legacy JMH benchmarks, and the per-test JVM properties (`bufferSize`, `createDefaultUsers`, `checksumMode`, `directMemory.trackMode`): see `.claude/docs/testing-details.md`.
