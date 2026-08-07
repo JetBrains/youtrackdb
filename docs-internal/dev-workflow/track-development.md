@@ -410,8 +410,8 @@ notes and shows one discoverability line for all hidden notes.
 
 The line does not identify the missing override. The guard still treats both GPT models as
 narrower than `claude-opus-5`.
-A long thread therefore moves from those models to an Anthropic candidate. The override remains
-outside the repository because `models.json` is a user-global pi file.
+A long thread therefore moves from those models to an Anthropic candidate. The override file is
+machine-local. This repository does not track it.
 
 **Acceptance check.** A bare `pi -p "<prompt>"` does not consult the router. Run this command
 in a new session:
@@ -428,7 +428,8 @@ that count.
 
 With `router.showWarnings` set to `false`, the package hides the model data notes. Those notes
 can no longer reveal a missing override in the effective agent directory. Check that file
-directly:
+directly. The script matches pi on Portable Operating System Interface (POSIX) systems.
+Windows users must resolve the effective directory as pi does before running the check.
 
 ```sh
 node - <<'NODE'
