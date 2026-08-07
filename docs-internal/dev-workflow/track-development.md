@@ -428,8 +428,8 @@ that count.
 
 With `router.showWarnings` set to `false`, the package hides the model data notes. Those notes
 can no longer reveal a missing override in the effective agent directory. Check that file
-directly. The script matches pi on Portable Operating System Interface (POSIX) systems.
-Windows users must resolve the effective directory as pi does before running the check.
+directly. The script does not reproduce `file://` values or Windows shell paths, so use pi
+to resolve the effective directory first.
 
 ```sh
 node - <<'NODE'
