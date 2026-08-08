@@ -27,42 +27,118 @@ A healthy run emits no router configuration fault.
 
 ### Models override
 
-Routing requires an untracked Pi model override. Set the context windows for `gpt-5.6-sol` and
-`gpt-5.6-luna` to 1,050,000. Pi documents the override in `docs/models.md`.
+Routing requires an untracked Pi model override. Use this complete `models.json` structure:
 
-Print the effective `models.json` path with Pi's resolver:
-
-```sh
-node --input-type=module -e 'const {pathToFileURL}=await import("node:url"); const p=`${process.argv[1]}/config.js`; const {getModelsPath}=await import(pathToFileURL(p)); console.log(getModelsPath())' "$(dirname "$(readlink -f "$(command -v pi)")")"
+```json
+{
+  "providers": {
+    "openai": {
+      "modelOverrides": {
+        "gpt-5.6-sol": { "contextWindow": 1050000 },
+        "gpt-5.6-luna": { "contextWindow": 1050000 }
+      }
+    }
+  }
+}
 ```
 
-Check the override file with Pi's path resolver:
+See `docs/models.md` inside the installed `@earendil-works/pi-coding-agent` package for Pi's
+full override documentation.
 
-```sh
-node --input-type=module - "$(dirname "$(readlink -f "$(command -v pi)")")" <<'NODE'
+Save this checker as `check-model-overrides.mjs`:
+
+```javascript
 import fs from 'node:fs'
+import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 
-const piDist = process.argv[2]
-const {getModelsPath} = await import(pathToFileURL(`${piDist}/config.js`))
+const names = process.platform === 'win32' ? ['pi.cmd', 'pi.exe', 'pi'] : ['pi']
+const directories = (process.env.PATH ?? '').split(path.delimiter)
+
+// Resolve the launcher without platform-specific shell commands.
+const launcher = directories
+  .flatMap(directory => names.map(name => path.join(directory, name)))
+  .find(candidate => fs.existsSync(candidate))
+
+if (!launcher) {
+
+  throw new Error('pi installation not found on PATH')
+}
+
+// Support linked Unix launchers and standard npm launcher directories.
+const realLauncher = fs.realpathSync(launcher)
+
+const candidates = [
+  path.join(path.dirname(realLauncher), 'config.js'),
+  path.join(
+    path.dirname(launcher),
+    'node_modules',
+    '@earendil-works',
+    'pi-coding-agent',
+    'dist',
+    'config.js'
+  ),
+  path.join(
+    path.dirname(launcher),
+    '..',
+    'lib',
+    'node_modules',
+    '@earendil-works',
+    'pi-coding-agent',
+    'dist',
+    'config.js'
+  )
+]
+
+const config = candidates.find(candidate => fs.existsSync(candidate))
+
+if (!config) {
+
+  // Report a launcher whose package cannot be resolved.
+  throw new Error('PI_PACKAGE_NOT_FOUND')
+}
+
+const {getModelsPath} = await import(pathToFileURL(config))
 const file = getModelsPath()
+if (process.argv.includes('--path-only')) {
+  console.log(file)
+  process.exit(0)
+}
 if (!fs.existsSync(file)) {
   console.error(`models file not found: ${file}`)
   process.exit(1)
 }
 const models = JSON.parse(fs.readFileSync(file, 'utf8'))
 const overrides = models.providers?.openai?.modelOverrides ?? {}
-for (const id of ['gpt-5.6-sol', 'gpt-5.6-luna']) {
-  if (overrides[id]?.contextWindow !== 1050000) {
-    throw new Error(`${id} must set contextWindow to 1050000 in ${file}`)
-  }
+const invalid = overrides['gpt-5.6-sol']?.contextWindow !== 1050000
+  ? 'gpt-5.6-sol'
+  : overrides['gpt-5.6-luna']?.contextWindow !== 1050000
+    ? 'gpt-5.6-luna'
+    : undefined
+
+if (invalid) {
+
+  // Name the first missing or incorrect override.
+  throw new Error(`${invalid}_CONTEXT_WINDOW_MUST_BE_1050000:${file}`)
 }
 console.log(`model overrides valid: ${file}`)
-NODE
 ```
 
-The direct check uses Pi's `getModelsPath()` resolver. It establishes that the effective
-`models.json` parses as JSON. It also checks the expected windows for both routed OpenAI models.
+Print the effective file path:
+
+```sh
+node check-model-overrides.mjs --path-only
+```
+
+Create the parent directory when needed. Save the JSON example at the printed path. Then validate
+it:
+
+```sh
+node check-model-overrides.mjs
+```
+
+The check uses Pi's `getModelsPath()` resolver. It establishes that the effective `models.json`
+parses as JSON. It also checks the expected windows for both routed OpenAI models.
 
 The check cannot prove that a running session loaded those values. Start a new Pi session after
 changing the file. The check does not validate other model settings or credentials.

@@ -37,12 +37,15 @@ itself, for changes of any size:
    Do not reduce these actions to the cheapest model that might clear them.
    This project warns about an unmeasured level instead of refusing it.
 4. The orchestrator MUST decide the restart question on every continuation of an existing thread.
-   Pass the episode identifiers a fresh worker would need.
-   Omitting them refuses a restart and forces the full transcript to be re-read, which raises cost.
+   When `threadChoice.act` is enabled, supply `freshContext` because omission is a tool error.
+   An empty list refuses a restart and preserves the live transcript.
+   A non-empty list of existing episode identifiers permits a restart and seeds its replacement
+   when Slate finds a restart cheaper.
 
 Package routing and writing mechanics live in `model-routing.md` and `writing-guidance.md`.
 Project routing configuration lives in `.pi/slate.json`.
 Project setup and acceptance checks live in
 `docs-internal/dev-workflow/machine-local-setup.md`.
-Pi model setup lives in `docs/models.md`.
+Pi model setup lives in the installed `@earendil-works/pi-coding-agent` package's
+`docs/models.md`.
 Pi agent directory setup lives in `docs/environment-variables.md`.
