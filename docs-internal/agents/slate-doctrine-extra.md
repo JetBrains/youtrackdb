@@ -10,15 +10,15 @@ is OPTIONAL and, when the user wants it, runs on the umbrella PR
 itself, for changes of any size:
 
 1. Ask the user whether they want a peer review as part of the
-   ready-for-review flip (pr-publishing.md § Ready-for-review flip).
+   ready-for-review flip (`pr-publishing.md`).
    YTDB runs no pre-flip layered review, so the flip checklist's
    layered-review item is otherwise satisfied by default.
 2. If yes, peers review the now-ready umbrella PR directly — no
    separate review branches or PRs. The agent handles review
    observations as normal post-flip commits and keeps the PR
-   description in sync (pr-publishing.md § After the flip).
+   description in sync (`pr-publishing.md`).
 3. Peer review supplements, never replaces, the mandatory per-track
-   user review (`track-workflow.md § Peer review (project-layered)`).
+   user review (`track-workflow.md`).
 
 ## Model routing
 
@@ -40,5 +40,8 @@ itself, for changes of any size:
    Do not reduce these actions to the cheapest model that might clear them.
    This project warns about an unmeasured level instead of refusing it.
 
-Rationale, model-list maintenance and the machine-local prerequisite:
-`docs-internal/dev-workflow/track-development.md` § Model routing.
+Package routing and writing mechanics live in `model-routing.md` and `writing-guidance.md`.
+Project routing configuration lives in `.pi/slate.json`.
+Project choices live in `docs-internal/dev-workflow/track-development.md` § Model routing.
+Pi model setup lives in `docs/models.md`.
+Pi agent directory setup lives in `docs/environment-variables.md`.

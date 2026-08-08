@@ -1,20 +1,10 @@
 # Track-Based Development: YTDB Deltas
 
-The generic track-based workflow protocol no longer lives in this repository. It ships with
-the `ytdb-slate` npm package (pinned in `.pi/settings.json`) as two documents, cited by
-absolute path in the orchestrator doctrine so agents can read the authoritative text on
-demand:
+The generic workflow ships with the `ytdb-slate` npm package. Read `track-workflow.md` and
+`pr-publishing.md` for that protocol.
 
-- **track-workflow.md** — research, change-class confirmation, class-scaled design gates,
-  the per-track loop, marker commits, and size-based track splitting.
-- **pr-publishing.md** — umbrella draft PR mechanics, description rules, Suggestions,
-  the 16,384-UTF-8-byte body target, the ready-for-review flip, and user-performed merge.
-
-This document carries ONLY the YTDB-specific deltas layered on that baseline. Draft-PR
-publishing is ENABLED for this repository (`workflow.draftPRs` in `.pi/slate.json`), so
-pr-publishing.md applies in full. Every change gets an umbrella draft PR before
-implementation. Relevant research-log content enters its description, while the log remains
-until delivery.
+This document carries only YTDB-specific deltas. Draft pull request publishing is enabled in
+`.pi/slate.json`.
 
 ## Base branch
 
@@ -27,29 +17,16 @@ targets it, and track 01's base is the merge-base with it.
   name. Title rules — multi-issue bracket lists, the `[no-test-number-check]` gate marker,
   per-push title/description sync — live in
   `docs-internal/agents/orchestrator-guidelines.md` § Git Conventions.
-- The PR description follows the repository template at `.github/pull_request_template.md`,
-  which instantiates the generic description rules owned by pr-publishing.md (Motivation,
-  Planned changes with its subsections and hard guards, Tracks). What the template does NOT
-  carry, and pr-publishing.md § Description rules still requires: keep the description body
-  at or below 16,384 UTF-8 bytes (a target, not a gate — measure the GitHub API `body`
-  string, never a formatted `git log %b`), and when it runs over, record a size exception in
-  Risks & accepted trade-offs carrying the measurements — the overrun, every top-level
-  section's byte count, and the before-count of anything condensed. Measure at the
-  ready-for-review flip, after every post-flip description change, and again at the final
-  handoff for merge (pr-publishing.md § After the flip); YTDB's per-push title/description
-  sync, per the bullet above, is what makes those points recur.
+- The PR description uses `.github/pull_request_template.md`.
+  This template instantiates the rules in `pr-publishing.md`.
+  YTDB per-push synchronization makes the package measurements recur.
 - The template has no Open questions subsection, so open questions carried over from the
   research log live in Risks & accepted trade-offs — which is also where the flip checklist
   wants each remaining one resolved, or its user-approved deferral recorded.
 
 ## Peer review
 
-YTDB layers an optional peer-review step on the baseline via the slate doctrine
-extension (`doctrineExtraPath` → `docs-internal/agents/slate-doctrine-extra.md`). Peer
-review is optional and, when the user wants it, runs directly on the ready umbrella PR at
-the ready-for-review flip — there are no separate review branches or PRs. The rule that
-layered peer review supplements, never replaces, the mandatory per-track user review is
-owned by `track-workflow.md § Peer review (project-layered)`.
+YTDB peer-review rules live in `docs-internal/agents/slate-doctrine-extra.md`.
 
 ## Verification integration
 
@@ -254,7 +231,7 @@ formatter configuration) are covered by construction. If you cannot show that th
 that changed was prose, re-run.
 
 **Approval reopening.** The approval in question is the MANDATORY user review of the track
-(`.pi/npm/node_modules/ytdb-slate/docs/track-workflow.md` § Track loop, step 4); this workflow
+(`.pi/npm/node_modules/ytdb-slate/docs/track-workflow.md`). This workflow
 has no separate "gate approval" event. Any commit landing after that review reopens it for those
 commits, before the closing event — neither a marker commit nor a ready-for-review flip ever
 certifies code the user has not seen.
@@ -293,67 +270,28 @@ The mechanics — guards, resolution, effort ladders, per-model profile data —
 the package's model-routing.md; this section records only the choices this project made and
 what follows from them.
 
-**The candidate list.** Four models are routable: `anthropic/claude-opus-5`,
-`anthropic/claude-sonnet-5`, `openai/gpt-5.6-sol`, `openai/gpt-5.6-luna`.
-Every routable model adds a row to the routing table in each orchestrator turn. Listing an
-unused model spends context every turn and buys nothing.
+**Maintaining the list.** One malformed configured entry leaves a three-model list that still
+routes. Read the warnings, or the typo passes for working configuration.
 
-**Maintaining the list.** The routable set is CLOSED to the nine models the package ships
-profiles for — project-supplied profiles do not exist — so adding a model takes a ytdb-slate
-release, not a config edit. Write canonical `provider/id` specs only: the profile table's
-alias spellings resolve a profile but are not routable specs, since pi's registry decides
-what can be dispatched and most aliases are absent from it. A spec that differs by one
-character is dropped as unprofiled or as unknown to the registry, leaving a three-model list
-that still routes — read the warnings, or the typo passes for a working config. If every
-entry drops, the router turns OFF entirely and dispatches fall back to the host session's
-model.
-
-**When warnings appear.** Only config-SHAPE checks run at session start. On the `router`
-side those are a value that is not an object, an unknown key under it, a non-array `models`,
-a malformed entry, and a non-boolean `allowUnmeasuredEffort` or `showWarnings`. This project
-enables `writing` too, which adds a malformed `writing` object, an unknown key under it, a
-non-boolean `check` or `remind`, and a `remindPercent` that is not a finite number in
-(0, 100]. A non-boolean `workflow.followUpIssues` also warns at session start and defaults to
-`false`. This repository leaves that key unset to keep the default.
+**When warnings appear.** A non-boolean `workflow.followUpIssues` warns at session start and
+defaults to `false`. This repository leaves that key unset.
 
 `threadChoice` is the exception. Slate reads its shape at the first continuation dispatch. A
 fault there reaches that dispatch's warnings. The acceptance check below never sees it.
 
-Candidate resolution covers profile lookup, registry checks, and credential checks. It also
-covers effort-ladder readability and failover coverage. Slate memoizes resolution and runs it at
-the FIRST consultation instead: the doctrine build in orchestrator mode, or the first
-dispatch outside it. A session that builds no doctrine and dispatches nothing emits none of
-those warnings, which is what the acceptance check below has to work around. Resolution
-warnings now carry a class, and Slate gates only one of the two. A configuration fault
-always reaches the user, and a candidate with no `modelFailover` entry is one.
-`router.showWarnings: true` is what reveals the model data notes, and the package's
-model-routing.md owns which warning is which.
+A session that builds no doctrine and dispatches nothing emits no resolution warnings. The
+acceptance check below works around that limitation.
 
-**Effort policy.** `router.allowUnmeasuredEffort` is `true`. Slate therefore warns about an
-explicit level that sits on the model's ladder but carries no capability measurement, rather
-than refusing it. The dispatch runs. A ⚠ notice calls the result unevidenced. Slate marks the
-episode header `(unmeasured level)`. Only a level the dispatch names can draw that notice or
-a refusal. Every model on this project's candidate list carries measured levels, so a
-dispatch that omits `effort` gets one of them. A failover retry is the exception. It names no
-level, so it can land on an unevidenced one. The episode header then carries no marker to say
-so. What failover ignores records that case. Two nearby refusals come from elsewhere and
-stand whatever this key says: a level off the model's ladder, and one the provider rejects
-outright. One rule alone keeps a review or a gate action on a measured level: the Model
-routing rule in `docs-internal/agents/slate-doctrine-extra.md`. The package states it as
-doctrine only, not a code-enforced guard.
+**Effort policy.** Every configured candidate has a measured effort level. A failover retry can
+land on an unmeasured inherited level. The episode header then carries no unmeasured marker.
 
-**Unsized dispatches.** A dispatch that names neither `model` nor `effort` runs on the
-thread's base. For a NEW thread that base is `openai/gpt-5.6-luna@medium` — the cheapest
-preferred candidate at its lowest measured level. A thread that predates the router is the
-exception worth knowing: when its stored pre-router pin is itself a listed model, the router
-keeps that pin as the base and derives that model's own lowest measured level, silently and
-with no warning — a thread pinned to `claude-opus-5` bases to `claude-opus-5@low`. Only a
-base that is absent or off-list is re-seeded, and a re-seed does warn. Either way the router
-lowers the pre-router floor of `claude-opus-5@xhigh` (`.pi/settings.json`), and no candidate
-list restores it: even a list of `claude-opus-5` and `openai/gpt-5.6-sol` alone bases a new
-thread to `claude-opus-5@low`. The compensating discipline is the Model routing rule in
-`docs-internal/agents/slate-doctrine-extra.md`, which Slate does not enforce in code — name
-both arguments on every action that needs more than the base.
+**Unsized dispatches.** A new thread bases on `openai/gpt-5.6-luna@medium`. A pre-router
+thread keeps its listed model and derives that model's lowest measured level without warning.
+An Opus thread therefore bases on `claude-opus-5@low`.
+
+The router lowers the pre-router `claude-opus-5@xhigh` floor from `.pi/settings.json`.
+Even an Opus and Sol list bases a new thread on `claude-opus-5@low`. Name both routing
+arguments for every action that needs more than the base.
 
 **Episode compression.** `episodeModel` is pinned to `anthropic/claude-sonnet-5`. Left
 unpinned it resolves from registry state — the newest available Anthropic Sonnet, by numeric
@@ -370,37 +308,13 @@ provider's outage cannot take out both sides of a pair: `claude-opus-5 → gpt-5
 also covers the orchestrator session), `claude-sonnet-5 → gpt-5.6-sol` (also the episode
 compressor), `gpt-5.6-sol → claude-opus-5`, `gpt-5.6-luna → claude-opus-5`.
 
-**What failover ignores.** A failover switch bypasses the list and effort guards entirely —
-the package's deliberate carve-out, since a model that just failed is worse than an unlisted
-one that works — and it requests no level, so pi re-applies the session's current level to
-the fallback model. The episode header drops its `(unmeasured level)` marker whenever the
-model changed mid-action, so an unmeasured retry level leaves no trace there either. Each
-pair above retries on a level its target has a measurement at, with one accepted residual:
-`claude-opus-5@low` retries as `gpt-5.6-sol@low`, and sol carries no measurement at `low`.
+**What failover ignores.** The episode header drops its unmeasured marker after a mid-action
+model change. Each pair retries at a measured target level, except one accepted residual.
+`claude-opus-5@low` retries as unmeasured `gpt-5.6-sol@low`.
 
-**Machine-local prerequisite.** Routing assumes an untracked `models.json` in pi's effective
-agent directory. `PI_CODING_AGENT_DIR` selects that directory when set. Otherwise pi uses
-`~/.pi/agent`. The file raises the registry context window of the `gpt-5.6-*` models to
-1,050,000. pi documents this exact override in its own `docs/models.md` § Per-model
-Overrides (installed with the `@earendil-works/pi-coding-agent` package), including the
-warning that above 272K total input the whole request bills at GPT-5.6's long-context rates:
-
-```json
-{
-  "providers": {
-    "openai": {
-      "modelOverrides": {
-        "gpt-5.6-sol": { "contextWindow": 1050000 },
-        "gpt-5.6-luna": { "contextWindow": 1050000 }
-      }
-    }
-  }
-}
-```
-
-Slate's profile records 1,050,000 for those models while the base registry reports 272,000.
-The window guard judges against the registry figure. Without the override, resolution produces
-three additional model data notes.
+**Machine-local prerequisite.** Routing requires an untracked Pi model override. Set the
+context windows for `gpt-5.6-sol` and `gpt-5.6-luna` to 1,050,000. Pi documents the override
+in `docs/models.md`. Without it, resolution produces three additional model data notes.
 
 The guard still treats both GPT models as narrower than `claude-opus-5`.
 A long thread therefore moves from those models to an Anthropic candidate. The override file is
