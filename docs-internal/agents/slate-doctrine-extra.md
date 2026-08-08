@@ -48,4 +48,5 @@ Project setup and acceptance checks live in
 `docs-internal/dev-workflow/machine-local-setup.md`.
 Pi model setup lives in the installed `@earendil-works/pi-coding-agent` package's
 `docs/models.md`.
-Pi agent directory setup lives in `docs/environment-variables.md`.
+Pi agent directory setup lives in the installed `@earendil-works/pi-coding-agent` package's
+`docs/environment-variables.md`.
