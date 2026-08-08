@@ -15,7 +15,7 @@
       "openai/gpt-5.6-luna"
     ],
     "allowUnmeasuredEffort": true,
-    "showWarnings": true
+    "showWarnings": false
   },
   "writing": {
     "check": true,

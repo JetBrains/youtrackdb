@@ -27,7 +27,14 @@ Role-specific rules live in two documents, keyed by the kind of activity you are
 - **Planning work, choosing verification scope, PR / branch work, reviewing changes for workflow or review discipline, doc-sync duties** → read `docs-internal/agents/orchestrator-guidelines.md` (track-based workflow, test policy, verification scope, git conventions, documentation sync).
 - **Writing, editing, or reviewing code (style and test rules), running builds / tests / formatting, committing, using web tools, hands-on codebase navigation** → read `docs-internal/agents/thread-guidelines.md` (build commands, code style, testing, committing, codebase tips).
 
-The slate extension — installed from the `ytdb-slate` npm package pinned in `.pi/settings.json` — injects these documents automatically per role (orchestrator vs worker thread). The package also ships the generic track-based workflow protocol (track-workflow.md, pr-publishing.md), cited by absolute path in the orchestrator doctrine; YTDB-specific workflow deltas live in `docs-internal/dev-workflow/track-development.md`. Any agent whose prompt does not already include the relevant document must read it on demand before doing that kind of work.
+The Slate extension comes from the `ytdb-slate` npm package pinned in `.pi/settings.json`.
+It injects the appropriate role document. Slate also ships `track-workflow.md` and
+`pr-publishing.md`. The orchestrator doctrine cites both files by absolute path.
+
+YTDB workflow deltas live in `docs-internal/dev-workflow/track-development.md`.
+For a pinned agent package bump, read
+`docs-internal/dev-workflow/agent-package-upgrades.md`.
+Read any relevant document on demand when the prompt does not include it.
 
 ### Load Guidance Documents on Demand
 

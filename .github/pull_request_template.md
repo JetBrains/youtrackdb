@@ -25,9 +25,14 @@ before the PR is flipped ready for review. High design level using the main doma
 entities from the code — no file paths, no method signatures. Include the subsections that
 apply: Current state · What changes (contract/behavior) · How (design level) ·
 Key decisions (chosen vs rejected alternatives) · Out of scope · Risks & accepted
-trade-offs · Verification approach. For trivial changes a 2–3 sentence paragraph suffices.
+trade-offs · Suggestions · Verification approach.
 Guidance: pr-publishing.md (shipped with the ytdb-slate package) for the writing rules;
 docs-internal/dev-workflow/track-development.md for YTDB deltas. -->
+
+##### Suggestions:
+<!-- MANDATORY. Add one line per suggestion with its identifier, location, and summary.
+Write "None." when no suggestions remain. Put the standalone text in the final user report.
+When workflow.followUpIssues enables its prompt, a tracker issue may hold that text instead. -->
 
 #### Tracks:
 <!-- Multi-track changes only — display index; the source of truth is the marker commits
