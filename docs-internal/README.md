@@ -8,7 +8,8 @@ product documentation lives in the [user documentation index](../docs/README.md)
 
 | Document | Description |
 |---|---|
-| [Track-Based Development](dev-workflow/track-development.md) | YTDB workflow and routing deltas |
+| [Track-Based Development](dev-workflow/track-development.md) | YTDB workflow deltas |
+| [Machine-local Setup](dev-workflow/machine-local-setup.md) | Local model routing checks |
 | [Agent Package Upgrades](dev-workflow/agent-package-upgrades.md) | Package upgrade procedure |
 | [Coverage Verification](dev-workflow/coverage-verification.md) | On-demand coverage procedure — command sequence, report-set assertion, result diagnosis, and local-versus-CI differences |
 | [MCP Server Configuration](dev-workflow/mcp-server-configuration.md) | Machine-local setup for the pi MCP adapter — configuration file locations, credential handling, the worker-thread limitation, and the untrusted-result rule |

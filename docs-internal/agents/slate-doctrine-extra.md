@@ -36,10 +36,13 @@ itself, for changes of any size:
    It also covers crash-recovery code changes.
    Do not reduce these actions to the cheapest model that might clear them.
    This project warns about an unmeasured level instead of refusing it.
+4. The orchestrator MUST decide the restart question on every continuation of an existing thread.
+   Pass the episode identifiers a fresh worker would need.
+   Omitting them refuses a restart and forces the full transcript to be re-read, which raises cost.
 
 Package routing and writing mechanics live in `model-routing.md` and `writing-guidance.md`.
 Project routing configuration lives in `.pi/slate.json`.
 Project setup and acceptance checks live in
-`docs-internal/dev-workflow/track-development.md` § Model routing.
+`docs-internal/dev-workflow/machine-local-setup.md`.
 Pi model setup lives in `docs/models.md`.
 Pi agent directory setup lives in `docs/environment-variables.md`.
