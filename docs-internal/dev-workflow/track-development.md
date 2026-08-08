@@ -268,61 +268,53 @@ obvious break early, and no gate depends on it.
 Slate owns routing mechanics in `model-routing.md`. `.pi/slate.json` holds the configured
 values. The live routing table in the doctrine is the authority.
 
-**Acceptance check.** Run this command in a new session:
+**Acceptance check.** First verify that the configured model list is non-empty:
+
+```bash
+node -e 'const c=require("./.pi/slate.json"); if (!Array.isArray(c.router?.models) || c.router.models.length === 0) throw new Error("routing is off: router.models is empty"); console.log(`router models configured: ${c.router.models.length}`)'
+```
+
+The package defines an empty or absent list as routing off. Then run this command in a new
+session:
 
 ```bash
 set -o pipefail
 pi -p "/slate on" "hi" 2>&1 | tee /tmp/slate-router.log
 ```
 
-A healthy run confirms routing is on. It emits no router configuration fault.
+A healthy run emits no router configuration fault.
 
 **Machine-local prerequisite.** Routing requires an untracked Pi model override. Set the
 context windows for `gpt-5.6-sol` and `gpt-5.6-luna` to 1,050,000. Pi documents the override
 in `docs/models.md`.
 
-Check the override file in the effective agent directory directly. Print the effective
-`models.json` path with Pi's resolver:
+Check the override file with Pi's path resolver:
 
 ```sh
-node --input-type=module -e 'const {pathToFileURL}=await import("node:url"); const p=`${process.argv[1]}/config.js`; const {getModelsPath}=await import(pathToFileURL(p)); console.log(getModelsPath())' "$(dirname "$(readlink -f "$(command -v pi)")")"
-```
+node --input-type=module - "$(dirname "$(readlink -f "$(command -v pi)")")" <<'NODE'
+import fs from 'node:fs'
+import {pathToFileURL} from 'node:url'
 
-The direct check does not reproduce `file://` values or Windows shell paths.
-
-```sh
-node - <<'NODE'
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const home = os.homedir()
-const configuredDir = process.env.PI_CODING_AGENT_DIR
-const agentDir = !configuredDir
-  ? path.join(home, '.pi', 'agent')
-  : configuredDir === '~'
-    ? home
-    : configuredDir.startsWith('~/')
-      || (process.platform === 'win32' && configuredDir.startsWith('~\\'))
-      ? path.join(home, configuredDir.slice(2))
-      : configuredDir
-const file = `${agentDir}${path.sep}models.json`
+const piDist = process.argv[2]
+const {getModelsPath} = await import(pathToFileURL(`${piDist}/config.js`))
+const file = getModelsPath()
 if (!fs.existsSync(file)) {
   console.error(`models file not found: ${file}`)
   process.exit(1)
 }
-const models = JSON.parse(fs.readFileSync(file, 'utf8'));
-const overrides = models.providers?.openai?.modelOverrides ?? {};
+const models = JSON.parse(fs.readFileSync(file, 'utf8'))
+const overrides = models.providers?.openai?.modelOverrides ?? {}
 for (const id of ['gpt-5.6-sol', 'gpt-5.6-luna']) {
   if (overrides[id]?.contextWindow !== 1050000) {
-    throw new Error(`${id} must set contextWindow to 1050000 in ${file}`);
+    throw new Error(`${id} must set contextWindow to 1050000 in ${file}`)
   }
 }
-console.log(`model overrides valid: ${file}`);
+console.log(`model overrides valid: ${file}`)
 NODE
 ```
 
-The direct check uses `PI_CODING_AGENT_DIR` when set. Otherwise it uses `~/.pi/agent`.
-It establishes that `models.json` in the effective directory parses as JSON. It also checks
+The direct check uses Pi's `getModelsPath()` resolver. It establishes that the effective
+`models.json` parses as JSON. It also checks
 the expected windows for the two routed OpenAI models.
 
 The check cannot prove that a running session loaded those values. Start a new Pi session after
