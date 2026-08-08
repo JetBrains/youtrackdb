@@ -36,8 +36,8 @@ itself, for changes of any size:
    It also covers crash-recovery code changes.
    Do not reduce these actions to the cheapest model that might clear them.
    This project warns about an unmeasured level instead of refusing it.
-4. The orchestrator MUST decide the restart question on every continuation of an existing thread.
-   When `threadChoice.act` is enabled, supply `freshContext` because omission is a tool error.
+4. The orchestrator MUST decide the restart question on every continuation of an existing thread. Supply `freshContext`
+   because omission is a tool error.
    An empty list refuses a restart and preserves the live transcript.
    A non-empty list of existing episode identifiers permits a restart and seeds its replacement
    when Slate finds a restart cheaper.
