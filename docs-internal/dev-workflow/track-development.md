@@ -295,13 +295,8 @@ what follows from them.
 
 **The candidate list.** Four models are routable: `anthropic/claude-opus-5`,
 `anthropic/claude-sonnet-5`, `openai/gpt-5.6-sol`, `openai/gpt-5.6-luna`.
-`openai/gpt-5.6-terra` is excluded: its shipped profile marks it never-auto-select with no
-defensible routing niche, and every routable model adds a row to the routing table Slate
-renders into the orchestrator doctrine on EVERY turn, so listing a model no action should
-land on spends context every turn and buys nothing. `anthropic/claude-sonnet-5` is listed
-despite carrying the same never-auto-select marker, solely for the one niche its profile
-names: only if sol is unavailable, at `high`. `anthropic/claude-fable-5` is excluded on two
-counts: never-auto-select, and it has no zero-data-retention option.
+Every routable model adds a row to the routing table in each orchestrator turn. Listing an
+unused model spends context every turn and buys nothing.
 
 **Maintaining the list.** The routable set is CLOSED to the nine models the package ships
 profiles for — project-supplied profiles do not exist — so adding a model takes a ytdb-slate
@@ -469,38 +464,13 @@ does not validate other model settings or credentials.
 
 **Authority.** The routing table Slate renders into the doctrine each turn is the single
 authority on per-model guidance, prices and measured levels. Leave every such fact in that
-table. This section restates it in exactly four deliberate places, each recording a project
-decision that a reader cannot follow without the fact it rests on: the profile markers the
-candidate list cites to justify every inclusion and exclusion, the base model-and-level pairs
-under Unsized dispatches, the accepted residual under What failover ignores, and the dated
-price step this paragraph names next. Every pin bump re-checks those four. A pin bump also
-re-checks the Effort policy claim that every listed model carries measured levels. A new
-list entry or a refreshed profile table can falsify it. The figures drift: prices are dated
-schedules (`claude-sonnet-5`'s step up 50% on 2026-09-01, which changes the table's numbers
-but not its order, since `nonPreferred` sorts that model last on both sides of the step), and
-measured levels, route-for/avoid-for guidance and the profiled model set itself change
-whenever the package is republished.
+table.
+
+Package-dependent routing reconciliation lives in
+`docs-internal/dev-workflow/agent-package-upgrades.md`.
 
 ## MCP server configuration
 
 The `pi-mcp-adapter` package needs a machine-local server configuration, in the same way that
 model routing needs a machine-local `models.json`. Setup, credential handling, and the current
 worker-thread limitation live in `mcp-server-configuration.md` in this directory.
-
-## Package pin bumps
-
-Changing the `ytdb-slate` version pin in `.pi/settings.json` is a tracked change like any
-other. It takes the full workflow. The person who bumps the pin MUST compare this document
-and `docs-internal/agents/slate-doctrine-extra.md` with the new package documents. Fix every
-resulting mismatch.
-
-A pin bump takes effect at the next session start. A running session keeps the rules from the
-package version that it already loaded.
-
-Last reconciled against **ytdb-slate 0.10.0**. This reconciliation read track-workflow.md,
-pr-publishing.md, model-routing.md, model-failover.md, and review-rules.md. It also read
-writing-guidance.md, thread-cache-cost.md, context-budget.md, and design-principles.md. The check
-covered configured `router`, `writing`, `threadChoice`, `modelFailover`, and `workflow` behavior.
-
-The 0.10.0 check confirmed the four routing facts restated above. It also confirmed that every
-listed model has a measured effort level. Recheck those facts after every later pin bump.

@@ -83,11 +83,8 @@ to the server for every dispatched worker thread, plus a health-check timer. Wor
 releases neither. Eager mode also disables the idle sweep, so both survive for the life of the pi
 process.
 
-When the upstream fix lands, add the pattern `^npm:pi-mcp-adapter(@|$)` to `workerExtensions`, and
-re-check one security property first. The scripting tool does not fully contain its sandbox, so a
-script can reach the file system and the network. A worker that already holds the shell tool gains
-nothing new. A worker dispatched with a narrowed tool list keeps that reach anyway. A narrowed
-tool list is therefore not a security boundary once this tool works in workers.
+Worker enablement after a package fix follows
+`docs-internal/dev-workflow/agent-package-upgrades.md`.
 
 ## Untrusted results
 

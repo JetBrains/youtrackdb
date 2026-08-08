@@ -1,5 +1,8 @@
 # YTDB doctrine additions
 
+When bumping a pinned agent package in `.pi/settings.json`, read
+`docs-internal/dev-workflow/agent-package-upgrades.md`.
+
 ## Peer review
 
 YTDB layers no satellite review PRs on the slate workflow. Peer review
