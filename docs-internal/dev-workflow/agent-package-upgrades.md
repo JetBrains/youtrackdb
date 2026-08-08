@@ -14,36 +14,6 @@ Compare `docs-internal/dev-workflow/track-development.md` with the new package d
 Also compare `docs-internal/agents/slate-doctrine-extra.md` with them. Fix every resulting
 mismatch.
 
-## Model-routing reconciliation
-
-Recheck these four deliberately restated routing facts. Each restatement supports a project
-decision that depends on its underlying fact.
-
-- Check the profile markers behind every candidate inclusion and exclusion.
-- Check the base model and level pairs under Unsized dispatches.
-- Check the accepted residual under What failover ignores.
-- Check the dated price step recorded below.
-
-Recheck that every listed model has a measured effort level. A new candidate can falsify this
-claim. A refreshed profile table can also falsify it.
-
-Recheck the current candidate rationale against the shipped profiles. The project excludes
-`openai/gpt-5.6-terra` because its profile marks it never-auto-select. It has no defensible
-routing niche.
-
-The project includes `anthropic/claude-sonnet-5` despite the same marker. Its sole niche is
-replacing unavailable Sol at `high`.
-
-The project excludes `anthropic/claude-fable-5` for two reasons. It is never-auto-select and
-has no zero-data-retention option.
-
-Prices use dated schedules. `claude-sonnet-5` increases 50 percent on 2026-09-01. This change
-alters the table numbers but not their order. The `nonPreferred` setting sorts that model last
-before and after the change.
-
-Recheck prices, measured levels, route-for guidance, avoid-for guidance, and profile membership.
-These facts can change whenever the package is republished.
-
 ## Worker-extension reconciliation
 
 Before enabling workers, confirm the upgraded package fixes `JetBrains/ytdb-slate` issue 50,
@@ -72,6 +42,3 @@ This reconciliation read these package documents:
 
 The check covered configured `router`, `writing`, `threadChoice`, `modelFailover`, and `workflow`
 behavior.
-
-The 0.10.0 check confirmed the four routing facts above. It also confirmed a measured effort
-level for every listed model.

@@ -39,6 +39,7 @@ itself, for changes of any size:
 
 Package routing and writing mechanics live in `model-routing.md` and `writing-guidance.md`.
 Project routing configuration lives in `.pi/slate.json`.
-Project choices live in `docs-internal/dev-workflow/track-development.md` § Model routing.
+Project setup and acceptance checks live in
+`docs-internal/dev-workflow/track-development.md` § Model routing.
 Pi model setup lives in `docs/models.md`.
 Pi agent directory setup lives in `docs/environment-variables.md`.

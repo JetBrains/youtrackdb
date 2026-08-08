@@ -106,12 +106,14 @@ This rule covers unit, integration, and coverage runs. Separate worktrees may ru
 Maven concurrently. Mid-track tests remain optional. Concurrent runs can also report false
 failures.
 
+Never run the full integration suite locally. The pull request pipeline runs it instead.
+`docs-internal/dev-workflow/track-development.md` owns integration scope.
+
 ### Test Modules at a Glance
 - **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
 - **Integration test selection**: Integration classes use Failsafe's default `*IT.java` naming pattern. Select affected classes with a comma-separated `-Dit.test='SomeIT,OtherIT'` list. Patterns such as `-Dit.test='*Histogram*IT'` select several classes. Use `-Dit.test='SomeIT#someMethod'` for one method. Run `test-compile` before direct Failsafe goals because a clean checkout has no compiled test classes. Keep `failsafe:verify`, which makes integration failures fail the build.
 - **Module scope**: Add `-pl <module>` to limit the run. Failsafe uses `-Dit.test=`. Surefire uses `-Dtest=`, which does not select integration tests.
 - **Dependency builds**: Adding `-am` propagates the selector to upstream modules. Those modules fail when no test matches. Add `-Dfailsafe.failIfNoSpecifiedTests=false` to prevent that failure.
-- **Full integration suite**: Do not run the full suite locally. Integration tests run unless the pull request is a draft. If affected classes are unclear, report that uncertainty so the orchestrator can choose the verification path.
 - **Test utilities**: `test-commons` provides `TestBuilder`, `TestFactory`, `ConcurrentTestHelper`.
 
 For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDBC and legacy JMH benchmarks, and the per-test JVM properties (`bufferSize`, `createDefaultUsers`, `checksumMode`, `directMemory.trackMode`): see `.claude/docs/testing-details.md`.

@@ -265,73 +265,21 @@ obvious break early, and no gate depends on it.
 
 ## Model routing
 
-Action-level model routing is ENABLED for this repository (`router` in `.pi/slate.json`).
-The mechanics — guards, resolution, effort ladders, per-model profile data — are owned by
-the package's model-routing.md; this section records only the choices this project made and
-what follows from them.
+Slate owns routing mechanics in `model-routing.md`. `.pi/slate.json` holds the configured
+values. The live routing table in the doctrine is the authority.
 
-**Maintaining the list.** One malformed configured entry leaves a three-model list that still
-routes. Read the warnings, or the typo passes for working configuration.
-
-**When warnings appear.** A non-boolean `workflow.followUpIssues` warns at session start and
-defaults to `false`. This repository leaves that key unset.
-
-`threadChoice` is the exception. Slate reads its shape at the first continuation dispatch. A
-fault there reaches that dispatch's warnings. The acceptance check below never sees it.
-
-A session that builds no doctrine and dispatches nothing emits no resolution warnings. The
-acceptance check below works around that limitation.
-
-**Effort policy.** Every configured candidate has a measured effort level. A failover retry can
-land on an unmeasured inherited level. The episode header then carries no unmeasured marker.
-
-**Unsized dispatches.** A new thread bases on `openai/gpt-5.6-luna@medium`. A pre-router
-thread keeps its listed model and derives that model's lowest measured level without warning.
-An Opus thread therefore bases on `claude-opus-5@low`.
-
-The router lowers the pre-router `claude-opus-5@xhigh` floor from `.pi/settings.json`.
-Even an Opus and Sol list bases a new thread on `claude-opus-5@low`. Name both routing
-arguments for every action that needs more than the base.
-
-**Episode compression.** `episodeModel` is pinned to `anthropic/claude-sonnet-5`. Left
-unpinned it resolves from registry state — the newest available Anthropic Sonnet, by numeric
-version comparison — so a future model release could move compression onto a model the
-failover map does not cover, without saying so. The pin keeps that answer stable.
-
-**The failover map.** `modelFailover` covers three consumers, and Slate checks only the
-first: the router's candidates (an uncovered candidate produces one aggregate warning at the
-first consultation), the orchestrator's own session model (`defaultModel` in
-`.pi/settings.json`, today `claude-opus-5`), and the pinned `episodeModel`. Nothing warns
-about the last two, and dropping a model from `router.models` does not end its need for cover
-while it is still one of them. The current pairing keeps every route cross-provider, so one
-provider's outage cannot take out both sides of a pair: `claude-opus-5 → gpt-5.6-sol` (which
-also covers the orchestrator session), `claude-sonnet-5 → gpt-5.6-sol` (also the episode
-compressor), `gpt-5.6-sol → claude-opus-5`, `gpt-5.6-luna → claude-opus-5`.
-
-**What failover ignores.** The episode header drops its unmeasured marker after a mid-action
-model change. Each pair retries at a measured target level, except one accepted residual.
-`claude-opus-5@low` retries as unmeasured `gpt-5.6-sol@low`.
-
-**Machine-local prerequisite.** Routing requires an untracked Pi model override. Set the
-context windows for `gpt-5.6-sol` and `gpt-5.6-luna` to 1,050,000. Pi documents the override
-in `docs/models.md`. Without it, resolution produces three additional model data notes.
-
-The guard still treats both GPT models as narrower than `claude-opus-5`.
-A long thread therefore moves from those models to an Anthropic candidate. The override file is
-machine-local. This repository does not track it.
-
-**Acceptance check.** A bare `pi -p "<prompt>"` does not consult the router. Run this command
-in a new session:
+**Acceptance check.** Run this command in a new session:
 
 ```bash
 set -o pipefail
 pi -p "/slate on" "hi" 2>&1 | tee /tmp/slate-router.log
 ```
 
-A healthy run exits successfully. It emits exactly one discoverability line for hidden router
-warnings. It emits no router configuration fault. Inspect every additional `slate:` router line as a
-fault. Do not require a fixed hidden-warning count. Package data and registry state can change
-that count.
+A healthy run confirms routing is on. It emits no router configuration fault.
+
+**Machine-local prerequisite.** Routing requires an untracked Pi model override. Set the
+context windows for `gpt-5.6-sol` and `gpt-5.6-luna` to 1,050,000. Pi documents the override
+in `docs/models.md`.
 
 Check the override file in the effective agent directory directly. Print the effective
 `models.json` path with Pi's resolver:
@@ -377,16 +325,8 @@ The direct check uses `PI_CODING_AGENT_DIR` when set. Otherwise it uses `~/.pi/a
 It establishes that `models.json` in the effective directory parses as JSON. It also checks
 the expected windows for the two routed OpenAI models.
 
-It does not prove that a running session loaded those values. Router resolution freezes
-registry data at its first consultation. Start a new pi session after changing the file. The check
-does not validate other model settings or credentials.
-
-**Authority.** The routing table Slate renders into the doctrine each turn is the single
-authority on per-model guidance, prices and measured levels. Leave every such fact in that
-table.
-
-Package-dependent routing reconciliation lives in
-`docs-internal/dev-workflow/agent-package-upgrades.md`.
+The check cannot prove that a running session loaded those values. Start a new Pi session after
+changing the file. The check does not validate other model settings or credentials.
 
 ## MCP server configuration
 
