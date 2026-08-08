@@ -460,8 +460,8 @@ NODE
 ```
 
 The direct check uses `PI_CODING_AGENT_DIR` when set. Otherwise it uses `~/.pi/agent`.
-It establishes that `models.json` in the effective directory parses as JSON. It also checks the expected windows
-for the two routed OpenAI models.
+It establishes that `models.json` in the effective directory parses as JSON. It also checks
+the expected windows for the two routed OpenAI models.
 
 It does not prove that a running session loaded those values. Router resolution freezes
 registry data at its first consultation. Start a new pi session after changing the file. The check
