@@ -46,8 +46,9 @@ These facts can change whenever the package is republished.
 
 ## Worker-extension reconciliation
 
-When an upgraded package fixes worker initialization, add `^npm:pi-mcp-adapter(@|$)` to
-`workerExtensions`. Recheck one security property first.
+Before enabling workers, confirm the upgraded package fixes `JetBrains/ytdb-slate` issue 50,
+tracked in `docs-internal/dev-workflow/mcp-server-configuration.md`.
+Then add `^npm:pi-mcp-adapter(@|$)` to `workerExtensions` and recheck the security property below.
 
 The scripting tool does not fully contain its sandbox. A script can reach the file system and
 network. A worker with the shell tool gains no new reach. A narrowed tool list retains that

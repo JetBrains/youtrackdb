@@ -333,9 +333,14 @@ warnings. It emits no router configuration fault. Inspect every additional `slat
 fault. Do not require a fixed hidden-warning count. Package data and registry state can change
 that count.
 
-Check the override file in the effective agent directory directly. The script does not
-reproduce `file://` values or Windows shell paths, so use pi to resolve the effective directory
-first.
+Check the override file in the effective agent directory directly. Print the effective
+`models.json` path with Pi's resolver:
+
+```sh
+node --input-type=module -e 'const {pathToFileURL}=await import("node:url"); const p=`${process.argv[1]}/config.js`; const {getModelsPath}=await import(pathToFileURL(p)); console.log(getModelsPath())' "$(dirname "$(readlink -f "$(command -v pi)")")"
+```
+
+The direct check does not reproduce `file://` values or Windows shell paths.
 
 ```sh
 node - <<'NODE'
