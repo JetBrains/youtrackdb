@@ -405,11 +405,9 @@ warning that above 272K total input the whole request bills at GPT-5.6's long-co
 
 Slate's profile records 1,050,000 for those models while the base registry reports 272,000.
 The window guard judges against the registry figure. Without the override, resolution produces
-three additional model data notes. With `router.showWarnings` set to `false`, Slate hides those
-notes and shows one discoverability line for all hidden notes.
+three additional model data notes.
 
-The line does not identify the missing override. The guard still treats both GPT models as
-narrower than `claude-opus-5`.
+The guard still treats both GPT models as narrower than `claude-opus-5`.
 A long thread therefore moves from those models to an Anthropic candidate. The override file is
 machine-local. This repository does not track it.
 
@@ -461,9 +459,8 @@ console.log(`model overrides valid: ${file}`);
 NODE
 ```
 
-The package provides no hidden-note detail while warnings remain off. The direct check uses
-`PI_CODING_AGENT_DIR` when set. Otherwise it uses `~/.pi/agent`. It establishes that
-`models.json` in the effective directory parses as JSON. It also checks the expected windows
+The direct check uses `PI_CODING_AGENT_DIR` when set. Otherwise it uses `~/.pi/agent`.
+It establishes that `models.json` in the effective directory parses as JSON. It also checks the expected windows
 for the two routed OpenAI models.
 
 It does not prove that a running session loaded those values. Router resolution freezes
