@@ -2918,7 +2918,8 @@ public final class WOWCache extends AbstractWriteCache
 
   /**
    * Writes the current set of non-durable file IDs to the shadow-copy side file pair.
-   * Write protocol: write shadow → fsync → write primary → fsync.
+   * When fsync is enabled, the write protocol is write shadow → fsync → write primary → fsync.
+   * When fsync is disabled, writes proceed without file synchronization.
    *
    * <p>Format: {@code [4 bytes version][8 bytes xxHash64][4 bytes count][count × 4 bytes fileId]}
    *

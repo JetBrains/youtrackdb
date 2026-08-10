@@ -105,6 +105,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -135,6 +136,7 @@ public class DiskStorage extends AbstractStorage {
   public static final long XX_HASH_SEED = 0xAEF5634;
 
   private static final Logger logger = LoggerFactory.getLogger(DiskStorage.class);
+  private static final AtomicBoolean fsyncWarningLogged = new AtomicBoolean();
 
   private static final String BACKUP_LOCK = "backup.ibl";
 
@@ -685,6 +687,10 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void initWalAndDiskCache(final ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    final var callFsync =
+        contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC);
+    warnIfFsyncDisabled(callFsync);
+
     final var aesKeyEncoded =
         contextConfiguration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
     final var aesKey =
@@ -740,7 +746,7 @@ public class DiskStorage extends AbstractStorage {
             contextConfiguration.getValueAsLong(GlobalConfiguration.WAL_MAX_SIZE) * 1024 * 1024,
             contextConfiguration.getValueAsInteger(GlobalConfiguration.WAL_COMMIT_TIMEOUT),
             contextConfiguration.getValueAsBoolean(GlobalConfiguration.WAL_KEEP_SINGLE_SEGMENT),
-            contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC),
+            callFsync,
             contextConfiguration.getValueAsBoolean(
                 GlobalConfiguration.STORAGE_PRINT_WAL_PERFORMANCE_STATISTICS),
             contextConfiguration.getValueAsInteger(
@@ -755,9 +761,6 @@ public class DiskStorage extends AbstractStorage {
         (long) (contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_WRITE_CACHE_PART)
             / 100.0
             * diskCacheSize);
-    final var callFsync =
-        contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC);
-
     final DoubleWriteLog doubleWriteLog;
     if (contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.STORAGE_USE_DOUBLE_WRITE_LOG)) {
@@ -795,6 +798,17 @@ public class DiskStorage extends AbstractStorage {
     wowCache.addPageIsBrokenListener(this);
 
     writeCache = wowCache;
+  }
+
+  static boolean warnIfFsyncDisabled(final boolean callFsync) {
+    if (callFsync || !fsyncWarningLogged.compareAndSet(false, true)) {
+      return false;
+    }
+
+    logger.warn(
+        "Storage durability barriers are disabled by youtrackdb.storage.callFsync. "
+            + "A power loss can lose data. Use this mode only for tests.");
+    return true;
   }
 
   public static boolean exists(final Path path) {
