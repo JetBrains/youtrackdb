@@ -86,6 +86,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   private long currentSegment;
 
   private final long maxSegSize;
+  private final boolean callFsync;
 
   private static final LZ4Compressor LZ_4_COMPRESSOR;
   private static final LZ4FastDecompressor LZ_4_DECOMPRESSOR;
@@ -112,12 +113,22 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   private final Object mutex = new Object();
 
   public DoubleWriteLogGL(final long maxSegSize) {
+    this(maxSegSize, true);
+  }
+
+  public DoubleWriteLogGL(final long maxSegSize, final boolean callFsync) {
     this.maxSegSize = maxSegSize;
+    this.callFsync = callFsync;
   }
 
   public DoubleWriteLogGL(final long maxSegSize, int blockSize) {
+    this(maxSegSize, blockSize, true);
+  }
+
+  public DoubleWriteLogGL(final long maxSegSize, int blockSize, final boolean callFsync) {
     this.maxSegSize = maxSegSize;
     this.blockSize = blockSize;
+    this.callFsync = callFsync;
   }
 
   @Override
@@ -298,7 +309,9 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         containerBuffer.rewind();
         assert currentFile.size() == segmentPosition;
         var written = IOUtils.writeByteBuffer(containerBuffer, currentFile, segmentPosition);
-        currentFile.force(true);
+        if (callFsync) {
+          currentFile.force(true);
+        }
         diskWriteMeter.record(written);
         segmentPosition += written;
         assert currentFile.size() == segmentPosition;
@@ -354,8 +367,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Pointer loadPage(int fileId, int pageIndex, ByteBufferPool bufferPool)
       throws IOException {
     if (!restoreMode) {
@@ -478,8 +490,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
                 .toArray(Path[]::new);
       }
 
-      segmentLoop:
-      for (final var segment : segments) {
+      segmentLoop : for (final var segment : segments) {
         try (final var channel = FileChannel.open(segment, StandardOpenOption.READ)) {
           long position = 0;
           var fileSize = channel.size();

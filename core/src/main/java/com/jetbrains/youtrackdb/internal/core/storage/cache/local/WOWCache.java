@@ -2463,7 +2463,9 @@ public final class WOWCache extends AbstractWriteCache
               false);
         }
 
-        nameIdMapHolder.force(true);
+        if (callFsync) {
+          nameIdMapHolder.force(true);
+        }
       }
 
       try {
@@ -2899,7 +2901,9 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    v3NameIdMapHolder.force(true);
+    if (callFsync) {
+      v3NameIdMapHolder.force(true);
+    }
     v3NameIdMapHolder.close();
 
     try {
@@ -3097,7 +3101,8 @@ public final class WOWCache extends AbstractWriteCache
         pageSize,
         logFileDeletion,
         this.executor,
-        storageName);
+        storageName,
+        callFsync);
   }
 
   private static String createInternalFileName(final String fileName, final int fileId) {
@@ -3182,7 +3187,8 @@ public final class WOWCache extends AbstractWriteCache
           final var path =
               storagePath.resolve(idFileNameMap.get(nameIdEntry.getValue().intValue()));
           final var file =
-              new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
+              new AsyncFile(
+                  path, pageSize, logFileDeletion, this.executor, storageName, callFsync);
 
           if (file.exists()) {
             file.open();
@@ -3251,7 +3257,8 @@ public final class WOWCache extends AbstractWriteCache
           final var path =
               storagePath.resolve(idFileNameMap.get(nameIdEntry.getValue().intValue()));
           final var file =
-              new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
+              new AsyncFile(
+                  path, pageSize, logFileDeletion, this.executor, storageName, callFsync);
 
           if (file.exists()) {
             file.open();
@@ -3330,7 +3337,8 @@ public final class WOWCache extends AbstractWriteCache
                   pageSize,
                   logFileDeletion,
                   this.executor,
-                  storageName);
+                  storageName,
+                  callFsync);
 
           if (fileClassic.exists()) {
             fileClassic.open();
@@ -3550,7 +3558,7 @@ public final class WOWCache extends AbstractWriteCache
     //noinspection ResultOfMethodCallIgnored
     nameIdMapHolder.write(serializedRecord);
 
-    if (sync) {
+    if (sync && callFsync) {
       nameIdMapHolder.force(true);
     }
   }
@@ -3854,24 +3862,27 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void fsyncFiles() throws java.lang.InterruptedException, IOException {
-    for (int intFileId : idNameMap.keySet()) {
-      if (intFileId >= 0) {
-        final var extFileId = externalFileId(intFileId);
+    if (callFsync) {
+      for (int intFileId : idNameMap.keySet()) {
+        if (intFileId >= 0) {
+          final var extFileId = externalFileId(intFileId);
 
-        final var fileEntry = files.acquire(extFileId);
-        // such thing can happen during db restore
-        if (fileEntry == null) {
-          continue;
-        }
-        try {
-          final var fileClassic = fileEntry.get();
-          fileClassic.synch();
-        } finally {
-          files.release(fileEntry);
+          final var fileEntry = files.acquire(extFileId);
+          // such thing can happen during db restore
+          if (fileEntry == null) {
+            continue;
+          }
+          try {
+            final var fileClassic = fileEntry.get();
+            fileClassic.synch();
+          } finally {
+            files.release(fileEntry);
+          }
         }
       }
     }
 
+    // Truncate even without fsync so that the double-write log does not grow without bound.
     doubleWriteLog.truncate();
   }
 

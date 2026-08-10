@@ -755,11 +755,13 @@ public class DiskStorage extends AbstractStorage {
         (long) (contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_WRITE_CACHE_PART)
             / 100.0
             * diskCacheSize);
+    final var callFsync =
+        contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC);
 
     final DoubleWriteLog doubleWriteLog;
     if (contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.STORAGE_USE_DOUBLE_WRITE_LOG)) {
-      doubleWriteLog = new DoubleWriteLogGL(doubleWriteLogMaxSegSize);
+      doubleWriteLog = new DoubleWriteLogGL(doubleWriteLogMaxSegSize, callFsync);
     } else {
       doubleWriteLog = new DoubleWriteLogNoOP();
     }
@@ -785,7 +787,7 @@ public class DiskStorage extends AbstractStorage {
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE, ChecksumMode.class),
             iv,
             aesKey,
-            contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC),
+            callFsync,
             context.getIoExecutor());
 
     wowCache.loadRegisteredFiles();

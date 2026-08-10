@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
@@ -302,8 +304,12 @@ public class CASDiskWriteAheadLogCloseTest {
 
     wal.close();
 
-    // force() should NOT be called when callFsync=false
-    org.mockito.Mockito.verify(mockFile, org.mockito.Mockito.never()).force(true);
+    // No force variant should be called when callFsync=false.
+    final var forceCount =
+        mockingDetails(mockFile).getInvocations().stream()
+            .filter(invocation -> invocation.getMethod().getName().equals("force"))
+            .count();
+    assertEquals("disabled fsync must suppress every WAL force invocation", 0, forceCount);
     org.mockito.Mockito.verify(mockFile).close();
   }
 
