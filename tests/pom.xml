@@ -194,4 +194,64 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- Forked, platform-independent schema benchmark runner. jvmBaseArgs is replaceable;
+         jvmAddArgs is appended and is the appropriate place for profiler agents. -->
+    <profile>
+      <id>bench</id>
+      <properties>
+        <bench.mainClass>com.jetbrains.youtrackdb.benchmarks.SchemaCreationBenchmark
+        </bench.mainClass>
+        <bench.jvmBaseArgs>-Xms4g -Xmx4g</bench.jvmBaseArgs>
+        <bench.jvmAddArgs></bench.jvmAddArgs>
+        <!-- Empty workload values are forwarded deliberately. The harness treats empty as unset,
+             preserving entry-point-specific defaults while explicit Maven -D values still win. -->
+        <bench.classes></bench.classes>
+        <bench.properties></bench.properties>
+        <bench.indexes></bench.indexes>
+        <bench.singleIndexes></bench.singleIndexes>
+        <bench.compositeIndexes></bench.compositeIndexes>
+        <bench.compositeIndexWidth></bench.compositeIndexWidth>
+        <bench.securityFilter></bench.securityFilter>
+        <bench.policy></bench.policy>
+        <bench.batchSize></bench.batchSize>
+        <bench.propertyPath></bench.propertyPath>
+        <bench.phase></bench.phase>
+        <bench.uniquePropertyNames></bench.uniquePropertyNames>
+        <bench.dbPath></bench.dbPath>
+        <bench.dbName></bench.dbName>
+        <bench.resultFile></bench.resultFile>
+        <bench.manifestFile></bench.manifestFile>
+        <bench.verify></bench.verify>
+        <bench.durabilityBarrier></bench.durabilityBarrier>
+        <bench.label></bench.label>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>3.6.3</version>
+            <executions>
+              <execution>
+                <id>run-schema-benchmark</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/java</executable>
+                  <classpathScope>test</classpathScope>
+                  <!-- exec-maven-plugin tokenizes this itself and expands %classpath. There is no
+                       shell interpolation, so metacharacters are passed to java as data. -->
+                  <commandlineArgs>-da -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED ${bench.jvmBaseArgs} ${bench.jvmAddArgs} -classpath "${project.build.testOutputDirectory}${path.separator}%classpath" "-Dbench.classes=${bench.classes}" "-Dbench.properties=${bench.properties}" "-Dbench.indexes=${bench.indexes}" "-Dbench.singleIndexes=${bench.singleIndexes}" "-Dbench.compositeIndexes=${bench.compositeIndexes}" "-Dbench.compositeIndexWidth=${bench.compositeIndexWidth}" "-Dbench.securityFilter=${bench.securityFilter}" "-Dbench.policy=${bench.policy}" "-Dbench.batchSize=${bench.batchSize}" "-Dbench.propertyPath=${bench.propertyPath}" "-Dbench.phase=${bench.phase}" "-Dbench.uniquePropertyNames=${bench.uniquePropertyNames}" "-Dbench.dbPath=${bench.dbPath}" "-Dbench.dbName=${bench.dbName}" "-Dbench.resultFile=${bench.resultFile}" "-Dbench.manifestFile=${bench.manifestFile}" "-Dbench.verify=${bench.verify}" "-Dbench.durabilityBarrier=${bench.durabilityBarrier}" "-Dbench.label=${bench.label}" ${bench.mainClass}</commandlineArgs>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

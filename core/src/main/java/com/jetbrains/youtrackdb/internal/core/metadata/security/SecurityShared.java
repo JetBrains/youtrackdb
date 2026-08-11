@@ -1761,7 +1761,7 @@ public class SecurityShared implements SecurityInternal {
     if (session.getCurrentUser() == null) {
       result = calculateAllFilteredProperties(session);
       synchronized (this) {
-        filteredProperties = result;
+        filteredProperties = new HashSet<>(result);
       }
 
     } else {

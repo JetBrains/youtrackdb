@@ -23,14 +23,17 @@ import static com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Sche
 import static com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.VERTEX_CLASS_NAME;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
@@ -43,6 +46,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
@@ -57,6 +61,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
@@ -1238,6 +1243,25 @@ public abstract class SchemaClassImpl {
   public void fireDatabaseMigration(
       final DatabaseSessionEmbedded database, final String propertyName,
       final PropertyTypeInternal type) {
+    if (hasOnlyTransactionLocalCollections()) {
+      database.executeInTx(transaction -> {
+        final var currentTx = (FrontendTransactionImpl) database.getTransactionInternal();
+        currentTx.preProcessRecordsAndExecuteCallCallbacks();
+
+        forEachTransactionLocalEntity(currentTx, entity -> {
+          final var value = entity.getPropertyInternal(propertyName);
+          if (value == null) {
+            return;
+          }
+
+          final var valueType = PropertyTypeInternal.getTypeByValue(value);
+          if (valueType != type) {
+            entity.setPropertyInternal(propertyName, value, type);
+          }
+        });
+      });
+      return;
+    }
 
     var recordsToUpdate = database.computeInTx(transaction -> {
       try (var result =
@@ -1296,6 +1320,40 @@ public abstract class SchemaClassImpl {
       final String propertyName,
       final PropertyTypeInternal type,
       SchemaClassImpl linkedClass) {
+    if (hasOnlyTransactionLocalCollections()) {
+      session.executeInTx(transaction -> {
+        final var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
+        currentTx.preProcessRecordsAndExecuteCallCallbacks();
+
+        forEachTransactionLocalEntity(currentTx, entity -> {
+          final var value = entity.getPropertyInternal(propertyName);
+          if (value == null) {
+            return;
+          }
+
+          final var valueType = PropertyTypeInternal.getTypeByValue(value);
+          // SQLMethodSize treats an identifiable scalar as one item, unlike MultiValue.getSize.
+          final var valueSize = value instanceof Identifiable ? 1 : MultiValue.getSize(value);
+          if (!type.getCastable().contains(valueType)
+              && (!type.isMultiValue() || valueSize != 0)) {
+            throw incompatiblePropertyType(session, propertyName, type);
+          }
+        });
+
+        if (linkedClass != null) {
+          forEachTransactionLocalEntity(
+              currentTx,
+              entity -> checkLinkedValue(
+                  session,
+                  propertyName,
+                  type,
+                  linkedClass,
+                  entity.getPropertyInternal(propertyName)));
+        }
+      });
+      return;
+    }
+
     final var builder = new StringBuilder(256);
     builder.append("select from ");
     builder.append(getEscapedName(name));
@@ -1324,20 +1382,40 @@ public abstract class SchemaClassImpl {
     session.executeInTx(transaction -> {
       try (final var res = session.query(builder.toString())) {
         if (res.hasNext()) {
-          throw new SchemaException(session.getDatabaseName(),
-              "The database contains some schema-less data in the property '"
-                  + name
-                  + "."
-                  + propertyName
-                  + "' that is not compatible with the type "
-                  + type
-                  + ". Fix those records and change the schema again");
+          throw incompatiblePropertyType(session, propertyName, type);
         }
       }
     });
 
     if (linkedClass != null) {
       checkAllLikedObjects(session, propertyName, type, linkedClass);
+    }
+  }
+
+  private boolean hasOnlyTransactionLocalCollections() {
+    // A provisional collection has no storage records. Its records must register transaction
+    // operations, so the transaction walk is the complete scan for this class subtree.
+    for (final var collectionId : polymorphicCollectionIds) {
+      if (!SchemaShared.isProvisionalCollectionId(collectionId)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private void forEachTransactionLocalEntity(
+      FrontendTransactionImpl transaction, Consumer<EntityImpl> consumer) {
+    // The polymorphic array already has the ascending order used by class query iteration.
+    for (final var collectionId : polymorphicCollectionIds) {
+      var rid = transaction.getNextRidInCollection(
+          new RecordId(collectionId, Long.MIN_VALUE), 0);
+      while (rid != null) {
+        final var recordEntry = transaction.getRecordEntry(rid);
+        if (recordEntry != null && recordEntry.record instanceof EntityImpl entity) {
+          consumer.accept(entity);
+        }
+        rid = transaction.getNextRidInCollection(rid, 0);
+      }
     }
   }
 
@@ -1365,38 +1443,101 @@ public abstract class SchemaClassImpl {
                   .findFirst()
                   .ifPresent(
                       x -> {
-                        throw new SchemaException(db.getDatabaseName(),
-                            "The database contains some schema-less data in the property '"
-                                + name
-                                + "."
-                                + propertyName
-                                + "' that is not compatible with the type "
-                                + type
-                                + " "
-                                + linkedClass.getName()
-                                + ". Fix those records and change the schema again. "
-                                + x);
+                        throw incompatibleLinkedCollectionType(
+                            db, propertyName, type, linkedClass, x);
                       });
             }
             case EMBEDDED, LINK -> {
               var elem = item.getProperty(propertyName);
               if (!matchesType(db, elem, linkedClass)) {
-                throw new SchemaException(db.getDatabaseName(),
-                    "The database contains some schema-less data in the property '"
-                        + name
-                        + "."
-                        + propertyName
-                        + "' that is not compatible with the type "
-                        + type
-                        + " "
-                        + linkedClass.getName()
-                        + ". Fix those records and change the schema again!");
+                throw incompatibleLinkedScalarType(db, propertyName, type, linkedClass);
               }
             }
           }
         }
       }
     });
+  }
+
+  private void checkLinkedValue(
+      DatabaseSessionEmbedded db,
+      String propertyName,
+      PropertyTypeInternal type,
+      SchemaClassImpl linkedClass,
+      Object value) {
+    if (value == null) {
+      return;
+    }
+
+    switch (type) {
+      case EMBEDDEDLIST, LINKLIST, EMBEDDEDSET, LINKSET -> {
+        Collection<?> embedded = (Collection<?>) value;
+        embedded.stream()
+            .filter(element -> !matchesType(db, element, linkedClass))
+            .findFirst()
+            .ifPresent(
+                element -> {
+                  throw incompatibleLinkedCollectionType(
+                      db, propertyName, type, linkedClass, element);
+                });
+      }
+      case EMBEDDED, LINK -> {
+        if (!matchesType(db, value, linkedClass)) {
+          throw incompatibleLinkedScalarType(db, propertyName, type, linkedClass);
+        }
+      }
+    }
+  }
+
+  private SchemaException incompatiblePropertyType(
+      DatabaseSessionEmbedded db, String propertyName, PropertyTypeInternal type) {
+    return new SchemaException(
+        db.getDatabaseName(),
+        "The database contains some schema-less data in the property '"
+            + name
+            + "."
+            + propertyName
+            + "' that is not compatible with the type "
+            + type
+            + ". Fix those records and change the schema again");
+  }
+
+  private SchemaException incompatibleLinkedCollectionType(
+      DatabaseSessionEmbedded db,
+      String propertyName,
+      PropertyTypeInternal type,
+      SchemaClassImpl linkedClass,
+      Object element) {
+    return new SchemaException(
+        db.getDatabaseName(),
+        "The database contains some schema-less data in the property '"
+            + name
+            + "."
+            + propertyName
+            + "' that is not compatible with the type "
+            + type
+            + " "
+            + linkedClass.getName()
+            + ". Fix those records and change the schema again. "
+            + element);
+  }
+
+  private SchemaException incompatibleLinkedScalarType(
+      DatabaseSessionEmbedded db,
+      String propertyName,
+      PropertyTypeInternal type,
+      SchemaClassImpl linkedClass) {
+    return new SchemaException(
+        db.getDatabaseName(),
+        "The database contains some schema-less data in the property '"
+            + name
+            + "."
+            + propertyName
+            + "' that is not compatible with the type "
+            + type
+            + " "
+            + linkedClass.getName()
+            + ". Fix those records and change the schema again!");
   }
 
   protected static boolean matchesType(DatabaseSessionEmbedded db, Object x,

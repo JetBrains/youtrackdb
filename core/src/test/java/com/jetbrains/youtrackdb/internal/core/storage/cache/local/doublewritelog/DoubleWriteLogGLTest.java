@@ -6,6 +6,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
@@ -14,8 +18,10 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -140,6 +146,94 @@ public class DoubleWriteLogGLTest {
   @Test
   public void testExtensionConstant() {
     assertEquals(".dwl", DoubleWriteLogGL.EXTENSION);
+  }
+
+  /**
+   * A write skips the segment force when fsync is disabled.
+   */
+  @Test
+  public void testWriteSkipsForceWhenFsyncIsDisabled() throws Exception {
+    final var dwl = new DoubleWriteLogGL(MAX_SEG_SIZE, BLOCK_SIZE, false);
+    dwl.open("s", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, testDirectory, PAGE_SIZE);
+    try {
+      final var channel = installCurrentFileSpy(dwl);
+      final var buffer = ByteBuffer.allocate(PAGE_SIZE).order(ByteOrder.nativeOrder());
+      randomPage(buffer);
+
+      dwl.write(
+          new ArrayList<>(Collections.singleton(buffer)),
+          IntArrayList.of(1),
+          IntArrayList.of(0));
+
+      final var forceCount =
+          mockingDetails(channel).getInvocations().stream()
+              .filter(invocation -> invocation.getMethod().getName().equals("force"))
+              .count();
+      assertEquals("disabled fsync must suppress every force invocation", 0, forceCount);
+    } finally {
+      dwl.close();
+    }
+  }
+
+  /**
+   * A write retains the segment force when fsync is enabled.
+   */
+  @Test
+  public void testWriteForcesWhenFsyncIsEnabled() throws Exception {
+    final var dwl = new DoubleWriteLogGL(MAX_SEG_SIZE, BLOCK_SIZE, true);
+    dwl.open("s", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, testDirectory, PAGE_SIZE);
+    try {
+      final var channel = installCurrentFileSpy(dwl);
+      final var buffer = ByteBuffer.allocate(PAGE_SIZE).order(ByteOrder.nativeOrder());
+      randomPage(buffer);
+
+      dwl.write(
+          new ArrayList<>(Collections.singleton(buffer)),
+          IntArrayList.of(1),
+          IntArrayList.of(0));
+
+      verify(channel).force(true);
+    } finally {
+      dwl.close();
+    }
+  }
+
+  /**
+   * Disabling fsync does not prevent rollover tail segments from being truncated.
+   */
+  @Test
+  public void testTruncateAfterRolloverStillRunsWhenFsyncIsDisabled() throws IOException {
+    final var dwl = new DoubleWriteLogGL(MAX_SEG_SIZE, BLOCK_SIZE, false);
+    dwl.open("s", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, testDirectory, PAGE_SIZE);
+    try {
+      final var buffer = ByteBuffer.allocate(PAGE_SIZE).order(ByteOrder.nativeOrder());
+      randomPage(buffer);
+      dwl.write(
+          new ArrayList<>(Collections.singleton(buffer)),
+          IntArrayList.of(1),
+          IntArrayList.of(0));
+      randomPage(buffer);
+      assertTrue(
+          dwl.write(
+              new ArrayList<>(Collections.singleton(buffer)),
+              IntArrayList.of(1),
+              IntArrayList.of(1)));
+
+      dwl.truncate();
+
+      assertEquals("truncate must remove the rollover tail", 1, listDwlFiles().size());
+    } finally {
+      dwl.close();
+    }
+  }
+
+  private static FileChannel installCurrentFileSpy(DoubleWriteLogGL dwl) throws Exception {
+    final Field field = DoubleWriteLogGL.class.getDeclaredField("currentFile");
+    field.setAccessible(true);
+    final var channel = (FileChannel) field.get(dwl);
+    final var spy = mock(FileChannel.class, delegatesTo(channel));
+    field.set(dwl, spy);
+    return spy;
   }
 
   // -------------------------------------------------------------------------

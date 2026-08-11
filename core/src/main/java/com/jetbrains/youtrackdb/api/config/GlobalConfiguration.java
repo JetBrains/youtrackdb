@@ -220,7 +220,13 @@ public enum GlobalConfiguration {
 
   STORAGE_CALL_FSYNC(
       "youtrackdb.storage.callFsync",
-      "Call fsync during fuzzy checkpoints or WAL writes, true by default",
+      "Call the file synchronization system call in the live storage engine, true by default. "
+          + "A false value removes the durability barriers on the storage hot path. "
+          + "The crash marker and the encryption initialization vector file stay synchronous. "
+          + "After a power loss the database can lose recent data. "
+          + "The file registry can also lose entries. "
+          + "A truncated registry can leave the database unopenable. "
+          + "Use false only for test runs.",
       Boolean.class,
       true),
 

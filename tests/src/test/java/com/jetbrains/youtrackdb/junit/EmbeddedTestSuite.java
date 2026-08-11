@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.junit;
 
+import com.jetbrains.youtrackdb.benchmarks.SchemaCreationWorkloadTest;
 import com.jetbrains.youtrackdb.junit.hooks.HookOnIndexedMapTest;
 import org.junit.platform.suite.api.SelectClasses;
 import org.junit.platform.suite.api.Suite;
@@ -13,6 +14,7 @@ import org.junit.platform.suite.api.SuiteDisplayName;
 @Suite
 @SelectClasses({
     SmokeTest.class,
+    SchemaCreationWorkloadTest.class,
     // DbCreation
     DbCreationTest.class,
     DbListenerTest.class,

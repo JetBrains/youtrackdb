@@ -2,7 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -159,6 +161,28 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertFalse(
         "calculateAllFilteredProperties must not leak an implicit transaction",
         session.isTxActive());
+  }
+
+  /**
+   * Verifies that an immutable empty result from the initial filtered-property calculation is
+   * cached as a mutable defensive copy, so a later in-place refresh can add calculated content.
+   */
+  @Test
+  public void testImmutableEmptyFilteredPropertiesCanBeRefreshedInPlace() {
+    var security = new InitiallyEmptyFilteredPropertiesSecurity();
+    var user = session.getCurrentUser();
+
+    try {
+      session.setUser(null);
+      security.updateAllFilteredProperties(session);
+    } finally {
+      session.setUser(user);
+    }
+
+    security.updateAllFilteredPropertiesInternal(session);
+    Assert.assertEquals(
+        Collections.singleton(SecurityResourceProperty.ALL_PROPERTIES),
+        security.getAllFilteredProperties(session));
   }
 
   /**
@@ -348,5 +372,23 @@ public class SecuritySharedTest extends DbTestBase {
 
     Assert.assertTrue("version must increase after incrementVersion",
         versionAfter > versionBefore);
+  }
+
+  private static final class InitiallyEmptyFilteredPropertiesSecurity extends SecurityShared {
+
+    private int calculationCount;
+
+    private InitiallyEmptyFilteredPropertiesSecurity() {
+      super(null);
+    }
+
+    @Override
+    protected Set<SecurityResourceProperty> calculateAllFilteredProperties(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded database) {
+      if (calculationCount++ == 0) {
+        return Collections.emptySet();
+      }
+      return Collections.singleton(SecurityResourceProperty.ALL_PROPERTIES);
+    }
   }
 }

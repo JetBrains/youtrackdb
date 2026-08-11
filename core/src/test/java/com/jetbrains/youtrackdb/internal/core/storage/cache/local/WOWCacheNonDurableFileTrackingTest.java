@@ -7,9 +7,15 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
@@ -22,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -30,11 +37,15 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.c
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -44,6 +55,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.mockito.MockedStatic;
 
 /**
  * Tests the in-memory non-durable file tracking in WOWCache: addFile with nonDurable flag,
@@ -445,6 +457,220 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertFalse(wowCache.isNonDurable(existingId));
   }
 
+  /**
+   * Registry mutations skip every channel force when the cache disables fsync.
+   */
+  @Test
+  public void testRegistryMutationsDoNotForceWhenFsyncIsDisabled() throws Exception {
+    assertRegistryMutationForces(false);
+  }
+
+  /**
+   * Registry mutations retain their channel force when the cache enables fsync.
+   */
+  @Test
+  public void testRegistryMutationsForceWhenFsyncIsEnabled() throws Exception {
+    assertRegistryMutationForces(true);
+  }
+
+  private void assertRegistryMutationForces(boolean callFsync) throws Exception {
+    wowCache.delete();
+    createNewCache(callFsync);
+
+    final Field registryPathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+    registryPathField.setAccessible(true);
+    final var registryPath = (Path) registryPathField.get(wowCache);
+
+    final var channels = new ArrayList<FileChannel>();
+    for (var i = 0; i < 4; i++) {
+      channels.add(
+          spy(
+              FileChannel.open(
+                  registryPath, StandardOpenOption.READ, StandardOpenOption.WRITE)));
+    }
+
+    final var nextChannel = new java.util.concurrent.atomic.AtomicInteger();
+    try (MockedStatic<FileChannel> mockedChannels =
+        mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      mockedChannels
+          .when(
+              () -> FileChannel.open(
+                  registryPath, StandardOpenOption.READ, StandardOpenOption.WRITE))
+          .thenAnswer(invocation -> channels.get(nextChannel.getAndIncrement()));
+
+      final var fileId = wowCache.addFile("forceRegistry.tst");
+      wowCache.renameFile(fileId, "forceRegistryRenamed.tst");
+      wowCache.deleteFile(fileId);
+    }
+
+    assertEquals("add, rename twice, and delete must open four registry channels", 4,
+        nextChannel.get());
+    if (callFsync) {
+      final var forceCount =
+          channels.stream()
+              .flatMap(channel -> mockingDetails(channel).getInvocations().stream())
+              .filter(invocation -> invocation.getMethod().getName().equals("force"))
+              .count();
+      assertEquals("add, rename, and delete must each force their durable registry entry", 3,
+          forceCount);
+    } else {
+      for (final var channel : channels) {
+        assertEquals(
+            "disabled fsync must suppress every registry force invocation",
+            0,
+            countInvocations(channel, "force"));
+      }
+    }
+  }
+
+  /** Clean close suppresses the rewritten registry force when fsync is disabled. */
+  @Test
+  public void testCleanCloseRegistryRewriteSkipsForceWhenFsyncIsDisabled() throws Exception {
+    assertCleanCloseRegistryForces(false, 0);
+  }
+
+  /** Clean close retains the rewritten registry force when fsync is enabled. */
+  @Test
+  public void testCleanCloseRegistryRewriteForcesWhenFsyncIsEnabled() throws Exception {
+    assertCleanCloseRegistryForces(true, 1);
+  }
+
+  private void assertCleanCloseRegistryForces(boolean callFsync, long expectedForces)
+      throws Exception {
+    wowCache.delete();
+    createNewCache(callFsync);
+    wowCache.addFile("closeForceProbe.tst");
+
+    final var backupPath = storagePath.resolve("name_id_map_v2_backup.cm");
+    final var channel =
+        spy(
+            FileChannel.open(
+                backupPath,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE));
+    try (MockedStatic<FileChannel> mockedChannels =
+        mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      mockedChannels
+          .when(
+              () -> FileChannel.open(
+                  backupPath,
+                  StandardOpenOption.CREATE,
+                  StandardOpenOption.READ,
+                  StandardOpenOption.WRITE))
+          .thenReturn(channel);
+      wowCache.close();
+      wowCache = null;
+    }
+
+    assertEquals(
+        "clean-close registry force count must follow callFsync",
+        expectedForces,
+        countInvocations(channel, "force"));
+  }
+
+  /** V3 migration suppresses its registry force when fsync is disabled. */
+  @Test
+  public void testV3MigrationSkipsForceWhenFsyncIsDisabled() throws Exception {
+    assertV3MigrationForces(false, 0);
+  }
+
+  /** V3 migration retains its registry force when fsync is enabled. */
+  @Test
+  public void testV3MigrationForcesWhenFsyncIsEnabled() throws Exception {
+    assertV3MigrationForces(true, 1);
+  }
+
+  private void assertV3MigrationForces(boolean callFsync, long expectedForces) throws Exception {
+    wowCache.delete();
+    createNewCache(callFsync);
+
+    Files.deleteIfExists(storagePath.resolve("name_id_map_v3.cm"));
+    final var temporaryPath = storagePath.resolve("name_id_map_v3_t.cm");
+    final var channel = new java.util.concurrent.atomic.AtomicReference<FileChannel>();
+    try (MockedStatic<FileChannel> mockedChannels =
+        mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      mockedChannels
+          .when(
+              () -> FileChannel.open(
+                  temporaryPath,
+                  StandardOpenOption.CREATE,
+                  StandardOpenOption.WRITE,
+                  StandardOpenOption.READ))
+          .thenAnswer(
+              invocation -> {
+                final var realChannel =
+                    temporaryPath
+                        .getFileSystem()
+                        .provider()
+                        .newFileChannel(
+                            temporaryPath,
+                            java.util.Set.of(
+                                StandardOpenOption.CREATE,
+                                StandardOpenOption.WRITE,
+                                StandardOpenOption.READ));
+                final var channelSpy = spy(realChannel);
+                channel.set(channelSpy);
+                return channelSpy;
+              });
+      invokeFsyncFilesOrMigration(wowCache, "storedNameIdMapToV3");
+    }
+
+    assertNotNull("migration must open its temporary registry channel", channel.get());
+    assertEquals(
+        "V3 migration force count must follow callFsync",
+        expectedForces,
+        countInvocations(channel.get(), "force"));
+  }
+
+  /** fsyncFiles skips per-file synchronization but still truncates the DWL when disabled. */
+  @Test
+  public void testFsyncFilesSkipsFilesButTruncatesDwlWhenFsyncIsDisabled() throws Exception {
+    assertFsyncFilesBehavior(false);
+  }
+
+  /** fsyncFiles synchronizes files and truncates the DWL when fsync is enabled. */
+  @Test
+  public void testFsyncFilesSynchronizesFilesAndTruncatesDwlWhenFsyncIsEnabled()
+      throws Exception {
+    assertFsyncFilesBehavior(true);
+  }
+
+  private void assertFsyncFilesBehavior(boolean callFsync) throws Exception {
+    wowCache.delete();
+    final var doubleWriteLog = mock(DoubleWriteLog.class);
+    createNewCache(callFsync, doubleWriteLog);
+
+    final var fileId = wowCache.addFile("fsyncFilesProbe.tst");
+    final var realFile = files.remove(fileId);
+    realFile.close();
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    files.add(fileId, file);
+
+    invokeFsyncFilesOrMigration(wowCache, "fsyncFiles");
+
+    if (callFsync) {
+      verify(file).synch();
+    } else {
+      verify(file, never()).synch();
+    }
+    verify(doubleWriteLog).truncate();
+  }
+
+  private static void invokeFsyncFilesOrMigration(WOWCache cache, String methodName)
+      throws Exception {
+    final Method method = WOWCache.class.getDeclaredMethod(methodName);
+    method.setAccessible(true);
+    method.invoke(cache);
+  }
+
+  private static long countInvocations(Object mock, String methodName) {
+    return mockingDetails(mock).getInvocations().stream()
+        .filter(invocation -> invocation.getMethod().getName().equals(methodName))
+        .count();
+  }
+
   // --- Side file persistence tests ---
 
   /**
@@ -461,6 +687,14 @@ public class WOWCacheNonDurableFileTrackingTest {
    * the old cache (e.g., to corrupt side files before reopening) call this directly.
    */
   private void createNewCache() throws Exception {
+    createNewCache(false);
+  }
+
+  private void createNewCache(boolean callFsync) throws Exception {
+    createNewCache(callFsync, new DoubleWriteLogNoOP());
+  }
+
+  private void createNewCache(boolean callFsync, DoubleWriteLog doubleWriteLog) throws Exception {
     writeAheadLog.close();
     writeAheadLog =
         new CASDiskWriteAheadLog(
@@ -491,7 +725,7 @@ public class WOWCacheNonDurableFileTrackingTest {
             false,
             bufferPool,
             writeAheadLog,
-            new DoubleWriteLogNoOP(),
+            doubleWriteLog,
             PAGES_FLUSH_INTERVAL,
             SHUTDOWN_TIMEOUT,
             EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
@@ -503,7 +737,7 @@ public class WOWCacheNonDurableFileTrackingTest {
             ChecksumMode.StoreAndVerify,
             null,
             null,
-            false,
+            callFsync,
             Executors.newCachedThreadPool());
     wowCache.loadRegisteredFiles();
   }

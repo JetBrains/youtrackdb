@@ -1,11 +1,22 @@
 package com.jetbrains.youtrackdb.internal.core.storage.fs;
 
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.verify;
+
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import java.io.File;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.CompletionHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -13,8 +24,12 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -801,6 +816,163 @@ public class AsyncFileTest {
     } finally {
       file.close();
     }
+  }
+
+  /**
+   * A dirty non-durable file closes without forcing, remains readable, and closes its channel.
+   */
+  @Test
+  public void testCloseSkipsForceWhenFsyncIsDisabled() throws Exception {
+    final var data = new byte[] {1, 2, 3, 4};
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    file.allocateSpace(data.length);
+    file.write(0, ByteBuffer.wrap(data));
+
+    file.close();
+
+    Assert.assertEquals(
+        "disabled fsync must suppress every force invocation",
+        0,
+        countInvocations(channel, "force"));
+    verify(channel).close();
+    Assert.assertFalse(file.isOpen());
+
+    final var reopened =
+        new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    reopened.open();
+    final var result = ByteBuffer.allocate(data.length);
+    reopened.read(0, result, true);
+    Assert.assertArrayEquals(data, result.array());
+    reopened.close();
+  }
+
+  /**
+   * The explicit durable mode forces a dirty file before closing its channel.
+   */
+  @Test
+  public void testCloseForcesWhenFsyncIsEnabled() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    file.allocateSpace(1);
+    file.write(0, ByteBuffer.wrap(new byte[] {1}));
+
+    file.close();
+
+    verify(channel).force(true);
+    verify(channel).close();
+  }
+
+  /**
+   * The legacy five-argument constructor keeps durable forcing enabled.
+   */
+  @Test
+  public void testLegacyConstructorDefaultsToFsyncEnabled() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    file.allocateSpace(1);
+    file.write(0, ByteBuffer.wrap(new byte[] {1}));
+
+    file.close();
+
+    verify(channel).force(true);
+  }
+
+  /**
+   * Closing without fsync still waits for an asynchronous write completion callback.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testCloseWithoutFsyncDrainsInFlightWrite() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    final var realChannel = getChannel(file);
+    realChannel.close();
+
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var writtenBuffer = new AtomicReference<ByteBuffer>();
+    doAnswer(
+        invocation -> {
+          writtenBuffer.set(invocation.getArgument(0));
+          attachment.set(invocation.getArgument(2));
+          handler.set(invocation.getArgument(3));
+          return null;
+        })
+        .when(channel)
+        .write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+
+    file.allocateSpace(1);
+    file.write(
+        List.of(new RawPairLongObject<>(0L, ByteBuffer.wrap(new byte[] {42}))));
+    final var closeStarted = new CountDownLatch(1);
+    final var closingThread = new AtomicReference<Thread>();
+    final var closeFuture =
+        executor.submit(
+            () -> {
+              closingThread.set(Thread.currentThread());
+              closeStarted.countDown();
+              file.close();
+            });
+    Assert.assertTrue("close task must start", closeStarted.await(5, TimeUnit.SECONDS));
+    awaitSemaphoreWait(closingThread.get());
+    Assert.assertFalse("close must remain blocked before the write callback", closeFuture.isDone());
+
+    writtenBuffer.get().position(writtenBuffer.get().limit());
+    handler.get().completed(1, attachment.get());
+
+    closeFuture.get(5, TimeUnit.SECONDS);
+    verify(channel).close();
+    Assert.assertFalse(file.isOpen());
+  }
+
+  private static void awaitSemaphoreWait(Thread thread) {
+    final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      final var waitingInSemaphore =
+          java.util.Arrays.stream(thread.getStackTrace())
+              .anyMatch(
+                  frame -> frame.getClassName().equals("java.util.concurrent.Semaphore")
+                      && frame.getMethodName().equals("acquireUninterruptibly"));
+      if (thread.getState() == Thread.State.WAITING && waitingInSemaphore) {
+        return;
+      }
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+    }
+    Assert.fail("close thread did not block in Semaphore.acquireUninterruptibly");
+  }
+
+  private static long countInvocations(Object mock, String methodName) {
+    return mockingDetails(mock).getInvocations().stream()
+        .filter(invocation -> invocation.getMethod().getName().equals(methodName))
+        .count();
+  }
+
+  private static AsynchronousFileChannel installDelegatingChannelSpy(AsyncFile file)
+      throws Exception {
+    final var realChannel = getChannel(file);
+    final var channel =
+        mock(AsynchronousFileChannel.class, delegatesTo(realChannel));
+    setChannel(file, channel);
+    return channel;
+  }
+
+  private static AsynchronousFileChannel getChannel(AsyncFile file) throws Exception {
+    final Field field = AsyncFile.class.getDeclaredField("fileChannel");
+    field.setAccessible(true);
+    return (AsynchronousFileChannel) field.get(file);
+  }
+
+  private static void setChannel(AsyncFile file, AsynchronousFileChannel channel)
+      throws Exception {
+    final Field field = AsyncFile.class.getDeclaredField("fileChannel");
+    field.setAccessible(true);
+    field.set(file, channel);
   }
 
   @Test

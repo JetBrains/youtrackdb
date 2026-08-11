@@ -2,7 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -16,6 +23,8 @@ import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
+import org.mockito.MockedStatic;
 
 /**
  * Unit tests for {@link StorageStartupMetadata}. The metadata file persists a dirty flag,
@@ -29,6 +38,7 @@ import org.junit.Test;
  * <p>Per project rules every temp path includes a UUID suffix so concurrent surefire forks
  * do not collide, and tests delete on @After (no JVM-shutdown cleanup).
  */
+@Category(SequentialTest.class)
 public class StorageStartupMetadataTest {
 
   private Path tmpDir;
@@ -55,6 +65,67 @@ public class StorageStartupMetadataTest {
           }
         });
       }
+    }
+  }
+
+  /**
+   * Disabling storage fsync does not remove synchronous open options from startup metadata.
+   */
+  @Test
+  public void testCreateKeepsSyncOptionWhenStorageFsyncIsDisabled() throws IOException {
+    final var previousFsync = GlobalConfiguration.STORAGE_CALL_FSYNC.getValue();
+    final var previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
+    GlobalConfiguration.STORAGE_CALL_FSYNC.setValue(false);
+    GlobalConfiguration.FILE_LOCK.setValue(false);
+    try (MockedStatic<FileChannel> channels = mockStatic(FileChannel.class)) {
+      final var channel = mock(FileChannel.class);
+      when(channel.write(any(ByteBuffer.class), anyLong()))
+          .thenAnswer(
+              invocation -> {
+                final ByteBuffer buffer = invocation.getArgument(0);
+                final var remaining = buffer.remaining();
+                buffer.position(buffer.limit());
+                return remaining;
+              });
+      channels
+          .when(
+              () -> FileChannel.open(
+                  filePath,
+                  StandardOpenOption.READ,
+                  StandardOpenOption.CREATE,
+                  StandardOpenOption.WRITE,
+                  StandardOpenOption.SYNC))
+          .thenReturn(channel);
+      channels
+          .when(
+              () -> FileChannel.open(
+                  backupPath,
+                  StandardOpenOption.READ,
+                  StandardOpenOption.CREATE_NEW,
+                  StandardOpenOption.WRITE,
+                  StandardOpenOption.SYNC))
+          .thenReturn(channel);
+
+      final var metadata = new StorageStartupMetadata(filePath, backupPath);
+      metadata.create("sync-option-test");
+
+      channels.verify(
+          () -> FileChannel.open(
+              filePath,
+              StandardOpenOption.READ,
+              StandardOpenOption.CREATE,
+              StandardOpenOption.WRITE,
+              StandardOpenOption.SYNC));
+      channels.verify(
+          () -> FileChannel.open(
+              backupPath,
+              StandardOpenOption.READ,
+              StandardOpenOption.CREATE_NEW,
+              StandardOpenOption.WRITE,
+              StandardOpenOption.SYNC));
+    } finally {
+      GlobalConfiguration.STORAGE_CALL_FSYNC.setValue(previousFsync);
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
     }
   }
 

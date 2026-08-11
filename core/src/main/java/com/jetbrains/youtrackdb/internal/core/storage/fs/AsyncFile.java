@@ -43,6 +43,7 @@ public final class AsyncFile implements File {
   private final int pageSize;
   private final ExecutorService executor;
   private final String dbName;
+  private final boolean callFsync;
 
   private final TimeRate diskReadMeter;
   private final TimeRate diskWriteMeter;
@@ -59,11 +60,18 @@ public final class AsyncFile implements File {
   public AsyncFile(
       final Path osFile, final int pageSize, boolean logFileDeletion, ExecutorService executor,
       String dbName) {
+    this(osFile, pageSize, logFileDeletion, executor, dbName, true);
+  }
+
+  public AsyncFile(
+      final Path osFile, final int pageSize, boolean logFileDeletion, ExecutorService executor,
+      String dbName, boolean callFsync) {
     this.osFile = osFile;
     this.pageSize = pageSize;
     this.executor = executor;
     this.logFileDeletion = logFileDeletion;
     this.dbName = dbName;
+    this.callFsync = callFsync;
 
     this.diskReadMeter = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
@@ -366,23 +374,26 @@ public final class AsyncFile implements File {
   }
 
   private void doSynch() {
+    // Drain in-flight writes even when fsync is disabled because close relies on this barrier.
     syncSemaphore.acquireUninterruptibly(Integer.MAX_VALUE);
     try {
       synchronized (flushSemaphore) {
         var dirtyCounterValue = dirtyCounter.get();
         if (dirtyCounterValue > 0) {
-          try {
-            fileChannel.force(true);
-          } catch (final IOException e) {
-            LogManager.instance()
-                .warn(
-                    this,
-                    "Error during flush of file %s. Data may be lost in case of power failure",
-                    e,
-                    getName());
-          }
+          if (callFsync) {
+            try {
+              fileChannel.force(true);
+            } catch (final IOException e) {
+              LogManager.instance()
+                  .warn(
+                      this,
+                      "Error during flush of file %s. Data may be lost in case of power failure",
+                      e,
+                      getName());
+            }
 
-          dirtyCounter.addAndGet(-dirtyCounterValue);
+            dirtyCounter.addAndGet(-dirtyCounterValue);
+          }
         }
       }
     } finally {

@@ -53,6 +53,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -1038,6 +1039,18 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return;
     }
 
+    var indexedFieldNames = new HashSet<String>(indexedFields);
+    Predicate<SecurityResourceProperty> isIndexedProperty =
+        property -> indexedFieldNames.contains(property.getPropertyName());
+    var allFilteredProperties = security.getAllFilteredProperties(database);
+    boolean hasPotentiallyFilteredProperties;
+    try (var stream = allFilteredProperties.stream()) {
+      hasPotentiallyFilteredProperties = stream.anyMatch(isIndexedProperty);
+    }
+    if (!hasPotentiallyFilteredProperties) {
+      return;
+    }
+
     Set<String> classesToCheck = new HashSet<>();
     classesToCheck.add(indexClass);
     var clazz = database.getMetadata().getImmutableSchemaSnapshot().getClass(indexClass);
@@ -1046,16 +1059,18 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
     clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
     clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
-    var allFilteredProperties =
-        security.getAllFilteredProperties(database);
 
+    // The pre-filter only avoids class-family resolution when rejection is impossible. Read the
+    // rules again so the slow path makes its decision from the same post-resolution cache state as
+    // before the optimization.
+    allFilteredProperties = security.getAllFilteredProperties(database);
     for (var className : classesToCheck) {
       Set<SecurityResourceProperty> indexedAndFilteredProperties;
       try (var stream = allFilteredProperties.stream()) {
         indexedAndFilteredProperties =
             stream
                 .filter(x -> x.isAllClasses() || className.equals(x.getClassName()))
-                .filter(x -> indexedFields.contains(x.getPropertyName()))
+                .filter(isIndexedProperty)
                 .collect(Collectors.toSet());
       }
 
