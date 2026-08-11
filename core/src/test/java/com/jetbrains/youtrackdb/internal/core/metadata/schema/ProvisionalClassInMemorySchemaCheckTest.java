@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHookAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -21,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Before;
@@ -84,7 +86,8 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
   @Test
   public void deletedRecordIsIgnoredOnBothPaths() {
     assertEquals(0, deletedRecordCommands(true, "DeletedFast"));
-    assertTrue(deletedRecordCommands(false, "DeletedQuery") > 0);
+    deletedRecordCommands(false, "DeletedQuery");
+    commands.assertQueriedClass("DeletedQuery");
   }
 
   @Test
@@ -96,7 +99,34 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
   @Test
   public void emptyMultivalueIsIgnoredOnBothPaths() {
     assertEquals(0, emptyListCommands(true, "EmptyListFast"));
-    assertTrue(emptyListCommands(false, "EmptyListQuery") > 0);
+    emptyListCommands(false, "EmptyListQuery");
+    commands.assertQueriedClass("EmptyListQuery");
+  }
+
+  @Test
+  public void identifiableScalarIsNotTreatedAsAnEmptyMultivalue() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("StoredValue");
+    var storedRid = session.computeInTx(
+        transaction -> session.newEntity("StoredValue").getIdentity());
+
+    var committedClass = schema.createClass("IdentifiableScalarQuery");
+    session.executeInTx(transaction -> session.newEntity(committedClass.getName())
+        .setProperty("value", session.loadEntity(storedRid)));
+    var queryError = assertThrows(
+        SchemaException.class,
+        () -> committedClass.createProperty("value", PropertyType.EMBEDDEDLIST));
+
+    session.begin();
+    var fastClass = schema.createClass("IdentifiableScalarFast");
+    session.newEntity(fastClass.getName()).setProperty("value", session.loadEntity(storedRid));
+    var fastError = assertThrows(
+        SchemaException.class,
+        () -> fastClass.createProperty("value", PropertyType.EMBEDDEDLIST));
+    assertEquals(
+        queryError.getMessage().replace("IdentifiableScalarQuery", "IdentifiableScalarFast"),
+        fastError.getMessage());
+    finishRollingBackTransaction();
   }
 
   @Test
@@ -111,7 +141,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       child.addSuperClass(parent);
       commands.reset();
       parent.createProperty("value", PropertyType.INTEGER);
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass("TransactionParent");
     });
   }
 
@@ -120,7 +150,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     var schemaClass = session.getMetadata().getSchema().createClass("CommittedEmpty");
     commands.reset();
     schemaClass.createProperty("value", PropertyType.INTEGER);
-    assertTrue(commands.get() > 0);
+    commands.assertQueriedClass("CommittedEmpty");
   }
 
   @Test
@@ -199,7 +229,8 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     session.executeInTx(
         transaction -> session.newEntity(committed.getName()).setProperty(propertyName, 1));
     commands.reset();
-    assertThrows(Exception.class,
+    assertThrows(
+        CommandSQLParsingException.class,
         () -> committed.createProperty(propertyName, PropertyType.INTEGER));
   }
 
@@ -227,7 +258,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     commands.reset();
     committedClass.createProperty("value", PropertyType.LINK, linkedClass);
     var queryCycles = cycleCount.get();
-    assertTrue(commands.get() > 0);
+    commands.assertQueriedClass("CycleCommittedClass");
 
     assertEquals(2, queryCycles - fastCycles);
   }
@@ -349,7 +380,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       committedClass.createProperty("value", PropertyType.INTEGER);
       assertNotNull("S1 old path skips the hidden record", committedClass.getProperty("value"));
     }
-    assertTrue(commands.get() > 0);
+    commands.assertQueriedClass(className);
     finishRollingBackTransaction();
   }
 
@@ -381,7 +412,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     installReadPolicy(className, false, "PredicateMigrationQueryPolicy");
     commands.reset();
     committedClass.createProperty("value", PropertyType.INTEGER);
-    assertTrue(commands.get() > 0);
+    commands.assertQueriedClass(className);
     assertEquals("S5 old path omits the hidden record", Short.class,
         committedRecord.getPropertyInternal("value").getClass());
     finishRollingBackTransaction();
@@ -409,7 +440,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     installReadPolicy(className, true, "PredicateFilterQueryPolicy");
     commands.reset();
     committedClass.createProperty("value", PropertyType.INTEGER);
-    assertTrue(commands.get() > 0);
+    commands.assertQueriedClass(className);
     assertNotNull("S11 old path installs filter state", committedRecord.propertyAccess);
     assertTrue("S11 old filter hides the protected property",
         !committedRecord.checkPropertyAccess("value"));
@@ -456,7 +487,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       readerQueryClass.createProperty("value", PropertyType.INTEGER);
       assertNotNull(readerQueryClass.getProperty("value"));
     }
-    assertTrue(commands.get() > 0);
+    commands.assertQueriedClass(queryName);
   }
 
   private void assertGrantHiddenMigrationDifference(
@@ -492,7 +523,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     } else {
       readerQueryClass.createProperty("value", PropertyType.INTEGER);
     }
-    assertTrue(commands.get() > 0);
+    commands.assertQueriedClass(queryName);
     reOpen(adminUser, adminPassword);
     var queryValueClass = session.computeInTx(
         transaction -> ((EntityImpl) transaction.load(queryRid[0]))
@@ -545,7 +576,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
           transaction -> createUncheckedLinkedRecord(type, className, wrong.getName()));
       commands.reset();
       schemaClass.createProperty("value", type, target);
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass(className);
     }
   }
 
@@ -590,7 +621,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     if (fast) {
       assertEquals(0, commands.get());
     } else {
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass(className);
     }
     var outcome = new TransactionOutcome(
         session.getTransactionInternal().getStatus().name(),
@@ -622,7 +653,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       assertEquals(0, commands.get());
       finishRollingBackTransaction();
     } else {
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass(className);
     }
     assertTrue(error.getMessage().contains("not compatible with the type LINK."));
     return error.getMessage();
@@ -656,7 +687,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       assertEquals(0, commands.get());
       finishRollingBackTransaction();
     } else {
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass(className);
     }
     return error.getMessage().substring(error.getMessage().lastIndexOf(' ') + 1);
   }
@@ -717,7 +748,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       assertEquals(0, commands.get());
       finishRollingBackTransaction();
     } else {
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass(className);
     }
   }
 
@@ -788,7 +819,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       });
       commands.reset();
       schemaClass.createProperty("value", PropertyType.INTEGER);
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass(className);
       observedClass[0] = session.computeInTx(
           transaction -> ((EntityImpl) transaction.load(rid[0]))
               .getPropertyInternal("value").getClass());
@@ -826,7 +857,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       assertEquals(0, commands.get());
       finishRollingBackTransaction();
     } else {
-      assertTrue(commands.get() > 0);
+      commands.assertQueriedClass(className);
     }
     return error.getMessage();
   }
@@ -840,18 +871,31 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
   private static final class CommandCounter implements SessionListener {
 
     private final AtomicInteger count = new AtomicInteger();
+    private final List<String> executionPlans = new ArrayList<>();
 
     @Override
     public void onCommandStart(DatabaseSessionEmbedded database, ResultSet resultSet) {
       count.incrementAndGet();
+      var executionPlan = resultSet.getExecutionPlan();
+      if (executionPlan != null) {
+        executionPlans.add(executionPlan.prettyPrint(0, 2));
+      }
     }
 
     int get() {
       return count.get();
     }
 
+    void assertQueriedClass(String className) {
+      var fetchStep = "+ FETCH FROM CLASS " + className + "\n";
+      assertTrue(
+          "Expected a query plan containing " + fetchStep + " but got " + executionPlans,
+          executionPlans.stream().anyMatch(plan -> plan.contains(fetchStep)));
+    }
+
     void reset() {
       count.set(0);
+      executionPlans.clear();
     }
   }
 }

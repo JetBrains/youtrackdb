@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
@@ -1331,8 +1332,10 @@ public abstract class SchemaClassImpl {
           }
 
           final var valueType = PropertyTypeInternal.getTypeByValue(value);
+          // SQLMethodSize treats an identifiable scalar as one item, unlike MultiValue.getSize.
+          final var valueSize = value instanceof Identifiable ? 1 : MultiValue.getSize(value);
           if (!type.getCastable().contains(valueType)
-              && (!type.isMultiValue() || MultiValue.getSize(value) != 0)) {
+              && (!type.isMultiValue() || valueSize != 0)) {
             throw incompatiblePropertyType(session, propertyName, type);
           }
         });
