@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -871,14 +872,16 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
   private static final class CommandCounter implements SessionListener {
 
     private final AtomicInteger count = new AtomicInteger();
-    private final List<String> executionPlans = new ArrayList<>();
+    private final List<String> statements = new ArrayList<>();
 
     @Override
     public void onCommandStart(DatabaseSessionEmbedded database, ResultSet resultSet) {
       count.incrementAndGet();
-      var executionPlan = resultSet.getExecutionPlan();
-      if (executionPlan != null) {
-        executionPlans.add(executionPlan.prettyPrint(0, 2));
+      if (resultSet.getExecutionPlan() instanceof InternalExecutionPlan executionPlan) {
+        var statement = executionPlan.getStatement();
+        if (statement != null) {
+          statements.add(statement);
+        }
       }
     }
 
@@ -887,15 +890,16 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     }
 
     void assertQueriedClass(String className) {
-      var fetchStep = "+ FETCH FROM CLASS " + className + "\n";
+      var validationPrefix = "select from `" + className + "` where `value`.type() not in [";
       assertTrue(
-          "Expected a query plan containing " + fetchStep + " but got " + executionPlans,
-          executionPlans.stream().anyMatch(plan -> plan.contains(fetchStep)));
+          "Expected validation query starting with " + validationPrefix + " but got " + statements,
+          statements.stream().anyMatch(statement -> statement.startsWith(validationPrefix)
+              && statement.contains("] and `value` is not null ")));
     }
 
     void reset() {
       count.set(0);
-      executionPlans.clear();
+      statements.clear();
     }
   }
 }
