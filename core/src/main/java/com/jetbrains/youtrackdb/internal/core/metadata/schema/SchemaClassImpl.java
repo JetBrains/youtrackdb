@@ -1242,6 +1242,25 @@ public abstract class SchemaClassImpl {
   public void fireDatabaseMigration(
       final DatabaseSessionEmbedded database, final String propertyName,
       final PropertyTypeInternal type) {
+    if (hasOnlyTransactionLocalCollections()) {
+      database.executeInTx(transaction -> {
+        final var currentTx = (FrontendTransactionImpl) database.getTransactionInternal();
+        currentTx.preProcessRecordsAndExecuteCallCallbacks();
+
+        forEachTransactionLocalEntity(currentTx, entity -> {
+          final var value = entity.getPropertyInternal(propertyName);
+          if (value == null) {
+            return;
+          }
+
+          final var valueType = PropertyTypeInternal.getTypeByValue(value);
+          if (valueType != type) {
+            entity.setPropertyInternal(propertyName, value, type);
+          }
+        });
+      });
+      return;
+    }
 
     var recordsToUpdate = database.computeInTx(transaction -> {
       try (var result =
