@@ -15,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.List;
@@ -120,6 +122,97 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
   }
 
   @Test
+  public void classGrantDeniedRecordNowFailsPropertyCreation() {
+    assertGrantHiddenValidationDifference(Rule.ResourceGeneric.CLASS);
+  }
+
+  @Test
+  public void grantDeniedRecordNowMigrates() {
+    assertGrantHiddenMigrationDifference(Rule.ResourceGeneric.CLASS);
+  }
+
+  @Test
+  public void readHooksDoNotObserveInternalSchemaChecks() {
+    var readCount = new AtomicInteger();
+    session.registerHook(new RecordHookAbstract() {
+      @Override
+      public void onRecordRead(DBRecord record) {
+        readCount.incrementAndGet();
+      }
+    });
+
+    session.executeInTx(transaction -> {
+      var schemaClass = session.getMetadata().getSchema().createClass("NoReadHooksFast");
+      session.newEntity(schemaClass.getName()).setProperty("value", 1);
+      commands.reset();
+      schemaClass.createProperty("value", PropertyType.INTEGER);
+      assertEquals(0, readCount.get());
+      assertEquals(0, commands.get());
+    });
+  }
+
+  @Test
+  public void noCommandStartsOnFastPath() {
+    session.executeInTx(transaction -> {
+      var schemaClass = session.getMetadata().getSchema().createClass("NoCommandsFast");
+      session.newEntity(schemaClass.getName()).setProperty("value", 1);
+      commands.reset();
+      schemaClass.createProperty("value", PropertyType.INTEGER);
+      assertEquals(0, commands.get());
+      assertTrue(session.getActiveQueries().isEmpty());
+    });
+  }
+
+  @Test
+  public void backslashSuffixedPropertyNameSucceedsOnFastPath() {
+    var propertyName = "broken\\";
+    session.executeInTx(transaction -> {
+      var schemaClass = session.getMetadata().getSchema().createClass("EscapedNameFast");
+      session.newEntity(schemaClass.getName()).setProperty(propertyName, 1);
+      commands.reset();
+      schemaClass.createProperty(propertyName, PropertyType.INTEGER);
+      assertEquals(0, commands.get());
+      assertNotNull(schemaClass.getProperty(propertyName));
+    });
+
+    var committed = session.getMetadata().getSchema().createClass("EscapedNameQuery");
+    session.executeInTx(
+        transaction -> session.newEntity(committed.getName()).setProperty(propertyName, 1));
+    commands.reset();
+    assertThrows(Exception.class,
+        () -> committed.createProperty(propertyName, PropertyType.INTEGER));
+  }
+
+  @Test
+  public void abstractClassOutsideTransactionRunsFewerTransactionCycles() {
+    var cycleCount = new AtomicInteger();
+    session.registerListener(new SessionListener() {
+      @Override
+      public void onBeforeTxBegin(
+          com.jetbrains.youtrackdb.internal.core.tx.Transaction transaction) {
+        cycleCount.incrementAndGet();
+      }
+    });
+    var linkedClass = session.getMetadata().getSchema().createClass("CycleLinkedClass");
+    var schemaClass =
+        session.getMetadata().getSchema().createAbstractClass("CycleAbstractClass");
+    cycleCount.set(0);
+    commands.reset();
+    schemaClass.createProperty("value", PropertyType.LINK, linkedClass);
+    var fastCycles = cycleCount.get();
+    assertEquals(0, commands.get());
+
+    var committedClass = session.getMetadata().getSchema().createClass("CycleCommittedClass");
+    cycleCount.set(0);
+    commands.reset();
+    committedClass.createProperty("value", PropertyType.LINK, linkedClass);
+    var queryCycles = cycleCount.get();
+    assertTrue(commands.get() > 0);
+
+    assertEquals(2, queryCycles - fastCycles);
+  }
+
+  @Test
   public void embeddedMapLinkMapAndLinkBagRemainUncheckedOnBothPaths() {
     for (var type : List.of(
         PropertyType.EMBEDDEDMAP, PropertyType.LINKMAP, PropertyType.LINKBAG)) {
@@ -200,6 +293,92 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
       assertEquals(Integer.class, childRecordOne.getPropertyInternal("value").getClass());
       assertEquals(Integer.class, childRecordTwo.getPropertyInternal("value").getClass());
     });
+  }
+
+  private void assertGrantHiddenValidationDifference(
+      Rule.ResourceGeneric resourceGeneric) {
+    var suffix = resourceGeneric == Rule.ResourceGeneric.CLASS ? "Class" : "Collection";
+    var fastName = "GrantValidationFast" + suffix;
+    var queryName = "GrantValidationQuery" + suffix;
+    var queryClass = session.getMetadata().getSchema().createClass(queryName);
+    session.executeInTx(
+        transaction -> session.newEntity(queryName).setProperty("value", "bad"));
+    prepareReaderForGrantTest(resourceGeneric, fastName, queryName);
+    queryClass = session.getMetadata().getSchema().getClass(queryName);
+
+    session.begin();
+    var fastClass = session.getMetadata().getSchema().createClass(fastName);
+    session.newEntity(fastName).setProperty("value", "bad");
+    commands.reset();
+    assertThrows(
+        SchemaException.class,
+        () -> fastClass.createProperty("value", PropertyType.INTEGER));
+    assertEquals(0, commands.get());
+    finishRollingBackTransaction();
+
+    commands.reset();
+    queryClass.createProperty("value", PropertyType.INTEGER);
+    assertTrue(commands.get() > 0);
+    assertNotNull(queryClass.getProperty("value"));
+  }
+
+  private void assertGrantHiddenMigrationDifference(
+      Rule.ResourceGeneric resourceGeneric) {
+    var suffix = resourceGeneric == Rule.ResourceGeneric.CLASS ? "Class" : "Collection";
+    var fastName = "GrantMigrationFast" + suffix;
+    var queryName = "GrantMigrationQuery" + suffix;
+    var queryClass = session.getMetadata().getSchema().createClass(queryName);
+    var queryRid = new RID[1];
+    session.executeInTx(transaction -> {
+      var queryRecord = (EntityImpl) session.newEntity(queryName);
+      queryRecord.setProperty("value", (short) 1);
+      queryRid[0] = queryRecord.getIdentity();
+    });
+    prepareReaderForGrantTest(resourceGeneric, fastName, queryName);
+    queryClass = session.getMetadata().getSchema().getClass(queryName);
+
+    session.begin();
+    var fastClass = session.getMetadata().getSchema().createClass(fastName);
+    var fastRecord = (EntityImpl) session.newEntity(fastName);
+    fastRecord.setProperty("value", (short) 1);
+    commands.reset();
+    fastClass.createProperty("value", PropertyType.INTEGER);
+    assertEquals(0, commands.get());
+    assertEquals(Integer.class, fastRecord.getPropertyInternal("value").getClass());
+    session.rollback();
+
+    commands.reset();
+    queryClass.createProperty("value", PropertyType.INTEGER);
+    assertTrue(commands.get() > 0);
+    reOpen(adminUser, adminPassword);
+    var queryValueClass = session.computeInTx(
+        transaction -> ((EntityImpl) transaction.load(queryRid[0]))
+            .getPropertyInternal("value").getClass());
+    assertEquals(Short.class, queryValueClass);
+  }
+
+  private void prepareReaderForGrantTest(
+      Rule.ResourceGeneric resourceGeneric, String fastName, String queryName) {
+    session.begin();
+    var role = session.getMetadata().getSecurity().getRole(readerUser);
+    role.grant(session, Rule.ResourceGeneric.SCHEMA, null, Role.PERMISSION_ALL);
+    role.grant(session, Rule.ResourceGeneric.CLASS, null, Role.PERMISSION_ALL);
+    role.grant(session, Rule.ResourceGeneric.COLLECTION, null, Role.PERMISSION_ALL);
+    var allowedWrites = Role.PERMISSION_CREATE | Role.PERMISSION_UPDATE | Role.PERMISSION_DELETE;
+    role.grant(session, Rule.ResourceGeneric.COLLECTION, "internal", Role.PERMISSION_ALL);
+    if (resourceGeneric == Rule.ResourceGeneric.CLASS) {
+      role.grant(session, resourceGeneric, fastName, Role.PERMISSION_NONE);
+      role.grant(session, resourceGeneric, fastName, allowedWrites);
+      role.grant(session, resourceGeneric, queryName, Role.PERMISSION_NONE);
+      role.grant(session, resourceGeneric, queryName, allowedWrites);
+    } else {
+      role.grant(session, resourceGeneric, null, Role.PERMISSION_NONE);
+      role.grant(session, resourceGeneric, null, allowedWrites);
+    }
+    role.save(session);
+    session.commit();
+    reOpen(readerUser, readerPassword);
+    registerCommandCounter();
   }
 
   private void assertUncheckedLinkedType(
