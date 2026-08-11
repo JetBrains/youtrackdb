@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -13,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHookAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -122,13 +124,31 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
   }
 
   @Test
+  public void predicateSecurityRebuiltMidTransactionRevealsDifferences() {
+    // S1: a record hidden by a class read policy is validated on the fast path.
+    assertPredicateHiddenValidationDifference(false, "PredicateRecordHidden");
+
+    // S4: validation reports the hidden bad value before migration tries to convert it.
+    assertPredicateHiddenValidationDifference(true, "PredicatePropertyHidden");
+
+    // S5 and S11 cover migration and retained-instance filter state, respectively.
+    assertPredicateHiddenMigrationAndInstanceDifferences();
+  }
+
+  @Test
   public void classGrantDeniedRecordNowFailsPropertyCreation() {
     assertGrantHiddenValidationDifference(Rule.ResourceGeneric.CLASS);
   }
 
   @Test
+  public void collectionGrantDenialThrowsOnlyOnQueryValidationPath() {
+    assertGrantHiddenValidationDifference(Rule.ResourceGeneric.COLLECTION);
+  }
+
+  @Test
   public void grantDeniedRecordNowMigrates() {
     assertGrantHiddenMigrationDifference(Rule.ResourceGeneric.CLASS);
+    assertGrantHiddenMigrationDifference(Rule.ResourceGeneric.COLLECTION);
   }
 
   @Test
@@ -295,6 +315,117 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     });
   }
 
+  private void assertPredicateHiddenValidationDifference(
+      boolean propertyPolicy, String className) {
+    session.begin();
+    var schemaClass = session.getMetadata().getSchema().createClass(className);
+    var record = (EntityImpl) session.newEntity(className);
+    record.setProperty("marker", "hidden");
+    record.setProperty("value", "bad");
+    installReadPolicy(className, propertyPolicy, className + "FastPolicy");
+    commands.reset();
+    var error = assertThrows(
+        SchemaException.class,
+        () -> schemaClass.createProperty("value", PropertyType.INTEGER));
+    assertTrue((propertyPolicy ? "S4" : "S1"),
+        error.getMessage().contains(className + ".value"));
+    assertEquals(0, commands.get());
+    finishRollingBackTransaction();
+
+    var committedClass = session.getMetadata().getSchema().createClass(className);
+    session.executeInTx(transaction -> {
+      var committedRecord = session.newEntity(className);
+      committedRecord.setProperty("marker", "hidden");
+      committedRecord.setProperty("value", "bad");
+    });
+    session.begin();
+    installReadPolicy(className, propertyPolicy, className + "QueryPolicy");
+    commands.reset();
+    if (propertyPolicy) {
+      assertThrows("S4 old path reaches low-level migration conversion",
+          NumberFormatException.class,
+          () -> committedClass.createProperty("value", PropertyType.INTEGER));
+    } else {
+      committedClass.createProperty("value", PropertyType.INTEGER);
+      assertNotNull("S1 old path skips the hidden record", committedClass.getProperty("value"));
+    }
+    assertTrue(commands.get() > 0);
+    finishRollingBackTransaction();
+  }
+
+  private void assertPredicateHiddenMigrationAndInstanceDifferences() {
+    assertClassPredicateMigrationDifference();
+    assertPropertyPredicateFilterStateDifference();
+  }
+
+  private void assertClassPredicateMigrationDifference() {
+    var className = "PredicateMigration";
+    session.begin();
+    var schemaClass = session.getMetadata().getSchema().createClass(className);
+    var record = (EntityImpl) session.newEntity(className);
+    record.setProperty("marker", "hidden");
+    record.setProperty("value", (short) 7);
+    installReadPolicy(className, false, "PredicateMigrationFastPolicy");
+    commands.reset();
+    schemaClass.createProperty("value", PropertyType.INTEGER);
+    assertEquals(0, commands.get());
+    assertEquals("S5 fast path migrates the hidden record", Integer.class,
+        record.getPropertyInternal("value").getClass());
+    finishRollingBackTransaction();
+
+    var committedClass = session.getMetadata().getSchema().createClass(className);
+    session.begin();
+    var committedRecord = (EntityImpl) session.newEntity(className);
+    committedRecord.setProperty("marker", "hidden");
+    committedRecord.setProperty("value", (short) 7);
+    installReadPolicy(className, false, "PredicateMigrationQueryPolicy");
+    commands.reset();
+    committedClass.createProperty("value", PropertyType.INTEGER);
+    assertTrue(commands.get() > 0);
+    assertEquals("S5 old path omits the hidden record", Short.class,
+        committedRecord.getPropertyInternal("value").getClass());
+    finishRollingBackTransaction();
+  }
+
+  private void assertPropertyPredicateFilterStateDifference() {
+    var className = "PredicateFilterState";
+    session.begin();
+    var schemaClass = session.getMetadata().getSchema().createClass(className);
+    var record = (EntityImpl) session.newEntity(className);
+    record.setProperty("marker", "hidden");
+    record.setProperty("value", 7);
+    installReadPolicy(className, true, "PredicateFilterFastPolicy");
+    commands.reset();
+    schemaClass.createProperty("value", PropertyType.INTEGER);
+    assertEquals(0, commands.get());
+    assertNull("S11 fast path leaves filter state unchanged", record.propertyAccess);
+    finishRollingBackTransaction();
+
+    var committedClass = session.getMetadata().getSchema().createClass(className);
+    session.begin();
+    var committedRecord = (EntityImpl) session.newEntity(className);
+    committedRecord.setProperty("marker", "hidden");
+    committedRecord.setProperty("value", 7);
+    installReadPolicy(className, true, "PredicateFilterQueryPolicy");
+    commands.reset();
+    committedClass.createProperty("value", PropertyType.INTEGER);
+    assertTrue(commands.get() > 0);
+    assertNotNull("S11 old path installs filter state", committedRecord.propertyAccess);
+    assertTrue("S11 old filter hides the protected property",
+        !committedRecord.checkPropertyAccess("value"));
+    finishRollingBackTransaction();
+  }
+
+  private void installReadPolicy(String className, boolean propertyPolicy, String policyName) {
+    var security = session.getSharedContext().getSecurity();
+    var policy = security.createSecurityPolicy(session, policyName);
+    policy.setActive(true);
+    policy.setReadRule("marker = 'visible'");
+    security.saveSecurityPolicy(session, policy);
+    var resource = "database.class." + className + (propertyPolicy ? ".value" : "");
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), resource, policy);
+  }
+
   private void assertGrantHiddenValidationDifference(
       Rule.ResourceGeneric resourceGeneric) {
     var suffix = resourceGeneric == Rule.ResourceGeneric.CLASS ? "Class" : "Collection";
@@ -305,6 +436,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
         transaction -> session.newEntity(queryName).setProperty("value", "bad"));
     prepareReaderForGrantTest(resourceGeneric, fastName, queryName);
     queryClass = session.getMetadata().getSchema().getClass(queryName);
+    var readerQueryClass = queryClass;
 
     session.begin();
     var fastClass = session.getMetadata().getSchema().createClass(fastName);
@@ -317,9 +449,14 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     finishRollingBackTransaction();
 
     commands.reset();
-    queryClass.createProperty("value", PropertyType.INTEGER);
+    if (resourceGeneric == Rule.ResourceGeneric.COLLECTION) {
+      assertThrows(SecurityAccessException.class,
+          () -> readerQueryClass.createProperty("value", PropertyType.INTEGER));
+    } else {
+      readerQueryClass.createProperty("value", PropertyType.INTEGER);
+      assertNotNull(readerQueryClass.getProperty("value"));
+    }
     assertTrue(commands.get() > 0);
-    assertNotNull(queryClass.getProperty("value"));
   }
 
   private void assertGrantHiddenMigrationDifference(
@@ -336,6 +473,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     });
     prepareReaderForGrantTest(resourceGeneric, fastName, queryName);
     queryClass = session.getMetadata().getSchema().getClass(queryName);
+    var readerQueryClass = queryClass;
 
     session.begin();
     var fastClass = session.getMetadata().getSchema().createClass(fastName);
@@ -348,7 +486,12 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     session.rollback();
 
     commands.reset();
-    queryClass.createProperty("value", PropertyType.INTEGER);
+    if (resourceGeneric == Rule.ResourceGeneric.COLLECTION) {
+      assertThrows(SecurityAccessException.class,
+          () -> readerQueryClass.createProperty("value", PropertyType.INTEGER));
+    } else {
+      readerQueryClass.createProperty("value", PropertyType.INTEGER);
+    }
     assertTrue(commands.get() > 0);
     reOpen(adminUser, adminPassword);
     var queryValueClass = session.computeInTx(
