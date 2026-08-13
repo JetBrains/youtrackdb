@@ -265,11 +265,15 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
 
   protected void addIndexInternalNoLock(final Index index, FrontendTransaction transaction,
       boolean updateEntity) {
-    if (index instanceof IndexAbstract indexAbstract) {
-      // A newly saved descriptor may receive its persistent RID only when its transaction applies.
-      // Bind storage-scoped state before publishing the handle to writers.
-      indexAbstract.attachDescriptorIdentity();
+    if (!(index instanceof IndexAbstract indexAbstract)) {
+      throw new IllegalStateException(
+          "index '" + index.getName() + "' has unexpected handle type "
+              + index.getClass().getName() + "; expected " + IndexAbstract.class.getName());
     }
+
+    // A newly saved descriptor may receive its persistent RID only when its transaction applies.
+    // Bind storage-scoped state before publishing the handle to writers.
+    indexAbstract.attachDescriptorIdentity();
 
     if (updateEntity) {
       var indexEntity = transaction.loadEntity(indexManagerIdentity);
