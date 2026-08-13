@@ -513,6 +513,12 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         engineIsRegistered(keepIndexName));
     assertTrue("the surviving committed index's engine must be reconstructed after the failed drop",
         engineIsRegistered(goneIndexName));
+    var restoredKeep = (IndexAbstract) indexManager.getIndex(keepIndexName);
+    var restoredGone = (IndexAbstract) indexManager.getIndex(goneIndexName);
+    assertEquals("the restored keep engine must be bound to its descriptor owner",
+        restoredKeep.getIndexId(), storage.resolveIndexEngineByOwner(restoredKeep.getIdentity()));
+    assertEquals("the restored gone engine must be bound to its descriptor owner",
+        restoredGone.getIndexId(), storage.resolveIndexEngineByOwner(restoredGone.getIdentity()));
 
     // The invariant bar: a query through the surviving index must return its committed row without an
     // unregistered-engine / null-slot throw — the whole point of the drop-restore arm.
