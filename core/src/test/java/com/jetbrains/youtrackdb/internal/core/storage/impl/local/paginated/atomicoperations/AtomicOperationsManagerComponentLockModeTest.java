@@ -129,9 +129,9 @@ public class AtomicOperationsManagerComponentLockModeTest {
     when(second.getLockName()).thenReturn("second");
     when(first.isSharedOwner()).thenReturn(true);
     when(second.isSharedOwner()).thenReturn(true);
-    doThrow(new IllegalMonitorStateException("first release failed"))
-        .when(first)
-        .unlockShared();
+    final var releaseFailure = new IllegalMonitorStateException("first release failed");
+    doThrow(releaseFailure).when(first).unlockShared();
+    doThrow(releaseFailure).when(second).unlockShared();
     when(operation.lockedComponents())
         .thenReturn(new ArrayList<>(java.util.List.of(first, second)));
     when(operation.lockedObjects()).thenReturn(new HashSet<>(java.util.Set.of("first", "second")));
