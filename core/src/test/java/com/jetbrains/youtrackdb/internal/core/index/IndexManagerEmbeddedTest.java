@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -15,6 +16,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -46,6 +48,31 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     cls.createProperty("val", PropertyType.INTEGER);
     cls.createProperty("name", PropertyType.STRING);
     cls.createIndex(IDX, SchemaClass.INDEX_TYPE.UNIQUE, "val");
+  }
+
+  /**
+   * Existing descriptors start usable, and a destructive manager reload attaches the replacement
+   * handle to the same storage-scoped lifecycle cell instead of resetting handle-local state.
+   */
+  @Test
+  public void reloadPreservesStorageScopedLifecycleCell() {
+    var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) manager.getIndex(IDX);
+    var cell = original.getLifecycleCell();
+
+    assertNotNull("an existing descriptor must have a lifecycle cell", cell);
+    assertEquals("existing indexes default to usable", IndexLifecycle.USABLE, cell.get());
+    assertEquals("the engine must bind to the loaded descriptor", original.getIdentity(),
+        original.getEngineReference().ownerDescriptorIdentity());
+    cell.set(IndexLifecycle.INVALID);
+
+    manager.reload(session);
+
+    var replacement = (IndexAbstract) manager.getIndex(IDX);
+    assertTrue("reload must replace the Java handle", original != replacement);
+    assertSame("reload must retain the storage-scoped cell", cell, replacement.getLifecycleCell());
+    assertEquals("reload must not reset the lifecycle value", IndexLifecycle.INVALID,
+        replacement.getLifecycleCell().get());
   }
 
   // -----------------------------------------------------------------------

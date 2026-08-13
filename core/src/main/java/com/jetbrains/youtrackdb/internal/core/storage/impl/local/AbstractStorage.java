@@ -81,6 +81,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -90,6 +91,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleRegistry;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -324,6 +327,8 @@ public abstract class AbstractStorage
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
+  private final IndexLifecycleRegistry indexLifecycleRegistry = new IndexLifecycleRegistry();
+  private long indexEngineGeneration;
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
   /**
@@ -4412,6 +4417,58 @@ public abstract class AbstractStorage
         }
       }
     }
+  }
+
+  /** Allocates process-local identity when a local engine object is constructed. */
+  public synchronized IndexEngineReference allocateIndexEngineReference(int slot, int apiVersion) {
+    if (indexEngineGeneration == Long.MAX_VALUE) {
+      throw new StorageException(name, "Index engine generation space is exhausted");
+    }
+
+    return new IndexEngineReference(slot, apiVersion, ++indexEngineGeneration);
+  }
+
+  /** Returns the stable lifecycle carrier for a durable index descriptor. */
+  public IndexLifecycleCell getOrCreateIndexLifecycle(RID descriptorIdentity) {
+    return indexLifecycleRegistry.getOrCreate(descriptorIdentity);
+  }
+
+  /**
+   * Binds a local engine to its durable descriptor after that descriptor obtains or loads its RID.
+   */
+  public IndexEngineReference bindIndexEngineToDescriptor(
+      int externalIndexId, RID descriptorIdentity) {
+    try {
+      if (isCommitWindowActive()) {
+        return bindIndexEngineToDescriptorWithStateLock(externalIndexId, descriptorIdentity);
+      }
+
+      stateLock.readLock().lock();
+      try {
+        return bindIndexEngineToDescriptorWithStateLock(externalIndexId, descriptorIdentity);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (RuntimeException e) {
+      throw logAndPrepareForRethrow(e);
+    }
+  }
+
+  private IndexEngineReference bindIndexEngineToDescriptorWithStateLock(
+      int externalIndexId, RID descriptorIdentity) {
+    final var internalIndexId = extractInternalId(externalIndexId);
+    try {
+      checkIndexId(internalIndexId);
+    } catch (InvalidIndexEngineIdException e) {
+      throw new IllegalStateException("Cannot bind an unregistered index engine", e);
+    }
+
+    final var reference = indexEngines.get(internalIndexId).getEngineReference();
+    if (reference == null) {
+      throw new IllegalStateException("Local index engine has no process-local reference");
+    }
+    reference.bindOwner(descriptorIdentity);
+    return reference;
   }
 
   public int loadIndexEngine(final String name) {

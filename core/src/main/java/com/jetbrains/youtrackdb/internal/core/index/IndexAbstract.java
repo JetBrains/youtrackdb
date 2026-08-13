@@ -39,8 +39,10 @@ import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -85,6 +87,8 @@ public abstract class IndexAbstract implements Index {
   private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
   protected volatile int indexId = -1;
+  @Nullable private volatile IndexEngineReference engineReference;
+  @Nullable private volatile IndexLifecycleCell lifecycleCell;
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
@@ -206,6 +210,7 @@ public abstract class IndexAbstract implements Index {
       onIndexEngineChange(transaction.getDatabaseSession(), indexId);
 
       save(transaction);
+      attachDescriptorIdentity();
     } catch (Exception e) {
       LogManager.instance().error(this, "Exception during index '%s' creation", e, im.getName());
       // index is created inside of storage
@@ -556,6 +561,7 @@ public abstract class IndexAbstract implements Index {
       // the recorded ids, so recording only after a fully-successful build would leave such a
       // failure's engine behind as a phantom registration no revert arm ever removes.
       createdEngineExternalIds.add(indexId);
+      attachDescriptorIdentity();
       onIndexEngineChange(transaction.getDatabaseSession(), indexId);
     } finally {
       releaseExclusiveLock();
@@ -598,7 +604,29 @@ public abstract class IndexAbstract implements Index {
       throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
     }
 
+    attachDescriptorIdentity();
     onIndexEngineChange(transaction.getDatabaseSession(), indexId);
+  }
+
+  void attachDescriptorIdentity() {
+    if (identity == null || !identity.isPersistent()) {
+      return;
+    }
+
+    lifecycleCell = storage.getOrCreateIndexLifecycle(identity);
+    if (indexId >= 0) {
+      engineReference = storage.bindIndexEngineToDescriptor(indexId, identity);
+    }
+  }
+
+  IndexLifecycleCell getLifecycleCell() {
+    attachDescriptorIdentity();
+    return lifecycleCell;
+  }
+
+  IndexEngineReference getEngineReference() {
+    attachDescriptorIdentity();
+    return engineReference;
   }
 
   @Override
@@ -689,6 +717,7 @@ public abstract class IndexAbstract implements Index {
         session.getSharedContext().getIndexManager()
             .addIndexInternal(session, tx, this, true);
       });
+      attachDescriptorIdentity();
     } catch (Exception e) {
       try {
         if (indexId >= 0) {
@@ -1288,6 +1317,9 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public int getIndexId() {
+    // Newly created descriptor RIDs become persistent after their creating transaction applies.
+    // Attach before the first writer can dereference the engine through this identifier.
+    attachDescriptorIdentity();
     return indexId;
   }
 
