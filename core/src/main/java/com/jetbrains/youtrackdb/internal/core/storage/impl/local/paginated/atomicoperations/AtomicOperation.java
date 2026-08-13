@@ -178,8 +178,6 @@ public interface AtomicOperation {
     SHARED, EXCLUSIVE
   }
 
-  boolean containsInLockedObjects(String lockName);
-
   @Nullable ComponentLockMode lockedObjectMode(String lockName);
 
   void addLockedObject(String lockName, ComponentLockMode mode);
@@ -195,8 +193,17 @@ public interface AtomicOperation {
   /** Tracks a locked StorageComponent so it can be released at operation end. */
   void addLockedComponent(StorageComponent component);
 
-  /** Returns the number of distinct physical pages touched by this operation. */
+  /** Enables exact distinct-page accounting for this operation. Disabled by default. */
+  void enablePageTracking();
+
+  /** Returns the tracked distinct-page count, or zero while tracking is disabled. */
   int touchedPagesCount();
+
+  /**
+   * Enforces the one-collection contract of caller-owned record writes. Future multi-collection
+   * support must acquire collection locks in ascending identifier order before any mutation.
+   */
+  void validateRecordCollectionLockOrder(int collectionId);
 
   /** Returns the StorageComponents locked by this operation. */
   Iterable<StorageComponent> lockedComponents();

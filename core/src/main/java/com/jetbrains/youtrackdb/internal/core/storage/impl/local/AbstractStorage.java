@@ -4409,18 +4409,13 @@ public abstract class AbstractStorage
 
   public int loadIndexEngine(final String name) {
     try {
+      if (isCommitWindowActive()) {
+        return loadIndexEngineWithStateLock(name);
+      }
+
       stateLock.readLock().lock();
       try {
-
-        checkOpennessAndMigration();
-
-        final var engine = indexEngineNameMap.get(name);
-        if (engine == null) {
-          return -1;
-        }
-        final var indexId = indexEngines.indexOf(engine);
-        assert indexId == engine.getId();
-        return generateIndexId(indexId, engine);
+        return loadIndexEngineWithStateLock(name);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -4431,6 +4426,23 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /** Resolves an engine identifier by name while the caller retains the storage state lock. */
+  public int loadIndexEngineWithStateLock(final String name) {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine reload requires the storage state lock or an active commit window");
+    }
+
+    checkOpennessAndMigration();
+    final var engine = indexEngineNameMap.get(name);
+    if (engine == null) {
+      return -1;
+    }
+    final var indexId = indexEngines.indexOf(engine);
+    assert indexId == engine.getId();
+    return generateIndexId(indexId, engine);
   }
 
   public int loadExternalIndexEngine(
@@ -6797,8 +6809,9 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Creates a record inside a caller-owned atomic operation. The caller owns the state-lock
-   * lifetime, while this method ensures the target collection is locked exclusively.
+   * Creates a record inside a caller-owned atomic operation. One operation may use these record
+   * primitives for one collection only. Future multi-collection support must lock collections in
+   * ascending identifier order before mutation.
    *
    * @return the initial durable record version
    */
@@ -6806,7 +6819,7 @@ public abstract class AbstractStorage
       final AtomicOperation atomicOperation,
       final RecordIdInternal rid,
       @Nonnull final byte[] content,
-      final byte recordType) {
+      final byte recordType) throws IOException {
     checkCallerOwnsStateLock();
     checkOpennessAndMigration();
     if (!rid.isNew() || !(rid instanceof ChangeableRecordId)) {
@@ -6814,6 +6827,8 @@ public abstract class AbstractStorage
           "Record creation requires a new changeable record identifier: " + rid);
     }
 
+    atomicOperation.validateRecordCollectionLockOrder(rid.getCollectionId());
+    makeStorageDirty();
     final var collection = doGetAndCheckCollection(rid.getCollectionId());
     collection.acquireAtomicExclusiveLock(atomicOperation);
     final var position =
@@ -6829,7 +6844,9 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Updates a record inside a caller-owned atomic operation and checks its durable version.
+   * Updates a record inside a caller-owned atomic operation and checks its durable version. One
+   * operation may use these record primitives for one collection only. Future multi-collection
+   * support must lock collections in ascending identifier order before mutation.
    *
    * @return the new durable record version
    */
@@ -6838,13 +6855,15 @@ public abstract class AbstractStorage
       final RecordIdInternal rid,
       @Nonnull final byte[] content,
       final long expectedVersion,
-      final byte recordType) {
+      final byte recordType) throws IOException {
     checkCallerOwnsStateLock();
     checkOpennessAndMigration();
     if (!rid.isPersistent()) {
       throw new IllegalArgumentException("Record update requires a persistent identifier: " + rid);
     }
 
+    atomicOperation.validateRecordCollectionLockOrder(rid.getCollectionId());
+    makeStorageDirty();
     final var collection = doGetAndCheckCollection(rid.getCollectionId());
     collection.acquireAtomicExclusiveLock(atomicOperation);
     return doUpdateRecord(
