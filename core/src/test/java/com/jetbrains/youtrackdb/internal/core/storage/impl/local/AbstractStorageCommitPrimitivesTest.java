@@ -894,26 +894,65 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
-  /** Every non-null local registry entry must expose a process-local engine reference. */
+  /** A reference-less engine is skipped while another engine resolves for the requested owner. */
   @Test
-  public void ownerResolverRejectsRegisteredEngineWithoutReference() throws Exception {
+  public void ownerResolverSkipsReferenceLessEngineAndFindsRequestedOwner() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionReferenceLessPeer");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionReferenceLessPeer.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
     var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var expectedEngine = findEngineByName(storage, indexName);
     var engines = indexEngines(storage);
-    var referenceLessEngine = Mockito.mock(BaseIndexEngine.class);
-    engines.add(referenceLessEngine);
+    engines.add(Mockito.mock(BaseIndexEngine.class));
     try {
-      assertThatThrownBy(() -> storage.resolveIndexEngineByOwner(new RecordId(93, 19)))
-          .isInstanceOf(StorageException.class)
-          .hasMessageContaining("has no process-local reference");
+      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()))
+          .isEqualTo(externalIdOf(expectedEngine));
     } finally {
       engines.remove(engines.size() - 1);
     }
   }
 
-  /** A restored reference-less engine remains published even though its owner cannot be bound. */
+  /** A stale handle for a reference-less engine fails closed with the typed stale exception. */
   @Test
-  public void restoredReferenceLessEngineIsPublishedWithoutOwnerBinding() throws Exception {
+  public void referenceLessEngineHandleFailsClosedWithStaleException() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionReferenceLessHandle");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionReferenceLessHandle.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
     var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engines = indexEngines(storage);
+    var original = findEngineByName(storage, indexName);
+    var referenceLessEngine = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(referenceLessEngine.getId()).thenReturn(original.getId());
+    Mockito.when(referenceLessEngine.getName()).thenReturn(indexName);
+    engines.set(original.getId(), referenceLessEngine);
+    setIndexIdentifier(index, index.getIndexId() | 1_000_000);
+    try {
+      assertThatThrownBy(() -> index.getStatistics(db))
+          .isExactlyInstanceOf(StaleIndexEngineException.class)
+          .hasMessageContaining(index.getIdentity().toString());
+    } finally {
+      engines.set(original.getId(), original);
+    }
+  }
+
+  /** A restored reference-less engine cannot poison owner resolution for another index. */
+  @Test
+  public void restoredReferenceLessEngineDoesNotPoisonUnrelatedOwnerResolution() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionAfterReferenceLessRestore");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionAfterReferenceLessRestore.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var unrelatedIndex =
+        (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var unrelatedEngine = findEngineByName(storage, indexName);
     var engines = indexEngines(storage);
     var engine = Mockito.mock(BaseIndexEngine.class);
     var engineName = "restored-reference-less";
@@ -927,6 +966,8 @@ public class AbstractStorageCommitPrimitivesTest {
 
     assertThat(engines.get(slot)).isSameAs(engine);
     assertThat(storage.loadIndexEngine(engineName)).isGreaterThanOrEqualTo(0);
+    assertThat(storage.resolveIndexEngineByOwner(unrelatedIndex.getIdentity()))
+        .isEqualTo(externalIdOf(unrelatedEngine));
   }
 
   /** The lock-held owner resolver rejects a caller without a state lock or commit window. */
@@ -989,6 +1030,13 @@ public class AbstractStorageCommitPrimitivesTest {
     var field = AbstractStorage.class.getDeclaredField("indexEngines");
     field.setAccessible(true);
     return (List<BaseIndexEngine>) field.get(storage);
+  }
+
+  private static void setIndexIdentifier(IndexAbstract index, int indexIdentifier)
+      throws Exception {
+    var field = IndexAbstract.class.getDeclaredField("indexId");
+    field.setAccessible(true);
+    field.setInt(index, indexIdentifier);
   }
 
   private static BaseIndexEngine findEngineByName(AbstractStorage storage, String name)
