@@ -34,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
@@ -565,6 +566,48 @@ public abstract class IndexAbstract implements Index {
     } finally {
       releaseExclusiveLock();
     }
+  }
+
+  protected final int resolveOwnedEngineIdentifier() {
+    final var descriptorIdentity = identity;
+    if (descriptorIdentity == null) {
+      throw new StaleIndexEngineException(
+          storage.getName(),
+          "Cannot recover index '" + getName() + "' for descriptor null: the handle has no owner");
+    }
+
+    final int resolvedIdentifier;
+    try {
+      resolvedIdentifier = storage.resolveIndexEngineByOwner(descriptorIdentity);
+    } catch (StaleIndexEngineException exception) {
+      throw new StaleIndexEngineException(
+          storage.getName(),
+          "Cannot recover index '" + getName() + "' for descriptor " + descriptorIdentity
+              + ": no registered engine has that owner");
+    }
+    indexId = resolvedIdentifier;
+    return resolvedIdentifier;
+  }
+
+  private int resolveOwnedEngineIdentifierWithStateLock() {
+    final var descriptorIdentity = identity;
+    if (descriptorIdentity == null) {
+      throw new StaleIndexEngineException(
+          storage.getName(),
+          "Cannot recover index '" + getName() + "' for descriptor null: the handle has no owner");
+    }
+
+    final int resolvedIdentifier;
+    try {
+      resolvedIdentifier = storage.resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+    } catch (StaleIndexEngineException exception) {
+      throw new StaleIndexEngineException(
+          storage.getName(),
+          "Cannot recover index '" + getName() + "' for descriptor " + descriptorIdentity
+              + ": no registered engine has that owner");
+    }
+    indexId = resolvedIdentifier;
+    return resolvedIdentifier;
   }
 
   protected void doReloadIndexEngine() {

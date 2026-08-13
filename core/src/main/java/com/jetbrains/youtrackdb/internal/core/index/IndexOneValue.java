@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AscComparator;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.DescComparator;
@@ -90,6 +91,7 @@ public abstract class IndexOneValue extends IndexAbstract {
         // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
         return Stream.empty();
       }
+      boolean recovered = false;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -97,7 +99,14 @@ public abstract class IndexOneValue extends IndexAbstract {
           stream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + identity);
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
     } finally {
@@ -159,6 +168,7 @@ public abstract class IndexOneValue extends IndexAbstract {
                       final var collatedKey = getCollatingValue(key);
                       acquireSharedLock();
                       try {
+                        boolean recovered = false;
                         while (true) {
                           try {
                             return storage
@@ -166,7 +176,15 @@ public abstract class IndexOneValue extends IndexAbstract {
                                     transaction.getAtomicOperation())
                                 .map((rid) -> new RawPair<>(collatedKey, rid));
                           } catch (InvalidIndexEngineIdException ignore) {
-                            doReloadIndexEngine();
+                            if (recovered) {
+                              throw new StaleIndexEngineException(
+                                  storage.getName(),
+                                  "Index '" + getName()
+                                      + "' remained stale after owner-bound recovery for"
+                                      + " descriptor " + identity);
+                            }
+                            resolveOwnedEngineIdentifier();
+                            recovered = true;
                           }
                         }
                       } finally {
@@ -210,6 +228,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      boolean recovered = false;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -222,7 +241,14 @@ public abstract class IndexOneValue extends IndexAbstract {
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + identity);
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
     } finally {
@@ -265,6 +291,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      boolean recovered = false;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -277,7 +304,14 @@ public abstract class IndexOneValue extends IndexAbstract {
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + identity);
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
     } finally {
@@ -324,6 +358,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      boolean recovered = false;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -335,7 +370,14 @@ public abstract class IndexOneValue extends IndexAbstract {
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + identity);
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
 
@@ -383,12 +425,20 @@ public abstract class IndexOneValue extends IndexAbstract {
         // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
         return 0;
       }
+      boolean recovered = false;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
           return storage.getIndexSize(indexId, null, transaction.getAtomicOperation());
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + identity);
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
     } finally {
@@ -401,6 +451,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      boolean recovered = false;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -411,7 +462,14 @@ public abstract class IndexOneValue extends IndexAbstract {
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + identity);
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
     } finally {
@@ -441,6 +499,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      boolean recovered = false;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -451,7 +510,14 @@ public abstract class IndexOneValue extends IndexAbstract {
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + identity);
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
     } finally {
