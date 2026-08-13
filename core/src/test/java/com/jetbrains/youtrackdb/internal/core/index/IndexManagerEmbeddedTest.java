@@ -51,6 +51,25 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     cls.createIndex(IDX, SchemaClass.INDEX_TYPE.UNIQUE, "val");
   }
 
+  /** A foreign index implementation is rejected before the committed registry is mutated. */
+  @Test
+  public void addIndexInternalNoLockRejectsForeignHandleBeforePublication() {
+    var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var foreignIndex = mock(Index.class);
+    var foreignName = "foreign-index-handle";
+    when(foreignIndex.getName()).thenReturn(foreignName);
+
+    var exception = assertThrows(IllegalStateException.class,
+        () -> manager.addIndexInternalNoLock(foreignIndex, null, false));
+
+    assertTrue("the invariant failure must name the index",
+        exception.getMessage().contains(foreignName));
+    assertTrue("the invariant failure must name the unexpected type",
+        exception.getMessage().contains(foreignIndex.getClass().getName()));
+    assertFalse("the rejected handle must not enter the committed registry",
+        manager.indexes.containsKey(foreignName));
+  }
+
   /**
    * Existing descriptors start usable, and a destructive manager reload attaches the replacement
    * handle to the same storage-scoped lifecycle cell instead of resetting handle-local state.
