@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -672,6 +673,11 @@ public class IndexEngineFileBaseIdTest {
           oldFileBaseId, restored.getFileBaseId());
       assertTrue("the in-memory registry must still resolve the old engine",
           storage.loadIndexEngine("FbiDRFIdx") >= 0);
+      var restoredIndex = (IndexAbstract) session.getSharedContext().getIndexManager()
+          .getIndex("FbiDRFIdx");
+      assertEquals("the restored engine must be bound to its descriptor owner",
+          restoredIndex.getIndexId(),
+          storage.resolveIndexEngineByOwner(restoredIndex.getIdentity()));
 
       // The invariant bar: the index is still fully usable after the failed commit.
       session.executeInTx(tx -> tx.newEntity("FbiDropRecreateFail").setProperty("val", "alive"));

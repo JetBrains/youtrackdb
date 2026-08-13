@@ -3828,7 +3828,10 @@ public abstract class AbstractStorage
    * path (the delete's own {@code IndexHistogramManager} teardown makes the live engine object
    * unusable, so the failure path never re-publishes the torn object).
    */
-  public record DroppedIndexEngine(int internalId, IndexEngineData data) {
+  public record DroppedIndexEngine(
+      int internalId,
+      IndexEngineData data,
+      @Nullable RID ownerDescriptorIdentity) {
 
   }
 
@@ -3869,14 +3872,22 @@ public abstract class AbstractStorage
     assert internalIndexId == engine.getId();
 
     // Capture the durable engine data before the delete removes the config entry it reads. The
-    // captured data (not the torn live engine) drives the failure-path reconstruction.
+    // captured data (not the torn live engine) drives the failure-path reconstruction. Copy the
+    // owner because commit apply can mutate its ChangeableRecordId in place after this capture.
+    final var ownerDescriptorIdentity = engine.getEngineReference() == null
+        ? null
+        : engine.getEngineReference().ownerDescriptorIdentity();
+    final var copiedOwnerDescriptorIdentity = ownerDescriptorIdentity == null
+        ? null
+        : new RecordId(ownerDescriptorIdentity.getCollectionId(),
+            ownerDescriptorIdentity.getCollectionPosition());
     final var capturedData =
         configuration.getIndexEngine(engine.getName(), internalIndexId, atomicOperation);
 
     doDeleteIndexEngine(atomicOperation, engine);
     indexEngines.set(internalIndexId, null);
     indexEngineNameMap.remove(engine.getName());
-    return new DroppedIndexEngine(internalIndexId, capturedData);
+    return new DroppedIndexEngine(internalIndexId, capturedData, copiedOwnerDescriptorIdentity);
   }
 
   /**
@@ -3972,6 +3983,9 @@ public abstract class AbstractStorage
               engine.load(engineData, atomicOperation);
               if (engine instanceof BTreeIndexEngine btreeEngine) {
                 wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
+              }
+              if (dropped.ownerDescriptorIdentity() != null) {
+                engine.getEngineReference().bindOwner(dropped.ownerDescriptorIdentity());
               }
               publishIndexEngine(engineData.getIndexId(), engine);
             });
