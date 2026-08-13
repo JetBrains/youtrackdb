@@ -4864,7 +4864,7 @@ public abstract class AbstractStorage
         | internalId;
   }
 
-  public static int extractInternalId(final int externalId) {
+  private static int extractInternalId(final int externalId) {
     if (externalId < 0) {
       throw new IllegalStateException("Index id has to be positive");
     }

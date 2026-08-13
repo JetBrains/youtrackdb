@@ -981,8 +981,11 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
       return (IndexAbstract) index;
     });
-    // The descriptor RID becomes persistent when computeInTxInternal returns. Attach before fill or
-    // any caller can reach the newly published handle.
+    // The descriptor RID becomes persistent only when computeInTxInternal returns. The manager map
+    // can therefore expose this handle briefly without an attachment, despite the pre-publication
+    // attempt in addIndexInternalNoLock. That window is harmless today because attachment accessors
+    // explicitly return empty and no production path consumes them. Attach before fill returns the
+    // handle to its creator. Later consumers must preserve the defined empty-result handling.
     idx.attachDescriptorIdentity();
 
     if (progressListener == null)
