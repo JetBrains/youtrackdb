@@ -82,6 +82,33 @@ public class AbstractStorageCommitPrimitivesTest {
 
   // ---- Public-wrapper behavior preservation ----
 
+  /** A transaction-created engine receives a fresh generation when it reuses a dropped slot. */
+  @Test
+  public void reusedIndexEngineSlotReceivesNewGeneration() throws Exception {
+    var cls = db.createVertexClass("GenerationReuse");
+    cls.createProperty("name", PropertyType.STRING);
+    var firstName = "GenerationReuse.first";
+    cls.createIndex(firstName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var firstReference = findEngineByName(storage, firstName).getEngineReference();
+    assertThat(firstReference).isNotNull();
+
+    var indexManager = db.getSharedContext().getIndexManager();
+    db.executeInTx(tx -> indexManager.dropIndex(db, firstName));
+
+    var secondName = "GenerationReuse.second";
+    db.begin();
+    db.getMetadata().getSchema().getClass("GenerationReuse")
+        .createIndex(secondName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    db.commit();
+
+    var secondReference = findEngineByName(storage, secondName).getEngineReference();
+    assertThat(secondReference).isNotNull();
+    assertThat(secondReference.slot()).isEqualTo(firstReference.slot());
+    assertThat(secondReference.generation()).isGreaterThan(firstReference.generation());
+  }
+
   // The public addIndexEngine wrapper (now allocate-id + doAddIndexEngine + publish) must
   // still register the engine so that getIndexEngine resolves it by id and the registry
   // carries it by name. Creating a UNIQUE index drives addIndexEngine internally.

@@ -16,6 +16,16 @@ public interface BaseIndexEngine {
 
   int getId();
 
+  /**
+   * Returns process-local identity for engines published in a local storage registry.
+   *
+   * <p>Remote engines intentionally return {@code null}. They are not held in the local storage
+   * engine list, so slot generations and descriptor ownership do not apply to them.
+   */
+  @Nullable default IndexEngineReference getEngineReference() {
+    return null;
+  }
+
   void init(DatabaseSessionEmbedded session, IndexMetadata metadata);
 
   void flush();
