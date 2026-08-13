@@ -3923,6 +3923,25 @@ public abstract class AbstractStorage
     }
   }
 
+  void bindOwnerAndPublishRestoredIndexEngine(
+      int indexId, BaseIndexEngine engine, @Nullable RID ownerDescriptorIdentity) {
+    if (ownerDescriptorIdentity != null) {
+      final var engineReference = engine.getEngineReference();
+      if (engineReference != null) {
+        engineReference.bindOwner(ownerDescriptorIdentity);
+      } else {
+        // Publish reference-less engines because preserving the surviving committed index is safer
+        // than turning optional process-local ownership metadata into a restore failure.
+        LogManager.instance().warn(
+            this,
+            "Restored index engine '" + engine.getName()
+                + "' exposes no process-local reference. Owner " + ownerDescriptorIdentity
+                + " was not bound");
+      }
+    }
+    publishIndexEngine(indexId, engine);
+  }
+
   /**
    * Restores the in-memory engine registry for every engine a failed schema-carry commit dropped, the
    * drop-side mirror of {@link #undoReconciledCollections}'s re-register arm. {@link
@@ -3984,10 +4003,8 @@ public abstract class AbstractStorage
               if (engine instanceof BTreeIndexEngine btreeEngine) {
                 wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
               }
-              if (dropped.ownerDescriptorIdentity() != null) {
-                engine.getEngineReference().bindOwner(dropped.ownerDescriptorIdentity());
-              }
-              publishIndexEngine(engineData.getIndexId(), engine);
+              bindOwnerAndPublishRestoredIndexEngine(
+                  engineData.getIndexId(), engine, dropped.ownerDescriptorIdentity());
             });
       } catch (final IOException | RuntimeException | AssertionError e) {
         // Loud failure containment: the reconstruction runs while the primary commit exception is
