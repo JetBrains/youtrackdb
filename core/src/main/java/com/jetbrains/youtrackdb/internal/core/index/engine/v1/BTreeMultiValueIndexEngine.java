@@ -91,17 +91,11 @@ public final class BTreeMultiValueIndexEngine
 
   public BTreeMultiValueIndexEngine(
       int id, int fileBaseId, @Nonnull String name, AbstractStorage storage, final int version) {
-    this(id, fileBaseId, name, storage, version, new IndexEngineReference(id, API_VERSION, 1));
-  }
-
-  public BTreeMultiValueIndexEngine(
-      int id, int fileBaseId, @Nonnull String name, AbstractStorage storage, final int version,
-      IndexEngineReference engineReference) {
     this.id = id;
     this.fileBaseId = fileBaseId;
     this.name = name;
     this.storage = storage;
-    this.engineReference = engineReference;
+    this.engineReference = storage.allocateIndexEngineReference(id, API_VERSION);
     // Both components (and therefore their files) are keyed by the stable file base id, not the
     // index name — the single name domain for engine storage components.
     final var stem = AbstractStorage.indexEngineFileStem(fileBaseId);

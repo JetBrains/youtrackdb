@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
@@ -82,6 +83,39 @@ public class AbstractStorageCommitPrimitivesTest {
 
   // ---- Public-wrapper behavior preservation ----
 
+  /** Reading an attached identifier never nests or releases the caller's storage state read lock. */
+  @Test
+  public void indexIdentifierAccessorDoesNotTouchStorageStateLock() {
+    var cls = db.createVertexClass("PureIndexIdentifier");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "PureIndexIdentifier.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var index = db.getSharedContext().getIndexManager().getIndex(indexName);
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThat(index.getIndexId()).isGreaterThanOrEqualTo(0);
+      assertThat(storage.stateLock.isReadLockedByCurrentThread()).isTrue();
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+  }
+
+  /** Older engine constructors also allocate unique process-local generations through storage. */
+  @Test
+  public void olderEngineConstructorAllocatesUniqueGenerations() {
+    var storage = (AbstractStorage) db.getStorage();
+
+    var first = new BTreeSingleValueIndexEngine(7, 101, "legacy-first", storage, 4);
+    var second = new BTreeSingleValueIndexEngine(7, 102, "legacy-second", storage, 4);
+
+    assertThat(first.getEngineReference().slot()).isEqualTo(7);
+    assertThat(second.getEngineReference().slot()).isEqualTo(7);
+    assertThat(second.getEngineReference().generation())
+        .isGreaterThan(first.getEngineReference().generation());
+  }
+
   /** A transaction-created engine receives a fresh generation when it reuses a dropped slot. */
   @Test
   public void reusedIndexEngineSlotReceivesNewGeneration() throws Exception {
@@ -93,6 +127,8 @@ public class AbstractStorageCommitPrimitivesTest {
     var storage = (AbstractStorage) db.getStorage();
     var firstReference = findEngineByName(storage, firstName).getEngineReference();
     assertThat(firstReference).isNotNull();
+    var firstIndex = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(firstName);
+    var firstIndexId = firstIndex.getIndexId();
 
     var indexManager = db.getSharedContext().getIndexManager();
     db.executeInTx(tx -> indexManager.dropIndex(db, firstName));
@@ -107,6 +143,10 @@ public class AbstractStorageCommitPrimitivesTest {
     assertThat(secondReference).isNotNull();
     assertThat(secondReference.slot()).isEqualTo(firstReference.slot());
     assertThat(secondReference.generation()).isGreaterThan(firstReference.generation());
+    assertThatThrownBy(() -> storage.bindIndexEngineToDescriptor(
+        firstIndexId, firstIndex.getIdentity(), firstReference))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("reference changed");
   }
 
   // The public addIndexEngine wrapper (now allocate-id + doAddIndexEngine + publish) must

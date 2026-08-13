@@ -989,6 +989,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
       return (IndexAbstract) index;
     });
+    // The descriptor RID becomes persistent when computeInTxInternal returns. Attach before fill or
+    // any caller can reach the newly published handle.
+    idx.attachDescriptorIdentity();
 
     if (progressListener == null)
     // ASSIGN DEFAULT PROGRESS LISTENER
@@ -1195,20 +1198,24 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return;
     }
 
+    final IndexAbstract[] droppedIndex = new IndexAbstract[1];
     session.executeInTxInternal(transaction -> {
       acquireExclusiveLock(transaction);
       try {
-        Index idx;
-        idx = indexes.get(iIndexName);
+        final var idx = indexes.get(iIndexName);
         if (idx != null) {
           removeClassPropertyIndexInternal(idx);
           idx.delete(transaction);
           indexes.remove(iIndexName);
+          droppedIndex[0] = (IndexAbstract) idx;
         }
       } finally {
         releaseExclusiveLock(session, true);
       }
     });
+    if (droppedIndex[0] != null) {
+      droppedIndex[0].removeLifecycleRegistration();
+    }
   }
 
   /**
@@ -1654,6 +1661,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     for (final var droppedIndex : plan.dropped()) {
       removeClassPropertyIndexInternal(droppedIndex);
       indexes.remove(droppedIndex.getName());
+      ((IndexAbstract) droppedIndex).removeLifecycleRegistration();
       runReconciledIndexPublicationTestHook();
     }
     // The rename re-association's in-memory half: install the replacement metadata wholesale (a

@@ -10,10 +10,14 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -32,6 +36,61 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
   // Inline class names per test keep each fixture independent. Constants would only be useful
   // if multiple tests shared the same class — which they don't here.
   private static final String CLASS_NAME = "AbsCorePathsTest";
+
+  /** A lock-free identifier reader cannot attach a replacement engine to the old rebuild RID. */
+  @Test
+  public void identifierAccessorRacingRebuildCannotBindStaleDescriptor() throws Exception {
+    var cls = session.createClass("AccessorRebuildRace");
+    cls.createProperty("value", PropertyType.INTEGER);
+    var indexName = "AccessorRebuildRace.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    session.executeInTx(tx -> {
+      for (var i = 0; i < 500; i++) {
+        tx.newEntity("AccessorRebuildRace").setProperty("value", i);
+      }
+    });
+
+    var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(indexName);
+    var oldDescriptorIdentity = index.getIdentity();
+    var oldIndexId = index.getIndexId();
+    var started = new CountDownLatch(1);
+    var stop = new AtomicBoolean();
+    var observedReplacement = new AtomicBoolean();
+    var readerFailure = new AtomicReference<Throwable>();
+    var reader = new Thread(() -> {
+      started.countDown();
+      try {
+        while (!stop.get()) {
+          if (index.getIndexId() != oldIndexId) {
+            observedReplacement.set(true);
+          }
+        }
+      } catch (Throwable failure) {
+        readerFailure.set(failure);
+      }
+    }, "index-id-reader");
+
+    reader.start();
+    started.await();
+    try {
+      index.rebuild(session);
+      for (var i = 0; i < 10_000 && !observedReplacement.get(); i++) {
+        Thread.onSpinWait();
+      }
+    } finally {
+      stop.set(true);
+      reader.join();
+    }
+
+    assertNull("the pure identifier accessor must not fail during rebuild", readerFailure.get());
+    assertTrue("the reader must observe the replacement engine", observedReplacement.get());
+    assertFalse("rebuild must allocate a fresh descriptor identity",
+        oldDescriptorIdentity.equals(index.getIdentity()));
+    assertEquals("the replacement engine must bind to the replacement descriptor",
+        index.getIdentity(), index.getEngineReference().ownerDescriptorIdentity());
+    assertNull("the replaced descriptor must leave the lifecycle registry",
+        ((AbstractStorage) session.getStorage()).getIndexLifecycle(oldDescriptorIdentity));
+  }
 
   // -----------------------------------------------------------------------
   //  Key normalization: enhanceToCompositeKeyBetweenAsc / Desc

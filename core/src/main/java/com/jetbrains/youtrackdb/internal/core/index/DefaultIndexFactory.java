@@ -19,7 +19,6 @@ import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
@@ -132,19 +131,16 @@ public class DefaultIndexFactory implements IndexFactory {
       case "memory", "disk" -> {
         var realStorage = (AbstractStorage) storage;
         if (data.getAlgorithm().equals(BTREE_ALGORITHM)) {
-          var engineReference =
-              realStorage.allocateIndexEngineReference(data.getIndexId(),
-                  V1IndexEngine.API_VERSION);
           if (data.isMultivalue()) {
             indexEngine =
                 new BTreeMultiValueIndexEngine(
                     data.getIndexId(), data.getFileBaseId(), data.getName(), realStorage,
-                    version, engineReference);
+                    version);
           } else {
             indexEngine =
                 new BTreeSingleValueIndexEngine(
                     data.getIndexId(), data.getFileBaseId(), data.getName(), realStorage,
-                    version, engineReference);
+                    version);
           }
         } else {
           throw new IllegalStateException("Invalid name of algorithm :'" + "'");
