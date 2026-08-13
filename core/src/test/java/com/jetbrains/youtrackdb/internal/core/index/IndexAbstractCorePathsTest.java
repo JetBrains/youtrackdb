@@ -8,6 +8,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -16,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
@@ -37,6 +40,43 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
   // if multiple tests shared the same class — which they don't here.
   private static final String CLASS_NAME = "AbsCorePathsTest";
 
+  /** Reattachment refreshes a same-slot engine replacement when its generation changes. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void attachmentRefreshesSameSlotReplacementGeneration() throws Exception {
+    var cls = session.createClass("SameSlotRefresh");
+    cls.createProperty("value", PropertyType.INTEGER);
+    var indexName = "SameSlotRefresh.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(indexName);
+    var oldReference = index.getEngineReference();
+    var oldCell = index.getLifecycleCell();
+    var storage = (AbstractStorage) session.getStorage();
+    var enginesField = AbstractStorage.class.getDeclaredField("indexEngines");
+    enginesField.setAccessible(true);
+    var engines = (List<BaseIndexEngine>) enginesField.get(storage);
+    var oldEngine = (BTreeSingleValueIndexEngine) engines.get(oldReference.slot());
+    var replacement = new BTreeSingleValueIndexEngine(
+        oldReference.slot(), oldEngine.getFileBaseId(), oldEngine.getName(), storage, 4);
+
+    engines.set(oldReference.slot(), replacement);
+    try {
+      index.attachDescriptorIdentity();
+
+      assertSame("attachment must install the replacement reference",
+          replacement.getEngineReference(), index.getEngineReference());
+      assertTrue("the replacement generation must advance",
+          index.getEngineReference().generation() > oldReference.generation());
+      assertEquals("the replacement must bind to the existing descriptor", index.getIdentity(),
+          index.getEngineReference().ownerDescriptorIdentity());
+      assertSame("an engine replacement must retain the descriptor lifecycle cell", oldCell,
+          index.getLifecycleCell());
+    } finally {
+      engines.set(oldReference.slot(), oldEngine);
+    }
+  }
+
   /** A lock-free identifier reader cannot attach a replacement engine to the old rebuild RID. */
   @Test
   public void identifierAccessorRacingRebuildCannotBindStaleDescriptor() throws Exception {
@@ -54,15 +94,17 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
     var oldDescriptorIdentity = index.getIdentity();
     var oldIndexId = index.getIndexId();
     var started = new CountDownLatch(1);
+    var observedReplacement = new CountDownLatch(1);
     var stop = new AtomicBoolean();
-    var observedReplacement = new AtomicBoolean();
     var readerFailure = new AtomicReference<Throwable>();
     var reader = new Thread(() -> {
       started.countDown();
+      var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
       try {
-        while (!stop.get()) {
+        while (!stop.get() && System.nanoTime() < deadline) {
           if (index.getIndexId() != oldIndexId) {
-            observedReplacement.set(true);
+            observedReplacement.countDown();
+            return;
           }
         }
       } catch (Throwable failure) {
@@ -71,19 +113,21 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
     }, "index-id-reader");
 
     reader.start();
-    started.await();
+    assertTrue("the identifier reader must start within ten seconds",
+        started.await(10, TimeUnit.SECONDS));
+    boolean replacementObserved;
     try {
       index.rebuild(session);
-      for (var i = 0; i < 10_000 && !observedReplacement.get(); i++) {
-        Thread.onSpinWait();
-      }
+      replacementObserved = observedReplacement.await(10, TimeUnit.SECONDS);
     } finally {
       stop.set(true);
-      reader.join();
+      reader.join(TimeUnit.SECONDS.toMillis(10));
     }
 
+    assertFalse("the identifier reader must stop by its deadline", reader.isAlive());
     assertNull("the pure identifier accessor must not fail during rebuild", readerFailure.get());
-    assertTrue("the reader must observe the replacement engine", observedReplacement.get());
+    assertTrue("the reader must observe the replacement engine within ten seconds",
+        replacementObserved);
     assertFalse("rebuild must allocate a fresh descriptor identity",
         oldDescriptorIdentity.equals(index.getIdentity()));
     assertEquals("the replacement engine must bind to the replacement descriptor",

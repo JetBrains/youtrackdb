@@ -627,20 +627,26 @@ public abstract class IndexAbstract implements Index {
       return;
     }
 
+    final var currentReference = storage.getIndexEngineReference(engineIdentifier);
     final var currentAttachment = identityAttachment;
     if (currentAttachment != null
         && currentAttachment.descriptorIdentity().equals(descriptorIdentity)
-        && currentAttachment.engineReference().slot()
-            == AbstractStorage.extractInternalId(engineIdentifier)) {
+        && referencesSameEngine(currentAttachment.engineReference(), currentReference)) {
       return;
     }
 
-    final var expectedReference = storage.getIndexEngineReference(engineIdentifier);
     final var boundReference = storage.bindIndexEngineToDescriptor(
-        engineIdentifier, descriptorIdentity, expectedReference);
+        engineIdentifier, descriptorIdentity, currentReference);
     final var lifecycleCell = storage.getOrCreateIndexLifecycle(descriptorIdentity);
     identityAttachment =
         new IdentityAttachment(descriptorIdentity, lifecycleCell, boundReference);
+  }
+
+  private static boolean referencesSameEngine(
+      IndexEngineReference first, IndexEngineReference second) {
+    return first.slot() == second.slot()
+        && first.apiVersion() == second.apiVersion()
+        && first.generation() == second.generation();
   }
 
   @Nullable IndexLifecycleCell getLifecycleCell() {
