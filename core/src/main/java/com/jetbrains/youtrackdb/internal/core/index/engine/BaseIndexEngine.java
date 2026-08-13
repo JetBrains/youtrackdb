@@ -19,8 +19,9 @@ public interface BaseIndexEngine {
   /**
    * Returns this engine's process-local registry identity.
    *
-   * <p>An engine published in a local storage engine registry must return a reference. Only an
-   * engine that is never published in that registry may return {@code null}.
+   * <p>An engine published in a local storage engine registry is expected to return a reference.
+   * Owner resolution skips an engine that does not. A handle for that index cannot recover by owner
+   * and fails closed instead.
    */
   @Nullable default IndexEngineReference getEngineReference() {
     return null;

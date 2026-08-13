@@ -4568,8 +4568,7 @@ public abstract class AbstractStorage
    * Resolves an engine by descriptor owner while the caller retains the storage state lock.
    *
    * @throws StaleIndexEngineException when no registered engine has the requested owner
-   * @throws StorageException when registry ownership is ambiguous or a local engine has no
-   *     process-local reference
+   * @throws StorageException when registry ownership is ambiguous
    */
   public int resolveIndexEngineByOwnerWithStateLock(final RID descriptorIdentity) {
     if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
@@ -4588,11 +4587,9 @@ public abstract class AbstractStorage
 
       final var reference = engine.getEngineReference();
       if (reference == null) {
-        throw new StorageException(
-            name,
-            "Registered local index engine in slot " + slot
-                + " has no process-local reference while resolving descriptor "
-                + descriptorIdentity);
+        // An engine without a reference cannot be owned by any descriptor. Skipping it cannot hide
+        // a possible owner-resolution target.
+        continue;
       }
 
       if (descriptorIdentity.equals(reference.ownerDescriptorIdentity())) {
