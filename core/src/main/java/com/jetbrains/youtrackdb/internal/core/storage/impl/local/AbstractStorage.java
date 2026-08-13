@@ -64,6 +64,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidDatabaseNameExcep
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageExistsException;
@@ -4501,6 +4502,86 @@ public abstract class AbstractStorage
 
     reference.bindOwner(descriptorIdentity);
     return reference;
+  }
+
+  /**
+   * Resolves the packed identifier of the engine owned by a durable index descriptor.
+   *
+   * <p>The commit-window branch avoids reacquiring the non-reentrant storage state lock.
+   */
+  public int resolveIndexEngineByOwner(final RID descriptorIdentity) {
+    try {
+      if (isCommitWindowActive()) {
+        return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+      }
+
+      stateLock.readLock().lock();
+      try {
+        return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final StaleIndexEngineException exception) {
+      // Preserve the HighLevelException marker used to keep the storage outside the error state.
+      throw exception;
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
+
+  /**
+   * Resolves an engine by descriptor owner while the caller retains the storage state lock.
+   *
+   * @throws StaleIndexEngineException when no registered engine has the requested owner
+   * @throws StorageException when registry ownership is ambiguous or a local engine has no
+   *     process-local reference
+   */
+  public int resolveIndexEngineByOwnerWithStateLock(final RID descriptorIdentity) {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine owner resolution requires the storage state lock or an active commit"
+              + " window");
+    }
+
+    checkOpennessAndMigration();
+    int resolvedIdentifier = -1;
+    for (var slot = 0; slot < indexEngines.size(); slot++) {
+      final var engine = indexEngines.get(slot);
+      if (engine == null) {
+        continue;
+      }
+
+      final var reference = engine.getEngineReference();
+      if (reference == null) {
+        throw new StorageException(
+            name,
+            "Registered local index engine in slot " + slot
+                + " has no process-local reference while resolving descriptor "
+                + descriptorIdentity);
+      }
+
+      if (descriptorIdentity.equals(reference.ownerDescriptorIdentity())) {
+        if (resolvedIdentifier >= 0) {
+          throw new StorageException(
+              name,
+              "Multiple registered index engines are owned by descriptor "
+                  + descriptorIdentity);
+        }
+        resolvedIdentifier = generateIndexId(slot, engine);
+      }
+    }
+
+    if (resolvedIdentifier < 0) {
+      throw new StaleIndexEngineException(
+          name,
+          "Cannot resolve index engine for descriptor " + descriptorIdentity
+              + ": no registered engine has that owner");
+    }
+    return resolvedIdentifier;
   }
 
   public int loadIndexEngine(final String name) {
