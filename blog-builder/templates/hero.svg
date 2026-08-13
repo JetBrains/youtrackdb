@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  YouTrackDB engineering-blog hero / title-card template — 1200x630 (Medium/OG cover ratio).
+
+  This is a TEMPLATE. Copy it to an article directory as <article-dir>/hero.svg and replace
+  the three LITERAL tokens below with your own text (keep the surrounding <text> markup):
+
+    {{TITLE}}     — the article title      (large line; keep to ~30 chars per line, see below)
+    {{SUBTITLE}}  — a one-line subtitle    (smaller line under the title)
+    {{BYLINE}}    — author + read time     (e.g. "By Jane Dev · 9 min read")
+
+  Rasterise with blog-builder/scripts/render-figures.sh, which renders this file to
+  <article-dir>/images/hero.png at exactly 1200x630.
+
+  LONG TITLES DO NOT WRAP AUTOMATICALLY. SVG <text> has no auto-wrap, so the title is sized
+  conservatively (font-size 62 ~= 30 characters within the safe margins). If your title is
+  longer, split it across two lines by hand: replace the single title <text> element with a
+  two-line form, e.g.
+
+    <text x="90" y="286" class="title">First half of the title</text>
+    <text x="90" y="358" class="title">second half of the title</text>
+
+  and nudge the subtitle's y down accordingly. All content sits within a 90px safe margin on
+  every side (content box x: 90..1110), so nothing clips at the OG-card edges.
+
+  Fonts are a plain system sans stack (Liberation Sans / Arial / Helvetica); the renderer
+  substitutes the first available. No external assets, no network — fully deterministic.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"
+     viewBox="0 0 1200 630">
+  <style>
+    text { font-family: "Liberation Sans", "Arial", "Helvetica", sans-serif; }
+    .eyebrow  { font-size: 24px; font-weight: 700; letter-spacing: 3px; fill: #FF7A18; }
+    .title    { font-size: 62px; font-weight: 700; fill: #F5F7FA; }
+    .subtitle { font-size: 30px; font-weight: 400; fill: #AEB6BF; }
+    .byline   { font-size: 24px; font-weight: 400; fill: #8A929B; }
+  </style>
+
+  <!-- Dark background fills the whole card. -->
+  <rect x="0" y="0" width="1200" height="630" fill="#12181F"/>
+
+  <!-- Slim orange accent rule above the title (brand kicker). -->
+  <rect x="90" y="120" width="120" height="6" fill="#FF7A18"/>
+
+  <!-- Branded eyebrow line. -->
+  <text x="90" y="98" class="eyebrow">YOUTRACKDB · ENGINEERING BLOG</text>
+
+  <!-- Title. Keep to ~30 chars on one line, or split into two lines (see header comment). -->
+  <text x="90" y="300" class="title">{{TITLE}}</text>
+
+  <!-- Subtitle. -->
+  <text x="90" y="372" class="subtitle">{{SUBTITLE}}</text>
+
+  <!-- Byline near the footer. -->
+  <text x="90" y="556" class="byline">{{BYLINE}}</text>
+
+  <!-- Slim orange footer bar along the bottom edge. -->
+  <rect x="0" y="612" width="1200" height="18" fill="#FF7A18"/>
+</svg>
