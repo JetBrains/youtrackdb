@@ -193,10 +193,10 @@ public interface AtomicOperation {
   /** Tracks a locked StorageComponent so it can be released at operation end. */
   void addLockedComponent(StorageComponent component);
 
-  /** Enables exact distinct-page accounting for this operation. Disabled by default. */
+  /** Enables distinct-page accounting for subsequent page accesses. Disabled by default. */
   void enablePageTracking();
 
-  /** Returns the tracked distinct-page count, or zero while tracking is disabled. */
+  /** Returns the distinct pages touched after tracking was enabled, or zero before then. */
   int touchedPagesCount();
 
   /**

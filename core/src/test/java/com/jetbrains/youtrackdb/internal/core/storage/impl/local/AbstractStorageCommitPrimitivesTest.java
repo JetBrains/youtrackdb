@@ -153,9 +153,9 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
-  // ---- The load-bearing property: doGetIndexEngine resolves under a held write lock ----
+  // ---- The load-bearing property: getIndexEngineWithStateLock resolves under a held write lock ----
 
-  // doGetIndexEngine must resolve an engine by internal id without taking stateLock, so a
+  // getIndexEngineWithStateLock must resolve an engine by internal id without taking stateLock, so a
   // schema-carrying commit holding stateLock.writeLock() can reach engines during the
   // index-apply path without the non-reentrant self-deadlock the public getIndexEngine
   // would cause. The test holds the write lock on the calling thread, then resolves.

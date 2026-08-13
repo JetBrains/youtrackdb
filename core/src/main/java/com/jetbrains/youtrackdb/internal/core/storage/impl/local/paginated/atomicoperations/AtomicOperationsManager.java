@@ -540,7 +540,7 @@ public class AtomicOperationsManager {
       } catch (RuntimeException | Error failure) {
         if (releaseFailure == null) {
           releaseFailure = failure;
-        } else {
+        } else if (releaseFailure != failure) {
           releaseFailure.addSuppressed(failure);
         }
       } finally {
