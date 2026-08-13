@@ -5,9 +5,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -604,6 +606,49 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
   // -----------------------------------------------------------------------
   //  clear / drop lifecycle — observable via stream
   // -----------------------------------------------------------------------
+
+  /**
+   * A handle retained across a same-name drop and recreate must not recover to the replacement
+   * engine. Reads and deletes through that stale handle fail closed, while the new index remains
+   * registered and readable.
+   */
+  @Test
+  public void staleHandleCannotReadOrDeleteSameNameReplacement() {
+    var clsName = CLASS_NAME + "StaleReplacement";
+    var cls = session.createClass(clsName);
+    cls.createProperty("prop", PropertyType.STRING);
+    var indexName = clsName + ".prop";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var staleIndex = (IndexAbstract) indexManager.getIndex(indexName);
+    indexManager.dropIndex(session, indexName);
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+    session.executeInTx(
+        tx -> tx.newEntity(clsName).setProperty("prop", "replacement-value"));
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    assertTrue("the recreated index must use a different descriptor",
+        !staleIndex.getIdentity().equals(replacement.getIdentity()));
+    assertThrows(
+        StaleIndexEngineException.class,
+        () -> session.computeInTx(
+            tx -> staleIndex.getRids(session, "replacement-value").toList()));
+    session.begin();
+    try {
+      assertThrows(
+          StaleIndexEngineException.class,
+          () -> staleIndex.delete(session.getTransactionInternal()));
+    } finally {
+      session.rollback();
+    }
+
+    assertSame("the stale delete must leave the replacement published", replacement,
+        indexManager.getIndex(indexName));
+    var replacementRids = session.computeInTx(
+        tx -> replacement.getRids(session, "replacement-value").toList());
+    assertEquals("the stale handle must not damage replacement data", 1, replacementRids.size());
+  }
 
   /**
    * After inserting records and then deleting the index via {@code SchemaClass.dropIndex},

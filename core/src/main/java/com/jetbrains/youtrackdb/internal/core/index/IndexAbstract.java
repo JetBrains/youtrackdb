@@ -568,6 +568,14 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  /**
+   * Resolves this handle through its descriptor owner instead of its reusable index name.
+   *
+   * <p>Recovery fails closed while index creation has not saved the descriptor, while rebuild has
+   * cleared the descriptor identity, and while manager publication precedes descriptor attachment.
+   * An engine published before its owner binding also cannot be recovered. Track 20 closes these
+   * ownerless and unbound publication windows.
+   */
   protected final int resolveOwnedEngineIdentifier() {
     final var descriptorIdentity = identity;
     if (descriptorIdentity == null) {
@@ -608,22 +616,6 @@ public abstract class IndexAbstract implements Index {
     }
     indexId = resolvedIdentifier;
     return resolvedIdentifier;
-  }
-
-  protected void doReloadIndexEngine() {
-    indexId = storage.loadIndexEngine(im.getName());
-    checkReloadedIndexId();
-  }
-
-  private void doReloadIndexEngineWithStateLock() {
-    indexId = storage.loadIndexEngineWithStateLock(im.getName());
-    checkReloadedIndexId();
-  }
-
-  private void checkReloadedIndexId() {
-    if (indexId < 0) {
-      throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
-    }
   }
 
   private void load(FrontendTransactionImpl transaction) {
@@ -860,6 +852,7 @@ public abstract class IndexAbstract implements Index {
    * overhead from N individual findBucket() calls during population.
    */
   private void setBulkLoading(boolean bulkLoading) {
+    boolean recovered = false;
     while (true) {
       try {
         var engine = storage.getIndexEngine(indexId);
@@ -871,7 +864,11 @@ public abstract class IndexAbstract implements Index {
         }
         break;
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        resolveOwnedEngineIdentifier();
+        recovered = true;
       }
     }
   }
@@ -890,6 +887,7 @@ public abstract class IndexAbstract implements Index {
    * and require a valid commit timestamp for WAL record emission.
    */
   private void buildHistogramAfterFill() {
+    boolean recovered = false;
     while (true) {
       try {
         var engine = storage.getIndexEngine(indexId);
@@ -912,7 +910,11 @@ public abstract class IndexAbstract implements Index {
         }
         break;
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        resolveOwnedEngineIdentifier();
+        recovered = true;
       }
     }
   }
@@ -1064,6 +1066,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   protected void doDelete(FrontendTransaction transaction) {
+    boolean recovered = false;
     while (true) {
       try {
         try {
@@ -1078,7 +1081,11 @@ public abstract class IndexAbstract implements Index {
         storage.deleteIndexEngine(indexId);
         break;
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        resolveOwnedEngineIdentifier();
+        recovered = true;
       }
     }
 
@@ -1371,11 +1378,16 @@ public abstract class IndexAbstract implements Index {
   public Stream<Object> keyStream(@Nonnull AtomicOperation operation) {
     acquireSharedLock();
     try {
+      boolean recovered = false;
       while (true) {
         try {
           return storage.getIndexKeyStream(indexId, operation);
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (recovered) {
+            throw staleAfterOwnerRecovery();
+          }
+          resolveOwnedEngineIdentifier();
+          recovered = true;
         }
       }
     } finally {
@@ -1447,13 +1459,18 @@ public abstract class IndexAbstract implements Index {
   @Override
   public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
     BaseIndexEngine engine;
+    boolean recovered = false;
 
     while (true) {
       try {
         engine = storage.getIndexEngineWithStateLock(indexId);
         break;
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngineWithStateLock();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        resolveOwnedEngineIdentifierWithStateLock();
+        recovered = true;
       }
     }
 
@@ -1462,30 +1479,41 @@ public abstract class IndexAbstract implements Index {
 
   @Nullable @Override
   public IndexStatistics getStatistics(DatabaseSessionEmbedded session) {
+    boolean recovered = false;
     while (true) {
       try {
         var engine = storage.getIndexEngine(indexId);
         return engine.getStatistics();
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        resolveOwnedEngineIdentifier();
+        recovered = true;
       }
     }
   }
 
   @Nullable @Override
   public EquiDepthHistogram getHistogram(DatabaseSessionEmbedded session) {
+    boolean recovered = false;
     while (true) {
       try {
         var engine = storage.getIndexEngine(indexId);
         return engine.getHistogram();
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        resolveOwnedEngineIdentifier();
+        recovered = true;
       }
     }
   }
 
   @Nullable @Override
   public HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session) {
+    boolean recovered = false;
     while (true) {
       try {
         var engine = storage.getIndexEngine(indexId);
@@ -1497,7 +1525,11 @@ public abstract class IndexAbstract implements Index {
         }
         return null;
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        resolveOwnedEngineIdentifier();
+        recovered = true;
       }
     }
   }
@@ -1577,20 +1609,33 @@ public abstract class IndexAbstract implements Index {
   }
 
   protected void onIndexEngineChange(DatabaseSessionEmbedded session, final int indexId) {
+    int currentIndexId = indexId;
+    boolean recovered = false;
     while (true) {
       try {
         storage.callIndexEngine(
             false,
-            indexId,
+            currentIndexId,
             engine -> {
               engine.init(session, im);
               return null;
             });
         break;
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        if (recovered) {
+          throw staleAfterOwnerRecovery();
+        }
+        currentIndexId = resolveOwnedEngineIdentifier();
+        recovered = true;
       }
     }
+  }
+
+  private StaleIndexEngineException staleAfterOwnerRecovery() {
+    return new StaleIndexEngineException(
+        storage.getName(),
+        "Index '" + getName() + "' remained stale after owner-bound recovery for descriptor "
+            + identity);
   }
 
   /**
