@@ -4552,9 +4552,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final StaleIndexEngineException exception) {
-      // Preserve the HighLevelException marker used to keep the storage outside the error state.
-      throw exception;
     } catch (final RuntimeException exception) {
       throw logAndPrepareForRethrow(exception);
     } catch (final Error error) {
