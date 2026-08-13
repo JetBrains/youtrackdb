@@ -88,7 +88,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private boolean rollback;
 
   private final Set<String> lockedObjects = new HashSet<>();
+  private final Map<String, ComponentLockMode> lockedObjectModes = new HashMap<>();
   private final ArrayList<StorageComponent> lockedComponents = new ArrayList<>();
+  private final Long2ObjectOpenHashMap<LongOpenHashSet> touchedPages =
+      new Long2ObjectOpenHashMap<>();
+  private int touchedPagesCount;
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
@@ -260,6 +264,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     assert pageCount > 0;
     fileId = checkFileIdCompatibility(fileId, storageId);
+    registerPageTouch(fileId, pageIndex);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -306,6 +311,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     checkIfActive();
 
     fileId = checkFileIdCompatibility(fileId, storageId);
+    registerPageTouch(fileId, pageIndex);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -482,6 +488,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     assert pageIndex >= 0 : "pageIndex out of range: " + pageIndex;
 
     fileId = checkFileIdCompatibility(fileId, storageId);
+    registerPageTouch(fileId, pageIndex);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -1498,13 +1505,20 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public void addLockedObject(final String lockedObject) {
+  public void addLockedObject(
+      final String lockedObject, final ComponentLockMode mode) {
     lockedObjects.add(lockedObject);
+    lockedObjectModes.put(lockedObject, mode);
   }
 
   @Override
   public boolean containsInLockedObjects(final String objectToLock) {
     return lockedObjects.contains(objectToLock);
+  }
+
+  @Nullable @Override
+  public ComponentLockMode lockedObjectMode(final String objectToLock) {
+    return lockedObjectModes.get(objectToLock);
   }
 
   @Override
@@ -1520,6 +1534,18 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public Iterable<StorageComponent> lockedComponents() {
     return lockedComponents;
+  }
+
+  @Override
+  public int touchedPagesCount() {
+    return touchedPagesCount;
+  }
+
+  private void registerPageTouch(final long fileId, final long pageIndex) {
+    final var filePages = touchedPages.computeIfAbsent(fileId, ignored -> new LongOpenHashSet());
+    if (filePages.add(pageIndex)) {
+      touchedPagesCount++;
+    }
   }
 
   // --- Snapshot / Visibility index proxy methods ---

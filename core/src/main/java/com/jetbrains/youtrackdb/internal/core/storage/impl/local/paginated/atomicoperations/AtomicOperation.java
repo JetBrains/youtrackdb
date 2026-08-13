@@ -174,9 +174,15 @@ public interface AtomicOperation {
 
   void truncateFile(long fileId) throws IOException;
 
+  enum ComponentLockMode {
+    SHARED, EXCLUSIVE
+  }
+
   boolean containsInLockedObjects(String lockName);
 
-  void addLockedObject(String lockName);
+  @Nullable ComponentLockMode lockedObjectMode(String lockName);
+
+  void addLockedObject(String lockName, ComponentLockMode mode);
 
   void rollbackInProgress();
 
@@ -188,6 +194,9 @@ public interface AtomicOperation {
 
   /** Tracks a locked StorageComponent so it can be released at operation end. */
   void addLockedComponent(StorageComponent component);
+
+  /** Returns the number of distinct physical pages touched by this operation. */
+  int touchedPagesCount();
 
   /** Returns the StorageComponents locked by this operation. */
   Iterable<StorageComponent> lockedComponents();

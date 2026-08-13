@@ -995,6 +995,38 @@ public class AllocatePageForWriteTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Exact distinct-page accounting
+  // ---------------------------------------------------------------------------
+
+  /** Repeated read and write access to one physical page contributes exactly one touch. */
+  @Test
+  public void touchedPagesDeduplicatesAcrossReadAndWritePaths() throws Exception {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(2L);
+
+    op.loadPageForRead(fileId, 1);
+    op.loadPageForRead(fileId, 1);
+    op.loadPageForWrite(fileId, 1, 1, true);
+
+    assertThat(op.touchedPagesCount()).isEqualTo(1);
+  }
+
+  /** Equal page indexes in different files and a newly allocated page are distinct touches. */
+  @Test
+  public void touchedPagesDistinguishesFilesAndCountsAllocation() throws Exception {
+    long firstFile = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long secondFile = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long allocationFile = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(allocationFile)).thenReturn(0L);
+
+    op.loadPageForRead(firstFile, 7);
+    op.loadPageForRead(secondFile, 7);
+    op.allocatePageForWrite(allocationFile, 0);
+
+    assertThat(op.touchedPagesCount()).isEqualTo(3);
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
