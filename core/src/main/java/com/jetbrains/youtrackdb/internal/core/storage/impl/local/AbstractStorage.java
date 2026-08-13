@@ -2031,7 +2031,8 @@ public abstract class AbstractStorage
    * collection's approximate record count without taking {@code stateLock}, because the schema-carry
    * commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant read lock
    * would busy-spin. The commit-time index build uses it to enforce the v1 empty-source-collection
-   * bound. Mirrors the lock-free {@link #doGetIndexEngine} precondition: the caller MUST hold
+   * bound. Mirrors the lock-free {@link #getIndexEngineWithStateLock(int)} precondition: the caller
+   * MUST hold
    * {@code stateLock.writeLock()} with the commit window open, which supplies the exclusion and the
    * happens-before edge for the plain-list read.
    *
@@ -2058,7 +2059,8 @@ public abstract class AbstractStorage
    * count before it relies on the v1 empty-source-collection bound, closing the under-report hole
    * where a stale approximate zero would let the build skip committed rows. Exact but cheap on the
    * empty collection the caller has already pre-checked as approximately empty. Mirrors the lock-free
-   * {@link #doGetIndexEngine} precondition: the caller MUST hold {@code stateLock.writeLock()} with
+   * {@link #getIndexEngineWithStateLock(int)} precondition: the caller MUST hold
+   * {@code stateLock.writeLock()} with
    * the commit window open, which supplies the exclusion and the happens-before edge.
    *
    * @param collectionId    a real (>= 0) collection id.
@@ -5018,29 +5020,18 @@ public abstract class AbstractStorage
     return ((V1IndexEngine) engine).get(key, atomicOperation);
   }
 
-  public BaseIndexEngine getIndexEngine(int indexId) throws InvalidIndexEngineIdException {
-    indexId = extractInternalId(indexId);
-
+  public BaseIndexEngine getIndexEngine(final int indexId)
+      throws InvalidIndexEngineIdException {
     try {
-      checkIndexId(indexId);
-
-      // A schema-carrying commit reaches this resolver through the index-apply path
-      // (lockIndexes -> IndexAbstract.acquireAtomicExclusiveLock) while already holding
-      // stateLock.writeLock(). Re-acquiring the read lock there would busy-spin forever on the
-      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free body, the
-      // same seam getPhysicalCollectionNameById and readRecordInternal use. The held write lock
-      // supplies the exclusion and the happens-before edge; the pure-read fast path keeps the lock.
+      // A schema-carrying commit already holds stateLock.writeLock(). The active commit window
+      // proves that ownership and avoids a non-reentrant read-lock acquisition.
       if (isCommitWindowActive()) {
-        checkOpennessAndMigration();
-        return doGetIndexEngine(indexId);
+        return getIndexEngineWithStateLock(indexId);
       }
 
       stateLock.readLock().lock();
       try {
-
-        checkOpennessAndMigration();
-
-        return doGetIndexEngine(indexId);
+        return getIndexEngineWithStateLock(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -5056,28 +5047,18 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Lock-free engine resolver for the commit window. Reads {@code indexEngines.get(id)}
-   * without taking {@code stateLock}, mirroring the lock-free {@link
-   * #doGetAndCheckCollection(int)} for collections. The schema-carrying commit already
-   * holds {@code stateLock.writeLock()} (the write-lock branch chosen at commit entry),
-   * so re-acquiring {@code stateLock.readLock()} through the public {@link
-   * #getIndexEngine(int)} would busy-spin forever on the non-reentrant {@code
-   * ScalableRWLock}. The commit-time index-apply path reaches this resolver instead.
-   *
-   * <p><b>Precondition the caller MUST satisfy:</b> this method does no in-method
-   * synchronization and reads the plain (non-{@code volatile}, non-concurrent) {@code
-   * indexEngines} list directly, so the caller MUST hold {@code stateLock} across the call:
-   * {@code writeLock()} for the commit window, {@code readLock()} for the public wrapper.
-   * That held lock is the only thing that excludes a concurrent registrar and
-   * supplies the happens-before edge making the registry read visibility-safe; off-lock
-   * use (or use under only the metadata write locks, not {@code stateLock}) is a data race
-   * on a plain {@code ArrayList} and is unsupported.
-   *
-   * @param internalId the already-extracted internal index id (not the external,
-   *                   API-version-tagged id).
+   * Resolves an engine without acquiring {@code stateLock}. The caller must already hold the
+   * state read lock, or run inside the commit window while holding the state write lock.
    */
-  private BaseIndexEngine doGetIndexEngine(final int internalId)
+  public BaseIndexEngine getIndexEngineWithStateLock(final int indexId)
       throws InvalidIndexEngineIdException {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine resolution requires the storage state lock or an active commit window");
+    }
+
+    checkOpennessAndMigration();
+    final var internalId = extractInternalId(indexId);
     checkIndexId(internalId);
 
     final var engine = indexEngines.get(internalId);
@@ -6819,6 +6800,68 @@ public abstract class AbstractStorage
       }
 
       LogManager.instance().info(this, "Storage data recover was completed");
+    }
+  }
+
+  /**
+   * Creates a record inside a caller-owned atomic operation. The caller owns the state-lock
+   * lifetime, while this method ensures the target collection is locked exclusively.
+   *
+   * @return the initial durable record version
+   */
+  public long createRecordInsideAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      @Nonnull final byte[] content,
+      final byte recordType) {
+    checkCallerOwnsStateLock();
+    checkOpennessAndMigration();
+    if (!rid.isNew() || !(rid instanceof ChangeableRecordId)) {
+      throw new IllegalArgumentException(
+          "Record creation requires a new changeable record identifier: " + rid);
+    }
+
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    collection.acquireAtomicExclusiveLock(atomicOperation);
+    final var position =
+        doCreateRecord(
+            atomicOperation,
+            rid,
+            content,
+            atomicOperation.getCommitTs(),
+            recordType,
+            collection,
+            null);
+    return position.recordVersion;
+  }
+
+  /**
+   * Updates a record inside a caller-owned atomic operation and checks its durable version.
+   *
+   * @return the new durable record version
+   */
+  public long updateRecordInsideAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      @Nonnull final byte[] content,
+      final long expectedVersion,
+      final byte recordType) {
+    checkCallerOwnsStateLock();
+    checkOpennessAndMigration();
+    if (!rid.isPersistent()) {
+      throw new IllegalArgumentException("Record update requires a persistent identifier: " + rid);
+    }
+
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    collection.acquireAtomicExclusiveLock(atomicOperation);
+    return doUpdateRecord(
+        atomicOperation, rid, true, content, expectedVersion, recordType, collection);
+  }
+
+  private void checkCallerOwnsStateLock() {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Caller-owned record writes require the storage state lock or an active commit window");
     }
   }
 

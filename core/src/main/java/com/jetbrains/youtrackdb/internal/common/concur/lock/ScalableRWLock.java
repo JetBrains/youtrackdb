@@ -289,6 +289,12 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     return stampedLock.isWriteLocked();
   }
 
+  /** Returns whether the current thread holds this lock in read mode. */
+  public boolean isReadLockedByCurrentThread() {
+    final var localEntry = entry.get();
+    return localEntry != null && localEntry.state.get() == SRWL_STATE_READING;
+  }
+
   /**
    * Creates a new ReadersEntry instance for the current thread and its associated AtomicInteger to
    * store the state of the Reader

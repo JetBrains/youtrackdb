@@ -1,15 +1,20 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import java.lang.reflect.Method;
@@ -161,9 +166,7 @@ public class AbstractStorageCommitPrimitivesTest {
   // clean TestTimedOutException naming this method, matching the ScalableRWLockTest convention
   // in this package.
   @Test(timeout = 30_000)
-  public void doGetIndexEngineResolvesWhileWriteLockHeld() throws Exception {
-    // @Test(timeout) runs this body on a JUnit watchdog thread; the session is thread-bound
-    // (a ThreadLocal activation flag), so re-activate it on this thread before touching the db.
+  public void heldStateLockResolverWorksForReadLockAndCommitWindow() throws Exception {
     db.activateOnCurrentThread();
 
     SchemaClass cls = db.createVertexClass("PersonLockFree");
@@ -173,22 +176,177 @@ public class AbstractStorageCommitPrimitivesTest {
     var storage = (AbstractStorage) db.getStorage();
     var engine = findEngineByName(storage, "PersonLockFree_email");
     assertThat(engine).as("precondition: the engine is registered").isNotNull();
-    int internalId = engine.getId();
+    int externalId = externalIdOf(engine);
 
-    Method doGet =
-        AbstractStorage.class.getDeclaredMethod("doGetIndexEngine", int.class);
-    doGet.setAccessible(true);
+    storage.stateLock.readLock().lock();
+    try {
+      assertThat(storage.getIndexEngineWithStateLock(externalId)).isSameAs(engine);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
 
-    // Take the write lock on this thread, exactly as a schema-carrying commit does at entry.
     storage.stateLock.writeLock().lock();
     try {
-      var resolved = (BaseIndexEngine) doGet.invoke(storage, internalId);
-      assertThat(resolved)
-          .as("doGetIndexEngine must resolve the engine under the held write lock")
-          .isSameAs(engine);
+      storage.enterCommitWindow();
+      try {
+        assertThat(storage.getIndexEngineWithStateLock(externalId)).isSameAs(engine);
+      } finally {
+        storage.exitCommitWindow();
+      }
     } finally {
       storage.stateLock.writeLock().unlock();
     }
+  }
+
+  /** The lock-free resolver rejects callers that provide neither supported state-lock proof. */
+  @Test
+  public void heldStateLockResolverRejectsUnlockedCaller() throws Exception {
+    SchemaClass cls = db.createVertexClass("ResolverPrecondition");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("ResolverPrecondition_value", SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var engine = findEngineByName(storage, "ResolverPrecondition_value");
+
+    assertThatThrownBy(() -> storage.getIndexEngineWithStateLock(externalIdOf(engine)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("state lock")
+        .hasMessageContaining("commit window");
+  }
+
+  /** Indexed data commits must retain their outer state read lock through engine resolution. */
+  @Test(timeout = 30_000)
+  public void indexLockResolutionDoesNotDropOuterStateReadLock() throws Exception {
+    db.activateOnCurrentThread();
+    SchemaClass cls = db.createVertexClass("IndexedCommitLock");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("IndexedCommitLock_value", SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = db.getSharedContext().getIndexManager().getIndex("IndexedCommitLock_value");
+    db.begin();
+    var operation = db.getActiveTransaction().getAtomicOperation();
+
+    storage.stateLock.readLock().lock();
+    try {
+      index.acquireAtomicExclusiveLock(operation);
+      try (var executor = Executors.newSingleThreadExecutor()) {
+        var writerEntered =
+            executor.submit(
+                () -> {
+                  if (!storage.stateLock.writeLock().tryLock()) {
+                    return false;
+                  }
+                  try {
+                    return true;
+                  } finally {
+                    storage.stateLock.writeLock().unlock();
+                  }
+                });
+        assertThat(writerEntered.get(10, TimeUnit.SECONDS))
+            .as("engine resolution must not release the commit's outer state read lock")
+            .isFalse();
+      }
+    } finally {
+      storage.stateLock.readLock().unlock();
+      db.rollback();
+    }
+  }
+
+  /** Caller-owned create and update operations persist versions without nested transactions. */
+  @Test
+  public void callerOwnedRecordCreateAndUpdateUseExpectedVersion() throws Exception {
+    var cls = db.createVertexClass("PrimitiveRecords");
+    int collectionId = cls.getCollectionIds()[0];
+    var storage = (AbstractStorage) db.getStorage();
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+    byte[] initialContent = new byte[] {1, 2, 3};
+
+    long initialVersion;
+    storage.stateLock.readLock().lock();
+    try {
+      initialVersion =
+          storage
+              .getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  operation -> storage.createRecordInsideAtomicOperation(
+                      operation, rid, initialContent, RecordBytes.RECORD_TYPE));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    assertThat(rid.isPersistent()).isTrue();
+    assertThat(initialVersion).isGreaterThanOrEqualTo(0);
+
+    byte[] updatedContent = new byte[] {4, 5, 6};
+    long updatedVersion;
+    storage.stateLock.readLock().lock();
+    try {
+      updatedVersion =
+          storage
+              .getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  operation -> storage.updateRecordInsideAtomicOperation(
+                      operation,
+                      rid,
+                      updatedContent,
+                      initialVersion,
+                      RecordBytes.RECORD_TYPE));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    assertThat(updatedVersion).isGreaterThan(initialVersion);
+    var stored =
+        storage
+            .getAtomicOperationsManager()
+            .calculateInsideAtomicOperation(operation -> storage.readRecord(rid, operation));
+    assertThat(((RawBuffer) stored).buffer()).isEqualTo(updatedContent);
+  }
+
+  /** A stale caller-owned update rolls back and preserves the last durable record bytes. */
+  @Test
+  public void callerOwnedRecordUpdateRejectsStaleExpectedVersion() throws Exception {
+    var cls = db.createVertexClass("PrimitiveVersionConflict");
+    var storage = (AbstractStorage) db.getStorage();
+    var rid =
+        new ChangeableRecordId(
+            cls.getCollectionIds()[0], RecordIdInternal.COLLECTION_POS_INVALID);
+    byte[] durableContent = new byte[] {7, 8};
+
+    storage.stateLock.readLock().lock();
+    try {
+      storage
+          .getAtomicOperationsManager()
+          .calculateInsideAtomicOperation(
+              operation -> storage.createRecordInsideAtomicOperation(
+                  operation, rid, durableContent, RecordBytes.RECORD_TYPE));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThatThrownBy(
+          () -> storage
+              .getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  operation -> storage.updateRecordInsideAtomicOperation(
+                      operation,
+                      new RecordId(rid),
+                      new byte[] {9},
+                      Long.MIN_VALUE,
+                      RecordBytes.RECORD_TYPE)))
+          .isInstanceOf(ConcurrentModificationException.class);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    var stored =
+        storage
+            .getAtomicOperationsManager()
+            .calculateInsideAtomicOperation(operation -> storage.readRecord(rid, operation));
+    assertThat(((RawBuffer) stored).buffer()).isEqualTo(durableContent);
   }
 
   // ---- The load-bearing property: record reads resolve lock-free in the commit window ----

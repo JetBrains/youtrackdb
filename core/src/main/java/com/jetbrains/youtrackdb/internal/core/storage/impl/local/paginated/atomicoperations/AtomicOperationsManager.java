@@ -522,20 +522,22 @@ public class AtomicOperationsManager {
   }
 
   private void releaseLocks(AtomicOperation operation) {
-    // Release StorageComponent locks (the common case).
-    // Check isExclusiveOwner() to make this method idempotent — it may be called
-    // twice (once by endAtomicOperation, once by ensureThatComponentsUnlocked
-    // in the finally block of AbstractStorage.commit).
+    // The component list is drained, which makes a second cleanup call idempotent.
     var compIter = operation.lockedComponents().iterator();
     while (compIter.hasNext()) {
       var component = compIter.next();
-      if (component.isExclusiveOwner()) {
+      final var mode = operation.lockedObjectMode(component.getLockName());
+      if (mode == AtomicOperation.ComponentLockMode.SHARED) {
+        component.unlockShared();
+      } else if (component.isExclusiveOwner()) {
+        // A null mode is treated as exclusive for compatibility with test doubles and
+        // operations created before mode-aware bookkeeping was introduced.
         component.unlockExclusive();
       }
       compIter.remove();
     }
 
-    // Clear the combined dedup set
+    // Clear the combined dedup set.
     var nameIter = operation.lockedObjects().iterator();
     while (nameIter.hasNext()) {
       nameIter.next();
@@ -543,24 +545,45 @@ public class AtomicOperationsManager {
     }
   }
 
+  /** Acquires a shared component lock for the lifetime of the atomic operation. */
+  public void acquireSharedLockTillOperationComplete(
+      @Nonnull AtomicOperation operation, @Nonnull StorageComponent component) {
+    storage.checkErrorState();
+
+    final var lockName = component.getLockName();
+    final var heldMode = operation.lockedObjectMode(lockName);
+    if (heldMode != null || operation.containsInLockedObjects(lockName)) {
+      // Exclusive mode is stronger, while a repeated shared acquisition is idempotent.
+      return;
+    }
+
+    component.lockShared();
+    operation.addLockedComponent(component);
+    operation.addLockedObject(lockName, AtomicOperation.ComponentLockMode.SHARED);
+  }
+
   /**
-   * Acquires exclusive lock on the given {@link StorageComponent} for the lifetime of the
-   * atomic operation. Uses the component's own
-   * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
-   * ReentrantReadWriteLock} directly — no external map lookup needed. The lock is natively
-   * reentrant.
+   * Acquires an exclusive component lock for the lifetime of the atomic operation.
+   * Shared-to-exclusive upgrades fail before entering the non-upgradable component lock.
    */
   public void acquireExclusiveLockTillOperationComplete(
       @Nonnull AtomicOperation operation, @Nonnull StorageComponent component) {
     storage.checkErrorState();
 
-    if (operation.containsInLockedObjects(component.getLockName())) {
+    final var lockName = component.getLockName();
+    final var heldMode = operation.lockedObjectMode(lockName);
+    if (heldMode == AtomicOperation.ComponentLockMode.SHARED) {
+      throw new IllegalStateException(
+          "Cannot upgrade component '" + lockName + "' from SHARED to EXCLUSIVE mode");
+    }
+    if (heldMode == AtomicOperation.ComponentLockMode.EXCLUSIVE
+        || operation.containsInLockedObjects(lockName)) {
       return;
     }
 
     component.lockExclusive();
     operation.addLockedComponent(component);
-    operation.addLockedObject(component.getLockName());
+    operation.addLockedObject(lockName, AtomicOperation.ComponentLockMode.EXCLUSIVE);
   }
 
 }

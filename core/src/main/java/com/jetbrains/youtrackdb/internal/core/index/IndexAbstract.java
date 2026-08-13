@@ -1312,7 +1312,7 @@ public abstract class IndexAbstract implements Index {
 
     while (true) {
       try {
-        engine = storage.getIndexEngine(indexId);
+        engine = storage.getIndexEngineWithStateLock(indexId);
         break;
       } catch (InvalidIndexEngineIdException ignore) {
         doReloadIndexEngine();
