@@ -522,26 +522,44 @@ public class AtomicOperationsManager {
   }
 
   private void releaseLocks(AtomicOperation operation) {
-    // The component list is drained, which makes a second cleanup call idempotent.
+    Throwable releaseFailure = null;
+    // Drain every component even when one release fails, so one broken lock cannot leak the rest.
     var compIter = operation.lockedComponents().iterator();
     while (compIter.hasNext()) {
       var component = compIter.next();
-      final var mode = operation.lockedObjectMode(component.getLockName());
-      if (mode == AtomicOperation.ComponentLockMode.SHARED) {
-        component.unlockShared();
-      } else if (component.isExclusiveOwner()) {
-        // A null mode is treated as exclusive for compatibility with test doubles and
-        // operations created before mode-aware bookkeeping was introduced.
-        component.unlockExclusive();
+      try {
+        final var mode = operation.lockedObjectMode(component.getLockName());
+        if (mode == AtomicOperation.ComponentLockMode.SHARED) {
+          if (component.isSharedOwner()) {
+            component.unlockShared();
+          }
+        } else if (component.isExclusiveOwner()) {
+          // A null mode is treated as exclusive for compatibility with test doubles.
+          component.unlockExclusive();
+        }
+      } catch (RuntimeException | Error failure) {
+        if (releaseFailure == null) {
+          releaseFailure = failure;
+        } else {
+          releaseFailure.addSuppressed(failure);
+        }
+      } finally {
+        compIter.remove();
       }
-      compIter.remove();
     }
 
-    // Clear the combined dedup set.
+    // The mode map is the dedup structure. Draining its key view clears names and modes together.
     var nameIter = operation.lockedObjects().iterator();
     while (nameIter.hasNext()) {
       nameIter.next();
       nameIter.remove();
+    }
+
+    if (releaseFailure instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (releaseFailure instanceof Error error) {
+      throw error;
     }
   }
 
@@ -552,7 +570,7 @@ public class AtomicOperationsManager {
 
     final var lockName = component.getLockName();
     final var heldMode = operation.lockedObjectMode(lockName);
-    if (heldMode != null || operation.containsInLockedObjects(lockName)) {
+    if (heldMode != null) {
       // Exclusive mode is stronger, while a repeated shared acquisition is idempotent.
       return;
     }
@@ -576,8 +594,7 @@ public class AtomicOperationsManager {
       throw new IllegalStateException(
           "Cannot upgrade component '" + lockName + "' from SHARED to EXCLUSIVE mode");
     }
-    if (heldMode == AtomicOperation.ComponentLockMode.EXCLUSIVE
-        || operation.containsInLockedObjects(lockName)) {
+    if (heldMode == AtomicOperation.ComponentLockMode.EXCLUSIVE) {
       return;
     }
 

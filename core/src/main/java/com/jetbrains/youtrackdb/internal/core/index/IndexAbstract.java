@@ -564,6 +564,15 @@ public abstract class IndexAbstract implements Index {
 
   protected void doReloadIndexEngine() {
     indexId = storage.loadIndexEngine(im.getName());
+    checkReloadedIndexId();
+  }
+
+  private void doReloadIndexEngineWithStateLock() {
+    indexId = storage.loadIndexEngineWithStateLock(im.getName());
+    checkReloadedIndexId();
+  }
+
+  private void checkReloadedIndexId() {
     if (indexId < 0) {
       throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
     }
@@ -1315,7 +1324,7 @@ public abstract class IndexAbstract implements Index {
         engine = storage.getIndexEngineWithStateLock(indexId);
         break;
       } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
+        doReloadIndexEngineWithStateLock();
       }
     }
 

@@ -47,7 +47,8 @@ public class AtomicOperationsManagerComponentOpExceptionTest {
     operation = mock(AtomicOperation.class);
     // Pretend the lock is already held so acquireExclusiveLockTillOperationComplete
     // skips the actual locking.
-    when(operation.containsInLockedObjects(anyString())).thenReturn(true);
+    when(operation.lockedObjectMode(anyString()))
+        .thenReturn(AtomicOperation.ComponentLockMode.EXCLUSIVE);
 
     component = mock(StorageComponent.class);
     when(component.getLockName()).thenReturn(COMPONENT_LOCK_NAME);
