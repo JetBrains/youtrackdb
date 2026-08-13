@@ -99,7 +99,7 @@ public abstract class IndexAbstract implements Index {
   // metadata) stale through a racing read of the new reference.
   @Nullable protected volatile IndexMetadata im;
 
-  @Nullable protected RID identity;
+  @Nullable protected volatile RID identity;
 
   public IndexAbstract(@Nullable RID identity,
       @Nonnull FrontendTransactionImpl transaction, @Nonnull final Storage storage) {

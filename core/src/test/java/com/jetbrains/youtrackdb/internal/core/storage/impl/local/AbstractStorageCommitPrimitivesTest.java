@@ -910,6 +910,25 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
+  /** A restored reference-less engine remains published even though its owner cannot be bound. */
+  @Test
+  public void restoredReferenceLessEngineIsPublishedWithoutOwnerBinding() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    var engines = indexEngines(storage);
+    var engine = Mockito.mock(BaseIndexEngine.class);
+    var engineName = "restored-reference-less";
+    var owner = new RecordId(95, 21);
+    var slot = engines.size();
+    Mockito.when(engine.getId()).thenReturn(slot);
+    Mockito.when(engine.getName()).thenReturn(engineName);
+    Mockito.when(engine.getEngineReference()).thenReturn(null);
+
+    storage.bindOwnerAndPublishRestoredIndexEngine(slot, engine, owner);
+
+    assertThat(engines.get(slot)).isSameAs(engine);
+    assertThat(storage.loadIndexEngine(engineName)).isGreaterThanOrEqualTo(0);
+  }
+
   /** The lock-held owner resolver rejects a caller without a state lock or commit window. */
   @Test
   public void ownerResolverWithStateLockRejectsUnlockedCaller() {
