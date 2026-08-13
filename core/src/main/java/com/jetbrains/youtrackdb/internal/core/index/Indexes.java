@@ -133,15 +133,28 @@ public final class Indexes {
       @Nonnull Storage storage)
       throws ConfigurationException, IndexException {
 
-    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, storage);
+    var index = findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, storage);
+    return validateIndexHandle(indexType, algorithm, index);
   }
 
   public static Index createIndexInstance(@Nonnull String indexType, @Nullable String algorithm,
       @Nonnull Storage storage, @Nonnull FrontendTransactionImpl transaction, @Nonnull RID identity)
       throws ConfigurationException, IndexException {
 
-    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, identity,
+    var index = findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, identity,
         transaction, storage);
+    return validateIndexHandle(indexType, algorithm, index);
+  }
+
+  private static Index validateIndexHandle(String indexType, String algorithm, Index index) {
+    if (!(index instanceof IndexAbstract)) {
+      var concreteClass = index == null ? "null" : index.getClass().getName();
+      throw new IllegalStateException(
+          "Index factory returned an unexpected handle for type '" + indexType
+              + "', algorithm '" + algorithm + "': " + concreteClass
+              + "; expected " + IndexAbstract.class.getName());
+    }
+    return index;
   }
 
   private static IndexFactory findFactoryByAlgorithmAndType(String algorithm, String indexType) {
@@ -150,7 +163,7 @@ public final class Indexes {
       if (indexType == null
           || indexType.isEmpty()
           || (factory.getTypes().contains(indexType)
-          && factory.getAlgorithms().contains(algorithm))) {
+              && factory.getAlgorithms().contains(algorithm))) {
         return factory;
       }
     }

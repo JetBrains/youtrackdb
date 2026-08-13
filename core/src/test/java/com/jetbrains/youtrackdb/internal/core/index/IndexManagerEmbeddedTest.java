@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
@@ -26,6 +27,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResource
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.junit.Before;
@@ -51,23 +54,43 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     cls.createIndex(IDX, SchemaClass.INDEX_TYPE.UNIQUE, "val");
   }
 
-  /** A foreign index implementation is rejected before the committed registry is mutated. */
+  /** A foreign index implementation is rejected before any registry or entity mutation. */
   @Test
   public void addIndexInternalNoLockRejectsForeignHandleBeforePublication() {
     var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
     var foreignIndex = mock(Index.class);
     var foreignName = "foreign-index-handle";
+    var definition = mock(IndexDefinition.class);
     when(foreignIndex.getName()).thenReturn(foreignName);
+    when(foreignIndex.getIdentity()).thenReturn(mock(RID.class));
+    when(foreignIndex.getDefinition()).thenReturn(definition);
+    when(definition.getClassName()).thenReturn(CLS);
+    when(definition.getProperties()).thenReturn(List.of("val"));
+    when(definition.getParamCount()).thenReturn(1);
 
-    var exception = assertThrows(IllegalStateException.class,
-        () -> manager.addIndexInternalNoLock(foreignIndex, null, false));
+    session.begin();
+    try {
+      var transaction = session.getActiveTransaction();
+      var managerEntity = transaction.loadEntity(manager.indexManagerIdentity);
+      var linksBefore = new HashSet<>(managerEntity.getLinkSet(manager.CONFIG_INDEXES));
+      var propertyIndexesBefore = new HashMap<>(manager.classPropertyIndex);
 
-    assertTrue("the invariant failure must name the index",
-        exception.getMessage().contains(foreignName));
-    assertTrue("the invariant failure must name the unexpected type",
-        exception.getMessage().contains(foreignIndex.getClass().getName()));
-    assertFalse("the rejected handle must not enter the committed registry",
-        manager.indexes.containsKey(foreignName));
+      var exception = assertThrows(IllegalStateException.class,
+          () -> manager.addIndexInternalNoLock(foreignIndex, transaction, true));
+
+      assertTrue("the invariant failure must name the index",
+          exception.getMessage().contains(foreignName));
+      assertTrue("the invariant failure must name the unexpected type",
+          exception.getMessage().contains(foreignIndex.getClass().getName()));
+      assertFalse("the rejected handle must not enter the committed registry",
+          manager.indexes.containsKey(foreignName));
+      assertEquals("the rejected handle must not update the manager entity", linksBefore,
+          managerEntity.getLinkSet(manager.CONFIG_INDEXES));
+      assertEquals("the rejected handle must not update class property indexes",
+          propertyIndexesBefore, manager.classPropertyIndex);
+    } finally {
+      session.rollback();
+    }
   }
 
   /**
