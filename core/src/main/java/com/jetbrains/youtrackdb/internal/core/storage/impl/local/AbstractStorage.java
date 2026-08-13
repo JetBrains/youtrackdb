@@ -4433,40 +4433,72 @@ public abstract class AbstractStorage
     return indexLifecycleRegistry.getOrCreate(descriptorIdentity);
   }
 
-  /**
-   * Binds a local engine to its durable descriptor after that descriptor obtains or loads its RID.
-   */
-  public IndexEngineReference bindIndexEngineToDescriptor(
-      int externalIndexId, RID descriptorIdentity) {
-    try {
-      if (isCommitWindowActive()) {
-        return bindIndexEngineToDescriptorWithStateLock(externalIndexId, descriptorIdentity);
-      }
+  public IndexLifecycleCell getIndexLifecycle(RID descriptorIdentity) {
+    return indexLifecycleRegistry.get(descriptorIdentity);
+  }
 
-      stateLock.readLock().lock();
-      try {
-        return bindIndexEngineToDescriptorWithStateLock(externalIndexId, descriptorIdentity);
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (RuntimeException e) {
-      throw logAndPrepareForRethrow(e);
+  public void removeIndexLifecycle(RID descriptorIdentity) {
+    indexLifecycleRegistry.remove(descriptorIdentity);
+  }
+
+  public IndexEngineReference getIndexEngineReference(int externalIndexId) {
+    if (isCommitWindowActive()) {
+      return getIndexEngineReferenceWithStateLock(externalIndexId);
+    }
+
+    stateLock.readLock().lock();
+    try {
+      return getIndexEngineReferenceWithStateLock(externalIndexId);
+    } finally {
+      stateLock.readLock().unlock();
     }
   }
 
-  private IndexEngineReference bindIndexEngineToDescriptorWithStateLock(
-      int externalIndexId, RID descriptorIdentity) {
+  private IndexEngineReference getIndexEngineReferenceWithStateLock(int externalIndexId) {
     final var internalIndexId = extractInternalId(externalIndexId);
     try {
       checkIndexId(internalIndexId);
     } catch (InvalidIndexEngineIdException e) {
-      throw new IllegalStateException("Cannot bind an unregistered index engine", e);
+      throw new IllegalStateException("Cannot resolve an unregistered index engine", e);
     }
 
     final var reference = indexEngines.get(internalIndexId).getEngineReference();
     if (reference == null) {
       throw new IllegalStateException("Local index engine has no process-local reference");
     }
+    return reference;
+  }
+
+  /**
+   * Binds a local engine to its durable descriptor after that descriptor obtains or loads its RID.
+   */
+  public IndexEngineReference bindIndexEngineToDescriptor(
+      int externalIndexId, RID descriptorIdentity, IndexEngineReference expectedReference) {
+    if (isCommitWindowActive()) {
+      return bindIndexEngineToDescriptorWithStateLock(
+          externalIndexId, descriptorIdentity, expectedReference);
+    }
+
+    stateLock.readLock().lock();
+    try {
+      return bindIndexEngineToDescriptorWithStateLock(
+          externalIndexId, descriptorIdentity, expectedReference);
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  private IndexEngineReference bindIndexEngineToDescriptorWithStateLock(
+      int externalIndexId, RID descriptorIdentity, IndexEngineReference expectedReference) {
+    final var reference = getIndexEngineReferenceWithStateLock(externalIndexId);
+    if (reference.slot() != expectedReference.slot()
+        || reference.apiVersion() != expectedReference.apiVersion()
+        || reference.generation() != expectedReference.generation()) {
+      throw new IllegalStateException(
+          "Index engine reference changed from generation " + expectedReference.generation()
+              + " to " + reference.generation() + " for slot " + reference.slot());
+    }
+
     reference.bindOwner(descriptorIdentity);
     return reference;
   }
@@ -4832,7 +4864,7 @@ public abstract class AbstractStorage
         | internalId;
   }
 
-  private static int extractInternalId(final int externalId) {
+  public static int extractInternalId(final int externalId) {
     if (externalId < 0) {
       throw new IllegalStateException("Index id has to be positive");
     }

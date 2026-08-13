@@ -80,17 +80,11 @@ public final class BTreeSingleValueIndexEngine
 
   public BTreeSingleValueIndexEngine(
       int id, int fileBaseId, String name, AbstractStorage storage, int version) {
-    this(id, fileBaseId, name, storage, version, new IndexEngineReference(id, API_VERSION, 1));
-  }
-
-  public BTreeSingleValueIndexEngine(
-      int id, int fileBaseId, String name, AbstractStorage storage, int version,
-      IndexEngineReference engineReference) {
     this.name = name;
     this.id = id;
     this.fileBaseId = fileBaseId;
     this.storage = storage;
-    this.engineReference = engineReference;
+    this.engineReference = storage.allocateIndexEngineReference(id, API_VERSION);
 
     if (version == 3 || version == 4) {
       // The component (and therefore its files) is keyed by the stable file base id, not the

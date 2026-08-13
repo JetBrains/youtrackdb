@@ -277,6 +277,10 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     var indexManager = session.getSharedContext().getIndexManager();
     assertTrue("the index must exist before the drop", indexManager.existsIndex(indexName));
     assertTrue("the engine must be registered before the drop", engineIsRegistered(indexName));
+    var droppedIndex = (IndexAbstract) indexManager.getIndex(indexName);
+    var droppedDescriptorIdentity = droppedIndex.getIdentity();
+    assertNotNull("the descriptor must have a lifecycle cell before drop",
+        droppedIndex.getLifecycleCell());
 
     session.executeInTx(tx -> indexManager.dropIndex(session, indexName));
 
@@ -284,6 +288,8 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         indexManager.existsIndex(indexName));
     assertFalse("the dropped index's engine must be unregistered after commit",
         engineIsRegistered(indexName));
+    assertNull("the committed drop must remove its lifecycle registry entry",
+        storage().getIndexLifecycle(droppedDescriptorIdentity));
 
     session.getSharedContext().getIndexManager().reload(session);
     reOpen("admin", ADMIN_PASSWORD);

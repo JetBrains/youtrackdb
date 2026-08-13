@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.List;
@@ -73,6 +74,23 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     assertSame("reload must retain the storage-scoped cell", cell, replacement.getLifecycleCell());
     assertEquals("reload must not reset the lifecycle value", IndexLifecycle.INVALID,
         replacement.getLifecycleCell().get());
+  }
+
+  /** A successful drop removes the descriptor's registry entry without mutating its retained cell. */
+  @Test
+  public void dropRemovesLifecycleRegistryEntry() {
+    var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var index = (IndexAbstract) manager.getIndex(IDX);
+    var descriptorIdentity = index.getIdentity();
+    var cell = index.getLifecycleCell();
+
+    manager.dropIndex(session, IDX);
+
+    var storage = (AbstractStorage) session.getStorage();
+    assertNull("the dropped descriptor must leave the storage registry",
+        storage.getIndexLifecycle(descriptorIdentity));
+    assertSame("an already retained cell remains valid for old holders", cell,
+        index.getLifecycleCell());
   }
 
   // -----------------------------------------------------------------------

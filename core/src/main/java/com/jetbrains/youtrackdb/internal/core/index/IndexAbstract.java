@@ -87,8 +87,7 @@ public abstract class IndexAbstract implements Index {
   private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
   protected volatile int indexId = -1;
-  @Nullable private volatile IndexEngineReference engineReference;
-  @Nullable private volatile IndexLifecycleCell lifecycleCell;
+  @Nullable private volatile IdentityAttachment identityAttachment;
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
@@ -210,7 +209,7 @@ public abstract class IndexAbstract implements Index {
       onIndexEngineChange(transaction.getDatabaseSession(), indexId);
 
       save(transaction);
-      attachDescriptorIdentity();
+      attachDescriptorIdentityLocked();
     } catch (Exception e) {
       LogManager.instance().error(this, "Exception during index '%s' creation", e, im.getName());
       // index is created inside of storage
@@ -561,7 +560,7 @@ public abstract class IndexAbstract implements Index {
       // the recorded ids, so recording only after a fully-successful build would leave such a
       // failure's engine behind as a phantom registration no revert arm ever removes.
       createdEngineExternalIds.add(indexId);
-      attachDescriptorIdentity();
+      attachDescriptorIdentityLocked();
       onIndexEngineChange(transaction.getDatabaseSession(), indexId);
     } finally {
       releaseExclusiveLock();
@@ -604,29 +603,74 @@ public abstract class IndexAbstract implements Index {
       throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
     }
 
-    attachDescriptorIdentity();
+    attachDescriptorIdentityLocked();
     onIndexEngineChange(transaction.getDatabaseSession(), indexId);
   }
 
   void attachDescriptorIdentity() {
-    if (identity == null || !identity.isPersistent()) {
+    acquireExclusiveLock();
+    try {
+      attachDescriptorIdentityLocked();
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  private void attachDescriptorIdentityLocked() {
+    if (!rwLock.isWriteLockedByCurrentThread()) {
+      throw new IllegalStateException("Index identity attachment requires the handle write lock");
+    }
+
+    final var descriptorIdentity = identity;
+    final var engineIdentifier = indexId;
+    if (descriptorIdentity == null || !descriptorIdentity.isPersistent() || engineIdentifier < 0) {
       return;
     }
 
-    lifecycleCell = storage.getOrCreateIndexLifecycle(identity);
-    if (indexId >= 0) {
-      engineReference = storage.bindIndexEngineToDescriptor(indexId, identity);
+    final var currentAttachment = identityAttachment;
+    if (currentAttachment != null
+        && currentAttachment.descriptorIdentity().equals(descriptorIdentity)
+        && currentAttachment.engineReference().slot()
+            == AbstractStorage.extractInternalId(engineIdentifier)) {
+      return;
+    }
+
+    final var expectedReference = storage.getIndexEngineReference(engineIdentifier);
+    final var boundReference = storage.bindIndexEngineToDescriptor(
+        engineIdentifier, descriptorIdentity, expectedReference);
+    final var lifecycleCell = storage.getOrCreateIndexLifecycle(descriptorIdentity);
+    identityAttachment =
+        new IdentityAttachment(descriptorIdentity, lifecycleCell, boundReference);
+  }
+
+  @Nullable IndexLifecycleCell getLifecycleCell() {
+    final var attachment = identityAttachment;
+    return attachment == null ? null : attachment.lifecycleCell();
+  }
+
+  @Nullable IndexEngineReference getEngineReference() {
+    final var attachment = identityAttachment;
+    return attachment == null ? null : attachment.engineReference();
+  }
+
+  void removeLifecycleRegistration() {
+    acquireExclusiveLock();
+    try {
+      final var attachment = identityAttachment;
+      final var descriptorIdentity =
+          attachment == null ? identity : attachment.descriptorIdentity();
+      if (descriptorIdentity != null && descriptorIdentity.isPersistent()) {
+        storage.removeIndexLifecycle(descriptorIdentity);
+      }
+    } finally {
+      releaseExclusiveLock();
     }
   }
 
-  IndexLifecycleCell getLifecycleCell() {
-    attachDescriptorIdentity();
-    return lifecycleCell;
-  }
-
-  IndexEngineReference getEngineReference() {
-    attachDescriptorIdentity();
-    return engineReference;
+  private record IdentityAttachment(
+      RID descriptorIdentity,
+      IndexLifecycleCell lifecycleCell,
+      IndexEngineReference engineReference) {
   }
 
   @Override
@@ -702,22 +746,29 @@ public abstract class IndexAbstract implements Index {
         LogManager.instance().error(this, "Error during index '%s' delete", e, im.getName());
       }
 
+      final var oldDescriptorIdentity = identity;
+      if (oldDescriptorIdentity != null) {
+        storage.removeIndexLifecycle(oldDescriptorIdentity);
+      }
+      identityAttachment = null;
+
+      // Clear the deleted descriptor before publishing the replacement engine identifier. This
+      // prevents any observer from pairing the new engine with the old durable identity.
+      identity = null;
       Map<String, String> engineProperties = new HashMap<>();
       indexId = storage.addIndexEngine(im, engineProperties);
 
       onIndexEngineChange(session, indexId);
 
-      // The old metadata entity was deleted by doDelete() above. Reset identity
-      // so save() creates a fresh entity instead of trying to update the deleted one.
-      // Then persist the metadata and register it in the IndexManager's CONFIG_INDEXES
-      // link set, so the index survives crash + WAL replay.
-      identity = null;
+      // The old metadata entity was deleted by doDelete() above. save() now creates a fresh entity
+      // and registers it in the IndexManager's CONFIG_INDEXES link set, so the index survives crash
+      // and WAL replay.
       session.executeInTxInternal(tx -> {
         save(tx);
         session.getSharedContext().getIndexManager()
             .addIndexInternal(session, tx, this, true);
       });
-      attachDescriptorIdentity();
+      attachDescriptorIdentityLocked();
     } catch (Exception e) {
       try {
         if (indexId >= 0) {
@@ -1317,9 +1368,6 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public int getIndexId() {
-    // Newly created descriptor RIDs become persistent after their creating transaction applies.
-    // Attach before the first writer can dereference the engine through this identifier.
-    attachDescriptorIdentity();
     return indexId;
   }
 
