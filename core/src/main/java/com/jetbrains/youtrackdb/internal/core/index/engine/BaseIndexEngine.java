@@ -17,10 +17,10 @@ public interface BaseIndexEngine {
   int getId();
 
   /**
-   * Returns process-local identity for engines published in a local storage registry.
+   * Returns this engine's process-local registry identity.
    *
-   * <p>Remote engines intentionally return {@code null}. They are not held in the local storage
-   * engine list, so slot generations and descriptor ownership do not apply to them.
+   * <p>An engine published in a local storage engine registry must return a reference. Only an
+   * engine that is never published in that registry may return {@code null}.
    */
   @Nullable default IndexEngineReference getEngineReference() {
     return null;

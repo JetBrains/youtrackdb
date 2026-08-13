@@ -167,6 +167,8 @@ public class UniformCtorExceptionFanTest {
                 EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
             {"StorageExistsException", StorageExistsException.class, BaseException.class,
                 EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"StaleIndexEngineException", StaleIndexEngineException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
             {"TransactionBlockedException", TransactionBlockedException.class, BaseException.class,
                 EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)},
             {"TransactionException", TransactionException.class, BaseException.class,
