@@ -32,6 +32,8 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -840,6 +842,115 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         session.computeInTx(
             tx -> reloadedManager.getIndex(indexName).getRids(session, "replaced").toList());
     assertEquals("the recreated index's row must survive the reload", 1, reloadedRids.size());
+  }
+
+  /**
+   * A count delta accumulated for the old engine must not follow its reused slot into the empty
+   * replacement. The commit-window hook models old-engine work before reconciliation. The
+   * replacement must retain an empty entry count after the drop and recreate commit.
+   */
+  @Test
+  public void dropThenRecreateDiscardsDroppedIndexCountDelta() throws Exception {
+    var cls = session.getMetadata().getSchema().createClass("CountDeltaReplace");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "CountDeltaReplace.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) indexManager.getIndex(indexName);
+    var originalEngine = (BTreeIndexEngine) storage().getIndexEngine(original.getIndexId());
+    var reusedSlot = originalEngine.getId();
+
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+    session.getMetadata().getSchema().getClass("CountDeltaReplace")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    storage().setCommitWindowTestHook(
+        () -> IndexCountDelta.accumulate(
+            session.getActiveTransaction().getAtomicOperation(), reusedSlot, 1, false));
+    try {
+      session.commit();
+    } finally {
+      storage().setCommitWindowTestHook(null);
+    }
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
+    assertEquals("the replacement must reuse the dropped engine slot", reusedSlot,
+        replacementEngine.getId());
+    assertEquals("the empty replacement must not inherit the dropped engine count", 0L,
+        session.computeInTx(tx -> replacement.size(session)).longValue());
+  }
+
+  /**
+   * A histogram delta accumulated for the old engine must not follow its reused slot into the empty
+   * replacement. The replacement statistics must remain at their freshly-built zero state.
+   */
+  @Test
+  public void dropThenRecreateDiscardsDroppedIndexHistogramDelta() throws Exception {
+    var cls = session.getMetadata().getSchema().createClass("HistogramDeltaReplace");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "HistogramDeltaReplace.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) indexManager.getIndex(indexName);
+    var originalEngine = (BTreeIndexEngine) storage().getIndexEngine(original.getIndexId());
+    var originalHistogram = originalEngine.getHistogramManager();
+    assertNotNull("the original engine must have a histogram manager", originalHistogram);
+    var reusedSlot = originalEngine.getId();
+
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+    session.getMetadata().getSchema().getClass("HistogramDeltaReplace")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    storage().setCommitWindowTestHook(
+        () -> originalHistogram.onPut(
+            session.getActiveTransaction().getAtomicOperation(), "ghost", true, true));
+    try {
+      session.commit();
+    } finally {
+      storage().setCommitWindowTestHook(null);
+    }
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
+    assertEquals("the replacement must reuse the dropped engine slot", reusedSlot,
+        replacementEngine.getId());
+    assertEquals("the empty replacement must not inherit dropped histogram work", 0L,
+        replacementEngine.getStatistics().totalCount());
+  }
+
+  /**
+   * Dropping an unrelated engine must discard only that engine's slot. A normal insertion into a
+   * surviving index must still advance both its approximate count and histogram statistics.
+   */
+  @Test
+  public void unrelatedDropPreservesSurvivingIndexCountAndHistogram() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var survivorClass = schema.createClass("DeltaDiscardSurvivor");
+    survivorClass.createProperty("name", PropertyType.STRING);
+    var survivorName = "DeltaDiscardSurvivor.name";
+    survivorClass.createIndex(survivorName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var droppedClass = schema.createClass("DeltaDiscardUnrelated");
+    droppedClass.createProperty("name", PropertyType.STRING);
+    var droppedName = "DeltaDiscardUnrelated.name";
+    droppedClass.createIndex(droppedName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("DeltaDiscardSurvivor");
+    entity.setProperty("name", "kept");
+    indexManager.dropIndex(session, droppedName);
+    session.commit();
+
+    var survivor = (IndexAbstract) indexManager.getIndex(survivorName);
+    var survivorEngine = (BTreeIndexEngine) storage().getIndexEngine(survivor.getIndexId());
+    assertEquals("the survivor must keep its committed entry count", 1L,
+        session.computeInTx(tx -> survivor.size(session)).longValue());
+    assertEquals("the survivor must keep its committed histogram delta", 1L,
+        survivorEngine.getStatistics().totalCount());
   }
 
   /**

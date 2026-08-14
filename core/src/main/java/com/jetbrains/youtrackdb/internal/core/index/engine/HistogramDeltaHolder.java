@@ -73,6 +73,13 @@ public final class HistogramDeltaHolder {
   }
 
   /**
+   * Discards work accumulated for an engine slot whose owner is being deleted or replaced.
+   */
+  public void discard(int engineId) {
+    deltas.remove(engineId);
+  }
+
+  /**
    * Marks this holder as already applied to the in-memory CHM cache.
    * Idempotent: calling twice in a row is harmless.
    */

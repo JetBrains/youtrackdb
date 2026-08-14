@@ -3797,6 +3797,7 @@ public abstract class AbstractStorage
     final var generatedId = nextFreeIndexEngineId();
     assert generatedId >= indexEngines.size() || indexEngines.get(generatedId) == null
         : "commit-local index-engine allocator returned an occupied slot " + generatedId;
+    discardIndexDeltas(atomicOperation, generatedId);
     // Unlike the reusable slot id above, the file base id is never reused: allocated from the
     // monotonic high-water mark inside this commit's atomic operation (the floor write reverts
     // with a failed commit; the mark itself burns the value).
@@ -3884,6 +3885,7 @@ public abstract class AbstractStorage
     final var capturedData =
         configuration.getIndexEngine(engine.getName(), internalIndexId, atomicOperation);
 
+    discardIndexDeltas(atomicOperation, internalIndexId);
     doDeleteIndexEngine(atomicOperation, engine);
     indexEngines.set(internalIndexId, null);
     indexEngineNameMap.remove(engine.getName());
@@ -4405,9 +4407,26 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Applies histogram deltas accumulated during the transaction to the
-   * in-memory CHM cache. Called after {@code endTxCommit()} succeeds so
-   * that the cache always reflects committed state only.
+   * Removes transaction-local work keyed by a slot whose engine lifetime has ended. Commit-window
+   * drops run after ordinary index writes, while creates run before replacement population. Thus,
+   * the removed work can only belong to the old owner. Work for the replacement accumulates later.
+   */
+  private static void discardIndexDeltas(
+      final AtomicOperation atomicOperation, final int engineId) {
+    final var countDeltas = atomicOperation.getIndexCountDeltas();
+    if (countDeltas != null) {
+      countDeltas.discard(engineId);
+    }
+
+    final var histogramDeltas = atomicOperation.getHistogramDeltas();
+    if (histogramDeltas != null) {
+      histogramDeltas.discard(engineId);
+    }
+  }
+
+  /**
+   * Applies histogram deltas accumulated during the transaction to the in-memory CHM cache. Called
+   * after {@code endTxCommit()} succeeds so that the cache always reflects committed state only.
    */
   public void applyHistogramDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getHistogramDeltas();
