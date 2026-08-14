@@ -41,7 +41,7 @@ public class IndexRecoveryPathsTest {
    * Every single-value read path permits one owner-bound retry. If the resolved engine is also
    * stale, the path must stop after that retry and report the descriptor instead of looping.
    */
-  @Test
+  @Test(timeout = 10_000)
   public void indexOneValuePersistentStalenessFailsAfterSingleOwnerBoundRetry() throws Exception {
     for (var path : indexOneValuePaths()) {
       var fixture = fixture(IndexUnique::new, path.storageMethod(), true);
