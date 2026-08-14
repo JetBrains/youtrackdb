@@ -2,8 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
@@ -32,28 +34,66 @@ public class IndexRecoveryPathsTest {
 
   @Test
   public void indexOneValueRecoveryPathsUseOwnerAndRejectForeignOwner() throws Exception {
-    verifyPaths(
-        IndexUnique::new,
-        List.of(
-            path("getRidsIgnoreTx", "getIndexValues",
-                fixture -> fixture.index.getRidsIgnoreTx(fixture.session, "key").close()),
-            path("streamEntries", "getIndexValues",
-                fixture -> fixture.index.streamEntries(fixture.session, List.of("key"), true)
-                    .toList()),
-            path("streamEntriesBetween", "iterateIndexEntriesBetween",
-                fixture -> fixture.index.streamEntriesBetween(
-                    fixture.session, "a", true, "z", true, true).close()),
-            path("streamEntriesMajor", "iterateIndexEntriesMajor",
-                fixture -> fixture.index.streamEntriesMajor(
-                    fixture.session, "a", true, true).close()),
-            path("streamEntriesMinor", "iterateIndexEntriesMinor",
-                fixture -> fixture.index.streamEntriesMinor(
-                    fixture.session, "z", true, true).close()),
-            path("size", "getIndexSize", fixture -> fixture.index.size(fixture.session)),
-            path("stream", "getIndexStream",
-                fixture -> fixture.index.stream(fixture.session).close()),
-            path("descStream", "getIndexDescStream",
-                fixture -> fixture.index.descStream(fixture.session).close())));
+    verifyPaths(IndexUnique::new, indexOneValuePaths());
+  }
+
+  /**
+   * Every single-value read path permits one owner-bound retry. If the resolved engine is also
+   * stale, the path must stop after that retry and report the descriptor instead of looping.
+   */
+  @Test
+  public void indexOneValuePersistentStalenessFailsAfterSingleOwnerBoundRetry() throws Exception {
+    for (var path : indexOneValuePaths()) {
+      var fixture = fixture(IndexUnique::new, path.storageMethod(), true);
+
+      var exception =
+          assertThrows(
+              path.name() + " must fail after one owner-bound retry",
+              StaleIndexEngineException.class,
+              () -> path.operation().invoke(fixture));
+
+      assertTrue(
+          path.name() + " must explain the bounded retry",
+          exception.getMessage().contains("remained stale after owner-bound recovery"));
+      assertTrue(
+          path.name() + " must identify the descriptor owner",
+          exception.getMessage().contains(OWNER.toString()));
+      assertEquals(
+          path.name() + " must install the owner-resolved identifier before failing closed",
+          VALID_IDENTIFIER,
+          fixture.index.indexId);
+      assertEquals(
+          path.name() + " must resolve the owner exactly once",
+          1,
+          invocationCount(fixture.storage, "resolveIndexEngineByOwner"));
+      assertEquals(
+          path.name() + " must attempt the storage operation exactly twice",
+          2,
+          invocationCount(fixture.storage, path.storageMethod()));
+    }
+  }
+
+  private static List<RecoveryPath> indexOneValuePaths() {
+    return List.of(
+        path("getRidsIgnoreTx", "getIndexValues",
+            fixture -> fixture.index.getRidsIgnoreTx(fixture.session, "key").close()),
+        path("streamEntries", "getIndexValues",
+            fixture -> fixture.index.streamEntries(fixture.session, List.of("key"), true)
+                .toList()),
+        path("streamEntriesBetween", "iterateIndexEntriesBetween",
+            fixture -> fixture.index.streamEntriesBetween(
+                fixture.session, "a", true, "z", true, true).close()),
+        path("streamEntriesMajor", "iterateIndexEntriesMajor",
+            fixture -> fixture.index.streamEntriesMajor(
+                fixture.session, "a", true, true).close()),
+        path("streamEntriesMinor", "iterateIndexEntriesMinor",
+            fixture -> fixture.index.streamEntriesMinor(
+                fixture.session, "z", true, true).close()),
+        path("size", "getIndexSize", fixture -> fixture.index.size(fixture.session)),
+        path("stream", "getIndexStream",
+            fixture -> fixture.index.stream(fixture.session).close()),
+        path("descStream", "getIndexDescStream",
+            fixture -> fixture.index.descStream(fixture.session).close()));
   }
 
   @Test
@@ -125,6 +165,11 @@ public class IndexRecoveryPathsTest {
   }
 
   private static Fixture fixture(IndexFactory factory, String staleStorageMethod) {
+    return fixture(factory, staleStorageMethod, false);
+  }
+
+  private static Fixture fixture(
+      IndexFactory factory, String staleStorageMethod, boolean persistentlyStale) {
     var engine = mock(BaseIndexEngine.class);
     var storage = mock(AbstractStorage.class, invocation -> {
       var methodName = invocation.getMethod().getName();
@@ -140,8 +185,9 @@ public class IndexRecoveryPathsTest {
             "recovery-path-test", "No engine belongs to foreign owner " + owner);
       }
       if (methodName.equals(staleStorageMethod)
-          && Stream.of(invocation.getArguments())
-              .anyMatch(argument -> Integer.valueOf(STALE_IDENTIFIER).equals(argument))) {
+          && (persistentlyStale
+              || Stream.of(invocation.getArguments())
+                  .anyMatch(argument -> Integer.valueOf(STALE_IDENTIFIER).equals(argument)))) {
         throw new InvalidIndexEngineIdException("stale identifier");
       }
       if (methodName.equals("getIndexEngine")
@@ -175,7 +221,13 @@ public class IndexRecoveryPathsTest {
     index.im = metadata;
     index.identity = OWNER;
     index.indexId = STALE_IDENTIFIER;
-    return new Fixture(index, session, transaction, atomicOperation);
+    return new Fixture(index, session, transaction, atomicOperation, storage);
+  }
+
+  private static int invocationCount(AbstractStorage storage, String methodName) {
+    return (int) mockingDetails(storage).getInvocations().stream()
+        .filter(invocation -> invocation.getMethod().getName().equals(methodName))
+        .count();
   }
 
   private static RecoveryPath path(
@@ -212,7 +264,8 @@ public class IndexRecoveryPathsTest {
       IndexAbstract index,
       DatabaseSessionEmbedded session,
       FrontendTransactionImpl transaction,
-      AtomicOperation atomicOperation) {
+      AtomicOperation atomicOperation,
+      AbstractStorage storage) {
   }
 
   private record RecoveryPath(
