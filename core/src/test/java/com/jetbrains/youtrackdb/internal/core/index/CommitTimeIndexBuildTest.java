@@ -865,14 +865,19 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     indexManager.dropIndex(session, indexName);
     session.getMetadata().getSchema().getClass("CountDeltaReplace")
         .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var hookFired = new AtomicBoolean();
     storage().setCommitWindowTestHook(
-        () -> IndexCountDelta.accumulate(
-            session.getActiveTransaction().getAtomicOperation(), reusedSlot, 1, false));
+        () -> {
+          hookFired.set(true);
+          IndexCountDelta.accumulate(
+              session.getActiveTransaction().getAtomicOperation(), reusedSlot, 1, false);
+        });
     try {
       session.commit();
     } finally {
       storage().setCommitWindowTestHook(null);
     }
+    assertTrue("the count-delta test hook must fire inside the commit window", hookFired.get());
 
     var replacement = (IndexAbstract) indexManager.getIndex(indexName);
     var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
@@ -904,14 +909,19 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     indexManager.dropIndex(session, indexName);
     session.getMetadata().getSchema().getClass("HistogramDeltaReplace")
         .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var hookFired = new AtomicBoolean();
     storage().setCommitWindowTestHook(
-        () -> originalHistogram.onPut(
-            session.getActiveTransaction().getAtomicOperation(), "ghost", true, true));
+        () -> {
+          hookFired.set(true);
+          originalHistogram.onPut(
+              session.getActiveTransaction().getAtomicOperation(), "ghost", true, true);
+        });
     try {
       session.commit();
     } finally {
       storage().setCommitWindowTestHook(null);
     }
+    assertTrue("the histogram-delta test hook must fire inside the commit window", hookFired.get());
 
     var replacement = (IndexAbstract) indexManager.getIndex(indexName);
     var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
