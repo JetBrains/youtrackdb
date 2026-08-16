@@ -1,12 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
@@ -59,6 +60,9 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
 
   /** The alias the walker mints for the root {@code V()} scan. */
   private static final String ORIGIN_ALIAS = "$g2m_v0";
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(this::graphSession);
 
   /** The hub every {@code Types} vertex hangs off, so the partition shape has a hop to cross. */
   private Vertex typesHub;
@@ -798,29 +802,22 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
    * pipeline, so the comparison is native against native. What carries the case is the decline
    * assertion, plus the off arm's zero-boundary pin (see {@link #assertAgreesWithNative} for why
    * that pin exists) and, at the call site, a control shape that does translate on the same fixture.
+   *
+   * <p>{@link Cardinality#MAY_BE_EMPTY} rather than the shared driver's default, and the opt-out is
+   * measured rather than assumed: this helper's only shape compares stored values against an {@code
+   * Instant}, which TinkerPop's comparator rejects for every one of them, so its native answer is
+   * legitimately the empty list. Arming the non-emptiness pin here would redden a case whose empty
+   * answer is the correct one. The call-site control is what keeps the empty result attributable to
+   * the {@code Instant} rather than to a fixture that drifted empty.
    */
   private void assertDeclinesAndMatchesNative(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
-    var original = translatorEnabled();
-    try {
-      setTranslatorEnabled(true);
-      var onAdmin = shape.get().asAdmin();
-      onAdmin.applyStrategies();
-      assertThat(countBoundarySteps(onAdmin.getSteps()))
-          .as(scenario + " must decline to native — no boundary step")
-          .isEqualTo(0);
-      var onTags = tagsOf(onAdmin.toList());
-      setTranslatorEnabled(false);
-      var offAdmin = shape.get().asAdmin();
-      offAdmin.applyStrategies();
-      assertThat(countBoundarySteps(offAdmin.getSteps()))
-          .as(scenario + " (translator off) must never engage a boundary step")
-          .isZero();
-      assertThat(onTags).as(scenario + " must still return native's rows")
-          .isEqualTo(tagsOf(offAdmin.toList()));
-    } finally {
-      setTranslatorEnabled(original);
-    }
+    support.assertEquivalent(
+        scenario,
+        Recognition.DECLINED,
+        Cardinality.MAY_BE_EMPTY,
+        RangeTypeGuardEquivalenceTest::tagsOf,
+        shape);
   }
 
   /**
@@ -868,16 +865,6 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
         .map(v -> String.valueOf(((Vertex) v).<Object>value("tag")))
         .sorted()
         .toList();
-  }
-
-  private static int countBoundarySteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
   }
 
   /**
@@ -940,25 +927,15 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
   }
 
   private void withTranslator(boolean enabled, Runnable body) {
-    var original = translatorEnabled();
-    setTranslatorEnabled(enabled);
-    try {
-      body.run();
-    } finally {
-      setTranslatorEnabled(original);
-    }
+    support.withTranslator(enabled, body);
   }
 
   private boolean translatorEnabled() {
-    return graphSession()
-        .getConfiguration()
-        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    return support.translatorEnabled();
   }
 
   private void setTranslatorEnabled(boolean enabled) {
-    graphSession()
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    support.setTranslatorEnabled(enabled);
   }
 
   private com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded graphSession() {

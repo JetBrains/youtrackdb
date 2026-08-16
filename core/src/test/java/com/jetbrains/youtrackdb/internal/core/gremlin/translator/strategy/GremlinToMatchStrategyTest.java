@@ -72,6 +72,9 @@ import org.junit.Test;
 @SuppressWarnings({"unchecked", "resource"})
 public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(this::session);
+
   /**
    * A translation the fixture translator hands back to drive the splice path. The concrete
    * inputs never reach a real planner in these tests (the plan builder is stubbed), so a bare
@@ -127,12 +130,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     return tx.getDatabaseSession();
   }
 
-  // getConfiguration() is @Nullable-inferred but non-null on a live session.
-  @SuppressWarnings("DataFlowIssue")
   private void setKillSwitch(boolean enabled) {
-    session()
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    support.setTranslatorEnabled(enabled);
   }
 
   /**

@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
@@ -14,7 +14,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.structure.T;
-import org.junit.Assert;
 import org.junit.Test;
 
 /**
@@ -59,6 +58,9 @@ import org.junit.Test;
  * </ul>
  */
 public class FoldedEdgeStepDispatchClassTest extends GraphBaseTest {
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(this::graphSession);
 
   private void seedKnowsGraph() {
     var a = graph.addVertex(T.label, "Person", "name", "A");
@@ -205,17 +207,13 @@ public class FoldedEdgeStepDispatchClassTest extends GraphBaseTest {
    * folded shape rather than a translated boundary step.
    */
   private void withTranslatorDisabled(Runnable body) {
+    support.withTranslator(false, body);
+  }
+
+  /** The session backing the graph's traversals — its configuration carries the translator flag. */
+  private DatabaseSessionEmbedded graphSession() {
     var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
-    var config = tx.getDatabaseSession().getConfiguration();
-    Assert.assertNotNull(config);
-    var previous =
-        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
-    try {
-      body.run();
-    } finally {
-      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, previous);
-    }
+    return tx.getDatabaseSession();
   }
 }

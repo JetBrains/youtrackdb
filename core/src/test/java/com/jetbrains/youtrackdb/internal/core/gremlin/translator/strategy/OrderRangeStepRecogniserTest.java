@@ -1,10 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedIds;
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -39,6 +40,9 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
   private static final Set<Class<?>> TRANSPARENT = Set.of(NoOpBarrierStep.class);
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   /** Bare {@code order()} sorts by element identity ({@code alias.@rid ASC}). */
   @Test
@@ -959,36 +963,11 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   private boolean translatorEnabled() {
-    return session
-        .getConfiguration()
-        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    return support.translatorEnabled();
   }
 
   private void setTranslatorEnabled(boolean enabled) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
-  }
-
-  /** Counts translated boundary steps of any kind — a multi-plan step is a translation too. */
-  private static int countBoundarySteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  /** Sorted RID strings; sorting preserves multiplicity, so the comparison is a multiset one. */
-  private static List<String> sortedIds(List<?> results) {
-    return results.stream().map(v -> ((Vertex) v).id().toString()).sorted().toList();
-  }
-
-  /** The {@link #sortedIds} sibling for rows that are values or maps rather than elements. */
-  private static List<String> sortedStrings(List<?> results) {
-    return results.stream().map(String::valueOf).sorted().toList();
+    support.setTranslatorEnabled(enabled);
   }
 
   /**

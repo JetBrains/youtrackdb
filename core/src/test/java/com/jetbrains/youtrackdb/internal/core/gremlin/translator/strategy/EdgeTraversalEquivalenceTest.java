@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -9,7 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
-import java.util.List;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -43,10 +45,8 @@ import org.junit.Test;
  */
 public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
 
-  /** Whether the translated shape must engage the boundary step or decline to the native pipeline. */
-  private enum Recognition {
-    RECOGNIZED, DECLINED
-  }
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   /** The alias the walker mints for the root {@code V()} scan — the origin of every hop below it. */
   private static final String ORIGIN_ALIAS = "$g2m_v0";
@@ -1060,60 +1060,12 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
       String scenario,
       Recognition expected,
       Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    try {
-      // Translator ON: apply strategies (reads the flag fresh), count boundary steps, drain.
-      setTranslatorEnabled(true);
-      var onAdmin = traversalSupplier.get().asAdmin();
-      onAdmin.applyStrategies();
-      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
-      var onIds = sortedIds(onAdmin.toList());
-
-      // Translator OFF: the native pipeline, never a boundary step.
-      setTranslatorEnabled(false);
-      var offAdmin = traversalSupplier.get().asAdmin();
-      offAdmin.applyStrategies();
-      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
-      var offIds = sortedIds(offAdmin.toList());
-
-      if (expected == Recognition.RECOGNIZED) {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must engage exactly one boundary step")
-            .isEqualTo(1);
-        // Every RECOGNIZED case seeds matching data, so both runs must return a non-empty multiset.
-        // Without this guard a seed regression that persisted nothing (createVertexClass/schema
-        // change, a silently no-op commit, a base-class rename) would make both runs return [], the
-        // multiset equality below would hold vacuously over two empty lists, and the case would go
-        // green while verifying nothing — the false-green this headline fixture must not admit.
-        assertThat(onIds)
-            .as(scenario + ": a RECOGNIZED fixture must return a non-empty result "
-                + "(else the multiset equality below is vacuous)")
-            .isNotEmpty();
-      } else {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must decline to native — no boundary step")
-            .isEqualTo(0);
-        // Anti-vacuity guard, and it matters more here than on the RECOGNIZED branch: a decline makes
-        // both arms the native pipeline by construction, so the multiset equality below cannot fail
-        // whatever the fixture holds. Without this the boundary counts are the only live assertions
-        // and a seed regression that persisted nothing would go green.
-        assertThat(offIds)
-            .as(scenario + ": a declined shape must still return a non-empty native result, else "
-                + "the multiset equality below is vacuous")
-            .isNotEmpty();
-      }
-      assertThat(boundaryOff)
-          .as(scenario + " (translator off) must never engage a boundary step")
-          .isEqualTo(0);
-      assertThat(onIds)
-          .as(scenario + ": translator-on and translator-off result multisets must match")
-          .isEqualTo(offIds);
-    } finally {
-      setTranslatorEnabled(original);
-    }
+    support.assertEquivalent(
+        scenario,
+        expected,
+        Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        traversalSupplier);
   }
 
   /**
@@ -1135,10 +1087,7 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
       int expectedFilterRows,
       Supplier<GraphTraversal<?, ?>> joinShape,
       int expectedJoinRows) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    var original = support.translatorEnabled();
     try {
       setTranslatorEnabled(false);
       var filterRows = filterShape.get().toList();
@@ -1159,9 +1108,7 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   private void setTranslatorEnabled(boolean enabled) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    support.setTranslatorEnabled(enabled);
   }
 
   /**
@@ -1196,10 +1143,7 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
 
   /** Applies strategies with the translator on and returns the boundary step's plan as text. */
   private String boundaryPlanText(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    var original = support.translatorEnabled();
     try {
       setTranslatorEnabled(true);
       var admin = traversalSupplier.get().asAdmin();
@@ -1236,25 +1180,4 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
     }
   }
 
-  /** Sorted RID strings of the matched vertices; sorting preserves multiplicity for the multiset
-   *  comparison (a vertex reached N times appears N times). */
-  private static List<String> sortedIds(List<?> results) {
-    return results.stream().map(v -> ((Vertex) v).id().toString()).sorted().toList();
-  }
-
-  /**
-   * Counts translated boundary steps of <em>any</em> kind across a step list (raw {@code
-   * List<Step>}). The supertype is deliberate: a shape that splices a {@code MultiPlanMatchStep}
-   * instead of a single-plan step is still a translation, and counting only the single-plan subtype
-   * would let such a shape satisfy a decline expectation while the translator in fact accepted it.
-   */
-  private static int countBoundarySteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
-  }
 }

@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -8,7 +10,6 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
@@ -88,6 +89,9 @@ import org.junit.Test;
 public class GremlinStepWalkerTest extends GraphBaseTest {
 
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   // ---------------------------------------------------------------------------
   // Translation correctness — g.V() / g.V(id) / g.V(ids) → MatchPlanInputs.
@@ -2245,49 +2249,36 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
       String scenario,
       Supplier<GraphTraversal<?, ?>> shape,
       Supplier<GraphTraversal<?, ?>> transparentReading) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    try {
-      setTranslatorFlag(true);
-      var onAdmin = shape.get().asAdmin();
-      onAdmin.applyStrategies();
-      var boundaryOn =
-          onAdmin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
-      var onRows = onAdmin.toList().stream().map(String::valueOf).sorted().toList();
+    support.withTranslatorRestored(
+        () -> {
+          support.setTranslatorEnabled(true);
+          var onAdmin = shape.get().asAdmin();
+          onAdmin.applyStrategies();
+          var boundaryOn = countBoundarySteps(onAdmin);
+          var onRows = sortedStrings(onAdmin.toList());
 
-      setTranslatorFlag(false);
-      var offAdmin = shape.get().asAdmin();
-      offAdmin.applyStrategies();
-      var boundaryOff =
-          offAdmin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
-      var offRows = offAdmin.toList().stream().map(String::valueOf).sorted().toList();
-      var readingAdmin = transparentReading.get().asAdmin();
-      readingAdmin.applyStrategies();
-      var readingRows = readingAdmin.toList().stream().map(String::valueOf).sorted().toList();
+          support.setTranslatorEnabled(false);
+          var offAdmin = shape.get().asAdmin();
+          offAdmin.applyStrategies();
+          var boundaryOff = countBoundarySteps(offAdmin);
+          var offRows = sortedStrings(offAdmin.toList());
+          var readingAdmin = transparentReading.get().asAdmin();
+          readingAdmin.applyStrategies();
+          var readingRows = sortedStrings(readingAdmin.toList());
 
-      assertThat(offRows)
-          .as(scenario + ": the fixture must separate the shape from its transparent reading, or "
-              + "the assertions below witness nothing")
-          .isNotEqualTo(readingRows);
-      assertThat(boundaryOff)
-          .as(scenario + " (translator off) must never engage a boundary step")
-          .isEqualTo(0);
-      assertThat(boundaryOn)
-          .as(scenario + ": a where child carrying a scope binding must decline the whole walk")
-          .isEqualTo(0);
-      assertThat(onRows)
-          .as(scenario + ": translator-on and translator-off multisets must match")
-          .isEqualTo(offRows);
-    } finally {
-      setTranslatorFlag(original);
-    }
-  }
-
-  private void setTranslatorFlag(boolean enabled) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+          assertThat(offRows)
+              .as(scenario + ": the fixture must separate the shape from its transparent reading, "
+                  + "or the assertions below witness nothing")
+              .isNotEqualTo(readingRows);
+          assertThat(boundaryOff)
+              .as(scenario + " (translator off) must never engage a boundary step")
+              .isZero();
+          assertThat(boundaryOn)
+              .as(scenario + ": a where child carrying a scope binding must decline the whole walk")
+              .isZero();
+          assertThat(onRows)
+              .as(scenario + ": translator-on and translator-off multisets must match")
+              .isEqualTo(offRows);
+        });
   }
 }

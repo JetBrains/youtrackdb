@@ -1,12 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
@@ -44,6 +43,9 @@ public class AndStepRecogniserTest extends GraphBaseTest {
   private static final String FIRST_ANON_ALIAS = "$g2m_anon_0";
   private static final String SECOND_ANON_ALIAS = "$g2m_anon_1";
   private static final Set<Class<?>> TRANSPARENT = Set.of(NoOpBarrierStep.class);
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   /**
    * {@code and(has(age), has(city))} over pure-filter children AND-composes both predicates on the
@@ -260,29 +262,27 @@ public class AndStepRecogniserTest extends GraphBaseTest {
         () -> graph.traversal().V()
             .and(__.has("age", P.eq(30)).barrier(), __.has("name", P.eq("Hub")));
 
-    var config = session.getConfiguration();
-    var previous =
-        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    try {
-      assertAndStepReachesTheTranslator("edge-bearing and(out(a), out(b))", edgeBearing);
-      assertAndStepReachesTheTranslator(
-          "pure-filter and(has(age).barrier(), has(name))", pureFilter);
+    // The body toggles the flag itself — the survival checks below need it off and the boundary
+    // counts need it on — so the harness only owns the restore.
+    support.withTranslatorRestored(
+        () -> {
+          assertAndStepReachesTheTranslator("edge-bearing and(out(a), out(b))", edgeBearing);
+          assertAndStepReachesTheTranslator(
+              "pure-filter and(has(age).barrier(), has(name))", pureFilter);
 
-      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
-      var edgeBearingAdmin = edgeBearing.get().asAdmin();
-      edgeBearingAdmin.applyStrategies();
-      assertThat(countBoundarySteps(edgeBearingAdmin))
-          .as("an edge-bearing and(...) must decline to the native pipeline")
-          .isZero();
+          support.setTranslatorEnabled(true);
+          var edgeBearingAdmin = edgeBearing.get().asAdmin();
+          edgeBearingAdmin.applyStrategies();
+          assertThat(countBoundarySteps(edgeBearingAdmin))
+              .as("an edge-bearing and(...) must decline to the native pipeline")
+              .isZero();
 
-      var pureFilterAdmin = pureFilter.get().asAdmin();
-      pureFilterAdmin.applyStrategies();
-      assertThat(countBoundarySteps(pureFilterAdmin))
-          .as("a pure-filter and(...) must still engage the boundary step")
-          .isEqualTo(1);
-    } finally {
-      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, previous);
-    }
+          var pureFilterAdmin = pureFilter.get().asAdmin();
+          pureFilterAdmin.applyStrategies();
+          assertThat(countBoundarySteps(pureFilterAdmin))
+              .as("a pure-filter and(...) must still engage the boundary step")
+              .isEqualTo(1);
+        });
   }
 
   /**
@@ -294,9 +294,7 @@ public class AndStepRecogniserTest extends GraphBaseTest {
    */
   private void assertAndStepReachesTheTranslator(
       String scenario, Supplier<GraphTraversal<?, ?>> supplier) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+    support.setTranslatorEnabled(false);
     var admin = supplier.get().asAdmin();
     admin.applyStrategies();
     assertThat(TraversalHelper.hasStepOfClass(AndStep.class, admin))
@@ -370,17 +368,6 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
     cursor.take();
     return cursor;
-  }
-
-  /**
-   * Boundary steps spliced into {@code admin} — one when the walk translated, zero when it declined.
-   * Counts the shared {@link AbstractMatchPlanStep} supertype rather than the single-plan subtype,
-   * matching the sibling equivalence fixtures: a shape spliced as a multi-plan step is still a
-   * translation, and counting only {@code YTDBMatchPlanStep} would let it satisfy the decline
-   * expectation above while the translator in fact accepted it.
-   */
-  private static long countBoundarySteps(Traversal.Admin<?, ?> admin) {
-    return admin.getSteps().stream().filter(AbstractMatchPlanStep.class::isInstance).count();
   }
 
   private static String renderBoundaryFilter(WalkerContext ctx) {

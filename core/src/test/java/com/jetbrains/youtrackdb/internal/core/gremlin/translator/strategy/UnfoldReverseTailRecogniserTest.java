@@ -1,10 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.FoldListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ReverseListShapingOp;
@@ -59,6 +58,9 @@ import org.junit.Test;
  * synthetic stages in the boundary-step tests instead.
  */
 public class UnfoldReverseTailRecogniserTest extends GraphBaseTest {
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   // ---------------------------------------------------------------------------
   // Each terminator on its own: one stage registered, output type untouched.
@@ -692,28 +694,8 @@ public class UnfoldReverseTailRecogniserTest extends GraphBaseTest {
     return new StepStreamCursor(List.of(step), Set.of());
   }
 
-  private static int countBoundarySteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
-  }
-
   /** Runs {@code body} with the translator on, restoring the previous setting afterwards. */
   private void withTranslatorOn(Runnable body) {
-    var configuration = session.getConfiguration();
-    var original =
-        configuration.getValueAsBoolean(
-            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    try {
-      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
-      body.run();
-    } finally {
-      configuration.setValue(
-          GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, original);
-    }
+    support.withTranslator(true, body);
   }
 }

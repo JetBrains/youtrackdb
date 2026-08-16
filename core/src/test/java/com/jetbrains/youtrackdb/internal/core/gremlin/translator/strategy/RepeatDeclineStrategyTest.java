@@ -1,16 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
-import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
@@ -76,6 +75,9 @@ import org.junit.Test;
  * own type).
  */
 public class RepeatDeclineStrategyTest extends GraphBaseTest {
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   /**
    * A case whose shape translates once the veto is out of the way: the decline the case asserts is
@@ -730,9 +732,7 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
    * in the same fork. The graph opens the same database, so the flag applies to its traversals too.
    */
   private void setTranslatorEnabled(boolean enabled) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    support.setTranslatorEnabled(enabled);
   }
 
   /**
@@ -773,16 +773,5 @@ public class RepeatDeclineStrategyTest extends GraphBaseTest {
           .as(description + " — strategy at position " + i)
           .isSameAs(expected.get(i));
     }
-  }
-
-  /** Counts boundary steps of every form, keyed on the shared base rather than one concrete step. */
-  private static int countBoundarySteps(Traversal.Admin<?, ?> admin) {
-    var count = 0;
-    for (var step : admin.getSteps()) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
   }
 }

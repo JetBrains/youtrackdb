@@ -1,18 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countBoundarySteps;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -51,6 +51,9 @@ public class NotStepRecogniserTest extends GraphBaseTest {
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
   private static final String FIRST_ANON_ALIAS = "$g2m_anon_0";
   private static final Set<Class<?>> TRANSPARENT = Set.of(NoOpBarrierStep.class);
+
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(this::graphSession);
 
   /**
    * {@code hasNot("nickname")} maps to {@code nickname IS NOT DEFINED} on the boundary alias — entity
@@ -499,11 +502,6 @@ public class NotStepRecogniserTest extends GraphBaseTest {
     return sb.toString();
   }
 
-  /** Whether a shape is expected to translate or to fall back to the native pipeline. */
-  private enum Recognition {
-    RECOGNIZED, DECLINED
-  }
-
   /**
    * Runs the same traversal shape twice — translator on, then off — and asserts boundary-step
    * engagement matches {@code expected} and the two result multisets are equal. Multiset equality is
@@ -511,68 +509,17 @@ public class NotStepRecogniserTest extends GraphBaseTest {
    */
   private void assertEquivalent(
       String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    var original = translatorEnabled();
-    try {
-      setTranslatorEnabled(true);
-      var onAdmin = traversalSupplier.get().asAdmin();
-      onAdmin.applyStrategies();
-      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
-      var onIds = sortedIds(onAdmin.toList());
-
-      setTranslatorEnabled(false);
-      var offAdmin = traversalSupplier.get().asAdmin();
-      offAdmin.applyStrategies();
-      var offIds = sortedIds(offAdmin.toList());
-
-      if (expected == Recognition.RECOGNIZED) {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must engage exactly one boundary step")
-            .isEqualTo(1);
-        assertThat(onIds)
-            .as(scenario + ": a translated shape must return a non-empty result, else the multiset "
-                + "equality below is vacuous")
-            .isNotEmpty();
-      } else {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must decline to native — no boundary step")
-            .isZero();
-        assertThat(offIds)
-            .as(scenario + ": a declined shape must still return a non-empty native result, else "
-                + "the multiset equality below is vacuous")
-            .isNotEmpty();
-      }
-      assertThat(countBoundarySteps(offAdmin.getSteps()))
-          .as(scenario + " (translator off) must never engage a boundary step")
-          .isZero();
-      assertThat(onIds)
-          .as(scenario + ": translator-on and translator-off result multisets must match")
-          .isEqualTo(offIds);
-    } finally {
-      setTranslatorEnabled(original);
-    }
+    support.assertEquivalent(
+        scenario,
+        expected,
+        Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        traversalSupplier);
   }
 
   /** Runs {@code body} with the translator forced on or off, restoring the previous setting. */
   private void withTranslator(boolean enabled, Runnable body) {
-    var original = translatorEnabled();
-    setTranslatorEnabled(enabled);
-    try {
-      body.run();
-    } finally {
-      setTranslatorEnabled(original);
-    }
-  }
-
-  private boolean translatorEnabled() {
-    return graphSession()
-        .getConfiguration()
-        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-  }
-
-  private void setTranslatorEnabled(boolean enabled) {
-    graphSession()
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    support.withTranslator(enabled, body);
   }
 
   /** The session backing the graph traversals — its configuration carries the translator flag. */
@@ -580,24 +527,5 @@ public class NotStepRecogniserTest extends GraphBaseTest {
     var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
     return tx.getDatabaseSession();
-  }
-
-  private static List<String> sortedIds(List<?> results) {
-    return results.stream().map(v -> ((Vertex) v).id().toString()).sorted().toList();
-  }
-
-  /**
-   * Counts translated boundary steps of <em>any</em> kind. The supertype is deliberate: a shape that
-   * splices a multi-plan step instead of a single-plan one is still a translation, and counting only
-   * the single-plan subtype would let such a shape satisfy a decline expectation.
-   */
-  private static int countBoundarySteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
   }
 }

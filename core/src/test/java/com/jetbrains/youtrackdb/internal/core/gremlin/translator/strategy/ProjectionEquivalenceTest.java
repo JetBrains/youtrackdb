@@ -2,9 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -39,23 +39,8 @@ import org.junit.Test;
  */
 public class ProjectionEquivalenceTest extends GraphBaseTest {
 
-  private enum Recognition {
-    RECOGNIZED, DECLINED
-  }
-
-  /**
-   * Per-scenario cardinality opt-in for the anti-vacuity guard, applied on both the
-   * {@code RECOGNIZED} and the {@code DECLINED} branch. A seeded case must return rows ({@link
-   * #NON_EMPTY}) or the translator-on / translator-off multiset equality holds vacuously over two
-   * empty lists and verifies nothing — and on a decline the equality cannot fail at all, since both
-   * arms are the native pipeline by construction. Empty-by-design cases (empty-input {@code sum} /
-   * {@code min} / {@code max} / {@code mean}, which drop the null aggregate row; a slice that drops
-   * the single map a grouping terminator emits) opt out with {@link #MAY_BE_EMPTY}. This is
-   * deliberately not a blanket {@code isNotEmpty}: the suite hosts empty-result cases on purpose.
-   */
-  private enum Cardinality {
-    NON_EMPTY, MAY_BE_EMPTY
-  }
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   /**
    * Absent vs present-null for {@code valueMap}: native and translated both omit absent keys and
@@ -866,15 +851,14 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   /** Native's ordered name sequence, read translator-off so the sort is Gremlin's own stable one. */
   private List<String> nativeOrderedNames() {
-    var original = translatorEnabled();
-    try {
-      setTranslatorEnabled(false);
-      var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
-      admin.applyStrategies();
-      return admin.toList().stream().map(String::valueOf).toList();
-    } finally {
-      setTranslatorEnabled(original);
-    }
+    var names = new ArrayList<String>();
+    withTranslatorOff(
+        () -> {
+          var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
+          admin.applyStrategies();
+          admin.toList().stream().map(String::valueOf).forEach(names::add);
+        });
+    return names;
   }
 
   /** {@code dedup()} matches native vertex multiset. */
@@ -1621,69 +1605,12 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
       Cardinality cardinality,
       Supplier<GraphTraversal<?, ?>> traversalSupplier,
       boolean ordered) {
-    var original = translatorEnabled();
-    try {
-      setTranslatorEnabled(true);
-      var onAdmin = traversalSupplier.get().asAdmin();
-      onAdmin.applyStrategies();
-      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
-      var onPayload = canonicalize(onAdmin.toList(), ordered);
-
-      setTranslatorEnabled(false);
-      var offAdmin = traversalSupplier.get().asAdmin();
-      offAdmin.applyStrategies();
-      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
-      var offPayload = canonicalize(offAdmin.toList(), ordered);
-
-      if (expected == Recognition.RECOGNIZED) {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must engage exactly one boundary step")
-            .isEqualTo(1);
-        // Anti-vacuity guard (opt-in): a NON_EMPTY RECOGNIZED fixture must return rows, or the
-        // multiset equality below is vacuous over two empty lists (a seed regression that persisted
-        // nothing would go green while verifying nothing). Empty-by-design cases pass MAY_BE_EMPTY.
-        if (cardinality == Cardinality.NON_EMPTY) {
-          assertThat(onPayload)
-              .as(scenario + ": a NON_EMPTY RECOGNIZED fixture must return rows "
-                  + "(else the multiset equality below is vacuous)")
-              .isNotEmpty();
-        }
-      } else {
-        assertThat(boundaryOn)
-            .as(scenario + " (translator on) must decline — no boundary step")
-            .isEqualTo(0);
-        // Same anti-vacuity guard, and it matters more here than on the RECOGNIZED branch: a decline
-        // makes both arms the native pipeline by construction, so the payload equality below cannot
-        // fail whatever the fixture holds, leaving the boundary counts as the only live assertions.
-        // Empty-by-design declines (a slice that drops the single emitted map) pass MAY_BE_EMPTY.
-        if (cardinality == Cardinality.NON_EMPTY) {
-          assertThat(offPayload)
-              .as(scenario + ": a NON_EMPTY declined shape must still return rows natively "
-                  + "(else the payload equality below is vacuous)")
-              .isNotEmpty();
-        }
-      }
-      assertThat(boundaryOff)
-          .as(scenario + " (translator off) must never engage a boundary step")
-          .isEqualTo(0);
-      assertThat(onPayload)
-          .as(scenario + ": translator-on and translator-off payloads must match")
-          .isEqualTo(offPayload);
-    } finally {
-      setTranslatorEnabled(original);
-    }
-  }
-
-  private void setTranslatorEnabled(boolean enabled) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
-  }
-
-  private boolean translatorEnabled() {
-    return session
-        .getConfiguration()
-        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    support.assertEquivalent(
+        scenario,
+        expected,
+        cardinality,
+        results -> canonicalize(results, ordered),
+        traversalSupplier);
   }
 
   /**
@@ -1692,22 +1619,12 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
    * appended to the same method running translator-off and passing without exercising the translator.
    */
   private void withTranslatorOn(Runnable body) {
-    withTranslator(true, body);
+    support.withTranslator(true, body);
   }
 
   /** Runs {@code body} with the translator off, restoring the previous setting afterwards. */
   private void withTranslatorOff(Runnable body) {
-    withTranslator(false, body);
-  }
-
-  private void withTranslator(boolean enabled, Runnable body) {
-    var original = translatorEnabled();
-    try {
-      setTranslatorEnabled(enabled);
-      body.run();
-    } finally {
-      setTranslatorEnabled(original);
-    }
+    support.withTranslator(false, body);
   }
 
   /**
@@ -1778,22 +1695,6 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     josh.property("friendWeight", 2.5).property("acl", "public");
     graph.addVertex(T.label, "Person", "name", "peter", "acl", "private");
     graph.tx().commit();
-  }
-
-  /**
-   * Counts translated boundary steps of <em>any</em> kind across a step list (raw {@code
-   * List<Step>}). The supertype is deliberate: a shape that splices a {@code MultiPlanMatchStep}
-   * instead of a single-plan step is still a translation, and counting only the single-plan subtype
-   * would let such a shape satisfy a decline expectation while the translator in fact accepted it.
-   */
-  private static int countBoundarySteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
   }
 
   private static List<String> canonicalize(List<?> results, boolean ordered) {

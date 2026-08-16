@@ -1,11 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countMultiPlanSteps;
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedIds;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import java.util.List;
 import java.util.function.Supplier;
@@ -23,15 +25,8 @@ import org.junit.Test;
  */
 public class UnionTraversalEquivalenceTest extends GraphBaseTest {
 
-  /**
-   * What the translator must do with a shape. {@code RECOGNIZED_MULTI_PLAN} additionally pins that
-   * the spliced boundary is a {@link MultiPlanMatchStep} — a shape can be recognised into the
-   * single-plan boundary instead, which is a different contract and must not silently satisfy a
-   * union test.
-   */
-  private enum Recognition {
-    RECOGNIZED, RECOGNIZED_MULTI_PLAN, DECLINED
-  }
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(() -> session);
 
   /**
    * {@code g.V().union(out("knows"), in("knows"))} translates to a multi-plan boundary and returns
@@ -859,7 +854,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V()
             .union(__.has("name", P.gt(27)), __.has("name", P.eq("Alice")));
 
-    withTranslatorRestored(
+    support.withTranslatorRestored(
         () -> {
           setTranslatorEnabled(false);
           var admin = shape.get().asAdmin();
@@ -912,7 +907,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().has("name", P.gt(27))
             .union(__.out("knows"), __.in("knows"));
 
-    withTranslatorRestored(
+    support.withTranslatorRestored(
         () -> {
           setTranslatorEnabled(false);
           var admin = shape.get().asAdmin();
@@ -951,54 +946,12 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
    */
   private void assertEquivalent(
       String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    withTranslatorRestored(
-        () -> {
-          setTranslatorEnabled(true);
-          var onAdmin = traversalSupplier.get().asAdmin();
-          onAdmin.applyStrategies();
-          var boundaryOn = countBoundarySteps(onAdmin.getSteps());
-          var multiPlanOn = countMultiPlanSteps(onAdmin.getSteps());
-          var onIds = drainSortedIds(onAdmin);
-
-          setTranslatorEnabled(false);
-          var offAdmin = traversalSupplier.get().asAdmin();
-          offAdmin.applyStrategies();
-          var boundaryOff = countBoundarySteps(offAdmin.getSteps());
-          var offIds = drainSortedIds(offAdmin);
-
-          if (expected != Recognition.DECLINED) {
-            assertThat(boundaryOn)
-                .as(scenario + " (translator on) must engage exactly one boundary step")
-                .isEqualTo(1);
-            if (expected == Recognition.RECOGNIZED_MULTI_PLAN) {
-              assertThat(multiPlanOn)
-                  .as(scenario + " (translator on) must splice MultiPlanMatchStep")
-                  .isEqualTo(1);
-            }
-            assertThat(onIds)
-                .as(scenario + ": RECOGNIZED fixture must return a non-empty result")
-                .isNotEmpty();
-          } else {
-            assertThat(boundaryOn)
-                .as(scenario + " (translator on) must decline — no boundary step")
-                .isEqualTo(0);
-            assertThat(multiPlanOn).isEqualTo(0);
-            // Anti-vacuity guard, and it matters more here than on the RECOGNIZED branch: a decline
-            // makes both arms the native pipeline by construction, so the multiset equality below
-            // cannot fail whatever the fixture holds. Without this the boundary counts are the only
-            // live assertions and a seed regression that persisted nothing would go green.
-            assertThat(offIds)
-                .as(scenario + ": a declined shape must still return a non-empty native result, "
-                    + "else the multiset equality below is vacuous")
-                .isNotEmpty();
-          }
-          assertThat(boundaryOff)
-              .as(scenario + " (translator off) must never engage a boundary step")
-              .isEqualTo(0);
-          assertThat(onIds)
-              .as(scenario + ": translator-on and translator-off result multisets must match")
-              .isEqualTo(offIds);
-        });
+    support.assertEquivalent(
+        scenario,
+        expected,
+        Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIdsOrValues,
+        traversalSupplier);
   }
 
   /**
@@ -1010,7 +963,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
    */
   private void assertSameMultisetOnAndOff(
       String scenario, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
-    withTranslatorRestored(
+    support.withTranslatorRestored(
         () -> {
           setTranslatorEnabled(true);
           var onIds = drainSortedIds(traversalSupplier.get().asAdmin());
@@ -1020,24 +973,6 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
               .as(scenario + ": translator-on and translator-off result multisets must match")
               .isEqualTo(offIds);
         });
-  }
-
-  /**
-   * Runs {@code body} with the translator switch restored to whatever it was on the way in, whether
-   * {@code body} returns or throws. Both toggling helpers route through here so the restore contract
-   * is written once — two verbatim copies of a {@code finally} block is where the third copy forgets
-   * it.
-   */
-  private void withTranslatorRestored(Runnable body) {
-    var original =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
-    try {
-      body.run();
-    } finally {
-      setTranslatorEnabled(original);
-    }
   }
 
   /**
@@ -1055,9 +990,7 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   private void setTranslatorEnabled(boolean enabled) {
-    session
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    support.setTranslatorEnabled(enabled);
   }
 
   /**
@@ -1065,40 +998,6 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
    * those are stringified directly; element paths use vertex ids.
    */
   private static List<String> drainSortedIds(GraphTraversal.Admin<?, ?> admin) {
-    var results = admin.toList();
-    return results.stream()
-        .map(
-            v -> {
-              if (v instanceof Vertex vertex) {
-                return vertex.id().toString();
-              }
-              return String.valueOf(v);
-            })
-        .sorted()
-        .toList();
-  }
-
-  private static List<String> sortedIds(List<?> results) {
-    return results.stream().map(v -> ((Vertex) v).id().toString()).sorted().toList();
-  }
-
-  private static int countBoundarySteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof AbstractMatchPlanStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  private static int countMultiPlanSteps(List<?> steps) {
-    var count = 0;
-    for (var step : steps) {
-      if (step instanceof MultiPlanMatchStep<?, ?>) {
-        count++;
-      }
-    }
-    return count;
+    return TranslatorEquivalenceSupport.sortedIdsOrValues(admin.toList());
   }
 }

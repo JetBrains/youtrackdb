@@ -28,11 +28,12 @@ import org.junit.Test;
  */
 public class GremlinPlanCacheTest extends GraphBaseTest {
 
+  private final TranslatorEquivalenceSupport support =
+      new TranslatorEquivalenceSupport(this::graphSession);
+
   @Before
   public void enableTranslator() {
-    graphSession()
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+    support.setTranslatorEnabled(true);
     GremlinPlanCache.instance(graphSession()).invalidate();
   }
 
