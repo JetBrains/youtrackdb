@@ -14,6 +14,7 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-08-16T18:53Z [ctx=safe] Step 6 complete (commit `d1249f41ae`). Item 10's counts re-enumerated against this step's base — two drifted, one claim refuted — then `TranslatorEquivalenceSupport` extracted and consumed by fifteen classes (+477 / −744, no test method added or removed). No step-level review (`risk: medium`). The real pin gap was `RangeTypeGuardEquivalenceTest.assertDeclinesAndMatchesNative`, now on the shared driver at `Cardinality.MAY_BE_EMPTY` with a measured call-site control; five bespoke two-arm drivers keep their bodies by decision and consume the shared toggle, counters and renderers.
 - [x] 2026-08-16T18:02Z [ctx=unknown] Step 5 complete (commit `49c581e6d7`). Post-union allow-list took `unfold` / `reverse` / `tail` with their positional answers; `fold` stays off it (item 4c). Union arms with a list-shaping stage decline through an explicit gate; combinator children already declined through the item-1 seam. Review loop: 8 findings, 0 blockers, all VERIFIED at gate-check iteration 2. Review fix shared the post-union positional body across look-ahead and in-loop gate.
 - [x] 2026-08-16T15:52Z [ctx=info] Step 4 complete (commit `b331d7abe1`). `unfold` / `reverse` / `tail` land with their three ops, `tail` registered off `TailGlobalStepContract.CONCRETE_STEPS`, and both allow-lists now populated — so the composition gate is reachable end to end for the first time, verified by three mutation probes. No step-level review (`risk: medium`). The GValue question is settled (the pure accessor on decline paths, the pinning one only on accept); the plan's `ArrayDeque` ring became `ArrayList`-backed because nulls; and step 7 loses its `reverse().unfold()` / `unfold().reverse()` result-witness — no production payload distinguishes them.
 - [x] 2026-08-16T14:53Z [ctx=info] Step 3 complete (commit `f958f6eb2e`). `fold()` is recognised as a drain, with the seeded reduce, the combinator child and any non-last position declining — the last through step 2's gate. No step-level review (`risk: medium`). Registering `FoldStep` retired three fixtures that relied on `fold()` being unrecognised; `g.V().fold().fold()` is the drain latch's only end-to-end witness until step 4.
@@ -22,6 +23,10 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-08-16T18:53Z Step 6 discovered: item 10's "the five sibling copies still lack the pin" is **refuted** — all five carried a declined-path non-emptiness pin at this base. The real gap was `RangeTypeGuardEquivalenceTest.assertDeclinesAndMatchesNative`, which had no anti-vacuity guard at all. Two counts also drifted: the toggle stood in eight classes under its own name and twelve under seven names, and the two-arm driver body stood in ten classes rather than six. Step 8's sweep should re-derive its own counts the same way rather than trusting item 10's. See Episodes §Step 6.
+
+- 2026-08-16T18:53Z Step 6 discovered: `GremlinToMatchStrategyTest:1122` is the last kill-switch write outside the shared class, left in place because it toggles a locally-resolved `config` handle shared with the polymorphic flag, and routing it through the harness would change which handle it writes. Retiring it needs somebody to verify that handle and `graph.tx()`'s session resolve to the same `ContextConfiguration` on that fixture; nobody has. See Episodes §Step 6.
 
 - 2026-08-16T18:02Z Step 5 discovered: the union child gate reads `listShapingOps` only; `accumulateMap` (`group` / `groupCount`) has the same once-over-concatenation property and still merges arms — `union(__.out(k).groupCount(), __.in(k).groupCount())` translates wrongly. Pre-existing, out of this step's scope; recorded at `UnionStepRecogniser` and left open for a later product decision. See Episodes §Step 5.
 
@@ -51,6 +56,10 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Decision Log
 <!-- Continuous-log. -->
+
+- 2026-08-16T18:53Z (item 10's switch-on question settled) Step 6 answered "should the declined-path pin be switched on everywhere" as a documented opt-out rather than a blanket pin. `Cardinality.MAY_BE_EMPTY` marks the shapes whose empty answer is correct, and each opt-out carries a measured call-site control: the one existing user compares stored values against a `java.time.Instant` that TinkerPop's comparator rejects for every one of them. A probe flipping it to `NON_EMPTY` reddens exactly that case, which is what keeps the pin live through the extraction. See Episodes §Step 6.
+
+- 2026-08-16T18:53Z (scope-down) Step 6 left the five bespoke two-arm drivers with their own bodies instead of folding them into the shared driver. Each carries an assertion the shared driver has no parameter for — a fixture-separation precondition, a control shape that must still translate, a hand-written expected list, an order-sensitive comparison, a veto marker — and each already carries its own anti-vacuity guard, so one parameter per caller would cost more than the duplication it removes. All five consume the shared toggle, counters and renderers, which is where their duplication lived. See Episodes §Step 6.
 
 - 2026-08-16T18:02Z (item 4c settled) Step 5 kept `fold` out of `POST_UNION_RECOGNISERS` with no `selectsPositionally` override — the plainer reading after step 2's scope-down, where both answers were observationally identical. `unfold` / `reverse` answer `false`; `tail` answers `true`. See Episodes §Step 5.
 
@@ -157,7 +166,7 @@ flowchart LR
 3. Add the `FoldStep` recogniser and its drain op, declining `!isListFold()` (the seeded reduce), a `false` `supportsListShaping()`, and any non-last position through step 2's gate rather than a local check (item 2) — risk: medium (new recogniser changing observable behavior of the translator component; no HIGH trigger once the gate and seam are in place)  [x]  commit: f958f6eb2e
 4. Add the `unfold` / `reverse` / `tail` recognisers and their three ops — `unfold` honouring all five `UnfoldStep.flatMap` arms with a cross-call pending buffer, `reverse` as a per-value transform mirroring `ReverseStep.map`, `tail` registered from `TailGlobalStepContract.CONCRETE_STEPS` with `n=0` emitting nothing and `n<0` declining; settle the `getLimitAsGValue` / `isVariable()` pinning question here rather than deferring it (items 3, A17) — risk: medium (three new recognisers plus ops in one module; no HIGH trigger)  [x]  commit: b331d7abe1
 5. Close the union and combinator paths — state and implement `fold`'s `selectsPositionally` answer, add the terminator recognisers to `POST_UNION_RECOGNISERS` per that decision, gate union children on non-empty `listShapingOps` in `walkFork` before the `agreedShaping.equals` comparison, gate combinator children through the item 1 seam, and fix `ListShapingOp`'s false "once per child plan" clause and thin `unfold` description (items 4, 4c) — risk: high (architecture / cross-component coordination: the union and combinator boundary, where a wrong `selectsPositionally` answer re-ships A1's measured multiset divergence)  [x]  commit: 49c581e6d7
-6. Re-enumerate item 10's five duplication counts against this step's own base, then extract the shared equivalence harness — a package-private `TranslatorEquivalenceSupport` (or shared base) carrying the translator toggle, `countBoundarySteps`, `assertEquivalent` with its declined-path non-empty pin, and the recognition enum — following `ModernGraphFixture`'s extraction pattern. **Ordered ahead of step 7 per adversarial condition A12(1)** so the terminator tests consume the shared harness instead of adding to the duplication this step retires (item 10, first half) — risk: medium (tests-only, but shared test infrastructure across roughly a dozen classes)  [ ]
+6. Re-enumerate item 10's five duplication counts against this step's own base, then extract the shared equivalence harness — a package-private `TranslatorEquivalenceSupport` (or shared base) carrying the translator toggle, `countBoundarySteps`, `assertEquivalent` with its declined-path non-empty pin, and the recognition enum — following `ModernGraphFixture`'s extraction pattern. **Ordered ahead of step 7 per adversarial condition A12(1)** so the terminator tests consume the shared harness instead of adding to the duplication this step retires (item 10, first half) — risk: medium (tests-only, but shared test infrastructure across roughly a dozen classes)  [x]  commit: d1249f41ae
 7. Add the terminator tests on the shared harness — composition and boundary (`tail` `n=0` / `n<0`, empty-input `fold`, `reverse` as value transform not reorder, `unfold` buffer, declared-order combinations), the four cases R10 and R11 added, clone isolation for `tail` as well as `fold`, re-arm from both the `DRAINED` and `REARMED_AFTER_CLOSE` routes, and a positive control beside every decline case; replace the three non-discriminating witnesses A14, A15 and A17 named (item 5) — risk: medium (tests-only on shared fixtures)  [ ]
 8. Run item 10's second sweep — every `withTranslator(true, …)` with no boundary-step assertion beside it — and settle whether Track 9 step 10's retirement of harness divergence (b) rested on a comparison that could not discriminate, per `## Surprises & Discoveries` (item 10, second half) — risk: medium (tests-only on shared infrastructure, and it carries an open correctness question rather than a cleanup)  [ ]
 9. Bind `as()` labels in `HasStepRecogniser` (bind-or-decline), asserting the spellings that route through `YTDBGraphStepStrategy.rebuildTraversal`'s label-dropping `else` branch against a hand-computed oracle rather than against the native arm, under the plan's newly bounded multiset-equality exception; flip item 7's `is1FullProfile` decline assertion to the translating group (items 8, R15, A11) — risk: medium (a recogniser behavior change in one module, with a documented arms-diverge-by-design surface)  [ ]
@@ -483,6 +492,100 @@ white-box test, not by the black-box equivalence rows.
 
 **Critical context:** Cucumber on-arm re-measure after the widening: 1930 / 0 / 14 — item 6's
 on-arm figure unmoved. Item 6 still owns the two-arm gate.
+
+### Step 6 — commit d1249f41ae, 2026-08-16T18:53Z [ctx=safe]
+**What was done:** Item 10's five duplication counts were re-enumerated against this step's own
+base, then the shared harness was extracted as a package-private `TranslatorEquivalenceSupport`:
+the kill-switch toggle quartet, the boundary-step counters (both parameter shapes plus the
+multi-plan counter), three row renderers, the recognition and cardinality enums, and the two-arm
+`assertEquivalent` driver with both anti-vacuity pins. It follows `ModernGraphFixture`'s pattern —
+a package-private collaborator held in a private field per suite, with a thin local adapter naming
+the contract in that suite's vocabulary. The session arrives as a constructor `Supplier` because
+the suites genuinely disagree about which handle carries the flag (`DbTestBase.session` versus
+`graph.tx()`), and migrating them onto one handle was not verified. Fifteen classes consume it;
++477 / −744 lines, 85 to 119 removed from each of the five equivalence suites, with no test method
+added or removed.
+
+**What was discovered:** Two of item 10's five counts had drifted and one of its claims is refuted.
+The `enum Recognition` count holds at five classes. `setTranslatorEnabled` was counted at six and
+is eight; widened to any named toggle helper it is twelve classes under seven names. "Six copies
+of the harness" undercounts the driver: the named `assertEquivalent` sits in five classes as nine
+declarations, and five more classes carry the same two-arm body under case-specific names, so the
+driver total is ten; `countBoundarySteps` stood in eleven classes as a named method and in a
+twelfth as an inline stream. The "roughly 95 duplicated lines per class" estimate was sound. The
+refuted claim is "the five sibling copies still lack the pin" — all five already carried a
+declined-path non-emptiness pin at this base, three unconditional and two behind a `Cardinality`
+opt-out.
+
+The real pin gap was elsewhere, and the fix is an opt-out rather than a pin.
+`RangeTypeGuardEquivalenceTest.assertDeclinesAndMatchesNative` had no anti-vacuity guard at all,
+and its own javadoc admitted "the row half of this helper cannot fail on its own". It now routes
+through the shared driver at `Cardinality.MAY_BE_EMPTY`, and the opt-out is measured rather than
+assumed: its one call site compares stored values against a `java.time.Instant` that TinkerPop's
+comparator rejects for every one of them, so the empty native answer is the correct one. A probe
+flipping that call site to `NON_EMPTY` reddened exactly that case with the shared driver's
+message, which proves the pin stays live through the extraction. That is item 10's deliberate
+switch-on decision, resolved as a documented opt-out with a call-site control keeping the empty
+result attributable.
+
+Item 10's `hasSize(6)` re-examination resolves as keep. Item 10 named it inside
+`notWithCrossTypeRangeComparison_declinesAndAgreesWithNative`; at this base the test is
+`..._translatesAndAgreesWithNative` and the shape is `RECOGNIZED`. The shared pin is only
+`isNotEmpty`, while `hasSize(6)` pins the exact native answer — the whole modern graph, because
+the cross-type comparison is unknown so the NOT passes every row. It is the stronger and
+discriminating assertion, not a redundant one.
+
+One kill-switch write stays outside the shared class deliberately:
+`GremlinToMatchStrategyTest:1122`, inside a nested try that toggles on a locally-resolved `config`
+handle shared with the polymorphic flag. Routing it through the harness would change which handle
+it writes — a behaviour change this step had no way to verify.
+
+**What changed from the plan:** Item 10's five counts are corrected as above and its "the five
+sibling copies still lack the pin" clause is refuted, so the plan text needs reconciling. The
+extraction reached fifteen classes rather than the roster line's "roughly a dozen", because the
+re-derivation found four more toggle copies plus the inline stream counter. The five bespoke
+two-arm drivers keep their bodies rather than folding into the shared one: each carries assertions
+the shared driver has no parameter for — a fixture-separation precondition, a control shape that
+must still translate, a hand-written expected list, an order-sensitive comparison, a veto marker —
+and each already carries its own anti-vacuity guard, so growing the driver one parameter per
+caller would cost more than the duplication it removes. All five now consume the shared toggle,
+counters and renderers, which is where their duplication actually lived. Step 7 gains the harness
+it was ordered behind: `UnfoldReverseTailRecogniserTest` and `FoldStepRecogniserTest` are already
+on it, so the terminator tests add no new duplication. Step 8's second sweep shrinks to a
+call-site grep over `support.withTranslator(true, …)` and `setTranslatorEnabled(true)` instead of
+a body-by-body read of twelve copies.
+
+**Key files:**
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/TranslatorEquivalenceSupport.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/AndStepRecogniserTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/EdgeTraversalEquivalenceTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/FoldStepRecogniserTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/FoldedEdgeStepDispatchClassTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinPlanCacheTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinStepWalkerTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinToMatchStrategyTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/NotStepRecogniserTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/OrderRangeStepRecogniserTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/PredicateTraversalEquivalenceTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/ProjectionEquivalenceTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/RangeTypeGuardEquivalenceTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/RepeatDeclineStrategyTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/UnfoldReverseTailRecogniserTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/UnionTraversalEquivalenceTest.java` (modified)
+
+**Critical context:** Step 7's harness entry points are
+`support.assertEquivalent(scenario, Recognition, Cardinality, renderer, supplier)` with renderers
+`TranslatorEquivalenceSupport::sortedIds` for elements, `::sortedStrings` for values and maps,
+`::sortedIdsOrValues` for either, or a suite-local canonicaliser; `support.withTranslator(boolean,
+body)` and `withTranslatorRestored(body)` for bodies that toggle themselves; and the statics
+`countBoundarySteps(List<?>)`, `countBoundarySteps(Traversal.Admin)`, `countMultiPlanSteps(List<?>)`.
+
+Tests: 460 / 460 across the fifteen touched classes, and 1088 / 1088 with 1 skipped over the wider
+`com.jetbrains.youtrackdb.internal.core.gremlin.**` run (`gremlintest` excluded per the track
+file's invocation note). PSI was not used: the track file's `### Clarifications` records that
+`steroid_execute_code` times out on this repository, and for a same-package extraction of private
+members the compiler is the exhaustive reference check — `test-compile` found every unresolved
+reference, four of them in the seed.
 
 ## Validation and Acceptance
 - `fold()` drains the whole payload stream into one `List` payload (empty input → one empty list) with no `BoundaryOutputType` constant added; `unfold()` flat-maps across all five `UnfoldStep.flatMap` arms, `Map → entrySet()` and scalar → one-element included; `reverse()` transforms the per-traverser value without reordering the stream; `tail(n)` keeps the last `n` in arrival order (`n=0` → nothing, `n<0` → decline; the `TailGlobalStepPlaceholder` form is recognised). All match native.
