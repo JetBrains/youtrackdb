@@ -28,6 +28,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicate
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GroupCountStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GroupStep;
@@ -199,6 +200,9 @@ final class GremlinStepWalker {
    *       {@link GroupCountStepRecogniser}.
    *   <li><b>Branch</b> — {@link UnionStepRecogniser} for mid-traversal {@code union(c1, …, cN)},
    *       emitting a multi-plan translation when every child agrees on the projection contract.
+   *   <li><b>List shaping</b> — {@link FoldStepRecogniser} claims the list form of {@link FoldStep}
+   *       and registers a drain stage on the shaping rather than a clause on the statement; the
+   *       seeded-reduce form of the same class declines.
    * </ul>
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
@@ -230,7 +234,8 @@ final class GremlinStepWalker {
           Map.entry(MeanGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
           Map.entry(GroupStep.class, GroupStepRecogniser.INSTANCE),
           Map.entry(GroupCountStep.class, GroupCountStepRecogniser.INSTANCE),
-          Map.entry(UnionStep.class, UnionStepRecogniser.INSTANCE));
+          Map.entry(UnionStep.class, UnionStepRecogniser.INSTANCE),
+          Map.entry(FoldStep.class, FoldStepRecogniser.INSTANCE));
 
   /**
    * The only recognisers allowed to claim a step <em>after</em> {@link UnionStepRecogniser} has
@@ -495,8 +500,10 @@ final class GremlinStepWalker {
       // A recogniser admitted behind a captured stage must leave that stage in place. Dropping it —
       // which any setResultShaping call does, since the replace covers listShapingOps — disarms the
       // gate in the same instant, so the walk would keep claiming steps and buildResult would ship a
-      // shaping with the stage gone and no decline anywhere. Unreachable while both allow-lists are
-      // empty; the assert and the decline below are the net for whoever populates them, paired the way
+      // shaping with the stage gone and no decline anywhere. Still unreachable: an accept behind a
+      // captured stage has to clear the gate's admit branch, which nothing does while
+      // LIST_SHAPING_PER_PAYLOAD_RECOGNISERS is empty. The assert and the decline below are the net for
+      // whoever populates that set, paired the way
       // this file's other recogniser-contract invariants are — the assert names the bug under -ea, the
       // decline keeps a -da build on the native pipeline instead of shipping a clobbered shaping.
       boolean listShapingStagesSurvived = listShapingOpsSurvived(opsBefore, ctx.listShapingOps());
@@ -696,8 +703,18 @@ final class GremlinStepWalker {
 
   /**
    * The list-shaping drains and windows — {@code fold} and {@code tail} — which may claim a step once
-   * {@link #capturedListShapingOp} holds but which nothing may follow. Empty until those recognisers
-   * exist, and bound by both membership conditions on {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS}.
+   * {@link #capturedListShapingOp} holds but which nothing may follow. {@link FoldStepRecogniser} is
+   * the one member so far; the {@code tail} recogniser joins it when it lands. Both membership
+   * conditions on {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} hold for the fold: its whole
+   * contribution is one more stage on the payload stream rather than a clause on the statement, and it
+   * makes that contribution through {@link RecognitionContext#appendListShapingOp} alone.
+   *
+   * <p>No traversal shape reaches the admit branch through this member yet. Being admitted here
+   * requires a stage already captured with {@link #dispatchAll}'s drain latch still clear, which takes
+   * a per-payload shaper ahead of the fold — and that set is still empty. A second {@code fold} behind
+   * the first is refused by the latch rather than by membership, so the branch stays unreachable until
+   * {@code unfold} / {@code reverse} land. A unit test against {@link #mayFollowListShaping} is the
+   * only net the rule has in the meantime.
    *
    * <p>A drain takes N payloads to one and a window takes them to a bounded few, so a stage behind
    * either reshapes an output the user never wrote a stage for: {@code fold().unfold()} and {@code
@@ -718,7 +735,8 @@ final class GremlinStepWalker {
    * widening either allow-list to make the shape translate ships a wrong scalar instead of fixing
    * anything.
    */
-  static final Set<StepRecogniser> LIST_SHAPING_DRAIN_RECOGNISERS = Set.of();
+  static final Set<StepRecogniser> LIST_SHAPING_DRAIN_RECOGNISERS =
+      Set.of(FoldStepRecogniser.INSTANCE);
 
   /**
    * The rule {@link #dispatchAll} applies once a list-shaping stage is captured: {@code recogniser}
@@ -742,9 +760,10 @@ final class GremlinStepWalker {
    * while on neither list is treated as a drain.
    *
    * <p>Package-private and set-parameterised rather than reading the fields so every row of the rule
-   * can be asserted over synthetic sets. The production sets are empty until the terminators land, so
-   * no traversal shape reaches the admit branch yet and a unit test against this method is the only
-   * net the rule has — the reason {@link #bindPathItemConstraints} is package-private as well.
+   * can be asserted over synthetic sets. Reaching the admit branch takes a stage captured ahead of the
+   * claiming recogniser with the latch still clear, which no traversal shape can arrange while {@link
+   * #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} is empty — so a unit test against this method is the only
+   * net the rule has, the reason {@link #bindPathItemConstraints} is package-private as well.
    *
    * @param recogniser the recogniser dispatch selected for the head's exact runtime class
    * @param afterDrain whether a drain or a window has already claimed a step
@@ -785,10 +804,10 @@ final class GremlinStepWalker {
    * <p>{@link ListShapingOp} has no value equality, so the comparison is by reference: the ops that
    * were there must be the same instances, not merely equal-looking ones.
    *
-   * <p>Package-private rather than private for the reason {@link #mayFollowListShaping} is: the
-   * production allow-lists are empty, so no traversal shape reaches an accept with a stage already
-   * captured and the in-loop check cannot be driven end to end — a unit test against this method is
-   * the only net it has.
+   * <p>Package-private rather than private for the reason {@link #mayFollowListShaping} is: an accept
+   * behind a captured stage has to clear that gate's admit branch first, which no traversal shape
+   * reaches while {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} is empty, so the in-loop check cannot
+   * be driven end to end — a unit test against this method is the only net it has.
    *
    * @param before the ops the context carried when the recogniser was dispatched
    * @param after the ops it carries now

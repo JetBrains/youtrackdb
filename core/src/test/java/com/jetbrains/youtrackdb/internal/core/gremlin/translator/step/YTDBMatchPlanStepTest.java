@@ -1381,6 +1381,146 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
+   * The production {@code fold()} drain, driven through the boundary base: three projected rows become
+   * one payload holding all three in arrival order. The order assertion is the discriminating half —
+   * three distinct values mean a drain that reversed, sorted, or reused a single slot fails here, where
+   * a fixture of equal values could not tell those apart from a correct fold.
+   */
+  @Test
+  public void listShaping_foldDrainOp_collapsesEveryRowIntoOneListInArrivalOrder() {
+    var r1 = mock(Result.class);
+    var r2 = mock(Result.class);
+    var r3 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, true, false);
+    when(stream.next(ctx)).thenReturn(r1, r2, r3);
+    when(r1.getPropertyNames()).thenReturn(List.of("c"));
+    when(r1.getProperty("c")).thenReturn(1L);
+    when(r2.getPropertyNames()).thenReturn(List.of("c"));
+    when(r2.getProperty("c")).thenReturn(2L);
+    when(r3.getPropertyNames()).thenReturn(List.of("c"));
+    when(r3.getProperty("c")).thenReturn(3L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    // Wildcard traverser so get() returns Object (the drained payload is a List, not a Vertex).
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo(List.of(1L, 2L, 3L));
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(stream, times(3)).next(ctx); // the whole stream went into the one list
+  }
+
+  /**
+   * A dry stream still yields one empty list — native {@code fold()}'s answer over an empty upstream,
+   * and the one case a drain implemented as "emit once per buffered element" would get wrong by
+   * emitting nothing. A traversal returning zero results where native returns one is invisible to any
+   * assertion written over a non-empty fixture, which is why this case is pinned on its own.
+   */
+  @Test
+  public void listShaping_foldDrainOp_dryStreamStillEmitsOneEmptyList() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo(List.of());
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(stream, never()).next(ctx);
+  }
+
+  /**
+   * A null payload survives the fold and keeps its position. An unmatched optional element projects to
+   * a null vertex and {@code values(key)} projects a present-null property as null, so the drain has to
+   * accumulate into a null-tolerant list: collecting through {@code List.copyOf} or {@code
+   * Stream.toList}'s immutable form would throw on the first such row and take down a shape that works
+   * natively.
+   */
+  @Test
+  public void listShaping_foldDrainOp_nullPayloadSurvivesTheFold() {
+    var row1 = mock(Result.class); // optional miss → null vertex
+    var row2 = mock(Result.class); // real vertex
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getVertex("v")).thenReturn(null);
+    when(row2.getVertex("v")).thenReturn(rawVertex);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.ELEMENT,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    var folded = (List<?>) t.get();
+
+    assertThat(folded).as("both rows are in the list; the null is not dropped").hasSize(2);
+    assertThat(folded.get(0)).as("and it kept its position ahead of the real vertex").isNull();
+    assertThat(assertRawEntityOf(folded.get(1))).isSameAs(rawVertex);
+  }
+
+  /**
+   * The drain's iterator honours the {@link Iterator} contract past its single emission: {@code
+   * hasNext()} stays {@code false} and {@code next()} throws. Driven on the op directly because the
+   * boundary base never asks — it checks {@code hasNext()} and raises its own {@code
+   * FastNoSuchElementException} — so the op's own guard has no other caller and would otherwise return
+   * a second, empty list to anything that composed the stage differently.
+   */
+  @Test
+  public void foldDrainOp_pastItsSingleEmission_isExhaustedAndThrows() {
+    var shaped = new FoldListShapingOp().apply(List.<Object>of(1L, 2L).iterator());
+
+    assertThat(shaped.hasNext()).isTrue();
+    assertThat(shaped.next()).isEqualTo(List.of(1L, 2L));
+    assertThat(shaped.hasNext()).as("one payload, and the stage is spent").isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(shaped::next);
+  }
+
+  /**
+   * The drain rebuilds its buffer on every arming, so a {@code reset()} and reopen re-folds the fresh
+   * projection instead of extending the previous arming's list. One row per arming makes the two
+   * outcomes disjoint: a per-call buffer gives {@code [5]} then {@code [6]}, while a buffer held in a
+   * field would give {@code [5]} then {@code [5, 6]}. That field is also what would make two
+   * concurrently iterated clones of one boundary race, since {@code AbstractStep.clone()} copies the
+   * shaping — and with it the op — by reference.
+   */
+  @Test
+  public void listShaping_foldDrainOp_rebuildsItsBufferOnReopen() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getPropertyNames()).thenReturn(List.of("c"));
+    when(row1.getProperty("c")).thenReturn(5L);
+    when(row2.getPropertyNames()).thenReturn(List.of("c"));
+    when(row2.getProperty("c")).thenReturn(6L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    Traverser.Admin<?> first = step.processNextStart();
+    assertThat(first.get()).isEqualTo(List.of(5L));
+
+    step.reset();
+
+    Traverser.Admin<?> second = step.processNextStart();
+    assertThat(second.get())
+        .as("the second arming folds only its own row; a field-held buffer would carry the first's")
+        .isEqualTo(List.of(6L));
+  }
+
+  /**
    * The seven pre-existing {@code withX} builders each thread {@code listShapingOps} through as the
    * new constructor argument, so a previously-set op list must survive every one of them. This
    * asserts each builder carries a pre-set ops list forward unchanged — a copy-paste that passed an

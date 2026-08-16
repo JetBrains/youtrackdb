@@ -353,12 +353,15 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
-   * An unrecognized follow-up step declines the whole traversal under all-or-nothing. Now that the
-   * folded {@code out("knows")} hop translates, this uses a trailing {@code fold()} — which has no
-   * recognizer — as the unrecognized step: the walker recognizes the vertex source and the {@code
-   * out} hop, then hits {@code FoldStep} with no registry entry, so the whole traversal declines
-   * and stays on the native pipeline with no boundary step spliced. The walker has no step-count
-   * gate — it walks the whole step list and declines at the first unrecognized step class.
+   * An unrecognized follow-up step declines the whole traversal under all-or-nothing. The
+   * unrecognized step is a trailing {@code path()}: the walker recognizes the vertex source and the
+   * {@code out} hop, then hits {@code PathStep} with no registry entry, so the whole traversal
+   * declines and stays on the native pipeline with no boundary step spliced. The walker has no
+   * step-count gate — it walks the whole step list and declines at the first unrecognized step class.
+   *
+   * <p>{@code path()} keeps this fixture stable as the recognised set grows: no MATCH shape
+   * reproduces a traverser's history, where the {@code fold()} this case used to trail became a
+   * registered terminator and stopped declining.
    */
   @Test
   public void followUpStepDeclinesUnrecognizedStep() {
@@ -367,13 +370,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     alice.addEdge("knows", bob);
     graph.tx().commit();
 
-    var admin = graph.traversal().V().out("knows").fold().asAdmin();
+    var admin = graph.traversal().V().out("knows").path().asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
         .as("an unrecognized follow-up step must decline the whole traversal")
         .isEqualTo(0);
 
-    // The declined shape still executes correctly on the native pipeline: fold of Bob.
+    // The declined shape still executes correctly on the native pipeline: one path, ending at Bob.
     assertThat(admin.toList()).hasSize(1);
   }
 
@@ -737,7 +740,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    * must not. {@code explain()} applies the full strategy chain (including the globally
    * registered {@link GremlinToMatchStrategy}) to a clone, so a recognised {@code g.V()} shows
    * its native step chain collapsed to a single {@link YTDBMatchPlanStep} marker, while a
-   * declined {@code g.V().fold()} keeps its native vertex step. This is the signal the
+   * declined {@code g.V().path()} keeps its native vertex step. This is the signal the
    * per-track e2e tests assert on to pin "this shape translates / this shape declines". The
    * negative case also asserts the declined explain still renders a native vertex step, so the
    * "no boundary step" assertion is not vacuously true on an empty or errored explanation.
@@ -767,9 +770,10 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
             + finalSection)
         .doesNotContain("GraphStep");
 
-    // fold() is unrecognised, so the whole traversal declines to the native pipeline: no boundary
-    // step, and the native vertex step (a GraphStep) is still rendered.
-    var declinedExplain = graph.traversal().V().fold().explain().toString();
+    // path() is unrecognised — no MATCH shape reproduces a traverser's history — so the whole
+    // traversal declines to the native pipeline: no boundary step, and the native vertex step (a
+    // GraphStep) is still rendered.
+    var declinedExplain = graph.traversal().V().path().explain().toString();
     assertThat(declinedExplain)
         .as("explain() of a declined traversal must not contain a boundary step; was: "
             + declinedExplain)

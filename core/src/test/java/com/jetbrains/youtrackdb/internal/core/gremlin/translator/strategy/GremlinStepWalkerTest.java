@@ -247,15 +247,19 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   /**
    * A multi-step traversal is now walked (no up-front size gate) and declines at the first
-   * unrecognized step class. {@code g.V().fold()} has two steps: the walker recognizes the
-   * vertex source, then hits {@code FoldStep} — which has no registry entry — so under
+   * unrecognized step class. {@code g.V().path()} has two steps: the walker recognizes the
+   * vertex source, then hits {@code PathStep} — which has no registry entry — so under
    * all-or-nothing the whole walk declines. This pins that removing the upper-bound size gate
    * did not let a multi-step traversal translate: it still declines, via the no-recogniser path
    * rather than a step-count check. The traversal's native step list is left untouched.
+   *
+   * <p>{@code path()} is the fixture because no recognised shape reproduces a traverser's history —
+   * the suffix stays unregistered as the recognised set grows, where the {@code fold()} this case
+   * used to walk became a registered terminator and stopped declining.
    */
   @Test
   public void walk_multiStepTraversal_declinesAtUnrecognizedFollowUpStep() {
-    var admin = graph.traversal().V().fold().asAdmin();
+    var admin = graph.traversal().V().path().asAdmin();
     var stepsBefore = List.copyOf(admin.getSteps());
 
     var result = GremlinStepWalker.production().walk(admin);
@@ -754,11 +758,13 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   @Test
   public void mayFollowListShaping_admitsBothShapingKindsAndNothingElse() {
     assertThat(GremlinStepWalker.LIST_SHAPING_PER_PAYLOAD_RECOGNISERS)
-        .as("premise: no production recogniser is admitted yet, so these sets stand in for it")
+        .as("premise: no production per-payload shaper exists, so no traversal shape can reach the "
+            + "admit branch and the synthetic sets below have to stand in for the production ones")
         .isEmpty();
     assertThat(GremlinStepWalker.LIST_SHAPING_DRAIN_RECOGNISERS)
-        .as("premise: no production drain is admitted yet either")
-        .isEmpty();
+        .as("premise: the fold drain is the only production member, and being admitted takes a "
+            + "per-payload stage ahead of it — which the empty set above rules out")
+        .containsExactly(FoldStepRecogniser.INSTANCE);
     // Stand-ins for the three kinds of recogniser the rule distinguishes. The rule reads identity
     // against the sets, never the outcome, so an accepting body is enough for all three; the tags
     // are what make an AssertionError name which one was admitted.
