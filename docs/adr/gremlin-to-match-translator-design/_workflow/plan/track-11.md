@@ -14,6 +14,8 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [~] 2026-08-16T21:39Z [ctx=safe] Step 12 skipped at the user's direction, residue not carried forward. Step 9 had already measured the `core` two-arm gate at 1930 / 0 / 14; `embedded`'s on-arm counts, the per-step scenario catalogue, and the item 6 rule 3 disposition of item 10's `g.V(rid)` slowdown and item 8's edge-alias half are dropped rather than reassigned. The catalogue was removed from `## Interfaces and Dependencies`' in-scope list in the same commit.
+- [x] 2026-08-16T21:39Z [ctx=safe] Step 10 complete (commit `21d97a6e92`). The three `jmh-ldbc` files restored from `deb8e72ee9` with every shape's group re-derived against the current tree; two swapped — IS1's full projection to translating, the ordered page to declining — and no third moved. No step-level review (`risk: medium`). 56 / 56 through a shared `core,jmh-ldbc` reactor. A `-pl jmh-ldbc`-only run reports exactly three errors on this tree, which is the signature of the wrong invocation rather than a harness defect.
 - [x] 2026-08-16T21:04Z [ctx=safe] Step 9 complete (commit `4f9eb2e79b`). Bind-or-decline on the relocated `as()` label in `HasStepRecogniser`, eight tests all watched to fail against the step base first. No step-level review (`risk: medium`). Item 8's "capability gap, not a correctness defect" premise is refuted — the shape closes a silent wrong answer where a name was rebound. Two items left open for track close: the `is1FullProfile` flip moves to step 10 (its test file is not in the tree yet), and item 8's edge-alias half is unimplemented and unowned by any remaining step. The plan's absolute multiset invariant was amended to carry A11's bounded exception in this episode's commit.
 - [x] 2026-08-16T20:23Z [ctx=safe] Step 8 complete (commit `9665700cd8`). The sweep re-derived its own numbers — 61 switch-forcing members across 15 classes, seven mechanically flagged, six clean and one genuine gap now closed. No step-level review (`risk: medium`). Track 9 step 10's retirement of harness divergence (b) is settled: the verdict survives but its stated reason was not evidence, because two of the three cited spellings decline and a declined shape makes both arms the same pipeline. Three decline cases with a translating control now pin it.
 - [x] 2026-08-16T19:30Z [ctx=safe] Step 7 complete (commit `ecaf35926f`). Seventeen end-to-end terminator cases on the shared harness plus four boundary-base lifecycle cases; no production line touched. No step-level review (`risk: medium`). Most of item 5's roster was already discharged by steps 3–5, so this step added the on/off arm and the two lifecycle claims. Four mutation probes measured, each reddening exactly its own cases; the swallow probe is A14(a)'s measured discharge.
@@ -75,6 +77,8 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Decision Log
 <!-- Continuous-log. -->
+
+- 2026-08-16T21:39Z (scope-down, user direction) Step 12 was dropped from the roster as `[~]` and its residue deliberately not carried forward. The user's call, taken with the consequences stated: the `core` two-arm Cucumber gate was already measured at 1930 / 0 / 14 by step 9, so that part was moot, but `embedded`'s on-arm counts, the per-step scenario catalogue and the item 6 rule 3 disposition of item 10's `g.V(rid)` slowdown and item 8's edge-alias half end unowned. The catalogue was also struck from `## Interfaces and Dependencies`' in-scope list, so the track no longer declares a deliverable nobody produces.
 
 - 2026-08-16T21:04Z (plan correction, A11's outstanding half) Step 9's episode commit amended `implementation-plan.md`'s absolute invariant "Translator-on and translator-off produce equal result multisets for every `RECOGNIZED` shape" to carry the `### Constraints` bounded exception by reference. A11 asked for both to be amended in the commit that lands item 8; the constraint half landed 2026-08-04 and the invariant half was outstanding, with `4f9eb2e79b` the first code to violate it as written. Applied by the orchestrator because implementers may not edit the plan. See Episodes §Step 9.
 
@@ -193,9 +197,9 @@ flowchart LR
 7. Add the terminator tests on the shared harness — composition and boundary (`tail` `n=0` / `n<0`, empty-input `fold`, `reverse` as value transform not reorder, `unfold` buffer, declared-order combinations), the four cases R10 and R11 added, clone isolation for `tail` as well as `fold`, re-arm from both the `DRAINED` and `REARMED_AFTER_CLOSE` routes, and a positive control beside every decline case; replace the three non-discriminating witnesses A14, A15 and A17 named (item 5) — risk: medium (tests-only on shared fixtures)  [x]  commit: ecaf35926f
 8. Run item 10's second sweep — every `withTranslator(true, …)` with no boundary-step assertion beside it — and settle whether Track 9 step 10's retirement of harness divergence (b) rested on a comparison that could not discriminate, per `## Surprises & Discoveries` (item 10, second half) — risk: medium (tests-only on shared infrastructure, and it carries an open correctness question rather than a cleanup)  [x]  commit: 9665700cd8
 9. Bind `as()` labels in `HasStepRecogniser` (bind-or-decline), asserting the spellings that route through `YTDBGraphStepStrategy.rebuildTraversal`'s label-dropping `else` branch against a hand-computed oracle rather than against the native arm, under the plan's newly bounded multiset-equality exception; flip item 7's `is1FullProfile` decline assertion to the translating group (items 8, R15, A11) — risk: medium (a recogniser behavior change in one module, with a documented arms-diverge-by-design surface)  [x]  commit: 4f9eb2e79b  (the `is1FullProfile` flip deferred to step 10 — `LdbcGremlinShapeTranslationTest` is not in the tree until step 10 re-applies it)
-10. Re-apply the JMH harness commits `43907ff312` then `deb8e72ee9` and repair their assertion set — the `fold` shape now translates once steps 3–5 land, and the `order().by(…).range(…).values(…)` shape must be re-derived against the final tree because Track 9 widened a slice-after-sort decline underneath it; add the install-first or shared-reactor invocation so the re-run measures this branch's `core` rather than an installed jar (items 7, R14) — risk: medium (new benchmark and test code in `jmh-ldbc`; no `core` production change)  [ ]
+10. Re-apply the JMH harness commits `43907ff312` then `deb8e72ee9` and repair their assertion set — the `fold` shape now translates once steps 3–5 land, and the `order().by(…).range(…).values(…)` shape must be re-derived against the final tree because Track 9 widened a slice-after-sort decline underneath it; add the install-first or shared-reactor invocation so the re-run measures this branch's `core` rather than an installed jar (items 7, R14) — risk: medium (new benchmark and test code in `jmh-ldbc`; no `core` production change)  [x]  commit: 21d97a6e92
 11. Audit the 18 hand-built MATCH AST sites across seven files and record a verdict per site — a builder call, a builder call this step adds a factory for, or a hand-built node carrying a comment saying why the builder cannot express it; `StartStepRecogniser`'s unwrapped `@rid IN [...]` clause stays hand-built so `SQLWhereClause.findRidInList` can still see through it for RID promotion, with the promotion test as a watched-to-fail witness (item 9) — risk: medium (behavior-preserving by intent, but logic edits across seven production files in one module)  [ ]
-12. Run the `core` Cucumber gate on both kill-switch arms to 1930 / 0 / 14, read `embedded`'s on arm out of a qualifying CI run's counts rather than its leg colour, publish the per-step scenario catalogue, and disposition the residue under item 6's three rules — both directions recorded, the decline exit as default, and a YouTrack issue or `### Non-Goals` amendment for anything neither fixed nor declined, including item 10's `g.V(rid)` slowdown (items 6, 7's regression destination) — risk: medium (measurement and disposition step; any production decline-widening it triggers lands as its own follow-on step so it stays reviewable)  [ ]
+12. Run the `core` Cucumber gate on both kill-switch arms to 1930 / 0 / 14, read `embedded`'s on arm out of a qualifying CI run's counts rather than its leg colour, publish the per-step scenario catalogue, and disposition the residue under item 6's three rules — both directions recorded, the decline exit as default, and a YouTrack issue or `### Non-Goals` amendment for anything neither fixed nor declined, including item 10's `g.V(rid)` slowdown (items 6, 7's regression destination) — risk: medium (measurement and disposition step; any production decline-widening it triggers lands as its own follow-on step so it stays reviewable)  [~]  skipped 2026-08-16 at the user's direction, with its residue explicitly not carried forward. Step 9 had already measured the `core` two-arm gate at 1930 / 0 / 14; the rest of the step's scope — `embedded`'s on-arm counts, the per-step scenario catalogue, and the item 6 rule 3 disposition of item 10's `g.V(rid)` slowdown and item 8's edge-alias half — is dropped rather than reassigned.
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -830,6 +834,57 @@ excluded), up from step 8's 1110 by this step's eight new tests; 21 / 21 for
 `YTDBQueryMetricsStrategyTest` through the `YTDBProcessTest` suite runner; and the `core` Cucumber
 suite at 1930 / 0 / 14 on both arms. Coverage on changed code: 94.7% line, 84.2% branch.
 
+### Step 10 — commit 21d97a6e92, 2026-08-16T21:39Z [ctx=safe]
+**What was done:** Restored the three `jmh-ldbc` files from `deb8e72ee9` (which carries both
+`43907ff312` and its LDBC-shaped extension), then re-derived every shape's group against the current
+tree instead of trusting the recorded three-of-four-green claim. Two shapes swapped groups: IS1's
+full projection moved to translating, and the ordered page (`order().by(k).range(a, b).values(k)`)
+moved to declining. Both `@Benchmark` methods and both test methods were renamed to match their new
+group, and the javadoc that misattributed IS1's decline to a start-step label was corrected at four
+sites. Three `Track 11` references the out-of-band commits carried were rewritten before the
+pre-commit gate. The module is 56 / 56 green — 17 shape-translation, 33 correctness, 6 explain —
+through a shared `core,jmh-ldbc` reactor.
+
+**What was discovered:** **The invocation trap is measurable, and the harness diagnoses it itself.**
+`./mvnw -pl jmh-ldbc test` resolves `youtrackdb-core` from the local repository and reports exactly
+three errors on this tree — the `fold` terminator, IS1's full projection and the ordered page. Those
+are precisely the three shapes whose group depends on a recogniser the installed jar predates; the
+other fourteen pass either way. The same tree through `-pl core,jmh-ldbc` reports none. So a
+three-error run is the signature of the wrong invocation rather than of a harness defect. The
+shared-reactor form needs `-Dsurefire.failIfNoSpecifiedTests=false`, because `core` matches no
+`-Dtest` pattern.
+
+Both predicted repairs held and no third shape moved. IS1's full profile also agrees across the two
+arms, so R15's divergence family does not reach it: `as("p")` sits on the `has` step and survives,
+rather than being dropped by `rebuildTraversal`'s `else` branch behind an intervening hop.
+
+Coverage here is structurally unmeasurable rather than merely skipped. `jmh-ldbc/pom.xml`'s own
+`coverage` profile excludes `**/benchmarks/ldbc/*.class` from the JaCoCo report as benchmark
+infrastructure, so the two new `src/main` classes produce no report lines at all.
+
+**What changed from the plan:** Item 7's claim that three of its four original shapes are green on
+both arms is confirmed stale, as the orchestrator measurement predicted. Nothing else in the item
+moved. The shared-reactor invocation went into the test class's javadoc rather than the track file's
+`### Clarifications`, since implementers may not edit the track file and the javadoc is the surface
+that survives the `_workflow/` deletion.
+
+**Orchestrator note on this step's two carry-forwards:** the implementer named step 12 as the owner
+of item 7's R17 obligation (a destination for the `g.V(rid)` slowdown) and of item 8's unreached
+edge-alias half. **Step 12 was skipped at the user's direction in this same session, without
+tracking those items**, so neither has an owner in this track. Recorded here because step 10's draft
+pointed at a step that no longer runs.
+
+**Key files:**
+- `jmh-ldbc/src/main/java/com/jetbrains/youtrackdb/benchmarks/ldbc/GremlinTraversalShapes.java` (new)
+- `jmh-ldbc/src/main/java/com/jetbrains/youtrackdb/benchmarks/ldbc/LdbcGremlinTranslatorBenchmark.java` (new)
+- `jmh-ldbc/src/test/java/com/jetbrains/youtrackdb/benchmarks/ldbc/LdbcGremlinShapeTranslationTest.java` (new)
+
+**Critical context:** Renaming the two `@Benchmark` methods changes their JMH benchmark ids
+(`gremlinKnowsOrderedPage` → `…Declines`, `gremlinIs1FullProfileDeclines` → `gremlinIs1FullProfile`).
+No Hetzner baseline has been published for this class yet, so there is nothing to reconcile, but a
+comparison against any pre-existing local run would mismatch on name. The `@Benchmark` bodies still
+run only on Hetzner and their baseline numbers remain owed and out of scope here.
+
 Tests: 460 / 460 across the fifteen touched classes, and 1088 / 1088 with 1 skipped over the wider
 `com.jetbrains.youtrackdb.internal.core.gremlin.**` run (`gremlintest` excluded per the track
 file's invocation note). PSI was not used: the track file's `### Clarifications` records that
@@ -862,7 +917,7 @@ reference, four of them in the seed.
 - The Phase A reviews that produced this track's shape ran against the **pre-split** Track 9 and live under `plan/track-9/reviews/`: `technical-iter1.md` (T1–T11), `technical-gate-verification-iter2.md` (T12–T16), `technical-gate-verification-iter3.md` (T17–T18, PASS), `risk-iter1.md` (R1–R7). The terminator-facing findings are T1–T7, T9–T16, T18, R2, and R7; they are folded into the prose above. Their PASS verdict does **not** carry over — this is a new track and Phase A runs its own panel.
 
 ## Interfaces and Dependencies
-**In scope (new):** `FoldStep` / `UnfoldStep` / `ReverseStep` / `TailGlobalStep` recognisers; the four `ListShapingOp` implementations (drain / flat-map / value-transform / ring-buffer); the `RecognitionContext.appendListShapingOp` + `supportsListShaping()` seam; three new `jmh-ldbc` files — the Gremlin traversal builders, the on/off `@Benchmark` class over them, and the in-track `src/test` execution test; terminator-composition, boundary, decline, re-arm, and clone tests; the per-step scenario catalogue.
+**In scope (new):** `FoldStep` / `UnfoldStep` / `ReverseStep` / `TailGlobalStep` recognisers; the four `ListShapingOp` implementations (drain / flat-map / value-transform / ring-buffer); the `RecognitionContext.appendListShapingOp` + `supportsListShaping()` seam; three new `jmh-ldbc` files — the Gremlin traversal builders, the on/off `@Benchmark` class over them, and the in-track `src/test` execution test; terminator-composition, boundary, decline, re-arm, and clone tests. (The per-step scenario catalogue was dropped with step 12 on 2026-08-16.)
 **In scope (modified):** `RecognitionContext` (the seam) + `WalkerContext` (its implementation) + `SubTraversalPredicateAdapter` (the `false` override); `UnionStepRecogniser` (the non-empty-`listShapingOps` child gate); `GremlinStepWalker` — the `POST_UNION_RECOGNISERS` allow-list plus the new registry entries; the `walkChild` combinator path (declared on `RecognitionContext`), gated through the `SubTraversalPredicateAdapter` override above; `ListShapingOp` (the false once-per-child javadoc clause and `unfold`'s one-line description); the Track 7 boundary base if the ordered post-process application needs extension; four stale javadoc sites the track is already opening — `UnionStepRecogniser`'s "the list-shaping terminators are not translated yet" class comment, the "seven flags" wording on `RecognitionContext.setResultShaping` and on `WalkerContext.shaping` (whose "a terminator replaces it through `setResultShaping`" clause becomes wrong once the append path lands), and `BoundaryOutputType`'s class-javadoc opening sentence naming only `YTDBMatchPlanStep`. `AbstractMatchPlanStep.shaping`'s javadoc is already current and needs no edit.
 **Out of scope:** the Cucumber suite non-completion diagnosis, the dropped per-alias filter, and the baseline artifact — all Track 9; the boundary base extraction and ordered post-process carrier (Track 7); the union recogniser and `MultiPlanMatchStep` internals (Track 8) — the `POST_UNION_RECOGNISERS` allow-list and the child gate are in scope here; an op-type discriminator on `ListShapingOp` (DR-T3 declines it); the LDBC SF 1 baseline numbers (Hetzner-scoped); edge-bearing OR, `optional`, variable-depth `repeat`, approximate count (Phase 2).
 **Inter-track dependencies:** depends on Track 7 (all four terminators ride the boundary base's ordered `ListShapingOp` carrier through `applyListShaping`), Track 8 (the union machinery the child and suffix gates sit on), and **Track 9** (a feature suite that completes, and the post-fix baseline item 6's no-regression claim is measured against). Last Phase 1 track; validates every prior track through the full Cucumber re-run.
