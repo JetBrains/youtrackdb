@@ -21,18 +21,45 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * alias. A declining child, a projection-contract disagreement, a start-position union, or a nested
  * union inside a child declines the whole walk.
  *
- * <p>After the union the walk may continue for the post-concatenation barriers only — {@code
- * count()}, {@code limit()} / {@code range()} / {@code skip()}, and {@code dedup()} — each of which
- * becomes a {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp}
- * applied by {@code MultiPlanMatchStep} over the concatenation. {@code order()} after a union
- * declines (no post-concat sort in this cut), the list-shaping terminators ({@code fold} and
- * friends) are not translated yet, and every other step class declines too.
+ * <p>After the union the walk may continue for two kinds of suffix step. {@code count()}, {@code
+ * limit()} / {@code range()} / {@code skip()} and {@code dedup()} each become a {@link
+ * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} applied by {@code
+ * MultiPlanMatchStep} over the concatenation; {@code unfold()} and {@code reverse()} each append a
+ * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp} the boundary
+ * base applies once over that same concatenation, which is sound because both treat each payload
+ * alone. {@code order()} after a union declines (no post-concat sort in this cut), {@code fold()}
+ * and {@code tail(n)} decline as positional, and every other step class declines too. {@code
+ * GremlinStepWalker.POST_UNION_RECOGNISERS} argues each membership and the one recorded exclusion.
  *
  * <p>That suffix check runs twice, against one allow-list. {@link
  * UnionForkHost#postUnionSuffixTranslatable} scans the suffix here, before any fork, so an
  * untranslatable suffix costs a look-ahead instead of N discarded child sub-walks per compilation;
  * {@link GremlinStepWalker}'s per-step gate then refuses anything the scan let through and any
  * allow-listed recogniser that declines on its own terms.
+ *
+ * <h2>A child that shapes a list declines the union</h2>
+ *
+ * A stage a <em>child</em> registers is a different thing from a stage the suffix registers, and the
+ * difference is where the stage ends up running. Both land in one {@link ResultShaping} that the
+ * multi-plan boundary applies once over the whole concatenation, so {@code union(__.out().fold(),
+ * __.in().fold())} would return one list over both arms where native returns one list per arm — a
+ * wrong answer rather than a missing translation. Any child carrying a non-empty {@code
+ * listShapingOps()} therefore declines the union.
+ *
+ * <p>The check is deliberately blanket over all four terminators, although only {@code fold} and
+ * {@code tail} actually diverge: {@code unfold} and {@code reverse} treat each payload alone, so
+ * once-over-the-concatenation and once-per-arm agree. Telling them apart would need an op-type
+ * discriminator on {@code ListShapingOp}, which the carrier does not have, and {@code
+ * union(__.unfold(), __.unfold())} is coverage lost rather than a wrong answer shipped.
+ *
+ * <p>It is also deliberately separate from, and ahead of, the projection-contract comparison below,
+ * which would decline these shapes today only by accident. That comparison asks whether the children
+ * <em>agree</em>, and {@link ResultShaping} is a record whose {@code equals} compares {@code
+ * listShapingOps} element-wise: the recognisers each append a fresh op instance per recognition, so
+ * two arms folding identically compare unequal and decline. Rewrite any one of those recognisers to
+ * append a shared singleton — this codebase's usual style for a stateless op, and what {@code
+ * PostConcatOp.Count.INSTANCE} already is — and the arms would agree, the comparison would pass, and
+ * the wrong answer would ship. The explicit gate is what makes the decline independent of that.
  *
  * <p>The recogniser never sees the parent {@code Traversal.Admin} — only the narrow {@link
  * UnionForkHost} seam. On accept it stashes the ordered child {@link MatchPlanInputs} through that
@@ -97,6 +124,12 @@ final class UnionStepRecogniser implements StepRecogniser {
         return Outcome.DECLINE;
       }
       assert childResult.inputs() != null;
+      // A child that registered a list-shaping stage declines the union outright, before and
+      // independently of the contract comparison below — see the class javadoc's "A child that
+      // shapes a list declines the union" for why agreement is not the question here.
+      if (!childResult.shaping().listShapingOps().isEmpty()) {
+        return Outcome.DECLINE;
+      }
 
       if (canonicalAlias == null) {
         canonicalAlias = childResult.boundaryAlias();

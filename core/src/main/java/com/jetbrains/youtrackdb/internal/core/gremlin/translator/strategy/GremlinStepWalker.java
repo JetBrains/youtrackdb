@@ -273,9 +273,12 @@ final class GremlinStepWalker {
 
   /**
    * The only recognisers allowed to claim a step <em>after</em> {@link UnionStepRecogniser} has
-   * stashed a multi-plan carrier — the three whose step maps to a {@link
+   * stashed a multi-plan carrier. Two kinds sit here. Three map their step onto a {@link
    * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} the concatenation
-   * can absorb ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}).
+   * can absorb ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}); two more
+   * append a per-payload {@link ListShapingOp} the boundary base applies once over the whole
+   * concatenation ({@code unfold}, {@code reverse}), and one appends a window that the positional
+   * rule below then refuses in every spelling but one ({@code tail}).
    *
    * <p>The gate has to be here rather than left to each recogniser because {@link #buildResult}'s
    * multi-plan branch reads only the boundary metadata, the shaping, and the post-concat ops: a
@@ -303,12 +306,38 @@ final class GremlinStepWalker {
    * must override {@code selectsPositionally} rather than inherit the interface default — a unit
    * test over this field pins that, so a member added without an answer fails the build instead of
    * silently inheriting {@code false}. The field is package-private for exactly that test.
+   *
+   * <p>The three list-shaping members answer that second question differently from each other, and
+   * the answers are what decide which post-union spellings survive. {@code unfold} and {@code
+   * reverse} are per-payload: each payload is expanded or transformed on its own, so applying the
+   * stage once over the concatenation and applying it once per arm produce the same multiset
+   * whichever order the arms arrived in. Both answer {@code false} and both translate.
+   * {@code tail(n)} keeps the last {@code n} payloads of whatever stream it is handed, which is the
+   * position the branch-major concatenation and native's per-traverser interleaving disagree about
+   * hardest, so it answers {@code true} and reaches the fork only ahead of an immediate {@code
+   * count()} — a spelling {@link #LIST_SHAPING_DRAIN_RECOGNISERS} then declines for its own reason.
+   *
+   * <p><strong>{@code fold} is deliberately not a member, and that is this list's one recorded
+   * exclusion.</strong> A fold over the concatenation is one payload whose value is a {@code List},
+   * and a list compares by order, so the two arrival orders would hand back two different answers
+   * for {@code union(...).fold()} — the divergence the positional rule exists to stop, arriving
+   * through a value rather than through a row position. The alternative was to admit {@code
+   * FoldStepRecogniser} with {@code selectsPositionally} answering {@code true}, which reaches the
+   * same decline for {@code union(...).fold()} and additionally lets {@code union(...).fold().count()}
+   * through the look-ahead. That spelling declines anyway at the list-shaping gate (see {@link
+   * #LIST_SHAPING_DRAIN_RECOGNISERS}), so the two designs differ in nothing observable and the
+   * simpler one is written down here. Leaving the recogniser off the list also keeps the build gate
+   * useful: whoever adds it later has to state a positional answer, because the reflective test
+   * fails until they do.
    */
   static final Set<StepRecogniser> POST_UNION_RECOGNISERS =
       Set.of(
           CountGlobalStepRecogniser.INSTANCE,
           RangeGlobalStepRecogniser.INSTANCE,
-          DedupGlobalStepRecogniser.INSTANCE);
+          DedupGlobalStepRecogniser.INSTANCE,
+          UnfoldStepRecogniser.INSTANCE,
+          ReverseStepRecogniser.INSTANCE,
+          TailGlobalStepRecogniser.INSTANCE);
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ReverseListShapingOp;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ReverseStep;
 
 /**
@@ -26,9 +27,18 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.ReverseStep;
  * before the boundary base applies these stages; that gate is the walker's dispatch loop rather than a
  * check here, and {@code GremlinStepWalker.LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} argues the membership.
  *
- * <p>The neighbouring gates own two more declines — a post-union {@code reverse()} through the suffix
- * gate, and a {@code reverse()} behind a captured cardinality clause through the cardinality gate — and
- * both cost coverage rather than correctness.
+ * <h2>Post-union, the stage runs once over the concatenation</h2>
+ *
+ * {@code union(...).reverse()} translates. Reversing a payload's own value reads nothing about the
+ * payload's position, so the branch-major concatenation and native's interleaving transform the same
+ * payloads into the same multiset. That is why this recogniser sits on
+ * {@code GremlinStepWalker.POST_UNION_RECOGNISERS} and answers {@link #selectsPositionally}
+ * {@code false} — the field's javadoc carries the comparison against the members that answer
+ * {@code true}, and it is the value-transform reading above that makes the answer {@code false}: a
+ * stream reverse would be as positional as {@code tail}.
+ *
+ * <p>The neighbouring cardinality gate owns one more decline — a {@code reverse()} behind a captured
+ * cardinality clause — which costs coverage rather than correctness.
  *
  * <p>The one decline this recogniser owns is the combinator channel: a child sub-walk answers
  * {@link RecognitionContext#supportsListShaping()} {@code false}, because its payloads never reach a
@@ -61,5 +71,17 @@ final class ReverseStepRecogniser implements StepRecogniser {
     // carries why identity is what declines a union whose arms each carry a stage.
     ctx.appendListShapingOp(new ReverseListShapingOp());
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * {@code false}: the stage rewrites each payload's own value and reads nothing about where that
+   * payload sat in the stream, so the branch-major concatenation and native's interleaving transform
+   * the same payloads into the same multiset. Stated rather than inherited because this recogniser is
+   * on the post-union allow-list, where {@code GremlinStepWalker.POST_UNION_RECOGNISERS} requires
+   * every member to answer for itself.
+   */
+  @Override
+  public boolean selectsPositionally(Step<?, ?> step) {
+    return false;
   }
 }

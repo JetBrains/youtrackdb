@@ -33,12 +33,27 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
  * <ul>
  *   <li>A fold after a {@code union(...)} declines through the post-union suffix gate, and that is the
  *       right answer — one list per arm and one list over the concatenation differ, and native
- *       interleaves the arms besides.
+ *       interleaves the arms besides. The next section says how this recogniser is kept off that
+ *       path.
  *   <li>A fold behind a captured {@code SKIP} / {@code LIMIT} / {@code RETURN DISTINCT} declines
  *       through the cardinality gate, which is stricter than it has to be: the clause runs in the
  *       statement and the stage runs after it, exactly as Gremlin orders {@code limit(2).fold()}. The
  *       shape loses coverage, not correctness.
  * </ul>
+ *
+ * <h2>Why there is no {@code selectsPositionally} override here</h2>
+ *
+ * The post-union gate has two conditions, and this recogniser is kept off the path by the first of
+ * them: it is absent from {@code GremlinStepWalker.POST_UNION_RECOGNISERS}, so the second condition —
+ * {@link StepRecogniser#selectsPositionally}, which every member of that list must answer for itself —
+ * is never asked, and the interface default stands unoverridden on purpose. The alternative shape was
+ * membership plus a {@code true} answer, which declines {@code union(...).fold()} the same way and in
+ * addition admits {@code union(...).fold().count()} as far as the fork. That spelling then declines at
+ * the list-shaping gate anyway, because {@code count} writes {@code count(*)} into the statement and
+ * MATCH applies the statement before this stage runs. So the two shapes differ in nothing a caller can
+ * observe, and the absence is the one that needs no second rule to be read alongside it. The
+ * allow-list's own javadoc carries the same decision from the list's side, which is where a reader
+ * adding a member will be looking.
  *
  * <p>The third decline is the combinator channel: a child sub-walk answers
  * {@link RecognitionContext#supportsListShaping()} {@code false}, because its payloads never reach a

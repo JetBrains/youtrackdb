@@ -1666,6 +1666,56 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * The three list-shaping members answer the positional question the way the allow-list's javadoc
+   * argues, and the reflective test above cannot check this: it asserts only that a member declares
+   * the method, never what the method returns. A {@code tail} declared with {@code false} would
+   * satisfy it and would translate {@code union(...).tail(n)} over a branch-major concatenation,
+   * handing back a window of the right size holding different rows than native's.
+   *
+   * <p>Each answer is read off a step the DSL built, so a recogniser that inspected the step and
+   * answered conditionally would be exercised rather than bypassed.
+   */
+  @Test
+  public void listShapingMembersOfThePostUnionAllowList_answerThePositionalQuestion() {
+    var unfold = graph.traversal().V().unfold().asAdmin().getSteps().get(1);
+    var reverse = graph.traversal().V().values("name").reverse().asAdmin().getSteps().get(2);
+    var tail = graph.traversal().V().tail(2).asAdmin().getSteps().get(1);
+
+    assertThat(UnfoldStepRecogniser.INSTANCE.selectsPositionally(unfold))
+        .as("expanding a payload reads no position, so the two arrival orders agree")
+        .isFalse();
+    assertThat(ReverseStepRecogniser.INSTANCE.selectsPositionally(reverse))
+        .as("reverse maps each payload's own value; it does not reorder the stream")
+        .isFalse();
+    assertThat(TailGlobalStepRecogniser.INSTANCE.selectsPositionally(tail))
+        .as("a window over the end of the concatenation keeps different rows than native's")
+        .isTrue();
+  }
+
+  /**
+   * {@code fold} is deliberately absent from the allow-list, which is the whole of how a bare
+   * {@code union(...).fold()} is kept from translating: one fold over the concatenation is a single
+   * payload whose {@code List} value compares by order, so the two arrival orders would hand back
+   * different answers. Membership is the first of the gate's two conditions, so absence settles it
+   * without a positional answer being asked for — and the recogniser therefore has no {@code
+   * selectsPositionally} override, which the second assertion pins so that adding one later reads
+   * as the deliberate design change it would be.
+   */
+  @Test
+  public void foldIsNotOnThePostUnionAllowList_andStatesNoPositionalAnswer() {
+    assertThat(GremlinStepWalker.POST_UNION_RECOGNISERS)
+        .as("a bare post-union fold must be refused on membership, before any positional question")
+        .doesNotContain(FoldStepRecogniser.INSTANCE);
+
+    var declaresOwn =
+        Arrays.stream(FoldStepRecogniser.INSTANCE.getClass().getDeclaredMethods())
+            .anyMatch(m -> m.getName().equals("selectsPositionally"));
+    assertThat(declaresOwn)
+        .as("off the allow-list, the question is never asked, so the interface default stands")
+        .isFalse();
+  }
+
+  /**
    * The interface default answers {@code false}, which is safe only for the recognisers the
    * membership gate refuses before the question is asked — {@link VertexStepRecogniser} is one, and
    * a hop after a union declines on membership alone. Pins the default's value so the fail-closed
@@ -1680,6 +1730,133 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .doesNotContain(VertexStepRecogniser.INSTANCE);
 
     assertThat(VertexStepRecogniser.INSTANCE.selectsPositionally(hop)).isFalse();
+  }
+
+  /**
+   * A child arm that registered a list-shaping stage declines the union even when every arm agrees
+   * on it. This has to be white-box, because no traversal can witness the gate: the terminators
+   * append a fresh op instance per recognition, so two arms folding identically already compare
+   * unequal at the projection-contract check below the gate, and every observable decline is
+   * over-determined. The stub hands back the <em>same</em> op instance for both arms, which is what
+   * a recogniser rewritten to append a shared singleton — this codebase's usual style for a
+   * stateless op — would produce; the contract check then passes and only the explicit gate is left
+   * to decline.
+   *
+   * <p>The premise assertion is the load-bearing half: without it a fixture whose two shapings
+   * happened to differ would pass this test while proving the pre-existing comparison still works.
+   */
+  @Test
+  public void union_childCarryingAListShapingStage_declines_evenWhenTheArmsAgreeOnIt() {
+    ListShapingOp sharedOp = upstream -> upstream;
+    var shaped = ResultShaping.NONE.withListShapingOps(List.of(sharedOp));
+    assertThat(shaped)
+        .as("fixture premise: two arms carrying the same op instance agree, so the projection-"
+            + "contract comparison cannot be what declines this shape")
+        .isEqualTo(ResultShaping.NONE.withListShapingOps(List.of(sharedOp)));
+
+    var admin = graph.traversal().V().union(__.out(), __.in()).asAdmin();
+    var cursor = cursorAtUnion(admin);
+    var host = new ShapingUnionForkHost(singlePlanTemplate(), shaped);
+    var ctx = unionSeededContext(host);
+
+    var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome)
+        .as("one list over the concatenation is not one list per arm, so the union declines")
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(host.stashed)
+        .as("the decline must happen before the children are stashed")
+        .isFalse();
+  }
+
+  /**
+   * The positive control for the gate above, on the same stub: arms that registered no stage
+   * translate and are stashed. Without it the decline case would pass against a fork host that
+   * declines for some unrelated reason — a stub whose canned result is malformed, say — and the
+   * gate could be deleted with the suite still green.
+   */
+  @Test
+  public void union_childrenWithNoListShapingStage_translate() {
+    var admin = graph.traversal().V().union(__.out(), __.in()).asAdmin();
+    var cursor = cursorAtUnion(admin);
+    var host = new ShapingUnionForkHost(singlePlanTemplate(), ResultShaping.NONE);
+    var ctx = unionSeededContext(host);
+
+    var outcome = UnionStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome)
+        .as("the same stub, differing only in the shaping its arms carry, must translate")
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(host.stashed).isTrue();
+    assertThat(host.forkCalls)
+        .as("both arms are walked when neither declines")
+        .isEqualTo(2);
+  }
+
+  /**
+   * A real single-plan translation, used as the template every {@link ShapingUnionForkHost} arm
+   * hands back. Building the plan inputs by hand would pin this fixture to a builder API the tests
+   * do not otherwise touch; walking a hop gives a well-formed result whose shaping is the only
+   * thing the stub varies.
+   */
+  private GremlinToMatchTranslator.TranslationResult singlePlanTemplate() {
+    var template = GremlinStepWalker.production().walk(graph.traversal().V().out().asAdmin());
+    Assert.assertNotNull("fixture premise: g.V().out() must translate", template);
+    Assert.assertFalse("fixture premise: the template must be single-plan", template.isMultiPlan());
+    return template;
+  }
+
+  /**
+   * Fork seam stand-in whose arms all translate, to one canned single-plan result carrying a
+   * caller-chosen {@link ResultShaping}. {@link CountingUnionForkHost} declines every arm, so it
+   * cannot reach the child loop's own gates; this one exists to put a chosen child shaping in front
+   * of them.
+   */
+  private static final class ShapingUnionForkHost implements UnionForkHost {
+
+    private final GremlinToMatchTranslator.TranslationResult template;
+    private final ResultShaping childShaping;
+    private int forkCalls;
+    private boolean stashed;
+
+    ShapingUnionForkHost(
+        GremlinToMatchTranslator.TranslationResult template, ResultShaping childShaping) {
+      this.template = template;
+      this.childShaping = childShaping;
+    }
+
+    @Override
+    public List<Step<?, ?>> recognisedPrefixSteps() {
+      // Non-empty: the recogniser declines a start-position union, which is not what is under test.
+      return List.of(mock(Step.class));
+    }
+
+    @Override
+    public boolean postUnionSuffixTranslatable() {
+      // The fixtures end at the union, so the suffix is empty and the production check is vacuous.
+      return true;
+    }
+
+    @Override
+    public GremlinToMatchTranslator.TranslationResult walkFork(List<Step<?, ?>> childSuffix) {
+      forkCalls++;
+      return GremlinToMatchTranslator.TranslationResult.singlePlan(
+          template.inputs(),
+          template.boundaryAlias(),
+          template.outputType(),
+          template.returnClass(),
+          Map.of(),
+          true,
+          childShaping);
+    }
+
+    @Override
+    public void stashAcceptedChildren(
+        List<com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs> childInputs,
+        List<Map<Object, Object>> childInputParameters,
+        List<Boolean> childCacheEligible) {
+      stashed = true;
+    }
   }
 
   /**

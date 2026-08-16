@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMa
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -622,6 +623,106 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         "g.V().union(out(knows), in(knows)).count().count() — second post-union count",
         Recognition.DECLINED,
         () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).count().count());
+  }
+
+  /**
+   * The two per-payload list shapers translate as a post-union suffix and return native's multiset.
+   * Applying such a stage once over the concatenation and once per arm give the same payloads
+   * whichever order the arms arrived in, which is the whole reason they are allowed here where
+   * {@code fold} and {@code tail} are not.
+   *
+   * <p>The multiset comparison alone would be weak — over {@code ELEMENT} payloads both stages are
+   * pass-throughs, so a dropped stage would return the same rows — so the walk-level assertion is
+   * what makes the case discriminating: the stage must survive into the multi-plan result the
+   * boundary reads, not merely fail to break the answer.
+   */
+  @Test
+  public void postUnionUnfoldAndReverse_translateAndCarryTheirStage() {
+    seedKnowsChain();
+
+    for (var each : List.of(
+        Map.entry("unfold",
+            (Supplier<GraphTraversal<?, ?>>) () -> graph.traversal().V()
+                .union(__.out("knows"), __.in("knows")).unfold()),
+        Map.entry("reverse", (Supplier<GraphTraversal<?, ?>>) () -> graph.traversal().V()
+            .union(__.out("knows"), __.in("knows")).reverse()))) {
+
+      var walked = GremlinStepWalker.production().walk(each.getValue().get().asAdmin());
+      assertThat(walked)
+          .as("g.V().union(...)." + each.getKey() + "() must translate")
+          .isNotNull();
+      assertThat(walked.isMultiPlan())
+          .as("a union translates to a multi-plan carrier, not a single plan")
+          .isTrue();
+      assertThat(walked.shaping().listShapingOps())
+          .as("the suffix stage must reach the multi-plan result, or the boundary applies nothing")
+          .hasSize(1);
+
+      assertEquivalent(
+          "g.V().union(out(knows), in(knows))." + each.getKey() + "()",
+          Recognition.RECOGNIZED_MULTI_PLAN,
+          each.getValue());
+    }
+  }
+
+  /**
+   * The two list shapers that read positions decline as a post-union suffix, in both the bare
+   * spelling and the one with a {@code count()} behind it. {@code fold} would build one list over
+   * the concatenation where native builds one per traverser stream, and a {@code List} compares by
+   * order; {@code tail(n)} would keep the last {@code n} of a branch-major concatenation where
+   * native keeps the last {@code n} of an interleaving. The {@code count()} spellings are here
+   * because the two gates that refuse them are different — the bare ones stop at the union's
+   * pre-fork look-ahead, the counted ones at the walker's list-shaping gate — so a change that
+   * disarmed either would still leave this test red.
+   *
+   * <p>The chain is eight vertices deep so that both arms are wide: over a three-vertex chain a
+   * {@code tail(3)} would keep everything and the shape would agree with native by accident.
+   */
+  @Test
+  public void postUnionFoldAndTail_decline() {
+    seedLongKnowsChain();
+
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).fold() — one list over the concatenation",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).fold());
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).tail(3) — a window over the concatenation",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).tail(3));
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).fold().count() — count behind a captured stage",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).fold().count());
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows)).tail(3).count() — count behind a captured window",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).tail(3).count());
+  }
+
+  /**
+   * A list-shaping stage inside an <em>arm</em> declines the union, which is a different rule from
+   * the suffix one above and refuses even the two shapers a suffix may carry. The boundary applies
+   * one shaping over the whole concatenation, so a per-arm stage has nowhere to run: {@code
+   * union(out().fold(), in().fold())} would return one list where native returns one per arm. The
+   * {@code unfold} pair is coverage lost rather than a wrong answer avoided — {@code ListShapingOp}
+   * carries no op-type discriminator, so the gate cannot tell the diverging stages from the
+   * harmless ones and refuses all of them.
+   */
+  @Test
+  public void unionArmCarryingAListShapingStage_declines() {
+    seedLongKnowsChain();
+
+    assertEquivalent(
+        "g.V().union(out(knows).fold(), in(knows).fold()) — one list per arm, natively",
+        Recognition.DECLINED,
+        () -> graph.traversal().V()
+            .union(__.out("knows").fold(), __.in("knows").fold()));
+    assertEquivalent(
+        "g.V().union(out(knows).unfold(), in(knows).unfold()) — refused as collateral",
+        Recognition.DECLINED,
+        () -> graph.traversal().V()
+            .union(__.out("knows").unfold(), __.in("knows").unfold()));
   }
 
   /**

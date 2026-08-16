@@ -18,10 +18,10 @@ import java.util.Iterator;
  *   <li><b>1&rarr;1 map</b> — one payload in, one payload out. {@code reverse} reverses each
  *       payload's own value — a string's characters, a collection's or an array's elements — and
  *       passes an unreversible payload through unchanged; it never reorders the stream.
- *   <li><b>1&rarr;N flat-map</b> — one payload in, zero or more out. {@code unfold} expands an
- *       iterator, an iterable, a map (into its <em>entries</em>) or an array element by element, and
- *       emits any other payload as a single one, so {@code groupCount().unfold()} yields entries where
- *       {@code g.V().unfold()} passes each vertex through.
+ *   <li><b>1&rarr;N flat-map</b> — one payload in, zero or more out. {@code unfold} expands a
+ *       payload that holds several values into those values and passes anything else through as one;
+ *       {@link UnfoldListShapingOp} enumerates the arms, which are native's rather than this
+ *       carrier's.
  *   <li><b>N&rarr;1 / window drain</b> — several payloads in, one or a bounded window out ({@code
  *       fold} drains the whole stream into one list; {@code tail(n)} keeps the last {@code n}).
  * </ul>
@@ -33,11 +33,20 @@ import java.util.Iterator;
  * are window drains by nature.
  *
  * <p>{@link #apply} may be called more than once for the same step. The boundary base rebuilds its
- * shaped iterator on every (re)open of an arming — after a {@code reset()} and reopen, and once per
- * child plan for a multi-plan boundary — calling {@code apply} afresh each time. So each call must
- * return an independent iterator and the op must hold no state across calls: an op whose buffer is
- * allocated once outside the returned iterator (rather than per call, the way a buffering {@code
- * fold} or {@code tail} must) would replay stale output on the second arming.
+ * shaped iterator on every (re)open of an arming — after a {@code reset()} and reopen, whether the
+ * previous pass merely drained or closed the plan — calling {@code apply} afresh each time. So each
+ * call must return an independent iterator and the op must hold no state across calls: an op whose
+ * buffer is allocated once outside the returned iterator (rather than per call, the way a buffering
+ * {@code fold} or {@code tail} must) would replay stale output on the second arming. The same
+ * requirement covers a cloned step, which copies the shaping by reference and so shares these
+ * instances with its original.
+ *
+ * <p>A multi-plan boundary does <em>not</em> add a call per child. {@code MultiPlanMatchStep} realizes
+ * the base's single-stream hook as one stream over a lazy per-child producer, so a whole arming is one
+ * concatenation and the op chain wraps it once: {@code union(...).fold()} would build one list over
+ * every arm rather than one list per arm. That is why the union recogniser declines a child whose
+ * own walk registered a stage, and why a post-union suffix stage is nonetheless sound for the ops
+ * that treat each payload alone.
  *
  * <p>The boundary base does not apply any op when the list is empty (the structural bypass in {@link
  * AbstractMatchPlanStep}): the projection stream flows straight through, so a traversal with no

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.TailListShapingOp;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStepContract;
 
 /**
@@ -28,11 +29,21 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStep
  * spelling. A statement-level {@code LIMIT} counts rows the drop has not removed yet, which is the
  * divergence {@code RangeGlobalStepRecogniser} declines on {@code dropsRowsOnAbsentProperty}.
  *
- * <p>Two neighbouring gates own two more declines. A {@code tail} after a {@code union(...)} declines
- * through the post-union suffix gate, and correctly — the concatenation emits one arm's rows then the
- * next while native interleaves them, so a window over the end of the concatenation keeps different
- * payloads. A {@code tail} behind a captured {@code SKIP} / {@code LIMIT} / {@code RETURN DISTINCT}
- * declines through the cardinality gate, which costs coverage rather than correctness.
+ * <h2>Post-union, the window is refused because it reads positions</h2>
+ *
+ * {@code union(...).tail(n)} declines, and correctly — the concatenation emits one arm's rows and then
+ * the next while native interleaves them, so a window over the end of the concatenation keeps
+ * different payloads than native's window keeps. This recogniser is nonetheless <em>on</em>
+ * {@code GremlinStepWalker.POST_UNION_RECOGNISERS}: that list is the first of two conditions, and the
+ * second is {@link #selectsPositionally}, which this recogniser answers {@code true}. Membership
+ * without the positional answer would ship the divergence; the positional answer without membership
+ * would decline one spelling more than it needs to. Together they leave {@code tail} reaching the fork
+ * only where the walker's look-ahead sees an immediate {@code count()} behind it, and that spelling
+ * declines for its own reason at the list-shaping gate, so no post-union {@code tail} translates today.
+ *
+ * <p>The neighbouring cardinality gate owns one more decline — a {@code tail} behind a captured
+ * {@code SKIP} / {@code LIMIT} / {@code RETURN DISTINCT} — which costs coverage rather than
+ * correctness.
  *
  * <h2>{@code n = 0} translates, {@code n < 0} declines</h2>
  *
@@ -111,5 +122,18 @@ final class TailGlobalStepRecogniser implements StepRecogniser {
     // identity, and not just the limit, is what declines a union whose arms each carry a window.
     ctx.appendListShapingOp(new TailListShapingOp(window));
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * {@code true} for every window, including {@code tail(0)}. The window is defined by where a
+   * payload sits in the stream, and the multi-plan boundary hands the stage a branch-major
+   * concatenation where native hands it an interleaving, so the last {@code n} payloads differ
+   * between the two. Answered on the step's shape rather than on its limit: {@code tail(0)} keeps
+   * nothing under either order and so could safely answer {@code false}, but that special case buys
+   * one degenerate spelling and costs the reader the rule.
+   */
+  @Override
+  public boolean selectsPositionally(Step<?, ?> step) {
+    return true;
   }
 }
