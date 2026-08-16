@@ -14,6 +14,7 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-08-16T19:30Z [ctx=safe] Step 7 complete (commit `ecaf35926f`). Seventeen end-to-end terminator cases on the shared harness plus four boundary-base lifecycle cases; no production line touched. No step-level review (`risk: medium`). Most of item 5's roster was already discharged by steps 3–5, so this step added the on/off arm and the two lifecycle claims. Four mutation probes measured, each reddening exactly its own cases; the swallow probe is A14(a)'s measured discharge.
 - [x] 2026-08-16T18:53Z [ctx=safe] Step 6 complete (commit `d1249f41ae`). Item 10's counts re-enumerated against this step's base — two drifted, one claim refuted — then `TranslatorEquivalenceSupport` extracted and consumed by fifteen classes (+477 / −744, no test method added or removed). No step-level review (`risk: medium`). The real pin gap was `RangeTypeGuardEquivalenceTest.assertDeclinesAndMatchesNative`, now on the shared driver at `Cardinality.MAY_BE_EMPTY` with a measured call-site control; five bespoke two-arm drivers keep their bodies by decision and consume the shared toggle, counters and renderers.
 - [x] 2026-08-16T18:02Z [ctx=unknown] Step 5 complete (commit `49c581e6d7`). Post-union allow-list took `unfold` / `reverse` / `tail` with their positional answers; `fold` stays off it (item 4c). Union arms with a list-shaping stage decline through an explicit gate; combinator children already declined through the item-1 seam. Review loop: 8 findings, 0 blockers, all VERIFIED at gate-check iteration 2. Review fix shared the post-union positional body across look-ahead and in-loop gate.
 - [x] 2026-08-16T15:52Z [ctx=info] Step 4 complete (commit `b331d7abe1`). `unfold` / `reverse` / `tail` land with their three ops, `tail` registered off `TailGlobalStepContract.CONCRETE_STEPS`, and both allow-lists now populated — so the composition gate is reachable end to end for the first time, verified by three mutation probes. No step-level review (`risk: medium`). The GValue question is settled (the pure accessor on decline paths, the pinning one only on accept); the plan's `ArrayDeque` ring became `ArrayList`-backed because nulls; and step 7 loses its `reverse().unfold()` / `unfold().reverse()` result-witness — no production payload distinguishes them.
@@ -23,6 +24,10 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-08-16T19:30Z Step 7 discovered: **a bounded-buffer test that replays identical inputs across armings or clones cannot fail.** A ring leaked into a field returns a window of the right size holding the right values, so a stale window is indistinguishable from a fresh one; only distinct rows per pass separate them. The first tail re-arm draft replayed two identical rows and stayed green under the field-held-ring probe. This is a pin whose fixture cannot make it fail rather than a missing pin, which puts it in the same family as the opt-out-with-no-liveness shape and makes it a candidate for the branch's vacuous-acceptance catalogue. It generalises to any bounded window or ring, not just `tail`. See Episodes §Step 7.
+
+- 2026-08-16T19:30Z Step 7 discovered: a Mockito row-building helper that stubs a mock cannot be called inside another stubbing's argument list — `when(x).thenReturn(scalarRow(1L))` raises `UnfinishedStubbingException`. Hoist the rows first. See Episodes §Step 7.
 
 - 2026-08-16T18:53Z Step 6 discovered: item 10's "the five sibling copies still lack the pin" is **refuted** — all five carried a declined-path non-emptiness pin at this base. The real gap was `RangeTypeGuardEquivalenceTest.assertDeclinesAndMatchesNative`, which had no anti-vacuity guard at all. Two counts also drifted: the toggle stood in eight classes under its own name and twelve under seven names, and the two-arm driver body stood in ten classes rather than six. Step 8's sweep should re-derive its own counts the same way rather than trusting item 10's. See Episodes §Step 6.
 
@@ -167,7 +172,7 @@ flowchart LR
 4. Add the `unfold` / `reverse` / `tail` recognisers and their three ops — `unfold` honouring all five `UnfoldStep.flatMap` arms with a cross-call pending buffer, `reverse` as a per-value transform mirroring `ReverseStep.map`, `tail` registered from `TailGlobalStepContract.CONCRETE_STEPS` with `n=0` emitting nothing and `n<0` declining; settle the `getLimitAsGValue` / `isVariable()` pinning question here rather than deferring it (items 3, A17) — risk: medium (three new recognisers plus ops in one module; no HIGH trigger)  [x]  commit: b331d7abe1
 5. Close the union and combinator paths — state and implement `fold`'s `selectsPositionally` answer, add the terminator recognisers to `POST_UNION_RECOGNISERS` per that decision, gate union children on non-empty `listShapingOps` in `walkFork` before the `agreedShaping.equals` comparison, gate combinator children through the item 1 seam, and fix `ListShapingOp`'s false "once per child plan" clause and thin `unfold` description (items 4, 4c) — risk: high (architecture / cross-component coordination: the union and combinator boundary, where a wrong `selectsPositionally` answer re-ships A1's measured multiset divergence)  [x]  commit: 49c581e6d7
 6. Re-enumerate item 10's five duplication counts against this step's own base, then extract the shared equivalence harness — a package-private `TranslatorEquivalenceSupport` (or shared base) carrying the translator toggle, `countBoundarySteps`, `assertEquivalent` with its declined-path non-empty pin, and the recognition enum — following `ModernGraphFixture`'s extraction pattern. **Ordered ahead of step 7 per adversarial condition A12(1)** so the terminator tests consume the shared harness instead of adding to the duplication this step retires (item 10, first half) — risk: medium (tests-only, but shared test infrastructure across roughly a dozen classes)  [x]  commit: d1249f41ae
-7. Add the terminator tests on the shared harness — composition and boundary (`tail` `n=0` / `n<0`, empty-input `fold`, `reverse` as value transform not reorder, `unfold` buffer, declared-order combinations), the four cases R10 and R11 added, clone isolation for `tail` as well as `fold`, re-arm from both the `DRAINED` and `REARMED_AFTER_CLOSE` routes, and a positive control beside every decline case; replace the three non-discriminating witnesses A14, A15 and A17 named (item 5) — risk: medium (tests-only on shared fixtures)  [ ]
+7. Add the terminator tests on the shared harness — composition and boundary (`tail` `n=0` / `n<0`, empty-input `fold`, `reverse` as value transform not reorder, `unfold` buffer, declared-order combinations), the four cases R10 and R11 added, clone isolation for `tail` as well as `fold`, re-arm from both the `DRAINED` and `REARMED_AFTER_CLOSE` routes, and a positive control beside every decline case; replace the three non-discriminating witnesses A14, A15 and A17 named (item 5) — risk: medium (tests-only on shared fixtures)  [x]  commit: ecaf35926f
 8. Run item 10's second sweep — every `withTranslator(true, …)` with no boundary-step assertion beside it — and settle whether Track 9 step 10's retirement of harness divergence (b) rested on a comparison that could not discriminate, per `## Surprises & Discoveries` (item 10, second half) — risk: medium (tests-only on shared infrastructure, and it carries an open correctness question rather than a cleanup)  [ ]
 9. Bind `as()` labels in `HasStepRecogniser` (bind-or-decline), asserting the spellings that route through `YTDBGraphStepStrategy.rebuildTraversal`'s label-dropping `else` branch against a hand-computed oracle rather than against the native arm, under the plan's newly bounded multiset-equality exception; flip item 7's `is1FullProfile` decline assertion to the translating group (items 8, R15, A11) — risk: medium (a recogniser behavior change in one module, with a documented arms-diverge-by-design surface)  [ ]
 10. Re-apply the JMH harness commits `43907ff312` then `deb8e72ee9` and repair their assertion set — the `fold` shape now translates once steps 3–5 land, and the `order().by(…).range(…).values(…)` shape must be re-derived against the final tree because Track 9 widened a slice-after-sort decline underneath it; add the install-first or shared-reactor invocation so the re-run measures this branch's `core` rather than an installed jar (items 7, R14) — risk: medium (new benchmark and test code in `jmh-ldbc`; no `core` production change)  [ ]
@@ -579,6 +584,69 @@ a body-by-body read of twelve copies.
 `::sortedIdsOrValues` for either, or a suite-local canonicaliser; `support.withTranslator(boolean,
 body)` and `withTranslatorRestored(body)` for bodies that toggle themselves; and the statics
 `countBoundarySteps(List<?>)`, `countBoundarySteps(Traversal.Admin)`, `countMultiPlanSteps(List<?>)`.
+
+### Step 7 — commit ecaf35926f, 2026-08-16T19:30Z [ctx=safe]
+**What was done:** Added `ListShapingTerminatorEquivalenceTest`, seventeen cases on the shared
+`TranslatorEquivalenceSupport` harness, supplying the translator-on / translator-off arm the
+terminators had no coverage for — the recogniser suites compare the translated arm against
+hand-computed answers and the registered stage list, never against native. It covers ordered and
+unordered `fold`, the `tail` window (ordered, wider-than-stream, and zero with a translating
+control), `reverse` as a value transform, both `unfold` map arms plus the element identity,
+`reverse().fold()` and the two per-payload compositions, and five declines — the seeded reduce, a
+slice behind a drain, a count behind a drain, a `dedup` behind an expansion, and a drain inside a
+combinator child — each paired with a translating control on the same fixture. Four boundary-base
+cases went into `YTDBMatchPlanStepTest`: `fold` and `tail` replaying correctly from the `DRAINED`
+route and from the `CLOSED` (`REARMED_AFTER_CLOSE`) route, and two concurrently driven clones of a
+`fold` boundary and of a `tail` boundary each seeing only their own rows, with a probe op pinning
+that both clones really do share one op instance.
+
+**What was discovered:** Most of item 5's composition-and-boundary roster was already discharged
+by earlier steps. Steps 3 and 4 landed `tail` `n=0` / `n<0`, empty-input `fold`,
+reverse-not-reorder, the `unfold` cross-call buffer and all five flat-map arms, declared order on
+the registered stage list and over synthetic ops, and the placeholder-form `tail`; step 5 landed
+R11's `union(...).fold()` decline. The genuine gaps were the end-to-end on/off arm and the two
+boundary lifecycle claims, so this step added those rather than duplicating the rest.
+
+A `tail` re-arm or clone test that replays identical rows per pass cannot fail. A ring leaked into
+a field holds a window of the declared size either way, so a stale window reads exactly like a
+fresh one; only distinct rows per pass separate them. The first draft of the tail re-arm case
+replayed the same two rows and stayed green under the field-held-ring probe. Rewritten to run six
+distinct rows across three passes, it reddened. The `fold` analogue is safe with identical rows
+because a leaked append buffer grows.
+
+Four mutation probes were measured, each reddening exactly the cases that name it and nothing
+else. A field-held `fold` buffer reddens the new fold re-arm and fold clone cases plus the
+pre-existing reopen case. A field-held `tail` ring reddens the three tail lifecycle cases. A
+window keeping the first `n` reddens the new ordered equivalence case plus the op-level ones. And
+the swallow design on `SubTraversalPredicateAdapter` — `supportsListShaping()` true plus a
+swallowed append — reddens exactly `combinatorChildCarryingADrain…`. That last probe is A14(a)'s
+measured discharge at the result level: the swallow makes the shape translate, so the
+boundary-step pin is what discriminates and the arms' rows alone would not.
+
+Every shape expected to translate did on the first run, with no unexpected declines. One Mockito
+detail for later steps: a row-building helper that stubs a mock cannot be called inside another
+stubbing's argument list — `when(x).thenReturn(scalarRow(1L))` raises
+`UnfinishedStubbingException`, so rows must be hoisted first.
+
+**What changed from the plan:** Nothing in substance. Item 5's roster is met across three steps
+rather than one; this step added only what steps 3, 4 and 5 had not, and the discovery field above
+records which parts they discharged so a reader does not come looking for them here. Step 8's
+sweep gains one more class already on the shared harness whose driver carries the boundary-step
+pins, keeping it a call-site grep rather than a body read. Step 12 is unaffected — this step
+changes no production line.
+
+**Key files:**
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/ListShapingTerminatorEquivalenceTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/step/YTDBMatchPlanStepTest.java` (modified)
+
+**Critical context:** A buffered-op test that replays identical inputs across armings or clones
+cannot witness a leaked fixed-size buffer — the window comes back the right size holding the right
+values. Distinct inputs per pass are the discriminating fixture. This applies to any bounded window
+or ring, not only to `tail`.
+
+Tests: 1109 / 1109 with 1 pre-existing skip over `com.jetbrains.youtrackdb.internal.core.gremlin.**`
+(`gremlintest` excluded), and 228 / 228 over the six directly touched classes. The four production
+mutation probes were reverted with `git checkout` and the tree verified clean before the commit.
 
 Tests: 460 / 460 across the fifteen touched classes, and 1088 / 1088 with 1 skipped over the wider
 `com.jetbrains.youtrackdb.internal.core.gremlin.**` run (`gremlintest` excluded per the track
