@@ -359,7 +359,8 @@ interface RecognitionContext extends ParamSink {
    * behind a captured op unless {@link GremlinStepWalker}'s may-follow allow-lists admit the claiming
    * recogniser, and membership there requires that the recogniser contribute through {@link
    * #appendListShapingOp} alone — so no caller of this method can sit behind a captured op, and the
-   * walker asserts the op's survival after every accept rather than trusting the membership. The rule
+   * walker compares {@link #listShapingOps()} before and after every accept rather than trusting the
+   * membership, failing under {@code -ea} and declining the walk under {@code -da}. The rule
    * is stated as the gate applies it because a list-shaping terminator may follow another one
    * ({@code reverse().unfold()}, {@code reverse().fold()}): the gate forbids a step behind a captured
    * op and says nothing about where a terminator sits. The gate is armed rather than exercised for
@@ -435,18 +436,29 @@ interface RecognitionContext extends ParamSink {
   boolean supportsListShaping();
 
   /**
-   * Whether a {@link ListShapingOp} has already been appended to the shaping pinned so far. {@link
-   * GremlinStepWalker}'s dispatch loop reads it as the last-step gate for the four list-shaping
-   * terminators: a step dispatched behind a captured op is refused unless the walker's may-follow
-   * allow-lists admit the recogniser claiming it. Declared non-default for the same reason {@link
-   * #supportsListShaping()} is — both implementations state an answer rather than inherit one.
+   * The {@link ListShapingOp}s appended to the shaping pinned so far, in declared order, empty when
+   * none. {@link GremlinStepWalker}'s dispatch loop reads this twice per step, and the two reads are
+   * why the answer is the list rather than a boolean. Whether it is empty is the last-step gate for
+   * the four list-shaping terminators: a step dispatched behind a captured op is refused unless the
+   * walker's may-follow allow-lists admit the recogniser claiming it. The list itself is what the
+   * loop compares before and after each accept, so a recogniser that replaces the shaping and drops
+   * a stage it was admitted behind is caught rather than taken on the membership's word — a boolean
+   * cannot tell "an op is captured" from "the captured op is the one that was there". Declared
+   * non-default for the same reason {@link #supportsListShaping()} is — both implementations state
+   * an answer rather than inherit one.
    *
-   * <p>{@code GremlinStepWalker}'s own {@code capturedListShapingOp} carries why the rule is the
-   * loop's job and what a step lands on the wrong side of without it. A sub-walk answers {@code
-   * false}: it can never carry an op, because {@link #appendListShapingOp} throws there and {@link
-   * #supportsListShaping()} tells a recogniser so first.
+   * <p>The returned list is immutable ({@link ResultShaping} copies it on construction and every
+   * write builds a new record), so the loop may hold one answer across a dispatch and compare it
+   * against the next.
+   *
+   * <p>{@code GremlinStepWalker}'s own {@code capturedListShapingOp} carries why the gate is the
+   * loop's job and what a step lands on the wrong side of without it; its {@code
+   * listShapingOpsSurvived} carries the second read. A sub-walk answers empty: it can never carry an
+   * op, because {@link #appendListShapingOp} throws there and {@link #supportsListShaping()} tells a
+   * recogniser so first.
    */
-  boolean carriesListShapingOp();
+  @Nonnull
+  List<ListShapingOp> listShapingOps();
 
   /**
    * Whether {@link UnionStepRecogniser} has stashed a multi-plan carrier on this walk. Post-union

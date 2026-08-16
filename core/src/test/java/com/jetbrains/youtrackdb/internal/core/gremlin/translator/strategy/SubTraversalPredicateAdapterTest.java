@@ -40,12 +40,12 @@ import org.junit.Test;
  *       declines. These are driven against a real registry-bearing {@link WalkerContext} parent with
  *       fixture recognisers and the production {@link VertexHopRecogniser}.
  *   <li><b>The list-shaping decline channel</b> — {@code supportsListShaping()} answers {@code false}
- *       without delegating the parent's {@code true}, {@code carriesListShapingOp()} answers {@code
- *       false} without delegating a parent that does carry a stage, and {@code appendListShapingOp}
+ *       without delegating the parent's {@code true}, {@code listShapingOps()} answers empty without
+ *       delegating a parent that does carry a stage, and {@code appendListShapingOp}
  *       throws instead of swallowing. These are driven against a real {@link WalkerContext} parent
- *       used as a positive control: Mockito answers {@code false} to every unstubbed {@code boolean},
- *       so a mocked parent would make each pair agree for the wrong reason. No sub-walk runs here, so
- *       the parent needs no registry.
+ *       used as a positive control: Mockito answers {@code false} to every unstubbed {@code boolean}
+ *       and an empty list to every unstubbed collection, so a mocked parent would make each pair
+ *       agree for the wrong reason. No sub-walk runs here, so the parent needs no registry.
  * </ul>
  */
 public class SubTraversalPredicateAdapterTest {
@@ -488,8 +488,8 @@ public class SubTraversalPredicateAdapterTest {
   // ---------------------------------------------------------------------------
   // List-shaping decline channel — driven against a real WalkerContext parent
   // used as a positive control, because a mocked parent answers false to every
-  // unstubbed boolean. No test in this block drives a sub-walk, so no registry
-  // is needed.
+  // unstubbed boolean and empty to every unstubbed collection. No test in this
+  // block drives a sub-walk, so no registry is needed.
   // ---------------------------------------------------------------------------
 
   /**
@@ -516,25 +516,26 @@ public class SubTraversalPredicateAdapterTest {
   }
 
   /**
-   * The gate-side query answers {@code false} on a sub-walk without delegating a parent that does
-   * carry a stage — the discriminating half being the parent's {@code true}, which a bare
-   * {@code isFalse()} on a fresh parent could not tell from a delegated answer. The walker reads this
-   * per dispatch loop, so delegating would gate a combinator child's steps on a stage the child's
-   * payloads never reach; a step behind a captured stage is refused at the parent's own level
-   * instead, which is why no sub-walk ever runs behind one.
+   * The gate-side query answers empty on a sub-walk without delegating a parent that does carry a
+   * stage — the discriminating half being the parent's non-empty answer, which a bare
+   * {@code isEmpty()} on a fresh parent could not tell from a delegated one. The walker reads this
+   * twice per dispatch loop, so delegating would gate a combinator child's steps on a stage the
+   * child's payloads never reach and compare the parent's list around the child's own accepts; a step
+   * behind a captured stage is refused at the parent's own level instead, which is why no sub-walk
+   * ever runs behind one.
    */
   @Test
-  public void carriesListShapingOp_falseOnSubWalk_evenWhenTheParentCarriesOne() {
+  public void listShapingOps_emptyOnSubWalk_evenWhenTheParentCarriesOne() {
     var parent = new WalkerContext(true, false);
     parent.appendListShapingOp(upstream -> upstream);
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
 
-    assertThat(parent.carriesListShapingOp())
+    assertThat(parent.listShapingOps())
         .as("fixture premise: the parent really carries a stage")
-        .isTrue();
-    assertThat(adapter.carriesListShapingOp())
+        .isNotEmpty();
+    assertThat(adapter.listShapingOps())
         .as("a sub-walk can never carry one, and does not delegate the parent's answer")
-        .isFalse();
+        .isEmpty();
   }
 
   /**

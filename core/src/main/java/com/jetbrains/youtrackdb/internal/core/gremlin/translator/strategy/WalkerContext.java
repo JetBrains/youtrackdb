@@ -667,14 +667,16 @@ final class WalkerContext implements RecognitionContext {
   }
 
   /**
-   * Reads the ops off the shaping this context holds, so the answer flips the moment {@link
-   * #appendListShapingOp} lands one and flips back if a later {@link #setResultShaping} replaces the
-   * record. The walker's dispatch loop reads it as the terminators' last-step gate; {@link
-   * RecognitionContext#carriesListShapingOp()} carries the contract.
+   * Reads the ops off the shaping this context holds, so the answer grows the moment {@link
+   * #appendListShapingOp} lands one and empties if a later {@link #setResultShaping} replaces the
+   * record. The walker's dispatch loop reads it as the terminators' last-step gate and as the
+   * before/after comparison around each accept; {@link RecognitionContext#listShapingOps()} carries
+   * the contract, including why the second reader needs the list rather than a flag.
    */
+  @Nonnull
   @Override
-  public boolean carriesListShapingOp() {
-    return !shaping.listShapingOps().isEmpty();
+  public List<ListShapingOp> listShapingOps() {
+    return shaping.listShapingOps();
   }
 
   /** The boundary row-projection shaping the terminator pinned, read by the walker at result-build

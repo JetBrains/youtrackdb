@@ -493,15 +493,17 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   /**
-   * Always false, and not delegated to the parent. This context can never carry an op — {@link
+   * Always empty, and not delegated to the parent. This context can never carry an op — {@link
    * #appendListShapingOp} throws and {@link #supportsListShaping()} tells a recogniser so first — and
    * the parent's ops are not the sub-walk's to gate on: the walker refuses a combinator step behind a
    * captured op at the parent's own level, so no sub-walk ever runs behind one. Answering the
-   * parent's value here would gate a child's steps on a stage the child's payloads never reach.
+   * parent's value here would gate a child's steps on a stage the child's payloads never reach, and
+   * would make the walker's before/after comparison over a child's accepts read the parent's list.
    */
+  @Nonnull
   @Override
-  public boolean carriesListShapingOp() {
-    return false;
+  public List<ListShapingOp> listShapingOps() {
+    return List.of();
   }
 
   @Override

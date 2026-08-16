@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -468,11 +469,14 @@ final class GremlinStepWalker {
         return false;
       }
       int positionBefore = cursor.position();
-      // Read beside positionBefore for the invariant asserted after the call: a recogniser the gate
+      // Read beside positionBefore for the invariant checked after the call: a recogniser the gate
       // admitted behind a captured stage contributes through appendListShapingOp and never replaces
       // the shaping wholesale, which would erase the stage it was admitted behind (see
-      // LIST_SHAPING_PER_PAYLOAD_RECOGNISERS for why that is a membership condition).
-      boolean carriedListShapingOpBefore = capturedListShapingOp(ctx);
+      // LIST_SHAPING_PER_PAYLOAD_RECOGNISERS for why that is a membership condition). The whole list
+      // rather than a boolean, because the check has to show the captured stages survived and not
+      // merely that some stage is captured afterwards — see listShapingOpsSurvived. The list is
+      // immutable, so holding this reference across the call is safe.
+      List<ListShapingOp> opsBefore = ctx.listShapingOps();
       Outcome outcome = recogniser.recognize(cursor, ctx);
       if (outcome == Outcome.DECLINE) {
         return false;
@@ -492,11 +496,17 @@ final class GremlinStepWalker {
       // which any setResultShaping call does, since the replace covers listShapingOps — disarms the
       // gate in the same instant, so the walk would keep claiming steps and buildResult would ship a
       // shaping with the stage gone and no decline anywhere. Unreachable while both allow-lists are
-      // empty; the assert is the net for whoever populates them.
-      assert !carriedListShapingOpBefore || capturedListShapingOp(ctx)
+      // empty; the assert and the decline below are the net for whoever populates them, paired the way
+      // this file's other recogniser-contract invariants are — the assert names the bug under -ea, the
+      // decline keeps a -da build on the native pipeline instead of shipping a clobbered shaping.
+      boolean listShapingStagesSurvived = listShapingOpsSurvived(opsBefore, ctx.listShapingOps());
+      assert listShapingStagesSurvived
           : "recogniser for "
               + head.getClass().getSimpleName()
               + " was admitted behind a captured list-shaping stage and dropped it";
+      if (!listShapingStagesSurvived) {
+        return false;
+      }
       // Latch the drain half of the list-shaping rule: arm unless the recogniser that just ran is a
       // per-payload shaper, because everything else that can hold a stage drains or windows the
       // stream and nothing may follow it. Gate the next iteration on that rather than on the op,
@@ -644,12 +654,14 @@ final class GremlinStepWalker {
    *
    * <p>Like its cardinality twin, this gate lives in the loop rather than in the terminator
    * recognisers: a recogniser added later inherits it without being told, where a per-recogniser
-   * check has to be remembered by every author after this one. The read is a single boolean off the
-   * context because the ops live in one list, where the cardinality clauses live in three fields —
-   * the wrapper keeps the two call sites symmetric and gives this rule a home beside that one.
+   * check has to be remembered by every author after this one. The wrapper reduces the context's op
+   * list to the one bit the gate needs, where the cardinality clauses live in three fields its twin
+   * reads in turn — the two call sites stay symmetric and this rule gets a home beside that one. The
+   * loop's other read of the same list is {@link #listShapingOpsSurvived}, which needs the ops
+   * themselves rather than their presence.
    */
   private static boolean capturedListShapingOp(RecognitionContext ctx) {
-    return ctx.carriesListShapingOp();
+    return !ctx.listShapingOps().isEmpty();
   }
 
   /**
@@ -675,9 +687,10 @@ final class GremlinStepWalker {
    * because the gate reads whether ops exist, it disarms in the same instant and the loss produces no
    * decline anywhere. The three pure projections on the cardinality allow-list each rebuild from
    * {@code ResultShaping.NONE}, so they fail this second condition even though they pass the first:
-   * the two allow-lists are not interchangeable. {@link #dispatchAll} asserts the surviving stage
-   * after every accept, so a member that breaks the condition fails loudly under {@code -ea} rather
-   * than shipping a shaping with the stage silently gone.
+   * the two allow-lists are not interchangeable. {@link #dispatchAll} does not take the condition on
+   * the field's word — it compares the captured ops before and after every accept through {@link
+   * #listShapingOpsSurvived}, so a member that breaks it fails loudly under {@code -ea} and declines
+   * the walk under {@code -da} rather than shipping a shaping with the stage silently gone.
    */
   static final Set<StepRecogniser> LIST_SHAPING_PER_PAYLOAD_RECOGNISERS = Set.of();
 
@@ -722,9 +735,9 @@ final class GremlinStepWalker {
    * <p>The gate reads both sets and the latch reads only {@code perPayloadShapers}, which is the
    * whole reason they are two sets. The latch arms unless the recogniser that just ran is a
    * per-payload shaper, so a drain is admitted behind a stage ({@code reverse().fold()}) and still
-   * stops the walk from claiming anything after it ({@code fold().unfold()}). {@link
-   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp} carries no op-type
-   * discriminator, so the claiming recogniser's own membership is the classification the loop latches
+   * stops the walk from claiming anything after it ({@code fold().unfold()}). {@link ListShapingOp}
+   * carries no op-type discriminator, so the claiming recogniser's own membership is the
+   * classification the loop latches
    * on — which also makes the latch fail closed for a shaper added later: a recogniser that appends
    * while on neither list is treated as a drain.
    *
@@ -746,6 +759,44 @@ final class GremlinStepWalker {
       Set<StepRecogniser> drains) {
     return !afterDrain
         && (perPayloadShapers.contains(recogniser) || drains.contains(recogniser));
+  }
+
+  /**
+   * The second half of what {@link #dispatchAll} checks around an accept behind a captured stage:
+   * every op captured before the recogniser ran is still captured after it, in the same order and at
+   * the same place. {@code after} must start with {@code before}.
+   *
+   * <p>A prefix comparison rather than a presence or a count one, because presence and count are what
+   * the violating shape defeats. The gate reads whether any op is captured ({@link
+   * #capturedListShapingOp}), so an admitted member that calls {@link
+   * RecognitionContext#setResultShaping} — dropping the stage it was admitted behind, since the
+   * replace covers the ops — and then appends its own leaves exactly one op captured before and
+   * after. {@code values("name").reverse().unfold()} would ship {@code [unfold]} where the reader
+   * expects {@code [reverse, unfold]} and return the values unreversed, with the gate still armed and
+   * nothing declined anywhere. Since every member of both allow-lists appends an op by definition,
+   * that ordering is the shape a broken membership actually takes.
+   *
+   * <p>Ops a member appends of its own land after the prefix, so an append-only contribution — the
+   * second membership condition on {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} — always passes, and
+   * a legal composition like {@code reverse().unfold()} is not refused. An empty {@code before} is a
+   * prefix of everything, which is why the loop can run the check on every accept rather than only
+   * behind a captured stage.
+   *
+   * <p>{@link ListShapingOp} has no value equality, so the comparison is by reference: the ops that
+   * were there must be the same instances, not merely equal-looking ones.
+   *
+   * <p>Package-private rather than private for the reason {@link #mayFollowListShaping} is: the
+   * production allow-lists are empty, so no traversal shape reaches an accept with a stage already
+   * captured and the in-loop check cannot be driven end to end — a unit test against this method is
+   * the only net it has.
+   *
+   * @param before the ops the context carried when the recogniser was dispatched
+   * @param after the ops it carries now
+   * @return {@code true} when {@code after} starts with {@code before}
+   */
+  static boolean listShapingOpsSurvived(
+      List<ListShapingOp> before, List<ListShapingOp> after) {
+    return after.size() >= before.size() && after.subList(0, before.size()).equals(before);
   }
 
   /**

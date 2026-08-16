@@ -12,8 +12,9 @@ import org.junit.Test;
 /**
  * Verifies the walker's result-shaping foundation — {@code DISTINCT}, {@code GROUP BY},
  * order/pagination clauses, boundary drop flags, and the ordered list-shaping op carrier —
- * defaults cleanly, answers both list-shaping queries (the one a terminator reads before it
- * contributes and the one the walker's dispatch loop reads as its last-step gate), and accepts
+ * defaults cleanly, answers both list-shaping queries (the boolean a terminator reads before it
+ * contributes and the op list the walker's dispatch loop reads as its last-step gate and as the
+ * survival check around each accept), and accepts
  * recogniser writes through both write paths: the full replace ({@code setResultShaping}) and the
  * append ({@code appendListShapingOp}).
  */
@@ -57,28 +58,29 @@ public class WalkerContextResultShapingTest {
   }
 
   /**
-   * The query the walker's dispatch loop reads as the terminators' last-step gate, pinned as a
-   * transition rather than as one state: {@code false} before any append, {@code true} once a stage
-   * lands, and {@code false} again after a {@code setResultShaping} replace drops it. The third
+   * The list the walker's dispatch loop reads as the terminators' last-step gate and as its survival
+   * check, pinned as a transition rather than as one state: empty before any append, carrying the
+   * stage once one lands, and empty again after a {@code setResultShaping} replace drops it. The third
    * assertion is the load-bearing one — the replace path is documented as dropping appended ops, so
-   * an implementation that cached the answer in a flag instead of reading the shaping would arm the
-   * gate for the rest of a walk that no longer carries a stage.
+   * an implementation that cached the answer instead of reading the shaping would arm the gate for the
+   * rest of a walk that no longer carries a stage.
    */
   @Test
-  public void carriesListShapingOp_tracksTheOpsOnTheShaping() {
+  public void listShapingOps_trackTheOpsOnTheShaping() {
     var ctx = new WalkerContext(true, false);
 
-    assertThat(ctx.carriesListShapingOp()).as("nothing has appended a stage yet").isFalse();
+    assertThat(ctx.listShapingOps()).as("nothing has appended a stage yet").isEmpty();
 
-    ctx.appendListShapingOp(taggedOp("drain"));
-    assertThat(ctx.carriesListShapingOp())
+    ListShapingOp drain = taggedOp("drain");
+    ctx.appendListShapingOp(drain);
+    assertThat(ctx.listShapingOps())
         .as("an appended stage arms the walker's last-step gate")
-        .isTrue();
+        .containsExactly(drain);
 
     ctx.setResultShaping(ResultShaping.NONE);
-    assertThat(ctx.carriesListShapingOp())
+    assertThat(ctx.listShapingOps())
         .as("the replace drops the stage, and the answer is read off the shaping rather than cached")
-        .isFalse();
+        .isEmpty();
   }
 
   /**

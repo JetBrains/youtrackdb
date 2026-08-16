@@ -10,6 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
@@ -19,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWh
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -803,6 +806,73 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .isTrue();
   }
 
+  // ---------------------------------------------------------------------------
+  // The gate's other in-loop check — listShapingOpsSurvived, called over lists a
+  // fixture recogniser really produced on a WalkerContext through the production
+  // write paths. Called directly for the same reason as the rule above: with the
+  // production allow-lists empty, no traversal shape reaches an accept with a
+  // stage already captured, so the loop cannot drive this check end to end.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The shape the survival check exists for, and the reason it compares the list rather than its size.
+   * An admitted recogniser that rebuilds the shaping from {@code NONE} — which any {@code
+   * setResultShaping} call does — and then appends its own stage leaves the walk carrying one op both
+   * before and after, so the gate's own "is any op captured" read and a count comparison would each
+   * call that survival. The stage the gate admitted the recogniser behind is gone all the same:
+   * {@code values("name").reverse().unfold()} would ship {@code [unfold]} for {@code [reverse,
+   * unfold]} and return the values in their original order, with nothing declined anywhere. The
+   * same-size assertion is the load-bearing premise — without it the refusal below could be coming
+   * from a length difference the weaker checks would also have caught.
+   */
+  @Test
+  public void listShapingOpsSurvived_falseWhenTheRecogniserReplacesTheStageItSitsBehind() {
+    var ctx = new WalkerContext(true, false);
+    ListShapingOp admitted = taggedOp("reverse");
+    ctx.appendListShapingOp(admitted);
+    List<ListShapingOp> opsBefore = ctx.listShapingOps();
+
+    replacesShapingThenAppends(taggedOp("unfold")).recognize(emptyCursor(), ctx);
+
+    assertThat(opsBefore)
+        .as("premise: the pre-dispatch answer is an immutable snapshot the loop may hold across a call")
+        .containsExactly(admitted);
+    assertThat(ctx.listShapingOps())
+        .as("premise: one op before and one after, so presence and count both read as survival")
+        .hasSameSizeAs(opsBefore);
+    assertThat(GremlinStepWalker.listShapingOpsSurvived(opsBefore, ctx.listShapingOps()))
+        .as("the stage the gate admitted this recogniser behind is gone, so the walk must decline")
+        .isFalse();
+  }
+
+  /**
+   * The two rows the check must admit, or the gate would refuse every legal composition. A recogniser
+   * that only appends leaves what was captured at the front of the list — the membership condition
+   * both allow-lists impose — so {@code reverse().unfold()} still translates. And nothing captured
+   * before a dispatch is a prefix of whatever follows it, which is why the loop runs the check on
+   * every accept rather than only behind a captured stage.
+   */
+  @Test
+  public void listShapingOpsSurvived_trueWhenTheRecogniserOnlyAppends() {
+    var ctx = new WalkerContext(true, false);
+    ListShapingOp admitted = taggedOp("reverse");
+    ctx.appendListShapingOp(admitted);
+    List<ListShapingOp> opsBefore = ctx.listShapingOps();
+
+    appendsListShapingOp(taggedOp("unfold")).recognize(emptyCursor(), ctx);
+
+    assertThat(ctx.listShapingOps())
+        .as("premise: the fixture appended behind the captured stage rather than replacing it")
+        .startsWith(admitted)
+        .hasSize(2);
+    assertThat(GremlinStepWalker.listShapingOpsSurvived(opsBefore, ctx.listShapingOps()))
+        .as("an append-only contribution leaves the captured stage where it was")
+        .isTrue();
+    assertThat(GremlinStepWalker.listShapingOpsSurvived(List.of(), ctx.listShapingOps()))
+        .as("an accept with nothing captured beforehand can never fail the check")
+        .isTrue();
+  }
+
   /**
    * Fixture recogniser that accepts without touching the cursor, carrying {@code tag} as its {@code
    * toString()}. The list-shaping rule reads recogniser identity against its two sets, so the
@@ -838,6 +908,60 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
       }
       ctx.appendListShapingOp(upstream -> upstream);
       return Outcome.ACCEPTED;
+    };
+  }
+
+  /**
+   * Fixture recogniser standing in for an allow-list member that breaks its membership condition: it
+   * rebuilds the shaping from {@link ResultShaping#NONE} — dropping every stage appended before it —
+   * and then appends {@code own}. Accepts without touching the cursor, because the survival check
+   * reads only what the contribution left on the context.
+   */
+  private static StepRecogniser replacesShapingThenAppends(ListShapingOp own) {
+    return (cursor, ctx) -> {
+      ctx.setResultShaping(ResultShaping.NONE);
+      ctx.appendListShapingOp(own);
+      return Outcome.ACCEPTED;
+    };
+  }
+
+  /**
+   * Fixture recogniser that contributes {@code own} the way an allow-list member must — one append,
+   * no replace — and accepts without touching the cursor. The positive counterpart to
+   * {@link #replacesShapingThenAppends}.
+   */
+  private static StepRecogniser appendsListShapingOp(ListShapingOp own) {
+    return (cursor, ctx) -> {
+      ctx.appendListShapingOp(own);
+      return Outcome.ACCEPTED;
+    };
+  }
+
+  /**
+   * A cursor over no steps. The two fixtures above never read one, and an empty cursor says so —
+   * where a cursor over a real traversal would suggest the contribution depends on the step it claims.
+   */
+  private static StepCursor emptyCursor() {
+    return new StepStreamCursor(List.of(), Set.of());
+  }
+
+  /**
+   * Pass-through {@link ListShapingOp} carrying {@code tag} as its {@code toString()}.
+   * {@code ListShapingOp} has no value equality, so the survival check compares by reference and the
+   * stages in the tests above are told apart only by instance — the tag is what puts that identity in
+   * the source and in any {@link AssertionError} instead of a synthetic lambda class name.
+   */
+  private static ListShapingOp taggedOp(String tag) {
+    return new ListShapingOp() {
+      @Override
+      public Iterator<Object> apply(Iterator<Object> upstream) {
+        return upstream;
+      }
+
+      @Override
+      public String toString() {
+        return tag;
+      }
     };
   }
 
