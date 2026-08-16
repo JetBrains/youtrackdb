@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.List;
@@ -625,6 +627,54 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * The three sort-plus-slice-plus-projection spellings all decline, and the same prefix without the
+   * slice still translates. Two orderings of the same three stages are covered — projection before
+   * the sort ({@code values(name).order().limit(2)}, {@code values(name).order().range(1, 3)}) and
+   * projection after the slice ({@code order().by(name).range(1, 3).values(name)}) — because the
+   * gates that refuse them are different ones and a reader should not have to guess that the family
+   * is closed on both sides.
+   *
+   * <p><b>Why the boundary count is the whole point here.</b> These spellings were once reported as
+   * a translator-on / translator-off divergence, measured over an indexed LDBC-shaped fixture, and
+   * the report was retired on the ground that both arms came back with the same rows. A declined
+   * shape runs the native pipeline on both arms, so its rows agree whatever a translation would have
+   * done: over a shape that declines, a row comparison holds by construction and settles nothing.
+   * The assertions below are therefore engagement assertions with the row comparison riding along,
+   * not the other way round — a change that re-admitted any of these three shapes would fail on the
+   * boundary count first, which is the signal a row comparison cannot give.
+   *
+   * <p>The decline of the first two is over-determined: the slice sits behind a captured
+   * {@code ORDER BY} and behind a row-dropping projection, and either gate alone refuses it. So the
+   * control removes the slice rather than the sort — {@code values(name).order()} translates on this
+   * same fixture, which is what proves the fixture can engage a boundary step at all and keeps the
+   * three declines attributable to the slice.
+   */
+  @Test
+  public void sortedSliceOverAProjection_declines_withATranslatingControl() {
+    seedHubWithReverseSortedTargets();
+
+    assertDeclinesOverTheSameNativeRows(
+        "g.V().out(knows).values(name).order().limit(2)",
+        () -> graph.traversal().V().out("knows").values("name").order().limit(2));
+    assertDeclinesOverTheSameNativeRows(
+        "g.V().out(knows).values(name).order().range(1, 3)",
+        () -> graph.traversal().V().out("knows").values("name").order().range(1, 3));
+    assertDeclinesOverTheSameNativeRows(
+        "g.V().out(knows).order().by(name).range(1, 3).values(name)",
+        () -> graph.traversal().V().out("knows").order().by("name").range(1, 3).values("name"));
+
+    // The control compares in the sort's own order rather than as a multiset, since order() makes
+    // the sequence the answer, and the fixture seeds its targets reverse-alphabetically so the
+    // sorted sequence is not the one a scan would hand back unsorted.
+    support.assertEquivalent(
+        "control: g.V().out(knows).values(name).order()",
+        Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY,
+        results -> results.stream().map(String::valueOf).toList(),
+        () -> graph.traversal().V().out("knows").values("name").order());
+  }
+
+  /**
    * {@code dedup()} captures {@code RETURN DISTINCT}, which MATCH also applies after the pattern, so
    * a hop after it reads a stream the {@code DISTINCT} has not collapsed yet:
    * {@code g.V().in("knows").dedup().out("knows")} returned two rows against native's three, the
@@ -764,6 +814,38 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     abe.addEdge("knows", abeTargetOne);
     abe.addEdge("knows", abeTargetTwo);
     graph.tx().commit();
+  }
+
+  /**
+   * One hub with three {@code knows} targets, seeded reverse-alphabetically so the sorted sequence
+   * is not the one an unsorted read hands back. The hub itself is outside the hop's output, so
+   * {@code out("knows")} yields exactly the three targets and a slice of two or of {@code [1, 3)}
+   * lands strictly inside them.
+   */
+  private void seedHubWithReverseSortedTargets() {
+    var hub = graph.addVertex(T.label, "Person", "name", "Hub");
+    var cal = graph.addVertex(T.label, "Person", "name", "Cal");
+    var ben = graph.addVertex(T.label, "Person", "name", "Ben");
+    var ann = graph.addVertex(T.label, "Person", "name", "Ann");
+    hub.addEdge("knows", cal);
+    hub.addEdge("knows", ben);
+    hub.addEdge("knows", ann);
+    graph.tx().commit();
+  }
+
+  /**
+   * The suite-local name for "this shape declines and both arms return the same non-empty native
+   * multiset", delegating to the shared driver so the engagement pin and the two anti-vacuity pins
+   * come from one place rather than another hand-rolled two-arm body.
+   */
+  private void assertDeclinesOverTheSameNativeRows(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    support.assertEquivalent(
+        scenario,
+        Recognition.DECLINED,
+        Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedStrings,
+        shape);
   }
 
   /**

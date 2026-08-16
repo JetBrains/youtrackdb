@@ -578,6 +578,12 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   // the capture holds at limit(0). Pinning the kill-switch keeps the assertion pointed at that path
   // rather than at whichever source the current default installs — the native sibling below covers
   // the other one.
+  //
+  // The boundary-step probe is what makes the pinning mean anything. Both arms capture a plan at
+  // limit(0), for different reasons, and the sibling below asserts exactly the same two facts with
+  // the switch off — so without the probe this scenario would keep passing through the native
+  // mechanism if the shape ever stopped translating, and the two mechanisms the comment above
+  // distinguishes would collapse into one untested claim.
   @Test
   @LoadGraphWith(MODERN)
   public void downstreamLimitZeroStillCapturesSourcePlan() throws Exception {
@@ -589,6 +595,11 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     g.tx().open();
     final var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V().hasLabel("person").limit(0)) {
+      var probe = g().V().hasLabel("person").limit(0).asAdmin();
+      probe.applyStrategies();
+      assertThat(TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, probe))
+          .as("this scenario must exercise the MATCH boundary path, not the native source step")
+          .isPresent();
       q.toList();
     } finally {
       restoreTranslator.run();
