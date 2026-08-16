@@ -257,6 +257,61 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // User as(...) labels parked on the filter step.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A {@code has(...)} carrying a user {@code as("a")} binds the label to the boundary alias, so a
+   * later {@code select("a")} / {@code dedup("a")} can resolve it. TinkerPop's
+   * {@code FilterRankingStrategy} relocates a label off the step the user wrote it on and onto the
+   * following filter, so a label parked here is routine rather than exotic; before the bind it was
+   * dropped and every consumer of it declined.
+   */
+  @Test
+  public void userLabelOnHas_bindsToBoundaryAlias() {
+    var admin = graph.traversal().V().has("name", "Alice").as("a").asAdmin();
+    var ctx = contextWithStartBoundary(true, null);
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a labelled has() is still accepted").isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.resolveUserLabel("a"))
+        .as("the label resolves to the alias the filter was contributed on")
+        .isEqualTo(BOUNDARY_ALIAS);
+    assertThat(ctx.patternBuilder.registeredUserLabels())
+        .as("and reaches the pattern, which is what a projection reads it back from")
+        .containsEntry(BOUNDARY_ALIAS, Set.of("a"));
+  }
+
+  /**
+   * Bind-or-decline: a user label already bound to a <em>different</em> internal alias declines the
+   * whole walk rather than overwriting the earlier binding, and contributes nothing on the way out —
+   * no re-type, no filter. Silently rebinding would make a later {@code select("a")} resolve to the
+   * wrong node, which is a wrong answer rather than a decline.
+   */
+  @Test
+  public void userLabelAlreadyBoundElsewhere_declinesWithoutContributing() {
+    var priorlyLabelled = graph.traversal().V().as("a").asAdmin().getStartStep();
+    var admin = graph.traversal().V().has("name", "Alice").as("a").asAdmin();
+    var ctx = contextWithStartBoundary(true, null);
+    assertThat(ctx.bindStepLabels(priorlyLabelled, "$g2m_v1"))
+        .as("precondition: a is already bound to another alias")
+        .isTrue();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome)
+        .as("a colliding label must decline the whole walk")
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.resolveUserLabel("a"))
+        .as("the earlier binding survives the refused one")
+        .isEqualTo("$g2m_v1");
+    assertContributedNothing(ctx);
+  }
+
+  // ---------------------------------------------------------------------------
   // Defensive declines.
   // ---------------------------------------------------------------------------
 

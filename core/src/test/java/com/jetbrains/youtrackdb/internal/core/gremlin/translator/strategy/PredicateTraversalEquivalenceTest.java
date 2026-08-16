@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMa
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.List;
@@ -21,6 +22,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -1276,8 +1278,214 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // as(...) labels sitting on the filter step.
+  //
+  // TinkerPop's FilterRankingStrategy moves a user as(...) label forward off the
+  // step it was written on and onto the following filter, because a filter does
+  // not transform the traverser — the labelled element is the same one either
+  // side of it. It is an OptimizationStrategy, so it has already run by the time
+  // the translator walks the list, and HasStepRecogniser therefore sees labels
+  // the user wrote somewhere else. Where the label ends up, not where it was
+  // written, decides whether the walk can resolve it.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The premise the whole section rests on: with the YouTrackDB strategies stood down, applying the
+   * standard strategy list to {@code g.V().as("a").has("name", "Alice")} leaves the {@code a} label
+   * on the {@code HasStep} and the {@code GraphStep} bare. Pinning it against the post-strategy step
+   * list rather than the authored traversal is what separates the two spellings below — read as
+   * written they differ, and by the time any recogniser runs they are the same list.
+   */
+  @Test
+  public void filterRankingStrategy_movesTheStartStepLabelOntoTheHasStep() {
+    seedAliceAndBob();
+
+    var admin = graph.traversal()
+        .withoutStrategies(GremlinToMatchStrategy.class, YTDBGraphStepStrategy.class)
+        .V().as("a").has("name", "Alice").select("a").asAdmin();
+    admin.applyStrategies();
+
+    var hasSteps = admin.getSteps().stream().filter(HasStep.class::isInstance).toList();
+    assertThat(hasSteps)
+        .as("the has(name, Alice) filter must survive as its own step for the relocation to land on")
+        .hasSize(1);
+    assertThat(hasSteps.getFirst().getLabels())
+        .as("FilterRankingStrategy relocates the user label forward onto the filter step")
+        .containsExactly("a");
+    assertThat(admin.getStartStep().getLabels())
+        .as("and takes it off the step the user wrote it on")
+        .isEmpty();
+  }
+
+  /**
+   * {@code g.V().has("name", "Alice").as("a").select("a")} — the label written on the filter step
+   * itself — translates and returns native's multiset. Before {@code HasStepRecogniser} bound step
+   * labels the walk declined here, because {@code SelectOneStepRecogniser} could not resolve
+   * {@code a} to any pattern alias.
+   */
+  @Test
+  public void labelOnPropertyHas_translatesAndMatchesNative() {
+    seedAliceAndBob();
+
+    assertEquivalent(
+        "g.V().has(name, Alice).as(a).select(a)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "Alice").as("a").select("a"));
+  }
+
+  /**
+   * The same shape with the label written on the start step instead —
+   * {@code g.V().as("a").has("name", "Alice").select("a")}. The case above and this one are the same
+   * post-strategy list (see {@link #filterRankingStrategy_movesTheStartStepLabelOntoTheHasStep}), so
+   * both are fixed by the one bind and neither is fixed by anything on the start step:
+   * {@code StartStepRecogniser} already bound its own labels and the label is no longer there.
+   */
+  @Test
+  public void labelWrittenOnStartStepThenRelocated_translatesAndMatchesNative() {
+    seedAliceAndBob();
+
+    assertEquivalent(
+        "g.V().as(a).has(name, Alice).select(a)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("a").has("name", "Alice").select("a"));
+  }
+
+  /**
+   * {@code hasLabel} carries a relocated label the same way, and the re-typed boundary node is still
+   * the node the label binds to: {@code g.V().hasLabel("Person").as("a").select("a")} returns the
+   * three {@code Person} vertices on both arms, not the {@code Software} one.
+   */
+  @Test
+  public void labelOnHasLabel_translatesAndMatchesNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertEquivalent(
+        "g.V().hasLabel(Person).as(a).select(a)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("a").select("a"));
+  }
+
+  /**
+   * Bind-or-decline: the same user label reaching two different pattern aliases declines the whole
+   * walk rather than silently overwriting the first binding.
+   * {@code g.V().as("a").out("knows").has("name", "bob").as("a")} binds {@code a} to the origin at
+   * the start step and then asks the filter step to rebind it to the hop target, which
+   * {@code RecognitionContext#bindStepLabels} refuses.
+   *
+   * <p><b>The decline closes a measured wrong answer rather than guarding a hypothetical one.</b>
+   * Before the bind existed the second {@code as("a")} was dropped, so {@code select("a")} resolved
+   * to the origin alias the start step had bound and the shape translated: measured on this fixture
+   * it returned {@code [alice]} with the translator on against native's {@code [bob]}, because
+   * {@code select} reads {@code Pop.last}. The name assertion below pins the answer the decline
+   * preserves, and would have failed on the translated arm before the change.
+   *
+   * <p>The control beside it is the same shape with the second label renamed, and it is what makes
+   * the decline attributable: a declined shape runs the native pipeline on both arms, so the row
+   * comparison inside {@code assertEquivalent} cannot fail whatever the fixture holds and the
+   * engagement count is the only live assertion. The control shows the fixture translates when the
+   * one thing under test — the label collision — is removed.
+   */
+  @Test
+  public void sameLabelOnTwoAliases_declines_whileDistinctLabelsTranslate() {
+    seedAliceKnowsBobAndCarol();
+    Supplier<GraphTraversal<?, ?>> colliding =
+        () -> graph.traversal().V().as("a").out("knows").has("name", "bob").as("a").select("a");
+
+    assertEquivalent(
+        "g.V().as(a).out(knows).has(name, bob).as(a).select(a)",
+        Recognition.DECLINED,
+        colliding);
+    assertThat(namesOf(colliding, true))
+        .as("select reads Pop.last, so the surviving answer is the hop target and not the origin")
+        .containsExactly("bob");
+
+    assertEquivalent(
+        "g.V().as(a).out(knows).has(name, bob).as(b).select(b)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("a").out("knows").has("name", "bob").as("b").select("b"));
+  }
+
+  /**
+   * <b>The one shape in this suite where the two arms must disagree, and the translated arm is the
+   * right one.</b> {@code g.V().out("knows").hasLabel("Person").as("a").select("a")} returns
+   * {@code []} natively: {@code YTDBGraphStepStrategy.rebuildTraversal}'s {@code else} branch — a
+   * {@code HasStep} that does not directly follow the {@code GraphStep} — replaces it with a
+   * {@code YTDBHasLabelStep} carrying the extracted {@code ~label} predicates and copies no labels
+   * onto the replacement, so {@code select("a")} finds no {@code a} in the path and drops every
+   * traverser. That defect is pre-existing on {@code develop} and has nothing to do with the
+   * translator, which is why this case is asserted against a hand-computed oracle instead of against
+   * the native arm, and why it is not routed through {@code assertEquivalent} — that driver treats
+   * any disagreement as a failure.
+   *
+   * <p>Three assertions, one claim each. The translated arm engages a boundary step and returns the
+   * two {@code Person} sinks the oracle names. The native arm returns nothing, which records the
+   * defect rather than asserting it is acceptable. The label-free control run natively returns the
+   * same two sinks, which is what proves the empty native answer comes from the dropped label and
+   * not from a fixture that seeded nothing.
+   */
+  @Test
+  public void labelBehindAHop_translatedArmIsCorrectWhereTheNativeArmDropsIt() {
+    var seeded = seedAliceKnowsBobAndCarol();
+    var oracle = sortedIds(List.of(seeded.bob(), seeded.carol()));
+
+    withTranslator(true, () -> {
+      var admin = graph.traversal()
+          .V().out("knows").hasLabel("Person").as("a").select("a").asAdmin();
+      admin.applyStrategies();
+      assertThat(countBoundarySteps(admin.getSteps()))
+          .as("the relocated label binds, so the walk translates rather than declining")
+          .isEqualTo(1);
+      assertThat(sortedIds(admin.toList()))
+          .as("the translated arm answers the hand-computed oracle — the two Person sinks")
+          .isEqualTo(oracle);
+    });
+
+    withTranslator(false, () -> {
+      assertThat(sortedIds(
+          graph.traversal().V().out("knows").hasLabel("Person").as("a").select("a").toList()))
+          .as("native drops the label in rebuildTraversal's else branch, so select(a) empties the "
+              + "stream — the develop defect this divergence is bounded to")
+          .isEmpty();
+      assertThat(sortedIds(graph.traversal().V().out("knows").hasLabel("Person").toList()))
+          .as("control: the same native filter without the label returns the two sinks, so the "
+              + "empty answer above is the label drop and not an empty fixture")
+          .isEqualTo(oracle);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Fixture + assertion helpers.
   // ---------------------------------------------------------------------------
+
+  /** Two {@code Person} vertices, one of them named Alice, for the single-filter label cases. */
+  private void seedAliceAndBob() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+  }
+
+  /** The three vertices and one non-{@code Person} sink the behind-a-hop label cases share. */
+  private record KnowsFixture(Vertex alice, Vertex bob, Vertex carol) {
+  }
+
+  /**
+   * Alice knows Bob and Carol (both {@code Person}) and knows one {@code Software} vertex. The
+   * {@code Software} sink is what keeps {@code hasLabel("Person")} discriminating — without it a
+   * translation that dropped the class constraint would return the same rows.
+   */
+  private KnowsFixture seedAliceKnowsBobAndCarol() {
+    session.createVertexClass("Person");
+    session.createVertexClass("Software");
+    var alice = graph.addVertex(T.label, "Person", "name", "alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "carol");
+    var widget = graph.addVertex(T.label, "Software", "name", "widget");
+    alice.addEdge("knows", bob);
+    alice.addEdge("knows", carol);
+    alice.addEdge("knows", widget);
+    graph.tx().commit();
+    return new KnowsFixture(alice, bob, carol);
+  }
 
   /**
    * Seeds the fixture the {@code not(hop)}-in-a-connective cases share. Each vertex is there to

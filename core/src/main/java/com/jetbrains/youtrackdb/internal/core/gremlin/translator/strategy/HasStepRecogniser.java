@@ -46,11 +46,27 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       execution on a present non-{@code String} operand, matching native rather than declining.
  * </ul>
  *
+ * <h2>User {@code as(...)} labels land here more often than they are written here</h2>
+ *
+ * TinkerPop's {@code FilterRankingStrategy} moves a user label forward off the step it was written on
+ * and onto the following filter, on the grounds that a filter does not transform the traverser. It is
+ * an {@code OptimizationStrategy}, so it has already run when the translator walks the list: {@code
+ * g.V().as("a").has("name", "Alice")} reaches this recogniser as {@code GraphStep -> HasStep[a]}.
+ * The step therefore calls {@link RecognitionContext#bindStepLabels} on the boundary alias — the same
+ * element the label named before the move — and <b>declines when the label is already bound to a
+ * different alias</b>. That decline is not defensive tidiness: {@code
+ * g.V().as("a").out(L).has(k, v).as("a").select("a")} binds {@code a} to the origin at the start step
+ * and to the hop target here, and before the bind existed the second {@code as("a")} was dropped, so
+ * {@code select("a")} resolved to the origin and the translated arm answered the origin where native
+ * answers the hop target ({@code Pop.last}).
+ *
  * <h2>Translate-all-then-contribute</h2>
  *
  * The recogniser validates and translates <em>every</em> container before it mutates the context: an
  * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id, a
- * size-1 collection equality) declines with zero {@code WalkerContext} mutation.
+ * size-1 collection equality) declines with zero {@code WalkerContext} mutation. The label bind opens
+ * the contribution block for the same reason — a colliding label declines before the re-type and the
+ * filter land, and {@code bindStepLabels} itself checks every label before it writes any of them.
  * The accumulated filters go in through one {@link RecognitionContext#putAliasFilter} on the boundary
  * alias, which AND-composes with any filter an earlier step contributed to the same alias (a {@code
  * g.V(ids)} {@code @rid IN}, or an earlier {@code has}).
@@ -161,6 +177,15 @@ final class HasStepRecogniser implements StepRecogniser {
     }
 
     // Contribution — reached only after every container validated.
+    // Bind first, so a colliding label declines before anything is contributed. A has() step is a
+    // routine parking spot for a user as(...) label: FilterRankingStrategy relocates labels forward
+    // onto the following filter, and it runs before every provider strategy, so a label the user
+    // wrote on the start step arrives here instead. Binding it to the boundary alias is exact rather
+    // than approximate — a filter does not transform the traverser, so the labelled element is the
+    // boundary node either side of the move.
+    if (!ctx.bindStepLabels(hasStep, boundary)) {
+      return Outcome.DECLINE;
+    }
     if (labelClass != null) {
       // Re-type the boundary node's class so the scan narrows to L (addNode overwrites the prior
       // class). Non-polymorphic adds an exact @class = 'L' so the SELECT FROM L polymorphic scan is
