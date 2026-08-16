@@ -381,7 +381,13 @@ flowchart TB
 - The strategy is idempotent: re-applying on a traversal already containing a
   boundary step (`YTDBMatchPlanStep` or `MultiPlanMatchStep`) is a no-op.
 - Translator-on and translator-off produce equal result multisets for every
-  `RECOGNIZED` shape (`EdgeTraversalEquivalenceTest`).
+  `RECOGNIZED` shape (`EdgeTraversalEquivalenceTest`), subject to the single
+  bounded exception in `### Constraints` — spellings whose native answer is wrong
+  because of a defect shipping on `develop`, where the two arms **must** differ
+  and the translated arm is asserted against a hand-computed oracle. Amended
+  2026-08-16 when Track 11 step 9 (`4f9eb2e79b`) landed item 8; A11 asked for the
+  invariant and the constraint to be amended together, and this is the
+  invariant half.
 - `GqlMatchStatement` observable behavior is unchanged after the builder
   refactor (its existing tests pass with the same assertions).
 

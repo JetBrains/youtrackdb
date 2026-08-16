@@ -14,6 +14,7 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-08-16T21:04Z [ctx=safe] Step 9 complete (commit `4f9eb2e79b`). Bind-or-decline on the relocated `as()` label in `HasStepRecogniser`, eight tests all watched to fail against the step base first. No step-level review (`risk: medium`). Item 8's "capability gap, not a correctness defect" premise is refuted — the shape closes a silent wrong answer where a name was rebound. Two items left open for track close: the `is1FullProfile` flip moves to step 10 (its test file is not in the tree yet), and item 8's edge-alias half is unimplemented and unowned by any remaining step. The plan's absolute multiset invariant was amended to carry A11's bounded exception in this episode's commit.
 - [x] 2026-08-16T20:23Z [ctx=safe] Step 8 complete (commit `9665700cd8`). The sweep re-derived its own numbers — 61 switch-forcing members across 15 classes, seven mechanically flagged, six clean and one genuine gap now closed. No step-level review (`risk: medium`). Track 9 step 10's retirement of harness divergence (b) is settled: the verdict survives but its stated reason was not evidence, because two of the three cited spellings decline and a declined shape makes both arms the same pipeline. Three decline cases with a translating control now pin it.
 - [x] 2026-08-16T19:30Z [ctx=safe] Step 7 complete (commit `ecaf35926f`). Seventeen end-to-end terminator cases on the shared harness plus four boundary-base lifecycle cases; no production line touched. No step-level review (`risk: medium`). Most of item 5's roster was already discharged by steps 3–5, so this step added the on/off arm and the two lifecycle claims. Four mutation probes measured, each reddening exactly its own cases; the swallow probe is A14(a)'s measured discharge.
 - [x] 2026-08-16T18:53Z [ctx=safe] Step 6 complete (commit `d1249f41ae`). Item 10's counts re-enumerated against this step's base — two drifted, one claim refuted — then `TranslatorEquivalenceSupport` extracted and consumed by fifteen classes (+477 / −744, no test method added or removed). No step-level review (`risk: medium`). The real pin gap was `RangeTypeGuardEquivalenceTest.assertDeclinesAndMatchesNative`, now on the shared driver at `Cardinality.MAY_BE_EMPTY` with a measured call-site control; five bespoke two-arm drivers keep their bodies by decision and consume the shared toggle, counters and renderers.
@@ -25,6 +26,12 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-08-16T21:04Z Step 9 discovered: **item 8's "capability gap, not a correctness defect" premise is refuted for one shape.** The premise holds only while the label *name* is unbound. Where the same name was bound earlier to a different alias, dropping the second `as(...)` left the earlier binding standing and `select` resolved to the wrong node — `g.V().as("a").out("knows").has("name","bob").as("a").select("a")` measured `[alice]` translated against native's `[bob]` at the step base, because `select` reads `Pop.last`. Bind-or-decline closes it by declining. The measurement is not reproducible after `4f9eb2e79b` (the shape now declines), so the record lives in the test javadoc and the episode. See Episodes §Step 9.
+
+- 2026-08-16T21:04Z Step 9 discovered: **item 8's edge-alias half (`outE(L).as(e)…inV()` then `select(e)`) is unimplemented and unowned.** `EdgeHopRecogniser` still declines on `!edgeStep.getLabels().isEmpty()`. The roster line scoped step 9 to `HasStepRecogniser`, and the plan's `### Non-Goals` lists user-facing edge aliases as Phase 2, so item 8's headline contradicts the plan and implementing it would have been a design decision rather than a step. No remaining step (10, 11, 12) covers it — under item 6 rule 3 it needs a YouTrack issue or a `### Non-Goals` confirmation before track close. See Episodes §Step 9.
+
+- 2026-08-16T21:04Z Step 9 discovered: **for a two-arm Cucumber measurement, flip the kill switch with a plain Maven `-D`, never `-DargLine=`.** The override replaces the pom's `argLine` wholesale, drops every `--add-opens`, and reports 1930 Kryo provisioning errors that read as a catastrophic regression and are a classpath accident. Confirm the flag reached the fork in `TEST-_.xml`'s `<property>` block, because `GlobalConfiguration.readConfiguration()` reads it through `System.getProperty` and a silently-dropped flag measures the on arm twice. Step 12 owns the two-arm gate and needs this. See Episodes §Step 9.
 
 - 2026-08-16T20:23Z Step 8 **settled the open question below (the entry beginning "A live vacuous-acceptance suspect")**: Track 9 step 10's retirement of harness divergence (b) did rest on a comparison that could not discriminate. Two of the three cited spellings — `values(firstName).order().limit(2)` and `.order().range(1, 3)` — engage 0 boundary steps on a `core` fixture, and a declined shape runs the native pipeline on both arms, so agreement holds by construction. Only the bare-`order()` supplementary check discriminated, and that is not the shape the divergence named. The verdict survives (declining is the correct exit; no wrong answer ships) but the reason on record was not evidence. Three decline cases with a translating control now pin it. Seventeenth instance of the branch's dominant test defect. See Episodes §Step 8.
 
@@ -68,6 +75,10 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Decision Log
 <!-- Continuous-log. -->
+
+- 2026-08-16T21:04Z (plan correction, A11's outstanding half) Step 9's episode commit amended `implementation-plan.md`'s absolute invariant "Translator-on and translator-off produce equal result multisets for every `RECOGNIZED` shape" to carry the `### Constraints` bounded exception by reference. A11 asked for both to be amended in the commit that lands item 8; the constraint half landed 2026-08-04 and the invariant half was outstanding, with `4f9eb2e79b` the first code to violate it as written. Applied by the orchestrator because implementers may not edit the plan. See Episodes §Step 9.
+
+- 2026-08-16T21:04Z (deferral) Step 9 moved item 7's `is1FullProfile` flip to step 10. `LdbcGremlinShapeTranslationTest` is not in the tree until step 10 re-applies `43907ff312` and `deb8e72ee9`, so the flip is now load-bearing for that step rather than optional — item 7's `requireNotTranslated` on `is1FullProfile` will fail against `4f9eb2e79b`, which is the signal item 8 predicted. See Episodes §Step 9.
 
 - 2026-08-16T18:53Z (item 10's switch-on question settled) Step 6 answered "should the declined-path pin be switched on everywhere" as a documented opt-out rather than a blanket pin. `Cardinality.MAY_BE_EMPTY` marks the shapes whose empty answer is correct, and each opt-out carries a measured call-site control: the one existing user compares stored values against a `java.time.Instant` that TinkerPop's comparator rejects for every one of them. A probe flipping it to `NON_EMPTY` reddens exactly that case, which is what keeps the pin live through the extraction. See Episodes §Step 6.
 
@@ -181,7 +192,7 @@ flowchart LR
 6. Re-enumerate item 10's five duplication counts against this step's own base, then extract the shared equivalence harness — a package-private `TranslatorEquivalenceSupport` (or shared base) carrying the translator toggle, `countBoundarySteps`, `assertEquivalent` with its declined-path non-empty pin, and the recognition enum — following `ModernGraphFixture`'s extraction pattern. **Ordered ahead of step 7 per adversarial condition A12(1)** so the terminator tests consume the shared harness instead of adding to the duplication this step retires (item 10, first half) — risk: medium (tests-only, but shared test infrastructure across roughly a dozen classes)  [x]  commit: d1249f41ae
 7. Add the terminator tests on the shared harness — composition and boundary (`tail` `n=0` / `n<0`, empty-input `fold`, `reverse` as value transform not reorder, `unfold` buffer, declared-order combinations), the four cases R10 and R11 added, clone isolation for `tail` as well as `fold`, re-arm from both the `DRAINED` and `REARMED_AFTER_CLOSE` routes, and a positive control beside every decline case; replace the three non-discriminating witnesses A14, A15 and A17 named (item 5) — risk: medium (tests-only on shared fixtures)  [x]  commit: ecaf35926f
 8. Run item 10's second sweep — every `withTranslator(true, …)` with no boundary-step assertion beside it — and settle whether Track 9 step 10's retirement of harness divergence (b) rested on a comparison that could not discriminate, per `## Surprises & Discoveries` (item 10, second half) — risk: medium (tests-only on shared infrastructure, and it carries an open correctness question rather than a cleanup)  [x]  commit: 9665700cd8
-9. Bind `as()` labels in `HasStepRecogniser` (bind-or-decline), asserting the spellings that route through `YTDBGraphStepStrategy.rebuildTraversal`'s label-dropping `else` branch against a hand-computed oracle rather than against the native arm, under the plan's newly bounded multiset-equality exception; flip item 7's `is1FullProfile` decline assertion to the translating group (items 8, R15, A11) — risk: medium (a recogniser behavior change in one module, with a documented arms-diverge-by-design surface)  [ ]
+9. Bind `as()` labels in `HasStepRecogniser` (bind-or-decline), asserting the spellings that route through `YTDBGraphStepStrategy.rebuildTraversal`'s label-dropping `else` branch against a hand-computed oracle rather than against the native arm, under the plan's newly bounded multiset-equality exception; flip item 7's `is1FullProfile` decline assertion to the translating group (items 8, R15, A11) — risk: medium (a recogniser behavior change in one module, with a documented arms-diverge-by-design surface)  [x]  commit: 4f9eb2e79b  (the `is1FullProfile` flip deferred to step 10 — `LdbcGremlinShapeTranslationTest` is not in the tree until step 10 re-applies it)
 10. Re-apply the JMH harness commits `43907ff312` then `deb8e72ee9` and repair their assertion set — the `fold` shape now translates once steps 3–5 land, and the `order().by(…).range(…).values(…)` shape must be re-derived against the final tree because Track 9 widened a slice-after-sort decline underneath it; add the install-first or shared-reactor invocation so the re-run measures this branch's `core` rather than an installed jar (items 7, R14) — risk: medium (new benchmark and test code in `jmh-ldbc`; no `core` production change)  [ ]
 11. Audit the 18 hand-built MATCH AST sites across seven files and record a verdict per site — a builder call, a builder call this step adds a factory for, or a hand-built node carrying a comment saying why the builder cannot express it; `StartStepRecogniser`'s unwrapped `@rid IN [...]` clause stays hand-built so `SQLWhereClause.findRidInList` can still see through it for RID promotion, with the promotion test as a watched-to-fail witness (item 9) — risk: medium (behavior-preserving by intent, but logic edits across seven production files in one module)  [ ]
 12. Run the `core` Cucumber gate on both kill-switch arms to 1930 / 0 / 14, read `embedded`'s on arm out of a qualifying CI run's counts rather than its leg colour, publish the per-step scenario catalogue, and disposition the residue under item 6's three rules — both directions recorded, the decline exit as default, and a YouTrack issue or `### Non-Goals` amendment for anything neither fixed nor declined, including item 10's `g.V(rid)` slowdown (items 6, 7's regression destination) — risk: medium (measurement and disposition step; any production decline-widening it triggers lands as its own follow-on step so it stays reviewable)  [ ]
@@ -732,6 +743,92 @@ suite runner, and 39 / 39 for `OrderRangeStepRecogniserTest`. mcp-steroid was no
 this spawn, so the sweep ran as grep plus a per-class transitive helper closure; the question is a
 call-site one over package-private helpers in a single package, and no deletion or rename depended
 on it.
+
+### Step 9 — commit 4f9eb2e79b, 2026-08-16T21:04Z [ctx=safe]
+**What was done:** `HasStepRecogniser.recognize` now opens its contribution block with a
+`bindStepLabels`-or-decline call on the boundary alias, so a user `as(...)` label parked on a filter
+step resolves for `select` / `dedup` / `where`. The bind sits ahead of the re-type and the filter,
+preserving translate-all-then-contribute — a colliding label declines with nothing written. Two unit
+cases in `HasStepRecogniserTest` pin the bind and the collision decline; six end-to-end cases in
+`PredicateTraversalEquivalenceTest` cover the three probe spellings, the relocation premise itself,
+the collision decline with a translating control, and the one spelling where the two arms must
+disagree. All eight were watched to fail against the step base first, each on the assertion it
+names.
+
+**What was discovered:** **Item 8's "capability gap, not a correctness defect" premise is refuted
+for one shape, so this step closes a silent wrong answer rather than only adding coverage.** The
+premise was that every label reader resolves-or-declines, so an unbound label costs a decline and
+never an answer. That holds only while the *name* is unbound. Where the same name was bound earlier
+to a different alias, dropping the second `as(...)` left the earlier binding standing and `select`
+resolved to the wrong node:
+`g.V().as("a").out("knows").has("name","bob").as("a").select("a")` measured `[alice]` translated
+against native's `[bob]` at the step base, because `select` reads `Pop.last`. Bind-or-decline closes
+it by declining, which is item 6 rule 2's default exit. The measurement is not reproducible after
+this commit — the shape now declines — so it lives in the test javadoc and here.
+
+R15's divergence is real at this tree and now has a durable in-repo record.
+`g.V().out("knows").hasLabel("Person").as("a").select("a")` returns `[]` natively and the two
+`Person` sinks translated. The case asserts the hand-computed oracle on the translated arm, the
+empty native answer as the recorded defect, and a label-free native control returning the same two
+sinks — which is what makes the empty answer attributable to the dropped label rather than to an
+empty fixture. It is deliberately not routed through `assertEquivalent`, whose contract is that the
+arms agree.
+
+The relocation premise holds at this tree and is pinned rather than assumed:
+`filterRankingStrategy_movesTheStartStepLabelOntoTheHasStep` applies the standard strategy list with
+the two YouTrackDB strategies stood down and watches `GraphStep[a] -> HasStep` become
+`GraphStep -> HasStep[a]`. It was the one new test that passed before the production change, which
+is the right signal — it asserts TinkerPop's behaviour, not ours. Without it the two spellings
+`as("a").has(...)` and `has(...).as("a")` read as different cases when they are one post-strategy
+list.
+
+The widening is scenario-neutral on `core`: the Cucumber suite answers 1930 / 0 / 14 on both
+kill-switch arms after it, so no shape it newly claims disagrees with native there.
+
+**What changed from the plan:** **The `is1FullProfile` flip is not in this commit and could not
+be.** `LdbcGremlinShapeTranslationTest` is not in the tree — step 10 owns re-applying `43907ff312`
+and `deb8e72ee9`. The flip becomes load-bearing for that step rather than optional: item 7's
+`requireNotTranslated` on `is1FullProfile` will now fail against this commit, which is the intended
+signal item 8 recorded.
+
+**Item 8's edge-alias half is unimplemented and unowned.** The roster line scopes this step to
+`HasStepRecogniser` ("a recogniser behavior change in one module"), while item 8's headline and its
+Tests line name `outE(L).as(e)…inV()` then `select(e)`. `EdgeHopRecogniser` still declines outright
+on `!edgeStep.getLabels().isEmpty()`. The roster line is the consistent reading — the plan's
+`### Non-Goals` lists "user-facing edge aliases" as Phase 2, so item 8's edge half contradicts the
+plan and implementing it here would have been a design decision, not a step. No remaining step
+(10, 11, 12) covers it, so under item 6 rule 3 it needs a YouTrack issue or a `### Non-Goals`
+confirmation before track close.
+
+**Orchestrator correction applied (2026-08-16, this episode's commit):** A11 asked for the plan's
+absolute invariant and its `### Constraints` bounded exception to be amended in the commit that
+lands item 8. The implementer may not edit the plan, so the invariant half was outstanding and this
+commit is the first code that violates it as written. `implementation-plan.md`'s
+"Translator-on and translator-off produce equal result multisets for every `RECOGNIZED` shape" now
+carries the `### Constraints` exception by reference, closing A11's second half.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/HasStepRecogniser.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/HasStepRecogniserTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/PredicateTraversalEquivalenceTest.java` (modified)
+
+**Critical context:** Any later test that puts an `as(...)` between the start step and a filter must
+pin the post-strategy step list, not the authored traversal — the two differ, and
+`filterRankingStrategy_movesTheStartStepLabelOntoTheHasStep` is the in-repo witness to copy.
+`graph.traversal().withoutStrategies(GremlinToMatchStrategy.class, YTDBGraphStepStrategy.class)` is
+the cheap way to read what the recognisers see, and it needs no strategy-list cloning.
+
+For a two-arm Cucumber measurement, flip the kill switch with a plain Maven `-D`, never
+`-DargLine=`. The override replaces the pom's `argLine` wholesale, drops every `--add-opens`, and
+reports 1930 errors that look like a catastrophic regression and are a classpath accident.
+`TEST-_.xml`'s `<property>` block is where to confirm the flag actually reached the fork, which
+matters because `GlobalConfiguration.readConfiguration()` reads it through `System.getProperty` and
+a silently-dropped flag would measure the on arm twice.
+
+Tests: 1118 / 1118 over `com.jetbrains.youtrackdb.internal.core.gremlin.**` (`gremlintest`
+excluded), up from step 8's 1110 by this step's eight new tests; 21 / 21 for
+`YTDBQueryMetricsStrategyTest` through the `YTDBProcessTest` suite runner; and the `core` Cucumber
+suite at 1930 / 0 / 14 on both arms. Coverage on changed code: 94.7% line, 84.2% branch.
 
 Tests: 460 / 460 across the fifteen touched classes, and 1088 / 1088 with 1 skipped over the wider
 `com.jetbrains.youtrackdb.internal.core.gremlin.**` run (`gremlintest` excluded per the track
