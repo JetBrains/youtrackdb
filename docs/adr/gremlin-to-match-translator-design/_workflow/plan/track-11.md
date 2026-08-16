@@ -14,6 +14,7 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-08-16T20:23Z [ctx=safe] Step 8 complete (commit `9665700cd8`). The sweep re-derived its own numbers — 61 switch-forcing members across 15 classes, seven mechanically flagged, six clean and one genuine gap now closed. No step-level review (`risk: medium`). Track 9 step 10's retirement of harness divergence (b) is settled: the verdict survives but its stated reason was not evidence, because two of the three cited spellings decline and a declined shape makes both arms the same pipeline. Three decline cases with a translating control now pin it.
 - [x] 2026-08-16T19:30Z [ctx=safe] Step 7 complete (commit `ecaf35926f`). Seventeen end-to-end terminator cases on the shared harness plus four boundary-base lifecycle cases; no production line touched. No step-level review (`risk: medium`). Most of item 5's roster was already discharged by steps 3–5, so this step added the on/off arm and the two lifecycle claims. Four mutation probes measured, each reddening exactly its own cases; the swallow probe is A14(a)'s measured discharge.
 - [x] 2026-08-16T18:53Z [ctx=safe] Step 6 complete (commit `d1249f41ae`). Item 10's counts re-enumerated against this step's base — two drifted, one claim refuted — then `TranslatorEquivalenceSupport` extracted and consumed by fifteen classes (+477 / −744, no test method added or removed). No step-level review (`risk: medium`). The real pin gap was `RangeTypeGuardEquivalenceTest.assertDeclinesAndMatchesNative`, now on the shared driver at `Cardinality.MAY_BE_EMPTY` with a measured call-site control; five bespoke two-arm drivers keep their bodies by decision and consume the shared toggle, counters and renderers.
 - [x] 2026-08-16T18:02Z [ctx=unknown] Step 5 complete (commit `49c581e6d7`). Post-union allow-list took `unfold` / `reverse` / `tail` with their positional answers; `fold` stays off it (item 4c). Union arms with a list-shaping stage decline through an explicit gate; combinator children already declined through the item-1 seam. Review loop: 8 findings, 0 blockers, all VERIFIED at gate-check iteration 2. Review fix shared the post-union positional body across look-ahead and in-loop gate.
@@ -24,6 +25,12 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-08-16T20:23Z Step 8 **settled the open question below (the entry beginning "A live vacuous-acceptance suspect")**: Track 9 step 10's retirement of harness divergence (b) did rest on a comparison that could not discriminate. Two of the three cited spellings — `values(firstName).order().limit(2)` and `.order().range(1, 3)` — engage 0 boundary steps on a `core` fixture, and a declined shape runs the native pipeline on both arms, so agreement holds by construction. Only the bare-`order()` supplementary check discriminated, and that is not the shape the divergence named. The verdict survives (declining is the correct exit; no wrong answer ships) but the reason on record was not evidence. Three decline cases with a translating control now pin it. Seventeenth instance of the branch's dominant test defect. See Episodes §Step 8.
+
+- 2026-08-16T20:23Z Step 8 discovered: item 10's sweep criterion — "no `countBoundarySteps` assertion in the same block" — is too narrow after step 6's extraction, because most suites now reach the counter through the shared driver or a local adapter, so a same-block grep yields about forty false hits. The criterion that works is transitive: does any assertion reachable from the translator-on block pin engagement. Reuse that form if a later step re-runs the net over new suites. See Episodes §Step 8.
+
+- 2026-08-16T20:23Z Step 8 discovered: the `order().by(k).range(a, b).values(k)` decline is over-determined — a slice behind a captured ORDER BY and a slice behind a row-dropping projection each refuse it independently, measured by `values(firstName).limit(2)` declining with no `order()` at all. So `assertOrderedSliceDeclines`'s "same shape without `order()`" control would itself decline here and cannot be reused; the control must remove the slice instead. See Episodes §Step 8.
 
 - 2026-08-16T19:30Z Step 7 discovered: **a bounded-buffer test that replays identical inputs across armings or clones cannot fail.** A ring leaked into a field returns a window of the right size holding the right values, so a stale window is indistinguishable from a fresh one; only distinct rows per pass separate them. The first tail re-arm draft replayed two identical rows and stayed green under the field-held-ring probe. This is a pin whose fixture cannot make it fail rather than a missing pin, which puts it in the same family as the opt-out-with-no-liveness shape and makes it a candidate for the branch's vacuous-acceptance catalogue. It generalises to any bounded window or ring, not just `tail`. See Episodes §Step 7.
 
@@ -173,7 +180,7 @@ flowchart LR
 5. Close the union and combinator paths — state and implement `fold`'s `selectsPositionally` answer, add the terminator recognisers to `POST_UNION_RECOGNISERS` per that decision, gate union children on non-empty `listShapingOps` in `walkFork` before the `agreedShaping.equals` comparison, gate combinator children through the item 1 seam, and fix `ListShapingOp`'s false "once per child plan" clause and thin `unfold` description (items 4, 4c) — risk: high (architecture / cross-component coordination: the union and combinator boundary, where a wrong `selectsPositionally` answer re-ships A1's measured multiset divergence)  [x]  commit: 49c581e6d7
 6. Re-enumerate item 10's five duplication counts against this step's own base, then extract the shared equivalence harness — a package-private `TranslatorEquivalenceSupport` (or shared base) carrying the translator toggle, `countBoundarySteps`, `assertEquivalent` with its declined-path non-empty pin, and the recognition enum — following `ModernGraphFixture`'s extraction pattern. **Ordered ahead of step 7 per adversarial condition A12(1)** so the terminator tests consume the shared harness instead of adding to the duplication this step retires (item 10, first half) — risk: medium (tests-only, but shared test infrastructure across roughly a dozen classes)  [x]  commit: d1249f41ae
 7. Add the terminator tests on the shared harness — composition and boundary (`tail` `n=0` / `n<0`, empty-input `fold`, `reverse` as value transform not reorder, `unfold` buffer, declared-order combinations), the four cases R10 and R11 added, clone isolation for `tail` as well as `fold`, re-arm from both the `DRAINED` and `REARMED_AFTER_CLOSE` routes, and a positive control beside every decline case; replace the three non-discriminating witnesses A14, A15 and A17 named (item 5) — risk: medium (tests-only on shared fixtures)  [x]  commit: ecaf35926f
-8. Run item 10's second sweep — every `withTranslator(true, …)` with no boundary-step assertion beside it — and settle whether Track 9 step 10's retirement of harness divergence (b) rested on a comparison that could not discriminate, per `## Surprises & Discoveries` (item 10, second half) — risk: medium (tests-only on shared infrastructure, and it carries an open correctness question rather than a cleanup)  [ ]
+8. Run item 10's second sweep — every `withTranslator(true, …)` with no boundary-step assertion beside it — and settle whether Track 9 step 10's retirement of harness divergence (b) rested on a comparison that could not discriminate, per `## Surprises & Discoveries` (item 10, second half) — risk: medium (tests-only on shared infrastructure, and it carries an open correctness question rather than a cleanup)  [x]  commit: 9665700cd8
 9. Bind `as()` labels in `HasStepRecogniser` (bind-or-decline), asserting the spellings that route through `YTDBGraphStepStrategy.rebuildTraversal`'s label-dropping `else` branch against a hand-computed oracle rather than against the native arm, under the plan's newly bounded multiset-equality exception; flip item 7's `is1FullProfile` decline assertion to the translating group (items 8, R15, A11) — risk: medium (a recogniser behavior change in one module, with a documented arms-diverge-by-design surface)  [ ]
 10. Re-apply the JMH harness commits `43907ff312` then `deb8e72ee9` and repair their assertion set — the `fold` shape now translates once steps 3–5 land, and the `order().by(…).range(…).values(…)` shape must be re-derived against the final tree because Track 9 widened a slice-after-sort decline underneath it; add the install-first or shared-reactor invocation so the re-run measures this branch's `core` rather than an installed jar (items 7, R14) — risk: medium (new benchmark and test code in `jmh-ldbc`; no `core` production change)  [ ]
 11. Audit the 18 hand-built MATCH AST sites across seven files and record a verdict per site — a builder call, a builder call this step adds a factory for, or a hand-built node carrying a comment saying why the builder cannot express it; `StartStepRecogniser`'s unwrapped `@rid IN [...]` clause stays hand-built so `SQLWhereClause.findRidInList` can still see through it for RID promotion, with the promotion test as a watched-to-fail witness (item 9) — risk: medium (behavior-preserving by intent, but logic edits across seven production files in one module)  [ ]
@@ -647,6 +654,84 @@ or ring, not only to `tail`.
 Tests: 1109 / 1109 with 1 pre-existing skip over `com.jetbrains.youtrackdb.internal.core.gremlin.**`
 (`gremlintest` excluded), and 228 / 228 over the six directly touched classes. The four production
 mutation probes were reverted with `git checkout` and the tree verified clean before the commit.
+
+### Step 8 — commit 9665700cd8, 2026-08-16T20:23Z [ctx=safe]
+**What was done:** Ran the second sweep — every call site that forces the translator on and then
+asserts only values both pipelines produce — and settled the open correctness question sitting
+under it. The sweep's numbers were re-derived against this step's own base rather than carried from
+item 10: 61 members across 15 test classes force the switch on, four of them thin wrappers judged
+at their callers. A mechanical pass left seven with no engagement pin; six resolved clean on
+reading and one was a genuine gap, now closed. The correctness question was settled by measurement
+and the answer pinned in code as three decline cases with a translating control.
+
+**What was discovered:** **Track 9 step 10's retirement of harness divergence (b) rests on a
+comparison that could not discriminate.** Measured on a `core` fixture mirroring the reported
+spelling: `…out(KNOWS).values(firstName).order().limit(2)` engages 0 boundary steps,
+`.order().range(1, 3)` engages 0, `order().by(firstName).range(1, 3).values(…)` engages 0, while
+`values(firstName).order()` engages 1. Two of the three spellings the retirement cited decline,
+and a declined shape runs the native pipeline on both arms, so "both arms return the same rows"
+holds by construction over them. Only the bare-`order()` supplementary check discriminated, and
+that shape is not the one the divergence named. **The verdict survives — declining is the
+correct-by-construction exit and no wrong answer ships — but the reason on record was not
+evidence.** This is the seventeenth recorded instance of the branch's dominant test defect,
+exactly where the plan predicted it.
+
+The decline of the first two spellings is over-determined: a slice behind a captured ORDER BY and
+a slice behind a row-dropping projection each refuse it independently, measured by
+`values(firstName).limit(2)` declining with no `order()` at all. That is why the new case's control
+removes the slice rather than the sort — the existing `assertOrderedSliceDeclines` helper's "same
+shape without `order()`" control would itself decline here and could not have been reused.
+
+The sweep's one genuine hit is `downstreamLimitZeroStillCapturesSourcePlan`. It forced the switch
+on and asserted only that the listener fired and a plan was captured; its own native sibling
+asserts the identical two facts with the switch off, so the on-arm case could not have failed if
+the shape stopped translating, and the two capture mechanisms its comment distinguishes were one
+untested claim. Measured discharge: flipping its switch to false reddens the new boundary probe and
+leaves both original assertions green.
+
+Six mechanical flags resolved clean, named here so a re-run does not re-litigate them. Three
+`YTDBQueryMetricsStrategyTest` cases (`planBackedScan…`, `indexedQuery…`, `byIdLookup…`) assert
+MATCH-only plan artefacts — `MatchPrefetchStep`, `+ PREFETCH`, a RID fetch with no class scan —
+which the native pipeline cannot produce. `PredicateTraversalEquivalenceTest.translatedSortedIds`
+has one caller and that caller pairs it with a DECLINED expectation in the same method.
+`UnionTraversalEquivalenceTest.assertSameMultisetOnAndOff` is a deliberate divergence-first
+reporter whose javadoc says so, and all three call sites pair it with a DECLINED expectation on the
+same spelling. `RepeatDeclineStrategyTest.theVeto_doesNotLeakToASiblingOrToARepeatFreeChild`
+asserts the veto marker white-box and compares no rows at all.
+
+Item 10's own wording for this sweep is too narrow after step 6's extraction. It specifies "no
+`countBoundarySteps` assertion in the same block", but most suites now reach the counter through
+the shared driver or a local adapter, so a same-block grep produces about forty false hits. The
+criterion that works is transitive: does any assertion reachable from the translator-on block pin
+engagement.
+
+Step 7's second vacuity shape — a pin whose fixture cannot make it fail — produced one candidate
+and no hit. `EdgeTraversalEquivalenceTest`'s trailing subclass-label assertion holds on either arm,
+which its own comment states outright, and it sits behind a real engagement pin rather than
+standing in for one.
+
+**What changed from the plan:** Nothing in substance, and no production line moved. Two notes for
+later steps. Step 10 gains a measurement it can rely on: the `order().by(…).range(…).values(…)`
+shape declines on a plain `core` fixture too, not only in the indexed LDBC one, so its assertion
+belongs in the declining group and the `core`-side pin for it now exists. Step 12 is unaffected —
+this step adds no residue.
+
+**Key files:**
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/gremlintest/scenarios/YTDBQueryMetricsStrategyTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/OrderRangeStepRecogniserTest.java` (modified)
+
+**Critical context:** A shape that declines cannot be tested by comparing the two arms' rows — the
+decline makes both arms the same pipeline, so the comparison holds whatever a translation would
+have done. Any claim about a declining shape has to rest on the engagement count, with the row
+comparison riding along. That is the general form of what the retired divergence report got wrong,
+and it applies to every future decline case on this branch.
+
+Tests: 1110 / 1110 with 1 pre-existing skip over `com.jetbrains.youtrackdb.internal.core.gremlin.**`
+(`gremlintest` excluded), 21 / 21 for `YTDBQueryMetricsStrategyTest` through the `YTDBProcessTest`
+suite runner, and 39 / 39 for `OrderRangeStepRecogniserTest`. mcp-steroid was not reachable from
+this spawn, so the sweep ran as grep plus a per-class transitive helper closure; the question is a
+call-site one over package-private helpers in a single package, and no deletion or rename depended
+on it.
 
 Tests: 460 / 460 across the fifteen touched classes, and 1088 / 1088 with 1 skipped over the wider
 `com.jetbrains.youtrackdb.internal.core.gremlin.**` run (`gremlintest` excluded per the track
