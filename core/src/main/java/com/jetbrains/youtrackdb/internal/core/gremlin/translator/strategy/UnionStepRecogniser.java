@@ -27,8 +27,11 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * MultiPlanMatchStep} over the concatenation; {@code unfold()} and {@code reverse()} each append a
  * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp} the boundary
  * base applies once over that same concatenation, which is sound because both treat each payload
- * alone. {@code order()} after a union declines (no post-concat sort in this cut), {@code fold()}
- * and {@code tail(n)} decline as positional, and every other step class declines too. {@code
+ * alone. {@code order()} after a union declines (no post-concat sort in this cut). The two other
+ * terminators decline through different conditions and the difference is worth keeping straight:
+ * {@code tail(n)} is on the allow-list and declines through the positional gate, while {@code
+ * fold()} is off the allow-list and so declines on membership, before the positional question is
+ * asked of it at all. Every other step class declines too. {@code
  * GremlinStepWalker.POST_UNION_RECOGNISERS} argues each membership and the one recorded exclusion.
  *
  * <p>That suffix check runs twice, against one allow-list. {@link
@@ -51,6 +54,17 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * once-over-the-concatenation and once-per-arm agree. Telling them apart would need an op-type
  * discriminator on {@code ListShapingOp}, which the carrier does not have, and {@code
  * union(__.unfold(), __.unfold())} is coverage lost rather than a wrong answer shipped.
+ *
+ * <p>The gate reads {@code listShapingOps()} and nothing else, which is narrower than the property
+ * it rests on. {@code accumulateMap} — the {@link ResultShaping} component a {@code group()} or
+ * {@code groupCount()} arm sets — has that same property: the boundary base drains the whole
+ * concatenation into one map before any list-shaping op runs, so {@code
+ * union(__.out(k).groupCount(), __.in(k).groupCount())} still merges both arms into one map where
+ * native returns one per arm. That shape predates this gate and is not closed by it; widening the
+ * condition to the stream-level components of {@code ResultShaping} is the fix when it is taken up.
+ * The projection-contract comparison below does not catch it either — two {@code
+ * withAccumulateMap(true)} records compare equal, unlike the per-recognition op instances the next
+ * paragraph turns on.
  *
  * <p>It is also deliberately separate from, and ahead of, the projection-contract comparison below,
  * which would decline these shapes today only by accident. That comparison asks whether the children
@@ -127,6 +141,11 @@ final class UnionStepRecogniser implements StepRecogniser {
       // A child that registered a list-shaping stage declines the union outright, before and
       // independently of the contract comparison below — see the class javadoc's "A child that
       // shapes a list declines the union" for why agreement is not the question here.
+      //
+      // Scope: this reads listShapingOps only. accumulateMap has the same property — one shaping
+      // applied once over the concatenation — so a group / groupCount arm still merges both arms
+      // into one map where native returns one per arm. That predates this gate; the class javadoc's
+      // same section records it and names widening this condition as the fix.
       if (!childResult.shaping().listShapingOps().isEmpty()) {
         return Outcome.DECLINE;
       }

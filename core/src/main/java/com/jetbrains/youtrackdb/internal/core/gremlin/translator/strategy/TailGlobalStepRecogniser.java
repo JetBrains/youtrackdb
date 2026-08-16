@@ -38,8 +38,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStep
  * second is {@link #selectsPositionally}, which this recogniser answers {@code true}. Membership
  * without the positional answer would ship the divergence; the positional answer without membership
  * would decline one spelling more than it needs to. Together they leave {@code tail} reaching the fork
- * only where the walker's look-ahead sees an immediate {@code count()} behind it, and that spelling
- * declines for its own reason at the list-shaping gate, so no post-union {@code tail} translates today.
+ * only where an immediate {@code count()} stands behind it — a condition the walker applies in its
+ * pre-fork look-ahead and again in its dispatch loop, through one shared body, so the bare spelling is
+ * refused whichever reader sees it first — and that spelling declines for its own reason at the
+ * list-shaping gate, so no post-union {@code tail} translates today.
  *
  * <p>The neighbouring cardinality gate owns one more decline — a {@code tail} behind a captured
  * {@code SKIP} / {@code LIMIT} / {@code RETURN DISTINCT} — which costs coverage rather than

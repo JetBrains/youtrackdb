@@ -513,8 +513,15 @@ final class GremlinStepWalker {
       // Post-union suffix gate (see POST_UNION_RECOGNISERS). Only the post-concat-aware recognisers
       // may claim a step once a union carrier is on the context; every other one would write into
       // state buildResult discards for a multi-plan translation, so decline the whole walk and let
-      // the traversal run on the native pipeline.
-      if (ctx.hasUnionCarrier() && !POST_UNION_RECOGNISERS.contains(recogniser)) {
+      // the traversal run on the native pipeline. Membership is necessary and not sufficient: a
+      // member that selects rows by position may only stand ahead of an immediate count(), and that
+      // second condition is applied here through the same body the pre-fork look-ahead uses, so
+      // neither reader can admit a step the other refuses. Without it the look-ahead would be the
+      // only guard against a translated union(...).tail(n) — a property of call order rather than
+      // of the gates, and one a later change to the fork path could take away silently.
+      if (ctx.hasUnionCarrier()
+          && (!POST_UNION_RECOGNISERS.contains(recogniser)
+              || !postUnionPositionalGateSatisfied(cursor, recognisers, recogniser, head, 0))) {
         return false;
       }
       // Single-plan cardinality gate (see capturedCardinalityClause and the allow-list below).
@@ -880,8 +887,9 @@ final class GremlinStepWalker {
    * ahead of {@code cursor} would be claimed by a {@link #POST_UNION_RECOGNISERS} member, including
    * the vacuous case of no steps left. Reads the same allow-list the in-loop gate reads, so the two
    * agree on which recognisers may claim a post-union step. The positional rule below is a second
-   * gate, deliberately mirrored here rather than left to its recogniser; keeping the two in step is
-   * a maintenance obligation the field alone does not discharge.
+   * gate, deliberately applied here rather than left to its recogniser; both readers reach it
+   * through one shared body ({@link #postUnionPositionalGateSatisfied}), so the two cannot drift
+   * the way two hand-written copies of the condition would.
    *
    * <p>Why look ahead at all: {@link UnionStepRecogniser#recognize} forks the recognised prefix into
    * every child and runs a complete sub-walk per child before returning, and the in-loop gate only
@@ -900,17 +908,18 @@ final class GremlinStepWalker {
    * <p>This is a necessary condition, not a simulation: an allow-listed recogniser may still decline
    * its own step (a second {@code count()}, a {@code dedup(labels)}), in which case the fork is
    * still paid and the in-loop gate plus the recogniser decline the walk. Fail-closed is preserved
-   * in both directions — the look-ahead only ever declines shapes the in-loop gate would decline.
+   * in both directions — the two readers apply the same two conditions over the same allow-list and
+   * the same shared positional body, so neither admits a shape the other refuses.
    *
-   * <p>The one gate mirrored here rather than left to its recogniser is the positional one: a
-   * step that selects rows by position needs a {@code count()} immediately after it (see {@link
-   * RangeGlobalStepRecogniser}), and {@code union(...).limit(n)} is common enough that paying N
-   * discarded sub-walks per compilation for it would give back most of what this look-ahead exists
-   * to save. The mirror asks the recogniser through {@link StepRecogniser#selectsPositionally}
-   * rather than testing one recogniser's identity or re-deriving the normalisation, so a slice that
-   * normalises away to nothing still reaches the fork exactly as it did before, the look-ahead stays
-   * no stricter than the recogniser, and a member added to {@link #POST_UNION_RECOGNISERS} later
-   * gets the positional gate along with the membership one.
+   * <p>The one gate applied here as well as in the dispatch loop, rather than left to its
+   * recogniser, is the positional one: a step that selects rows by position needs a {@code count()}
+   * immediately after it (see {@link RangeGlobalStepRecogniser}), and {@code union(...).limit(n)} is
+   * common enough that paying N discarded sub-walks per compilation for it would give back most of
+   * what this look-ahead exists to save. The shared body asks the recogniser through {@link
+   * StepRecogniser#selectsPositionally} rather than testing one recogniser's identity or re-deriving
+   * the normalisation, so a slice that normalises away to nothing still reaches the fork exactly as
+   * it did before, the look-ahead stays no stricter than the recogniser, and a member added to
+   * {@link #POST_UNION_RECOGNISERS} later gets the positional gate along with the membership one.
    *
    * <p>The two halves spell "a count follows" differently on purpose. Here the next step is resolved
    * through {@code recognisers}, the same registry dispatch would use, so a curated test registry is
@@ -932,14 +941,42 @@ final class GremlinStepWalker {
       if (recogniser == null || !POST_UNION_RECOGNISERS.contains(recogniser)) {
         return false;
       }
-      if (recogniser.selectsPositionally(step)) {
-        var next = cursor.peek(ahead + 1);
-        if (next == null
-            || recognisers.get(next.getClass()) != CountGlobalStepRecogniser.INSTANCE) {
-          return false;
-        }
+      if (!postUnionPositionalGateSatisfied(cursor, recognisers, recogniser, step, ahead)) {
+        return false;
       }
     }
+  }
+
+  /**
+   * The second of the two post-union conditions, asked once membership has been established: a step
+   * that selects rows by position may stand after a union only when the very next significant step
+   * is an immediate {@code count()}, which collapses the concatenation to a cardinality before the
+   * arrival-order difference can be observed. A step that selects no position passes unconditionally.
+   *
+   * <p>Both readers of the post-union rule call this — {@link #postUnionSuffixTranslatable} while
+   * scanning the suffix before the fork, {@link #dispatchAll} on its own head once the union carrier
+   * is on the context — which is what makes the in-loop gate no weaker than the look-ahead by
+   * construction rather than by call order. {@code ahead} is the caller's scan offset, so the
+   * look-ahead asks about the step it is inspecting and the dispatch loop asks at {@code 0} about
+   * the head it already peeked; {@link StepCursor#peek(int)} leaves the position untouched in both
+   * cases and skips transparent steps, so a barrier between the two is not mistaken for the
+   * successor.
+   *
+   * <p>The successor is resolved through {@code recognisers} rather than by step class, matching how
+   * dispatch would resolve it, so a curated test registry is simulated faithfully and an
+   * unregistered successor declines.
+   */
+  private static boolean postUnionPositionalGateSatisfied(
+      StepCursor cursor,
+      Map<Class<?>, StepRecogniser> recognisers,
+      StepRecogniser recogniser,
+      Step<?, ?> step,
+      int ahead) {
+    if (!recogniser.selectsPositionally(step)) {
+      return true;
+    }
+    var next = cursor.peek(ahead + 1);
+    return next != null && recognisers.get(next.getClass()) == CountGlobalStepRecogniser.INSTANCE;
   }
 
   /**

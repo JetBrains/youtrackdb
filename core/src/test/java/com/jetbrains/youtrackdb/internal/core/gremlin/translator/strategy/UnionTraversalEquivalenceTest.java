@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMa
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -626,43 +625,59 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * The two per-payload list shapers translate as a post-union suffix and return native's multiset.
-   * Applying such a stage once over the concatenation and once per arm give the same payloads
-   * whichever order the arms arrived in, which is the whole reason they are allowed here where
-   * {@code fold} and {@code tail} are not.
+   * A post-union {@code unfold()} translates and carries its stage into the multi-plan result. See
+   * {@link #assertPostUnionStageSurvives} for what the case is discriminating against.
+   */
+  @Test
+  public void postUnionUnfold_translatesAndCarriesItsStage() {
+    seedKnowsChain();
+    assertPostUnionStageSurvives(
+        "unfold", () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).unfold());
+  }
+
+  /**
+   * A post-union {@code reverse()} translates and carries its stage into the multi-plan result. The
+   * sibling of {@link #postUnionUnfold_translatesAndCarriesItsStage}, written as its own test so a
+   * regression in one shaper still reports the other's verdict.
+   */
+  @Test
+  public void postUnionReverse_translatesAndCarriesItsStage() {
+    seedKnowsChain();
+    assertPostUnionStageSurvives(
+        "reverse", () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).reverse());
+  }
+
+  /**
+   * Asserts that {@code shape} — a union carrying one per-payload list shaper as its suffix —
+   * translates to a multi-plan carrier, carries its stage onto that carrier, and returns native's
+   * multiset. Applying such a stage once over the concatenation and once per arm give the same
+   * payloads whichever order the arms arrived in, which is the whole reason these two shapers are
+   * allowed here where {@code fold} and {@code tail} are not.
    *
    * <p>The multiset comparison alone would be weak — over {@code ELEMENT} payloads both stages are
    * pass-throughs, so a dropped stage would return the same rows — so the walk-level assertion is
    * what makes the case discriminating: the stage must survive into the multi-plan result the
    * boundary reads, not merely fail to break the answer.
+   *
+   * @param label the shaper's name, interpolated into every failure message so a red run names the
+   *     case that produced it
    */
-  @Test
-  public void postUnionUnfoldAndReverse_translateAndCarryTheirStage() {
-    seedKnowsChain();
+  private void assertPostUnionStageSurvives(String label, Supplier<GraphTraversal<?, ?>> shape) {
+    var walked = GremlinStepWalker.production().walk(shape.get().asAdmin());
+    assertThat(walked).as("g.V().union(...)." + label + "() must translate").isNotNull();
+    assertThat(walked.isMultiPlan())
+        .as("g.V().union(...)." + label
+            + "() must translate to a multi-plan carrier, not a single plan")
+        .isTrue();
+    assertThat(walked.shaping().listShapingOps())
+        .as("the " + label
+            + " stage must reach the multi-plan result, or the boundary applies nothing")
+        .hasSize(1);
 
-    for (var each : List.of(
-        Map.entry("unfold",
-            (Supplier<GraphTraversal<?, ?>>) () -> graph.traversal().V()
-                .union(__.out("knows"), __.in("knows")).unfold()),
-        Map.entry("reverse", (Supplier<GraphTraversal<?, ?>>) () -> graph.traversal().V()
-            .union(__.out("knows"), __.in("knows")).reverse()))) {
-
-      var walked = GremlinStepWalker.production().walk(each.getValue().get().asAdmin());
-      assertThat(walked)
-          .as("g.V().union(...)." + each.getKey() + "() must translate")
-          .isNotNull();
-      assertThat(walked.isMultiPlan())
-          .as("a union translates to a multi-plan carrier, not a single plan")
-          .isTrue();
-      assertThat(walked.shaping().listShapingOps())
-          .as("the suffix stage must reach the multi-plan result, or the boundary applies nothing")
-          .hasSize(1);
-
-      assertEquivalent(
-          "g.V().union(out(knows), in(knows))." + each.getKey() + "()",
-          Recognition.RECOGNIZED_MULTI_PLAN,
-          each.getValue());
-    }
+    assertEquivalent(
+        "g.V().union(out(knows), in(knows))." + label + "()",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        shape);
   }
 
   /**
@@ -675,8 +690,11 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
    * pre-fork look-ahead, the counted ones at the walker's list-shaping gate — so a change that
    * disarmed either would still leave this test red.
    *
-   * <p>The chain is eight vertices deep so that both arms are wide: over a three-vertex chain a
-   * {@code tail(3)} would keep everything and the shape would agree with native by accident.
+   * <p>All four cases expect {@code DECLINED}, and on that branch both sides run the same native
+   * pipeline, so the seed's width changes nothing about what these assertions can see. The chain is
+   * eight vertices deep for the regression instead: if a gate stopped refusing these shapes, wide
+   * arms make the divergence visible, where over a three-vertex chain a {@code tail(3)} would keep
+   * everything and the translated answer would agree with native by accident.
    */
   @Test
   public void postUnionFoldAndTail_decline() {
@@ -708,6 +726,14 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
    * {@code unfold} pair is coverage lost rather than a wrong answer avoided — {@code ListShapingOp}
    * carries no op-type discriminator, so the gate cannot tell the diverging stages from the
    * harmless ones and refuses all of them.
+   *
+   * <p>Both spellings here are over-determined, so a green run is not evidence that the arm gate
+   * itself works: each arm's recogniser appends a fresh op instance per recognition, so the two
+   * arms' shapings already compare unequal at the projection-contract check that sits below the
+   * gate, and either check alone declines. What this test pins is the observable end-to-end
+   * behaviour for two real spellings. {@code
+   * GremlinStepWalkerTest.union_childCarryingAListShapingStage_declines_evenWhenTheArmsAgreeOnIt} is
+   * the white-box witness that pins the gate.
    */
   @Test
   public void unionArmCarryingAListShapingStage_declines() {

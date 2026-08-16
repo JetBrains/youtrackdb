@@ -34,9 +34,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepPlaceholder;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.ReverseStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.UnfoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
@@ -1652,11 +1655,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   @Test
   public void everyPostUnionRecogniserStatesItsOwnPositionalAnswer() {
     for (var recogniser : GremlinStepWalker.POST_UNION_RECOGNISERS) {
-      var declaresOwn =
-          Arrays.stream(recogniser.getClass().getDeclaredMethods())
-              .anyMatch(m -> m.getName().equals("selectsPositionally"));
-
-      assertThat(declaresOwn)
+      assertThat(declaresOwnPositionalAnswer(recogniser))
           .as(
               recogniser.getClass().getSimpleName()
                   + " is on the post-union allow-list, so it must override selectsPositionally"
@@ -1673,13 +1672,28 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * handing back a window of the right size holding different rows than native's.
    *
    * <p>Each answer is read off a step the DSL built, so a recogniser that inspected the step and
-   * answered conditionally would be exercised rather than bypassed.
+   * answered conditionally would be exercised rather than bypassed. The three steps are taken by
+   * index, and each index is checked against the type its recogniser dispatches on — otherwise a
+   * wrong index would be invisible today, because all three recognisers currently ignore their
+   * argument, and would start mattering silently the moment one of them stopped. This is a custom
+   * TinkerPop fork whose step list carries placeholder variants beside their plain forms, so the
+   * mapping from a DSL call to a step position is not a fixed property of upstream TinkerPop.
    */
   @Test
   public void listShapingMembersOfThePostUnionAllowList_answerThePositionalQuestion() {
-    var unfold = graph.traversal().V().unfold().asAdmin().getSteps().get(1);
-    var reverse = graph.traversal().V().values("name").reverse().asAdmin().getSteps().get(2);
-    var tail = graph.traversal().V().tail(2).asAdmin().getSteps().get(1);
+    Step<?, ?> unfold = graph.traversal().V().unfold().asAdmin().getSteps().get(1);
+    Step<?, ?> reverse = graph.traversal().V().values("name").reverse().asAdmin().getSteps().get(2);
+    Step<?, ?> tail = graph.traversal().V().tail(2).asAdmin().getSteps().get(1);
+    assertThat(unfold)
+        .as("fixture premise: the step handed to UnfoldStepRecogniser must be the unfold")
+        .isInstanceOf(UnfoldStep.class);
+    assertThat(reverse)
+        .as("fixture premise: the step handed to ReverseStepRecogniser must be the reverse")
+        .isInstanceOf(ReverseStep.class);
+    assertThat(tail)
+        .as("fixture premise: the step handed to TailGlobalStepRecogniser must be a tail; matched"
+            + " on the contract, which covers the placeholder spelling too")
+        .isInstanceOf(TailGlobalStepContract.class);
 
     assertThat(UnfoldStepRecogniser.INSTANCE.selectsPositionally(unfold))
         .as("expanding a payload reads no position, so the two arrival orders agree")
@@ -1707,12 +1721,24 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .as("a bare post-union fold must be refused on membership, before any positional question")
         .doesNotContain(FoldStepRecogniser.INSTANCE);
 
-    var declaresOwn =
-        Arrays.stream(FoldStepRecogniser.INSTANCE.getClass().getDeclaredMethods())
-            .anyMatch(m -> m.getName().equals("selectsPositionally"));
-    assertThat(declaresOwn)
-        .as("off the allow-list, the question is never asked, so the interface default stands")
+    assertThat(declaresOwnPositionalAnswer(FoldStepRecogniser.INSTANCE))
+        .as("off the allow-list, the question is never asked, so the interface default stands."
+            + " Adding an override here is a design change rather than an omission being fixed:"
+            + " it also needs FoldStepRecogniser on POST_UNION_RECOGNISERS and this assertion"
+            + " retired, so revisit the reason the allow-list javadoc records before doing either")
         .isFalse();
+  }
+
+  /**
+   * Whether {@code recogniser} declares {@code selectsPositionally} itself rather than inheriting
+   * the {@link StepRecogniser} default. Shared by the allow-list's presence tripwire and the fold
+   * recogniser's absence tripwire, which read the same fact in opposite directions: with the method
+   * name in one place, renaming it on the interface turns the presence test red instead of turning
+   * the absence test vacuously green.
+   */
+  private static boolean declaresOwnPositionalAnswer(StepRecogniser recogniser) {
+    return Arrays.stream(recogniser.getClass().getDeclaredMethods())
+        .anyMatch(m -> m.getName().equals("selectsPositionally"));
   }
 
   /**
@@ -1730,6 +1756,94 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .doesNotContain(VertexStepRecogniser.INSTANCE);
 
     assertThat(VertexStepRecogniser.INSTANCE.selectsPositionally(hop)).isFalse();
+  }
+
+  /**
+   * The dispatch loop's post-union gate refuses a positional member on its own, without help from
+   * the pre-fork look-ahead. No traversal can witness this: {@link UnionStepRecogniser} calls the
+   * look-ahead before it ever arms the union carrier, so on every real path the look-ahead has
+   * already declined {@code union(...).tail(3)} by the time dispatch would see the {@code tail}.
+   * The fixture arms the carrier from a start recogniser instead, which is the state a future change
+   * to the fork path could produce without the look-ahead having run — and if the in-loop gate
+   * checked membership alone, the {@code tail} would be admitted, append its window, and ship a
+   * positional window riding a branch-major concatenation.
+   *
+   * <p>The control walks the same traversal on a registry that arms no carrier and translates, so
+   * the decline is attributable to the gate rather than to {@code tail(3)} being untranslatable
+   * here.
+   */
+  @Test
+  public void walk_positionalMemberBehindAUnionCarrier_declinesOnTheInLoopGateAlone() {
+    var tailClass = graph.traversal().V().tail(3).asAdmin().getSteps().get(1).getClass();
+    var control =
+        new GremlinStepWalker(
+            Map.of(
+                GraphStep.class, StartStepRecogniser.INSTANCE,
+                tailClass, TailGlobalStepRecogniser.INSTANCE));
+    assertThat(control.walk(graph.traversal().V().tail(3).asAdmin()))
+        .as("control: g.V().tail(3) translates on this registry when no union carrier is armed")
+        .isNotNull();
+
+    var gated =
+        new GremlinStepWalker(
+            Map.of(
+                GraphStep.class, startThenArmsTheUnionCarrier(),
+                tailClass, TailGlobalStepRecogniser.INSTANCE));
+
+    assertThat(gated.walk(graph.traversal().V().tail(3).asAdmin()))
+        .as("a member that selects positionally needs an immediate count() behind it, and there is"
+            + " none, so the walk declines")
+        .isNull();
+  }
+
+  /**
+   * The positive control for the gate above: a member that selects no position is admitted behind
+   * the same armed carrier and carries its stage into the multi-plan result. Without it the decline
+   * above would pass against a gate that refused every post-union step, or against a fixture whose
+   * carrier broke the walk for an unrelated reason.
+   */
+  @Test
+  public void walk_nonPositionalMemberBehindAUnionCarrier_translatesAndCarriesItsStage() {
+    var walker =
+        new GremlinStepWalker(
+            Map.of(
+                GraphStep.class, startThenArmsTheUnionCarrier(),
+                UnfoldStep.class, UnfoldStepRecogniser.INSTANCE));
+
+    var result = walker.walk(graph.traversal().V().unfold().asAdmin());
+
+    assertThat(result)
+        .as("unfold treats each payload alone, so the positional condition does not apply to it")
+        .isNotNull();
+    assertThat(result.isMultiPlan())
+        .as("fixture premise: the armed carrier must produce a multi-plan translation")
+        .isTrue();
+    assertThat(result.shaping().listShapingOps())
+        .as("the admitted member's stage must reach the multi-plan result")
+        .hasSize(1);
+  }
+
+  /**
+   * Fixture recogniser that claims the start step and then arms the union carrier with two copies of
+   * a real single-plan child, standing in for a {@link UnionStepRecogniser} accept that reached
+   * {@code stashAcceptedChildren} without the pre-fork look-ahead having vetted the suffix. Real
+   * plan inputs rather than hand-built ones, for the reason {@link #singlePlanTemplate} gives.
+   */
+  private StepRecogniser startThenArmsTheUnionCarrier() {
+    var template = singlePlanTemplate();
+    return (cursor, ctx) -> {
+      var base = StartStepRecogniser.INSTANCE.recognize(cursor, ctx);
+      if (base == Outcome.DECLINE) {
+        return Outcome.DECLINE;
+      }
+      var host = ctx.unionForkHost();
+      Assert.assertNotNull("fixture premise: the walk must install a union fork host", host);
+      host.stashAcceptedChildren(
+          List.of(template.inputs(), template.inputs()),
+          List.of(Map.of(), Map.of()),
+          List.of(true, true));
+      return Outcome.ACCEPTED;
+    };
   }
 
   /**
