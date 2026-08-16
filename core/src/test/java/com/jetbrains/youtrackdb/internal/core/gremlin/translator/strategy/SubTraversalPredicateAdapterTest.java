@@ -42,10 +42,10 @@ import org.junit.Test;
  *   <li><b>The list-shaping decline channel</b> — {@code supportsListShaping()} answers {@code false}
  *       without delegating the parent's {@code true}, {@code carriesListShapingOp()} answers {@code
  *       false} without delegating a parent that does carry a stage, and {@code appendListShapingOp}
- *       throws instead of swallowing. These are driven against a real {@link WalkerContext} parent used as a
- *       positive control: Mockito answers {@code false} to every unstubbed {@code boolean}, so a
- *       mocked parent would make the pair agree for the wrong reason. No sub-walk runs here, so the
- *       parent needs no registry.
+ *       throws instead of swallowing. These are driven against a real {@link WalkerContext} parent
+ *       used as a positive control: Mockito answers {@code false} to every unstubbed {@code boolean},
+ *       so a mocked parent would make each pair agree for the wrong reason. No sub-walk runs here, so
+ *       the parent needs no registry.
  * </ul>
  */
 public class SubTraversalPredicateAdapterTest {
@@ -488,7 +488,8 @@ public class SubTraversalPredicateAdapterTest {
   // ---------------------------------------------------------------------------
   // List-shaping decline channel — driven against a real WalkerContext parent
   // used as a positive control, because a mocked parent answers false to every
-  // unstubbed boolean. Neither test drives a sub-walk, so no registry is needed.
+  // unstubbed boolean. No test in this block drives a sub-walk, so no registry
+  // is needed.
   // ---------------------------------------------------------------------------
 
   /**

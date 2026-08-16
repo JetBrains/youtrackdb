@@ -418,10 +418,11 @@ final class GremlinStepWalker {
       Map<Class<?>, StepRecogniser> recognisers,
       int childScopeBoundary) {
     Step<?, ?> head;
-    // The drain half of the list-shaping rule (see mayFollowListShaping): set once a shaper the
-    // may-follow allow-list does not admit has claimed a step, after which nothing may follow it.
-    // Walker-local rather than read off the context because ListShapingOp carries no op-type
-    // discriminator, so the claiming recogniser's membership is the only classification the loop has.
+    // The drain half of the list-shaping rule (see mayFollowListShaping): set once a recogniser that
+    // is not a per-payload shaper has claimed a step while a stage was captured, after which nothing
+    // may follow it. Walker-local rather than read off the context because ListShapingOp carries no
+    // op-type discriminator, so the claiming recogniser's membership is the only classification the
+    // loop has.
     boolean afterListShapingDrain = false;
     while (true) {
       // Read the position before peek(), because peek() advances past any transparent steps at the
@@ -455,15 +456,23 @@ final class GremlinStepWalker {
         return false;
       }
       // Single-plan list-shaping gate (see capturedListShapingOp and mayFollowListShaping). Once a
-      // terminator has appended a stream stage, only the per-payload shapers may claim a further
-      // step, and nothing at all may claim one behind a drain or a window — every other
+      // terminator has appended a stream stage, only a per-payload shaper or a drain may claim a
+      // further step, and nothing at all may claim one behind a drain or a window — every other
       // contribution rides the statement, which MATCH applies before the stage runs.
       if (capturedListShapingOp(ctx)
           && !mayFollowListShaping(
-              recogniser, afterListShapingDrain, POST_LIST_SHAPING_RECOGNISERS)) {
+              recogniser,
+              afterListShapingDrain,
+              LIST_SHAPING_PER_PAYLOAD_RECOGNISERS,
+              LIST_SHAPING_DRAIN_RECOGNISERS)) {
         return false;
       }
       int positionBefore = cursor.position();
+      // Read beside positionBefore for the invariant asserted after the call: a recogniser the gate
+      // admitted behind a captured stage contributes through appendListShapingOp and never replaces
+      // the shaping wholesale, which would erase the stage it was admitted behind (see
+      // LIST_SHAPING_PER_PAYLOAD_RECOGNISERS for why that is a membership condition).
+      boolean carriedListShapingOpBefore = capturedListShapingOp(ctx);
       Outcome outcome = recogniser.recognize(cursor, ctx);
       if (outcome == Outcome.DECLINE) {
         return false;
@@ -479,13 +488,25 @@ final class GremlinStepWalker {
       if (cursor.position() <= positionBefore) {
         return false;
       }
-      // Latch the drain half of the list-shaping rule. The recogniser that just ran appended a stage
-      // the allow-list does not admit, so it drains or windows the stream and nothing may follow it —
-      // gate the next iteration on that rather than on the op, which carries no discriminator. A
-      // recogniser outside the allow-list that appends nothing leaves the latch alone; a union
-      // recogniser whose agreed child shaping carried ops arms it, which is the fail-closed
-      // direction.
-      if (capturedListShapingOp(ctx) && !POST_LIST_SHAPING_RECOGNISERS.contains(recogniser)) {
+      // A recogniser admitted behind a captured stage must leave that stage in place. Dropping it —
+      // which any setResultShaping call does, since the replace covers listShapingOps — disarms the
+      // gate in the same instant, so the walk would keep claiming steps and buildResult would ship a
+      // shaping with the stage gone and no decline anywhere. Unreachable while both allow-lists are
+      // empty; the assert is the net for whoever populates them.
+      assert !carriedListShapingOpBefore || capturedListShapingOp(ctx)
+          : "recogniser for "
+              + head.getClass().getSimpleName()
+              + " was admitted behind a captured list-shaping stage and dropped it";
+      // Latch the drain half of the list-shaping rule: arm unless the recogniser that just ran is a
+      // per-payload shaper, because everything else that can hold a stage drains or windows the
+      // stream and nothing may follow it. Gate the next iteration on that rather than on the op,
+      // which carries no discriminator. The classification is exact because the gate above runs
+      // before the recogniser: reaching here with a stage captured means either this recogniser
+      // appended it, or the gate admitted the recogniser as one of the two list-shaping kinds. A
+      // recogniser that appends while on neither list is latched as a drain, which is the fail-closed
+      // direction, and so is a union recogniser whose agreed child shaping carried ops.
+      if (capturedListShapingOp(ctx)
+          && !LIST_SHAPING_PER_PAYLOAD_RECOGNISERS.contains(recogniser)) {
         afterListShapingDrain = true;
       }
       // Advance the fold latch, mirroring YTDBGraphStepStrategy.rebuildTraversal's isTraversalStart:
@@ -617,8 +638,9 @@ final class GremlinStepWalker {
    * {@code .fold().count()} and {@code .unfold().dedup()} are the same defect with a different
    * clause: the clause bounds, sorts or counts the rows the stage was meant to consume.
    *
-   * <p>{@link #POST_LIST_SHAPING_RECOGNISERS} holds the exceptions and argues each one, and {@link
-   * #mayFollowListShaping} is the two-input rule the loop applies to them.
+   * <p>{@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} and {@link #LIST_SHAPING_DRAIN_RECOGNISERS} hold
+   * the exceptions and argue each one, and {@link #mayFollowListShaping} is the rule the loop applies
+   * to them.
    *
    * <p>Like its cardinality twin, this gate lives in the loop rather than in the terminator
    * recognisers: a recogniser added later inherits it without being told, where a per-recogniser
@@ -631,63 +653,99 @@ final class GremlinStepWalker {
   }
 
   /**
-   * The only recognisers allowed to claim a step once {@link #capturedListShapingOp} holds — the
-   * per-payload list shapers, whose entire contribution is one more stage on the same stream the
-   * captured stage reshaped. Empty until those recognisers exist; the membership rule below is what
-   * the field carries in the meantime, and an empty allow-list is the fail-closed reading of it.
+   * The per-payload list shapers — {@code unfold} and {@code reverse} — which may claim a step once
+   * {@link #capturedListShapingOp} holds and whose own stage another one may in turn follow. Empty
+   * until those recognisers exist; the membership conditions below are what the field carries in the
+   * meantime, and an empty set is the fail-closed reading of them.
    *
-   * <p>Membership asks what {@link #POST_CARDINALITY_RECOGNISERS} asks — can this recogniser change
-   * the row set, its order, or its multiplicity as the statement sees it — and the four list-shaping
-   * terminators split on it:
+   * <p>The first condition is what {@link #POST_CARDINALITY_RECOGNISERS} asks — can this recogniser
+   * change the row set, its order, or its multiplicity as the statement sees it. These two cannot:
+   * each is one more stage on the payload stream the captured stage reshaped, {@code
+   * applyListShaping} runs it in declared order behind that stage, and that is where Gremlin runs it
+   * too. {@code reverse().unfold()} and {@code unfold().reverse()} are both accepted for that reason,
+   * and stay observably different shapes because the carrier is ordered. Every recogniser outside
+   * this field and {@link #LIST_SHAPING_DRAIN_RECOGNISERS} writes into the statement, which MATCH
+   * applies before the boundary base builds the stream a stage reshapes — {@link
+   * #capturedListShapingOp} carries the measured shapes.
    *
-   * <ul>
-   *   <li>{@code unfold} and {@code reverse} belong here. Each is a per-payload stage: it changes the
-   *       payload stream and touches no clause, {@code applyListShaping} runs it in declared order
-   *       behind the stage already captured, and that is where Gremlin runs it too. {@code
-   *       reverse().unfold()} and {@code unfold().reverse()} are both accepted for that reason, and
-   *       stay observably different shapes because the carrier is ordered.
-   *   <li>{@code fold} and {@code tail} stay out. A drain takes N payloads to one and a window takes
-   *       them to a bounded few, so a stage behind either reshapes an output the user never wrote a
-   *       stage for. Excluding them is what makes "a drain or a window is the traversal's last step"
-   *       mechanical rather than a rule four recognisers have to remember — and it is only half of
-   *       that; {@link #mayFollowListShaping} carries the other half.
-   *   <li>Every other recogniser writes into the statement, which MATCH applies before the boundary
-   *       base builds the stream a stage reshapes. {@link #capturedListShapingOp} carries the
-   *       measured shapes.
-   * </ul>
+   * <p>The second condition is specific to this gate: a member contributes through {@link
+   * RecognitionContext#appendListShapingOp} only, and never calls {@link
+   * RecognitionContext#setResultShaping}. That call replaces the whole record, {@code
+   * listShapingOps} included, so it erases the very stage the gate admitted the member behind — and
+   * because the gate reads whether ops exist, it disarms in the same instant and the loss produces no
+   * decline anywhere. The three pure projections on the cardinality allow-list each rebuild from
+   * {@code ResultShaping.NONE}, so they fail this second condition even though they pass the first:
+   * the two allow-lists are not interchangeable. {@link #dispatchAll} asserts the surviving stage
+   * after every accept, so a member that breaks the condition fails loudly under {@code -ea} rather
+   * than shipping a shaping with the stage silently gone.
    */
-  private static final Set<StepRecogniser> POST_LIST_SHAPING_RECOGNISERS = Set.of();
+  static final Set<StepRecogniser> LIST_SHAPING_PER_PAYLOAD_RECOGNISERS = Set.of();
+
+  /**
+   * The list-shaping drains and windows — {@code fold} and {@code tail} — which may claim a step once
+   * {@link #capturedListShapingOp} holds but which nothing may follow. Empty until those recognisers
+   * exist, and bound by both membership conditions on {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS}.
+   *
+   * <p>A drain takes N payloads to one and a window takes them to a bounded few, so a stage behind
+   * either reshapes an output the user never wrote a stage for: {@code fold().unfold()} and {@code
+   * fold().tail(3)} decline. The rule bites only on what comes after a drain. {@code
+   * reverse().fold()} folds the reversed payloads, which is what Gremlin does with that spelling too,
+   * so the drain is admitted here and {@link #dispatchAll}'s latch refuses whatever comes after it.
+   * Two fields rather than one is what lets the gate say both things: a
+   * single allow-list read by the gate and the latch alike would either decline {@code
+   * reverse().fold()} or admit {@code fold().unfold()}, since one membership answer cannot mean
+   * "may follow" at the gate and "is a drain" at the latch.
+   *
+   * <p>A drain never reaches a post-union suffix, which is worth writing down because {@link
+   * #POST_UNION_RECOGNISERS} looks like a place to add one. {@code union(...).fold().count()} and
+   * {@code union(...).tail(1).count()} both need {@code count} to claim a step behind the captured
+   * stage, and {@code count} writes {@code count(*)} into the statement, so this gate declines them
+   * however that allow-list is populated. The decline is the right answer — {@code count(*)} rides
+   * the statement and would count the concatenation's rows rather than the one drained payload — so
+   * widening either allow-list to make the shape translate ships a wrong scalar instead of fixing
+   * anything.
+   */
+  static final Set<StepRecogniser> LIST_SHAPING_DRAIN_RECOGNISERS = Set.of();
 
   /**
    * The rule {@link #dispatchAll} applies once a list-shaping stage is captured: {@code recogniser}
-   * may claim the step at the head only when the allow-list admits it <em>and</em> no drain or window
-   * has claimed a step already.
+   * may claim the step at the head only when it is one of the two list-shaping kinds <em>and</em> no
+   * drain or window has claimed a step already.
    *
-   * <p>Two inputs, because the allow-list alone cannot express both halves of the composition rule.
-   * {@code mayFollow} says which recognisers contribute another stage rather than a statement clause
-   * ({@link #POST_LIST_SHAPING_RECOGNISERS} argues each membership). {@code afterDrain} says whether
-   * a stage already captured drains or windows the stream, in which case nothing may follow it at
-   * all: without that term {@code fold().unfold()} would translate, because an allow-listed {@code
-   * unfold} would be admitted behind the drain on membership alone. {@link
+   * <p>Three inputs, because a membership answer alone cannot express both halves of the composition
+   * rule. {@code perPayloadShapers} and {@code drains} together say which recognisers contribute
+   * another stage rather than a statement clause, and the two fields argue their own memberships.
+   * {@code afterDrain} says whether a stage already captured drains or windows the stream, in which
+   * case nothing may follow it at all: without that term {@code fold().unfold()} would translate,
+   * because {@code unfold} is per-payload and passes the membership test behind the drain.
+   *
+   * <p>The gate reads both sets and the latch reads only {@code perPayloadShapers}, which is the
+   * whole reason they are two sets. The latch arms unless the recogniser that just ran is a
+   * per-payload shaper, so a drain is admitted behind a stage ({@code reverse().fold()}) and still
+   * stops the walk from claiming anything after it ({@code fold().unfold()}). {@link
    * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp} carries no op-type
    * discriminator, so the claiming recogniser's own membership is the classification the loop latches
    * on — which also makes the latch fail closed for a shaper added later: a recogniser that appends
-   * without joining the allow-list is treated as a drain.
+   * while on neither list is treated as a drain.
    *
-   * <p>Package-private and allow-list-parameterised rather than reading the field so both rows of the
-   * rule can be asserted over a synthetic set. The production allow-list is empty until the
-   * per-payload shapers land, so no traversal shape reaches the admit branch yet and a unit test
-   * against this method is the only net the rule has — the reason {@link #bindPathItemConstraints}
-   * is package-private as well.
+   * <p>Package-private and set-parameterised rather than reading the fields so every row of the rule
+   * can be asserted over synthetic sets. The production sets are empty until the terminators land, so
+   * no traversal shape reaches the admit branch yet and a unit test against this method is the only
+   * net the rule has — the reason {@link #bindPathItemConstraints} is package-private as well.
    *
    * @param recogniser the recogniser dispatch selected for the head's exact runtime class
-   * @param afterDrain whether a stage the allow-list does not admit has already claimed a step
-   * @param mayFollow the recognisers whose contribution is another stage on the same stream
+   * @param afterDrain whether a drain or a window has already claimed a step
+   * @param perPayloadShapers see {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS}
+   * @param drains see {@link #LIST_SHAPING_DRAIN_RECOGNISERS}
    * @return {@code true} when the recogniser may claim the step behind the captured stages
    */
   static boolean mayFollowListShaping(
-      StepRecogniser recogniser, boolean afterDrain, Set<StepRecogniser> mayFollow) {
-    return !afterDrain && mayFollow.contains(recogniser);
+      StepRecogniser recogniser,
+      boolean afterDrain,
+      Set<StepRecogniser> perPayloadShapers,
+      Set<StepRecogniser> drains) {
+    return !afterDrain
+        && (perPayloadShapers.contains(recogniser) || drains.contains(recogniser));
   }
 
   /**

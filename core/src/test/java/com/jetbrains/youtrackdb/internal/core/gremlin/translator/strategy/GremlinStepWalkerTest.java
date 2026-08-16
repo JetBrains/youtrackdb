@@ -74,9 +74,9 @@ import org.junit.Test;
  *       distinct, per-context sequences.
  *   <li><b>The captured-state gates</b> — the post-union allow-list with its positional second axis,
  *       and the list-shaping last-step gate: a step dispatched behind a captured stream stage
- *       declines, while the step that captured the stage translates, and the two-input may-follow
- *       rule is asserted directly because no production traversal shape reaches its admit branch
- *       yet.
+ *       declines, while the step that captured the stage translates, and the may-follow rule over its
+ *       two membership sets is asserted directly because no production traversal shape reaches its
+ *       admit branch yet.
  * </ul>
  */
 public class GremlinStepWalkerTest extends GraphBaseTest {
@@ -673,10 +673,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // List-shaping last-step gate — the loop refuses a step dispatched behind a
-  // captured stream stage. Driven with fixture recognisers because the four
-  // terminators that append a stage do not exist yet, so no production
-  // traversal shape reaches the gate.
+  // List-shaping last-step gate, at the loop level — the walk refuses a step
+  // dispatched behind a captured stream stage. Driven with fixture recognisers
+  // because the four terminators that append a stage do not exist yet, so no
+  // production traversal shape reaches the gate. These two break if the gate's
+  // call site in dispatchAll moves or its polarity flips.
   // ---------------------------------------------------------------------------
 
   /**
@@ -732,47 +733,94 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .isNull();
   }
 
+  // ---------------------------------------------------------------------------
+  // The same gate at the rule level — mayFollowListShaping called directly with
+  // synthetic sets, because the production sets are empty and no traversal shape
+  // reaches the admit branch yet. No walker, traversal or context is built here:
+  // these two break only if the rule's own boolean algebra changes.
+  // ---------------------------------------------------------------------------
+
   /**
-   * The membership row of the list-shaping rule, asserted over a synthetic allow-list because the
-   * production one is empty until the per-payload shapers land. A recogniser on the list contributes
-   * another stage on the same stream, so it may claim a step behind a captured stage; every other
-   * recogniser writes into the statement, which MATCH applies before the stage runs, so it may not.
+   * The membership row of the list-shaping rule: both list-shaping kinds may claim a step behind a
+   * captured stage, and nothing else may. A per-payload shaper and a drain each contribute another
+   * stage on the same stream, so each lands where Gremlin puts it; every other recogniser writes into
+   * the statement, which MATCH applies before the stage runs, so it lands on the wrong side. The drain
+   * assertion is the one the two-set split exists for: {@code reverse().fold()} folds the reversed
+   * payloads, so the drain-is-last rule bites only on what comes after the drain.
    */
   @Test
-  public void mayFollowListShaping_admitsOnlyTheAllowListedShapers() {
-    // Stand-ins for the two kinds of recogniser the rule distinguishes; the rule reads identity
-    // against the allow-list, never the outcome, so an accepting body is enough for both.
-    StepRecogniser perPayloadShaper = (cursor, ctx) -> Outcome.ACCEPTED;
-    StepRecogniser clauseWriter = (cursor, ctx) -> Outcome.ACCEPTED;
-    Set<StepRecogniser> mayFollow = Set.of(perPayloadShaper);
+  public void mayFollowListShaping_admitsBothShapingKindsAndNothingElse() {
+    assertThat(GremlinStepWalker.LIST_SHAPING_PER_PAYLOAD_RECOGNISERS)
+        .as("premise: no production recogniser is admitted yet, so these sets stand in for it")
+        .isEmpty();
+    assertThat(GremlinStepWalker.LIST_SHAPING_DRAIN_RECOGNISERS)
+        .as("premise: no production drain is admitted yet either")
+        .isEmpty();
+    // Stand-ins for the three kinds of recogniser the rule distinguishes. The rule reads identity
+    // against the sets, never the outcome, so an accepting body is enough for all three; the tags
+    // are what make an AssertionError name which one was admitted.
+    StepRecogniser perPayloadShaper = taggedRecogniser("per-payload shaper");
+    StepRecogniser drain = taggedRecogniser("drain");
+    StepRecogniser clauseWriter = taggedRecogniser("clause writer");
+    Set<StepRecogniser> perPayload = Set.of(perPayloadShaper);
+    Set<StepRecogniser> drains = Set.of(drain);
 
-    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, false, mayFollow))
+    assertThat(
+        GremlinStepWalker.mayFollowListShaping(perPayloadShaper, false, perPayload, drains))
         .as("a per-payload shaper contributes one more stage on the same stream")
         .isTrue();
-    assertThat(GremlinStepWalker.mayFollowListShaping(clauseWriter, false, mayFollow))
-        .as("a recogniser off the list writes into the statement and lands on the wrong side")
+    assertThat(GremlinStepWalker.mayFollowListShaping(drain, false, perPayload, drains))
+        .as("a drain may sit behind a per-payload stage; being last is the rule it must satisfy")
+        .isTrue();
+    assertThat(GremlinStepWalker.mayFollowListShaping(clauseWriter, false, perPayload, drains))
+        .as("a recogniser on neither set writes into the statement and lands on the wrong side")
         .isFalse();
   }
 
   /**
-   * The drain row of the rule, and the reason the loop needs a latch on top of the allow-list: once a
-   * drain or a window has claimed a step, nothing may follow it — not even an allow-listed shaper.
-   * Membership alone would admit {@code fold().unfold()}, because {@code unfold} is per-payload and
-   * would pass the allow-list behind the drain. The second assertion is the control: the same
-   * recogniser and the same allow-list with the latch clear answer {@code true}, so the refusal above
-   * is the latch's doing rather than a mis-built set.
+   * The drain row of the rule, and the reason the loop needs a latch on top of the membership test:
+   * once a drain or a window has claimed a step, nothing may follow it — not the other drain, and not
+   * a per-payload shaper either. Membership alone would admit {@code fold().unfold()}, because {@code
+   * unfold} is per-payload and passes the test behind the drain. The last assertion is the control:
+   * the same recogniser and the same sets with the latch clear answer {@code true}, so the refusals
+   * above are the latch's doing rather than a mis-built set.
    */
   @Test
-  public void mayFollowListShaping_refusesAnAllowListedShaperBehindADrain() {
-    StepRecogniser perPayloadShaper = (cursor, ctx) -> Outcome.ACCEPTED;
-    Set<StepRecogniser> mayFollow = Set.of(perPayloadShaper);
+  public void mayFollowListShaping_refusesEveryShapingKindBehindADrain() {
+    StepRecogniser perPayloadShaper = taggedRecogniser("per-payload shaper");
+    StepRecogniser drain = taggedRecogniser("drain");
+    Set<StepRecogniser> perPayload = Set.of(perPayloadShaper);
+    Set<StepRecogniser> drains = Set.of(drain);
 
-    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, true, mayFollow))
-        .as("nothing follows a drain or a window, however the allow-list answers")
+    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, true, perPayload, drains))
+        .as("a per-payload stage behind a drain reshapes an output nobody wrote a stage for")
         .isFalse();
-    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, false, mayFollow))
+    assertThat(GremlinStepWalker.mayFollowListShaping(drain, true, perPayload, drains))
+        .as("a second drain behind the first is refused for the same reason")
+        .isFalse();
+    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, false, perPayload, drains))
         .as("control: the same recogniser is admitted while no drain has claimed a step")
         .isTrue();
+  }
+
+  /**
+   * Fixture recogniser that accepts without touching the cursor, carrying {@code tag} as its {@code
+   * toString()}. The list-shaping rule reads recogniser identity against its two sets, so the
+   * stand-ins in the tests above are told apart only by instance — the tag is what puts that identity
+   * in the source and in any {@link AssertionError} instead of a synthetic lambda class name.
+   */
+  private static StepRecogniser taggedRecogniser(String tag) {
+    return new StepRecogniser() {
+      @Override
+      public Outcome recognize(StepCursor cursor, RecognitionContext ctx) {
+        return Outcome.ACCEPTED;
+      }
+
+      @Override
+      public String toString() {
+        return tag;
+      }
+    };
   }
 
   /**

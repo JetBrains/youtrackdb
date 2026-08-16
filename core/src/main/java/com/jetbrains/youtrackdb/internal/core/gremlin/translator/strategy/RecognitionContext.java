@@ -355,13 +355,16 @@ interface RecognitionContext extends ParamSink {
    * recognisers that use that method — a later {@code setResultShaping} still overwrites every op
    * appended before it.
    *
-   * <p>Two rules keep the write paths from colliding, and both are enforced. A list-shaping
-   * terminator is accepted only as the traversal's last step, so no flag-pinning terminator can
-   * follow one: {@link GremlinStepWalker}'s dispatch loop declines any step dispatched behind a
-   * captured op unless its may-follow allow-list admits the claiming recogniser, and no
-   * flag-pinning recogniser is on that list. The gate is armed rather than exercised for now — no
-   * recogniser appends an op yet — so the rule holds by the gate rather than by the absence of a
-   * caller. The second rule is {@link UnionStepRecogniser} calling this with the agreed child
+   * <p>Two rules keep the write paths from colliding, and both are enforced. Nothing may claim a step
+   * behind a captured op unless {@link GremlinStepWalker}'s may-follow allow-lists admit the claiming
+   * recogniser, and membership there requires that the recogniser contribute through {@link
+   * #appendListShapingOp} alone — so no caller of this method can sit behind a captured op, and the
+   * walker asserts the op's survival after every accept rather than trusting the membership. The rule
+   * is stated as the gate applies it because a list-shaping terminator may follow another one
+   * ({@code reverse().unfold()}, {@code reverse().fold()}): the gate forbids a step behind a captured
+   * op and says nothing about where a terminator sits. The gate is armed rather than exercised for
+   * now — no recogniser appends an op yet — so the rule holds by the gate rather than by the absence
+   * of a caller. The second rule is {@link UnionStepRecogniser} calling this with the agreed child
    * shaping before any post-union suffix op appends, so on that path the replace always precedes
    * the append.
    */
@@ -435,7 +438,7 @@ interface RecognitionContext extends ParamSink {
    * Whether a {@link ListShapingOp} has already been appended to the shaping pinned so far. {@link
    * GremlinStepWalker}'s dispatch loop reads it as the last-step gate for the four list-shaping
    * terminators: a step dispatched behind a captured op is refused unless the walker's may-follow
-   * allow-list admits the recogniser claiming it. Declared non-default for the same reason {@link
+   * allow-lists admit the recogniser claiming it. Declared non-default for the same reason {@link
    * #supportsListShaping()} is — both implementations state an answer rather than inherit one.
    *
    * <p>{@code GremlinStepWalker}'s own {@code capturedListShapingOp} carries why the rule is the

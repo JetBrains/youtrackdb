@@ -12,9 +12,10 @@ import org.junit.Test;
 /**
  * Verifies the walker's result-shaping foundation — {@code DISTINCT}, {@code GROUP BY},
  * order/pagination clauses, boundary drop flags, and the ordered list-shaping op carrier —
- * defaults cleanly, answers the list-shaping query a terminator reads before it contributes, and
- * accepts recogniser writes through both write paths: the full replace ({@code setResultShaping})
- * and the append ({@code appendListShapingOp}).
+ * defaults cleanly, answers both list-shaping queries (the one a terminator reads before it
+ * contributes and the one the walker's dispatch loop reads as its last-step gate), and accepts
+ * recogniser writes through both write paths: the full replace ({@code setResultShaping}) and the
+ * append ({@code appendListShapingOp}).
  */
 public class WalkerContextResultShapingTest {
 
