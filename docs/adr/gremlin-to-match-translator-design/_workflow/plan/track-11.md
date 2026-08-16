@@ -14,9 +14,14 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-08-16T12:22Z [ctx=safe] Step 1 complete (commit `52c21476ae`). The list-shaping seam plus its decline channel; the step-level loop ran `bugs` and `test-structure`, eight findings and no blockers, all eight VERIFIED at gate-check iteration 2. BG1's track-file half landed as an orchestrator correction (`3514bddb93`): the combinator witness is now `g.V().not(__.out().fold())`, because the planned `and` / `where` spellings decline at the pre-existing edge-bearing-child gate under either design.
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-08-16T12:22Z Step 1 discovered: the `and` / `where` combinator spellings decline at the pre-existing edge-bearing-child gate under the swallow alternative too, so `g.V().not(__.out().fold())` is the only combinator witness that discriminates, and the failure direction flips per combinator — rows lost under `and` / `where`, gained under `not`. Steps 5 and 7 build their witnesses from this. See Episodes §Step 1.
+
+- 2026-08-16T12:22Z Step 1 discovered: a union arm answers `supportsListShaping()` true today, because `UnionForkHostImpl.walkFork` walks the arm through a fresh `WalkerContext`; only per-call lambda identity keeps `agreedShaping.equals(...)` from agreeing, so step 5's explicit non-empty-`listShapingOps` gate is load-bearing before any op becomes a singleton. See Episodes §Step 1.
 
 - **Item 7's harness has two failing assertions at HEAD, not one, and the second was declined out from under it by Track 9 (orchestrator measurement, 2026-08-04).** The two out-of-band commits were cherry-picked onto this branch at the user's direction to end their local-only exposure (R14), then reverted because Phase A must not edit test code; both stay reachable at `43907ff312` and `deb8e72ee9`, and item 7's Phase B step re-applies them. `./mvnw -pl core,jmh-ldbc -am -o test -Dtest=LdbcGremlinShapeTranslationTest` gives **17 tests, 0 failures, 2 errors**. The first is the documented one: `…out(KNOWS).values(firstName).fold()` finds 0 boundary steps because `FoldStep` has no registry entry, and the step list shows `FoldStep` surviving natively — items 2–3's own deliverable, exactly as item 7 predicted. **The second is not predicted anywhere:** `…out(KNOWS).order().by(firstName).range(1, 3).values(firstName)` also finds 0, with the step list ending `OrderGlobalStep, RangeGlobalStep, PropertiesStep`. The harness was written on `ffb57fe5cf`, which is mid-Track-9, and Track 9's later steps widened a slice-after-sort decline underneath it. So item 7's claim that three of its four shapes are green on both arms is stale, and its assertion set must be re-derived against the final tree rather than trusted — which is the concrete form of the warning DR-S1 gave this track about planning against a moved surface.
 
@@ -121,7 +126,7 @@ flowchart LR
 
 ## Concrete Steps
 
-1. Add the `RecognitionContext` list-shaping seam — `appendListShapingOp` plus a **non-default** `supportsListShaping()`, copying `dropsRowsOnAbsentProperty`'s query-plus-decline shape; implement on `WalkerContext` over `ResultShaping.withListShapingOps`, override `false` on `SubTraversalPredicateAdapter` with its rationale javadoc, and correct the stale "seven flags" / "a terminator replaces it through `setResultShaping`" wording on `RecognitionContext.setResultShaping` and `WalkerContext.shaping` (item 1) — risk: high (architecture / cross-component coordination: an interface contract both context implementations and all four later recognisers depend on, and the decline channel every subsequent step reads)  [ ]
+1. Add the `RecognitionContext` list-shaping seam — `appendListShapingOp` plus a **non-default** `supportsListShaping()`, copying `dropsRowsOnAbsentProperty`'s query-plus-decline shape; implement on `WalkerContext` over `ResultShaping.withListShapingOps`, override `false` on `SubTraversalPredicateAdapter` with its rationale javadoc, and correct the stale "seven flags" / "a terminator replaces it through `setResultShaping`" wording on `RecognitionContext.setResultShaping` and `WalkerContext.shaping` (item 1) — risk: high (architecture / cross-component coordination: an interface contract both context implementations and all four later recognisers depend on, and the decline channel every subsequent step reads)  [x]  commit: 52c21476ae
 2. Add the walker-level last-step gate — a `capturedListShapingOp` in-loop fail-closed check in `GremlinStepWalker.dispatchAll` modelled on `capturedCardinalityClause`, with the may-follow allow-list (per-payload ops may follow a shaper, drains and windows must be last) and a javadoc arguing each membership on whether the recogniser can change the row set, its order, or its multiplicity (items 4a, 4b) — risk: high (architecture / cross-component coordination: a dispatch gate every future recogniser inherits silently; a wrong membership is a silent wrong multiset under a default-on switch)  [ ]
 3. Add the `FoldStep` recogniser and its drain op, declining `!isListFold()` (the seeded reduce), a `false` `supportsListShaping()`, and any non-last position through step 2's gate rather than a local check (item 2) — risk: medium (new recogniser changing observable behavior of the translator component; no HIGH trigger once the gate and seam are in place)  [ ]
 4. Add the `unfold` / `reverse` / `tail` recognisers and their three ops — `unfold` honouring all five `UnfoldStep.flatMap` arms with a cross-call pending buffer, `reverse` as a per-value transform mirroring `ReverseStep.map`, `tail` registered from `TailGlobalStepContract.CONCRETE_STEPS` with `n=0` emitting nothing and `n<0` declining; settle the `getLimitAsGValue` / `isVariable()` pinning question here rather than deferring it (items 3, A17) — risk: medium (three new recognisers plus ops in one module; no HIGH trigger)  [ ]
@@ -136,6 +141,63 @@ flowchart LR
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 52c21476ae, 2026-08-16T12:22Z [ctx=safe]
+**What was done:** The seam landed as `0eaf97ad07`: `appendListShapingOp` plus a
+non-default `supportsListShaping()` on `RecognitionContext`, implemented on
+`WalkerContext` over `ResultShaping.withListShapingOps` and overridden `false` on
+`SubTraversalPredicateAdapter`, with the stale `setResultShaping` / `WalkerContext.shaping`
+wording corrected. 728/728 `core` tests green, 86.9% line and 72.8% branch coverage on the
+cumulative branch diff. The step-level review loop ran two dimensions (`review-bugs` as the
+baseline, `review-test-structure` because the changed tests lean on Mockito parent-context
+fixtures) and produced eight findings, no blockers. `52c21476ae` fixed all eight: the
+decline-channel rationale is now stated once on `RecognitionContext#supportsListShaping()`
+and linked from the three other sites, the worked example is the reachable
+`g.V().not(__.out().fold())`, `setResultShaping`'s last-step rule reads as the constraint
+the terminators are being built under rather than an enforced guarantee, the union fork is
+named as a third true-answering context, the adapter test carries a third layer divider and
+class-javadoc entry for the list-shaping tests, `WalkerContextResultShapingTest` pins the
+production `true` itself, and the order assertion's two ops carry distinguishing
+`toString`s. Gate check at iteration 2: eight VERIFIED, both dimensions PASS.
+
+**What was discovered:** The `and` / `where` combinator spellings this track planned to use
+as swallow witnesses are over-determined declines. `AndStepRecogniser` declines through
+`ConnectiveStepSupport.anyEdgeBearing` before a child's `fold()` can matter, and `or` /
+`where` / `filter` decline the same way through `commitPositiveFilterChild`, so both the
+seam and the swallow alternative answer them identically — a result comparison over either
+passes under the bug it was cited for. `NotStepRecogniser` (lines 85-116) accepts an
+edge-bearing child as a detached anti-join, which makes `g.V().not(__.out().fold())` the one
+combinator spelling whose answers differ: native returns nothing, a swallowed append returns
+every sink vertex. The failure direction therefore flips per combinator — a missed decline
+loses rows under `and` / `where` and gains them under `not` — so step 7's witnesses cannot
+share one "fewer rows" assertion shape. Two facts for step 5: `UnionForkHostImpl.walkFork`
+builds a fresh `WalkerContext` through `GremlinStepWalker.production().walk(...)`, so a union
+arm answers `supportsListShaping()` true today, and only per-call lambda identity keeps
+`agreedShaping.equals(...)` from agreeing — the explicit non-empty-`listShapingOps` gate is
+load-bearing before any op becomes a singleton. No cross-track impact: Track 11 is the last
+track, and every observation lands on steps 3, 5 and 7 of this track.
+
+**What changed from the plan:** BG1's second half was a track-file correction the
+implementer may not make, so the orchestrator applied it as `3514bddb93`. Item 5's decline
+roster and the `## Validation and Acceptance` combinator bullet now name
+`g.V().not(__.out().fold())` and demote the `and` / `where` pair to coverage; the A14 note's
+item (a) covers the `and(__.out().fold())` twin alongside the `where(__.out().tail(1))` one
+it already named; and DR-T2 carries a dated bracketed correction deferring to the interface
+javadoc for both the example and the direction. Affected future steps: step 5 (the union and
+combinator gates) and step 7 (the terminator tests, which build their witnesses from this
+roster).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/RecognitionContext.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/SubTraversalPredicateAdapter.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/WalkerContext.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/SubTraversalPredicateAdapterTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/WalkerContextResultShapingTest.java` (modified)
+
+**Critical context:** Both review agents fell back to grep because `steroid_execute_code`
+times out in this repo, and `review-bugs` ran no tests, so every reference-accuracy claim
+above rests on grep plus direct source reads. The fix implementer re-verified BG1's and
+BG2's control-flow claims against the source before acting on them.
 
 ## Validation and Acceptance
 - `fold()` drains the whole payload stream into one `List` payload (empty input → one empty list) with no `BoundaryOutputType` constant added; `unfold()` flat-maps across all five `UnfoldStep.flatMap` arms, `Map → entrySet()` and scalar → one-element included; `reverse()` transforms the per-traverser value without reordering the stream; `tail(n)` keeps the last `n` in arrival order (`n=0` → nothing, `n<0` → decline; the `TailGlobalStepPlaceholder` form is recognised). All match native.
