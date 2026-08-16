@@ -23,6 +23,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepPlaceholder;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
@@ -40,9 +41,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ProjectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.ReverseStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SumGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.UnfoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
@@ -200,42 +203,73 @@ final class GremlinStepWalker {
    *       {@link GroupCountStepRecogniser}.
    *   <li><b>Branch</b> — {@link UnionStepRecogniser} for mid-traversal {@code union(c1, …, cN)},
    *       emitting a multi-plan translation when every child agrees on the projection contract.
-   *   <li><b>List shaping</b> — {@link FoldStepRecogniser} claims the list form of {@link FoldStep}
-   *       and registers a drain stage on the shaping rather than a clause on the statement; the
-   *       seeded-reduce form of the same class declines.
+   *   <li><b>List shaping</b> — the four terminators register an ordered stage on the shaping rather
+   *       than a clause on the statement: {@link FoldStepRecogniser} claims the list form of {@link
+   *       FoldStep} (the seeded-reduce form of the same class declines), {@link UnfoldStepRecogniser}
+   *       and {@link ReverseStepRecogniser} claim their per-payload steps, and {@link
+   *       TailGlobalStepRecogniser} claims both forms {@link TailGlobalStepContract#CONCRETE_STEPS}
+   *       enumerates.
    * </ul>
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
-      Map.ofEntries(
-          Map.entry(GraphStep.class, StartStepRecogniser.INSTANCE),
-          Map.entry(VertexStep.class, VertexStepRecogniser.INSTANCE),
-          Map.entry(VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE),
-          Map.entry(HasStep.class, HasStepRecogniser.INSTANCE),
-          Map.entry(TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE),
-          Map.entry(AndStep.class, AndStepRecogniser.INSTANCE),
-          Map.entry(OrStep.class, OrStepRecogniser.INSTANCE),
-          Map.entry(NotStep.class, NotStepRecogniser.INSTANCE),
-          Map.entry(WhereTraversalStep.class, WhereTraversalStepRecogniser.INSTANCE),
-          Map.entry(WherePredicateStep.class, WherePredicateStepRecogniser.INSTANCE),
-          Map.entry(DedupGlobalStep.class, DedupGlobalStepRecogniser.INSTANCE),
-          Map.entry(PropertiesStep.class, PropertiesStepRecogniser.INSTANCE),
-          Map.entry(PropertyMapStep.class, PropertyMapStepRecogniser.INSTANCE),
-          Map.entry(ElementMapStep.class, ElementMapStepRecogniser.INSTANCE),
-          Map.entry(SelectOneStep.class, SelectOneStepRecogniser.INSTANCE),
-          Map.entry(SelectStep.class, SelectStepRecogniser.INSTANCE),
-          Map.entry(ProjectStep.class, ProjectStepRecogniser.INSTANCE),
-          Map.entry(OrderGlobalStep.class, OrderGlobalStepRecogniser.INSTANCE),
-          Map.entry(RangeGlobalStep.class, RangeGlobalStepRecogniser.INSTANCE),
-          Map.entry(RangeGlobalStepPlaceholder.class, RangeGlobalStepRecogniser.INSTANCE),
-          Map.entry(CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE),
-          Map.entry(SumGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
-          Map.entry(MinGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
-          Map.entry(MaxGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
-          Map.entry(MeanGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
-          Map.entry(GroupStep.class, GroupStepRecogniser.INSTANCE),
-          Map.entry(GroupCountStep.class, GroupCountStepRecogniser.INSTANCE),
-          Map.entry(UnionStep.class, UnionStepRecogniser.INSTANCE),
-          Map.entry(FoldStep.class, FoldStepRecogniser.INSTANCE));
+      productionRecognisers();
+
+  /**
+   * Builds the production registry: the literal entries below plus one per {@code tail} form.
+   *
+   * <p>The {@code tail} entries come from {@link TailGlobalStepContract#CONCRETE_STEPS} rather than from
+   * two hand-written literals, because the fork owns that enumeration — it is the same list TinkerPop's
+   * own placeholder-aware machinery reads, so a third form added upstream reaches this registry instead
+   * of silently declining. {@code RangeGlobalStepContract} and {@code VertexStepContract} carry the same
+   * constant and their entries below are still literal; converting them is a mechanical change with no
+   * behavioural effect while each contract enumerates exactly the two classes already listed.
+   */
+  private static Map<Class<?>, StepRecogniser> productionRecognisers() {
+    var byStepClass = new LinkedHashMap<Class<?>, StepRecogniser>(literalRecogniserEntries());
+    for (Class<?> tailForm : TailGlobalStepContract.CONCRETE_STEPS) {
+      var previous = byStepClass.put(tailForm, TailGlobalStepRecogniser.INSTANCE);
+      assert previous == null
+          : "the registry keys one recogniser per step class, but a tail form was already claimed by "
+              + previous;
+    }
+    return Map.copyOf(byStepClass);
+  }
+
+  /** The registry entries written as literals, keyed one recogniser per exact step class. */
+  private static Map<Class<?>, StepRecogniser> literalRecogniserEntries() {
+    return Map.ofEntries(
+        Map.entry(GraphStep.class, StartStepRecogniser.INSTANCE),
+        Map.entry(VertexStep.class, VertexStepRecogniser.INSTANCE),
+        Map.entry(VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE),
+        Map.entry(HasStep.class, HasStepRecogniser.INSTANCE),
+        Map.entry(TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE),
+        Map.entry(AndStep.class, AndStepRecogniser.INSTANCE),
+        Map.entry(OrStep.class, OrStepRecogniser.INSTANCE),
+        Map.entry(NotStep.class, NotStepRecogniser.INSTANCE),
+        Map.entry(WhereTraversalStep.class, WhereTraversalStepRecogniser.INSTANCE),
+        Map.entry(WherePredicateStep.class, WherePredicateStepRecogniser.INSTANCE),
+        Map.entry(DedupGlobalStep.class, DedupGlobalStepRecogniser.INSTANCE),
+        Map.entry(PropertiesStep.class, PropertiesStepRecogniser.INSTANCE),
+        Map.entry(PropertyMapStep.class, PropertyMapStepRecogniser.INSTANCE),
+        Map.entry(ElementMapStep.class, ElementMapStepRecogniser.INSTANCE),
+        Map.entry(SelectOneStep.class, SelectOneStepRecogniser.INSTANCE),
+        Map.entry(SelectStep.class, SelectStepRecogniser.INSTANCE),
+        Map.entry(ProjectStep.class, ProjectStepRecogniser.INSTANCE),
+        Map.entry(OrderGlobalStep.class, OrderGlobalStepRecogniser.INSTANCE),
+        Map.entry(RangeGlobalStep.class, RangeGlobalStepRecogniser.INSTANCE),
+        Map.entry(RangeGlobalStepPlaceholder.class, RangeGlobalStepRecogniser.INSTANCE),
+        Map.entry(CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE),
+        Map.entry(SumGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+        Map.entry(MinGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+        Map.entry(MaxGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+        Map.entry(MeanGlobalStep.class, PropertyAggregateStepRecogniser.INSTANCE),
+        Map.entry(GroupStep.class, GroupStepRecogniser.INSTANCE),
+        Map.entry(GroupCountStep.class, GroupCountStepRecogniser.INSTANCE),
+        Map.entry(UnionStep.class, UnionStepRecogniser.INSTANCE),
+        Map.entry(FoldStep.class, FoldStepRecogniser.INSTANCE),
+        Map.entry(UnfoldStep.class, UnfoldStepRecogniser.INSTANCE),
+        Map.entry(ReverseStep.class, ReverseStepRecogniser.INSTANCE));
+  }
 
   /**
    * The only recognisers allowed to claim a step <em>after</em> {@link UnionStepRecogniser} has
@@ -500,11 +534,10 @@ final class GremlinStepWalker {
       // A recogniser admitted behind a captured stage must leave that stage in place. Dropping it —
       // which any setResultShaping call does, since the replace covers listShapingOps — disarms the
       // gate in the same instant, so the walk would keep claiming steps and buildResult would ship a
-      // shaping with the stage gone and no decline anywhere. Still unreachable: an accept behind a
-      // captured stage has to clear the gate's admit branch, which nothing does while
-      // LIST_SHAPING_PER_PAYLOAD_RECOGNISERS is empty. The assert and the decline below are the net for
-      // whoever populates that set, paired the way
-      // this file's other recogniser-contract invariants are — the assert names the bug under -ea, the
+      // shaping with the stage gone and no decline anywhere. Unreachable while every member of the two
+      // allow-lists honours its append-only membership condition, which none breaks today — so the
+      // assert and the decline below are the net for whoever adds the member that does, paired the way
+      // this file's other recogniser-contract invariants are: the assert names the bug under -ea, the
       // decline keeps a -da build on the native pipeline instead of shipping a clobbered shaping.
       boolean listShapingStagesSurvived = listShapingOpsSurvived(opsBefore, ctx.listShapingOps());
       assert listShapingStagesSurvived
@@ -673,9 +706,7 @@ final class GremlinStepWalker {
 
   /**
    * The per-payload list shapers — {@code unfold} and {@code reverse} — which may claim a step once
-   * {@link #capturedListShapingOp} holds and whose own stage another one may in turn follow. Empty
-   * until those recognisers exist; the membership conditions below are what the field carries in the
-   * meantime, and an empty set is the fail-closed reading of them.
+   * {@link #capturedListShapingOp} holds and whose own stage another one may in turn follow.
    *
    * <p>The first condition is what {@link #POST_CARDINALITY_RECOGNISERS} asks — can this recogniser
    * change the row set, its order, or its multiplicity as the statement sees it. These two cannot:
@@ -698,23 +729,20 @@ final class GremlinStepWalker {
    * the field's word — it compares the captured ops before and after every accept through {@link
    * #listShapingOpsSurvived}, so a member that breaks it fails loudly under {@code -ea} and declines
    * the walk under {@code -da} rather than shipping a shaping with the stage silently gone.
+   *
+   * <p>Both members satisfy the two conditions. {@code UnfoldStepRecogniser} appends a flat-map stage
+   * and {@code ReverseStepRecogniser} appends a per-payload value transform; neither writes a clause,
+   * a RETURN column or a boundary pin, and neither calls {@code setResultShaping}.
    */
-  static final Set<StepRecogniser> LIST_SHAPING_PER_PAYLOAD_RECOGNISERS = Set.of();
+  static final Set<StepRecogniser> LIST_SHAPING_PER_PAYLOAD_RECOGNISERS =
+      Set.of(UnfoldStepRecogniser.INSTANCE, ReverseStepRecogniser.INSTANCE);
 
   /**
    * The list-shaping drains and windows — {@code fold} and {@code tail} — which may claim a step once
-   * {@link #capturedListShapingOp} holds but which nothing may follow. {@link FoldStepRecogniser} is
-   * the one member so far; the {@code tail} recogniser joins it when it lands. Both membership
-   * conditions on {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} hold for the fold: its whole
+   * {@link #capturedListShapingOp} holds but which nothing may follow. Both membership
+   * conditions on {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} hold for both members: the whole
    * contribution is one more stage on the payload stream rather than a clause on the statement, and it
-   * makes that contribution through {@link RecognitionContext#appendListShapingOp} alone.
-   *
-   * <p>No traversal shape reaches the admit branch through this member yet. Being admitted here
-   * requires a stage already captured with {@link #dispatchAll}'s drain latch still clear, which takes
-   * a per-payload shaper ahead of the fold — and that set is still empty. A second {@code fold} behind
-   * the first is refused by the latch rather than by membership, so the branch stays unreachable until
-   * {@code unfold} / {@code reverse} land. A unit test against {@link #mayFollowListShaping} is the
-   * only net the rule has in the meantime.
+   * is made through {@link RecognitionContext#appendListShapingOp} alone.
    *
    * <p>A drain takes N payloads to one and a window takes them to a bounded few, so a stage behind
    * either reshapes an output the user never wrote a stage for: {@code fold().unfold()} and {@code
@@ -736,7 +764,7 @@ final class GremlinStepWalker {
    * anything.
    */
   static final Set<StepRecogniser> LIST_SHAPING_DRAIN_RECOGNISERS =
-      Set.of(FoldStepRecogniser.INSTANCE);
+      Set.of(FoldStepRecogniser.INSTANCE, TailGlobalStepRecogniser.INSTANCE);
 
   /**
    * The rule {@link #dispatchAll} applies once a list-shaping stage is captured: {@code recogniser}
@@ -760,10 +788,10 @@ final class GremlinStepWalker {
    * while on neither list is treated as a drain.
    *
    * <p>Package-private and set-parameterised rather than reading the fields so every row of the rule
-   * can be asserted over synthetic sets. Reaching the admit branch takes a stage captured ahead of the
-   * claiming recogniser with the latch still clear, which no traversal shape can arrange while {@link
-   * #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} is empty — so a unit test against this method is the only
-   * net the rule has, the reason {@link #bindPathItemConstraints} is package-private as well.
+   * can be asserted over synthetic sets — the reason {@link #bindPathItemConstraints} is
+   * package-private as well. Production traversals reach the admit branch ({@code reverse().fold()} is
+   * one) and the refusals ({@code fold().unfold()}), so the rule is driven end to end too; the
+   * synthetic-set tests are what keep each row attributable to this method rather than to a membership.
    *
    * @param recogniser the recogniser dispatch selected for the head's exact runtime class
    * @param afterDrain whether a drain or a window has already claimed a step
@@ -804,10 +832,10 @@ final class GremlinStepWalker {
    * <p>{@link ListShapingOp} has no value equality, so the comparison is by reference: the ops that
    * were there must be the same instances, not merely equal-looking ones.
    *
-   * <p>Package-private rather than private for the reason {@link #mayFollowListShaping} is: an accept
-   * behind a captured stage has to clear that gate's admit branch first, which no traversal shape
-   * reaches while {@link #LIST_SHAPING_PER_PAYLOAD_RECOGNISERS} is empty, so the in-loop check cannot
-   * be driven end to end — a unit test against this method is the only net it has.
+   * <p>Package-private rather than private for the reason {@link #mayFollowListShaping} is: the
+   * violating shape needs a member of one of the two allow-lists that breaks its own append-only
+   * condition, which no member does, so the in-loop check's {@code false} arm cannot be driven from a
+   * traversal — a unit test against this method is the only net it has.
    *
    * @param before the ops the context carried when the recogniser was dispatched
    * @param after the ops it carries now

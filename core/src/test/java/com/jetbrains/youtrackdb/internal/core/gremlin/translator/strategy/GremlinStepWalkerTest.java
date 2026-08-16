@@ -681,10 +681,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   // ---------------------------------------------------------------------------
   // List-shaping last-step gate, at the loop level — the walk refuses a step
-  // dispatched behind a captured stream stage. Driven with fixture recognisers
-  // because the four terminators that append a stage do not exist yet, so no
-  // production traversal shape reaches the gate. These two break if the gate's
-  // call site in dispatchAll moves or its polarity flips.
+  // dispatched behind a captured stream stage. Driven with fixture recognisers so
+  // the gate's call site and polarity are pinned independently of which production
+  // recogniser appends a stage; the terminators' own tests cover the production
+  // shapes. These two break if the gate's call site in dispatchAll moves or its
+  // polarity flips.
   // ---------------------------------------------------------------------------
 
   /**
@@ -742,9 +743,12 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   // ---------------------------------------------------------------------------
   // The same gate at the rule level — mayFollowListShaping called directly with
-  // synthetic sets, because the production sets are empty and no traversal shape
-  // reaches the admit branch yet. No walker, traversal or context is built here:
-  // these two break only if the rule's own boolean algebra changes.
+  // synthetic sets, so each row of the rule is attributable to this method rather
+  // than to which recogniser happens to be on which production set. No walker,
+  // traversal or context is built here: these two break only if the rule's own
+  // boolean algebra changes. The end-to-end counterparts live in
+  // UnfoldReverseTailRecogniserTest, which drives the admit branch through
+  // reverse().fold() and the refusals through fold().unfold().
   // ---------------------------------------------------------------------------
 
   /**
@@ -758,13 +762,15 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   @Test
   public void mayFollowListShaping_admitsBothShapingKindsAndNothingElse() {
     assertThat(GremlinStepWalker.LIST_SHAPING_PER_PAYLOAD_RECOGNISERS)
-        .as("premise: no production per-payload shaper exists, so no traversal shape can reach the "
-            + "admit branch and the synthetic sets below have to stand in for the production ones")
-        .isEmpty();
+        .as("premise: the two per-payload shapers, so the synthetic sets below stand in for a "
+            + "production membership rather than for an empty one")
+        .containsExactlyInAnyOrder(
+            UnfoldStepRecogniser.INSTANCE, ReverseStepRecogniser.INSTANCE);
     assertThat(GremlinStepWalker.LIST_SHAPING_DRAIN_RECOGNISERS)
-        .as("premise: the fold drain is the only production member, and being admitted takes a "
-            + "per-payload stage ahead of it — which the empty set above rules out")
-        .containsExactly(FoldStepRecogniser.INSTANCE);
+        .as("premise: the two drains — the fold and the tail window — which the rule admits behind a "
+            + "per-payload stage and lets nothing follow")
+        .containsExactlyInAnyOrder(
+            FoldStepRecogniser.INSTANCE, TailGlobalStepRecogniser.INSTANCE);
     // Stand-ins for the three kinds of recogniser the rule distinguishes. The rule reads identity
     // against the sets, never the outcome, so an accepting body is enough for all three; the tags
     // are what make an AssertionError name which one was admitted.

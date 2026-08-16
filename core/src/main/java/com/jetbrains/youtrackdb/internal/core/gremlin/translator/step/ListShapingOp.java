@@ -15,10 +15,13 @@ import java.util.Iterator;
  * terminators register span three cardinality classes:
  *
  * <ul>
- *   <li><b>1&rarr;1 map</b> — one payload in, one payload out ({@code reverse} over a single
- *       list-valued payload).
- *   <li><b>1&rarr;N flat-map</b> — one payload in, several out ({@code unfold} expands a list
- *       payload into its elements).
+ *   <li><b>1&rarr;1 map</b> — one payload in, one payload out. {@code reverse} reverses each
+ *       payload's own value — a string's characters, a collection's or an array's elements — and
+ *       passes an unreversible payload through unchanged; it never reorders the stream.
+ *   <li><b>1&rarr;N flat-map</b> — one payload in, zero or more out. {@code unfold} expands an
+ *       iterator, an iterable, a map (into its <em>entries</em>) or an array element by element, and
+ *       emits any other payload as a single one, so {@code groupCount().unfold()} yields entries where
+ *       {@code g.V().unfold()} passes each vertex through.
  *   <li><b>N&rarr;1 / window drain</b> — several payloads in, one or a bounded window out ({@code
  *       fold} drains the whole stream into one list; {@code tail(n)} keeps the last {@code n}).
  * </ul>

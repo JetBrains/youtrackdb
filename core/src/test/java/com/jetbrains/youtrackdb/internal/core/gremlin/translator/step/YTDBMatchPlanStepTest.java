@@ -26,6 +26,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -1521,6 +1522,265 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
+   * The five arms {@code UnfoldStep.flatMap} classifies a payload into, driven on the production stage
+   * directly. Every arm is reachable through a live boundary output type, and three of the five are
+   * unreachable from a translated traversal today — no shape emits an iterator, a raw iterable or an
+   * array payload — so a direct test is the only net they have.
+   *
+   * <p>The map arm is the one worth pinning hardest: it expands into <em>entries</em>, where expanding
+   * into keys or into values would produce a payload count that matches on every fixture. The atomic
+   * arm is second: a stage that expanded only collection-shaped payloads would turn
+   * {@code g.V().unfold()} from an identity into an empty result.
+   */
+  @Test
+  public void unfoldFlatMapOp_classifiesEachPayloadTheWayNativeUnfoldDoes() {
+    assertThat(unfolded(List.of(1L, 2L).iterator()))
+        .as("an iterator is consumed as it stands")
+        .containsExactly(1L, 2L);
+    assertThat(unfolded(List.of("a", "b")))
+        .as("an iterable is expanded through its own iterator")
+        .containsExactly("a", "b");
+    assertThat(unfolded(new LinkedHashMap<>(java.util.Map.of("k", 7L))))
+        .as("a map expands into its entries, not its keys and not its values")
+        .containsExactly(java.util.Map.entry("k", 7L));
+    assertThat(unfolded(new Object[] {"x", "y"}))
+        .as("an object array expands element by element")
+        .containsExactly("x", "y");
+    assertThat(unfolded(new int[] {3, 4}))
+        .as("and a primitive array does too, boxing as native's reflective branch does")
+        .containsExactly(3, 4);
+    assertThat(unfolded(42L)).as("anything else is one payload, emitted unchanged").containsExactly(
+        42L);
+  }
+
+  /**
+   * Payloads the expansion has nothing to emit for are skipped rather than reported as exhaustion, and
+   * a null payload is emitted rather than throwing. The skip matters because an empty list between two
+   * non-empty ones would otherwise cut the stream short at the empty one — native emits nothing for
+   * such a traverser and moves on. The null is the one deliberate deviation from native, which reaches
+   * {@code value.getClass()} unguarded: null payloads are legitimate here, and the exception would
+   * surface mid-iteration where the strategy's throw-safety net can no longer decline.
+   */
+  @Test
+  public void unfoldFlatMapOp_skipsEmptyPayloadsAndEmitsNulls() {
+    var mixed = new ArrayList<>();
+    mixed.add(List.of());
+    mixed.add("kept");
+    mixed.add(null);
+    mixed.add(List.of("last"));
+
+    assertThat(drainOp(new UnfoldListShapingOp(), mixed.iterator()))
+        .as("the empty payload contributes nothing and does not end the stream")
+        .containsExactly("kept", null, "last");
+  }
+
+  /**
+   * The expansion is lazy: the first pull yields the first element of the first payload without
+   * touching the second payload. {@link ListShapingOp} asks a per-payload stage to preserve
+   * first-result latency, and a stage that expanded everything up front would satisfy every content
+   * assertion above while draining the whole projection on the first pull.
+   */
+  @Test
+  public void unfoldFlatMapOp_emitsTheFirstElementBeforePullingTheSecondPayload() {
+    var upstream = countingIterator(List.of(List.of("a1", "a2"), List.of("b1")));
+
+    var shaped = new UnfoldListShapingOp().apply(upstream.iterator);
+
+    assertThat(shaped.next()).isEqualTo("a1");
+    assertThat(upstream.pulls)
+        .as("one payload pulled to produce the first element, not both")
+        .isEqualTo(1);
+    assertThat(shaped.next()).isEqualTo("a2");
+    assertThat(upstream.pulls).as("the rest of the first payload costs no further pull")
+        .isEqualTo(1);
+    assertThat(shaped.next()).isEqualTo("b1");
+    assertThat(upstream.pulls).as("and the second payload is pulled only when needed").isEqualTo(2);
+  }
+
+  /**
+   * The four arms {@code ReverseStep.map} distinguishes, driven on the production stage directly. The
+   * load-bearing claim is the one the class exists for: the stage reverses each payload's own value and
+   * leaves the stream in arrival order, so five distinct payloads come back in the same positions
+   * carrying reversed contents. A stream reverse would return the five payloads unchanged in the
+   * opposite order, which matches on row count and on payload type.
+   */
+  @Test
+  public void reverseValueOp_reversesEachValueAndLeavesTheStreamOrderAlone() {
+    var payloads = new ArrayList<>();
+    payloads.add("abc");
+    payloads.add(List.of(1L, 2L, 3L));
+    payloads.add(List.of("i", "j").iterator());
+    payloads.add(null);
+    payloads.add(7L);
+
+    var reversed = drainOp(new ReverseListShapingOp(), payloads.iterator());
+
+    assertThat(reversed).as("one payload out per payload in, in arrival order").hasSize(5);
+    assertThat(reversed.get(0)).as("a string's characters are reversed").isEqualTo("cba");
+    assertThat(reversed.get(1))
+        .as("a collection becomes a list of its elements in reverse order")
+        .isEqualTo(List.of(3L, 2L, 1L));
+    assertThat(reversed.get(2))
+        .as("and so does an iterator, which becomes a list rather than staying an iterator")
+        .isEqualTo(List.of("j", "i"));
+    assertThat(reversed.get(3)).as("null maps to null").isNull();
+    assertThat(reversed.get(4)).as("and an unreversible payload passes through").isEqualTo(7L);
+  }
+
+  /**
+   * An array payload becomes a reversed {@link List} rather than a reversed array, which is native's
+   * answer and the one arm whose output type differs from its input type. Asserted separately from the
+   * arms above because a stage that reversed the array in place would satisfy an element-order
+   * assertion while mutating the payload the boundary emitted.
+   */
+  @Test
+  public void reverseValueOp_overAnArrayPayload_yieldsAReversedList() {
+    var array = new Object[] {"x", "y", "z"};
+    // A one-element list holding the array itself; List.of(array) would spread it into three payloads.
+    var payloads = new ArrayList<>();
+    payloads.add(array);
+
+    var reversed = drainOp(new ReverseListShapingOp(), payloads.iterator());
+
+    assertThat(reversed).singleElement().isEqualTo(List.of("z", "y", "x"));
+    assertThat(array).as("and the payload the boundary emitted is untouched").containsExactly("x",
+        "y", "z");
+  }
+
+  /**
+   * The window keeps the last {@code n} payloads in arrival order, which is the claim its ring buffer
+   * exists to make cheap. Five payloads through a window of two is the case that exercises eviction and
+   * the cursor rotation: an implementation keeping the first two, or one whose ring wrapped without
+   * rotating the read cursor, returns two payloads either way and only the contents tell them apart.
+   */
+  @Test
+  public void tailWindowOp_keepsTheLastPayloadsInArrivalOrder() {
+    assertThat(drainOp(new TailListShapingOp(2), List.<Object>of(1L, 2L, 3L, 4L, 5L).iterator()))
+        .as("the last two, in the order they arrived")
+        .containsExactly(4L, 5L);
+    assertThat(drainOp(new TailListShapingOp(3), List.<Object>of(1L, 2L, 3L, 4L, 5L).iterator()))
+        .as("a window whose size does not divide the row count rotates correctly too")
+        .containsExactly(3L, 4L, 5L);
+    assertThat(drainOp(new TailListShapingOp(9), List.<Object>of(1L, 2L).iterator()))
+        .as("a window wider than the stream returns the whole stream, unpadded")
+        .containsExactly(1L, 2L);
+    assertThat(drainOp(new TailListShapingOp(2), List.of().iterator()))
+        .as("and a dry stream returns nothing rather than a window of nulls")
+        .isEmpty();
+  }
+
+  /**
+   * A zero window emits nothing and still drains the upstream. Emitting nothing is native's answer —
+   * {@code TailGlobalStep} trims its deque back to the limit after each add — and the drain matters
+   * because the stage is a barrier: the rows behind it have to be consumed either way, and a stage that
+   * short-circuited would leave the plan's stream half-read.
+   */
+  @Test
+  public void tailWindowOp_withAZeroWindow_emitsNothingAndStillDrainsTheUpstream() {
+    var upstream = countingIterator(List.of(1L, 2L, 3L));
+
+    var shaped = new TailListShapingOp(0).apply(upstream.iterator);
+
+    assertThat(shaped.hasNext()).as("a zero window retains nothing").isFalse();
+    assertThat(upstream.pulls).as("but the upstream is consumed, as a barrier must").isEqualTo(3);
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(shaped::next);
+  }
+
+  /**
+   * Null payloads survive the window and keep their positions. This is the case an {@code ArrayDeque}
+   * ring — the obvious bounded deque, and what native uses over traversers — would turn into a
+   * {@link NullPointerException}, because it rejects null elements where a boundary payload may
+   * legitimately be null. Two nulls around a real payload is what makes a stage that silently dropped
+   * them visible: the window would come back short rather than merely different.
+   */
+  @Test
+  public void tailWindowOp_retainsNullPayloads() {
+    var payloads = new ArrayList<>();
+    payloads.add("dropped-by-the-window");
+    payloads.add(null);
+    payloads.add("kept");
+    payloads.add(null);
+
+    assertThat(drainOp(new TailListShapingOp(3), payloads.iterator()))
+        .as("the last three payloads, nulls included and in their arrival positions")
+        .containsExactly(null, "kept", null);
+  }
+
+  /**
+   * A negative window is rejected at construction rather than given a meaning. The recogniser declines
+   * {@code tail(-1)} so no traversal builds this stage, which is exactly why the constructor has to
+   * refuse: a future caller reaching it would otherwise get whatever the ring arithmetic happens to do
+   * with a negative size.
+   */
+  @Test
+  public void tailWindowOp_rejectsANegativeWindowAtConstruction() {
+    assertThatExceptionOfType(IllegalArgumentException.class)
+        .isThrownBy(() -> new TailListShapingOp(-1))
+        .withMessageContaining("-1");
+  }
+
+  /**
+   * The window rebuilds its ring on every arming, so a {@code reset()} and reopen windows the fresh
+   * projection instead of extending the previous arming's. One row per arming makes the two outcomes
+   * disjoint: a per-call ring gives {@code [5]} then {@code [6]}, while a ring held in a field would
+   * give {@code [5]} then {@code [5, 6]} — and that field is also what would make two concurrently
+   * iterated clones of one boundary hand each other's payloads back, since
+   * {@code AbstractStep.clone()} copies the shaping, and with it the stage, by reference.
+   */
+  @Test
+  public void listShaping_tailWindowOp_rebuildsItsRingOnReopen() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getPropertyNames()).thenReturn(List.of("c"));
+    when(row1.getProperty("c")).thenReturn(5L);
+    when(row2.getPropertyNames()).thenReturn(List.of("c"));
+    when(row2.getProperty("c")).thenReturn(6L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TailListShapingOp(2))));
+
+    Traverser.Admin<?> first = step.processNextStart();
+    assertThat(first.get()).isEqualTo(5L);
+
+    step.reset();
+
+    Traverser.Admin<?> second = step.processNextStart();
+    assertThat(second.get())
+        .as("the second arming windows only its own row; a field-held ring would carry the first's")
+        .isEqualTo(6L);
+  }
+
+  /**
+   * The production stages honour the {@link Iterator} contract past exhaustion: {@code hasNext()} stays
+   * {@code false} and {@code next()} throws. Driven on the stages directly because the boundary base
+   * never asks — it checks {@code hasNext()} and raises its own {@code FastNoSuchElementException} — so
+   * each stage's own guard has no other caller and would otherwise hand a null or a stale payload to
+   * anything that composed the stage differently.
+   */
+  @Test
+  public void listShapingOps_pastExhaustion_areSpentAndThrow() {
+    var unfold = new UnfoldListShapingOp().apply(List.<Object>of(List.of("only")).iterator());
+    assertThat(unfold.next()).isEqualTo("only");
+    assertThat(unfold.hasNext()).isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(unfold::next);
+
+    var reverse = new ReverseListShapingOp().apply(List.<Object>of("ab").iterator());
+    assertThat(reverse.next()).isEqualTo("ba");
+    assertThat(reverse.hasNext()).isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(reverse::next);
+
+    var tail = new TailListShapingOp(1).apply(List.<Object>of(1L, 2L).iterator());
+    assertThat(tail.next()).isEqualTo(2L);
+    assertThat(tail.hasNext()).isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(tail::next);
+  }
+
+  /**
    * The seven pre-existing {@code withX} builders each thread {@code listShapingOps} through as the
    * new constructor argument, so a previously-set op list must survive every one of them. This
    * asserts each builder carries a pre-set ops list forward unchanged — a copy-paste that passed an
@@ -1539,6 +1799,52 @@ public class YTDBMatchPlanStepTest {
     assertThat(base.withAccumulateMap(true).listShapingOps()).isEqualTo(ops);
     assertThat(base.withUnwrapSingletonMap(true).listShapingOps()).isEqualTo(ops);
     assertThat(base.withElementMapTokens(true).listShapingOps()).isEqualTo(ops);
+  }
+
+  /** Every payload {@code op} emits over {@code upstream}, in order, nulls included. */
+  private static List<Object> drainOp(ListShapingOp op, Iterator<Object> upstream) {
+    var emitted = new ArrayList<>();
+    op.apply(upstream).forEachRemaining(emitted::add);
+    return emitted;
+  }
+
+  /** The payloads {@link UnfoldListShapingOp} expands {@code payload} into. */
+  private static List<Object> unfolded(Object payload) {
+    var single = new ArrayList<>();
+    single.add(payload);
+    return drainOp(new UnfoldListShapingOp(), single.iterator());
+  }
+
+  /**
+   * An upstream iterator over {@code payloads} that counts how many payloads have been pulled, so a
+   * laziness claim can be asserted on the pull count rather than inferred from emission order.
+   */
+  private static CountingUpstream countingIterator(List<?> payloads) {
+    return new CountingUpstream(payloads);
+  }
+
+  /** Pull-counting upstream; see {@link #countingIterator}. */
+  private static final class CountingUpstream {
+
+    private int pulls;
+    private final Iterator<Object> iterator;
+
+    private CountingUpstream(List<?> payloads) {
+      var delegate = List.<Object>copyOf(payloads).iterator();
+      this.iterator =
+          new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+              return delegate.hasNext();
+            }
+
+            @Override
+            public Object next() {
+              pulls++;
+              return delegate.next();
+            }
+          };
+    }
   }
 
   /**
