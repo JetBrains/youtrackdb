@@ -355,10 +355,13 @@ interface RecognitionContext extends ParamSink {
    * recognisers that use that method — a later {@code setResultShaping} still overwrites every op
    * appended before it.
    *
-   * <p>Two rules keep the write paths from colliding. The list-shaping terminators are accepted
-   * only as the traversal's last step, so no flag-pinning terminator can follow one; and {@link
-   * UnionStepRecogniser} calls this with the agreed child shaping before any post-union suffix op
-   * appends, so on that path the replace always precedes the append.
+   * <p>Two rules keep the write paths from colliding, and only the second is enforced today. The
+   * list-shaping terminators are to be accepted only as the traversal's last step, so that no
+   * flag-pinning terminator can follow one. That rule is the constraint the terminators are being
+   * built under; the walker-side position gate that will enforce it is still to land, and nothing
+   * appends an op yet. The second rule holds now: {@link UnionStepRecogniser} calls this with the
+   * agreed child shaping before any post-union suffix op appends, so on that path the replace always
+   * precedes the append.
    */
   void setResultShaping(@Nonnull ResultShaping shaping);
 
@@ -392,20 +395,37 @@ interface RecognitionContext extends ParamSink {
    * #dropsRowsOnAbsentProperty()} — the same query-then-decline pairing, read by a recogniser
    * before it contributes rather than reported back after.
    *
-   * <p>The top-level walk answers {@code true}; a combinator child sub-walk answers {@code false},
-   * and that answer is the decline channel for all four list-shaping terminators. {@link
-   * #walkChild} drives {@code and} / {@code or} / {@code not} / {@code where} / {@code filter}
-   * children through the same recogniser registry the top-level walk uses, so a child's trailing
-   * {@code fold()} reaches the recogniser that would claim it at top level; with no boolean to
-   * read, that recogniser has no way to back out.
+   * <p>This javadoc is the canonical statement of why the pairing is a boolean. The other sites that
+   * touch the decline channel — {@link SubTraversalPredicateAdapter#supportsListShaping()}, {@link
+   * SubTraversalPredicateAdapter#appendListShapingOp}, and the tests that pin them — carry a one-line
+   * summary and link here, so a change to the decline design has one place to edit.
+   *
+   * <p>A context answers {@code true} when the shaping it holds is the one its own boundary base
+   * reads. Two contexts qualify: the top-level walk, and a union arm, which {@link
+   * UnionForkHostImpl#walkFork} runs as a fresh top-level walk over the recognised prefix plus the
+   * arm's own steps, with its own {@link WalkerContext}. A combinator child sub-walk answers
+   * {@code false}, and that answer is the decline channel for all four list-shaping terminators.
+   * {@link #walkChild} drives {@code and} / {@code or} / {@code not} / {@code where} /
+   * {@code filter} children through the same recogniser registry the top-level walk uses, so a
+   * child's trailing {@code fold()} reaches the recogniser that would claim it at top level; with no
+   * boolean to read, that recogniser has no way to back out. A union arm's {@code true} speaks only
+   * for that arm's own boundary: one list per arm and one list over the concatenated arms are
+   * different answers, so declining an arm that carries an op belongs in {@link
+   * UnionStepRecogniser}'s child loop rather than here.
    *
    * <p>Both simpler alternatives answer wrongly. Swallowing the append the way {@link
-   * SubTraversalPredicateAdapter} swallows {@link #setResultShaping} turns
-   * {@code g.V().and(__.out().fold())} into an existence filter that is always true — a dry
-   * upstream still emits one empty list — so rows disappear with nothing to see. Throwing out of
-   * the append (the shape {@link #appendPostConcatOp} uses) lands in
-   * {@link GremlinToMatchStrategy}'s {@code RuntimeException} net, which degrades it to the same
-   * silent decline minus the diagnostic.
+   * SubTraversalPredicateAdapter} swallows {@link #setResultShaping} lets the child's terminator
+   * accept while its stage is dropped, which changes the child's truth value. Take
+   * {@code g.V().not(__.out().fold())}: natively the {@code fold()} makes the child emit one result
+   * for every vertex — a dry upstream still emits one empty list — so the {@code not} rejects every
+   * vertex and the query returns nothing. With the append swallowed the child is a plain
+   * edge-bearing hop, {@link NotStepRecogniser} translates it as a detached anti-join, and every
+   * vertex with no outgoing edge comes back. Which way the row set moves depends on the combinator —
+   * the same swallow under {@code and} / {@code where} loses rows where this {@code not} gains
+   * them — so the terminator has to learn it cannot contribute and decline the whole walk. Throwing
+   * out of the append (the shape {@link #appendPostConcatOp} uses) lands in
+   * {@link GremlinToMatchStrategy}'s {@code RuntimeException} net, which degrades it to a silent
+   * decline minus the diagnostic.
    */
   boolean supportsListShaping();
 

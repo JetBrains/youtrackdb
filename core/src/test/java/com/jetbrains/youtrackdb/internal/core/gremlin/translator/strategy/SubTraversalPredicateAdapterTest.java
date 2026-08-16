@@ -27,7 +27,7 @@ import org.junit.Test;
 /**
  * Unit tests for {@link SubTraversalPredicateAdapter} + the {@link RecognitionContext#walkChild}
  * sub-walk seam — the infrastructure a later track's logical-combinator recognisers (and / or / not /
- * where) drive their child sub-traversals through. Two layers are pinned:
+ * where) drive their child sub-traversals through. Three layers are pinned:
  *
  * <ul>
  *   <li><b>The delegating capture contract</b> — reads and alias minting delegate to the parent;
@@ -39,6 +39,12 @@ import org.junit.Test;
  *       the capture boundary — leaves the parent's committed state untouched when a child
  *       declines. These are driven against a real registry-bearing {@link WalkerContext} parent with
  *       fixture recognisers and the production {@link VertexHopRecogniser}.
+ *   <li><b>The list-shaping decline channel</b> — {@code supportsListShaping()} answers {@code false}
+ *       without delegating the parent's {@code true}, and {@code appendListShapingOp} throws instead
+ *       of swallowing. These are driven against a real {@link WalkerContext} parent used as a
+ *       positive control: Mockito answers {@code false} to every unstubbed {@code boolean}, so a
+ *       mocked parent would make the pair agree for the wrong reason. No sub-walk runs here, so the
+ *       parent needs no registry.
  * </ul>
  */
 public class SubTraversalPredicateAdapterTest {
@@ -478,6 +484,12 @@ public class SubTraversalPredicateAdapterTest {
         .isInstanceOf(IllegalStateException.class);
   }
 
+  // ---------------------------------------------------------------------------
+  // List-shaping decline channel — driven against a real WalkerContext parent
+  // used as a positive control, because a mocked parent answers false to every
+  // unstubbed boolean. Neither test drives a sub-walk, so no registry is needed.
+  // ---------------------------------------------------------------------------
+
   /**
    * The list-shaping decline channel, pinned as a discriminating pair on one fixture rather than as
    * a bare {@code isFalse()}. The real parent {@link WalkerContext} answers {@code true} — the
@@ -490,7 +502,7 @@ public class SubTraversalPredicateAdapterTest {
    */
   @Test
   public void supportsListShaping_falseOnSubWalk_trueOnTheParentItWraps() {
-    var parent = parentWithBoundary(Map.of());
+    var parent = new WalkerContext(true, false);
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
 
     assertThat(parent.supportsListShaping())
@@ -504,16 +516,14 @@ public class SubTraversalPredicateAdapterTest {
   /**
    * A recogniser that appends without first reading
    * {@link RecognitionContext#supportsListShaping()} hits a throw, and the parent's shaping stays
-   * untouched. The alternative worth ruling out is a swallow: it would leave
-   * {@code g.V().and(__.out().fold())} translated as an always-true existence filter, because a dry
-   * upstream still emits one empty list, so every row the {@code and} should drop would survive.
-   * The throw is a guard for the recogniser that forgets; it cannot serve as the decline path,
-   * because {@code GremlinToMatchStrategy}'s {@code RuntimeException} net turns it into a decline
-   * with no diagnostic.
+   * untouched — nothing of the failed append leaks outward. The throw is a guard for the recogniser
+   * that forgets rather than the decline channel itself; {@link
+   * RecognitionContext#supportsListShaping()} carries the argument for why neither a throw nor a
+   * swallow can serve as that channel.
    */
   @Test
   public void appendListShapingOp_onSubWalk_throwsAndLeavesTheParentShapingClean() {
-    var parent = parentWithBoundary(Map.of());
+    var parent = new WalkerContext(true, false);
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
 
     assertThatThrownBy(() -> adapter.appendListShapingOp(upstream -> upstream))

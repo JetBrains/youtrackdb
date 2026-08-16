@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import org.junit.Test;
@@ -11,8 +12,9 @@ import org.junit.Test;
 /**
  * Verifies the walker's result-shaping foundation — {@code DISTINCT}, {@code GROUP BY},
  * order/pagination clauses, boundary drop flags, and the ordered list-shaping op carrier —
- * defaults cleanly and accepts recogniser writes through both write paths: the full replace
- * ({@code setResultShaping}) and the append ({@code appendListShapingOp}).
+ * defaults cleanly, answers the list-shaping query a terminator reads before it contributes, and
+ * accepts recogniser writes through both write paths: the full replace ({@code setResultShaping})
+ * and the append ({@code appendListShapingOp}).
  */
 public class WalkerContextResultShapingTest {
 
@@ -38,21 +40,39 @@ public class WalkerContextResultShapingTest {
   }
 
   /**
+   * The top-level walk's own answer to the list-shaping query, pinned in the {@code WalkerContext}
+   * contract's own test class rather than only as a control inside the adapter's. A top-level context
+   * holds the shaping its boundary base reads, so an op appended on it reaches the projected payload
+   * stream and a list-shaping terminator may contribute. The paired {@code false} for a combinator
+   * child sub-walk is pinned in {@code SubTraversalPredicateAdapterTest}.
+   */
+  @Test
+  public void supportsListShaping_isTrueOnATopLevelWalk() {
+    var ctx = new WalkerContext(true, false);
+
+    assertThat(ctx.supportsListShaping())
+        .as("a top-level context carries the shaping the boundary base reads")
+        .isTrue();
+  }
+
+  /**
    * The append seam composes rather than replaces. Two ops land in declared order — the order the
    * boundary base applies them in, which is what makes {@code reverse().unfold()} and
    * {@code unfold().reverse()} observably different shapes — and the flags a sibling recogniser
    * pinned before the appends survive both of them. The flag assertions are the load-bearing half:
    * a naive {@code setResultShaping(NONE.withListShapingOps(...))} implementation would satisfy the
    * order assertion and still wipe {@code dropOnAbsent} and the presence keys, which is the defect
-   * the append method exists to prevent.
+   * the append method exists to prevent. The two ops are separate {@link #taggedOp} instances, which
+   * is what lets the order assertion discriminate at all: {@code ListShapingOp} has no value
+   * equality, so the comparison is by reference.
    */
   @Test
   public void appendListShapingOp_appendsInDeclaredOrderAndPreservesPinnedFlags() {
     var ctx = new WalkerContext(true, false);
     ctx.setResultShaping(
         ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of("age")));
-    ListShapingOp first = upstream -> upstream;
-    ListShapingOp second = upstream -> upstream;
+    ListShapingOp first = taggedOp("first");
+    ListShapingOp second = taggedOp("second");
 
     ctx.appendListShapingOp(first);
     ctx.appendListShapingOp(second);
@@ -80,7 +100,7 @@ public class WalkerContextResultShapingTest {
   @Test
   public void setResultShaping_afterAppend_replacesRatherThanMergesOps() {
     var ctx = new WalkerContext(true, false);
-    ctx.appendListShapingOp(upstream -> upstream);
+    ctx.appendListShapingOp(taggedOp("appended-before-the-replace"));
 
     ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true));
 
@@ -123,5 +143,25 @@ public class WalkerContextResultShapingTest {
     configured.setProductiveByKeys(Set.of("age"));
     assertThat(configured.byModulatorIsProductive("age")).isFalse();
     assertThat(configured.byModulatorIsProductive("name")).isTrue();
+  }
+
+  /**
+   * A pass-through stage that carries a readable identity. Two ops written as identical lambdas would
+   * still be distinct instances, so the order assertion would hold, but neither the source nor an
+   * {@code AssertionError} would show a reader which op is which — a failure would name two synthetic
+   * lambda classes. The {@code tag} makes the discriminator visible in both places.
+   */
+  private static ListShapingOp taggedOp(String tag) {
+    return new ListShapingOp() {
+      @Override
+      public Iterator<Object> apply(Iterator<Object> upstream) {
+        return upstream;
+      }
+
+      @Override
+      public String toString() {
+        return tag;
+      }
+    };
   }
 }

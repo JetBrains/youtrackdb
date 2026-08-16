@@ -480,14 +480,12 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    * appended here would be discarded with the rest of the capture, and the parent's answer is not
    * the sub-walk's business either.
    *
-   * <p>This is the decline channel for the four list-shaping terminators, which is why the answer
-   * is a boolean a recogniser reads rather than a swallow inside {@link #appendListShapingOp}.
-   * {@link RecognitionContext#walkChild} drives {@code and} / {@code or} / {@code not} /
-   * {@code where} / {@code filter} children through the same recogniser registry the top-level walk
-   * uses, so a child's trailing {@code fold()} reaches the same recogniser that claims it at top
-   * level. Under a swallow that recogniser accepts, and {@code g.V().and(__.out().fold())} becomes
-   * an existence filter that is always true — a dry upstream still emits one empty list — so every
-   * row the {@code and} should have dropped survives instead.
+   * <p>This is the decline channel for the four list-shaping terminators: {@link
+   * RecognitionContext#walkChild} drives a combinator child through the same recogniser registry the
+   * top-level walk uses, so the recogniser that claims a trailing {@code fold()} at top level reaches
+   * it here too and needs a boolean to back out on. See {@link
+   * RecognitionContext#supportsListShaping()} for the worked example of the wrong answer a swallow
+   * inside {@link #appendListShapingOp} would ship instead.
    */
   @Override
   public boolean supportsListShaping() {
@@ -498,10 +496,9 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   public void appendListShapingOp(@Nonnull ListShapingOp op) {
     // Unreachable through a correct recogniser: it reads supportsListShaping() first and declines
     // on this context's false. The throw guards the recogniser that forgets; it cannot serve as the
-    // decline mechanism itself, because GremlinToMatchStrategy's RuntimeException net catches it
-    // and degrades it to a decline with no diagnostic. That is why supportsListShaping() carries
-    // the channel.
-    // Mirrors appendPostConcatOp's "top-level only" default on the interface.
+    // decline mechanism itself, because GremlinToMatchStrategy's RuntimeException net catches it and
+    // degrades it to a decline with no diagnostic — see RecognitionContext#supportsListShaping() for
+    // the full argument. Mirrors appendPostConcatOp's "top-level only" default on the interface.
     throw new UnsupportedOperationException(
         "list-shaping ops are top-level only; a sub-walk declines through supportsListShaping()");
   }

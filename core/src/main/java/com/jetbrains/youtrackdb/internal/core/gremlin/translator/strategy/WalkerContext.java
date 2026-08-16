@@ -652,10 +652,14 @@ final class WalkerContext implements RecognitionContext {
   }
 
   /**
-   * Always true: this is the top-level walk's own context, so the shaping it holds is the one the
-   * boundary base reads and an appended op reaches the projected payload stream. {@link
+   * Always true: the shaping this context holds is the one its own boundary base reads, so an
+   * appended op reaches the projected payload stream. The answer is about that boundary rather than
+   * about being the outermost walk — a union arm runs as its own top-level walk with its own
+   * {@code WalkerContext} and answers {@code true} as well, and declining an arm whose trailing
+   * {@code fold()} appended an op belongs to {@link UnionStepRecogniser}'s child loop. {@link
    * SubTraversalPredicateAdapter#supportsListShaping()} answers {@code false}, which is where the
-   * decline for a combinator child comes from.
+   * decline for a combinator child comes from; {@link RecognitionContext#supportsListShaping()}
+   * carries the canonical rationale for the whole channel.
    */
   @Override
   public boolean supportsListShaping() {
