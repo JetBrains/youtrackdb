@@ -15,9 +15,6 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 - [ ] Track-level code review
 - [ ] Track completion
 
-**PAUSED 2026-08-04 at Phase B step 1 review iteration 1 pending the FIX_REVIEW_FINDINGS respawn for eight findings (three should-fix, five suggestions, no blockers)**
-- Handoff: ../handoff-track-11-phaseB.md
-
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 
