@@ -11,9 +11,10 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 ## Progress
 - [x] Review + decomposition
 - [x] 2026-08-04T13:16Z [ctx=info] Review + decomposition complete. Predicted complexity tag `high` (the Architecture / cross-component trigger fires centrally: a new `RecognitionContext` contract every recogniser and both context implementations depend on, a walker dispatch gate, the boundary base's op carrier, and the union child and suffix gates). `max(step tags)` over the twelve-step roster is also `high` — steps 1, 2 and 5 carry it — so the reconciliation finds **no divergence** and no missed strategic reviewer is owed. All three panel reviews ran as full re-reviews at iteration 2 rather than gate checks, because iteration 1 read the tree at `54cc0a708f` and Track 9's landing rewrote most of this track's surface: 24 findings total (4 blockers), all accepted and applied. Step order carries one review-imposed constraint: item 10's shared-harness extraction is step 6, ahead of item 5's terminator tests at step 7, per adversarial condition A12(1).
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-08-16T23:29Z [ctx=safe] Step 11 complete (commit `cfb303700a`) — **last step; Phase B closes here.** All 18 hand-built MATCH AST sites carry a verdict: fourteen converted to builder calls behind four new factories plus one literal factory, four left hand-built with the reason at the site. No step-level review (`risk: medium`). Item 9's `@rid IN [...]` justification turned out stronger than stated and is now measured — the binding constraint is the left-hand shape (`isBareRidExpression` needs `suffix.recordAttribute`), not the wrapping — with two permanent pins and a negative control. Item 9's line numbers were all stale; the count and file distribution held at 18 across seven.
 - [~] 2026-08-16T21:39Z [ctx=safe] Step 12 skipped at the user's direction, residue not carried forward. Step 9 had already measured the `core` two-arm gate at 1930 / 0 / 14; `embedded`'s on-arm counts, the per-step scenario catalogue, and the item 6 rule 3 disposition of item 10's `g.V(rid)` slowdown and item 8's edge-alias half are dropped rather than reassigned. The catalogue was removed from `## Interfaces and Dependencies`' in-scope list in the same commit.
 - [x] 2026-08-16T21:39Z [ctx=safe] Step 10 complete (commit `21d97a6e92`). The three `jmh-ldbc` files restored from `deb8e72ee9` with every shape's group re-derived against the current tree; two swapped — IS1's full projection to translating, the ordered page to declining — and no third moved. No step-level review (`risk: medium`). 56 / 56 through a shared `core,jmh-ldbc` reactor. A `-pl jmh-ldbc`-only run reports exactly three errors on this tree, which is the signature of the wrong invocation rather than a harness defect.
 - [x] 2026-08-16T21:04Z [ctx=safe] Step 9 complete (commit `4f9eb2e79b`). Bind-or-decline on the relocated `as()` label in `HasStepRecogniser`, eight tests all watched to fail against the step base first. No step-level review (`risk: medium`). Item 8's "capability gap, not a correctness defect" premise is refuted — the shape closes a silent wrong answer where a name was rebound. Two items left open for track close: the `is1FullProfile` flip moves to step 10 (its test file is not in the tree yet), and item 8's edge-alias half is unimplemented and unowned by any remaining step. The plan's absolute multiset invariant was amended to carry A11's bounded exception in this episode's commit.
@@ -28,6 +29,12 @@ Second half of the split final track (inline replan, 2026-08-03 — see `plan/tr
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-08-16T23:29Z Step 11 discovered: **converting `StartStepRecogniser`'s `@rid IN [...]` clause to the builder loses RID promotion on the left-hand shape, before the wrapping question is reached.** `SQLWhereClause.isBareRidExpression` requires `suffix.recordAttribute`, and `MatchWhereBuilder.in` builds its left side through the private `fieldExpression`, a plain `SQLIdentifier`. Item 9 gave the reason as the unwrapped form; the unwrapping matters but is not binding. The five "unwrapped" cases in `PromoteStaticRidsFromFiltersTest` could not have caught it — they re-parse SQL text, so their condition node is always the parser's, record-attribute left side included. Pinned by `StartStepRecogniserRidClauseTest` (with the builder spelling as a negative control) and `YTDBQueryMetricsStrategyTest.byIdLookupSurfacesRidFetchPlanWhenTranslatedAndNoPlanWhenNative`. See Episodes §Step 11.
+
+- 2026-08-16T23:29Z Step 11 discovered: `GqlStructureTest` fails 17 of 37 and it is **inherited from `develop`**, now measured twice on this branch — Track 9's worktree bisection and this step's incidental hit — with `GQL.g4`, the test and both fixtures byte-identical across develop and HEAD. The class is not in the routine targeted runs, so a fresh reader would otherwise re-establish it. It has the same shape as the five unowned defects in `## Artifacts and Notes`. Separately: avoid `-Dtest='…sql.parser.**'` package wildcards on `core` — the run pulls `MatchStatementExecutionTest` through the vmlens field-access agent, where its JavaCC fixture setup takes 25+ minutes against seconds under a named `-Dtest` list. See Episodes §Step 11.
+
+- 2026-08-16T23:29Z Step 11 discovered: a third copy of `new SQLExpression(new SQLIdentifier(name))` survives inside the builder package. `MatchWhereBuilder.fieldExpression` is private and byte-identical to `ProjectionExpressionFactories.bareIdentifier`. It is not one of the 18 translator sites, and folding it in would change `MatchWhereBuilder`'s behaviour on a blank field name, so it wants a decision rather than a mechanical edit. Left as recorded duplication. See Episodes §Step 11.
 
 - 2026-08-16T21:04Z Step 9 discovered: **item 8's "capability gap, not a correctness defect" premise is refuted for one shape.** The premise holds only while the label *name* is unbound. Where the same name was bound earlier to a different alias, dropping the second `as(...)` left the earlier binding standing and `select` resolved to the wrong node — `g.V().as("a").out("knows").has("name","bob").as("a").select("a")` measured `[alice]` translated against native's `[bob]` at the step base, because `select` reads `Pop.last`. Bind-or-decline closes it by declining. The measurement is not reproducible after `4f9eb2e79b` (the shape now declines), so the record lives in the test javadoc and the episode. See Episodes §Step 9.
 
@@ -198,7 +205,7 @@ flowchart LR
 8. Run item 10's second sweep — every `withTranslator(true, …)` with no boundary-step assertion beside it — and settle whether Track 9 step 10's retirement of harness divergence (b) rested on a comparison that could not discriminate, per `## Surprises & Discoveries` (item 10, second half) — risk: medium (tests-only on shared infrastructure, and it carries an open correctness question rather than a cleanup)  [x]  commit: 9665700cd8
 9. Bind `as()` labels in `HasStepRecogniser` (bind-or-decline), asserting the spellings that route through `YTDBGraphStepStrategy.rebuildTraversal`'s label-dropping `else` branch against a hand-computed oracle rather than against the native arm, under the plan's newly bounded multiset-equality exception; flip item 7's `is1FullProfile` decline assertion to the translating group (items 8, R15, A11) — risk: medium (a recogniser behavior change in one module, with a documented arms-diverge-by-design surface)  [x]  commit: 4f9eb2e79b  (the `is1FullProfile` flip deferred to step 10 — `LdbcGremlinShapeTranslationTest` is not in the tree until step 10 re-applies it)
 10. Re-apply the JMH harness commits `43907ff312` then `deb8e72ee9` and repair their assertion set — the `fold` shape now translates once steps 3–5 land, and the `order().by(…).range(…).values(…)` shape must be re-derived against the final tree because Track 9 widened a slice-after-sort decline underneath it; add the install-first or shared-reactor invocation so the re-run measures this branch's `core` rather than an installed jar (items 7, R14) — risk: medium (new benchmark and test code in `jmh-ldbc`; no `core` production change)  [x]  commit: 21d97a6e92
-11. Audit the 18 hand-built MATCH AST sites across seven files and record a verdict per site — a builder call, a builder call this step adds a factory for, or a hand-built node carrying a comment saying why the builder cannot express it; `StartStepRecogniser`'s unwrapped `@rid IN [...]` clause stays hand-built so `SQLWhereClause.findRidInList` can still see through it for RID promotion, with the promotion test as a watched-to-fail witness (item 9) — risk: medium (behavior-preserving by intent, but logic edits across seven production files in one module)  [ ]
+11. Audit the 18 hand-built MATCH AST sites across seven files and record a verdict per site — a builder call, a builder call this step adds a factory for, or a hand-built node carrying a comment saying why the builder cannot express it; `StartStepRecogniser`'s unwrapped `@rid IN [...]` clause stays hand-built so `SQLWhereClause.findRidInList` can still see through it for RID promotion, with the promotion test as a watched-to-fail witness (item 9) — risk: medium (behavior-preserving by intent, but logic edits across seven production files in one module)  [x]  commit: cfb303700a
 12. Run the `core` Cucumber gate on both kill-switch arms to 1930 / 0 / 14, read `embedded`'s on arm out of a qualifying CI run's counts rather than its leg colour, publish the per-step scenario catalogue, and disposition the residue under item 6's three rules — both directions recorded, the decline exit as default, and a YouTrack issue or `### Non-Goals` amendment for anything neither fixed nor declined, including item 10's `g.V(rid)` slowdown (items 6, 7's regression destination) — risk: medium (measurement and disposition step; any production decline-widening it triggers lands as its own follow-on step so it stays reviewable)  [~]  skipped 2026-08-16 at the user's direction, with its residue explicitly not carried forward. Step 9 had already measured the `core` two-arm gate at 1930 / 0 / 14; the rest of the step's scope — `embedded`'s on-arm counts, the per-step scenario catalogue, and the item 6 rule 3 disposition of item 10's `g.V(rid)` slowdown and item 8's edge-alias half — is dropped rather than reassigned.
 
 ## Episodes
@@ -884,6 +891,118 @@ pointed at a step that no longer runs.
 No Hetzner baseline has been published for this class yet, so there is nothing to reconcile, but a
 comparison against any pre-existing local run would mismatch on name. The `@Benchmark` bodies still
 run only on Hetzner and their baseline numbers remain owed and out of scope here.
+
+### Step 11 — commit cfb303700a, 2026-08-16T23:29Z [ctx=safe]
+**What was done:** Re-enumerated the audit surface against this step's own base rather than trusting
+item 9's line numbers, which had all drifted: 24 raw `new SQL` hits in the gremlin package, six of
+them the `toArray(new SQLBooleanExpression[0])` array idiom inside calls that already use the
+builder, leaving exactly the 18 hand-built nodes across the seven named files. Fourteen now end as
+builder calls and four end as hand-built nodes carrying the reason at the site, so no site is left
+without a verdict.
+
+Four new factories carry the shapes the builders had no home for, each added in
+`ProjectionExpressionFactories` and re-exported through `MatchProjectionBuilder`: `aliasExpression` /
+`aliasColumn` (the bare-alias RETURN item, 4 sites), `columnAlias` (the AS-name identifier, 3 sites),
+`orderBy` (the ORDER BY container, 1 site) and `groupBy` (the GROUP BY container, 2 sites); plus
+`MatchLiteralBuilder.toInputParameter` for the bound-parameter value expression (2 sites). Two sites
+needed no factory at all — the GE operator took `SQLGeOperator.INSTANCE`, the singleton its own
+neighbouring line already used, and `StartStepRecogniser.wrapWhere` was a verbatim duplicate of
+`MatchWhereBuilder.wrap`. Fifteen tests were added across three classes.
+
+**What was discovered:** **The `@rid IN [...]` justification is stronger than item 9 stated, and it
+is now measured.** Item 9 gave the reason as "the unwrapped form, so `findRidInList` can see through
+it". The unwrapping matters, but it is not the binding constraint:
+`SQLWhereClause.isBareRidExpression` requires `suffix.recordAttribute`, and `MatchWhereBuilder.in`
+builds its left side through the private `fieldExpression`, a plain `SQLIdentifier`. So the
+mechanical conversion loses the promotion on the *left-hand shape* before the wrapping question is
+reached. The probe measured it: converting the site reddened exactly two assertions — the new
+AST-level witness and
+`YTDBQueryMetricsStrategyTest.byIdLookupSurfacesRidFetchPlanWhenTranslatedAndNoPlanWhenNative`
+(20 of its 21 cases stayed green) — and nothing else. Both are now permanent pins, and the new class
+carries the `MatchWhereBuilder.in` spelling as a negative control, so the positive case cannot pass
+under any left-hand shape that happens to be recognised.
+
+The existing promotion tests could not have caught it. All five "unwrapped" cases in
+`PromoteStaticRidsFromFiltersTest` build their leaf by re-parsing SQL text and stripping the
+grammar's block wrapping, so the condition node is always the parser's — record-attribute left side
+included. None constructs the clause the way the translator does, which is why the new witness had
+to live on the Gremlin side where `buildRidInExpression` is reachable.
+
+The translator was the only front-end still hand-building these nodes. A grep over
+`core/src/main/.../core/gql/` for the four constructors returns nothing, so GQL already routes
+entirely through `match/builder/`. The drift item 9 worries about was one-sided, and both front-ends
+now share one construction surface. This negative is grep-based rather than PSI — mcp-steroid was
+not exposed to the spawn, so it carries the reference-accuracy caveat.
+
+`GqlStructureTest` fails 17 of 37 and it is not this step's doing. Track 9's episode already
+measured the identical 17/37 figure in the `bench-base-develop` worktree and recorded it as
+inherited from `develop`, with `GQL.g4`, the test and both fixtures byte-identical across develop
+and HEAD. This step touches no ANTLR grammar, no `.tree` fixture and nothing on the parse path.
+Re-recorded because the class is not in the routine targeted runs, so a later reader meeting it
+fresh would re-establish the same thing.
+
+A third copy of `new SQLExpression(new SQLIdentifier(name))` survives inside the builder package.
+`MatchWhereBuilder.fieldExpression` is private and byte-identical to
+`ProjectionExpressionFactories.bareIdentifier`, which the new `aliasExpression` also delegates to.
+It is not one of the 18 translator sites, so folding it in was out of scope, and doing it blind
+would change `MatchWhereBuilder`'s behaviour on a blank field name. Left as recorded duplication
+rather than silently converted.
+
+**What changed from the plan:** Item 9's per-site line numbers are all stale
+(`GremlinPredicateAdapter` :407/:439/:441 are now :617/:649/:651, `WalkerContext` :538/:539/:577 are
+now :559/:560/:598, `OrderGlobalStepRecogniser:73` is :105, `GremlinAggregateAssembler` :198/:227
+are :214/:243, `UnionStepRecogniser:169` is :221), but the count and the file distribution held
+exactly at 18 across seven, as T12 predicted. One correction to the item's own description: it calls
+all six RETURN-projection sites `new SQLExpression(new SQLIdentifier(…))`, whereas three of them
+(`WalkerContext:560`, `:598`, and — outside that group — `UnionStepRecogniser:221`) are bare
+`SQLIdentifier` AS-names, which is why two factories were needed rather than one.
+
+Item 9's "the promotion test runs as a watched-to-fail witness" is satisfied by an existing test
+rather than a new one:
+`YTDBQueryMetricsStrategyTest.byIdLookupSurfacesRidFetchPlanWhenTranslatedAndNoPlanWhenNative`
+already pins the plan end to end and was watched to fail under the probe. The new class adds the
+unit-speed half plus the negative control.
+
+Two behaviour-adjacent hardenings, both no-ops at the current call sites and named so review need
+not derive them. `orderBy` copies the caller's item list, because `SQLOrderBy.setItems` stores the
+reference and `addItem` mutates it, so an immutable `List.of(...)` would previously have thrown on a
+later planner-side append. And `orderBy` / `groupBy` reject empty input, which both call sites
+already guard upstream. The two identifier factories deliberately do **not** validate: a throw
+inside `TraversalStrategy.apply()` degrades to a silent decline through `GremlinToMatchStrategy`'s
+safety net (DR-T2's A16 correction), and the AS-name path carries user-supplied `as(...)` labels.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/ProjectionExpressionFactories.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchProjectionBuilder.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchLiteralBuilder.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/WalkerContext.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinProjectionAssembler.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinAggregateAssembler.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/OrderGlobalStepRecogniser.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/GremlinPredicateAdapter.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/UnionStepRecogniser.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/StartStepRecogniser.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gremlin/translator/strategy/StartStepRecogniserRidClauseTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchProjectionBuilderTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchLiteralBuilderTest.java` (modified)
+
+**Critical context:** The `@rid IN [...]` clause in `StartStepRecogniser` is now the translator's
+only hand-built AST node, and both of its methods (`buildRidInExpression`, `buildRidInCondition`)
+say so and say why. Anyone later "finishing the audit" by converting it will get identical rows, a
+green row-comparing suite, and an O(class size) plan where a RID fetch belongs. The two tests that
+stop that are `StartStepRecogniserRidClauseTest` and
+`YTDBQueryMetricsStrategyTest.byIdLookupSurfacesRidFetchPlanWhenTranslatedAndNoPlanWhenNative`; the
+latter needs the suite runner (`GREMLIN_TESTS=<fqcn> ./mvnw -pl core -o test -Dtest=YTDBProcessTest
+-DfailIfNoTests=false`) and is not in the routine targeted runs.
+
+Avoid `-Dtest='…sql.parser.**'`-shaped package wildcards on `core`. The run pulls
+`MatchStatementExecutionTest` through the vmlens field-access agent, where its JavaCC-driven fixture
+setup takes over 25 minutes for what the same class does in seconds under a named `-Dtest` list.
+
+Tests: 1122 / 1122 over the whole gremlin surface (1 pre-existing skip); 857 / 857 over the MATCH +
+GQL plan-drift net including `MatchStatementExecutionTest` (4 pre-existing skips); the `core`
+Cucumber gate at 1930 / 0 / 14 on the translator-on arm; and 74 / 74 on the final targeted builder
+plus promotion re-run. The full coverage gate was not run, per orchestrator directive.
 
 Tests: 460 / 460 across the fifteen touched classes, and 1088 / 1088 with 1 skipped over the wider
 `com.jetbrains.youtrackdb.internal.core.gremlin.**` run (`gremlintest` excluded per the track
