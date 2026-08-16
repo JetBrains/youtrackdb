@@ -50,7 +50,7 @@ import org.junit.Test;
  *
  * <p>The tests drive the walker directly (not through the strategy) against real
  * {@link GraphBaseTest} traversals so that {@code YTDBStrategyUtil.isPolymorphic} — which needs
- * an attached YouTrackDB graph — resolves. They verify three things:
+ * an attached YouTrackDB graph — resolves. They verify:
  *
  * <ul>
  *   <li><b>Translation correctness</b> — each recognized shape produces the right single-node
@@ -72,6 +72,11 @@ import org.junit.Test;
  *       progress guard; the reserved-{@code $} pre-flight scan throws on a traversal carrying a
  *       {@code $}-prefixed user label; and {@link WalkerContext}'s anonymous-alias generator mints
  *       distinct, per-context sequences.
+ *   <li><b>The captured-state gates</b> — the post-union allow-list with its positional second axis,
+ *       and the list-shaping last-step gate: a step dispatched behind a captured stream stage
+ *       declines, while the step that captured the stage translates, and the two-input may-follow
+ *       rule is asserted directly because no production traversal shape reaches its admit branch
+ *       yet.
  * </ul>
  */
 public class GremlinStepWalkerTest extends GraphBaseTest {
@@ -665,6 +670,127 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .as("a recogniser that consumes both steps translates the whole traversal")
         .isNotNull();
     assertThat(result.boundaryAlias()).isEqualTo(BOUNDARY_ALIAS);
+  }
+
+  // ---------------------------------------------------------------------------
+  // List-shaping last-step gate — the loop refuses a step dispatched behind a
+  // captured stream stage. Driven with fixture recognisers because the four
+  // terminators that append a stage do not exist yet, so no production
+  // traversal shape reaches the gate.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A stage appended by the traversal's last step translates: the gate refuses steps <em>behind</em> a
+   * captured stage and must not refuse the step that captured it. This is the positive control for the
+   * decline below — it proves the fixture recogniser really appends (the shaping carries the op) and
+   * that a walk carrying a stage is otherwise translatable, so the decline below is attributable to
+   * the following step rather than to the append.
+   */
+  @Test
+  public void walk_listShapingOpOnTheLastStep_translatesAndCarriesTheOp() {
+    var walker = new GremlinStepWalker(Map.of(GraphStep.class, startThenAppendsListShapingOp()));
+    var admin = graph.traversal().V().asAdmin();
+
+    var result = walker.walk(admin);
+
+    assertThat(result).as("the step that captures the stage is itself translatable").isNotNull();
+    assertThat(result.shaping().listShapingOps())
+        .as("fixture premise: the recogniser appended one stage")
+        .hasSize(1);
+  }
+
+  /**
+   * A step dispatched behind a captured list-shaping stage declines the whole walk. {@code count()} is
+   * the worked case: its {@code count(*)} rides the statement, which MATCH applies as the plan runs,
+   * while the stage runs afterwards over the projected payload stream — so a translated
+   * {@code fold().count()} would count the rows the fold was meant to consume instead of counting the
+   * one list native produces. The control walks the same traversal on the same registry with a start
+   * recogniser that appends nothing, and translates: without it a broken {@code count} fixture would
+   * make this test pass for the wrong reason.
+   */
+  @Test
+  public void walk_stepBehindACapturedListShapingOp_declinesTheWholeWalk() {
+    var control =
+        new GremlinStepWalker(
+            Map.of(
+                GraphStep.class, StartStepRecogniser.INSTANCE,
+                CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE));
+    assertThat(control.walk(graph.traversal().V().count().asAdmin()))
+        .as("control: g.V().count() translates on this registry when no stage is captured")
+        .isNotNull();
+
+    var gated =
+        new GremlinStepWalker(
+            Map.of(
+                GraphStep.class, startThenAppendsListShapingOp(),
+                CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE));
+
+    var result = gated.walk(graph.traversal().V().count().asAdmin());
+
+    assertThat(result)
+        .as("a clause-writing step behind a captured stage declines the whole walk")
+        .isNull();
+  }
+
+  /**
+   * The membership row of the list-shaping rule, asserted over a synthetic allow-list because the
+   * production one is empty until the per-payload shapers land. A recogniser on the list contributes
+   * another stage on the same stream, so it may claim a step behind a captured stage; every other
+   * recogniser writes into the statement, which MATCH applies before the stage runs, so it may not.
+   */
+  @Test
+  public void mayFollowListShaping_admitsOnlyTheAllowListedShapers() {
+    // Stand-ins for the two kinds of recogniser the rule distinguishes; the rule reads identity
+    // against the allow-list, never the outcome, so an accepting body is enough for both.
+    StepRecogniser perPayloadShaper = (cursor, ctx) -> Outcome.ACCEPTED;
+    StepRecogniser clauseWriter = (cursor, ctx) -> Outcome.ACCEPTED;
+    Set<StepRecogniser> mayFollow = Set.of(perPayloadShaper);
+
+    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, false, mayFollow))
+        .as("a per-payload shaper contributes one more stage on the same stream")
+        .isTrue();
+    assertThat(GremlinStepWalker.mayFollowListShaping(clauseWriter, false, mayFollow))
+        .as("a recogniser off the list writes into the statement and lands on the wrong side")
+        .isFalse();
+  }
+
+  /**
+   * The drain row of the rule, and the reason the loop needs a latch on top of the allow-list: once a
+   * drain or a window has claimed a step, nothing may follow it — not even an allow-listed shaper.
+   * Membership alone would admit {@code fold().unfold()}, because {@code unfold} is per-payload and
+   * would pass the allow-list behind the drain. The second assertion is the control: the same
+   * recogniser and the same allow-list with the latch clear answer {@code true}, so the refusal above
+   * is the latch's doing rather than a mis-built set.
+   */
+  @Test
+  public void mayFollowListShaping_refusesAnAllowListedShaperBehindADrain() {
+    StepRecogniser perPayloadShaper = (cursor, ctx) -> Outcome.ACCEPTED;
+    Set<StepRecogniser> mayFollow = Set.of(perPayloadShaper);
+
+    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, true, mayFollow))
+        .as("nothing follows a drain or a window, however the allow-list answers")
+        .isFalse();
+    assertThat(GremlinStepWalker.mayFollowListShaping(perPayloadShaper, false, mayFollow))
+        .as("control: the same recogniser is admitted while no drain has claimed a step")
+        .isTrue();
+  }
+
+  /**
+   * Fixture recogniser that claims the vertex source exactly as {@link StartStepRecogniser} does — so
+   * the boundary is pinned and the walk can reach its post-walk invariant — and then appends one
+   * pass-through list-shaping stage. It stands in for the {@code fold} / {@code tail} recognisers,
+   * which land later: the gate reads the captured stage off the context, not the recogniser's
+   * identity, so a stand-in exercises it exactly as a real terminator would.
+   */
+  private static StepRecogniser startThenAppendsListShapingOp() {
+    return (cursor, ctx) -> {
+      var base = StartStepRecogniser.INSTANCE.recognize(cursor, ctx);
+      if (base == Outcome.DECLINE) {
+        return Outcome.DECLINE;
+      }
+      ctx.appendListShapingOp(upstream -> upstream);
+      return Outcome.ACCEPTED;
+    };
   }
 
   // ---------------------------------------------------------------------------

@@ -355,13 +355,15 @@ interface RecognitionContext extends ParamSink {
    * recognisers that use that method — a later {@code setResultShaping} still overwrites every op
    * appended before it.
    *
-   * <p>Two rules keep the write paths from colliding, and only the second is enforced today. The
-   * list-shaping terminators are to be accepted only as the traversal's last step, so that no
-   * flag-pinning terminator can follow one. That rule is the constraint the terminators are being
-   * built under; the walker-side position gate that will enforce it is still to land, and nothing
-   * appends an op yet. The second rule holds now: {@link UnionStepRecogniser} calls this with the
-   * agreed child shaping before any post-union suffix op appends, so on that path the replace always
-   * precedes the append.
+   * <p>Two rules keep the write paths from colliding, and both are enforced. A list-shaping
+   * terminator is accepted only as the traversal's last step, so no flag-pinning terminator can
+   * follow one: {@link GremlinStepWalker}'s dispatch loop declines any step dispatched behind a
+   * captured op unless its may-follow allow-list admits the claiming recogniser, and no
+   * flag-pinning recogniser is on that list. The gate is armed rather than exercised for now — no
+   * recogniser appends an op yet — so the rule holds by the gate rather than by the absence of a
+   * caller. The second rule is {@link UnionStepRecogniser} calling this with the agreed child
+   * shaping before any post-union suffix op appends, so on that path the replace always precedes
+   * the append.
    */
   void setResultShaping(@Nonnull ResultShaping shaping);
 
@@ -428,6 +430,20 @@ interface RecognitionContext extends ParamSink {
    * decline minus the diagnostic.
    */
   boolean supportsListShaping();
+
+  /**
+   * Whether a {@link ListShapingOp} has already been appended to the shaping pinned so far. {@link
+   * GremlinStepWalker}'s dispatch loop reads it as the last-step gate for the four list-shaping
+   * terminators: a step dispatched behind a captured op is refused unless the walker's may-follow
+   * allow-list admits the recogniser claiming it. Declared non-default for the same reason {@link
+   * #supportsListShaping()} is — both implementations state an answer rather than inherit one.
+   *
+   * <p>{@code GremlinStepWalker}'s own {@code capturedListShapingOp} carries why the rule is the
+   * loop's job and what a step lands on the wrong side of without it. A sub-walk answers {@code
+   * false}: it can never carry an op, because {@link #appendListShapingOp} throws there and {@link
+   * #supportsListShaping()} tells a recogniser so first.
+   */
+  boolean carriesListShapingOp();
 
   /**
    * Whether {@link UnionStepRecogniser} has stashed a multi-plan carrier on this walk. Post-union

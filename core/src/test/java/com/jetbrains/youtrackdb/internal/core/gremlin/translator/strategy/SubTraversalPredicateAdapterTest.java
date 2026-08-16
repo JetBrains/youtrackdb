@@ -40,8 +40,9 @@ import org.junit.Test;
  *       declines. These are driven against a real registry-bearing {@link WalkerContext} parent with
  *       fixture recognisers and the production {@link VertexHopRecogniser}.
  *   <li><b>The list-shaping decline channel</b> — {@code supportsListShaping()} answers {@code false}
- *       without delegating the parent's {@code true}, and {@code appendListShapingOp} throws instead
- *       of swallowing. These are driven against a real {@link WalkerContext} parent used as a
+ *       without delegating the parent's {@code true}, {@code carriesListShapingOp()} answers {@code
+ *       false} without delegating a parent that does carry a stage, and {@code appendListShapingOp}
+ *       throws instead of swallowing. These are driven against a real {@link WalkerContext} parent used as a
  *       positive control: Mockito answers {@code false} to every unstubbed {@code boolean}, so a
  *       mocked parent would make the pair agree for the wrong reason. No sub-walk runs here, so the
  *       parent needs no registry.
@@ -510,6 +511,28 @@ public class SubTraversalPredicateAdapterTest {
         .isTrue();
     assertThat(adapter.supportsListShaping())
         .as("a sub-walk declines instead of carrying an op, and never delegates the parent's true")
+        .isFalse();
+  }
+
+  /**
+   * The gate-side query answers {@code false} on a sub-walk without delegating a parent that does
+   * carry a stage — the discriminating half being the parent's {@code true}, which a bare
+   * {@code isFalse()} on a fresh parent could not tell from a delegated answer. The walker reads this
+   * per dispatch loop, so delegating would gate a combinator child's steps on a stage the child's
+   * payloads never reach; a step behind a captured stage is refused at the parent's own level
+   * instead, which is why no sub-walk ever runs behind one.
+   */
+  @Test
+  public void carriesListShapingOp_falseOnSubWalk_evenWhenTheParentCarriesOne() {
+    var parent = new WalkerContext(true, false);
+    parent.appendListShapingOp(upstream -> upstream);
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+
+    assertThat(parent.carriesListShapingOp())
+        .as("fixture premise: the parent really carries a stage")
+        .isTrue();
+    assertThat(adapter.carriesListShapingOp())
+        .as("a sub-walk can never carry one, and does not delegate the parent's answer")
         .isFalse();
   }
 

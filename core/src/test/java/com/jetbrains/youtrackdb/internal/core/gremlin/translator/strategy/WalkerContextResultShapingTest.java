@@ -56,6 +56,31 @@ public class WalkerContextResultShapingTest {
   }
 
   /**
+   * The query the walker's dispatch loop reads as the terminators' last-step gate, pinned as a
+   * transition rather than as one state: {@code false} before any append, {@code true} once a stage
+   * lands, and {@code false} again after a {@code setResultShaping} replace drops it. The third
+   * assertion is the load-bearing one — the replace path is documented as dropping appended ops, so
+   * an implementation that cached the answer in a flag instead of reading the shaping would arm the
+   * gate for the rest of a walk that no longer carries a stage.
+   */
+  @Test
+  public void carriesListShapingOp_tracksTheOpsOnTheShaping() {
+    var ctx = new WalkerContext(true, false);
+
+    assertThat(ctx.carriesListShapingOp()).as("nothing has appended a stage yet").isFalse();
+
+    ctx.appendListShapingOp(taggedOp("drain"));
+    assertThat(ctx.carriesListShapingOp())
+        .as("an appended stage arms the walker's last-step gate")
+        .isTrue();
+
+    ctx.setResultShaping(ResultShaping.NONE);
+    assertThat(ctx.carriesListShapingOp())
+        .as("the replace drops the stage, and the answer is read off the shaping rather than cached")
+        .isFalse();
+  }
+
+  /**
    * The append seam composes rather than replaces. Two ops land in declared order — the order the
    * boundary base applies them in, which is what makes {@code reverse().unfold()} and
    * {@code unfold().reverse()} observably different shapes — and the flags a sibling recogniser
