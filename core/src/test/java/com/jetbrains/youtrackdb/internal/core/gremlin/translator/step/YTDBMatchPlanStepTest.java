@@ -32,6 +32,8 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
@@ -1756,6 +1758,154 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
+   * A {@code fold()} boundary replays the same list on every re-arm route. There are three routes into
+   * an open arming and the sibling test above covers the first — a {@code reset()} of a partially
+   * consumed pass, which leaves the step OPEN — so this one drives the other two: a reset after the
+   * pass reported exhaustion (DRAINED, which rewinds and re-runs the plan that just ran) and a reset
+   * after {@code close()} (CLOSED, which installs a fresh copy of the closed plan). Every route
+   * re-enters {@code applyListShaping}, which asks the op for a new iterator, so a drain holding its
+   * buffer anywhere outside that iterator would extend the earlier pass's list rather than replace it:
+   * three passes over the same two rows would read {@code [1, 2]}, {@code [1, 2, 1, 2]},
+   * {@code [1, 2, 1, 2, 1, 2]}.
+   */
+  @Test
+  public void listShaping_foldDrainOp_replaysTheSameListFromEveryReArmRoute() {
+    var row1 = scalarRow(1L);
+    var row2 = scalarRow(2L);
+    // Two armings off the original plan (the first pass and the DRAINED re-arm), then one off the copy
+    // the CLOSED re-arm installs.
+    when(stream.hasNext(ctx)).thenReturn(true, true, false, true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2, row1, row2);
+    var copiedPlan = stubPlanCopyDelivering(row1, row2);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    assertThat(drainPayloads(step))
+        .as("the first pass folds both rows into one list")
+        .containsExactly(List.of(1L, 2L));
+
+    step.reset(); // DRAINED → REARMED: the same plan is rewound and re-run.
+    assertThat(drainPayloads(step))
+        .as("the re-armed pass folds its own rows, not the first pass's as well")
+        .containsExactly(List.of(1L, 2L));
+
+    step.close();
+    step.reset(); // CLOSED → REARMED_AFTER_CLOSE: the next open runs a copy of the closed plan.
+    assertThat(drainPayloads(step))
+        .as("and so does the pass that runs off the plan copy")
+        .containsExactly(List.of(1L, 2L));
+
+    verify(plan, times(2)).start();
+    verify(copiedPlan, times(1)).start();
+  }
+
+  /**
+   * A {@code tail(n)} boundary windows only its own arming's rows, across the same two re-arm routes the
+   * fold case above drives — the ring being the other buffered stage.
+   *
+   * <p><b>Each pass runs over different rows, and that is not cosmetic:</b> a leaked ring holds a window
+   * of the declared size either way, so replaying the same rows makes a stale window read exactly like a
+   * fresh one and the case passes under the defect it names. Only distinct rows per pass separate them —
+   * a ring surviving the re-arm answers the first pass's row where the second pass's own is expected. The
+   * fold case can afford identical rows because a leaked <em>append</em> buffer grows, which shows up as
+   * a longer list rather than as an equal one.
+   */
+  @Test
+  public void listShaping_tailWindowOp_windowsOnlyItsOwnArmingFromEveryReArmRoute() {
+    // Two rows per arming, all six distinct, so a window carried across a re-arm names the pass it came
+    // from. Built ahead of the stubbing chains: scalarRow() stubs a mock of its own, which Mockito
+    // rejects inside another stubbing's argument list.
+    var firstPass = List.of(scalarRow(1L), scalarRow(2L));
+    var secondPass = List.of(scalarRow(3L), scalarRow(4L));
+    var thirdPass = List.of(scalarRow(5L), scalarRow(6L));
+    when(stream.hasNext(ctx)).thenReturn(true, true, false, true, true, false);
+    when(stream.next(ctx))
+        .thenReturn(
+            firstPass.get(0), firstPass.get(1), secondPass.get(0), secondPass.get(1));
+    var copiedPlan = stubPlanCopyDelivering(thirdPass.get(0), thirdPass.get(1));
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TailListShapingOp(1))));
+
+    assertThat(drainPayloads(step))
+        .as("the first pass keeps the last of its own two rows")
+        .containsExactly(2L);
+
+    step.reset(); // DRAINED → REARMED: the same plan is rewound and re-run.
+    assertThat(drainPayloads(step))
+        .as("the re-armed pass windows its own rows, not the ring the first pass filled")
+        .containsExactly(4L);
+
+    step.close();
+    step.reset(); // CLOSED → REARMED_AFTER_CLOSE: the next open runs a copy of the closed plan.
+    assertThat(drainPayloads(step))
+        .as("and so does the pass that runs off the plan copy")
+        .containsExactly(6L);
+
+    verify(plan, times(2)).start();
+    verify(copiedPlan, times(1)).start();
+  }
+
+  /**
+   * Two clones of a boundary carrying a {@code fold()} drain each fold only their own plan's rows,
+   * driven on two threads a {@link CyclicBarrier} releases together. The sharing this guards is
+   * structural rather than hypothetical: {@code AbstractStep.clone()} copies {@code shaping} by
+   * reference and {@code resetLifecycleForClone()} deliberately leaves it alone, so both clones hold
+   * the <em>same</em> op instance. The probe pins that premise, because a clone path that happened to
+   * hand each clone its own op would let this case pass without exercising the sharing at all.
+   *
+   * <p>A drain buffering in a field rather than inside the iterator it returns hands one clone the
+   * other's rows. Disjoint row values are what make that visible — two clones over equal rows cannot
+   * tell a shared buffer from an isolated one — and the reopen cases above are the deterministic net
+   * for the same field, this one being the guard under real interleaving.
+   */
+  @Test
+  public void clone_withAFoldDrain_eachCloneFoldsOnlyItsOwnRows() throws Exception {
+    var probe = new SharedOpProbe(new FoldListShapingOp());
+    var results = driveTwoClonesConcurrently(probe);
+
+    assertThat(probe.applications())
+        .as("both clones drove one shared op instance, so the isolation below is the op's own doing")
+        .isEqualTo(2);
+    assertThat(results.get(0))
+        .as("the first clone folds the two rows its own plan copy produced")
+        .containsExactly(List.of(1L, 2L));
+    assertThat(results.get(1))
+        .as("and the second folds its own two, with nothing of the first's in the list")
+        .containsExactly(List.of(3L, 4L));
+  }
+
+  /**
+   * The same clone isolation for the other buffered stage: two clones of a boundary carrying a {@code
+   * tail(n)} window each keep the last row of their own plan copy. This is the worse of the two
+   * failures, which is why it is pinned separately rather than left to the fold case: a shared ring
+   * gives each clone a window of exactly the right size holding the wrong rows, so no size assertion
+   * catches it and only the disjoint values do.
+   */
+  @Test
+  public void clone_withATailWindow_eachCloneWindowsOnlyItsOwnRows() throws Exception {
+    var probe = new SharedOpProbe(new TailListShapingOp(1));
+    var results = driveTwoClonesConcurrently(probe);
+
+    assertThat(probe.applications())
+        .as("both clones drove one shared op instance")
+        .isEqualTo(2);
+    assertThat(results.get(0))
+        .as("the first clone keeps the last row of its own plan copy")
+        .containsExactly(2L);
+    assertThat(results.get(1))
+        .as("and the second keeps the last of its own, not a row from the first's window")
+        .containsExactly(4L);
+  }
+
+  /**
    * The production stages honour the {@link Iterator} contract past exhaustion: {@code hasNext()} stays
    * {@code false} and {@code next()} throws. Driven on the stages directly because the boundary base
    * never asks — it checks {@code hasNext()} and raises its own {@code FastNoSuchElementException} — so
@@ -1959,7 +2109,122 @@ public class YTDBMatchPlanStepTest {
     }
   }
 
+  /**
+   * Wraps a production {@link ListShapingOp} and counts how many times the boundary base asked it for
+   * an iterator. The count is the premise the clone-isolation cases rest on: two clones sharing one op
+   * instance means one probe records two applications, where a clone path that handed each clone its
+   * own op would record one apiece and those cases would stop testing anything. The counter is atomic
+   * because the two clones apply it on two threads.
+   */
+  private static final class SharedOpProbe implements ListShapingOp {
+
+    private final ListShapingOp delegate;
+    private final AtomicInteger applications = new AtomicInteger();
+
+    private SharedOpProbe(ListShapingOp delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public Iterator<Object> apply(Iterator<Object> upstream) {
+      applications.incrementAndGet();
+      return delegate.apply(upstream);
+    }
+
+    private int applications() {
+      return applications.get();
+    }
+  }
+
   // ---- Test helpers ----
+
+  /**
+   * A mocked result row holding one column, which is the shape a {@code SCALAR} boundary projects: the
+   * base reads the row's single property name and then that property's value.
+   */
+  private static Result scalarRow(Object value) {
+    var row = mock(Result.class);
+    when(row.getPropertyNames()).thenReturn(List.of("c"));
+    when(row.getProperty("c")).thenReturn(value);
+    return row;
+  }
+
+  /**
+   * Clones a {@code SCALAR} boundary carrying {@code op} twice, hands each clone its own plan copy over
+   * disjoint rows ({@code 1, 2} and {@code 3, 4}), drives both on two threads a {@link CyclicBarrier}
+   * releases together, and returns the two payload lists in clone order.
+   *
+   * <p>The disjoint row values are the load-bearing part: a stage leaking state across the two clones
+   * shows up as one clone's rows appearing in the other's payloads, which equal rows could not reveal.
+   * The timed joins are asserted rather than trusted for the reason the sibling concurrency case gives
+   * — a hung driver would otherwise leave the error list empty and leak a live thread into the shared
+   * surefire fork — and a completed join is also the happens-before edge the assertions read across.
+   */
+  private List<List<Object>> driveTwoClonesConcurrently(ListShapingOp op) throws Exception {
+    var copyA = mock(InternalExecutionPlan.class);
+    var copyB = mock(InternalExecutionPlan.class);
+    var ctxA = mock(CommandContext.class);
+    var ctxB = mock(CommandContext.class);
+    var streamA = mock(ExecutionStream.class);
+    var streamB = mock(ExecutionStream.class);
+    // Built before the stubbing chains below: scalarRow() stubs a mock of its own, and Mockito rejects
+    // a stubbing opened inside another one's argument list.
+    var rowA1 = scalarRow(1L);
+    var rowA2 = scalarRow(2L);
+    var rowB1 = scalarRow(3L);
+    var rowB2 = scalarRow(4L);
+    when(plan.copy(any())).thenReturn(copyA, copyB);
+    when(copyA.getContext()).thenReturn(ctxA);
+    when(copyB.getContext()).thenReturn(ctxB);
+    when(copyA.start()).thenReturn(streamA);
+    when(copyB.start()).thenReturn(streamB);
+    when(streamA.hasNext(ctxA)).thenReturn(true, true, false);
+    when(streamA.next(ctxA)).thenReturn(rowA1, rowA2);
+    when(streamB.hasNext(ctxB)).thenReturn(true, true, false);
+    when(streamB.next(ctxB)).thenReturn(rowB1, rowB2);
+
+    var original =
+        shapedStep(
+            "v", BoundaryOutputType.SCALAR, ResultShaping.NONE.withListShapingOps(List.of(op)));
+    var cloneA = original.clone();
+    var cloneB = original.clone();
+    // AbstractStep.clone() detaches the clone's traversal; re-attach so each clone resolves the graph
+    // the way it would in production.
+    cloneA.setTraversal(traversal);
+    cloneB.setTraversal(traversal);
+
+    var drainedA = new AtomicReference<List<Object>>();
+    var drainedB = new AtomicReference<List<Object>>();
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    var barrier = new CyclicBarrier(2);
+    var threadA = new Thread(driver(barrier, cloneA, drainedA, errors), "shaped-cloneA-driver");
+    var threadB = new Thread(driver(barrier, cloneB, drainedB, errors), "shaped-cloneB-driver");
+    threadA.start();
+    threadB.start();
+    threadA.join(5_000);
+    threadB.join(5_000);
+
+    assertThat(threadA.isAlive()).as("driver A must terminate, not hang").isFalse();
+    assertThat(threadB.isAlive()).as("driver B must terminate, not hang").isFalse();
+    assertThat(errors).as("no driver thread threw during concurrent iteration").isEmpty();
+    return List.of(drainedA.get(), drainedB.get());
+  }
+
+  /** One {@link #driveTwoClonesConcurrently} driver: wait on the barrier, drain, publish or record. */
+  private static Runnable driver(
+      CyclicBarrier barrier,
+      AbstractMatchPlanStep<Object, ?> step,
+      AtomicReference<List<Object>> drained,
+      List<Throwable> errors) {
+    return () -> {
+      try {
+        barrier.await();
+        drained.set(drainPayloads(step));
+      } catch (Throwable t) {
+        errors.add(t);
+      }
+    };
+  }
 
   private YTDBMatchPlanStep<Object, Vertex> elementStep(String alias) {
     return new YTDBMatchPlanStep<>(
