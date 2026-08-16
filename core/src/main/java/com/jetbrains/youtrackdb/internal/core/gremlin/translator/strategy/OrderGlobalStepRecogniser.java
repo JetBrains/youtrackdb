@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
@@ -102,9 +103,7 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     for (var pair : comparators) {
       ByModulatorPresence.requireModulatedProperty(ctx, boundary, pair.getValue0());
     }
-    var orderBy = new SQLOrderBy(-1);
-    orderBy.setItems(items);
-    ctx.setOrderBy(orderBy);
+    ctx.setOrderBy(MatchProjectionBuilder.orderBy(items));
     return Outcome.ACCEPTED;
   }
 

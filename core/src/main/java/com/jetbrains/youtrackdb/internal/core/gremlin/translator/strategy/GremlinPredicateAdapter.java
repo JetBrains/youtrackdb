@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
@@ -614,7 +613,7 @@ final class GremlinPredicateAdapter {
       if (paramSink == null) {
         return WHERE.startsWith(key, prefix);
       }
-      var lower = WHERE.op(key, new SQLGeOperator(-1), valueExpression(prefix, paramSink));
+      var lower = WHERE.op(key, SQLGeOperator.INSTANCE, valueExpression(prefix, paramSink));
       var upperBound = MatchWhereBuilder.incrementLastCodePoint(prefix);
       var upper = WHERE.op(key, SQLLtOperator.INSTANCE, valueExpression(upperBound, paramSink));
       return WHERE.and(lower, upper);
@@ -646,11 +645,7 @@ final class GremlinPredicateAdapter {
    */
   private static SQLExpression valueExpression(Object value, @Nullable ParamSink paramSink) {
     if (paramSink != null) {
-      var base = new SQLBaseExpression(-1);
-      base.setInputParam(paramSink.bindParam(value));
-      var expr = new SQLExpression(-1);
-      expr.setMathExpression(base);
-      return expr;
+      return MatchLiteralBuilder.toInputParameter(paramSink.bindParam(value));
     }
     return MatchLiteralBuilder.toLiteral(value);
   }

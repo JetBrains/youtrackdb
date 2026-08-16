@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShap
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -211,12 +210,10 @@ final class GremlinAggregateAssembler {
       return Outcome.DECLINE;
     }
     requireGroupKeyPresent(ctx, boundary, keyTraversal);
-    var groupBy = new SQLGroupBy(-1);
-    groupBy.addItem(keyExpr);
     ctx.clearReturnProjection();
     ctx.appendReturnColumn(keyExpr, GROUP_KEY_ALIAS);
     ctx.appendReturnColumn(valueExpr, GROUP_VALUE_ALIAS);
-    ctx.setGroupBy(groupBy);
+    ctx.setGroupBy(MatchProjectionBuilder.groupBy(keyExpr));
     ctx.setLastPropertyProjection(null);
     // accumulateMap so the boundary drains every GROUP BY row into one map and emits one traverser.
     ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true));
@@ -240,12 +237,10 @@ final class GremlinAggregateAssembler {
       return Outcome.DECLINE;
     }
     requireGroupKeyPresent(ctx, boundary, keyTraversal);
-    var groupBy = new SQLGroupBy(-1);
-    groupBy.addItem(keyExpr);
     ctx.clearReturnProjection();
     ctx.appendReturnColumn(keyExpr, GROUP_KEY_ALIAS);
     ctx.appendReturnColumn(MatchProjectionBuilder.countStar(), GROUP_VALUE_ALIAS);
-    ctx.setGroupBy(groupBy);
+    ctx.setGroupBy(MatchProjectionBuilder.groupBy(keyExpr));
     ctx.setLastPropertyProjection(null);
     // accumulateMap so the boundary drains every GROUP BY row into one map and emits one traverser.
     ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true));

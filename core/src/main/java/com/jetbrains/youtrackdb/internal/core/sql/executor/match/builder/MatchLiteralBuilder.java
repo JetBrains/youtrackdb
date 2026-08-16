@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import java.util.Date;
@@ -79,6 +80,25 @@ public final class MatchLiteralBuilder {
       return expr;
     }
     throw new IllegalArgumentException("Unsupported property value type: " + value.getClass());
+  }
+
+  /**
+   * Wraps a bound input parameter in the same {@link SQLExpression} position {@link #toLiteral}
+   * fills — the value side of a comparison, rendered as {@code ?} / {@code :name} and resolved
+   * against the command context at execution time instead of being inlined into the AST.
+   *
+   * <p>Callers that bind their comparison values (every production Gremlin walk does, so the plan
+   * cache can key on the parameterised statement) reach this instead of {@link #toLiteral}; the
+   * inline form stays for unit tests and for values that must be visible to plan-time analysis.
+   */
+  public static SQLExpression toInputParameter(@Nonnull SQLInputParameter parameter) {
+    Objects.requireNonNull(parameter);
+
+    var base = new SQLBaseExpression(-1);
+    base.setInputParam(parameter);
+    var expr = new SQLExpression(-1);
+    expr.setMathExpression(base);
+    return expr;
   }
 
   /**

@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Builds {@link SQLExpression} projection nodes in the same AST shape as {@link YouTrackDBSql}
  * without going through a SQL text round-trip. Shared by {@link
@@ -106,6 +109,40 @@ public final class ProjectionExpressionFactories {
     return bareIdentifier(name);
   }
 
+  // --- RETURN column plumbing (bare alias reference + AS name) ----------------------------------
+  // The two nodes a RETURN column is made of. Both embed the caller's name as a literal
+  // SQLIdentifier, so a Gremlin-supplied alias or label can never be re-tokenized into extra
+  // syntax, and both stay in one place so the RETURN shape cannot drift between front-ends.
+
+  /**
+   * {@code alias} as a RETURN item — a bare identifier expression naming a pattern alias, with no
+   * property or record-attribute modifier chained onto it (that is {@link #aliasProperty} /
+   * {@link #aliasRecordAttribute}).
+   *
+   * <p>Unlike most factories in this class, this one does not reject a blank name. Its callers supply
+   * an internally generated pattern alias that their own guards already established is present, and
+   * the Gremlin translator reaches it from inside {@code TraversalStrategy.apply()}, where
+   * {@code GremlinToMatchStrategy}'s safety net turns any {@link RuntimeException} into a silent
+   * decline to the native pipeline — so a throw here would trade a caller bug for a lost
+   * translation with no diagnostic rather than surfacing it.
+   */
+  public static SQLExpression aliasExpression(String alias) {
+    return bareIdentifier(alias);
+  }
+
+  /**
+   * The {@code AS name} identifier of a RETURN column — the Result key the row is published under,
+   * as opposed to the expression that computes it.
+   *
+   * <p>Does not reject a blank name, for the reason given on {@link #aliasExpression} plus one
+   * more: this name is user-facing (a Gremlin {@code as(...)} label reaches the plan through it
+   * verbatim), so validating it here would move a rejection decision out of the front-end that owns
+   * it.
+   */
+  public static SQLIdentifier columnAlias(String name) {
+    return new SQLIdentifier(name);
+  }
+
   // --- Field access (alias.property / alias.@rid) built as AST, no SQL-text round-trip ----------
   // Same AST shape the parser produces for `SELECT alias.property FROM …`; the property key is a
   // literal SQLIdentifier, so a Gremlin-supplied key can never be re-tokenized into extra syntax.
@@ -190,6 +227,37 @@ public final class ProjectionExpressionFactories {
     requireNonBlank(alias, "alias");
     requireNonBlank(attribute, "record attribute");
     return orderByItem(alias, recordAttributeModifier(attribute), ascending);
+  }
+
+  /**
+   * {@code ORDER BY item1, item2, …} — the clause container around items built by
+   * {@link #orderByProperty} / {@link #orderByRecordAttribute}. The list is copied into a fresh
+   * mutable list, because {@link SQLOrderBy#setItems} stores the reference and {@link
+   * SQLOrderBy#addItem} appends to it: handing the caller's list straight in would let a later
+   * planner-side {@code addItem} write back into the caller's collection.
+   */
+  public static SQLOrderBy orderBy(List<SQLOrderByItem> items) {
+    if (items == null || items.isEmpty()) {
+      throw new IllegalArgumentException("ORDER BY needs at least one item");
+    }
+    var orderBy = new SQLOrderBy(-1);
+    orderBy.setItems(new ArrayList<>(items));
+    return orderBy;
+  }
+
+  /** {@code GROUP BY expr1, expr2, …}. */
+  public static SQLGroupBy groupBy(SQLExpression... items) {
+    if (items == null || items.length == 0) {
+      throw new IllegalArgumentException("GROUP BY needs at least one item");
+    }
+    var groupBy = new SQLGroupBy(-1);
+    for (var item : items) {
+      if (item == null) {
+        throw new IllegalArgumentException("null GROUP BY item");
+      }
+      groupBy.addItem(item);
+    }
+    return groupBy;
   }
 
   // --- LIMIT / SKIP (built as AST) --------------------------------------------------------------

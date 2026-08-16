@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -51,7 +51,7 @@ final class GremlinProjectionAssembler {
       if (internalAlias == null) {
         return Outcome.DECLINE;
       }
-      ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(internalAlias)), userLabel);
+      ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), userLabel);
     }
     // A single-label select emits the column value directly (native SelectOneStep shape).
     ctx.setResultShaping(ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1));
@@ -100,7 +100,7 @@ final class GremlinProjectionAssembler {
     var expr = aliasProperty(boundary, propertyKey);
     ctx.clearReturnProjection();
     // Entity column first — the plan step's dropOnAbsent reads EntityImpl.hasProperty from it.
-    ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
+    ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
     ctx.appendReturnColumn(expr, null);
     ctx.setLastPropertyProjection(
         new RecognitionContext.PropertyProjection(boundary, propertyKey, expr));
@@ -144,7 +144,7 @@ final class GremlinProjectionAssembler {
     }
     ctx.clearReturnProjection();
     // Entity column — omitted from the emitted MAP; used only for hasProperty classification.
-    ctx.appendReturnColumn(new SQLExpression(new SQLIdentifier(boundary)), boundary);
+    ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
     if (tokens != 0) {
       if ((tokens & ELEMENT_MAP_TOKEN_ID) != 0) {
         ctx.appendReturnColumn(aliasRecordAttribute(boundary, "@rid"), ELEMENT_MAP_KEY_ID);

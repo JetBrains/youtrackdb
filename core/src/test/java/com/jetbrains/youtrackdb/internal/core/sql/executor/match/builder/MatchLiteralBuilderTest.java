@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -229,6 +230,43 @@ public class MatchLiteralBuilderTest {
   }
 
   /** Reads a (possibly inherited) field by name from the given object. */
+  /**
+   * A bound parameter takes the same {@code mathExpression → SQLBaseExpression} route a literal
+   * number or string takes, but carries the parameter node instead of an inlined value — so it
+   * survives {@code SQLExpression.copy()} during plan creation and resolves against the command
+   * context at execution time. Every production Gremlin walk binds its comparison values so the
+   * plan cache can key on the parameterised statement, which makes this the hot path rather than
+   * {@code toLiteral}.
+   */
+  @Test
+  public void toInputParameter_routesThroughSQLBaseExpressionInputParamField() throws Exception {
+    var parameter = SQLPositionalParameter.forSlot(3);
+
+    var expr = MatchLiteralBuilder.toInputParameter(parameter);
+
+    var math = expr.getMathExpression();
+    assertNotNull("a bound parameter should populate mathExpression", math);
+    assertTrue("math expression should be a SQLBaseExpression", math instanceof SQLBaseExpression);
+    assertSame(
+        "the parameter node must be carried by reference, not re-created",
+        parameter,
+        readField(math, "inputParam", Object.class));
+    assertNull(
+        "an input parameter must not also inline a string value",
+        readField(math, "string", Object.class));
+    assertNull(
+        "an input parameter must not also inline a numeric value",
+        readField(math, "number", Object.class));
+    assertNoOtherFieldSet(expr, "mathExpression");
+  }
+
+  /** A null parameter is a caller bug rather than a renderable value, so it fails loud. */
+  @Test
+  public void toInputParameter_rejectsNull() {
+    assertThrows(
+        NullPointerException.class, () -> MatchLiteralBuilder.toInputParameter(null));
+  }
+
   private static <T> T readField(Object owner, String fieldName, Class<T> type) throws Exception {
     Class<?> c = owner.getClass();
     while (c != null) {

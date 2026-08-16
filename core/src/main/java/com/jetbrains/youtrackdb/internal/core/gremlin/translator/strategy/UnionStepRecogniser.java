@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import java.util.ArrayList;
 import java.util.List;
@@ -218,7 +219,7 @@ final class UnionStepRecogniser implements StepRecogniser {
     boolean changed = false;
     for (SQLIdentifier alias : inputs.returnAliases()) {
       if (alias != null && fromAlias.equals(alias.getStringValue())) {
-        rewritten.add(new SQLIdentifier(toAlias));
+        rewritten.add(MatchProjectionBuilder.columnAlias(toAlias));
         changed = true;
       } else {
         rewritten.add(alias);

@@ -3,12 +3,20 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import java.util.List;
 import java.util.Locale;
 
 /**
- * Fluent, IR-first builders for MATCH {@code RETURN} projection items consumed by {@link
- * MatchExecutionPlanner}. Gremlin aggregate terminators and GQL projection wiring should prefer
- * these factories over parsing SQL text fragments.
+ * Fluent, IR-first builders for the MATCH statement tail consumed by {@link
+ * MatchExecutionPlanner} — {@code RETURN} projection items and their {@code AS} names, plus the
+ * {@code ORDER BY} and {@code GROUP BY} clause containers built over them. Gremlin aggregate
+ * terminators and GQL projection wiring should prefer these factories over parsing SQL text
+ * fragments or hand-assembling the nodes, so the two front-ends cannot drift apart on the shape
+ * they hand the planner.
  */
 public final class MatchProjectionBuilder {
 
@@ -55,5 +63,28 @@ public final class MatchProjectionBuilder {
   public static SQLExpression propertyAggregate(String functionName, SQLExpression field) {
     return ProjectionExpressionFactories.propertyAggregate(
         functionName.toLowerCase(Locale.ROOT), field);
+  }
+
+  /**
+   * {@code alias} as a RETURN item — the bare identifier expression that projects a pattern alias
+   * (the whole element), with no property or record-attribute modifier.
+   */
+  public static SQLExpression aliasColumn(String alias) {
+    return ProjectionExpressionFactories.aliasExpression(alias);
+  }
+
+  /** The {@code AS name} identifier a RETURN column publishes its Result key under. */
+  public static SQLIdentifier columnAlias(String name) {
+    return ProjectionExpressionFactories.columnAlias(name);
+  }
+
+  /** {@code ORDER BY item1, item2, …} over pre-built order items. */
+  public static SQLOrderBy orderBy(List<SQLOrderByItem> items) {
+    return ProjectionExpressionFactories.orderBy(items);
+  }
+
+  /** {@code GROUP BY expr1, expr2, …}. */
+  public static SQLGroupBy groupBy(SQLExpression... items) {
+    return ProjectionExpressionFactories.groupBy(items);
   }
 }

@@ -71,6 +71,9 @@ final class StartStepRecogniser implements StepRecogniser {
   /** Singleton — the recogniser is stateless and cheap to share across walker instances. */
   static final StartStepRecogniser INSTANCE = new StartStepRecogniser();
 
+  /** Stateless builder for the WHERE AST; construction is trivial so a shared instance is fine. */
+  private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
+
   /**
    * Alias used by the Phase 1 single-node pattern. The {@code $g2m_} prefix is the Gremlin-to-MATCH
    * translator's reserved namespace; the {@code v0} suffix names this pattern's only vertex node.
@@ -132,7 +135,7 @@ final class StartStepRecogniser implements StepRecogniser {
     // @class = 'V' would wrongly exclude subclass instances.
     if (!rids.isEmpty()) {
       ctx.markRidBearing();
-      ctx.putAliasFilter(BOUNDARY_ALIAS, wrapWhere(buildRidInExpression(rids)));
+      ctx.putAliasFilter(BOUNDARY_ALIAS, WHERE.wrap(buildRidInExpression(rids)));
     }
 
     // The boundary step pulls the matched vertex out of each row by name, so the RETURN projection
@@ -244,15 +247,38 @@ final class StartStepRecogniser implements StepRecogniser {
   }
 
   /**
-   * Builds {@code @rid IN [#X1:Y1, #X2:Y2, …]} as a hand-rolled {@link SQLInCondition}. Constructing
-   * the AST manually (rather than reusing {@code MatchWhereBuilder.in}) is necessary because the left
-   * side must be a {@link SQLRecordAttribute} — {@code @rid} is a record attribute, not a regular
-   * property reference, and the runtime evaluator dispatches the two shapes through different code
-   * paths in {@code SQLSuffixIdentifier.execute}.
+   * Builds {@code @rid IN [#X1:Y1, #X2:Y2, …]} as a hand-rolled {@link SQLInCondition}.
+   *
+   * <h2>Why this one node stays hand-built</h2>
+   *
+   * {@code MatchWhereBuilder.in(field, values)} cannot express it, and converting this site to that
+   * call would be a silent performance regression rather than a compile error. The builder puts a
+   * plain property identifier on the left, while {@code @rid} is a record attribute and has to
+   * arrive as an {@link SQLRecordAttribute}: the runtime evaluator dispatches the two shapes through
+   * different paths in {@code SQLSuffixIdentifier.execute}, and — the part that costs asymptotics —
+   * {@code SQLWhereClause.findRidInList()} recognises only the record-attribute form, through its
+   * {@code isBareRidExpression} check on {@code suffix.recordAttribute}. Lose that recognition and
+   * {@code MatchExecutionPlanner.promoteStaticRidsFromFilters} never fires, so the alias keeps no
+   * pinned RID and {@code createSelectStatement} emits a full class scan with an {@code @rid}
+   * post-filter where it could have emitted {@code SELECT FROM [#X:Y, …]} — an O(class size) plan
+   * for a lookup of known records, with identical rows and no error.
+   *
+   * <p>The same reasoning bans a generic-builder wrapping even if the left side were fixed. The
+   * clause reaches the planner unwrapped — a bare condition as the {@link SQLWhereClause} base
+   * expression, with none of the {@code OrBlock} / {@code AndBlock} / {@code NotBlock} chain the
+   * grammar's {@code WhereClause()} production adds — and the promoter's tree search has to bottom
+   * out on that leaf.
+   *
+   * <p>Both claims are measured rather than asserted. {@code StartStepRecogniserRidClauseTest} pins
+   * them at the AST level, with the {@code MatchWhereBuilder.in} spelling as a negative control that
+   * the promoter does <em>not</em> see, and {@code YTDBQueryMetricsStrategyTest
+   * .byIdLookupSurfacesRidFetchPlanWhenTranslatedAndNoPlanWhenNative} pins the plan end to end: a
+   * translated {@code g.V(id)} reaches its record through a {@code FetchFromRidsStep} and never
+   * scans the class.
    *
    * <p>Shared as-is with the {@code hasId(...)} branch of {@code HasStepRecogniser}: {@code hasId} is
    * set membership over RIDs, the same {@code @rid IN [...]} shape, and needs the same
-   * record-attribute left side so {@code promoteStaticRidsFromFilters} can lift it to pinned RIDs.
+   * record-attribute left side for the same promotion.
    */
   static SQLBooleanExpression buildRidInExpression(List<RecordIdInternal> rids) {
     var ridAttr = new SQLRecordAttribute(-1);
@@ -278,6 +304,10 @@ final class StartStepRecogniser implements StepRecogniser {
    * {@code toString} and the plan-time {@code supportsBasicCalculation} path see a well-formed
    * condition. Named with a verb prefix because it constructs a fresh node each call (it is a factory,
    * not an accessor).
+   *
+   * <p>This is the second half of the one hand-built node the translator keeps outside
+   * {@code match/builder/}; {@link #buildRidInExpression} above carries the reason and the tests
+   * that pin it. Route nothing else through here.
    */
   private static @Nonnull SQLInCondition buildRidInCondition(
       SQLExpression leftExpr, SQLBaseExpression rightBase) {
@@ -295,11 +325,5 @@ final class StartStepRecogniser implements StepRecogniser {
   /** Dedup key for {@link #normaliseIds}: the RID value (collection id + position), not the {@link
    *  RecordIdInternal} instance. */
   private record RidKey(int collectionId, long position) {
-  }
-
-  private static SQLWhereClause wrapWhere(SQLBooleanExpression expr) {
-    var clause = new SQLWhereClause(-1);
-    clause.setBaseExpression(expr);
-    return clause;
   }
 }

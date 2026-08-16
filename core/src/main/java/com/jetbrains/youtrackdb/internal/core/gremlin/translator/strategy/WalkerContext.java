@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -556,8 +557,8 @@ final class WalkerContext implements RecognitionContext {
     returnItems.clear();
     returnAliases.clear();
     returnNestedProjections.clear();
-    returnItems.add(new SQLExpression(new SQLIdentifier(alias)));
-    returnAliases.add(new SQLIdentifier(alias));
+    returnItems.add(MatchProjectionBuilder.aliasColumn(alias));
+    returnAliases.add(MatchProjectionBuilder.columnAlias(alias));
     returnNestedProjections.add(null);
   }
 
@@ -595,7 +596,7 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void appendReturnColumn(SQLExpression expression, @Nullable String returnAlias) {
     returnItems.add(expression);
-    returnAliases.add(returnAlias == null ? null : new SQLIdentifier(returnAlias));
+    returnAliases.add(returnAlias == null ? null : MatchProjectionBuilder.columnAlias(returnAlias));
     returnNestedProjections.add(null);
   }
 
