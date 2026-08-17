@@ -611,8 +611,9 @@ public class ProductionAllocatorConcurrencyMTTest {
         .as("round %d: index '%s' must be registered after the createIndex call",
             round, indexName)
         .isNotNull();
-    final var engineId = index.getIndexId();
-    final var engine = ((AbstractStorage) session.getStorage()).getIndexEngine(engineId);
+    final var engine =
+        com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport
+            .engine(session, indexName);
     assertThat(engine)
         .as("round %d: index engine for '%s' must be a"
             + " BTreeMultiValueIndexEngine; got %s",

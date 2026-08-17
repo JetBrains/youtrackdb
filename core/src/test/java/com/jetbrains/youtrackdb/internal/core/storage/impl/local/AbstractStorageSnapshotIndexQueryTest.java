@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.UUID;
@@ -320,8 +319,8 @@ public class AbstractStorageSnapshotIndexQueryTest {
    */
   private long resolveInternalEngineId(String indexName)
       throws InvalidIndexEngineIdException {
-    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
-    return db.getStorage().getIndexEngine(index.getIndexId()).getId();
+    return com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport
+        .internalIdentifier(db, indexName);
   }
 
 }

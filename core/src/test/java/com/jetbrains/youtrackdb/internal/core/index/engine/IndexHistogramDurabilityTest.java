@@ -562,10 +562,8 @@ public class IndexHistogramDurabilityTest {
     try {
       var idx = session.getSharedContext().getIndexManager()
           .getIndex(indexName);
-      var indexIdField = IndexAbstract.class
-          .getDeclaredField("indexId");
-      indexIdField.setAccessible(true);
-      int indexId = indexIdField.getInt(idx);
+      int indexId = com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport
+          .externalIdentifier(idx);
       var storageField = IndexAbstract.class
           .getDeclaredField("storage");
       storageField.setAccessible(true);

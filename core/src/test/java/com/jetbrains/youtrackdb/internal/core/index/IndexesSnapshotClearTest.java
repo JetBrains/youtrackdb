@@ -127,9 +127,8 @@ public class IndexesSnapshotClearTest {
    */
   private IndexesSnapshot getSnapshotForIndex(String indexName)
       throws InvalidIndexEngineIdException {
-    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
     var storage = db.getStorage();
-    int internalId = storage.getIndexEngine(index.getIndexId()).getId();
+    int internalId = IndexEngineTestSupport.internalIdentifier(db, indexName);
     return storage.subIndexSnapshot(internalId);
   }
 }
