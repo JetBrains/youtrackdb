@@ -295,22 +295,19 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * The {@code both} edge chain closes on an {@code EdgeOtherVertexStep} ({@code otherV}), a distinct
-   * exact class the {@code takeIf(EdgeVertexStep.class)} matcher rejects and for which the MATCH
-   * executor has no method, so {@code bothE("knows").has("w", 1).otherV()} declines and stays on the
-   * native pipeline.
+   * {@code bothE(L).has(...).otherV()} closes on {@link EdgeOtherVertexStep} and translates via
+   * edge-as-node {@code bothV()} plus a target {@code @rid <> source} filter.
    */
   @Test
-  public void otherVClose_declines() {
+  public void otherVClose_isAccepted() {
     var admin = graph.traversal().V().bothE("knows").has("w", 1).otherV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("otherV close must decline — no MATCH otherV method")
-        .isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.boundaryAlias).isNotEqualTo(BOUNDARY_ALIAS);
   }
 
   /**
@@ -368,19 +365,19 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A user {@code as(...)} label on the edge step ({@code outE("knows").as("e").has("w",1).inV()})
-   * declines — a named edge would need to be exposed as a result, which is out of scope.
+   * A user {@code as(...)} label on the edge step binds to the minted edge alias so later {@code
+   * select("e")} can project edge properties.
    */
   @Test
-  public void edgeStepWithAsLabel_declines() {
+  public void edgeStepWithAsLabel_bindsEdgeAlias() {
     var admin = graph.traversal().V().outE("knows").as("e").has("w", 1).inV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("an as(...) label on the edge must decline").isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.resolveUserLabel("e")).isNotNull();
   }
 
   /** A multi-label edge ({@code outE("knows", "likes")}) declines — multi-label is out of scope. */

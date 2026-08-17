@@ -329,6 +329,15 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.knowsGroupCountByLastName(t, arm.personId(i)).next());
   }
 
+  /** Shape 13 — IS3 whole: edge {@code creationDate} and friend {@code firstName} via {@code select}. */
+  @Benchmark
+  public List<Map<String, Object>> gremlinIs3FriendsWithDates(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is3FriendsWithDates(t, arm.personId(i)).toList());
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Declining shapes. Delta = the cost of the decline path, and the baseline for the day the shape
   // starts translating. A 0% delta here means "MATCH never ran", not "MATCH did not help" — the
@@ -343,15 +352,6 @@ public class LdbcGremlinTranslatorBenchmark {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes.knowsOrderedPage(t, arm.personId(i)).toList());
-  }
-
-  /** IS3 whole: declines on the edge alias of the folded {@code outE(KNOWS).inV()} hop. */
-  @Benchmark
-  public List<Map<String, Object>> gremlinIs3FriendsWithDatesDeclines(
-      LdbcBenchmarkState state, TranslatorArm arm) {
-    var i = state.nextIndex();
-    return state.traversal.computeInTx(
-        t -> GremlinTraversalShapes.is3FriendsWithDates(t, arm.personId(i)).toList());
   }
 
   /**

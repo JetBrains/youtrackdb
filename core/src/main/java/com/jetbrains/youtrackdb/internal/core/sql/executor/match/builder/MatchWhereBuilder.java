@@ -80,6 +80,30 @@ public final class MatchWhereBuilder {
   }
 
   /**
+   * Builds {@code @class IN ['L1', 'L2', …]} — membership over leaf class names for a multi-label
+   * {@code hasLabel(L1, L2, …)} that cannot re-type a single MATCH node to one class.
+   */
+  public SQLBooleanExpression classIn(java.util.List<String> classNames) {
+    if (classNames == null || classNames.isEmpty()) {
+      throw new IllegalArgumentException("classIn needs at least one class name");
+    }
+    var classAttr = new SQLRecordAttribute(-1);
+    classAttr.setName("@class");
+    var literals = new java.util.ArrayList<SQLExpression>(classNames.size());
+    for (var name : classNames) {
+      if (name == null || name.isBlank()) {
+        throw new IllegalArgumentException("classIn class names must be non-blank");
+      }
+      literals.add(stringExpression(name));
+    }
+    var condition = new SQLInCondition(-1);
+    condition.setLeft(new SQLExpression(classAttr, null));
+    condition.setRightMathExpression(literalCollectionExpression(literals));
+    condition.setOperator(new SQLInOperator(-1));
+    return condition;
+  }
+
+  /**
    * Builds {@code field {op} value} for any {@link SQLBinaryCompareOperator} ({@code =}, {@code
    * !=}, {@code >}, {@code >=}, {@code <}, {@code <=}, {@code LIKE}, …).
    */

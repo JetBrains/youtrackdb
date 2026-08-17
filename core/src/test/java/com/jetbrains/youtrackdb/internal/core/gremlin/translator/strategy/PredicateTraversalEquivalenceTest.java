@@ -154,41 +154,47 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A multi-label {@code g.V().hasLabel("Person", "Employee")} declines to native: it arrives as a
-   * single {@code within(...)} label container, which a single-class MATCH node cannot express.
-   * Native polymorphic {@code hasLabel(Person, Employee)} matches an element of either class (both
-   * vertices), so the declined native run returns that multiset.
+   * A multi-label {@code g.V().hasLabel("Person", "Employee")} translates to {@code @class IN
+   * [Person, Employee]} and matches native's hierarchy-aware multiset in polymorphic mode.
    */
   @Test
-  public void hasLabelMultiLabel_declinesToNative() {
+  public void hasLabelMultiLabel_matchesNativePolymorphic() {
     seedPersonEmployeeHierarchy();
-    assertEquivalent(
-        "g.V().hasLabel(Person, Employee) (multi-label)",
-        Recognition.DECLINED,
-        () -> graph.traversal().V().hasLabel("Person", "Employee"));
+    withPolymorphicDefault(true, () -> assertEquivalent(
+        "polymorphic g.V().hasLabel(Person, Employee) (multi-label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person", "Employee")));
   }
 
   /**
-   * {@code g.V().hasLabel("Missing")} on a never-used label declines to native rather than re-typing
-   * to a non-existent class (which would make {@code SELECT FROM Missing} error). Native matches no
-   * vertex, so the declined run returns empty — the two pipelines agree on emptiness.
-   *
-   * <p>Empty on both arms is exactly the shape the anti-vacuity guard exists to refuse, so the
-   * emptiness has to be attributable to the label rather than to a fixture that seeded nothing: the
-   * translating control below returns both vertices off the same fixture before the decline opts out.
+   * Multi-label {@code hasLabel(Person, Employee)} in non-polymorphic mode matches native leaf-exact
+   * semantics: both the {@code Person} and the {@code Employee} vertex, via {@code @class IN}.
    */
   @Test
-  public void hasLabelNonExistentClass_declinesToNative() {
+  public void hasLabelMultiLabel_matchesNativeNonPolymorphic() {
+    seedPersonEmployeeHierarchy();
+    withPolymorphicDefault(false, () -> assertEquivalent(
+        "non-polymorphic g.V().hasLabel(Person, Employee) (multi-label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person", "Employee")));
+  }
+
+  /**
+   * {@code g.V().hasLabel("Missing")} on a never-used label translates to {@code @class = Missing}
+   * on the generic {@code V} root and returns empty like native — no {@code SELECT FROM Missing}.
+   */
+  @Test
+  public void hasLabelNonExistentClass_matchesNativeEmpty() {
     seedPersonEmployeeHierarchy();
 
     assertEquivalent(
-        "g.V().hasLabel(Person) (fixture control for the empty decline below)",
+        "g.V().hasLabel(Person) (fixture control)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person"));
 
     assertEquivalent(
         "g.V().hasLabel(Missing) (never-used label)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().hasLabel("Missing"));
   }

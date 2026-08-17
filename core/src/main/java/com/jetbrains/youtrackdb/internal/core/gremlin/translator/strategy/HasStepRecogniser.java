@@ -31,8 +31,8 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       hasLabel}); polymorphic mode re-types alone (a {@code SELECT FROM L} scan matches subclasses,
  *       mirroring native hierarchy-aware {@code hasLabel} — see {@code YTDBLabelMatcher}). Handled
  *       only for a single {@code eq(L)} container: a multi-label {@code hasLabel(L1, L2)} arrives as
- *       one {@code within(...)} container and declines, and two conflicting {@code ~label} containers
- *       decline (one MATCH node has one class);
+ *       one {@code within(...)} container and is expressed as {@code @class IN [L1, L2, …]} without
+ *       re-typing; two conflicting {@code ~label} containers decline (one MATCH node has one class);
  *   <li>a {@code ~id} container ({@code T.id} accessor) contributes an {@code @rid IN [...]} filter
  *       via the record-attribute builder shared with {@link StartStepRecogniser}. {@code hasId} is set
  *       membership, so a repeated id ({@code hasId(a, a)}) does <em>not</em> decline (unlike {@code
@@ -110,38 +110,29 @@ final class HasStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
-    // First pass: resolve a single-eq ~label class. It drives both the boundary-node re-typing and
-    // the startsWith-only type gate for property containers in this same step.
-    String labelClass = null;
+    // First pass: resolve ~label containers — a single eq(L), a multi-label within(...), or a
+    // conflicting pair of eq containers. Drives re-typing / @class filters and the startsWith gate.
+    ParsedLabelConstraint labelConstraint = null;
     for (var container : containers) {
       if (!LABEL_KEY.equals(container.getKey())) {
         continue;
       }
-      var name = singleEqLabel(container);
-      if (name == null) {
-        // Multi-label within(...), a non-eq label predicate, or a non-String label value — none of
-        // which a single-class MATCH node can express. Decline the whole traversal.
+      var parsed = parseLabelContainer(container);
+      if (parsed == null) {
         return Outcome.DECLINE;
       }
-      if (labelClass != null && !labelClass.equals(name)) {
-        // Two conflicting ~label containers (hasLabel("A").hasLabel("B")): one MATCH node has one
-        // class. Decline to native rather than pick one.
+      if (labelConstraint == null) {
+        labelConstraint = parsed;
+      } else if (labelConstraint.conflictsWith(parsed)) {
         return Outcome.DECLINE;
       }
-      labelClass = name;
     }
 
-    // The re-type target must be a real vertex class: a typo'd / never-used label or an edge class
-    // would make SELECT FROM L error or scan the wrong element type, while native hasLabel just
-    // matches no vertex and returns empty. Decline so the native pipeline produces that empty result.
-    if (labelClass != null && !ctx.isVertexClass(labelClass)) {
-      return Outcome.DECLINE;
-    }
-
-    // The class context for the startsWith-form type gate is the step's own ~label (if any); a
+    // The class context for the startsWith-form type gate is the step's own single ~label (if any); a
     // property has() on a generic V boundary has no known leaf class, so its keys resolve as
     // not-a-declared-String and a startingWith there routes to the strict full-scan form.
-    var typeClass = labelClass;
+    String typeClass =
+        labelConstraint instanceof ParsedLabelConstraint.Single single ? single.name() : null;
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
         key -> ctx.isDeclaredStringProperty(typeClass, key);
     ParamSink paramSink = ctx::bindParam;
@@ -186,14 +177,20 @@ final class HasStepRecogniser implements StepRecogniser {
     if (!ctx.bindStepLabels(hasStep, boundary)) {
       return Outcome.DECLINE;
     }
-    if (labelClass != null) {
-      // Re-type the boundary node's class so the scan narrows to L (addNode overwrites the prior
-      // class). Non-polymorphic adds an exact @class = 'L' so the SELECT FROM L polymorphic scan is
-      // filtered to the leaf class; polymorphic leaves it at SELECT FROM L (matches subclasses).
-      ctx.addNode(boundary, labelClass);
-      if (!ctx.polymorphic()) {
-        whereExprs.add(WHERE.classEquals(labelClass));
+    if (labelConstraint instanceof ParsedLabelConstraint.Single single) {
+      var name = single.name();
+      if (ctx.isVertexClass(name)) {
+        ctx.addNode(boundary, name);
+        if (!ctx.polymorphic()) {
+          whereExprs.add(WHERE.classEquals(name));
+        }
+      } else {
+        // Never-used label: stay on the generic V root and filter @class = name so the plan returns
+        // empty like native hasLabel rather than SELECT FROM a missing class.
+        whereExprs.add(WHERE.classEquals(name));
       }
+    } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
+      whereExprs.add(WHERE.classIn(multi.names()));
     }
     if (!whereExprs.isEmpty()) {
       var merged = WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0]));
@@ -203,20 +200,58 @@ final class HasStepRecogniser implements StepRecogniser {
   }
 
   /**
-   * Extracts a single {@code eq(L)} label name from a {@code ~label} container, or {@code null} to
-   * decline. Only a {@link Compare#eq} predicate over a non-blank {@link String} qualifies: a
-   * multi-label {@code hasLabel(L1, L2)} arrives as {@link Contains#within} and any non-eq label
-   * predicate ({@code hasLabel(P.neq(...))}) is out of scope.
+   * Parsed {@code ~label} constraint from one {@link HasContainer}: either one {@code eq(L)} name or
+   * a multi-label {@code within(...)} list.
    */
-  private static @Nullable String singleEqLabel(HasContainer container) {
+  private sealed interface ParsedLabelConstraint {
+    record Single(String name) implements ParsedLabelConstraint {
+      @Override
+      public boolean conflictsWith(ParsedLabelConstraint other) {
+        return other instanceof Single s && !name.equals(s.name);
+      }
+    }
+
+    record Multi(java.util.List<String> names) implements ParsedLabelConstraint {
+      @Override
+      public boolean conflictsWith(ParsedLabelConstraint other) {
+        return other instanceof Single || other instanceof Multi;
+      }
+    }
+
+    boolean conflictsWith(ParsedLabelConstraint other);
+  }
+
+  /**
+   * Extracts a label constraint from a {@code ~label} container, or {@code null} to decline.
+   */
+  private static @Nullable ParsedLabelConstraint parseLabelContainer(HasContainer container) {
     var predicate = container.getPredicate();
     if (predicate == null) {
       return null;
     }
-    if (!(predicate.getBiPredicate() instanceof Compare compare) || compare != Compare.eq) {
+    if (predicate.getBiPredicate() instanceof Compare compare && compare == Compare.eq) {
+      if (predicate.getValue() instanceof String label && !label.isBlank()) {
+        return new ParsedLabelConstraint.Single(label);
+      }
       return null;
     }
-    return predicate.getValue() instanceof String label && !label.isBlank() ? label : null;
+    if (predicate.getBiPredicate() instanceof Contains contains && contains == Contains.within) {
+      if (!(predicate.getValue() instanceof Collection<?> values)) {
+        return null;
+      }
+      var names = new ArrayList<String>();
+      for (var value : values) {
+        if (!(value instanceof String label) || label.isBlank()) {
+          return null;
+        }
+        names.add(label);
+      }
+      if (names.isEmpty()) {
+        return null;
+      }
+      return new ParsedLabelConstraint.Multi(names);
+    }
+    return null;
   }
 
   /**

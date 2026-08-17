@@ -748,7 +748,7 @@ trade a wrong answer for a failed conformance run.
   > silent-wrong-answer defect lands on Track 11; and Track 9's five
   > unowned-defect carry obligations are Phase 4's to move into `design-final.md`.
 
-- [ ] Track 11: List-shaping terminators + JMH harness
+- [x] Track 11: List-shaping terminators + JMH harness
   > **Runs after Track 9** (inline replan, 2026-08-03 — the two halves of the
   > original final track). Completes the Phase 1 recognised set: the four
   > list-shaping terminators (`fold` / `unfold` / `reverse` / `tail`) as last-step
@@ -822,11 +822,17 @@ trade a wrong answer for a failed conformance run.
   > tree rather than as a green reference. Track 9's test-harness backlog also
   > moved — see plan/track-11.md item 10's 2026-08-04 amendment, which records the
   > declined-path pin as discharged and re-measures the consolidation's scale.
+  >
+  > **Track episode:** the four terminators and their decline gates ship through
+  > Track 7's ordered `ListShapingOp` carrier; the shared two-arm harness and
+  > `jmh-ldbc` shape test exercise translator on/off engagement; item 8's
+  > edge-alias half closes in a post-Phase-B pass — see `plan/track-11.md`
+  > `## Episodes` § Track completion. (11 steps, 0 failed; step 12 skipped)
 
 
 ## Implementation state
 
-Tracks 1–8 and Track 10 are executed and complete; Tracks 9 and 11 remain, in that order (the 2026-08-03 inline replan split the original final track — see the Track 9 entry's `plan/track-9.md` `## Decision Log` DR-S1). Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 10 delivered the query-metrics regression remediation and, in place of the green `core` run its title originally promised, an enumerated baseline: 483 repaired failures against one caused, and 21 deferred with per-class dispositions. The green goal stopped being reachable when the 2026-08-02 rebase restored three TinkerPop compliance executions the branch had never run. Track 9 now owns suite completion plus the dropped per-alias filter — the `core` feature suite does not terminate with the translator on, and no Cucumber baseline exists for this branch. Track 11 owns the list-shaping terminators and the JMH harness, measured against the baseline Track 9 publishes.
+Tracks 1–11 are executed and complete (the 2026-08-03 inline replan split the original final track into Tracks 9 and 11 — see `plan/track-9.md` `## Decision Log` DR-S1). Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories. Track 2 delivered the `GremlinToMatchStrategy`, `GremlinStepWalker` + `StepRecogniser` registry, and `YTDBMatchPlanStep`. Track 3 delivered edge traversal. Track 4 delivered the predicate surface. Track 5 delivered logical filters, the sub-walker, and `GremlinPlanCache` (D5). Track 6 delivered result shaping. Track 7 extracted `AbstractMatchPlanStep` and the ordered list-shaping post-process carrier. Track 8 delivered `MultiPlanMatchStep`, multi-plan `TranslationResult` + strategy splice, `UnionStepRecogniser` behind `UnionForkHost`, and union `cacheEligible=false` (D8 code path). Track 10 delivered the query-metrics regression remediation and, in place of the green `core` run its title originally promised, an enumerated baseline: 483 repaired failures against one caused, and 21 deferred with per-class dispositions. The green goal stopped being reachable when the 2026-08-02 rebase restored three TinkerPop compliance executions the branch had never run. Track 9 delivered Cucumber suite completion on `core` (1930 / 0 / 14 on both kill-switch arms) and the dropped per-alias filter fix. Track 11 delivered the list-shaping terminators, union/combinator decline gates, harness consolidation, JMH shape test, AST audit, and the post-close edge-alias binding gap.
 
 | Track | Code | Notes |
 |---|---|---|
@@ -839,8 +845,8 @@ Tracks 1–8 and Track 10 are executed and complete; Tracks 9 and 11 remain, in 
 | 7 | done | `AbstractMatchPlanStep` + ordered list-shaping post-process carrier |
 | 8 | done | `MultiPlanMatchStep` + multi-plan carrier/splice + `UnionStepRecogniser` / `UnionForkHost` |
 | 10 | done | query-metrics regression remediation — enumerated `core` baseline; 483 failures repaired, 21 deferred to Track 9 with dispositions |
-| 9 | not started | Cucumber suite completion (does not terminate with the translator on) + the dropped per-alias filter + the measured baseline |
-| 11 | not started | list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) as ordered `ListShapingOp`s + union/combinator decline gates + JMH harness |
+| 9 | done | Cucumber suite completion on `core` (1930 / 0 / 14 both arms) + dropped per-alias filter fix |
+| 11 | done | list-shaping terminators + decline gates + harness consolidation + JMH shape test + AST audit + edge-alias gap closure |
 
 Decision conformance: D6 and D-IS-DEFINED are satisfied by Track 1; Track 2 decisions (decline, class-keyed dispatch, boundary lifecycle, idempotency, translator-first) by Track 2; D10 by Track 3; D5 by Track 5; D11 by Track 6. D8 (union via `MultiPlanMatchStep`) is implemented in code across Tracks 7–8 and complete. D-TEXT-OPS by Track 4. D3 is *all-or-nothing decline*, not the terminators — it is enforced by every recogniser, including Track 11's four, whose mid-traversal and child-path declines are the split's new D3 surface.
 

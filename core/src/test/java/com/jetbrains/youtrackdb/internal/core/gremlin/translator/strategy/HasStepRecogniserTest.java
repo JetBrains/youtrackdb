@@ -103,21 +103,26 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A multi-label {@code hasLabel("Person", "Employee")} declines: it arrives as a single {@code
-   * within(...)} label container, which a single-class MATCH node cannot express. The recogniser
-   * contributes nothing before declining.
+   * Multi-label {@code hasLabel("Person", "Employee")} translates to {@code @class IN [Person,
+   * Employee]} without re-typing to a single class. Stays on the generic {@code V} root.
    */
   @Test
-  public void hasLabelMultiLabel_declines() {
-    session.createVertexClass("Person");
+  public void hasLabelMultiLabel_contributesClassInFilter() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
     var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
     var ctx = contextWithStartBoundary(true, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
     var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("a multi-label hasLabel must decline").isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.patternBuilder.build().aliasClasses())
+        .as("multi-label hasLabel does not re-type the boundary node")
+        .containsEntry(BOUNDARY_ALIAS, "V");
+    assertThat(renderBoundaryFilter(ctx))
+        .as("multi-label hasLabel contributes @class IN [...]")
+        .contains("@class IN");
   }
 
   /**
@@ -140,21 +145,22 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * {@code hasLabel("Missing")} on a class that does not exist declines rather than re-typing to a
-   * non-existent class (which would make {@code SELECT FROM Missing} error). The recogniser
-   * contributes nothing, leaving the traversal to run native (which matches no vertex).
+   * {@code hasLabel("Missing")} on a class that does not exist stays on the generic {@code V} root
+   * and filters {@code @class = Missing}, yielding an empty plan like native rather than {@code
+   * SELECT FROM Missing}.
    */
   @Test
-  public void hasLabelNonExistentClass_declines() {
+  public void hasLabelNonExistentClass_contributesClassEqualsOnV() {
     var admin = graph.traversal().V().hasLabel("Missing").asAdmin();
     var ctx = contextWithStartBoundary(true, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
     var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("hasLabel on a non-existent class must decline")
-        .isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.patternBuilder.build().aliasClasses())
+        .containsEntry(BOUNDARY_ALIAS, "V");
+    assertThat(renderBoundaryFilter(ctx)).contains("@class = ");
   }
 
   // ---------------------------------------------------------------------------

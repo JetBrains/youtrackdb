@@ -91,7 +91,8 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
         return Outcome.DECLINE;
       }
       var ascending = SQLOrderByItem.ASC.equals(direction.get());
-      var item = resolveSortItem(ctx, boundary, pair.getValue0(), ascending);
+      var item =
+          resolveSortItem(ctx, boundary, pair.getValue0(), ascending, ctx::resolveUserLabel);
       if (item == null) {
         return Outcome.DECLINE;
       }
@@ -101,7 +102,13 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     // Contribution — reached only after every comparator resolved, so a declining modulator leaves
     // the context unmutated.
     for (var pair : comparators) {
-      ByModulatorPresence.requireModulatedProperty(ctx, boundary, pair.getValue0());
+      requireModulatedPropertyForOrder(ctx, boundary, pair.getValue0());
+    }
+    // TinkerPop may migrate an upstream {@code as(...)} label onto the {@code order()} step (e.g.
+    // {@code inV().as("friend").order().by(name)} arrives as {@code OrderGlobalStep@[friend]}).
+    // Register it on the current boundary so a following {@code select("friend")} resolves.
+    if (!ctx.bindStepLabels(orderStep, boundary)) {
+      return Outcome.DECLINE;
     }
     ctx.setOrderBy(MatchProjectionBuilder.orderBy(items));
     return Outcome.ACCEPTED;
@@ -115,7 +122,11 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no SQL-text round-trip.
    */
   private static SQLOrderByItem resolveSortItem(
-      RecognitionContext ctx, String alias, Traversal.Admin<?, ?> modulator, boolean ascending) {
+      RecognitionContext ctx,
+      String alias,
+      Traversal.Admin<?, ?> modulator,
+      boolean ascending,
+      java.util.function.Function<String, String> labelResolver) {
     if (modulator instanceof IdentityTraversal) {
       var projection = ctx.lastPropertyProjection();
       if (projection != null) {
@@ -124,8 +135,16 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       }
       return ProjectionExpressionFactories.orderByRecordAttribute(alias, "@rid", ascending);
     }
-    return ByModulatorTranslator.translateKeyModulatorOrderItem(alias, modulator, ascending)
+    return ByModulatorTranslator.translateOrderModulator(alias, modulator, ascending, labelResolver)
         .orElse(null);
+  }
+
+  private static void requireModulatedPropertyForOrder(
+      RecognitionContext ctx, String boundary, Traversal.Admin<?, ?> modulator) {
+    ByModulatorTranslator.orderModulatorPresenceTarget(boundary, modulator, ctx::resolveUserLabel)
+        .ifPresent(
+            target -> ByModulatorPresence.requireModulatedProperty(
+                ctx, target.alias(), target.propertyKey()));
   }
 
   private static boolean ctxHasOrderBy(RecognitionContext ctx) {

@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -22,6 +23,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.MaxGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MeanGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MinGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SumGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectStep;
@@ -91,6 +94,83 @@ public final class ByModulatorTranslator {
       return Optional.empty();
     }
     return classifyKey(modulator).map(field -> field.toOrderItem(alias, ascending));
+  }
+
+  /** Alias and property key from a single-label {@code select(...).by(key)} order modulator. */
+  public record SelectModulatorTarget(String alias, String propertyKey) {
+  }
+
+  /**
+   * Resolves {@code order().by(select('label').by(key))} when the select names one bound label with
+   * one key modulator. After {@code applyStrategies()} TinkerPop often folds the inner {@code
+   * select} to {@link SelectOneStep} rather than {@link SelectStep}; both shapes are accepted.
+   */
+  public static Optional<SelectModulatorTarget> selectModulatorTarget(
+      Traversal.Admin<?, ?> modulator, Function<String, String> labelResolver) {
+    if (modulator == null || labelResolver == null) {
+      return Optional.empty();
+    }
+    var steps = modulator.getSteps();
+    if (steps.size() != 1) {
+      return Optional.empty();
+    }
+    return switch (steps.getFirst()) {
+      case SelectStep<?, ?> select ->
+          resolveSelectModulatorTarget(select.getSelectKeys(), select.getLocalChildren(),
+              labelResolver);
+      case SelectOneStep<?, ?> selectOne ->
+          resolveSelectModulatorTarget(
+              List.copyOf(selectOne.getScopeKeys()), selectOne.getLocalChildren(), labelResolver);
+      default -> Optional.empty();
+    };
+  }
+
+  private static Optional<SelectModulatorTarget> resolveSelectModulatorTarget(
+      List<String> labels,
+      List<? extends Traversal.Admin<?, ?>> modulators,
+      Function<String, String> labelResolver) {
+    if (labels == null || labels.size() != 1 || modulators.size() != 1) {
+      return Optional.empty();
+    }
+    var internalAlias = labelResolver.apply(labels.getFirst());
+    if (internalAlias == null || internalAlias.isBlank()) {
+      return Optional.empty();
+    }
+    return keyModulatorPropertyKey(modulators.getFirst())
+        .map(key -> new SelectModulatorTarget(internalAlias, key));
+  }
+
+  /**
+   * Resolves an {@code order().by(...)} modulator on the boundary alias, or via a single-label
+   * {@code select(...).by(key)} when {@code labelResolver} can bind the label.
+   */
+  public static Optional<SQLOrderByItem> translateOrderModulator(
+      String boundaryAlias,
+      Traversal.Admin<?, ?> modulator,
+      boolean ascending,
+      @Nullable Function<String, String> labelResolver) {
+    var direct = translateKeyModulatorOrderItem(boundaryAlias, modulator, ascending);
+    if (direct.isPresent()) {
+      return direct;
+    }
+    if (labelResolver == null) {
+      return Optional.empty();
+    }
+    return selectModulatorTarget(modulator, labelResolver)
+        .map(
+            target -> ProjectionExpressionFactories.orderByProperty(
+                target.alias(), target.propertyKey(), ascending));
+  }
+
+  /**
+   * Property key for presence conjuncts on an order modulator — boundary alias or select-bound alias.
+   */
+  public static Optional<SelectModulatorTarget> orderModulatorPresenceTarget(
+      String boundaryAlias, Traversal.Admin<?, ?> modulator,
+      Function<String, String> labelResolver) {
+    return keyModulatorPropertyKey(modulator)
+        .map(key -> new SelectModulatorTarget(boundaryAlias, key))
+        .or(() -> selectModulatorTarget(modulator, labelResolver));
   }
 
   /**

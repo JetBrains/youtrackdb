@@ -402,17 +402,12 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
-   * IS3 whole declines on both arms because the {@code as("k")} label lands on the edge step of a
-   * folded {@code outE(KNOWS).inV()} hop, and returns each friend with the friendship date either
-   * way.
-   *
-   * <p>Compared in stream order, so the native {@code ORDER BY} is checked too. Failing here means
-   * edge aliases now bind, so IS3's edge column is projectable and this shape belongs in the
-   * translating group.
+   * Shape 13 — IS3 whole translates and returns each friend with the friendship date in {@code
+   * firstName} order.
    */
   @Test
-  public void is3FriendsWithDatesDeclineOnBothArmsInSortedOrder() {
-    assertDeclinesInOrder(
+  public void is3FriendsWithDatesTranslatesOnAndRunNativeOffInSortedOrder() {
+    assertTranslatesInOrder(
         "IS3 full: …outE(KNOWS).as(k).inV().as(friend).order().by(firstName)"
             + ".select(k, friend).by(creationDate).by(firstName)",
         t -> GremlinTraversalShapes.is3FriendsWithDates(t, ALICE),

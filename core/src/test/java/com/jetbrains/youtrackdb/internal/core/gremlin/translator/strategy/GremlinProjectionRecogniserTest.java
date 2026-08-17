@@ -209,6 +209,21 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnItems.get(1).toString()).contains("age");
   }
 
+  /** {@code order().by(name)} ahead of the select keeps the same two-label/two-by shape. */
+  @Test
+  public void selectMultiLabelAfterOrder_keepsMatchingByCount() {
+    var admin =
+        graph.traversal().V().as("a").out().as("b").order().by("name")
+            .select("a", "b").by("name").by("age").asAdmin();
+    var select =
+        (org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep<?,
+            ?>) cursorAt(admin,
+                org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep.class)
+                .peek();
+    assertThat(select.getSelectKeys()).containsExactly("a", "b");
+    assertThat(select.getLocalChildren()).hasSize(2);
+  }
+
   /** {@code select("a","b").by("name")} declines when modulator count ≠ label count. */
   @Test
   public void selectMultiLabel_modulatorCountMismatch_declines() {

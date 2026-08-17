@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -28,6 +29,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilte
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
@@ -239,8 +241,10 @@ final class GremlinStepWalker {
   private static Map<Class<?>, StepRecogniser> literalRecogniserEntries() {
     return Map.ofEntries(
         Map.entry(GraphStep.class, StartStepRecogniser.INSTANCE),
+        Map.entry(YTDBGraphStep.class, StartStepRecogniser.INSTANCE),
         Map.entry(VertexStep.class, VertexStepRecogniser.INSTANCE),
         Map.entry(VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE),
+        Map.entry(EdgeVertexStep.class, RedundantEdgeVertexStepRecogniser.INSTANCE),
         Map.entry(HasStep.class, HasStepRecogniser.INSTANCE),
         Map.entry(TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE),
         Map.entry(AndStep.class, AndStepRecogniser.INSTANCE),

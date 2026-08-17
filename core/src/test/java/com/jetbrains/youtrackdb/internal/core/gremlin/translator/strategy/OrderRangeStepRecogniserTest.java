@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcat
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
@@ -87,6 +89,31 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.getItems()).hasSize(2);
+  }
+
+  /** {@code order().by(select('k').by(key))} resolves through {@link ByModulatorTranslator}. */
+  @Test
+  public void orderBySelectModulator_resolvesLabel() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .outE("knows")
+            .as("k")
+            .inV()
+            .order()
+            .by(__.select("k").by("since"), Order.asc)
+            .asAdmin();
+    // Keep this unit test focused on OrderGlobalStepRecogniser: if the whole traversal becomes
+    // fully translatable, GremlinToMatchStrategy splices the step list and cursorAt would not
+    // find the intermediate OrderGlobalStep anymore.
+    support.withTranslator(false, admin::applyStrategies);
+    var ctx = seededContext();
+    ctx.userLabelToAlias.put("k", "$g2m_edge_0");
+    ctx.patternBuilder.registerUserLabel("$g2m_edge_0", "k");
+    var cursor = cursorAt(admin, OrderGlobalStep.class);
+    assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
+        .isEqualTo(Outcome.ACCEPTED);
   }
 
   /** {@code Order.shuffle} has no MATCH equivalent and declines. */

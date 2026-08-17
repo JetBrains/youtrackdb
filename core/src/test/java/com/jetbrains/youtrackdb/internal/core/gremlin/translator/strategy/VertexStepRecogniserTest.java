@@ -113,6 +113,31 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * An edge-returning {@code outE("knows").inV()} chain without an interposed {@code has(...)}
+   * routes to {@link EdgeHopRecogniser} so a user {@code as(...)} on the edge can bind.
+   */
+  @Test
+  public void edgeReturningStepWithoutHas_routesToEdgeHopRecogniser() {
+    var admin = graph.traversal().V().outE("knows").inV().asAdmin();
+    assertThat(((VertexStep<?>) admin.getSteps().get(1)).returnsEdge()).isTrue();
+
+    var routerCtx = contextWithStartBoundary();
+    var directCtx = contextWithStartBoundary();
+    var routerCursor = cursorAfterStart(admin);
+    var directCursor = cursorAfterStart(admin);
+
+    var routerBefore = routerCursor.position();
+    var routerResult = VertexStepRecogniser.INSTANCE.recognize(routerCursor, routerCtx);
+    var directBefore = directCursor.position();
+    var directResult = EdgeHopRecogniser.INSTANCE.recognize(directCursor, directCtx);
+
+    assertThat(routerResult).isEqualTo(directResult).isEqualTo(Outcome.ACCEPTED);
+    assertThat(routerCursor.position() - routerBefore)
+        .isEqualTo(directCursor.position() - directBefore)
+        .isEqualTo(2);
+  }
+
+  /**
    * A top-level bare edge-returning terminal {@code outE("knows")} (no closing vertex hop) declines at
    * the router without consuming the head — it is not a combinator sub-walk fold artifact and not an
    * {@code outE.has.inV} chain.

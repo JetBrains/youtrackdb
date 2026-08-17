@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeOtherVertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
@@ -20,7 +22,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceho
  *
  * <ul>
  *   <li>{@code returnsEdge() == false} → {@link VertexHopRecogniser};
- *   <li>{@code returnsEdge() == true} with a following {@link HasStep} → {@link EdgeHopRecogniser};
+ *   <li>{@code returnsEdge() == true} with a following {@link HasStep} or closing {@link
+ *       EdgeVertexStep} / {@link EdgeOtherVertexStep} → {@link EdgeHopRecogniser};
  *   <li>{@code returnsEdge() == true} singleton inside a combinator sub-walk → {@link
  *       CombinatorFoldedHopRecogniser};
  *   <li>any other edge-returning head (e.g. top-level {@code outE(L)}) → {@link Outcome#DECLINE}.
@@ -49,7 +52,9 @@ final class VertexStepRecogniser implements StepRecogniser {
     if (!hop.returnsEdge()) {
       return VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
     }
-    if (cursor.peek(1) instanceof HasStep<?>) {
+    if (cursor.peek(1) instanceof HasStep<?>
+        || cursor.peek(1) instanceof EdgeVertexStep
+        || cursor.peek(1) instanceof EdgeOtherVertexStep) {
       return EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
     }
     if (cursor.peek(1) == null && ctx instanceof SubTraversalPredicateAdapter) {

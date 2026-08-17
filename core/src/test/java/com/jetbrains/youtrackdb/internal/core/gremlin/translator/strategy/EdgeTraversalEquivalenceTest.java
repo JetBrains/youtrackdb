@@ -358,24 +358,23 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * The {@code both} edge-filter chain declines: {@code bothE(L).has(...).otherV()} closes on an
-   * {@code EdgeOtherVertexStep} ({@code otherV}), and the MATCH executor has no {@code otherV}
-   * method, so the chain cannot be expressed and must stay on the native pipeline. With the
-   * translator on it carries no boundary step, and the declined shape still returns the native
-   * multiset. (Plain {@code both(L)} without an edge filter still translates — that fold is a bare
-   * VertexStep.)
+   * {@code bothE(L).has(...).otherV()} translates via edge-as-node {@code bothV()} and a target
+   * filter excluding the walk source, matching native's other-endpoint multiset.
    */
   @Test
-  public void nonAdjacentBothEdgeFilter_declinesToNative() {
+  public void nonAdjacentBothEdgeFilter_otherVClose_matchesNative() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
     alice.addEdge("knows", bob, "since", 2010);
+    carol.addEdge("knows", alice, "since", 2011);
     graph.tx().commit();
+    var aliceId = alice.id();
 
     assertEquivalent(
-        "g.V().bothE(knows).has(since, lt 2015).otherV() (otherV unsupported)",
-        Recognition.DECLINED,
-        () -> graph.traversal().V().bothE("knows").has("since", P.lt(2015)).otherV());
+        "g.V(alice).bothE(knows).has(since, lt 2015).otherV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).bothE("knows").has("since", P.lt(2015)).otherV());
   }
 
   /**

@@ -49,9 +49,8 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * harness was first written against has since closed: a user {@code as(...)} label parked on a
  * filter step now binds, so IS1's full projection translates ({@link #is1FullProfile}) and the
  * narrower {@link #is1PersonCityProfile} stays beside it as the shorter projection rather than as
- * its translating half. The edge-alias gate is still open — a label on the edge step of a folded
- * {@code outE(L)…inV()} hop has no pattern alias to bind to, so IS3's {@code k.creationDate} column
- * declines (see {@link #is3FriendsWithDates}).
+ * its translating half. IS3's edge-alias projection ({@link #is3FriendsWithDates}) translates now
+ * that {@code outE(L).as(k).inV()} binds the edge alias through the edge-as-node form.
  *
  * <p>The load-bearing translating shape is {@link #personByRid}. A RID-bearing walk sets
  * {@code cacheEligible=false} in the translator, so translator-on compiles an uncached MATCH plan
@@ -285,6 +284,24 @@ public final class GremlinTraversalShapes {
         .groupCount().by("lastName");
   }
 
+  /**
+   * Shape 13 — IS3 whole: edge and friend columns through {@code select("k", "friend")}.
+   *
+   * <p>Same SQL as {@link #is3FriendsWithNames}, but projects the friendship edge's {@code
+   * creationDate} via a user {@code as("k")} label on {@code outE(KNOWS)}. The edge-as-node IR
+   * binds {@code k} to the minted edge alias so {@code select("k").by("creationDate")} translates.
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> is3FriendsWithDates(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId).as("p")
+        .outE(KNOWS_LABEL).as("k")
+        .inV().as("friend")
+        .order().by("firstName")
+        .select("k", "friend").by("creationDate").by("firstName");
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Declining shapes: no boundary step on either arm. The A/B prices the decline path and reserves
   // a baseline for the day the shape starts translating. Each asserts requireNotTranslated on both
@@ -317,26 +334,7 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * Declining shape 2 — IS3 whole, blocked by the edge alias.
-   *
-   * <p>Same SQL as {@link #is3FriendsWithNames}. {@code VertexStepRecogniser} folds {@code
-   * outE(L).inV()} into one hop, and a user {@code as(...)} label on the edge step of that fold has
-   * no pattern alias to bind to, so the walk declines. The edge property can be <em>filtered</em>
-   * — {@code outE(L).has(prop, P).inV()} translates — but not projected, and IS3 projects it.
-   */
-  public static YTDBGraphTraversal<Vertex, Map<String, Object>> is3FriendsWithDates(
-      YTDBGraphTraversalSource g, long personId) {
-    return g.V()
-        .hasLabel(PERSON_LABEL)
-        .has("id", personId).as("p")
-        .outE(KNOWS_LABEL).as("k")
-        .inV().as("friend")
-        .order().by("firstName")
-        .select("k", "friend").by("creationDate").by("firstName");
-  }
-
-  /**
-   * Declining shape 3 — IC1's variable-depth {@code KNOWS} walk, declined by design.
+   * Declining shape 2 — IC1's variable-depth {@code KNOWS} walk, declined by design.
    *
    * <p>IC1 walks {@code KNOWS} to depth three. {@code RepeatDeclineStrategy} vetoes any traversal
    * whose subtree carries a {@code RepeatStep}, because {@code RepeatUnrollStrategy} rewrites the
