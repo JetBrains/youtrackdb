@@ -76,6 +76,9 @@ public final class GremlinTraversalShapes {
   /** Edge label from a {@code Person} to the {@code Place} they live in. */
   public static final String IS_LOCATED_IN_LABEL = "IS_LOCATED_IN";
 
+  /** Vertex class the LDBC schema gives the {@code name} property the anti-join shape filters on. */
+  public static final String PLACE_LABEL = "Place";
+
   private GremlinTraversalShapes() {
   }
 
@@ -284,6 +287,65 @@ public final class GremlinTraversalShapes {
         .has("id", personId)
         .out(KNOWS_LABEL)
         .groupCount().by("lastName");
+  }
+
+  /**
+   * Shape 13 — a person's friends who are <em>not</em> located in a given place: a hash anti-join.
+   *
+   * <p>Echoes the shape of LDBC IC-style negation and IS4/IS2's {@code NOT} projections without
+   * their declined steps: {@code MATCH {class: Person, where: (id = :personId)}.out('KNOWS'){as:
+   * friend} RETURN friend.firstName} restricted to friends for whom no {@code
+   * .out('IS_LOCATED_IN'){where: (name = :placeName)}} row exists. Gremlin spells the exclusion
+   * {@code not(__.out(IS_LOCATED_IN).has(name, placeName))}, an edge-bearing {@code not(...)}.
+   *
+   * <p><b>Why MATCH wins.</b> This is the one shape whose optimisation none of the others reach:
+   * the edge-bearing {@code not(...)} compiles to a detached NOT {@code MATCH} expression that the
+   * planner runs as a <b>hash anti-join</b> — build a hash set of the friends who <em>are</em>
+   * located in the place once, then probe. The native TinkerPop pipeline instead re-walks {@code
+   * IS_LOCATED_IN} and filters {@code name} per candidate friend, a nested-loop anti-join whose
+   * cost is quadratic in the friend count. {@code NotStepRecogniser}'s edge-bearing branch is what
+   * makes the boundary step appear; a {@code youtrackdb-core} whose recogniser predates it declines
+   * the shape and both arms run natively.
+   */
+  public static YTDBGraphTraversal<Vertex, String> friendsNotLocatedInPlace(
+      YTDBGraphTraversalSource g, long personId, String placeName) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL)
+        .not(__.out(IS_LOCATED_IN_LABEL).has("name", placeName))
+        .values("firstName");
+  }
+
+  /**
+   * Shape 14 — a mutual-friend triangle closed by a {@code where()} back-reference to the start.
+   *
+   * <p>Echoes the cyclic patterns the LDBC social queries lean on: three {@code KNOWS} hops that
+   * must return to the person they started from, i.e. {@code MATCH {class: Person, as: start,
+   * where: (id = :personId)}.out('KNOWS').out('KNOWS').out('KNOWS'){where: (@rid =
+   * $matched.start.@rid)}}. Gremlin spells the closure {@code where(P.eq("start"))} against the
+   * start-step label.
+   *
+   * <p><b>Why MATCH wins.</b> The cycle constraint is a self-join back onto a pattern alias, which
+   * MATCH schedules <b>topologically</b>: it enters from the bound {@code start} alias at both ends
+   * of the pattern and enumerates only the closing paths, rather than materialising every three-hop
+   * path and discarding the ones that do not return. The native pipeline has no notion of the
+   * closing alias until the {@code where()} step runs, so it expands the full three-hop frontier
+   * first and filters last. {@code WherePredicateStepRecogniser} translates the {@code
+   * where(P.eq(label))} closure via a {@code $matched.start} accessor; the start-step {@code
+   * as("start")} label binds through the {@code has} recogniser (the same label gate {@link
+   * #is1FullProfile} relies on).
+   */
+  public static YTDBGraphTraversal<Vertex, String> mutualFriendTriangle(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId).as("start")
+        .out(KNOWS_LABEL)
+        .out(KNOWS_LABEL)
+        .out(KNOWS_LABEL)
+        .where(P.eq("start"))
+        .values("firstName");
   }
 
   // ---------------------------------------------------------------------------------------------

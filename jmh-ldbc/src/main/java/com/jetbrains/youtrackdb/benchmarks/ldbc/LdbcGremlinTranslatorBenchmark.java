@@ -53,8 +53,8 @@ import org.openjdk.jmh.annotations.Warmup;
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 3, time = 5)
-@Measurement(iterations = 3, time = 10)
+@Warmup(iterations = 5, time = 5)
+@Measurement(iterations = 5, time = 10)
 @Threads(1)
 @Fork(value = 3, jvmArgsAppend = {
     "-Xms4g", "-Xmx4g",
@@ -99,6 +99,7 @@ public class LdbcGremlinTranslatorBenchmark {
     private long[] personIds;
     private Object[] personRids;
     private long[] messageIds;
+    private String[] placeNames;
     private boolean flagBeforeTrial;
 
     /**
@@ -118,6 +119,12 @@ public class LdbcGremlinTranslatorBenchmark {
       var ids = new ArrayList<Long>(POOL_SIZE);
       var rids = new ArrayList<Object>(POOL_SIZE);
       var messages = new ArrayList<Long>(POOL_SIZE);
+      // The place-name pool feeds the anti-join shape only. It is resolved here rather than through
+      // ParameterCurator so the curated-params cache version (and its Hetzner canonical file) stays
+      // untouched — the same reason the RID pool is resolved here. Names come from places persons
+      // actually live in, so the anti-join has something to exclude rather than always emptying the
+      // NOT set.
+      var places = new ArrayList<String>(POOL_SIZE);
       state.traversal.executeInTx(t -> {
         for (var i = 0; i < POOL_SIZE; i++) {
           var personId = state.isPersonId(i);
@@ -136,6 +143,14 @@ public class LdbcGremlinTranslatorBenchmark {
               .tryNext()
               .isPresent()) {
             messages.add(messageId);
+          }
+          var placeName = t.V().hasLabel(GremlinTraversalShapes.PERSON_LABEL)
+              .has("id", personId)
+              .out(GremlinTraversalShapes.IS_LOCATED_IN_LABEL)
+              .<String>values("name")
+              .tryNext();
+          if (placeName.isPresent()) {
+            places.add(placeName.get());
           }
         }
       });
@@ -160,6 +175,9 @@ public class LdbcGremlinTranslatorBenchmark {
       for (var i = 0; i < messages.size(); i++) {
         messageIds[i] = messages.get(i);
       }
+      // A person with no location resolves no place name; fall back to a literal so the anti-join
+      // shape still runs (its NOT set is simply empty for a name no place carries).
+      placeNames = places.isEmpty() ? new String[] {""} : places.toArray(new String[0]);
 
       checkArmInstalled(state);
     }
@@ -181,6 +199,20 @@ public class LdbcGremlinTranslatorBenchmark {
           GremlinTraversalShapes.requireTranslated("knowsFirstNames", translating);
         } else {
           GremlinTraversalShapes.requireNotTranslated("knowsFirstNames", translating);
+        }
+
+        // The anti-join is the highest decline-risk translating shape in this class: its edge-
+        // bearing not(...) is claimed by a recogniser branch newer than every other shape's, so a
+        // core that predates it declines silently and the A/B reads as a false 0%. Witness it on
+        // the on-arm so that failure is loud.
+        var antiJoin =
+            GremlinTraversalShapes.friendsNotLocatedInPlace(t, personIds[0], placeNames[0])
+                .asAdmin();
+        antiJoin.applyStrategies();
+        if (translatorEnabled) {
+          GremlinTraversalShapes.requireTranslated("friendsNotLocatedInPlace", antiJoin);
+        } else {
+          GremlinTraversalShapes.requireNotTranslated("friendsNotLocatedInPlace", antiJoin);
         }
 
         var declining = GremlinTraversalShapes.repeatKnowsToThreeHops(t, personIds[0]).asAdmin();
@@ -205,6 +237,10 @@ public class LdbcGremlinTranslatorBenchmark {
 
     long messageId(long idx) {
       return messageIds[(int) (idx % messageIds.length)];
+    }
+
+    String placeName(long idx) {
+      return placeNames[(int) (idx % placeNames.length)];
     }
   }
 
@@ -329,13 +365,29 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.knowsGroupCountByLastName(t, arm.personId(i)).next());
   }
 
-  /** Shape 13 — IS3 whole: edge {@code creationDate} and friend {@code firstName} via {@code select}. */
+  /**
+   * Shape 13 — a person's friends not located in a given place: MATCH's hash anti-join against the
+   * native pipeline's per-candidate re-walk of {@code IS_LOCATED_IN}.
+   */
   @Benchmark
-  public List<Map<String, Object>> gremlinIs3FriendsWithDates(
+  public List<String> gremlinFriendsNotLocatedInPlace(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
-        t -> GremlinTraversalShapes.is3FriendsWithDates(t, arm.personId(i)).toList());
+        t -> GremlinTraversalShapes
+            .friendsNotLocatedInPlace(t, arm.personId(i), arm.placeName(i))
+            .toList());
+  }
+
+  /**
+   * Shape 14 — a mutual-friend triangle closed by a {@code where()} back-reference to the start:
+   * MATCH's topological self-join against the native pipeline's full three-hop expansion.
+   */
+  @Benchmark
+  public List<String> gremlinMutualFriendTriangle(LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.mutualFriendTriangle(t, arm.personId(i)).toList());
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -382,5 +434,19 @@ public class LdbcGremlinTranslatorBenchmark {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes.optionalFriendOfCreator(t, arm.messageId(i)).toList());
+  }
+
+  /**
+   * IS3 whole: edge {@code creationDate} and friend {@code firstName} via {@code select}. Declines
+   * because the {@code as("k")} label on {@code outE(KNOWS)} would bind to the edge-as-node vertex
+   * alias, so {@code select("k")} would read the target vertex rather than the friendship edge —
+   * see {@link GremlinTraversalShapes#is3FriendsWithDates}. Both arms run natively.
+   */
+  @Benchmark
+  public List<Map<String, Object>> gremlinIs3FriendsWithDatesDeclines(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is3FriendsWithDates(t, arm.personId(i)).toList());
   }
 }

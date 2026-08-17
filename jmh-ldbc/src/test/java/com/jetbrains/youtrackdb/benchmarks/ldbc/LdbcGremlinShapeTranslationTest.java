@@ -374,6 +374,39 @@ public class LdbcGremlinShapeTranslationTest {
         List.of("{Aliceson=1, Bobson=1, Carolson=1, Daveson=1}"));
   }
 
+  /**
+   * Shape 13 — the hash anti-join translates and keeps only the friends not located in the named
+   * place.
+   *
+   * <p>Alice's friends are Bob and Carol. Bob is located in Berlin and Carol nowhere, so excluding
+   * friends located in Berlin leaves Carol. A plan that applied the {@code name} filter to the
+   * wrong alias, or negated the whole pattern rather than the anti-join, would return Bob as well
+   * or drop Carol.
+   */
+  @Test
+  public void friendsNotLocatedInPlaceTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "…out(KNOWS).not(out(IS_LOCATED_IN).has(name, Berlin)).values(firstName)",
+        t -> GremlinTraversalShapes.friendsNotLocatedInPlace(t, ALICE, "Berlin"),
+        List.of("Carol"));
+  }
+
+  /**
+   * Shape 14 — the mutual-friend triangle translates and returns the start person once per closing
+   * three-hop cycle.
+   *
+   * <p>The one cycle back to Alice within three {@code KNOWS} hops is Alice→Carol→Erin→Alice, so
+   * {@code where(P.eq("start"))} keeps a single path and {@code values("firstName")} reads the
+   * closing vertex, Alice. An unclosed plan would return every three-hop endpoint instead.
+   */
+  @Test
+  public void mutualFriendTriangleTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "…as(start).out(KNOWS).out(KNOWS).out(KNOWS).where(eq(start)).values(firstName)",
+        t -> GremlinTraversalShapes.mutualFriendTriangle(t, ALICE),
+        List.of("Alice"));
+  }
+
   // -------------------------------------------------------------------------------------------
   // Declining shapes: no boundary step on either arm. Each assertion is a tripwire — it fails the
   // day a recogniser claims the shape, which is when the benchmark's recorded baseline changes
