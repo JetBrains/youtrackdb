@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -166,7 +167,7 @@ final class GremlinStepWalker {
    * Teaching it to do so would recover them, and is the obvious next move if the surface turns out
    * to matter.
    */
-  private static final Set<Class<?>> TRANSPARENT_STEPS =
+  static final Set<Class<?>> TRANSPARENT_STEPS =
       Set.of(NoOpBarrierStep.class);
 
   /**
@@ -367,6 +368,26 @@ final class GremlinStepWalker {
   /** Returns the shared production walker wired with the production recogniser registry. */
   static GremlinStepWalker production() {
     return PRODUCTION_INSTANCE;
+  }
+
+  /**
+   * Unique production-registry recogniser instances. The translation-cache extractor and the
+   * {@code contributeShape} override gate both read this set so a recogniser added to the registry
+   * without a shape encoder fails the build instead of silently inheriting {@code false}.
+   */
+  static Set<StepRecogniser> productionRecogniserInstances() {
+    return Set.copyOf(PRODUCTION_RECOGNISERS.values());
+  }
+
+  /**
+   * Pre-walk shape key and {@code ?} bindings for the translation cache, using this walker's
+   * production registry so the recogniser that would translate a step is the one that lists the
+   * tokens it reads.
+   */
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session) {
+    return GremlinShapeExtractor.extract(
+        PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session);
   }
 
   /**

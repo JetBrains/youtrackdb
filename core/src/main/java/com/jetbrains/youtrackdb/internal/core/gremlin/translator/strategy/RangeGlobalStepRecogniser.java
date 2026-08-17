@@ -336,4 +336,14 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
   private static boolean ctxHasSkipOrLimit(RecognitionContext ctx) {
     return ctx.skip() != null || ctx.limit() != null;
   }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof RangeGlobalStepContract<?> range)) {
+      return false;
+    }
+    encoder.appendToken("lo", String.valueOf(range.getLowRange()));
+    encoder.appendToken("hi", String.valueOf(range.getHighRange()));
+    return true;
+  }
 }

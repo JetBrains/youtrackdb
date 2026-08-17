@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MaxGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MeanGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MinGlobalStep;
@@ -35,5 +36,13 @@ final class PropertyAggregateStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     return GremlinAggregateAssembler.configurePropertyAggregate(ctx, function);
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    return step instanceof SumGlobalStep<?>
+        || step instanceof MinGlobalStep<?>
+        || step instanceof MaxGlobalStep<?>
+        || step instanceof MeanGlobalStep<?, ?>;
   }
 }

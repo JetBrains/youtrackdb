@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.FoldListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
 
 /**
@@ -99,5 +100,14 @@ final class FoldStepRecogniser implements StepRecogniser {
     // FoldListShapingOp's javadoc carries that argument along with why the op holds no state.
     ctx.appendListShapingOp(new FoldListShapingOp());
     return Outcome.ACCEPTED;
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof FoldStep<?, ?> fold)) {
+      return false;
+    }
+    encoder.appendToken("fold", fold.isListFold() ? "1" : "0");
+    return true;
   }
 }

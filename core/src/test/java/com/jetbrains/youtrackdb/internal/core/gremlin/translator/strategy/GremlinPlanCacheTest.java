@@ -302,7 +302,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     apply(() -> graph.traversal().V().has("age", 30));
     var fp = fingerprint(walk(() -> graph.traversal().V().has("age", P.eq(30))));
     var shapeKey =
-        GremlinShapeKey.extract(
+        GremlinStepWalker.extractShape(
             graph.traversal().V().has("age", P.eq(30)).asAdmin(), graphSession())
             .key();
     assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isTrue();

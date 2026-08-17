@@ -84,4 +84,9 @@ final class ReverseStepRecogniser implements StepRecogniser {
   public boolean selectsPositionally(Step<?, ?> step) {
     return false;
   }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    return step instanceof ReverseStep;
+  }
 }

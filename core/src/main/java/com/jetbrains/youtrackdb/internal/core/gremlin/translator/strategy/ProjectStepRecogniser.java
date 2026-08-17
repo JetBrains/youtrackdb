@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ProjectStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -46,5 +47,14 @@ final class ProjectStepRecogniser implements StepRecogniser {
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
     ctx.setResultShaping(ResultShaping.NONE);
     return Outcome.ACCEPTED;
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof ProjectStep<?, ?> project)) {
+      return false;
+    }
+    encoder.appendStringSeq("pj", project.getProjectKeys());
+    return true;
   }
 }

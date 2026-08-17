@@ -7,9 +7,9 @@ import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
 /**
- * Cached outcome of a Gremlin-to-MATCH walk, keyed by {@link GremlinShapeKey}. A hit skips the
- * walker: {@link Decline} returns from {@code apply} immediately, and {@link Translate} splices the
- * stored plan template with this invocation's harvested bindings.
+ * Cached outcome of a Gremlin-to-MATCH walk, keyed by {@link GremlinStepWalker#extractShape}. A hit
+ * skips the walker: {@link Decline} returns from {@code apply} immediately, and {@link Translate}
+ * splices the stored plan template with this invocation's harvested bindings.
  *
  * <p>The plan template is the closed copy {@link GremlinPlanCache} already stores. The boundary
  * step must not execute or close it; it copies on first {@code openArming()}.

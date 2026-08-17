@@ -22,11 +22,11 @@ import javax.annotation.Nullable;
 /**
  * LRU cache for compiled Gremlin-to-MATCH execution plans, keyed by the post-walk {@link
  * GremlinPlanFingerprint}, plus a second map of {@link GremlinTranslationTemplate}s keyed by
- * {@link GremlinShapeKey}. The plan map stores a deep-copied closed plan per entry; {@link
- * #template(String, DatabaseSessionEmbedded)} returns that stored instance without copying so the
- * boundary step can copy on first open. The translation map skips the walker on a hit. Schema
- * changes invalidate both maps through the same {@link MetadataUpdateListener} hook as {@link
- * com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
+ * {@link GremlinStepWalker#extractShape}. The plan map stores a deep-copied closed plan per
+ * entry; {@link #template(String, DatabaseSessionEmbedded)} returns that stored instance without
+ * copying so the boundary step can copy on first open. The translation map skips the walker on a
+ * hit. Schema changes invalidate both maps through the same {@link MetadataUpdateListener} hook as
+ * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
  *
  * <p>Hit/miss counters ({@link #getHits()} / {@link #getMisses()}) are lifetime totals on the
  * shared-context instance for the plan map. {@link #getTranslationHits()} / {@link

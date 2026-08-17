@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 
 /**
@@ -36,5 +37,17 @@ final class PropertyMapStepRecogniser implements StepRecogniser {
     }
     return GremlinProjectionAssembler.configurePropertyMap(
         ctx, mapStep.getPropertyKeys(), mapStep.getIncludedTokens(), false);
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof PropertyMapStep<?, ?> mapStep)) {
+      return false;
+    }
+    encoder.appendStringSeq("vm", mapStep.getPropertyKeys());
+    encoder.appendToken("tok", Integer.toString(mapStep.getIncludedTokens()));
+    encoder.appendToken("pt", mapStep.getPropertyTraversal() == null ? "0" : "1");
+    encoder.appendToken("vtr", mapStep.getValueTraversal() == null ? "0" : "1");
+    return true;
   }
 }

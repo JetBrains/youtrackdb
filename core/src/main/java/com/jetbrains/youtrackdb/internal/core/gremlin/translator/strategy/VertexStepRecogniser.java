@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeOtherVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
@@ -61,5 +62,16 @@ final class VertexStepRecogniser implements StepRecogniser {
       return CombinatorFoldedHopRecogniser.INSTANCE.recognize(cursor, ctx);
     }
     return Outcome.DECLINE;
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof VertexStepContract<?> vertexStep)) {
+      return false;
+    }
+    encoder.appendToken("dir", vertexStep.getDirection().name());
+    encoder.appendToken("re", vertexStep.returnsEdge() ? "1" : "0");
+    encoder.appendStringSeq("el", vertexStep.getEdgeLabels());
+    return true;
   }
 }

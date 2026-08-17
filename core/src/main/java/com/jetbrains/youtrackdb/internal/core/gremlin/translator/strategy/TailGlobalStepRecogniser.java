@@ -138,4 +138,18 @@ final class TailGlobalStepRecogniser implements StepRecogniser {
   public boolean selectsPositionally(Step<?, ?> step) {
     return true;
   }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof TailGlobalStepContract<?> tail)) {
+      return false;
+    }
+    var limitAsGValue = tail.getLimitAsGValue();
+    if (limitAsGValue == null || limitAsGValue.get() == null) {
+      encoder.appendToken("tail", "-");
+      return true;
+    }
+    encoder.appendToken("tail", Long.toString(limitAsGValue.get()));
+    return true;
+  }
 }

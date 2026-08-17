@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 
 /**
@@ -30,5 +31,14 @@ final class ElementMapStepRecogniser implements StepRecogniser {
             | GremlinProjectionAssembler.ELEMENT_MAP_TOKEN_LABEL;
     return GremlinProjectionAssembler.configurePropertyMap(
         ctx, mapStep.getPropertyKeys(), tokens, true);
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof ElementMapStep<?, ?> mapStep)) {
+      return false;
+    }
+    encoder.appendStringSeq("em", mapStep.getPropertyKeys());
+    return true;
   }
 }

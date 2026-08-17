@@ -144,9 +144,11 @@ import org.slf4j.LoggerFactory;
  *
  * Cache-eligible walks build through {@link GremlinPlanCache}, keyed by {@link
  * GremlinPlanFingerprint} on the post-walk {@link MatchPlanInputs}. A second map, keyed by
- * {@link GremlinShapeKey} on the pre-walk step list, stores {@link GremlinTranslationTemplate}:
+ * {@link GremlinStepWalker#extractShape} (the production recognisers' {@code contributeShape}
+ * tokens plus this invocation's {@code ?} bindings), stores {@link GremlinTranslationTemplate}:
  * a hit skips the walker entirely (splice from the stored template, or return immediately on a
- * cached decline). RID-bearing shapes ({@code g.V(ids)}, {@code hasId(...)}) bypass both caches.
+ * cached decline). An extraction that cannot prove completeness never reads or writes that map.
+ * RID-bearing shapes ({@code g.V(ids)}, {@code hasId(...)}) bypass both caches.
  * Per-walk predicate values bind as positional parameters and are installed on the boundary step
  * at execution time. A plan is stored only when no metadata invalidation landed after the
  * {@code planningStart} captured before the walk, so a concurrent schema change during translation
@@ -291,8 +293,8 @@ public final class GremlinToMatchStrategy
     if (containsBoundaryStep(traversal)) {
       return;
     }
-    var extraction = GremlinShapeKey.extract(traversal, session);
-    if (populateTranslationCache) {
+    var extraction = GremlinStepWalker.extractShape(traversal, session);
+    if (populateTranslationCache && extraction.complete()) {
       var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
       if (cached instanceof GremlinTranslationTemplate.Decline) {
         return;
@@ -309,13 +311,13 @@ public final class GremlinToMatchStrategy
     var planningStart = System.nanoTime();
     var translation = translator.translate(traversal);
     if (translation == null) {
-      if (populateTranslationCache) {
+      if (populateTranslationCache && extraction.complete()) {
         GremlinPlanCache.putTranslation(
             extraction.key(), GremlinTranslationTemplate.DECLINE, session);
       }
       return;
     }
-    applyTranslation(traversal, session, translation, planningStart, extraction.key());
+    applyTranslation(traversal, session, translation, planningStart, extraction);
   }
 
   /**
@@ -448,7 +450,7 @@ public final class GremlinToMatchStrategy
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation,
       long planningStart,
-      String shapeKey) {
+      GremlinShapeExtractor.Extraction extraction) {
     if (translation.isMultiPlan()) {
       var plans = buildChildPlans(session, translation, planningStart);
       replaceAllStepsWithBoundary(traversal, plans, translation);
@@ -457,9 +459,9 @@ public final class GremlinToMatchStrategy
     InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, planningStart);
     var copyOnOpen = isSharedPlanTemplate(session, translation, plan);
     replaceAllStepsWithBoundary(traversal, plan, translation, copyOnOpen);
-    if (populateTranslationCache && copyOnOpen) {
+    if (populateTranslationCache && copyOnOpen && extraction.complete()) {
       GremlinPlanCache.putTranslation(
-          shapeKey,
+          extraction.key(),
           new GremlinTranslationTemplate.Translate(
               plan,
               translation.boundaryAlias(),

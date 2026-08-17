@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GroupCountStep;
 
 /**
@@ -22,5 +23,10 @@ final class GroupCountStepRecogniser implements StepRecogniser {
     var children = groupCount.getLocalChildren();
     var keyTraversal = children.isEmpty() ? null : children.getFirst();
     return GremlinAggregateAssembler.configureGroupCount(ctx, keyTraversal);
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    return step instanceof GroupCountStep<?, ?>;
   }
 }

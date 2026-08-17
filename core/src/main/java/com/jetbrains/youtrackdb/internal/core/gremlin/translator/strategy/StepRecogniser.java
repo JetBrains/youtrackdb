@@ -70,4 +70,23 @@ interface StepRecogniser {
   default boolean selectsPositionally(Step<?, ?> step) {
     return false;
   }
+
+  /**
+   * Appends every step-local token this recogniser reads in {@link #recognize}, and harvests any
+   * positional {@code ?} bindings in walker bind order. Child traversals of a {@link
+   * org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent} are encoded by {@link
+   * GremlinShapeExtractor}, not here.
+   *
+   * <p>The interface default returns {@code false}: an extraction that cannot prove completeness
+   * must not cache a {@code Translate} template. Every production-registry recogniser overrides
+   * this. Recognisers whose shape is fully determined by step class, {@code as()} labels, and
+   * recursively encoded children return {@code true} without writing extra tokens.
+   *
+   * @param step the step the walker would dispatch to this recogniser
+   * @param encoder the length-prefixed key writer and parameter harvest
+   * @return {@code true} when every token this recogniser reads is on the encoder
+   */
+  default boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    return false;
+  }
 }

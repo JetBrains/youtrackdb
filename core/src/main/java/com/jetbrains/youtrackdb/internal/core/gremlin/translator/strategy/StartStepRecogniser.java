@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -145,6 +146,22 @@ final class StartStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     return Outcome.ACCEPTED;
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof GraphStep<?, ?> graphStep)) {
+      return false;
+    }
+    encoder.appendToken("gv", graphStep.returnsVertex() ? "1" : "0");
+    var ids = graphStep.getIds();
+    encoder.appendToken("ids", Integer.toString(ids == null ? 0 : ids.length));
+    int hasContainers = 0;
+    if (step instanceof HasContainerHolder<?, ?> holder) {
+      hasContainers = holder.getHasContainers().size();
+    }
+    encoder.appendToken("hc", Integer.toString(hasContainers));
+    return true;
   }
 
   /**

@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -64,5 +65,15 @@ final class SelectStepRecogniser implements StepRecogniser {
     // A single-label select emits the column value directly (native SelectOneStep shape).
     ctx.setResultShaping(ResultShaping.NONE.withUnwrapSingletonMap(labels.size() == 1));
     return Outcome.ACCEPTED;
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof SelectStep<?, ?> selectStep)) {
+      return false;
+    }
+    encoder.appendToken("pop", String.valueOf(selectStep.getPop()));
+    encoder.appendStringSeq("sk", selectStep.getSelectKeys());
+    return true;
   }
 }

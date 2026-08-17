@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 
 /**
@@ -52,5 +53,10 @@ final class AndStepRecogniser implements StepRecogniser {
       ConnectiveStepSupport.commitPureFilterChild(ctx, adapter, ctx.boundaryAlias());
     }
     return Outcome.ACCEPTED;
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    return step instanceof AndStep<?>;
   }
 }

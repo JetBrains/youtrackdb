@@ -115,4 +115,18 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
     }
     return true;
   }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof DedupGlobalStep<?> dedup)) {
+      return false;
+    }
+    var scope = dedup.getScopeKeys();
+    if (scope == null || scope.isEmpty()) {
+      encoder.appendToken("dk", "-");
+      return true;
+    }
+    encoder.appendStringSeq("dk", new java.util.TreeSet<>(scope));
+    return true;
+  }
 }

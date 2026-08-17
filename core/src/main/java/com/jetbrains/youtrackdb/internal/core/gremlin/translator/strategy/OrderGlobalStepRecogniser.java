@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFac
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
@@ -151,4 +152,18 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     return ctx.orderBy() != null;
   }
 
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof OrderGlobalStep<?, ?> orderStep)) {
+      return false;
+    }
+    var comparators = orderStep.getComparators();
+    encoder.appendToken("ord", Integer.toString(comparators == null ? 0 : comparators.size()));
+    if (comparators != null) {
+      for (var pair : comparators) {
+        encoder.appendToken(String.valueOf(pair.getValue1()));
+      }
+    }
+    return true;
+  }
 }

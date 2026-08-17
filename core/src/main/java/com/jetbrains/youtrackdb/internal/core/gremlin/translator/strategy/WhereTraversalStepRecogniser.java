@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep;
 
 /**
@@ -48,5 +49,10 @@ final class WhereTraversalStepRecogniser implements StepRecogniser {
 
     var adapter = ctx.walkChild(children.getFirst());
     return ConnectiveStepSupport.commitPositiveFilterChild(ctx, adapter);
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    return step instanceof WhereTraversalStep<?>;
   }
 }

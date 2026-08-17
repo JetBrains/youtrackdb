@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import java.util.ArrayList;
@@ -7,6 +9,7 @@ import java.util.Collection;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -309,5 +312,60 @@ final class HasStepRecogniser implements StepRecogniser {
       return null;
     }
     return StartStepRecogniser.buildRidInExpression(rids);
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof HasStep<?> hasStep)) {
+      return false;
+    }
+    var containers = hasStep.getHasContainers();
+    encoder.appendToken("H", Integer.toString(containers.size()));
+    String typeClass = null;
+    for (HasContainer container : containers) {
+      if (LABEL_KEY.equals(container.getKey()) && container.getValue() instanceof String name) {
+        typeClass = name;
+      }
+    }
+    final var labelClass = typeClass;
+    GremlinPredicateAdapter.PropertyTypeGate typeGate =
+        key -> isDeclaredString(encoder.schema(), labelClass, key);
+    for (HasContainer container : containers) {
+      var key = container.getKey();
+      if (LABEL_KEY.equals(key)) {
+        encoder.appendToken("lab");
+        encoder.appendStructuralValue(container.getValue());
+        continue;
+      }
+      if (ID_KEY.equals(key)) {
+        encoder.appendToken("id");
+        encoder.appendToken(Integer.toString(idCardinality(container.getValue())));
+        continue;
+      }
+      encoder.appendToken(key == null ? "" : key);
+      encoder.appendPredicate(container.getPredicate(), false);
+      GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, encoder.paramSink(), true);
+    }
+    return true;
+  }
+
+  private static int idCardinality(@Nullable Object value) {
+    if (value instanceof Collection<?> collection) {
+      return collection.size();
+    }
+    return value == null ? 0 : 1;
+  }
+
+  private static boolean isDeclaredString(
+      @Nullable Schema schema, @Nullable String className, String propertyKey) {
+    if (schema == null || className == null || propertyKey == null) {
+      return false;
+    }
+    var clazz = schema.getClass(className);
+    if (clazz == null) {
+      return false;
+    }
+    var property = clazz.getProperty(propertyKey);
+    return property != null && property.getType() == PropertyType.STRING;
   }
 }

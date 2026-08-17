@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
 
 /**
@@ -59,5 +60,15 @@ final class WherePredicateStepRecogniser implements StepRecogniser {
 
     ctx.putAliasFilter(boundary, WHERE.wrap(expr));
     return Outcome.ACCEPTED;
+  }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!(step instanceof WherePredicateStep<?> whereStep)) {
+      return false;
+    }
+    encoder.appendToken("ws", whereStep.getStartKey().orElse("-"));
+    encoder.appendPredicate(whereStep.getPredicate().orElse(null), true);
+    return true;
   }
 }

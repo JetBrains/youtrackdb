@@ -248,4 +248,9 @@ final class UnionStepRecogniser implements StepRecogniser {
         .returnPathElements(inputs.returnPathElements())
         .build();
   }
+
+  @Override
+  public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    return step instanceof UnionStep<?, ?>;
+  }
 }

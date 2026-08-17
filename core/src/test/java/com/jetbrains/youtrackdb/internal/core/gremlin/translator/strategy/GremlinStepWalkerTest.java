@@ -1759,6 +1759,32 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * Every production-registry recogniser must declare {@link StepRecogniser#contributeShape} itself
+   * rather than inherit the fail-closed {@code false} default. A new registry entry that forgets
+   * the encoder would silently disable translation-cache hits for that step class. Failing the
+   * build is the point: whoever adds a recogniser has to list the tokens {@code recognize} reads.
+   */
+  @Test
+  public void everyProductionRecogniserDeclaresContributeShape() {
+    for (var recogniser : GremlinStepWalker.productionRecogniserInstances()) {
+      assertThat(declaresOwnContributeShape(recogniser))
+          .as(
+              recogniser.getClass().getSimpleName()
+                  + " is in the production registry, so it must override contributeShape")
+          .isTrue();
+    }
+  }
+
+  /**
+   * Whether {@code recogniser} declares {@code contributeShape} itself rather than inheriting
+   * the {@link StepRecogniser} default.
+   */
+  private static boolean declaresOwnContributeShape(StepRecogniser recogniser) {
+    return Arrays.stream(recogniser.getClass().getDeclaredMethods())
+        .anyMatch(m -> m.getName().equals("contributeShape"));
+  }
+
+  /**
    * Whether {@code recogniser} declares {@code selectsPositionally} itself rather than inheriting
    * the {@link StepRecogniser} default. Shared by the allow-list's presence tripwire and the fold
    * recogniser's absence tripwire, which read the same fact in opposite directions: with the method
