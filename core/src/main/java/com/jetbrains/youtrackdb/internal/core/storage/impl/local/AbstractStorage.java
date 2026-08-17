@@ -4381,8 +4381,9 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
-      // Engine replacement cannot race this lookup. The index tree component lock remains held
-      // through Hook B, which applies these deltas after the durable commit.
+      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
+      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
+      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4451,8 +4452,9 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
-      // Engine replacement cannot race this lookup. The index tree component lock remains held
-      // through Hook B, which applies these deltas after the durable commit.
+      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
+      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
+      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4832,10 +4834,8 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Sets {@code indexEngines.get(id) == engine}, growing the list with null padding when
-   * {@code id} is at or past the current size, mirroring {@link #setCollection(int,
-   * StorageCollection)}. The public append path uses {@code id == indexEngines.size()};
-   * the commit-local allocator may reuse a hole at {@code id < indexEngines.size()}.
+   * Detaches histogram publication from an engine that is leaving the registry. This must run
+   * before its slot is released, so removal linearizes before a replacement publishes there.
    */
   private static void detachHistogramManager(final BaseIndexEngine engine) {
     if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4846,6 +4846,12 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Sets {@code indexEngines.get(id) == engine}, growing the list with null padding when
+   * {@code id} is at or past the current size, mirroring {@link #setCollection(int,
+   * StorageCollection)}. The public append path uses {@code id == indexEngines.size()};
+   * the commit-local allocator may reuse a hole at {@code id < indexEngines.size()}.
+   */
   private void setIndexEngine(final int id, final BaseIndexEngine engine) {
     if (indexEngines.size() <= id) {
       while (indexEngines.size() < id) {
