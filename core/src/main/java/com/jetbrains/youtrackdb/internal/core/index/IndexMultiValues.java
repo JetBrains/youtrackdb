@@ -85,7 +85,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RID> backedStream;
     acquireSharedLock();
     try {
-      if (!state().hasEngine()) {
+      if (isNeverBuilt(state())) {
         // Unbuilt, transaction-deferred index: no engine yet, so a value lookup finds nothing.
         // Returning an empty stream keeps get()/getRids() on a deferred handle NPE-free and
         // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
@@ -96,7 +96,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
-          stream = storage.getIndexValues(state().engineIdentifier(), collatedKey,
+          stream = storage.getIndexValues(state().engineIdentifier(), state().engineReference(),
+              collatedKey,
               transaction.getAtomicOperation());
           backedStream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
@@ -166,14 +167,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
       RID rid)
       throws InvalidIndexEngineIdException {
     var transaction = session.getActiveTransaction();
-    doPutV1(storage, transaction.getAtomicOperation(), state().engineIdentifier(), key, rid);
-  }
-
-  private static void doPutV1(
-      AbstractStorage storage, @Nonnull AtomicOperation atomicOperation, int indexId, Object key,
-      RID identity)
-      throws InvalidIndexEngineIdException {
-    storage.putRidIndexEntry(indexId, key, identity, atomicOperation);
+    final var current = state();
+    storage.putRidIndexEntry(
+        current.engineIdentifier(), current.engineReference(), key, rid,
+        transaction.getAtomicOperation());
   }
 
   @Override
@@ -181,15 +178,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     var transaction = session.getActiveTransaction();
-    return doRemoveV1(state().engineIdentifier(), storage, key, rid,
+    final var current = state();
+    return storage.removeRidIndexEntry(
+        current.engineIdentifier(), current.engineReference(), key, rid,
         transaction.getAtomicOperation());
-  }
-
-  private static boolean doRemoveV1(
-      int indexId, AbstractStorage storage, Object key, Identifiable value,
-      AtomicOperation atomicOperation)
-      throws InvalidIndexEngineIdException {
-    return storage.removeRidIndexEntry(indexId, key, value.getIdentity(), atomicOperation);
   }
 
   @Override
@@ -461,7 +453,9 @@ public abstract class IndexMultiValues extends IndexAbstract {
       boolean recovered = false;
       while (true) {
         try {
-          return storage.getIndexValues(state().engineIdentifier(), key, atomicOperation)
+          return storage
+              .getIndexValues(state().engineIdentifier(), state().engineReference(), key,
+                  atomicOperation)
               .map((rid) -> new RawPair<>(entryKey, rid));
         } catch (InvalidIndexEngineIdException ignore) {
           if (recovered) {
@@ -511,7 +505,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     acquireSharedLock();
     long tot;
     try {
-      if (!state().hasEngine()) {
+      if (isNeverBuilt(state())) {
         // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
         return 0;
       }
@@ -519,7 +513,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
-          tot = storage.getIndexSize(state().engineIdentifier(), MultiValuesTransformer.INSTANCE,
+          tot = storage.getIndexSize(state().engineIdentifier(), state().engineReference(),
+              MultiValuesTransformer.INSTANCE,
               transaction.getAtomicOperation());
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -560,7 +555,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
                   this,
-                  storage.getIndexStream(state().engineIdentifier(),
+                  storage.getIndexStream(state().engineIdentifier(), state().engineReference(),
                       MultiValuesTransformer.INSTANCE,
                       transaction.getAtomicOperation()),
                   session);
@@ -659,7 +654,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
                   this,
-                  storage.getIndexDescStream(state().engineIdentifier(),
+                  storage.getIndexDescStream(state().engineIdentifier(), state().engineReference(),
                       MultiValuesTransformer.INSTANCE,
                       transaction.getAtomicOperation()),
                   session);

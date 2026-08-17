@@ -620,6 +620,19 @@ public abstract class IndexAbstract implements Index {
     return handleState.get();
   }
 
+  protected final boolean isNeverBuilt(IndexHandleState current) {
+    if (current.hasEngine()) {
+      return false;
+    }
+    if (current.isDurablyIdentified()) {
+      throw new StaleIndexEngineException(
+          storage.getName(),
+          "Index '" + getName() + "' has no engine for descriptor "
+              + current.descriptorIdentity());
+    }
+    return true;
+  }
+
   public void setHandleStateForTest(
       int engineIdentifier, @Nullable RID descriptorIdentity) {
     handleState.set(new IndexHandleState(engineIdentifier, null, descriptorIdentity, null));
@@ -754,7 +767,7 @@ public abstract class IndexAbstract implements Index {
     return state().lifecycleCell();
   }
 
-  @Nullable IndexEngineReference getEngineReference() {
+  @Nullable public IndexEngineReference getEngineReference() {
     return state().engineReference();
   }
 
@@ -929,7 +942,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier());
+        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           var mgr = btreeEngine.getHistogramManager();
           if (mgr != null) {
@@ -964,7 +977,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier());
+        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           if (btreeEngine.getHistogramManager() != null) {
             try {
@@ -1097,7 +1110,8 @@ public abstract class IndexAbstract implements Index {
       DatabaseSessionEmbedded session)
       throws InvalidIndexEngineIdException {
     var tx = session.getActiveTransaction();
-    return storage.removeKeyFromIndex(state().engineIdentifier(), key, tx.getAtomicOperation());
+    return storage.removeKeyFromIndex(state().engineIdentifier(), state().engineReference(), key,
+        tx.getAtomicOperation());
   }
 
   @Override
@@ -1155,7 +1169,8 @@ public abstract class IndexAbstract implements Index {
           // Just log errors of removing keys while dropping and keep dropping
         }
 
-        storage.deleteIndexEngine(state().engineIdentifier());
+        final var current = state();
+        storage.deleteIndexEngine(current.engineIdentifier(), current.engineReference());
         publishEngineDetached(false);
         break;
       } catch (InvalidIndexEngineIdException ignore) {
@@ -1462,7 +1477,8 @@ public abstract class IndexAbstract implements Index {
       boolean recovered = false;
       while (true) {
         try {
-          return storage.getIndexKeyStream(state().engineIdentifier(), operation);
+          return storage.getIndexKeyStream(state().engineIdentifier(), state().engineReference(),
+              operation);
         } catch (InvalidIndexEngineIdException ignore) {
           if (recovered) {
             throw staleAfterOwnerRecovery();
@@ -1544,7 +1560,8 @@ public abstract class IndexAbstract implements Index {
 
     while (true) {
       try {
-        engine = storage.getIndexEngineWithStateLock(state().engineIdentifier());
+        engine = storage.getIndexEngineWithStateLock(
+            state().engineIdentifier(), state().engineReference());
         break;
       } catch (InvalidIndexEngineIdException ignore) {
         if (recovered) {
@@ -1563,7 +1580,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier());
+        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
         return engine.getStatistics();
       } catch (InvalidIndexEngineIdException ignore) {
         if (recovered) {
@@ -1580,7 +1597,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier());
+        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
         return engine.getHistogram();
       } catch (InvalidIndexEngineIdException ignore) {
         if (recovered) {
@@ -1597,7 +1614,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier());
+        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           var manager = btreeEngine.getHistogramManager();
           if (manager != null) {
@@ -1698,6 +1715,7 @@ public abstract class IndexAbstract implements Index {
         storage.callIndexEngine(
             false,
             current.engineIdentifier(),
+            current.engineReference(),
             engine -> {
               engine.init(session, im);
               return null;
