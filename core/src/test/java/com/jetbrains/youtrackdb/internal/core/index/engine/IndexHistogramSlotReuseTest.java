@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -31,45 +32,53 @@ public class IndexHistogramSlotReuseTest {
   @Test
   public void detachedManagerCannotPublishSmallBuild() throws Exception {
     var fixture = new Fixture();
+    fixture.manager.setFileIdForTest(42);
     var replacement = fixture.detachAndSeedReplacement();
 
     fixture.manager.buildHistogram(fixture.operation, Stream.empty(), 1, 0, 1);
 
     assertSame(replacement, fixture.cache.get(fixture.engineId));
+    verifyNoInteractions(fixture.operation);
   }
 
   /** U2 covers the counters-only build publication after an empty full-size scan. */
   @Test
   public void detachedManagerCannotPublishEmptyFullSizeBuild() throws Exception {
     var fixture = new Fixture();
+    fixture.manager.setFileIdForTest(42);
     var replacement = fixture.detachAndSeedReplacement();
 
     fixture.manager.buildHistogram(fixture.operation, Stream.empty(), 1_000, 0, 1);
 
     assertSame(replacement, fixture.cache.get(fixture.engineId));
+    verifyNoInteractions(fixture.operation);
   }
 
   /** U3 covers the complete histogram publication after a full key scan. */
   @Test
   public void detachedManagerCannotPublishCompleteBuild() throws Exception {
     var fixture = new Fixture();
+    fixture.manager.setFileIdForTest(42);
     var replacement = fixture.detachAndSeedReplacement();
     var keys = IntStream.range(0, 1_000).boxed().map(value -> (Object) value);
 
     fixture.manager.buildHistogram(fixture.operation, keys, 1_000, 0, 1);
 
     assertSame(replacement, fixture.cache.get(fixture.engineId));
+    verifyNoInteractions(fixture.operation);
   }
 
   /** U4 covers the empty snapshot publication used when an index is cleared. */
   @Test
   public void detachedManagerCannotPublishClearReset() throws Exception {
     var fixture = new Fixture();
+    fixture.manager.setFileIdForTest(42);
     var replacement = fixture.detachAndSeedReplacement();
 
     fixture.manager.resetOnClear(fixture.operation);
 
     assertSame(replacement, fixture.cache.get(fixture.engineId));
+    verifyNoInteractions(fixture.operation);
   }
 
   /** U5 detaches at the publication seam after synchronous analysis has scanned its stale keys. */
@@ -133,7 +142,7 @@ public class IndexHistogramSlotReuseTest {
   @Test
   public void detachedManagerCannotScheduleHistogramWork() {
     var fixture = new Fixture();
-    fixture.detachAndSeedReplacement();
+    fixture.detachAndSeedReplacement(Long.MAX_VALUE);
     var executor = mock(ExecutorService.class);
 
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -199,8 +208,12 @@ public class IndexHistogramSlotReuseTest {
     }
 
     private HistogramSnapshot detachAndSeedReplacement() {
+      return detachAndSeedReplacement(77);
+    }
+
+    private HistogramSnapshot detachAndSeedReplacement(long totalCount) {
       manager.detach();
-      var replacement = snapshot(77);
+      var replacement = snapshot(totalCount);
       cache.put(engineId, replacement);
       return replacement;
     }

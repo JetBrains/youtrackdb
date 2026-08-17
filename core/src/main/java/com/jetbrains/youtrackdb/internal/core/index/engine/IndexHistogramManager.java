@@ -583,18 +583,15 @@ public class IndexHistogramManager extends StorageComponent {
    * @param delta the accumulated delta for this engine
    */
   public void applyDelta(HistogramDelta delta) {
-    if (!publish(old -> old == null ? null : computeNewSnapshot(old, delta))) {
+    var published = publish(delta);
+    if (published == null || detached) {
       return;
     }
-    long newDirty =
-        (long) DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount)
-            + delta.mutationCount;
+    long newDirty = (long) DIRTY_MUTATIONS.getAcquire(this);
 
     // Use getAndSet(0) so exactly one thread claims the dirty count and
-    // flushes. Any mutations added by concurrent threads between the
-    // getAndAdd above and the getAndSet here become part of the next batch
-    // (their count is already reflected in the VarHandle and will be
-    // re-accumulated by subsequent applyDelta calls).
+    // flushes. Mutations added after the successful remap become part of
+    // this batch or the next batch, depending on which thread claims them.
     if (newDirty >= persistBatchSize) {
       long claimed = (long) DIRTY_MUTATIONS.getAndSet(this, 0L);
       if (claimed > 0) {
@@ -613,30 +610,50 @@ public class IndexHistogramManager extends StorageComponent {
   /**
    * Publishes through one atomic remap so detach and slot replacement cannot interleave.
    *
-   * @return {@code true} when the merge published a new snapshot
+   * @return the value retained in the cache after the remap
    */
-  private boolean publish(UnaryOperator<HistogramSnapshot> merge) {
+  @Nullable private HistogramSnapshot publish(UnaryOperator<HistogramSnapshot> merge) {
     final var hook = prePublicationTestHook;
     if (hook != null) {
       hook.run();
     }
 
-    final var published = new boolean[1];
-    cache.compute(engineId, (slot, current) -> {
+    final var result = cache.compute(engineId, (slot, current) -> {
       if (detached) {
         return current;
       }
       final var next = merge.apply(current);
-      if (next == null) {
-        return current;
-      }
-      published[0] = true;
-      return next;
+      return next != null ? next : current;
     });
-    if (!published[0]) {
+    if (result == null || detached) {
       logger.debug("Declined histogram publication for detached or absent engine {}", engineId);
     }
-    return published[0];
+    return result;
+  }
+
+  /**
+   * Publishes a commit delta without the helper lambda and result-array allocations of the general
+   * merge path. The remaining lambda must capture the delta because {@code ConcurrentHashMap.compute}
+   * supplies only the key and current value. Dirty accounting stays inside that atomic remap.
+   */
+  @Nullable private HistogramSnapshot publish(HistogramDelta delta) {
+    final var hook = prePublicationTestHook;
+    if (hook != null) {
+      hook.run();
+    }
+
+    final var result = cache.compute(engineId, (slot, current) -> {
+      if (detached || current == null) {
+        return current;
+      }
+      final var next = computeNewSnapshot(current, delta);
+      DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount);
+      return next;
+    });
+    if (result == null || detached) {
+      logger.debug("Declined histogram publication for detached or absent engine {}", engineId);
+    }
+    return result;
   }
 
   /**
@@ -809,7 +826,7 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, nonNullCount, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      if (publish(current -> snapshot)) {
+      if (publish(current -> snapshot) == snapshot) {
         writeSnapshotToPage(op, snapshot);
       }
       // Early exit: return approximate count (no stream consumed).
@@ -853,7 +870,7 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, 0, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      if (publish(current -> snapshot)) {
+      if (publish(current -> snapshot) == snapshot) {
         writeSnapshotToPage(op, snapshot);
       }
       return 0;
@@ -879,7 +896,7 @@ public class IndexHistogramManager extends StorageComponent {
     var stats = new IndexStatistics(totalCount, exactDistinctCount, nullCount);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, totalCount, 0, false, hll, hllOnPage1);
-    if (publish(current -> snapshot)) {
+    if (publish(current -> snapshot) == snapshot) {
       writeSnapshotToPage(op, snapshot);
     }
     return scannedNonNull;
@@ -958,7 +975,7 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public void resetOnClear(AtomicOperation op) throws IOException {
     var emptySnapshot = createEmptySnapshot();
-    if (!publish(current -> emptySnapshot)) {
+    if (publish(current -> emptySnapshot) != emptySnapshot) {
       return;
     }
     DIRTY_MUTATIONS.setRelease(this, 0L);
@@ -1812,7 +1829,7 @@ public class IndexHistogramManager extends StorageComponent {
             finalHll,
             finalHllOnPage1);
       });
-      if (!published) {
+      if (published == null || detached) {
         return;
       }
 
