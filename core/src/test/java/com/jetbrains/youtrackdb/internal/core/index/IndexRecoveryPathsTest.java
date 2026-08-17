@@ -61,7 +61,7 @@ public class IndexRecoveryPathsTest {
       assertEquals(
           path.name() + " must install the owner-resolved identifier before failing closed",
           VALID_IDENTIFIER,
-          fixture.index.indexId);
+          fixture.index.getIndexId());
       assertEquals(
           path.name() + " must resolve the owner exactly once",
           1,
@@ -145,7 +145,7 @@ public class IndexRecoveryPathsTest {
                 fixture -> fixture.index.analyzeHistogram(fixture.session)),
             path("onIndexEngineChange", "callIndexEngine",
                 fixture -> fixture.index.onIndexEngineChange(
-                    fixture.session, fixture.index.indexId))));
+                    fixture.session, fixture.index.state()))));
   }
 
   private static void verifyPaths(IndexFactory factory, List<RecoveryPath> paths) throws Exception {
@@ -153,10 +153,11 @@ public class IndexRecoveryPathsTest {
       var recoveringFixture = fixture(factory, path.storageMethod());
       path.operation().invoke(recoveringFixture);
       assertEquals(path.name() + " must install the owner-resolved identifier",
-          VALID_IDENTIFIER, recoveringFixture.index.indexId);
+          VALID_IDENTIFIER, recoveringFixture.index.getIndexId());
 
       var foreignFixture = fixture(factory, path.storageMethod());
-      foreignFixture.index.identity = FOREIGN_OWNER;
+      foreignFixture.index.setHandleStateForTest(
+          foreignFixture.index.getIndexId(), FOREIGN_OWNER);
       assertThrows(
           path.name() + " must reject a foreign owner",
           StaleIndexEngineException.class,
@@ -179,7 +180,7 @@ public class IndexRecoveryPathsTest {
       if (methodName.startsWith("resolveIndexEngineByOwner")) {
         var owner = invocation.getArgument(0);
         if (OWNER.equals(owner)) {
-          return VALID_IDENTIFIER;
+          return new AbstractStorage.ResolvedIndexEngine(VALID_IDENTIFIER, null);
         }
         throw new StaleIndexEngineException(
             "recovery-path-test", "No engine belongs to foreign owner " + owner);
@@ -219,8 +220,7 @@ public class IndexRecoveryPathsTest {
 
     var index = factory.create(storage);
     index.im = metadata;
-    index.identity = OWNER;
-    index.indexId = STALE_IDENTIFIER;
+    index.setHandleStateForTest(STALE_IDENTIFIER, OWNER);
     return new Fixture(index, session, transaction, atomicOperation, storage);
   }
 

@@ -55,7 +55,7 @@ public class IndexUnique extends IndexOneValue {
       RID rid)
       throws InvalidIndexEngineIdException {
     var transaction = session.getActiveTransaction();
-    storage.validatedPutIndexValue(indexId, key, rid, uniqueValidator,
+    storage.validatedPutIndexValue(state().engineIdentifier(), key, rid, uniqueValidator,
         transaction.getAtomicOperation());
   }
 

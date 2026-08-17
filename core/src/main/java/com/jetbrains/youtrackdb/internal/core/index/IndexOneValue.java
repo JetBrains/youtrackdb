@@ -85,7 +85,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     acquireSharedLock();
     Stream<RID> stream;
     try {
-      if (indexId < 0) {
+      if (!state().hasEngine()) {
         // Unbuilt, transaction-deferred index: no engine yet, so a value lookup finds nothing.
         // Returning an empty stream keeps get()/getRids() on a deferred handle NPE-free and
         // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
@@ -95,7 +95,8 @@ public abstract class IndexOneValue extends IndexAbstract {
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
-          stream = storage.getIndexValues(indexId, key, transaction.getAtomicOperation());
+          stream = storage.getIndexValues(state().engineIdentifier(), key,
+              transaction.getAtomicOperation());
           stream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -103,9 +104,9 @@ public abstract class IndexOneValue extends IndexAbstract {
             throw new StaleIndexEngineException(
                 storage.getName(),
                 "Index '" + getName() + "' remained stale after owner-bound recovery for"
-                    + " descriptor " + identity);
+                    + " descriptor " + state().descriptorIdentity());
           }
-          resolveOwnedEngineIdentifier();
+          resolveOwnedEngine();
           recovered = true;
         }
       }
@@ -172,7 +173,7 @@ public abstract class IndexOneValue extends IndexAbstract {
                         while (true) {
                           try {
                             return storage
-                                .getIndexValues(indexId, collatedKey,
+                                .getIndexValues(state().engineIdentifier(), collatedKey,
                                     transaction.getAtomicOperation())
                                 .map((rid) -> new RawPair<>(collatedKey, rid));
                           } catch (InvalidIndexEngineIdException ignore) {
@@ -181,9 +182,9 @@ public abstract class IndexOneValue extends IndexAbstract {
                                   storage.getName(),
                                   "Index '" + getName()
                                       + "' remained stale after owner-bound recovery for"
-                                      + " descriptor " + identity);
+                                      + " descriptor " + state().descriptorIdentity());
                             }
-                            resolveOwnedEngineIdentifier();
+                            resolveOwnedEngine();
                             recovered = true;
                           }
                         }
@@ -236,7 +237,8 @@ public abstract class IndexOneValue extends IndexAbstract {
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesBetween(
-                      indexId, fromKey, fromInclusive, toKey, toInclusive, ascOrder, null,
+                      state().engineIdentifier(), fromKey, fromInclusive, toKey, toInclusive,
+                      ascOrder, null,
                       transaction.getAtomicOperation()),
                   session);
           break;
@@ -245,9 +247,9 @@ public abstract class IndexOneValue extends IndexAbstract {
             throw new StaleIndexEngineException(
                 storage.getName(),
                 "Index '" + getName() + "' remained stale after owner-bound recovery for"
-                    + " descriptor " + identity);
+                    + " descriptor " + state().descriptorIdentity());
           }
-          resolveOwnedEngineIdentifier();
+          resolveOwnedEngine();
           recovered = true;
         }
       }
@@ -299,7 +301,7 @@ public abstract class IndexOneValue extends IndexAbstract {
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesMajor(
-                      indexId, fromKey, fromInclusive, ascOrder, null,
+                      state().engineIdentifier(), fromKey, fromInclusive, ascOrder, null,
                       transaction.getAtomicOperation()),
                   session);
           break;
@@ -308,9 +310,9 @@ public abstract class IndexOneValue extends IndexAbstract {
             throw new StaleIndexEngineException(
                 storage.getName(),
                 "Index '" + getName() + "' remained stale after owner-bound recovery for"
-                    + " descriptor " + identity);
+                    + " descriptor " + state().descriptorIdentity());
           }
-          resolveOwnedEngineIdentifier();
+          resolveOwnedEngine();
           recovered = true;
         }
       }
@@ -365,7 +367,8 @@ public abstract class IndexOneValue extends IndexAbstract {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
                   this,
-                  storage.iterateIndexEntriesMinor(indexId, toKey, toInclusive, ascOrder,
+                  storage.iterateIndexEntriesMinor(state().engineIdentifier(), toKey, toInclusive,
+                      ascOrder,
                       null, transaction.getAtomicOperation()),
                   session);
           break;
@@ -374,9 +377,9 @@ public abstract class IndexOneValue extends IndexAbstract {
             throw new StaleIndexEngineException(
                 storage.getName(),
                 "Index '" + getName() + "' remained stale after owner-bound recovery for"
-                    + " descriptor " + identity);
+                    + " descriptor " + state().descriptorIdentity());
           }
-          resolveOwnedEngineIdentifier();
+          resolveOwnedEngine();
           recovered = true;
         }
       }
@@ -421,7 +424,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   public long size(DatabaseSessionEmbedded session) {
     acquireSharedLock();
     try {
-      if (indexId < 0) {
+      if (!state().hasEngine()) {
         // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
         return 0;
       }
@@ -429,15 +432,16 @@ public abstract class IndexOneValue extends IndexAbstract {
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
-          return storage.getIndexSize(indexId, null, transaction.getAtomicOperation());
+          return storage.getIndexSize(state().engineIdentifier(), null,
+              transaction.getAtomicOperation());
         } catch (InvalidIndexEngineIdException ignore) {
           if (recovered) {
             throw new StaleIndexEngineException(
                 storage.getName(),
                 "Index '" + getName() + "' remained stale after owner-bound recovery for"
-                    + " descriptor " + identity);
+                    + " descriptor " + state().descriptorIdentity());
           }
-          resolveOwnedEngineIdentifier();
+          resolveOwnedEngine();
           recovered = true;
         }
       }
@@ -457,7 +461,7 @@ public abstract class IndexOneValue extends IndexAbstract {
           var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexStream(indexId, null,
+                  this, storage.getIndexStream(state().engineIdentifier(), null,
                       transaction.getAtomicOperation()),
                   session);
           break;
@@ -466,9 +470,9 @@ public abstract class IndexOneValue extends IndexAbstract {
             throw new StaleIndexEngineException(
                 storage.getName(),
                 "Index '" + getName() + "' remained stale after owner-bound recovery for"
-                    + " descriptor " + identity);
+                    + " descriptor " + state().descriptorIdentity());
           }
-          resolveOwnedEngineIdentifier();
+          resolveOwnedEngine();
           recovered = true;
         }
       }
@@ -505,7 +509,7 @@ public abstract class IndexOneValue extends IndexAbstract {
           var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexDescStream(indexId, null,
+                  this, storage.getIndexDescStream(state().engineIdentifier(), null,
                       transaction.getAtomicOperation()),
                   session);
           break;
@@ -514,9 +518,9 @@ public abstract class IndexOneValue extends IndexAbstract {
             throw new StaleIndexEngineException(
                 storage.getName(),
                 "Index '" + getName() + "' remained stale after owner-bound recovery for"
-                    + " descriptor " + identity);
+                    + " descriptor " + state().descriptorIdentity());
           }
-          resolveOwnedEngineIdentifier();
+          resolveOwnedEngine();
           recovered = true;
         }
       }

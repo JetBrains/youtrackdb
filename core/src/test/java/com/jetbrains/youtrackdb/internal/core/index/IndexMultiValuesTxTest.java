@@ -64,7 +64,8 @@ public class IndexMultiValuesTxTest extends DbTestBase {
     session.begin();
     var index = (IndexMultiValues) session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
     var expectedIdentifier = index.getIndexId();
-    index.indexId = expectedIdentifier | 1_000_000;
+    index.setHandleStateForTest(
+        expectedIdentifier | 1_000_000, index.getIdentity());
 
     @SuppressWarnings("unchecked")
     Collection<RID> result = (Collection<RID>) index.get(session, "alpha");

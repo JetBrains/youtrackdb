@@ -66,7 +66,8 @@ public class IndexOneValueTxTest extends DbTestBase {
     session.begin();
     var index = (IndexOneValue) session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
     var expectedIdentifier = index.getIndexId();
-    index.indexId = expectedIdentifier | 1_000_000;
+    index.setHandleStateForTest(
+        expectedIdentifier | 1_000_000, index.getIdentity());
 
     var result = index.get(session, "alpha");
     session.rollback();
