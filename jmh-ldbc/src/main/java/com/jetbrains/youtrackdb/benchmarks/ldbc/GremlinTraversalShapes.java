@@ -54,10 +54,11 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * vertex alias, so {@code select("k")} would return the target vertex rather than the edge, so the
  * shape falls back to native on both arms.
  *
- * <p>The load-bearing translating shape is {@link #personByRid}. A RID-bearing walk sets
- * {@code cacheEligible=false} in the translator, so translator-on compiles an uncached MATCH plan
- * where translator-off ran no query at all — the one shape where the translator can be strictly
- * slower than native.
+ * <p>{@link #personByRid} is a bare {@code g.V(rid)} point-lookup and now <em>declines</em>: a
+ * RID-bearing single-node walk with no hop sets {@code cacheEligible=false} in the translator, so
+ * translator-on would compile an uncached MATCH plan every call where translator-off ran no query
+ * at all — a net loss with no join to optimise. The translator declines it so both arms run
+ * natively; a RID start FOLLOWED by a hop still translates, since the join is where MATCH can win.
  */
 public final class GremlinTraversalShapes {
 
@@ -87,12 +88,14 @@ public final class GremlinTraversalShapes {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * Shape 1 — {@code g.V(rid)}: a by-id lookup with nothing after it.
+   * A bare {@code g.V(rid)} by-id lookup with nothing after it — a DECLINING shape.
    *
    * <p>Held apart from the other walk shapes because it is the only one where the native path issues
-   * no query: TinkerPop resolves the id straight to a record, while the translator compiles a
-   * MATCH plan for it. The RID has to be resolved from an LDBC {@code id} long before the call,
-   * which is why the benchmark state builds a RID pool at trial setup.
+   * no query: TinkerPop resolves the id straight to a record. Translating it would compile an
+   * uncached MATCH plan every call ({@code cacheEligible=false}) for no join to optimise, so the
+   * translator declines the bare lookup and both arms run natively. The RID has to be resolved from
+   * an LDBC {@code id} long before the call, which is why the benchmark state builds a RID pool at
+   * trial setup.
    */
   public static YTDBGraphTraversal<Vertex, Vertex> personByRid(
       YTDBGraphTraversalSource g, Object rid) {

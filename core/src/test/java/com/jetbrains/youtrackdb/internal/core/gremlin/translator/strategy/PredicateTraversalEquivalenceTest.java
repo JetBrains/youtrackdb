@@ -207,22 +207,27 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   // hasId — single, multi, and the set-membership duplicate case.
   // ---------------------------------------------------------------------------
 
-  /** {@code g.V().hasId(id)} translates to an @rid IN filter and returns exactly that vertex. */
+  /**
+   * A BARE {@code g.V().hasId(id)} point-lookup declines to native: a single pinned node with no
+   * hop, which native resolves by RID directly with no query, so the translator would compile an
+   * uncached MATCH plan for nothing. Declining is trivially on==off; native still returns exactly
+   * that vertex. A RID lookup FOLLOWED by a hop still translates.
+   */
   @Test
-  public void hasIdSingle_matchesNative() {
+  public void hasIdSingle_declinesBarePointLookup() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
     var aliceId = alice.id();
     assertEquivalent(
         "g.V().hasId(alice)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().hasId(aliceId));
   }
 
-  /** {@code g.V().hasId(id1, id2)} translates to an @rid IN over both and returns both vertices. */
+  /** A bare {@code g.V().hasId(id1, id2)} point-lookup declines to native; native returns both. */
   @Test
-  public void hasIdMulti_matchesNative() {
+  public void hasIdMulti_declinesBarePointLookup() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     graph.addVertex(T.label, "Person", "name", "Carol");
@@ -231,25 +236,24 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     var bobId = bob.id();
     assertEquivalent(
         "g.V().hasId(alice, bob)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().hasId(aliceId, bobId));
   }
 
   /**
-   * {@code g.V().hasId(id, id)} with a repeated id is set membership — it matches the one vertex
-   * once, matching native. Unlike {@code g.V(id, id)} (seek semantics, which the start step declines
-   * for a duplicate), the {@code hasId} branch must NOT decline a duplicate: it maps to the same
-   * {@code @rid IN [id]} filter.
+   * A bare {@code g.V().hasId(id, id)} with a repeated id declines to native like every other bare
+   * RID point-lookup. Native still applies set membership — it matches the one vertex once — so the
+   * decline is on==off.
    */
   @Test
-  public void hasIdDuplicate_isSetMembership_matchesNative() {
+  public void hasIdDuplicate_declinesBarePointLookup() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
     var aliceId = alice.id();
     assertEquivalent(
         "g.V().hasId(alice, alice) (duplicate id, set membership)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().hasId(aliceId, aliceId));
   }
 
@@ -269,12 +273,16 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * materialising an element, so a widened plan returns one with nothing to notice. This case
    * therefore asserts both.
    *
-   * <p>The assertion cannot go through {@code assertEquivalent}: that helper requires a
-   * RECOGNIZED shape to return rows, and the correct answer here is no rows. Engagement is
-   * asserted directly instead, so the empty result cannot come from a silent decline to native.
+   * <p>Since a bare {@code g.V().hasId(rid)} point-lookup now DECLINES to native (a single pinned
+   * node with no hop — native resolves the RID directly), the vertex-source scoping is enforced by
+   * the native pipeline on both arms rather than by a translated plan. This asserts the bare shape
+   * declines (zero boundary steps with the translator on) and that both arms return nothing and
+   * count zero, so the empty result is the honest answer. The translated pinned-RID fetch's
+   * class-scoping (for RID starts that DO translate, i.e. followed by a hop) stays covered by the
+   * SQL-layer {@code PromoteStaticRidsFromFiltersTest}.
    */
   @Test
-  public void hasIdOverEdgeRid_returnsNothingAndCountsZero() {
+  public void hasIdOverEdgeRid_declinesAndReturnsNothingAndCountsZero() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var edge = alice.addEdge("knows", bob);
@@ -285,14 +293,13 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
       var admin = graph.traversal().V().hasId(edgeId).asAdmin();
       admin.applyStrategies();
       assertThat(countBoundarySteps(admin.getSteps()))
-          .as("g.V().hasId(<edge rid>) must translate, so the empty result below is the "
-              + "translated pipeline's answer and not a decline to native")
-          .isEqualTo(1);
+          .as("a bare g.V().hasId(<edge rid>) point-lookup must decline to native")
+          .isZero();
       assertThat(admin.toList())
           .as("a vertex source must not emit a record that is an edge")
           .isEmpty();
       assertThat(graph.traversal().V().hasId(edgeId).count().next())
-          .as("the count short-circuit must be scoped to vertices too")
+          .as("the vertex-source count must be scoped to vertices too")
           .isZero();
     });
     withTranslator(false, () -> {
@@ -332,9 +339,13 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     graph.tx().commit();
     var aliceId = alice.id();
     var bobId = bob.id();
+    // A RID-bearing single-node lookup (V(ids).has(...) with no hop) is a bare point-lookup and
+    // declines to native, which still AND-composes the id membership with the has filter — only
+    // Alice, never Carol. on==off holds; the merge stays covered for translating shapes by
+    // hasLabelAndHas_andCompose_onSameAlias below.
     assertEquivalent(
         "g.V(alice, bob).has(age, 30) — only Alice, not every age-30 vertex",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V(aliceId, bobId).has("age", 30));
   }
 

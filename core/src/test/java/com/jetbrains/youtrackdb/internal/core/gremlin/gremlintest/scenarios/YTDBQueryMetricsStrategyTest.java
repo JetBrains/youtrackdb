@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromRidsStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPrefetchStep;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -390,18 +389,17 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   // What a by-id lookup surfaces depends on which source path ran, so this scenario pins both arms
   // of the kill-switch rather than one.
   //
-  // Native g.V(rid) resolves the record directly and runs no query, so the callback fires with a
-  // null plan -- the contract this scenario carried before the translator existed. Translated
-  // g.V(rid) compiles a MATCH plan, so a plan is captured, and the plan worth asserting is one that
-  // fetches the record by RID: the planner promotes the alias's static `@rid IN [...]` filter to a
-  // pinned RID and the prefetch sub-plan becomes a RID fetch. The absent FetchFromClassExecutionStep
-  // is the load-bearing half. When the promotion does not fire, the same traversal still returns the
-  // right vertex from a full scan of V with an `@rid` post-filter -- correct rows, O(class size)
-  // work, and nothing else in the suite notices. This assertion is the standing guard for that
-  // regression; a wall-clock threshold would be both flakier and slower.
+  // A BARE g.V(rid) point-lookup now DECLINES to native on both arms: native resolves the record
+  // directly with no query, and translating it would only add an uncached MATCH plan compile with
+  // no join to optimise, so the translator declines it. This scenario therefore pins the new
+  // contract -- both arms run natively and neither captures a plan -- which is trivially on==off.
+  // The pinned-RID fetch promotion the translated path used to exercise (SELECT FROM [#X:Y] rather
+  // than a V scan with an @rid post-filter) is still guarded directly at the SQL layer by
+  // PromoteStaticRidsFromFiltersTest; it no longer applies to a bare Gremlin lookup because that
+  // shape no longer translates. A RID start FOLLOWED by a hop still translates.
   @Test
   @LoadGraphWith(MODERN)
-  public void byIdLookupSurfacesRidFetchPlanWhenTranslatedAndNoPlanWhenNative() throws Exception {
+  public void bareByIdLookupDeclinesToNativeOnBothArmsAndCapturesNoPlan() throws Exception {
     g.tx().open();
     final var personId = g().V().hasLabel("person").next().id();
     g.tx().commit();
@@ -421,31 +419,11 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     g.tx().commit();
 
     assertThat(listener.notified)
-        .as("the listener was notified on the translated path")
+        .as("the listener was notified on the translator-on path")
         .isTrue();
     assertThat(listener.executionPlan)
-        .as("a translated by-id lookup compiles a MATCH plan, so a plan is captured")
-        .isNotNull();
-    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromRidsStep.class))
-        .as("a by-id lookup must reach the record through a RID fetch")
-        .isTrue();
-    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromClassExecutionStep.class))
-        .as("a by-id lookup must not scan the V class to find one known record")
-        .isFalse();
-    // A pinned RID collapses the root estimate to one, well under the MATCH prefetch threshold, so
-    // the fetch belongs inside the prefetch sub-plan. Asserting there rather than on the flat step
-    // list rules out a RID fetch that sits beside a prefetch block still scanning the class.
-    var prefetch = findStepOfType(listener.planStepsInCallback, MatchPrefetchStep.class);
-    assertThat(prefetch)
-        .as("a single pinned RID is under the prefetch threshold, so the alias is prefetched")
-        .isNotNull();
-    assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromRidsStep.class))
-        .as("the prefetch sub-plan is what fetches by RID")
-        .isTrue();
-    assertThat(listener.planPrettyInCallback)
-        .as("the rendered plan names the RID fetch and no class scan")
-        .contains("+ FETCH FROM RIDs")
-        .doesNotContain("+ FETCH FROM CLASS");
+        .as("a bare g.V(rid) declines to native even with the translator on, so no plan is captured")
+        .isNull();
 
     listener.reset();
     ((YTDBTransaction) g.tx())

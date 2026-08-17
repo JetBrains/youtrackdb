@@ -189,16 +189,18 @@ public class LdbcGremlinShapeTranslationTest {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * Shape 1 — {@code g.V(rid)} translates to one boundary step with the kill-switch on, runs
-   * natively with it off, and returns Alice either way.
+   * Shape 1 — a bare {@code g.V(rid)} point-lookup DECLINES to native on both arms and returns
+   * Alice either way.
    *
-   * <p>This is the shape whose on-arm can be slower than its off-arm, so it is also the shape whose
-   * A/B is worth measuring at all; a harness that failed to translate it would report parity and
-   * hide that.
+   * <p>Native resolves the RID straight to a record with no query, while a translated {@code
+   * g.V(rid)} would compile an uncached MATCH plan every call (a RID-bearing walk sets {@code
+   * cacheEligible=false}) — a net loss with no join to optimise. The translator therefore declines
+   * the bare lookup, so both arms run natively and the on-arm no longer pays a per-call compile.
+   * A RID start FOLLOWED by a hop still translates (the join is where MATCH can win).
    */
   @Test
-  public void vertexByRidTranslatesOnAndRunsNativeOff() {
-    assertTranslates(
+  public void vertexByRidDeclinesOnBothArms() {
+    assertDeclines(
         "g.V(rid)",
         t -> GremlinTraversalShapes.personByRid(t, aliceRid),
         List.of("element:" + aliceRid));

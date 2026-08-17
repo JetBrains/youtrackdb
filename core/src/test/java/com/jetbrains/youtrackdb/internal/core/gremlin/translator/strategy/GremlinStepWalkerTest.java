@@ -122,15 +122,17 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V(id)} with a single RID-shaped ID builds an {@code @rid IN [#X:Y]} filter on
-   * {@code aliasFilters}; the planner promotes the size-1 IN list to a single pinned RID (the
-   * {@code SELECT FROM #X:Y} fast path). The rendered filter carries the requested RID.
+   * {@code g.V(id).out(L)} with a single RID-shaped ID builds an {@code @rid IN [#X:Y]} filter on
+   * the start alias {@code aliasFilters}; the planner promotes the size-1 IN list to a single
+   * pinned RID (the {@code SELECT FROM #X:Y} fast path). A hop follows the RID start, so the walk
+   * still translates (only a BARE RID point-lookup with no hop declines — see
+   * {@link #walk_bareRidLookup_declinesNoJoinToOptimise}). The rendered filter carries the RID.
    */
   @Test
   public void walk_singleId_buildsRidInFilter() {
     // #25:3 is an arbitrary well-formed RID literal: the walker only renders it into MATCH SQL and
     // never dereferences it against storage, so no record with this RID need exist.
-    var admin = graph.traversal().V("#25:3").asAdmin();
+    var admin = graph.traversal().V("#25:3").out("knows").asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
 
@@ -144,15 +146,16 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V(id1, id2)} with multiple RID-shaped IDs builds an {@code @rid IN [#..:.., #..:..]}
-   * filter on {@code aliasFilters} rather than an {@code aliasRids} hint (which the grammar caps
-   * at one RID per alias). The rendered filter carries both requested RIDs.
+   * {@code g.V(id1, id2).out(L)} with multiple RID-shaped IDs builds an {@code @rid IN [#..:..,
+   * #..:..]} filter on the start alias rather than an {@code aliasRids} hint (which the grammar
+   * caps at one RID per alias). A hop follows, so the walk still translates (a bare multi-RID
+   * lookup with no hop declines). The rendered filter carries both requested RIDs.
    */
   @Test
   public void walk_multipleIds_buildsRidInFilter() {
     // #25:3 and #25:7 are arbitrary well-formed RID literals used only to check IN-filter
     // rendering; the walker never dereferences them against storage.
-    var admin = graph.traversal().V("#25:3", "#25:7").asAdmin();
+    var admin = graph.traversal().V("#25:3", "#25:7").out("knows").asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
 
@@ -165,6 +168,26 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     // still contain the three bare tokens the looser check accepted.
     assertThat(rendered).contains("@rid IN ").contains("#25:3").contains("#25:7");
     assertThat(rendered).doesNotContain("NOT IN");
+  }
+
+  /**
+   * A BARE RID point-lookup ({@code g.V(id)} / {@code g.V(id1, id2)} with no subsequent hop)
+   * declines to native. Native resolves the RIDs directly with no query, whereas the translator
+   * would compile an uncached MATCH plan every call (a RID-bearing walk sets {@code
+   * cacheEligible=false}, bypassing the plan cache) — a net regression with no join to optimise. A
+   * decline is trivially on==off. Both the single- and multi-RID bare shapes decline; a RID start
+   * followed by a hop still translates (the two tests above).
+   */
+  @Test
+  public void walk_bareRidLookup_declinesNoJoinToOptimise() {
+    assertThat(GremlinStepWalker.production().walk(graph.traversal().V("#25:3").asAdmin()))
+        .as("bare g.V(id) point-lookup must decline")
+        .isNull();
+    assertThat(
+        GremlinStepWalker.production()
+            .walk(graph.traversal().V("#25:3", "#25:7").asAdmin()))
+        .as("bare g.V(id1, id2) point-lookup must decline")
+        .isNull();
   }
 
   // ---------------------------------------------------------------------------
@@ -498,8 +521,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   @Test
   public void walk_nonPolymorphicSingleId_buildsRidInFilterWithoutClassFilter() {
     withNonPolymorphicDefault(() -> {
-      // #25:3 is an arbitrary well-formed RID literal; the walker only renders it.
-      var admin = graph.traversal().V("#25:3").asAdmin();
+      // #25:3 is an arbitrary well-formed RID literal; the walker only renders it. A hop follows the
+      // RID start so the walk translates (a bare RID point-lookup declines).
+      var admin = graph.traversal().V("#25:3").out("knows").asAdmin();
 
       var result = GremlinStepWalker.production().walk(admin);
 
@@ -524,8 +548,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   @Test
   public void walk_nonPolymorphicMultipleIds_buildsRidInFilterWithoutClassFilter() {
     withNonPolymorphicDefault(() -> {
-      // #25:3 and #25:7 are arbitrary well-formed RID literals used only for filter rendering.
-      var admin = graph.traversal().V("#25:3", "#25:7").asAdmin();
+      // #25:3 and #25:7 are arbitrary well-formed RID literals used only for filter rendering. A hop
+      // follows the RID start so the walk translates (a bare RID point-lookup declines).
+      var admin = graph.traversal().V("#25:3", "#25:7").out("knows").asAdmin();
 
       var result = GremlinStepWalker.production().walk(admin);
 

@@ -248,18 +248,6 @@ public class LdbcGremlinTranslatorBenchmark {
   // Translating shapes. Delta = MATCH against the native pipeline.
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * Shape 1 — {@code g.V(rid)}. The one shape where translator-on can be strictly slower than
-   * translator-off: native resolves the id without a query, while a RID-bearing walk sets
-   * {@code cacheEligible=false} and so compiles an uncached MATCH plan.
-   */
-  @Benchmark
-  public List<Vertex> gremlinVertexByRid(LdbcBenchmarkState state, TranslatorArm arm) {
-    var i = state.nextIndex();
-    return state.traversal.computeInTx(
-        t -> GremlinTraversalShapes.personByRid(t, arm.personRid(i)).toList());
-  }
-
   /** Shape 2 — the {@code KNOWS} walk under {@code values}: one row per friend. */
   @Benchmark
   public List<String> gremlinKnowsFirstNames(LdbcBenchmarkState state, TranslatorArm arm) {
@@ -396,6 +384,20 @@ public class LdbcGremlinTranslatorBenchmark {
   // both-arms requireNotTranslated in the trial witness and in
   // LdbcGremlinShapeTranslationTest is what keeps that reading true.
   // ---------------------------------------------------------------------------------------------
+
+  /**
+   * A bare {@code g.V(rid)} point-lookup. Native resolves the id without a query, while a translated
+   * bare lookup would compile an uncached MATCH plan (a RID-bearing walk sets {@code
+   * cacheEligible=false}) with no join to optimise, so the translator DECLINES it — both arms run
+   * natively. The A/B measures the decline-path cost and is the baseline for the day a bare RID
+   * lookup starts translating again. A RID start followed by a hop still translates.
+   */
+  @Benchmark
+  public List<Vertex> gremlinVertexByRidDeclines(LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.personByRid(t, arm.personRid(i)).toList());
+  }
 
   /** {@code ORDER BY} with {@code SKIP} / {@code LIMIT} paging: a slice behind a captured sort. */
   @Benchmark

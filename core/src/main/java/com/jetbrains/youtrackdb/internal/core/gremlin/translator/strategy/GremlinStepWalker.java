@@ -1055,8 +1055,11 @@ final class GremlinStepWalker {
    * (the prefix-only pattern on the context is discarded — each child re-walked the prefix).
    * Otherwise locks the pattern, merges alias filters, and packages a single-plan
    * {@link MatchPlanInputs}.
+   *
+   * <p>Returns {@code null} to decline a bare RID point-lookup (single node, zero edges) — see the
+   * inline note; declining leaves the traversal on the native pipeline unchanged.
    */
-  private static GremlinToMatchTranslator.TranslationResult buildResult(WalkerContext ctx) {
+  @Nullable private static GremlinToMatchTranslator.TranslationResult buildResult(WalkerContext ctx) {
     if (ctx.hasUnionCarrier()) {
       assert ctx.boundaryAlias != null && ctx.outputType != null && ctx.returnClass != null;
       return GremlinToMatchTranslator.TranslationResult.multiPlan(
@@ -1069,6 +1072,18 @@ final class GremlinStepWalker {
     }
 
     var ir = ctx.patternBuilder.build();
+
+    // Bare RID point-lookup (g.V(id) / g.V(ids) with no subsequent hop): a single pinned node and
+    // zero edges. Native resolves the RIDs directly with no query at all, whereas the translator
+    // would compile an UNCACHED MATCH plan every call (a RID-bearing walk sets cacheEligible=false,
+    // so it bypasses GremlinPlanCache) — a net regression with no join to optimise. Decline so native
+    // handles it; a decline is trivially on==off (both run the native pipeline). A RID start FOLLOWED
+    // by hops has at least one edge and still translates, since the join is where MATCH can win.
+    if (ctx.ridBearing()
+        && ir.pattern().getNumOfEdges() == 0
+        && ir.pattern().aliasToNode.size() == 1) {
+      return null;
+    }
 
     Map<String, SQLWhereClause> finalAliasFilters = new LinkedHashMap<>(ir.aliasFilters());
     // AND-compose recogniser-contributed filters with any builder-supplied filter on the same alias

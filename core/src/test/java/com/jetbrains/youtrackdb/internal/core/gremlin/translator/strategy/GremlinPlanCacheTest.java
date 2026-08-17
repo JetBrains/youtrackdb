@@ -73,15 +73,20 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(fingerprint(notA)).isNotEqualTo(fingerprint(noNot));
   }
 
-  /** {@code hasId(...)} marks the walk RID-bearing and bypasses the plan cache. */
+  /**
+   * {@code hasId(...)} marks the walk RID-bearing and bypasses the plan cache. A hop follows the
+   * RID filter so the walk still translates: a BARE RID point-lookup ({@code V().hasId(id)} with no
+   * hop) declines to native (native resolves the RID directly), so it is the RID-start-plus-hop
+   * shape that exercises the cache-bypass path here.
+   */
   @Test
   public void hasId_bypassesPlanCache() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     graph.tx().commit();
-    var result = walk(() -> graph.traversal().V().hasId(alice.id()));
+    var result = walk(() -> graph.traversal().V().hasId(alice.id()).out("knows"));
     assertThat(result.cacheEligible()).isFalse();
 
-    apply(() -> graph.traversal().V().hasId(alice.id()));
+    apply(() -> graph.traversal().V().hasId(alice.id()).out("knows"));
     var fp = fingerprint(result);
     assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isFalse();
   }
