@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -146,10 +147,12 @@ public class AbstractStorageCommitPrimitivesTest {
     assertThat(secondReference).isNotNull();
     assertThat(secondReference.slot()).isEqualTo(firstReference.slot());
     assertThat(secondReference.generation()).isGreaterThan(firstReference.generation());
-    assertThatThrownBy(() -> storage.bindIndexEngineToDescriptor(
-        firstIndexId, firstIndex.getIdentity(), firstReference))
+    var futureReference = new IndexEngineReference(
+        secondReference.slot(), secondReference.apiVersion(), secondReference.generation() + 1);
+    assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+        firstIndexId, firstIndex.getIdentity(), futureReference))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("reference changed");
+        .hasMessageContaining("non-monotonically");
   }
 
   // The public addIndexEngine wrapper (now allocate-id + doAddIndexEngine + publish) must
@@ -777,7 +780,7 @@ public class AbstractStorageCommitPrimitivesTest {
     var engine = findEngineByName(storage, indexName);
 
     assertThat(engine.getId()).isGreaterThan(0);
-    assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()))
+    assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
         .isEqualTo(externalIdOf(engine));
   }
 
@@ -798,7 +801,7 @@ public class AbstractStorageCommitPrimitivesTest {
 
     engines.set(original.getId(), replacement);
     try {
-      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()))
+      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
           .isEqualTo(externalIdOf(replacement));
     } finally {
       engines.set(original.getId(), original);
@@ -887,7 +890,7 @@ public class AbstractStorageCommitPrimitivesTest {
 
     engines.add(null);
     try {
-      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()))
+      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
           .isEqualTo(externalIdOf(engine));
     } finally {
       engines.remove(engines.size() - 1);
@@ -908,7 +911,7 @@ public class AbstractStorageCommitPrimitivesTest {
     var engines = indexEngines(storage);
     engines.add(Mockito.mock(BaseIndexEngine.class));
     try {
-      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()))
+      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
           .isEqualTo(externalIdOf(expectedEngine));
     } finally {
       engines.remove(engines.size() - 1);
@@ -966,7 +969,7 @@ public class AbstractStorageCommitPrimitivesTest {
 
     assertThat(engines.get(slot)).isSameAs(engine);
     assertThat(storage.loadIndexEngine(engineName)).isGreaterThanOrEqualTo(0);
-    assertThat(storage.resolveIndexEngineByOwner(unrelatedIndex.getIdentity()))
+    assertThat(storage.resolveIndexEngineByOwner(unrelatedIndex.getIdentity()).engineIdentifier())
         .isEqualTo(externalIdOf(unrelatedEngine));
   }
 
@@ -999,7 +1002,7 @@ public class AbstractStorageCommitPrimitivesTest {
     try {
       storage.enterCommitWindow();
       try {
-        assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()))
+        assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
             .isEqualTo(externalIdOf(engine));
       } finally {
         storage.exitCommitWindow();

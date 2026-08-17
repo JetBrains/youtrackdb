@@ -586,7 +586,8 @@ public abstract class IndexAbstract implements Index {
 
     final int resolvedIdentifier;
     try {
-      resolvedIdentifier = storage.resolveIndexEngineByOwner(descriptorIdentity);
+      resolvedIdentifier =
+          storage.resolveIndexEngineByOwner(descriptorIdentity).engineIdentifier();
     } catch (StaleIndexEngineException exception) {
       throw new StaleIndexEngineException(
           storage.getName(),
@@ -607,7 +608,8 @@ public abstract class IndexAbstract implements Index {
 
     final int resolvedIdentifier;
     try {
-      resolvedIdentifier = storage.resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+      resolvedIdentifier =
+          storage.resolveIndexEngineByOwnerWithStateLock(descriptorIdentity).engineIdentifier();
     } catch (StaleIndexEngineException exception) {
       throw new StaleIndexEngineException(
           storage.getName(),
@@ -670,7 +672,7 @@ public abstract class IndexAbstract implements Index {
       return;
     }
 
-    final var boundReference = storage.bindIndexEngineToDescriptor(
+    final var boundReference = storage.attachIndexEngineOwner(
         engineIdentifier, descriptorIdentity, currentReference);
     final var lifecycleCell = storage.getOrCreateIndexLifecycle(descriptorIdentity);
     identityAttachment =
@@ -678,10 +680,8 @@ public abstract class IndexAbstract implements Index {
   }
 
   private static boolean referencesSameEngine(
-      IndexEngineReference first, IndexEngineReference second) {
-    return first.slot() == second.slot()
-        && first.apiVersion() == second.apiVersion()
-        && first.generation() == second.generation();
+      @Nullable IndexEngineReference first, @Nullable IndexEngineReference second) {
+    return first == second;
   }
 
   @Nullable IndexLifecycleCell getLifecycleCell() {
@@ -711,7 +711,7 @@ public abstract class IndexAbstract implements Index {
   private record IdentityAttachment(
       RID descriptorIdentity,
       IndexLifecycleCell lifecycleCell,
-      IndexEngineReference engineReference) {
+      @Nullable IndexEngineReference engineReference) {
   }
 
   @Override
