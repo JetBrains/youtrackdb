@@ -48,6 +48,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -929,6 +930,56 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         replacementEngine.getId());
     assertEquals("the empty replacement must not inherit dropped histogram work", 0L,
         replacementEngine.getStatistics().totalCount());
+  }
+
+  /**
+   * S1 drops and recreates an index before invoking the old manager outside the commit window. The
+   * stale build must neither throw nor change the replacement statistics in the reused slot.
+   */
+  @Test
+  public void staleHistogramBuildCannotPublishIntoReusedSlot() throws Exception {
+    var cls = session.getMetadata().getSchema().createClass("HistogramSlotReuse");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "HistogramSlotReuse.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) indexManager.getIndex(indexName);
+    var originalEngine = (BTreeIndexEngine) storage().getIndexEngine(original.getIndexId());
+    var originalHistogram = originalEngine.getHistogramManager();
+    assertNotNull("the original engine must have a histogram manager", originalHistogram);
+    var reusedSlot = originalEngine.getId();
+
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+    session.getMetadata().getSchema().getClass("HistogramSlotReuse")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    session.commit();
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
+    assertEquals("the replacement must reuse the dropped engine slot", reusedSlot,
+        replacementEngine.getId());
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("HistogramSlotReuse");
+    entity.setProperty("name", "current");
+    session.commit();
+    var statisticsBeforeStaleBuild = replacementEngine.getStatistics();
+    assertNotNull("the replacement must expose histogram statistics", statisticsBeforeStaleBuild);
+
+    session.begin();
+    try {
+      originalHistogram.buildHistogram(
+          session.getActiveTransaction().getAtomicOperation(), Stream.of("stale"), 1, 0, 1);
+      session.commit();
+    } catch (Exception e) {
+      session.rollback();
+      throw e;
+    }
+
+    assertEquals("the stale build must preserve replacement statistics",
+        statisticsBeforeStaleBuild, replacementEngine.getStatistics());
   }
 
   /**
