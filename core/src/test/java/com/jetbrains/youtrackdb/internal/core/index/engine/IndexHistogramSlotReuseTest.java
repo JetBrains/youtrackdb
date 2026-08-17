@@ -142,7 +142,7 @@ public class IndexHistogramSlotReuseTest {
   @Test
   public void detachedManagerCannotScheduleHistogramWork() {
     var fixture = new Fixture();
-    fixture.detachAndSeedReplacement(Long.MAX_VALUE);
+    fixture.detachAndSeedInitialBuildReplacement();
     var executor = mock(ExecutorService.class);
 
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -216,6 +216,20 @@ public class IndexHistogramSlotReuseTest {
       var replacement = snapshot(totalCount);
       cache.put(engineId, replacement);
       return replacement;
+    }
+
+    private void detachAndSeedInitialBuildReplacement() {
+      manager.detach();
+      var replacement = new HistogramSnapshot(
+          new IndexStatistics(Long.MAX_VALUE, Long.MAX_VALUE, 0),
+          null,
+          0,
+          0,
+          0,
+          false,
+          null,
+          false);
+      cache.put(engineId, replacement);
     }
 
     private void installDetachAndSeedHook(HistogramSnapshot replacement) {

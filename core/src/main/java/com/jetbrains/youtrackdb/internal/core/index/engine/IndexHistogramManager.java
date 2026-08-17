@@ -587,7 +587,12 @@ public class IndexHistogramManager extends StorageComponent {
     if (published == null || detached) {
       return;
     }
-    long newDirty = (long) DIRTY_MUTATIONS.getAcquire(this);
+    // ConcurrentHashMap.compute returns only after the new value is visible. Publishing first and
+    // adding second ensures a flusher that claims this count can also read its snapshot. This method
+    // invokes the remap once and adds once, while every declined result returns before this point.
+    long newDirty =
+        (long) DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount)
+            + delta.mutationCount;
 
     // Use getAndSet(0) so exactly one thread claims the dirty count and
     // flushes. Mutations added after the successful remap become part of
@@ -634,7 +639,7 @@ public class IndexHistogramManager extends StorageComponent {
   /**
    * Publishes a commit delta without the helper lambda and result-array allocations of the general
    * merge path. The remaining lambda must capture the delta because {@code ConcurrentHashMap.compute}
-   * supplies only the key and current value. Dirty accounting stays inside that atomic remap.
+   * supplies only the key and current value. The caller records dirty work after this remap returns.
    */
   @Nullable private HistogramSnapshot publish(HistogramDelta delta) {
     final var hook = prePublicationTestHook;
@@ -646,9 +651,7 @@ public class IndexHistogramManager extends StorageComponent {
       if (detached || current == null) {
         return current;
       }
-      final var next = computeNewSnapshot(current, delta);
-      DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount);
-      return next;
+      return computeNewSnapshot(current, delta);
     });
     if (result == null || detached) {
       logger.debug("Declined histogram publication for detached or absent engine {}", engineId);
