@@ -3887,6 +3887,7 @@ public abstract class AbstractStorage
 
     discardIndexDeltas(atomicOperation, internalIndexId);
     doDeleteIndexEngine(atomicOperation, engine);
+    detachHistogramManager(engine);
     indexEngines.set(internalIndexId, null);
     indexEngineNameMap.remove(engine.getName());
     return new DroppedIndexEngine(internalIndexId, capturedData, copiedOwnerDescriptorIdentity);
@@ -3919,6 +3920,7 @@ public abstract class AbstractStorage
       if (engine == null) {
         continue;
       }
+      detachHistogramManager(engine);
       indexEngines.set(internalId, null);
       indexEngineNameMap.remove(engine.getName());
       revertCreatedIndexEngineStructure(engine);
@@ -4379,12 +4381,8 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
-      // Engine may have been dropped concurrently — the commit is already
-      // durable, so the delta for a removed engine is stale and safe to skip.
-      // Safety: indexEngines is a plain ArrayList; concurrent structural
-      // modification is prevented by the stateLock read lock held on the
-      // commit path and the atomic operation serialization for index
-      // creation/deletion.
+      // Engine replacement cannot race this lookup. The index tree component lock remains held
+      // through Hook B, which applies these deltas after the durable commit.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4410,6 +4408,7 @@ public abstract class AbstractStorage
    * Removes transaction-local work keyed by a slot whose engine lifetime has ended. Commit-window
    * drops run after ordinary index writes, while creates run before replacement population. Thus,
    * the removed work can only belong to the old owner. Work for the replacement accumulates later.
+   * Holders attached to sibling atomic operations remain untouched.
    */
   private static void discardIndexDeltas(
       final AtomicOperation atomicOperation, final int engineId) {
@@ -4452,12 +4451,8 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
-      // Engine may have been dropped concurrently — the commit is already
-      // durable, so the delta for a removed engine is stale and safe to skip.
-      // Safety: indexEngines is a plain ArrayList; concurrent structural
-      // modification is prevented by the stateLock read lock held on the
-      // commit path and the atomic operation serialization for index
-      // creation/deletion.
+      // Engine replacement cannot race this lookup. The index tree component lock remains held
+      // through Hook B, which applies these deltas after the durable commit.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4720,6 +4715,7 @@ public abstract class AbstractStorage
                         indexMetadata.getName());
                 final var engine = indexEngineNameMap.remove(indexMetadata.getName());
                 if (engine != null) {
+                  detachHistogramManager(engine);
                   indexEngines.set(engine.getId(), null);
 
                   engine.delete(atomicOperation);
@@ -4841,6 +4837,15 @@ public abstract class AbstractStorage
    * StorageCollection)}. The public append path uses {@code id == indexEngines.size()};
    * the commit-local allocator may reuse a hole at {@code id < indexEngines.size()}.
    */
+  private static void detachHistogramManager(final BaseIndexEngine engine) {
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      final var manager = btreeEngine.getHistogramManager();
+      if (manager != null) {
+        manager.detach();
+      }
+    }
+  }
+
   private void setIndexEngine(final int id, final BaseIndexEngine engine) {
     if (indexEngines.size() <= id) {
       while (indexEngines.size() < id) {
@@ -5074,6 +5079,7 @@ public abstract class AbstractStorage
         // successfully. If the atomic operation rolls back, the maps remain
         // consistent so that addIndexEngine()'s "OLD INDEX FILE" recovery
         // branch can find and clean up the stale engine.
+        detachHistogramManager(engine);
         indexEngines.set(internalIndexId, null);
         indexEngineNameMap.remove(engine.getName());
 
