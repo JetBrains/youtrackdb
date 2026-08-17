@@ -44,6 +44,7 @@
 [2026-08-04T04:45Z] [ctx=safe] phase=C track=9 substate=steps-partial
 [2026-08-04T06:42Z] [ctx=info] phase=C track=9 substate=steps-done-review-pending
 [2026-08-04T11:09Z] [ctx=warning] phase=C track=9 substate=review-done-track-open
+[2026-08-04T11:12Z] [ctx=warning] phase=C track=9 reconciled_tag=high substate=track-complete
 [2026-08-04T11:11Z] [ctx=warning] track=11 substate=decomposition-pending
 [2026-08-04T13:17Z] [ctx=info] phase=C track=11 reconciled_tag=high substate=steps-partial
 [2026-08-16T15:56Z] [ctx=info] phase=C track=11 substate=steps-partial
