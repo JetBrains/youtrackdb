@@ -2577,9 +2577,8 @@ public class IndexHistogramIntegrationTest extends DbTestBase {
   private IndexHistogramManager getHistogramManager(String indexName) {
     try {
       var idx = session.getSharedContext().getIndexManager().getIndex(indexName);
-      var indexIdField = IndexAbstract.class.getDeclaredField("indexId");
-      indexIdField.setAccessible(true);
-      int indexId = indexIdField.getInt(idx);
+      int indexId = com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport
+          .externalIdentifier(idx);
       var storageField = IndexAbstract.class.getDeclaredField("storage");
       storageField.setAccessible(true);
       var storage = storageField.get(idx);
