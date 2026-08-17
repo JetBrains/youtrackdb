@@ -59,6 +59,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommitSerializationExcep
 import com.jetbrains.youtrackdb.internal.core.exception.ConcurrentCreateException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.IndexEngineReplacedException;
 import com.jetbrains.youtrackdb.internal.core.exception.InternalErrorException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidDatabaseNameException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
@@ -4489,7 +4490,7 @@ public abstract class AbstractStorage
     indexLifecycleRegistry.remove(descriptorIdentity);
   }
 
-  public IndexEngineReference getIndexEngineReference(int externalIndexId) {
+  @Nullable public IndexEngineReference getIndexEngineReference(int externalIndexId) {
     if (isCommitWindowActive()) {
       return getIndexEngineReferenceWithStateLock(externalIndexId);
     }
@@ -4502,7 +4503,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private IndexEngineReference getIndexEngineReferenceWithStateLock(int externalIndexId) {
+  @Nullable private IndexEngineReference getIndexEngineReferenceWithStateLock(int externalIndexId) {
     final var internalIndexId = extractInternalId(externalIndexId);
     try {
       checkIndexId(internalIndexId);
@@ -4510,45 +4511,54 @@ public abstract class AbstractStorage
       throw new IllegalStateException("Cannot resolve an unregistered index engine", e);
     }
 
-    final var reference = indexEngines.get(internalIndexId).getEngineReference();
-    if (reference == null) {
-      throw new IllegalStateException("Local index engine has no process-local reference");
-    }
-    return reference;
+    return indexEngines.get(internalIndexId).getEngineReference();
   }
 
   /**
    * Binds a local engine to its durable descriptor after that descriptor obtains or loads its RID.
+   * The expected reference must be identical or precede the live generation at the same slot.
    */
-  public IndexEngineReference bindIndexEngineToDescriptor(
-      int externalIndexId, RID descriptorIdentity, IndexEngineReference expectedReference) {
+  @Nullable public IndexEngineReference attachIndexEngineOwner(
+      int externalIndexId, RID descriptorIdentity,
+      @Nullable IndexEngineReference carrierReference) {
     if (isCommitWindowActive()) {
-      return bindIndexEngineToDescriptorWithStateLock(
-          externalIndexId, descriptorIdentity, expectedReference);
+      return attachIndexEngineOwnerWithStateLock(
+          externalIndexId, descriptorIdentity, carrierReference);
     }
 
     stateLock.readLock().lock();
     try {
-      return bindIndexEngineToDescriptorWithStateLock(
-          externalIndexId, descriptorIdentity, expectedReference);
+      return attachIndexEngineOwnerWithStateLock(
+          externalIndexId, descriptorIdentity, carrierReference);
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  private IndexEngineReference bindIndexEngineToDescriptorWithStateLock(
-      int externalIndexId, RID descriptorIdentity, IndexEngineReference expectedReference) {
-    final var reference = getIndexEngineReferenceWithStateLock(externalIndexId);
-    if (reference.slot() != expectedReference.slot()
-        || reference.apiVersion() != expectedReference.apiVersion()
-        || reference.generation() != expectedReference.generation()) {
+  @Nullable private IndexEngineReference attachIndexEngineOwnerWithStateLock(
+      int externalIndexId, RID descriptorIdentity,
+      @Nullable IndexEngineReference carrierReference) {
+    final var liveReference = getIndexEngineReferenceWithStateLock(externalIndexId);
+    if (liveReference == null) {
+      if (carrierReference != null) {
+        throw new IllegalStateException("Index engine lost its process-local reference");
+      }
+      return null;
+    }
+    if (carrierReference == null) {
+      throw new IllegalStateException("Index engine unexpectedly gained a process-local reference");
+    }
+    if (liveReference != carrierReference
+        && (liveReference.slot() != carrierReference.slot()
+            || liveReference.generation() <= carrierReference.generation())) {
       throw new IllegalStateException(
-          "Index engine reference changed from generation " + expectedReference.generation()
-              + " to " + reference.generation() + " for slot " + reference.slot());
+          "Index engine reference changed non-monotonically from generation "
+              + carrierReference.generation() + " to " + liveReference.generation()
+              + " for slot " + liveReference.slot());
     }
 
-    reference.bindOwner(descriptorIdentity);
-    return reference;
+    liveReference.bindOwner(descriptorIdentity);
+    return liveReference;
   }
 
   /**
@@ -4556,7 +4566,7 @@ public abstract class AbstractStorage
    *
    * <p>The commit-window branch avoids reacquiring the non-reentrant storage state lock.
    */
-  public int resolveIndexEngineByOwner(final RID descriptorIdentity) {
+  public ResolvedIndexEngine resolveIndexEngineByOwner(final RID descriptorIdentity) {
     try {
       if (isCommitWindowActive()) {
         return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
@@ -4583,7 +4593,8 @@ public abstract class AbstractStorage
    * @throws StaleIndexEngineException when no registered engine has the requested owner
    * @throws StorageException when registry ownership is ambiguous
    */
-  public int resolveIndexEngineByOwnerWithStateLock(final RID descriptorIdentity) {
+  public ResolvedIndexEngine resolveIndexEngineByOwnerWithStateLock(
+      final RID descriptorIdentity) {
     if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
       throw new IllegalStateException(
           "Index engine owner resolution requires the storage state lock or an active commit"
@@ -4622,7 +4633,14 @@ public abstract class AbstractStorage
           "Cannot resolve index engine for descriptor " + descriptorIdentity
               + ": no registered engine has that owner");
     }
-    return resolvedIdentifier;
+    final var internalIdentifier = extractInternalId(resolvedIdentifier);
+    return new ResolvedIndexEngine(
+        resolvedIdentifier, indexEngines.get(internalIdentifier).getEngineReference());
+  }
+
+  /** One coherent result from an owner scan. */
+  public record ResolvedIndexEngine(
+      int engineIdentifier, @Nullable IndexEngineReference engineReference) {
   }
 
   public int loadIndexEngine(final String name) {
@@ -5260,16 +5278,22 @@ public abstract class AbstractStorage
 
   public BaseIndexEngine getIndexEngine(final int indexId)
       throws InvalidIndexEngineIdException {
+    return getIndexEngine(indexId, getIndexEngineReference(indexId));
+  }
+
+  public BaseIndexEngine getIndexEngine(
+      final int indexId, @Nullable final IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
     try {
       // A schema-carrying commit already holds stateLock.writeLock(). The active commit window
       // proves that ownership and avoids a non-reentrant read-lock acquisition.
       if (isCommitWindowActive()) {
-        return getIndexEngineWithStateLock(indexId);
+        return getIndexEngineWithStateLock(indexId, expectedReference);
       }
 
       stateLock.readLock().lock();
       try {
-        return getIndexEngineWithStateLock(indexId);
+        return getIndexEngineWithStateLock(indexId, expectedReference);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -5290,6 +5314,12 @@ public abstract class AbstractStorage
    */
   public BaseIndexEngine getIndexEngineWithStateLock(final int indexId)
       throws InvalidIndexEngineIdException {
+    return getIndexEngineWithStateLock(indexId, getIndexEngineReferenceWithStateLock(indexId));
+  }
+
+  public BaseIndexEngine getIndexEngineWithStateLock(
+      final int indexId, @Nullable final IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
     if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
       throw new IllegalStateException(
           "Index engine resolution requires the storage state lock or an active commit window");
@@ -5297,9 +5327,18 @@ public abstract class AbstractStorage
 
     checkOpennessAndMigration();
     final var internalId = extractInternalId(indexId);
-    checkIndexId(internalId);
+    return engineForDereference(internalId, expectedReference);
+  }
 
+  private BaseIndexEngine engineForDereference(
+      final int internalId, @Nullable final IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
+    checkIndexId(internalId);
     final var engine = indexEngines.get(internalId);
+    if (engine.getEngineReference() != expectedReference) {
+      throw new IndexEngineReplacedException(
+          "Engine at slot " + internalId + " no longer matches the index handle");
+    }
     assert internalId == engine.getId();
     return engine;
   }
@@ -8408,8 +8447,14 @@ public abstract class AbstractStorage
     final var iAdditionalArgs =
         new Object[] {System.identityHashCode(exception), getURL(),
             YouTrackDBConstants.getVersion()};
-    LogManager.instance()
-        .error(this, "Exception `%08X` in storage `%s` : %s", exception, iAdditionalArgs);
+    if (exception instanceof IndexEngineReplacedException) {
+      LogManager.instance()
+          .debug(this, "Index engine replacement `%08X` in storage `%s`: %s", logger, exception,
+              iAdditionalArgs);
+    } else {
+      LogManager.instance()
+          .error(this, "Exception `%08X` in storage `%s` : %s", exception, iAdditionalArgs);
+    }
     return exception;
   }
 

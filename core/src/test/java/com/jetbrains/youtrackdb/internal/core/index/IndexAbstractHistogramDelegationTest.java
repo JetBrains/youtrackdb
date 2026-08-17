@@ -151,7 +151,8 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(5))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY)).thenReturn(7);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(7, null));
     when(storage.getIndexEngine(7)).thenReturn(btreeEngine);
 
     // When
@@ -223,7 +224,8 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(4))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY)).thenReturn(8);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(8, null));
     when(storage.getIndexEngine(8)).thenReturn(btreeEngine);
 
     // When
@@ -319,7 +321,8 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(3))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY)).thenReturn(9);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(9, null));
     when(storage.getIndexEngine(9)).thenReturn(btreeEngine);
 
     // When
@@ -426,7 +429,8 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(6))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY)).thenReturn(10);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(10, null));
     when(storage.getIndexEngine(10)).thenReturn(btreeEngine);
 
     // When
@@ -579,7 +583,8 @@ public class IndexAbstractHistogramDelegationTest {
     var engine = mock(BaseIndexEngine.class);
     when(storage.getIndexEngine(7))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY)).thenReturn(11);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(11, null));
     when(storage.getIndexEngine(11)).thenReturn(engine);
 
     // When

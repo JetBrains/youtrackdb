@@ -677,7 +677,7 @@ public class IndexEngineFileBaseIdTest {
           .getIndex("FbiDRFIdx");
       assertEquals("the restored engine must be bound to its descriptor owner",
           restoredIndex.getIndexId(),
-          storage.resolveIndexEngineByOwner(restoredIndex.getIdentity()));
+          storage.resolveIndexEngineByOwner(restoredIndex.getIdentity()).engineIdentifier());
 
       // The invariant bar: the index is still fully usable after the failed commit.
       session.executeInTx(tx -> tx.newEntity("FbiDropRecreateFail").setProperty("val", "alive"));
