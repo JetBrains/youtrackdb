@@ -207,13 +207,17 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person", "Employee", "Manager"));
   }
 
-  /** Never-used label returns empty on both arms. */
+  /**
+   * Never-used label declines to native and returns empty on both arms. A non-existent class is
+   * resolved at execution time by native (it may be created later in the same tx), so a translated
+   * plan compiled against a schema without the class would diverge; declining keeps on==off.
+   */
   @Test
-  public void hasLabelNonExistent_emptyBothArms() {
+  public void hasLabelNonExistent_declinesEmptyBothArms() {
     seedPersonEmployeeHierarchy();
     assertEquivalent(
         "g.V().hasLabel(Foo)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().hasLabel("Foo"));
   }

@@ -59,9 +59,14 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
  * MATCH rewrite excludes the source vertex via {@code @rid <> source}, which wrongly drops self-loop
  * endpoints, so it is runtime-incorrect.
  *
- * <p>A user {@code as(...)} label on the edge step also declines: the label would bind to the
- * edge-as-node vertex alias, so a later {@code select(L)} would return the target vertex rather than
- * the {@link org.apache.tinkerpop.gremlin.structure.Edge} the traversal produced.
+ * <p>A user {@code as(...)} label that binds the <em>edge</em> also declines: the label would bind
+ * to the edge-as-node vertex alias, so a later {@code select(L)} would return the target vertex
+ * rather than the {@link org.apache.tinkerpop.gremlin.structure.Edge} the traversal produced. This
+ * covers a label authored on the edge step ({@code outE(L).as(k)}) and a label that lands on one of
+ * the edge-property {@code has(...)} steps folded into the edge segment — either authored there
+ * ({@code outE(L).has(prop).as(k)}) or relocated onto it from the edge step by {@code
+ * FilterRankingStrategy}. A label on the closing {@code inV}/{@code outV}/{@code otherV} vertex is
+ * not an edge label and stays translated.
  *
  * <p>A decline discards the whole walk, so the recogniser contributes only after the shape and every
  * payload validate; the exact order is otherwise free.
@@ -113,6 +118,20 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // Consume the has(...) run (barriers interleaved in it are skipped by the cursor), then the closing
     // vertex hop — inV/outV via EdgeVertexStep, otherV via EdgeOtherVertexStep.
     var hasSteps = cursor.takeWhile(HasStep.class);
+    // A user as() label anywhere on the EDGE segment declines. The label above catches a bare
+    // outE(L).as(k), but when an edge-property has() forces the edge-as-node path,
+    // FilterRankingStrategy relocates a label authored on the edge step forward onto the following
+    // has() (a filter does not transform the traverser), and a label authored directly on that
+    // has() (outE(L).has(prop).as(k)) also lands there. Either way the traverser at that point is
+    // the edge, so select(k) must return the Edge — but the edge-as-node form would bind k to the
+    // edge/target vertex alias and select(k) would return a vertex (YTDBVertexImpl cannot be cast
+    // to Edge). Decline to native. A label on the closing inV/outV/otherV vertex is NOT an edge
+    // label — it binds the target vertex correctly — so it is intentionally not checked here.
+    for (HasStep<?> has : hasSteps) {
+      if (!has.getLabels().isEmpty()) {
+        return Outcome.DECLINE;
+      }
+    }
     Step closingStep;
     MatchPatternBuilder.Direction closingVertexDir;
     var closingVertex = cursor.takeIf(EdgeVertexStep.class);

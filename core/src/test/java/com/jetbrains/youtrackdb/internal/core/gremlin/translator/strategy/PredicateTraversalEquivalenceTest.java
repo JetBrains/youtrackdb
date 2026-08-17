@@ -182,11 +182,13 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V().hasLabel("Missing")} on a never-used label translates to {@code @class = Missing}
-   * on the generic {@code V} root and returns empty like native — no {@code SELECT FROM Missing}.
+   * {@code g.V().hasLabel("Missing")} on a never-used label declines to native and returns empty on
+   * both arms. Native resolves the class at execution time (it may be created later in the same
+   * transaction), so a translated plan compiled against a schema without the class would diverge;
+   * declining keeps on==off. The existing {@code Person} class stays a translated control.
    */
   @Test
-  public void hasLabelNonExistentClass_matchesNativeEmpty() {
+  public void hasLabelNonExistentClass_declinesEmpty() {
     seedPersonEmployeeHierarchy();
 
     assertEquivalent(
@@ -196,7 +198,7 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().hasLabel(Missing) (never-used label)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().hasLabel("Missing"));
   }

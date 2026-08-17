@@ -401,6 +401,46 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
     assertContributedNothing(ctx);
   }
 
+  /**
+   * A user {@code as(...)} label on an edge-property {@code has(...)} folded into the edge segment
+   * also declines. {@code outE("knows").has("w", 1).as("here")} parks the label on the {@code
+   * HasStep} (the traverser there is the edge), and {@code FilterRankingStrategy} likewise relocates
+   * a label authored on the edge step forward onto this same {@code has()} in production. Either way
+   * a later {@code select("here")} must return the {@code Edge}, but the edge-as-node form would bind
+   * it to a vertex alias — the ClassCastException the {@code SelectTest} edge-alias shapes hit — so
+   * decline.
+   */
+  @Test
+  public void edgeSegmentHasStepWithAsLabel_declines() {
+    var admin = graph.traversal().V().outE("knows").has("w", 1).as("here").inV().asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("an as() label on the edge-segment has() must decline")
+        .isEqualTo(Outcome.DECLINE);
+    assertContributedNothing(ctx);
+  }
+
+  /**
+   * A user {@code as(...)} label on the closing vertex hop ({@code inV().as("v")}) is NOT an edge
+   * label — it binds the target vertex, which the edge-as-node form models correctly — so the chain
+   * stays accepted and the label resolves to the minted target alias.
+   */
+  @Test
+  public void closingVertexWithAsLabel_isAccepted() {
+    var admin = graph.traversal().V().outE("knows").has("w", 1).inV().as("v").asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a label on the closing vertex must stay accepted")
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.resolveUserLabel("v")).isEqualTo(FIRST_ANON_ALIAS);
+  }
+
   /** A multi-label edge ({@code outE("knows", "likes")}) declines — multi-label is out of scope. */
   @Test
   public void multiLabelEdge_declines() {

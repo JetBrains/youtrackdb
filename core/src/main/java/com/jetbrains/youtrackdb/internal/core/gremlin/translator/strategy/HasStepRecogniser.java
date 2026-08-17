@@ -136,6 +136,26 @@ final class HasStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
+    // A hasLabel on a class that does not exist in the schema at translation time declines to
+    // native. Native resolves the class at execution time, so if the class is created later in the
+    // same open transaction (DDL-in-tx — e.g. g.addV("Person") in one project() by() and
+    // g.V().hasLabel("Person").count() in a sibling), native sees the new rows. A translated plan is
+    // compiled now, against a schema without the class, and bakes an empty/stale source — so it
+    // would return 0 rows where native returns the freshly-created ones (translator-ON != OFF; see
+    // GraphApiTest.testComputeInTxAndCommit*). Declining preserves on==off: a class that never
+    // exists yields empty on native too, which is exactly what a decline-to-native produces.
+    if (labelConstraint instanceof ParsedLabelConstraint.Single single
+        && !ctx.isVertexClass(single.name())) {
+      return Outcome.DECLINE;
+    }
+    if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
+      for (var name : multi.names()) {
+        if (!ctx.isVertexClass(name)) {
+          return Outcome.DECLINE;
+        }
+      }
+    }
+
     // The class context for the startsWith-form type gate is the step's own single ~label (if any); a
     // property has() on a generic V boundary has no known leaf class, so its keys resolve as
     // not-a-declared-String and a startingWith there routes to the strict full-scan form.
@@ -186,15 +206,10 @@ final class HasStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     if (labelConstraint instanceof ParsedLabelConstraint.Single single) {
+      // The class is known to exist here — a missing class declined above, before any mutation.
       var name = single.name();
-      if (ctx.isVertexClass(name)) {
-        ctx.addNode(boundary, name);
-        if (!ctx.polymorphic()) {
-          whereExprs.add(WHERE.classEquals(name));
-        }
-      } else {
-        // Never-used label: stay on the generic V root and filter @class = name so the plan returns
-        // empty like native hasLabel rather than SELECT FROM a missing class.
+      ctx.addNode(boundary, name);
+      if (!ctx.polymorphic()) {
         whereExprs.add(WHERE.classEquals(name));
       }
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {

@@ -167,22 +167,23 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * {@code hasLabel("Missing")} on a class that does not exist stays on the generic {@code V} root
-   * and filters {@code @class = Missing}, yielding an empty plan like native rather than {@code
-   * SELECT FROM Missing}.
+   * {@code hasLabel("Missing")} on a class that does not exist declines to native. The class is
+   * resolved at execution time by native, so it may be created later in the same open transaction
+   * (DDL-in-tx) and native would then see the new rows; a translated plan compiled now against a
+   * schema without the class bakes an empty/stale source and would diverge (translator-ON != OFF).
+   * A class that never exists yields empty on native too, so declining preserves on==off either way.
    */
   @Test
-  public void hasLabelNonExistentClass_contributesClassEqualsOnV() {
+  public void hasLabelNonExistentClass_declines() {
     var admin = graph.traversal().V().hasLabel("Missing").asAdmin();
     var ctx = contextWithStartBoundary(true, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
     var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.patternBuilder.build().aliasClasses())
-        .containsEntry(BOUNDARY_ALIAS, "V");
-    assertThat(renderBoundaryFilter(ctx)).contains("@class = ");
+    assertThat(outcome).as("a hasLabel on a non-existent class must decline")
+        .isEqualTo(Outcome.DECLINE);
+    assertContributedNothing(ctx);
   }
 
   // ---------------------------------------------------------------------------
