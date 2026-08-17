@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
@@ -103,6 +104,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  * PropertyTypeGate} is now only a routing hint for {@code startingWith} — a declared-String
  * property uses the index-aware prefix range, everything else uses the strict full-scan {@code
  * STARTSWITH} node — never a decline.
+ *
+ * <h2>Parameter harvest</h2>
+ *
+ * {@link #bindParams} walks the same dispatch as {@link #toFilter} but only calls {@code
+ * bindParam}. Shape extraction uses it so a translation-cache hit does not build a WHERE tree it
+ * would throw away. Slot order is therefore one code path: {@code eq(null)} still allocates none,
+ * declared-String {@code startingWith} still allocates two.
  */
 final class GremlinPredicateAdapter {
 
@@ -111,6 +119,12 @@ final class GremlinPredicateAdapter {
 
   /** Stateless builder for the WHERE AST; construction is trivial so a shared instance is fine. */
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
+
+  /**
+   * Success marker for a bind-only walk. Harvest never inspects it as SQL; {@code translate} reuses
+   * {@code null} as decline, so success still needs a non-null return.
+   */
+  private static final SQLBooleanExpression BIND_OK = WHERE.isNull("$");
 
   /**
    * Decides whether a property key is a declared {@code STRING} schema type, which selects the
@@ -142,6 +156,22 @@ final class GremlinPredicateAdapter {
   interface LabelResolver {
 
     @Nullable String aliasFor(String userLabel);
+  }
+
+  /**
+   * Per-call options for the shared predicate dispatch. {@code emitAst} is true for walker
+   * {@link #toFilter} and false for harvest {@link #bindParams}, so slot order cannot drift between
+   * the two callers.
+   */
+  private record Translation(
+      PropertyTypeGate typeGate,
+      @Nullable ParamSink paramSink,
+      boolean rangeTypeGuard,
+      boolean emitAst) {
+
+    Translation withoutRangeGuard() {
+      return rangeTypeGuard ? new Translation(typeGate, paramSink, false, emitAst) : this;
+    }
   }
 
   private GremlinPredicateAdapter() {
@@ -192,6 +222,32 @@ final class GremlinPredicateAdapter {
       PropertyTypeGate typeGate,
       @Nullable ParamSink paramSink,
       boolean rangeTypeGuard) {
+    return translateContainer(container, typeGate, paramSink, rangeTypeGuard, /* emitAst= */ true);
+  }
+
+  /**
+   * Pushes this container's comparison values into {@code paramSink} in the same slot order
+   * {@link #toFilter} would, without building a WHERE AST. Shape harvest uses this so a cache hit
+   * does not compile SQL it would throw away. A decline binds nothing extra (same as {@code toFilter}
+   * returning {@code null}): {@code eq(null)} still allocates no slot, {@code startingWith} on a
+   * declared String still allocates two.
+   *
+   * <p>Uses {@code rangeTypeGuard=true}, matching {@link HasStepRecogniser#contributeShape}: the
+   * type-guard AST is skipped, but an order comparison whose literal names no comparability block
+   * still declines before binding, as {@code toFilter(..., true)} does.
+   */
+  void bindParams(HasContainer container, PropertyTypeGate typeGate, ParamSink paramSink) {
+    Objects.requireNonNull(paramSink, "paramSink");
+    translateContainer(container, typeGate, paramSink, /* rangeTypeGuard= */ true,
+        /* emitAst= */ false);
+  }
+
+  private @Nullable SQLBooleanExpression translateContainer(
+      HasContainer container,
+      PropertyTypeGate typeGate,
+      @Nullable ParamSink paramSink,
+      boolean rangeTypeGuard,
+      boolean emitAst) {
     if (container == null) {
       return null;
     }
@@ -208,7 +264,8 @@ final class GremlinPredicateAdapter {
     if (predicate == null) {
       return null;
     }
-    return translate(key, predicate, typeGate, paramSink, rangeTypeGuard);
+    return translate(
+        key, predicate, new Translation(typeGate, paramSink, rangeTypeGuard, emitAst));
   }
 
   /**
@@ -218,47 +275,41 @@ final class GremlinPredicateAdapter {
    * Returns {@code null} to decline (propagated to a whole-traversal decline by the caller).
    */
   private @Nullable SQLBooleanExpression translate(
-      String key,
-      P<?> predicate,
-      PropertyTypeGate typeGate,
-      @Nullable ParamSink paramSink,
-      boolean rangeTypeGuard) {
+      String key, P<?> predicate, Translation translation) {
     if (predicate instanceof NotP<?> notP) {
       // NotP has no public getter for its wrapped predicate, but negate() returns it (a NotP is
       // built by P.negate(), and negating it back yields the original). Translate the inner
       // predicate positively, negate the SQL, and guard for absent: native NotP excludes an absent
       // property (HasContainer.test's empty iterator is false whatever the inner predicate), so
       // without IS DEFINED the NOT of a false-on-absent inner would wrongly include absent rows.
-      var inner = translate(key, notP.negate(), typeGate, paramSink, rangeTypeGuard);
+      var inner = translate(key, notP.negate(), translation);
       if (inner == null) {
         return null;
       }
-      return guarded(key, WHERE.not(inner));
+      return translation.emitAst() ? guarded(key, WHERE.not(inner)) : BIND_OK;
     }
     if (predicate instanceof AndP<?> andP) {
-      return combine(key, andP.getPredicates(), /* and= */ true, typeGate, paramSink,
-          rangeTypeGuard);
+      return combine(key, andP.getPredicates(), /* and= */ true, translation);
     }
     if (predicate instanceof OrP<?> orP) {
-      return combine(key, orP.getPredicates(), /* and= */ false, typeGate, paramSink,
-          rangeTypeGuard);
+      return combine(key, orP.getPredicates(), /* and= */ false, translation);
     }
     // Leaf predicate — dispatch on the concrete bi-predicate type.
     var biPredicate = predicate.getBiPredicate();
     var value = predicate.getValue();
     if (biPredicate instanceof Compare compare) {
-      return translateCompare(key, compare, value, paramSink, rangeTypeGuard);
+      return translateCompare(key, compare, value, translation);
     }
     if (biPredicate instanceof Contains contains) {
-      return translateContains(key, contains, value, paramSink);
+      return translateContains(key, contains, value, translation);
     }
     if (biPredicate instanceof Text text) {
-      return translateText(key, text, value, typeGate, paramSink);
+      return translateText(key, text, value, translation);
     }
     if (biPredicate instanceof Text.RegexPredicate regex) {
       // Text.regex / Text.notRegex do not use a Text enum constant; their bi-predicate is a
       // RegexPredicate carrying the pattern and a negate flag.
-      return translateRegex(key, regex, paramSink);
+      return translateRegex(key, regex, translation);
     }
     // Custom BiPredicate (a user lambda or a predicate type the translator does not model) —
     // decline rather than guess at its semantics.
@@ -275,29 +326,34 @@ final class GremlinPredicateAdapter {
    * takes the shared-guard path instead — see {@link #andWithSingleGuard}.
    */
   private @Nullable SQLBooleanExpression combine(
-      String key,
-      List<? extends P<?>> children,
-      boolean and,
-      PropertyTypeGate typeGate,
-      @Nullable ParamSink paramSink,
-      boolean rangeTypeGuard) {
+      String key, List<? extends P<?>> children, boolean and, Translation translation) {
     if (children == null || children.isEmpty()) {
       // A connective with no children is degenerate; decline rather than emit an empty block.
       return null;
     }
-    if (and && rangeTypeGuard) {
+    // The shared type-guard path only changes the AST (one typeIn, not one per bound). Bind order
+    // is the same as the per-child path, so harvest skips the hoist.
+    if (and && translation.rangeTypeGuard() && translation.emitAst()) {
       // between / inside decompose into an AndP of two order comparisons over the same block, and
       // per-child guarding would emit that block's type test twice per record. The eligibility test
       // reads the predicates only — no literal is bound before it decides — so an ineligible
       // connective falls through to the per-child path below having pushed nothing into the sink.
       var sharedBlock = sharedOrderComparisonBlock(children);
       if (sharedBlock != null) {
-        return andWithSingleGuard(key, children, sharedBlock, typeGate, paramSink);
+        return andWithSingleGuard(key, children, sharedBlock, translation);
       }
+    }
+    if (!translation.emitAst()) {
+      for (var child : children) {
+        if (translate(key, child, translation) == null) {
+          return null;
+        }
+      }
+      return BIND_OK;
     }
     var translated = new ArrayList<SQLBooleanExpression>(children.size());
     for (var child : children) {
-      var expr = translate(key, child, typeGate, paramSink, rangeTypeGuard);
+      var expr = translate(key, child, translation);
       if (expr == null) {
         return null;
       }
@@ -372,12 +428,12 @@ final class GremlinPredicateAdapter {
       String key,
       List<? extends P<?>> children,
       List<String> sharedBlock,
-      PropertyTypeGate typeGate,
-      @Nullable ParamSink paramSink) {
+      Translation translation) {
     var operands = new ArrayList<SQLBooleanExpression>(children.size() + 1);
     operands.add(WHERE.typeIn(key, sharedBlock));
+    var unguarded = translation.withoutRangeGuard();
     for (var child : children) {
-      var expr = translate(key, child, typeGate, paramSink, /* rangeTypeGuard= */ false);
+      var expr = translate(key, child, unguarded);
       if (expr == null) {
         return null;
       }
@@ -422,17 +478,13 @@ final class GremlinPredicateAdapter {
    * native pipeline.
    */
   private @Nullable SQLBooleanExpression translateCompare(
-      String key,
-      Compare compare,
-      @Nullable Object value,
-      @Nullable ParamSink paramSink,
-      boolean rangeTypeGuard) {
+      String key, Compare compare, @Nullable Object value, Translation translation) {
     if (value == null) {
       // Only eq/neq have a defined absent-safe null rewrite; a range comparison against null has no
       // membership meaning and declines.
       return switch (compare) {
-        case eq -> WHERE.isNull(key); // bare IS NULL — absent + present-null (native parity)
-        case neq -> WHERE.not(WHERE.isNull(key)); // NOT(key IS NULL) = key IS NOT NULL (false on absent)
+        case eq -> translation.emitAst() ? WHERE.isNull(key) : BIND_OK;
+        case neq -> translation.emitAst() ? WHERE.not(WHERE.isNull(key)) : BIND_OK;
         default -> null;
       };
     }
@@ -445,14 +497,19 @@ final class GremlinPredicateAdapter {
     }
     // Resolve the comparability block before binding the literal, so a shape that must decline does
     // not first push a positional parameter into the sink.
-    var guardTypeNames = isOrderComparison(compare) && rangeTypeGuard ? comparabilityBlock(value)
-        : null;
-    if (isOrderComparison(compare) && rangeTypeGuard && guardTypeNames == null) {
+    var guardTypeNames =
+        isOrderComparison(compare) && translation.rangeTypeGuard() ? comparabilityBlock(value)
+            : null;
+    if (isOrderComparison(compare) && translation.rangeTypeGuard() && guardTypeNames == null) {
       return null;
+    }
+    if (!translation.emitAst()) {
+      translation.paramSink().bindParam(value);
+      return BIND_OK;
     }
     SQLExpression literal;
     try {
-      literal = valueExpression(value, paramSink);
+      literal = valueExpression(value, translation.paramSink());
     } catch (IllegalArgumentException unsupportedType) {
       return null;
     }
@@ -510,9 +567,18 @@ final class GremlinPredicateAdapter {
    * it takes the absent-property guard.
    */
   private @Nullable SQLBooleanExpression translateContains(
-      String key, Contains contains, @Nullable Object value, @Nullable ParamSink paramSink) {
+      String key, Contains contains, @Nullable Object value, Translation translation) {
     if (!(value instanceof Collection<?> elements)) {
       return null;
+    }
+    if (!translation.emitAst()) {
+      for (var element : elements) {
+        if (element == null) {
+          return null;
+        }
+        translation.paramSink().bindParam(element);
+      }
+      return BIND_OK;
     }
     var literals = new ArrayList<SQLExpression>(elements.size());
     for (var element : elements) {
@@ -521,7 +587,7 @@ final class GremlinPredicateAdapter {
         return null;
       }
       try {
-        literals.add(valueExpression(element, paramSink));
+        literals.add(valueExpression(element, translation.paramSink()));
       } catch (IllegalArgumentException unsupportedType) {
         return null;
       }
@@ -543,27 +609,37 @@ final class GremlinPredicateAdapter {
    * back to native.
    */
   private @Nullable SQLBooleanExpression translateText(
-      String key,
-      Text text,
-      @Nullable Object value,
-      PropertyTypeGate typeGate,
-      @Nullable ParamSink paramSink) {
+      String key, Text text, @Nullable Object value, Translation translation) {
     if (!(value instanceof String string)) {
       // The predicate's comparand (the search string) is not a String — not a translatable Text
       // predicate. This is the argument, not the property value, so it is a decline, not a throw.
       return null;
     }
+    if (!translation.emitAst()) {
+      return switch (text) {
+        case startingWith, notStartingWith -> bindStartsWith(key, string, translation);
+        default -> {
+          translation.paramSink().bindParam(string);
+          yield BIND_OK;
+        }
+      };
+    }
     return switch (text) {
-      case containing -> WHERE.containsText(key, valueExpression(string, paramSink), true);
+      case containing -> WHERE.containsText(key, valueExpression(string, translation.paramSink()),
+          true);
       case notContaining ->
           guarded(key,
-              WHERE.not(WHERE.containsText(key, valueExpression(string, paramSink), true)));
-      case startingWith -> startsWithFilter(key, string, typeGate, paramSink);
+              WHERE.not(WHERE.containsText(key, valueExpression(string, translation.paramSink()),
+                  true)));
+      case startingWith -> startsWithFilter(key, string, translation);
       case notStartingWith ->
-          guarded(key, WHERE.not(startsWithFilter(key, string, typeGate, paramSink)));
-      case endingWith -> WHERE.endsWith(key, valueExpression(string, paramSink), true);
+          guarded(key, WHERE.not(startsWithFilter(key, string, translation)));
+      case endingWith -> WHERE.endsWith(key, valueExpression(string, translation.paramSink()),
+          true);
       case notEndingWith ->
-          guarded(key, WHERE.not(WHERE.endsWith(key, valueExpression(string, paramSink), true)));
+          guarded(key,
+              WHERE.not(WHERE.endsWith(key, valueExpression(string, translation.paramSink()),
+                  true)));
     };
   }
 
@@ -579,44 +655,51 @@ final class GremlinPredicateAdapter {
    * parity — so nothing declines.
    */
   private SQLBooleanExpression startsWithFilter(
-      String key, String prefix, PropertyTypeGate typeGate, @Nullable ParamSink paramSink) {
-    if (typeGate.isDeclaredString(key)) {
-      var range = startsWithRange(key, prefix, paramSink);
-      if (range != null) {
-        return range;
-      }
-    }
-    return WHERE.startsWithStrict(key, valueExpression(prefix, paramSink));
-  }
-
-  /**
-   * Builds the half-open prefix range for a {@code startingWith} prefix, or returns {@code null}
-   * when no finite range exists so {@link #startsWithFilter} falls back to the strict full-scan
-   * node. Two prefixes have no buildable range:
-   *
-   * <ul>
-   *   <li>an empty prefix — its exclusive upper bound is undefined;
-   *   <li>a prefix whose code points are all {@link Character#MAX_CODE_POINT} — it has no finite
-   *       exclusive upper bound, so {@link MatchWhereBuilder#startsWith} throws {@link
-   *       IllegalArgumentException}.
-   * </ul>
-   *
-   * <p>The empty case is guarded before the call; the max-code-point case is caught, mirroring the
-   * {@code toLiteral} exception handling in {@link #translateCompare} / {@link #translateContains}.
-   */
-  private @Nullable SQLBooleanExpression startsWithRange(
-      String key, String prefix, @Nullable ParamSink paramSink) {
-    if (prefix.isEmpty()) {
-      return null;
-    }
-    try {
+      String key, String prefix, Translation translation) {
+    var upperBound = indexAwareUpperBound(key, prefix, translation.typeGate());
+    if (upperBound != null) {
+      var paramSink = translation.paramSink();
       if (paramSink == null) {
         return WHERE.startsWith(key, prefix);
       }
       var lower = WHERE.op(key, SQLGeOperator.INSTANCE, valueExpression(prefix, paramSink));
-      var upperBound = MatchWhereBuilder.incrementLastCodePoint(prefix);
       var upper = WHERE.op(key, SQLLtOperator.INSTANCE, valueExpression(upperBound, paramSink));
       return WHERE.and(lower, upper);
+    }
+    return WHERE.startsWithStrict(key, valueExpression(prefix, translation.paramSink()));
+  }
+
+  /**
+   * Bind-only counterpart of {@link #startsWithFilter}: same 1-vs-2 slot choice from
+   * {@link #indexAwareUpperBound}, no AST.
+   */
+  private SQLBooleanExpression bindStartsWith(
+      String key, String prefix, Translation translation) {
+    var upperBound = indexAwareUpperBound(key, prefix, translation.typeGate());
+    translation.paramSink().bindParam(prefix);
+    if (upperBound != null) {
+      translation.paramSink().bindParam(upperBound);
+    }
+    return BIND_OK;
+  }
+
+  /**
+   * Exclusive upper bound of the index-aware prefix range, or {@code null} when the walk must use
+   * the strict one-slot {@code STARTSWITH} form. Both {@link #startsWithFilter} and
+   * {@link #bindStartsWith} read this so a declared-String {@code startingWith} cannot bind two
+   * slots in harvest and one in the walker.
+   *
+   * <p>Two prefixes have no finite range: empty (exclusive upper bound is undefined) and a prefix
+   * whose code points are all {@link Character#MAX_CODE_POINT} ({@link
+   * MatchWhereBuilder#incrementLastCodePoint} throws).
+   */
+  private static @Nullable String indexAwareUpperBound(
+      String key, String prefix, PropertyTypeGate typeGate) {
+    if (!typeGate.isDeclaredString(key) || prefix.isEmpty()) {
+      return null;
+    }
+    try {
+      return MatchWhereBuilder.incrementLastCodePoint(prefix);
     } catch (IllegalArgumentException noFiniteUpperBound) {
       return null;
     }
@@ -630,12 +713,16 @@ final class GremlinPredicateAdapter {
    * regardless of collation (collate-transforming a pattern would change its meaning).
    */
   private @Nullable SQLBooleanExpression translateRegex(
-      String key, Text.RegexPredicate regex, @Nullable ParamSink paramSink) {
+      String key, Text.RegexPredicate regex, Translation translation) {
     var pattern = regex.getPattern();
     if (pattern == null) {
       return null;
     }
-    var matches = WHERE.matchesRegex(key, valueExpression(pattern, paramSink), true);
+    if (!translation.emitAst()) {
+      translation.paramSink().bindParam(pattern);
+      return BIND_OK;
+    }
+    var matches = WHERE.matchesRegex(key, valueExpression(pattern, translation.paramSink()), true);
     return regex.isNegate() ? guarded(key, WHERE.not(matches)) : matches;
   }
 

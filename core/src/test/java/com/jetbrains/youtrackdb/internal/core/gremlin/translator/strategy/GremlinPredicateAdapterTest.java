@@ -17,7 +17,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStartsWithCondition;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -888,6 +890,67 @@ public class GremlinPredicateAdapterTest {
     return count;
   }
 
+  /**
+   * {@link GremlinPredicateAdapter#bindParams} must push the same values in the same order as
+   * {@link GremlinPredicateAdapter#toFilter} with a sink — otherwise a cache hit would bind {@code
+   * ?} slots the walker did not allocate (or skip ones it did). Covers the slot-count traps:
+   * {@code eq(null)} binds nothing, declared-String {@code startingWith} binds prefix plus exclusive
+   * upper bound, {@code within} binds each member, {@code AndP} binds each child.
+   */
+  @Test
+  public void bindParams_matchesToFilterSlotOrder() {
+    GremlinPredicateAdapter.PropertyTypeGate declaredString = key -> true;
+    var unknown = GremlinPredicateAdapter.NO_TYPE_INFO;
+    record Case(String name, HasContainer container,
+        GremlinPredicateAdapter.PropertyTypeGate gate) {
+    }
+    var cases = List.of(
+        new Case("eq", new HasContainer("age", P.eq(30)), unknown),
+        new Case("eq(null)", new HasContainer("age", P.eq(null)), unknown),
+        new Case("neq(null)", new HasContainer("age", P.neq(null)), unknown),
+        new Case("gt", new HasContainer("age", P.gt(27)), unknown),
+        new Case("within", new HasContainer("age", P.within(1, 2, 3)), unknown),
+        new Case("between", new HasContainer("age", P.between(1, 5)), unknown),
+        new Case("startingWith declared",
+            new HasContainer("name", TextP.startingWith("al")), declaredString),
+        new Case("startingWith unknown",
+            new HasContainer("name", TextP.startingWith("al")), unknown),
+        new Case("startingWith empty",
+            new HasContainer("name", TextP.startingWith("")), declaredString),
+        new Case("notStartingWith declared",
+            new HasContainer("name", TextP.notStartingWith("al")), declaredString),
+        new Case("containing", new HasContainer("name", TextP.containing("al")), unknown),
+        new Case("regex", new HasContainer("name", TextP.regex("r")), unknown),
+        new Case("notRegex", new HasContainer("name", TextP.notRegex("r")), unknown),
+        new Case("and", new HasContainer("age", P.gt(1).and(P.lt(5))), unknown),
+        new Case("not eq", new HasContainer("age", P.not(P.eq(1))), unknown),
+        new Case("singleton eq decline", new HasContainer("age", P.eq(List.of(30))), unknown));
+    for (var c : cases) {
+      assertThat(capturedBinds(c.container(), c.gate(), /* viaFilter= */ false))
+          .as(c.name())
+          .isEqualTo(capturedBinds(c.container(), c.gate(), /* viaFilter= */ true));
+    }
+  }
+
+  /**
+   * Declared-String {@code startingWith("al")} binds two slots: the prefix and the exclusive upper
+   * bound from {@code incrementLastCodePoint}. Unknown type binds only the prefix.
+   */
+  @Test
+  public void bindParams_startingWithDeclaredString_bindsPrefixAndUpperBound() {
+    GremlinPredicateAdapter.PropertyTypeGate declaredString = key -> true;
+    var declared = capturedBinds(
+        new HasContainer("name", TextP.startingWith("al")), declaredString, false);
+    assertThat(declared).as("index-aware startingWith allocates two ? slots")
+        .hasSize(2)
+        .first().isEqualTo("al");
+    var unknown = capturedBinds(
+        new HasContainer("name", TextP.startingWith("al")),
+        GremlinPredicateAdapter.NO_TYPE_INFO, false);
+    assertThat(unknown).as("strict startingWith allocates one ? slot")
+        .containsExactly("al");
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers.
   // ---------------------------------------------------------------------------
@@ -943,5 +1006,26 @@ public class GremlinPredicateAdapterTest {
     var sb = new StringBuilder();
     expr.toGenericStatement(sb);
     return sb.toString();
+  }
+
+  /**
+   * Values {@link GremlinPredicateAdapter} pushes into a sink for {@code container}, either through
+   * {@code toFilter} (the walker path) or {@code bindParams} (harvest).
+   */
+  private static List<Object> capturedBinds(
+      HasContainer container,
+      GremlinPredicateAdapter.PropertyTypeGate gate,
+      boolean viaFilter) {
+    var captured = new ArrayList<Object>();
+    ParamSink sink = value -> {
+      captured.add(value);
+      return SQLPositionalParameter.forSlot(captured.size() - 1);
+    };
+    if (viaFilter) {
+      GremlinPredicateAdapter.INSTANCE.toFilter(container, gate, sink, /* rangeTypeGuard= */ true);
+    } else {
+      GremlinPredicateAdapter.INSTANCE.bindParams(container, gate, sink);
+    }
+    return captured;
   }
 }

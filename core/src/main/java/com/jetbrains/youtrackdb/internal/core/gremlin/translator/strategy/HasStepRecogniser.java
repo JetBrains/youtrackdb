@@ -344,7 +344,7 @@ final class HasStepRecogniser implements StepRecogniser {
       }
       encoder.appendToken(key == null ? "" : key);
       encoder.appendPredicate(container.getPredicate(), false);
-      GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, encoder.paramSink(), true);
+      GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate, encoder.paramSink());
     }
     return true;
   }
