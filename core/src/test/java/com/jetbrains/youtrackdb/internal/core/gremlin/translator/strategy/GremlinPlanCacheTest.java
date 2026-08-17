@@ -301,18 +301,26 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
 
     apply(() -> graph.traversal().V().has("age", 30));
     var fp = fingerprint(walk(() -> graph.traversal().V().has("age", P.eq(30))));
+    var shapeKey =
+        GremlinShapeKey.extract(
+            graph.traversal().V().has("age", P.eq(30)).asAdmin(), graphSession())
+            .key();
     assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isTrue();
+    assertThat(GremlinPlanCache.instance(graphSession()).containsTranslation(shapeKey)).isTrue();
 
     var before = GremlinPlanCache.getLastInvalidation(graphSession());
     GremlinPlanCache.instance(graphSession()).onSchemaUpdate(null, "test", null);
     assertThat(GremlinPlanCache.getLastInvalidation(graphSession())).isGreaterThan(before);
     assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isFalse();
+    assertThat(GremlinPlanCache.instance(graphSession()).containsTranslation(shapeKey))
+        .as("schema invalidation must clear the translation cache as well as the plan cache")
+        .isFalse();
   }
 
   /**
-   * First apply of a shape records a miss and populates the cache; the second apply of the same
-   * shape records a hit — proof the production {@code get} path served the plan, not a silent
-   * rebuild.
+   * First apply of a shape records a plan-cache miss and a translation-cache miss; the second apply
+   * of the same shape hits the translation cache and never consults the plan cache. Proof the
+   * production {@code apply} path skipped the walker, not silently rebuilt.
    */
   @Test
   public void secondApply_recordsCacheHit() {
@@ -322,13 +330,21 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var cache = GremlinPlanCache.instance(graphSession());
     var hitsBefore = cache.getHits();
     var missesBefore = cache.getMisses();
+    var translationHitsBefore = cache.getTranslationHits();
+    var translationMissesBefore = cache.getTranslationMisses();
 
     apply(() -> graph.traversal().V().has("age", 30));
     assertThat(cache.getMisses()).isEqualTo(missesBefore + 1);
     assertThat(cache.getHits()).isEqualTo(hitsBefore);
+    assertThat(cache.getTranslationMisses()).isEqualTo(translationMissesBefore + 1);
+    assertThat(cache.getTranslationHits()).isEqualTo(translationHitsBefore);
 
     apply(() -> graph.traversal().V().has("age", 40));
-    assertThat(cache.getHits()).isEqualTo(hitsBefore + 1);
+    assertThat(cache.getTranslationHits()).isEqualTo(translationHitsBefore + 1);
+    assertThat(cache.getTranslationMisses()).isEqualTo(translationMissesBefore + 1);
+    assertThat(cache.getHits())
+        .as("a translation-cache hit must not look up the plan cache")
+        .isEqualTo(hitsBefore);
     assertThat(cache.getMisses()).isEqualTo(missesBefore + 1);
   }
 
@@ -351,9 +367,9 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var rebuilt = sortedNames(apply(() -> graph.traversal().V().has("age", 30)));
     assertThat(rebuilt).isEqualTo(cold);
 
-    var hitsBefore = cache.getHits();
+    var hitsBefore = cache.getTranslationHits();
     var warm = sortedNames(apply(() -> graph.traversal().V().has("age", 30)));
-    assertThat(cache.getHits()).isEqualTo(hitsBefore + 1);
+    assertThat(cache.getTranslationHits()).isEqualTo(hitsBefore + 1);
     assertThat(warm).isEqualTo(cold);
   }
 
@@ -371,12 +387,18 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var cache = GremlinPlanCache.instance(graphSession());
     var hitsBefore = cache.getHits();
     var missesBefore = cache.getMisses();
+    var translationHitsBefore = cache.getTranslationHits();
+    var translationMissesBefore = cache.getTranslationMisses();
 
     apply(() -> graph.traversal().V().count());
     apply(() -> graph.traversal().V().count());
 
     assertThat(cache.getHits()).isEqualTo(hitsBefore);
     assertThat(cache.getMisses()).isEqualTo(missesBefore + 2);
+    assertThat(cache.getTranslationHits())
+        .as("a non-cacheable count plan must not be stored as a translation template")
+        .isEqualTo(translationHitsBefore);
+    assertThat(cache.getTranslationMisses()).isEqualTo(translationMissesBefore + 2);
   }
 
   /**

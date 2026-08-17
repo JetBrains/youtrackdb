@@ -621,6 +621,49 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
+   * A {@code copyOnOpen} step shares the cache template: {@code clone()} does not copy, {@code
+   * close()} before the first open does not close the template, and the first {@code
+   * processNextStart()} copies then starts the copy.
+   */
+  @Test
+  public void copyOnOpen_defersCopyUntilFirstOpen_andDoesNotCloseTemplate() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var copiedCtx = mock(CommandContext.class);
+    var copiedStream = mock(ExecutionStream.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(copiedPlan.getContext()).thenReturn(copiedCtx);
+    when(copiedPlan.start()).thenReturn(copiedStream);
+    when(copiedStream.hasNext(copiedCtx)).thenReturn(false);
+
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal,
+            Vertex.class,
+            plan,
+            "v",
+            BoundaryOutputType.ELEMENT,
+            java.util.Map.of(),
+            ResultShaping.NONE,
+            true);
+    assertThat(step.getPlan()).isSameAs(plan);
+    verify(plan, never()).copy(any());
+
+    var cloned = step.clone();
+    verify(plan, never()).copy(any());
+    assertThat(cloned.getPlan()).isSameAs(plan);
+
+    step.close();
+    verify(plan, never()).close();
+    step.reset();
+
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(plan, times(1)).copy(any());
+    verify(plan, never()).start();
+    verify(copiedPlan).start();
+    assertThat(step.getPlan()).isSameAs(copiedPlan);
+  }
+
+  /**
    * Concurrency guard for clone independence under real interleaving. The sequential clone tests pin
    * the object-graph shape (distinct plan copy, isolated child context); this one drives two clones
    * on two threads a {@link CyclicBarrier} releases together, so their open / start / close paths

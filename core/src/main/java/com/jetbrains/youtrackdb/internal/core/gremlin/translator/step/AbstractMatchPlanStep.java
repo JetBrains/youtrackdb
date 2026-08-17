@@ -471,7 +471,16 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * latter is the iteration-end signal that {@link AbstractStep#hasNext()} swallows, which would
    * turn a genuine "no attached graph" bug into a silent empty result.
    */
+  /**
+   * Hook at the start of {@link #openArming()} so a subclass can materialise a live plan copy
+   * before {@link #planContext()} is read. The single-plan step uses this to copy a shared cache
+   * template on first open; the default is a no-op.
+   */
+  protected void preparePlanForArming() {
+  }
+
   private ExecutionStream openArming() {
+    preparePlanForArming();
     if (openStream != null) {
       // Stale cursor from a prior arming. Close it, but keep the plan alive — the same plan
       // instance re-runs. Deferred from reset() (see reset()'s note) so cloning cannot tear down
