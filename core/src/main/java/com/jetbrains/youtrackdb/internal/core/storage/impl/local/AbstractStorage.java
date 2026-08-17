@@ -5232,7 +5232,8 @@ public abstract class AbstractStorage
     try {
       getIndexEngine(indexId, expectedReference);
     } catch (InvalidIndexEngineIdException exception) {
-      throw new IllegalStateException(exception);
+      throw new StaleIndexEngineException(
+          name, "Index engine changed before clear: " + exception.getMessage());
     }
     clearIndex(indexId);
   }
