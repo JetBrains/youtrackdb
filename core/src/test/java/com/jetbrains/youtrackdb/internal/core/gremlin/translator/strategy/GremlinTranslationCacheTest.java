@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ConstantTraversal;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -171,6 +172,8 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         .isNotEqualTo(shapeKey(() -> graph.traversal().V().groupCount().by("age")));
     assertThat(shapeKey(() -> graph.traversal().V().project("x").by("name")))
         .isNotEqualTo(shapeKey(() -> graph.traversal().V().project("x").by("age")));
+    assertThat(shapeKey(() -> graph.traversal().V().has("name", TextP.regex("^mar"))))
+        .isNotEqualTo(shapeKey(() -> graph.traversal().V().has("name", TextP.notRegex("^mar"))));
   }
 
   /**
@@ -230,6 +233,24 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(ageMaps).hasSize(1);
     assertThat(ageMaps.getFirst()).containsKey("age");
     assertThat(ageMaps.getFirst()).doesNotContainKey("name");
+  }
+
+  /**
+   * {@code Text.regex} and {@code Text.notRegex} share {@code RegexPredicate}; only {@code
+   * isNegate()} distinguishes them. After {@code regex("^mar")} is cached, {@code notRegex("^mar")}
+   * must still return the names that do not match, not splice the positive MATCHES plan.
+   */
+  @Test
+  public void regexAndNotRegex_doNotShareCachedPlan() {
+    graph.addVertex(T.label, "Person", "name", "marko");
+    graph.addVertex(T.label, "Person", "name", "vadas");
+    graph.tx().commit();
+
+    var regex = apply(() -> graph.traversal().V().has("name", TextP.regex("^mar")));
+    assertThat(sortedNames(regex)).containsExactly("marko");
+
+    var notRegex = apply(() -> graph.traversal().V().has("name", TextP.notRegex("^mar")));
+    assertThat(sortedNames(notRegex)).containsExactly("vadas");
   }
 
   /**

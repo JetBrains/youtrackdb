@@ -10,6 +10,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.Text;
 import org.apache.tinkerpop.gremlin.process.traversal.util.AndP;
 import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
 
@@ -122,6 +123,12 @@ final class GremlinShapeEncoder {
     appendToken("bi", bi == null ? "-" : bi.getClass().getName());
     if (bi != null) {
       appendToken(String.valueOf(bi));
+    }
+    // Text.regex and Text.notRegex share RegexPredicate; toString does not include isNegate(),
+    // so a cached regex plan would be spliced onto notRegex (TinkerPop Has.feature: marko only
+    // instead of everyone else). The walker reads the flag in translateRegex.
+    if (bi instanceof Text.RegexPredicate regex) {
+      appendToken("neg", regex.isNegate() ? "1" : "0");
     }
     if (valuesAreStructural) {
       appendStructuralValue(predicate.getValue());
