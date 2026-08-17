@@ -755,6 +755,50 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().values("age").mean());
   }
 
+  // ---------------------------------------------------------------------------
+  // project(keys...).by(...): one modulated RETURN column per key, MAP per row.
+  // Phase 1 resolves each by-modulator against the boundary alias only — a
+  // by(select(priorLabel)) modulator has no boundary resolution and declines, so
+  // these cases exercise the property-value modulators that translate.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code project("n", "a").by("name").by("age")} emits a two-entry Map per row and matches native.
+   * Two keys with property-value modulators is the shape {@link ProjectStepRecogniser} translates
+   * into two RETURN columns; the map-canonicalising renderer compares the emitted maps entry by
+   * entry, so a plan that dropped a column or mis-keyed one would diverge here. The seed gives each
+   * vertex a distinct {@code name}/{@code age} pair so neither entry is constant across rows.
+   */
+  @Test
+  public void projectTwoKeys_overPropertyValues_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().project(n, a).by(name).by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().project("n", "a").by("name").by("age"));
+  }
+
+  /**
+   * The three-key spelling reaches three distinct RETURN aliases ({@code nm}/{@code ag}/{@code ci})
+   * from three property-value modulators, and each row is a three-entry Map matching native. Wider
+   * than the two-key case so a column-ordering or arity regression that still balanced two columns
+   * would surface here; the seed keeps all three values distinct per row.
+   */
+  @Test
+  public void projectThreeKeys_reachingThreeAliases_matchNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30, "city", "NYC");
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25, "city", "LON");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().project(nm, ag, ci).by(name).by(age).by(city)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().project("nm", "ag", "ci").by("name").by("age").by("city"));
+  }
+
   /** Multi-label {@code select(a,b)} emits a two-entry map (unwrapSingletonMap=false), matching native. */
   @Test
   public void selectMultiLabel_matchNative() {
@@ -1052,6 +1096,29 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().has(name, nobody).groupCount().by(name)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().has("name", "nobody").groupCount().by("name"));
+  }
+
+  /**
+   * The bare (no-{@code by}) empty-input companions of {@link #emptyInputGroup_emitsSingleEmptyMap}:
+   * {@code group()} and {@code groupCount()} over a filtered-to-empty scan each emit a single empty
+   * map {@code [{}]} on both paths, matching native. The bare forms take a different builder path
+   * from the {@code by(name)} ones — the value side folds the current match / counts {@code *} rather
+   * than keying on a property — so they need their own empty-input pin. The single empty map is a
+   * non-empty result, so both keep the default non-empty guard.
+   */
+  @Test
+  public void emptyInputBareGroupAndGroupCount_emitSingleEmptyMap() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().has(name, nobody).group()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "nobody").group());
+    assertEquivalent(
+        "g.V().has(name, nobody).groupCount()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "nobody").groupCount());
   }
 
   // --- by(key) is filtering: an element without the key is dropped, not grouped under null ------

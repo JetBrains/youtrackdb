@@ -757,6 +757,96 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
         () -> graph.traversal().V().limit(10).valueMap("name"));
   }
 
+  // ---------------------------------------------------------------------------
+  // Bare element-returning LIMIT / SKIP / RANGE — the row-equality gap.
+  //
+  // G2 semantics. An unordered slice is non-deterministic by the Gremlin spec:
+  // limit(n) keeps "the first n" in whatever order the source enumerates, and
+  // nothing pins that order. Measured on this engine both arms enumerate in the
+  // same storage (RID/cluster) order and so the translated SQL LIMIT and native
+  // Gremlin limit keep the identical prefix — but that agreement rests on a shared
+  // implementation detail, not on a contract, so asserting exact multiset equality
+  // over a real slice would pin engine internals and could turn flaky against a
+  // future ordering change in either arm. So the row-equality claim is made only
+  // where the slice is an identity (bound >= total), and a real slice is pinned by
+  // the two invariants that DO hold by contract: both arms return exactly n rows,
+  // and the translated arm's rows are all members of the full unsliced set.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A bare {@code limit} whose bound is at or above the scan total is an identity slice, so it keeps
+   * every row on both arms and the multiset equality holds without resting on the two pipelines
+   * agreeing about order. This is the strict-equality half of the bare-slice coverage: five seeded
+   * vertices, {@code limit(10)}, so the slice removes nothing and the translated SQL {@code LIMIT}
+   * and native {@code limit} must return the same five elements.
+   */
+  @Test
+  public void bareLimitAtOrAboveTotal_isIdentityAndMatchesNative() {
+    seedSingleHub();
+    assertTranslatesAndMatchesNative(
+        "g.V().hasLabel(Person).limit(10)",
+        () -> graph.traversal().V().hasLabel("Person").limit(10));
+  }
+
+  /** The skip half of the identity slice: {@code skip(0)} drops nothing and keeps every row. */
+  @Test
+  public void bareSkipZero_isIdentityAndMatchesNative() {
+    seedSingleHub();
+    assertTranslatesAndMatchesNative(
+        "g.V().hasLabel(Person).skip(0)",
+        () -> graph.traversal().V().hasLabel("Person").skip(0));
+  }
+
+  /**
+   * A real bare {@code limit(3)} over five vertices translates and both arms return exactly three
+   * rows, all of them members of the full unsliced set. Exact multiset equality is deliberately
+   * <em>not</em> asserted: an unordered {@code limit} is non-deterministic by the Gremlin spec, so
+   * even though this engine's two arms happen to keep the same storage-order prefix, pinning that
+   * would pin an implementation detail rather than a contract. The size-and-subset invariants are
+   * the strongest ones that hold by contract, and they still catch the failures that matter — a
+   * translated {@code LIMIT} that returned the wrong count, or rows outside the scanned set.
+   */
+  @Test
+  public void bareLimitBelowTotal_matchesSizeAndSubset() {
+    seedSingleHub();
+    assertBareSliceSizeAndSubset(
+        "g.V().hasLabel(Person).limit(3)",
+        () -> graph.traversal().V().hasLabel("Person").limit(3),
+        () -> graph.traversal().V().hasLabel("Person"),
+        3);
+  }
+
+  /**
+   * The skip half of the same non-deterministic slice: {@code skip(2)} over five vertices leaves
+   * three on both arms, all members of the full set. Same reasoning as
+   * {@link #bareLimitBelowTotal_matchesSizeAndSubset} — which three are kept is not a contract, so
+   * only the surviving count and set membership are asserted.
+   */
+  @Test
+  public void bareSkipBelowTotal_matchesSizeAndSubset() {
+    seedSingleHub();
+    assertBareSliceSizeAndSubset(
+        "g.V().hasLabel(Person).skip(2)",
+        () -> graph.traversal().V().hasLabel("Person").skip(2),
+        () -> graph.traversal().V().hasLabel("Person"),
+        3);
+  }
+
+  /**
+   * The range spelling: {@code range(1, 4)} keeps three of the five vertices on both arms, all
+   * members of the full set. Rounds out the bare-slice family across the three DSL entry points that
+   * all normalise to SQL {@code SKIP}/{@code LIMIT}.
+   */
+  @Test
+  public void bareRangeBelowTotal_matchesSizeAndSubset() {
+    seedSingleHub();
+    assertBareSliceSizeAndSubset(
+        "g.V().hasLabel(Person).range(1, 4)",
+        () -> graph.traversal().V().hasLabel("Person").range(1, 4),
+        () -> graph.traversal().V().hasLabel("Person"),
+        3);
+  }
+
   /**
    * Five vertices, then {@code age} put on whichever one scans <em>last</em>, read back at seed time
    * rather than assumed. Scan order is not stable across JVM forks, so the fixture discovers it
@@ -1059,6 +1149,60 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       assertThat(onRows)
           .as(scenario + ": translator-on and translator-off multisets must match")
           .isEqualTo(offRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * Asserts that a bare, unordered slice translates and that the two contract-level invariants hold:
+   * both arms return exactly {@code expectedSize} rows, and every element the translated arm returns
+   * is a member of the full unsliced set. Exact multiset equality is intentionally not asserted —
+   * see the section comment above {@link #bareLimitAtOrAboveTotal_isIdentityAndMatchesNative} for
+   * why an unordered slice's kept subset is not a contract. The off-arm boundary count is pinned at
+   * zero so a kill-switch flip that never reached the traversal cannot leave both arms translated.
+   */
+  private void assertBareSliceSizeAndSubset(
+      String scenario,
+      Supplier<GraphTraversal<?, ?>> slice,
+      Supplier<GraphTraversal<?, ?>> fullUnsliced,
+      int expectedSize) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = slice.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var onIds = sortedIds(onAdmin.toList());
+
+      setTranslatorEnabled(false);
+      var offAdmin = slice.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offIds = sortedIds(offAdmin.toList());
+      var fullIds = sortedIds(drain(fullUnsliced));
+
+      assertThat(boundaryOn)
+          .as(scenario + " must translate — exactly one boundary step")
+          .isEqualTo(1);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
+      // The fixture precondition that makes the slice a real one: the full set is strictly larger
+      // than the slice, so a translated LIMIT that silently kept everything would fail the size pin.
+      assertThat(fullIds)
+          .as(scenario
+              + ": the full unsliced set must exceed the slice, or the size pin is vacuous")
+          .hasSizeGreaterThan(expectedSize);
+      assertThat(onIds)
+          .as(scenario + " (translator on) must return exactly " + expectedSize + " rows")
+          .hasSize(expectedSize);
+      assertThat(offIds)
+          .as(scenario + " (translator off) must return exactly " + expectedSize + " rows")
+          .hasSize(expectedSize);
+      assertThat(fullIds)
+          .as(scenario + ": every translated row must be a member of the full unsliced set")
+          .containsAll(onIds);
     } finally {
       setTranslatorEnabled(original);
     }
