@@ -49,28 +49,14 @@ public class IndexAbstractHistogramDelegationTest {
     setDescriptorIdentity(DESCRIPTOR_IDENTITY);
   }
 
-  /**
-   * Sets the indexId field on the IndexAbstract via reflection.
-   */
+  /** Sets the engine identifier used by the delegation fixture. */
   private void setIndexId(int indexId) {
-    try {
-      var field = IndexAbstract.class.getDeclaredField("indexId");
-      field.setAccessible(true);
-      field.set(index, indexId);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException("Failed to set indexId", e);
-    }
+    index.setEngineIdentifierForTest(indexId);
   }
 
   /** Sets the descriptor identity needed for owner-bound stale-engine recovery. */
   private void setDescriptorIdentity(RecordId descriptorIdentity) {
-    try {
-      var field = IndexAbstract.class.getDeclaredField("identity");
-      field.setAccessible(true);
-      field.set(index, descriptorIdentity);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException("Failed to set descriptor identity", e);
-    }
+    index.setDescriptorIdentityForTest(descriptorIdentity);
   }
 
   /**

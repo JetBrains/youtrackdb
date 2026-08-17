@@ -336,15 +336,14 @@ public class AbstractStorageCommitPrimitivesTest {
     cls.createIndex("StaleIndexedCommitLock_value", SchemaClass.INDEX_TYPE.UNIQUE, "value");
 
     var storage = (AbstractStorage) db.getStorage();
-    var index = db.getSharedContext().getIndexManager().getIndex("StaleIndexedCommitLock_value");
-    var indexIdField = IndexAbstract.class.getDeclaredField("indexId");
-    indexIdField.setAccessible(true);
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager()
+        .getIndex("StaleIndexedCommitLock_value");
     db.begin();
     var operation = db.getActiveTransaction().getAtomicOperation();
 
     storage.stateLock.readLock().lock();
     try {
-      indexIdField.setInt(index, Integer.MAX_VALUE);
+      index.setEngineIdentifierForTest(Integer.MAX_VALUE);
       index.acquireAtomicExclusiveLock(operation);
       try (var executor = Executors.newSingleThreadExecutor()) {
         var writerEntered =
@@ -371,7 +370,7 @@ public class AbstractStorageCommitPrimitivesTest {
     try {
       storage.enterCommitWindow();
       try {
-        indexIdField.setInt(index, Integer.MAX_VALUE);
+        index.setEngineIdentifierForTest(Integer.MAX_VALUE);
         index.acquireAtomicExclusiveLock(operation);
       } finally {
         storage.exitCommitWindow();
@@ -1035,11 +1034,8 @@ public class AbstractStorageCommitPrimitivesTest {
     return (List<BaseIndexEngine>) field.get(storage);
   }
 
-  private static void setIndexIdentifier(IndexAbstract index, int indexIdentifier)
-      throws Exception {
-    var field = IndexAbstract.class.getDeclaredField("indexId");
-    field.setAccessible(true);
-    field.setInt(index, indexIdentifier);
+  private static void setIndexIdentifier(IndexAbstract index, int indexIdentifier) {
+    index.setEngineIdentifierForTest(indexIdentifier);
   }
 
   private static BaseIndexEngine findEngineByName(AbstractStorage storage, String name)
