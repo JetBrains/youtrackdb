@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
@@ -713,29 +714,89 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * Builds a {@link Map} from RETURN columns. The boundary-entity column (when present) is stripped
    * from the emitted map and used only for {@link EntityImpl#hasProperty} classification of
    * presence-checked keys. Absent keys are omitted; present-with-null keys are included.
+   *
+   * <p>The entity is loaded only when a presence-checked key needs {@code hasProperty} — a
+   * {@code select} / {@code select().by(...)} map has an empty presence set, so it must not
+   * {@code getEntity} the boundary alias (MATCH already stored that column as a RID, and a load
+   * here would re-fetch a vertex the payload never reads). {@code unwrapSingletonMap} emits the
+   * single column directly rather than allocating a one-entry {@link LinkedHashMap} and throwing
+   * it away.
    */
   private Object projectMap(Result row) {
-    var entity = resolveEntity(row);
-    var map = new LinkedHashMap<Object, Object>();
+    var entity = presenceKeySet.isEmpty() ? null : resolveEntity(row);
+    if (shaping.unwrapSingletonMap()) {
+      var unwrapped = unwrapSingletonColumn(row, entity);
+      if (unwrapped != BUILD_MAP) {
+        return unwrapped;
+      }
+    }
+    var names = row.getPropertyNames();
+    var map = new LinkedHashMap<Object, Object>(Math.max(names.size(), 4));
+    for (String name : names) {
+      putMapColumn(map, row, name, entity);
+    }
+    return map;
+  }
+
+  /**
+   * Sentinel: {@link #unwrapSingletonColumn} saw more than one emitted column, so {@link
+   * #projectMap} must build the map. Distinct from a legitimate {@code null} payload.
+   */
+  private static final Object BUILD_MAP = new Object();
+
+  /**
+   * Native {@code SelectOneStep} shape: one non-boundary column becomes the traverser payload, not
+   * a singleton map. Zero emitted columns still return an empty map (same as building-then-unwrapping
+   * when every presence-checked key was absent). More than one column falls through to the map path
+   * so a mis-set flag cannot drop entries.
+   */
+  private Object unwrapSingletonColumn(Result row, @Nullable EntityImpl entity) {
+    String onlyName = null;
+    int emitted = 0;
     for (String name : row.getPropertyNames()) {
       if (name.equals(boundaryAlias)) {
         continue;
       }
-      Object mapKey = mapKeyForColumn(name);
-      if (presenceKeySet.contains(name)) {
-        if (entity == null || !entity.hasProperty(name)) {
-          continue;
-        }
-        var value = convertValue(entity.getProperty(name));
-        map.put(mapKey, shaping.wrapMapValuesInLists() ? Collections.singletonList(value) : value);
+      if (presenceKeySet.contains(name) && (entity == null || !entity.hasProperty(name))) {
         continue;
       }
-      map.put(mapKey, convertMapColumn(name, row.getProperty(name)));
+      emitted++;
+      if (emitted > 1) {
+        return BUILD_MAP;
+      }
+      onlyName = name;
     }
-    if (shaping.unwrapSingletonMap() && map.size() == 1) {
-      return map.values().iterator().next();
+    if (emitted == 0) {
+      return new LinkedHashMap<Object, Object>();
     }
-    return map;
+    return mapColumnValue(row, onlyName, entity);
+  }
+
+  private void putMapColumn(
+      LinkedHashMap<Object, Object> map, Result row, String name, @Nullable EntityImpl entity) {
+    if (name.equals(boundaryAlias)) {
+      return;
+    }
+    var value = mapColumnValue(row, name, entity);
+    if (value == SKIP) {
+      return;
+    }
+    map.put(mapKeyForColumn(name), value);
+  }
+
+  /**
+   * One RETURN column as a map value, or {@link #SKIP} when a presence-checked key is absent (the
+   * column must not appear in the map).
+   */
+  private Object mapColumnValue(Result row, String name, @Nullable EntityImpl entity) {
+    if (presenceKeySet.contains(name)) {
+      if (entity == null || !entity.hasProperty(name)) {
+        return SKIP;
+      }
+      var value = convertValue(entity.getProperty(name));
+      return shaping.wrapMapValuesInLists() ? Collections.singletonList(value) : value;
+    }
+    return convertMapColumn(name, row.getProperty(name));
   }
 
   /**

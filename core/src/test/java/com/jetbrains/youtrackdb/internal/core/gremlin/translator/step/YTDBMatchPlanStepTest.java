@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.lang.reflect.Field;
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -356,6 +358,82 @@ public class YTDBMatchPlanStepTest {
     assertThatExceptionOfType(IllegalStateException.class)
         .isThrownBy(() -> step.projectElement(row, graph))
         .withMessageContaining("Vertex or Edge");
+  }
+
+  /**
+   * {@code select("p").by("firstName")} pins {@code unwrapSingletonMap}: the payload is the column
+   * value, not a one-entry map. The boundary alias is stripped and {@code getEntity} is not called
+   * — there is no presence-checked key, so loading the MATCH vertex would re-fetch a record the
+   * payload never reads.
+   */
+  @Test
+  public void projectMap_unwrapSingleton_emitsColumnNotMap_andDoesNotLoadBoundaryEntity() {
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("v", "p"));
+    when(row.getProperty("p")).thenReturn("Alice");
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.MAP,
+            ResultShaping.NONE.withUnwrapSingletonMap(true));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo("Alice");
+    verify(row, never()).getEntity(any());
+  }
+
+  /**
+   * Multi-column {@code select("p", "city")} builds a map and still must not load the boundary
+   * entity: presence keys are empty, so {@code hasProperty} is not consulted.
+   */
+  @Test
+  public void projectMap_selectColumns_doNotLoadBoundaryEntity() {
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("v", "p", "city"));
+    when(row.getProperty("p")).thenReturn("Alice");
+    when(row.getProperty("city")).thenReturn(42);
+
+    var step = shapedStep("v", BoundaryOutputType.MAP, ResultShaping.NONE);
+
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isInstanceOf(Map.class);
+    @SuppressWarnings("unchecked")
+    var map = (Map<Object, Object>) t.get();
+    assertThat(map).containsEntry("p", "Alice").containsEntry("city", 42).doesNotContainKey("v");
+    verify(row, never()).getEntity(any());
+  }
+
+  /**
+   * {@code values}/{@code valueMap} presence checks still load the boundary entity: an absent
+   * property must be omitted, and MATCH stored the alias as a RID.
+   */
+  @Test
+  public void projectMap_presenceKeys_loadBoundaryEntity() {
+    var row = mock(Result.class);
+    var entity = mock(EntityImpl.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("v", "name"));
+    when(row.getEntity("v")).thenReturn(entity);
+    when(entity.hasProperty("name")).thenReturn(true);
+    when(entity.getProperty("name")).thenReturn("Alice");
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.MAP,
+            ResultShaping.NONE.withPresencePropertyKeys(List.of("name")));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    @SuppressWarnings("unchecked")
+    var map = (Map<Object, Object>) t.get();
+    assertThat(map).containsEntry("name", "Alice");
+    verify(row).getEntity("v");
   }
 
   // ---- Close lifecycle ----
