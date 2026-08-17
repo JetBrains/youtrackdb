@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
-import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -241,7 +240,6 @@ final class GremlinStepWalker {
   private static Map<Class<?>, StepRecogniser> literalRecogniserEntries() {
     return Map.ofEntries(
         Map.entry(GraphStep.class, StartStepRecogniser.INSTANCE),
-        Map.entry(YTDBGraphStep.class, StartStepRecogniser.INSTANCE),
         Map.entry(VertexStep.class, VertexStepRecogniser.INSTANCE),
         Map.entry(VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE),
         Map.entry(EdgeVertexStep.class, RedundantEdgeVertexStepRecogniser.INSTANCE),

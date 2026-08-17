@@ -128,6 +128,14 @@ final class HasStepRecogniser implements StepRecogniser {
       }
     }
 
+    // A multi-label hasLabel(L1, L2) is expressed as @class IN [L1, L2, …], which is leaf-exact and
+    // therefore drops polymorphic subclasses of L1/L2. In polymorphic mode that under-matches native
+    // hierarchy-aware hasLabel, so decline to native (there is no cheap subclass expansion here). The
+    // non-polymorphic @class IN path stays — it mirrors native non-polymorphic hasLabel exactly.
+    if (labelConstraint instanceof ParsedLabelConstraint.Multi && ctx.polymorphic()) {
+      return Outcome.DECLINE;
+    }
+
     // The class context for the startsWith-form type gate is the step's own single ~label (if any); a
     // property has() on a generic V boundary has no known leaf class, so its keys resolve as
     // not-a-declared-String and a startingWith there routes to the strict full-scan form.

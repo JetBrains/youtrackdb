@@ -154,15 +154,17 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A multi-label {@code g.V().hasLabel("Person", "Employee")} translates to {@code @class IN
-   * [Person, Employee]} and matches native's hierarchy-aware multiset in polymorphic mode.
+   * A multi-label {@code g.V().hasLabel("Person", "Employee")} in polymorphic mode declines to
+   * native: {@code @class IN [Person, Employee]} is leaf-exact and would drop polymorphic subclasses
+   * of the listed classes, under-matching native hierarchy-aware {@code hasLabel}. Native still
+   * returns a non-empty multiset (the Person and Employee rows), so on==off is not vacuous.
    */
   @Test
-  public void hasLabelMultiLabel_matchesNativePolymorphic() {
+  public void hasLabelMultiLabel_declinesPolymorphic() {
     seedPersonEmployeeHierarchy();
     withPolymorphicDefault(true, () -> assertEquivalent(
         "polymorphic g.V().hasLabel(Person, Employee) (multi-label)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().hasLabel("Person", "Employee")));
   }
 

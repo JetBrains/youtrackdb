@@ -358,11 +358,14 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code bothE(L).has(...).otherV()} translates via edge-as-node {@code bothV()} and a target
-   * filter excluding the walk source, matching native's other-endpoint multiset.
+   * {@code bothE(L).has(...).otherV()} declines to native: the only MATCH rewrite excludes the walk
+   * source via {@code @rid <> source}, which wrongly drops self-loop endpoints (where the far vertex
+   * IS the source). It is runtime-incorrect, so the translator declines and native answers. The
+   * native arm stays non-empty (Bob and Carol are the two other endpoints), so the on==off
+   * comparison is not vacuous.
    */
   @Test
-  public void nonAdjacentBothEdgeFilter_otherVClose_matchesNative() {
+  public void nonAdjacentBothEdgeFilter_otherVClose_declines() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
@@ -373,7 +376,7 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V(alice).bothE(knows).has(since, lt 2015).otherV()",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V(aliceId).bothE("knows").has("since", P.lt(2015)).otherV());
   }
 

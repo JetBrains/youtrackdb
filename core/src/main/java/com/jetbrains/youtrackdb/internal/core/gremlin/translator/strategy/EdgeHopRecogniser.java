@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -52,11 +51,17 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
  *   <li>a {@code has(...)} predicate is one {@link GremlinPredicateAdapter} cannot translate.
  * </ul>
  *
- * <p>A {@code bothE(L).has(...).otherV()} chain closes on {@link EdgeOtherVertexStep} rather than
- * {@link EdgeVertexStep}. MATCH has no {@code otherV} method, so the recogniser maps {@code otherV}
- * to {@code inV}/{@code outV} on the edge-as-node form — {@code inV} for {@code outE}/{@code bothE},
- * {@code outV} for {@code inE} — which returns the endpoint on the far side of the directed edge
- * record when the walk entered from the near side.
+ * <p>An {@code outE(L).has(...).otherV()} or {@code inE(L).has(...).otherV()} chain closes on {@link
+ * EdgeOtherVertexStep} rather than {@link EdgeVertexStep}. MATCH has no {@code otherV} method, so the
+ * recogniser maps {@code otherV} to {@code inV} for {@code outE} and {@code outV} for {@code inE},
+ * which returns the endpoint on the far side of the directed edge record when the walk entered from
+ * the near side. A {@code bothE(L).has(...).otherV()} chain instead declines to native: the only
+ * MATCH rewrite excludes the source vertex via {@code @rid <> source}, which wrongly drops self-loop
+ * endpoints, so it is runtime-incorrect.
+ *
+ * <p>A user {@code as(...)} label on the edge step also declines: the label would bind to the
+ * edge-as-node vertex alias, so a later {@code select(L)} would return the target vertex rather than
+ * the {@link org.apache.tinkerpop.gremlin.structure.Edge} the traversal produced.
  *
  * <p>A decline discards the whole walk, so the recogniser contributes only after the shape and every
  * payload validate; the exact order is otherwise free.
@@ -85,6 +90,13 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // terminator's alias. A null here would mean an edge step reached the walker before any node was
     // pinned — decline rather than build a dangling edge.
     if (ctx.boundaryAlias() == null) {
+      return Outcome.DECLINE;
+    }
+    // A user as() label on the edge step binds to the edge-as-node vertex alias via bindStepLabels,
+    // so a later select(L) returns the target vertex (YTDBVertexImpl) rather than the Edge the
+    // traversal actually produced. That is runtime-incorrect, so decline the whole traversal to
+    // native and let the on==off invariant hold.
+    if (!edgeStep.getLabels().isEmpty()) {
       return Outcome.DECLINE;
     }
     // Resolve the edge-label arity — one rule shared with VertexHopRecogniser (see
@@ -118,8 +130,10 @@ final class EdgeHopRecogniser implements StepRecogniser {
       } else if (edgeDirection == MatchPatternBuilder.Direction.IN) {
         closingVertexDir = MatchPatternBuilder.Direction.OUT;
       } else {
-        // bothE: bothV() then drop the walk source on the far alias.
-        closingVertexDir = MatchPatternBuilder.Direction.BOTH;
+        // bothE(...).otherV(): the BOTH rewrite would drop the walk source on the far alias via an
+        // @rid <> source exclusion, which wrongly removes self-loop endpoints (where the far vertex
+        // IS the source). No cheap correct rewrite exists here, so decline to native.
+        return Outcome.DECLINE;
       }
     }
 
@@ -181,15 +195,6 @@ final class EdgeHopRecogniser implements StepRecogniser {
     if (merged != null) {
       edgeWhere = WHERE.wrap(merged);
       ctx.putEdgeFilter(edgeAlias, edgeWhere);
-    }
-
-    if (closingStep instanceof EdgeOtherVertexStep
-        && edgeDirection == MatchPatternBuilder.Direction.BOTH) {
-      var targetRid = WHERE.boundaryRidExpression();
-      var sourceRid = WHERE.matchedAccess(fromAlias, "@rid");
-      var excludeSource =
-          WHERE.compareExpressions(targetRid, new SQLNeOperator(-1), sourceRid);
-      ctx.putAliasFilter(targetAlias, WHERE.wrap(excludeSource));
     }
 
     GremlinPatternAssembler.appendEdgeAsNode(

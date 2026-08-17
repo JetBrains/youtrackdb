@@ -402,12 +402,17 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
-   * Shape 13 — IS3 whole translates and returns each friend with the friendship date in {@code
-   * firstName} order.
+   * Shape IS3 whole declines on both arms and returns each friend with the friendship date in
+   * {@code firstName} order either way.
+   *
+   * <p>The {@code as("k")} label on {@code outE(KNOWS)} would bind to the edge-as-node vertex alias,
+   * so {@code select("k").by("creationDate")} would read the target vertex rather than the
+   * friendship edge — runtime-incorrect, so the shape falls back to native on both arms. Failing
+   * here means a recogniser has started claiming an edge-alias select again.
    */
   @Test
-  public void is3FriendsWithDatesTranslatesOnAndRunNativeOffInSortedOrder() {
-    assertTranslatesInOrder(
+  public void is3FriendsWithDatesDeclinesOnBothArmsInSortedOrder() {
+    assertDeclinesInOrder(
         "IS3 full: …outE(KNOWS).as(k).inV().as(friend).order().by(firstName)"
             + ".select(k, friend).by(creationDate).by(firstName)",
         t -> GremlinTraversalShapes.is3FriendsWithDates(t, ALICE),

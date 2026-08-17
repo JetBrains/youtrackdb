@@ -103,15 +103,16 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Multi-label {@code hasLabel("Person", "Employee")} translates to {@code @class IN [Person,
-   * Employee]} without re-typing to a single class. Stays on the generic {@code V} root.
+   * Non-polymorphic multi-label {@code hasLabel("Person", "Employee")} translates to {@code @class IN
+   * [Person, Employee]} without re-typing to a single class. Stays on the generic {@code V} root.
+   * Leaf-exact {@code @class IN} mirrors native non-polymorphic {@code hasLabel} exactly.
    */
   @Test
-  public void hasLabelMultiLabel_contributesClassInFilter() {
+  public void hasLabelMultiLabelNonPolymorphic_contributesClassInFilter() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
-    var ctx = contextWithStartBoundary(true, session.getSchema());
+    var ctx = contextWithStartBoundary(false, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
     var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
@@ -123,6 +124,27 @@ public class HasStepRecogniserTest extends GraphBaseTest {
     assertThat(renderBoundaryFilter(ctx))
         .as("multi-label hasLabel contributes @class IN [...]")
         .contains("@class IN");
+  }
+
+  /**
+   * Polymorphic multi-label {@code hasLabel("Person", "Employee")} declines: {@code @class IN [...]}
+   * is leaf-exact and drops polymorphic subclasses of the listed classes, under-matching native
+   * hierarchy-aware {@code hasLabel}. No cheap subclass expansion exists here, so it falls back to
+   * native. The recogniser contributes nothing.
+   */
+  @Test
+  public void hasLabelMultiLabelPolymorphic_declines() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
+    var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
+    var ctx = contextWithStartBoundary(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("polymorphic multi-label hasLabel must decline (subclass undercount)")
+        .isEqualTo(Outcome.DECLINE);
+    assertContributedNothing(ctx);
   }
 
   /**

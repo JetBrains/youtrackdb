@@ -49,8 +49,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * harness was first written against has since closed: a user {@code as(...)} label parked on a
  * filter step now binds, so IS1's full projection translates ({@link #is1FullProfile}) and the
  * narrower {@link #is1PersonCityProfile} stays beside it as the shorter projection rather than as
- * its translating half. IS3's edge-alias projection ({@link #is3FriendsWithDates}) translates now
- * that {@code outE(L).as(k).inV()} binds the edge alias through the edge-as-node form.
+ * its translating half. IS3's edge-alias projection ({@link #is3FriendsWithDates}) instead
+ * <em>declines</em>: an {@code as(k)} label on {@code outE(L)} would bind to the edge-as-node
+ * vertex alias, so {@code select("k")} would return the target vertex rather than the edge, so the
+ * shape falls back to native on both arms.
  *
  * <p>The load-bearing translating shape is {@link #personByRid}. A RID-bearing walk sets
  * {@code cacheEligible=false} in the translator, so translator-on compiles an uncached MATCH plan
@@ -284,12 +286,20 @@ public final class GremlinTraversalShapes {
         .groupCount().by("lastName");
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Declining shapes: no boundary step on either arm. The A/B prices the decline path and reserves
+  // a baseline for the day the shape starts translating. Each asserts requireNotTranslated on both
+  // arms, so it cannot drift into the translating group unnoticed.
+  // ---------------------------------------------------------------------------------------------
+
   /**
-   * Shape 13 — IS3 whole: edge and friend columns through {@code select("k", "friend")}.
+   * Declining shape 0 — IS3 whole: edge and friend columns through {@code select("k", "friend")}.
    *
    * <p>Same SQL as {@link #is3FriendsWithNames}, but projects the friendship edge's {@code
-   * creationDate} via a user {@code as("k")} label on {@code outE(KNOWS)}. The edge-as-node IR
-   * binds {@code k} to the minted edge alias so {@code select("k").by("creationDate")} translates.
+   * creationDate} via a user {@code as("k")} label on {@code outE(KNOWS)}. That edge {@code as(k)}
+   * label declines: it would bind to the edge-as-node <em>vertex</em> alias, so {@code
+   * select("k").by("creationDate")} would read the target vertex rather than the friendship edge.
+   * Runtime-incorrect, so the whole shape falls back to native on both arms.
    */
   public static YTDBGraphTraversal<Vertex, Map<String, Object>> is3FriendsWithDates(
       YTDBGraphTraversalSource g, long personId) {
@@ -301,12 +311,6 @@ public final class GremlinTraversalShapes {
         .order().by("firstName")
         .select("k", "friend").by("creationDate").by("firstName");
   }
-
-  // ---------------------------------------------------------------------------------------------
-  // Declining shapes: no boundary step on either arm. The A/B prices the decline path and reserves
-  // a baseline for the day the shape starts translating. Each asserts requireNotTranslated on both
-  // arms, so it cannot drift into the translating group unnoticed.
-  // ---------------------------------------------------------------------------------------------
 
   /**
    * Declining shape 1 — {@code order().by(key)} with {@code range} as paging.

@@ -295,18 +295,37 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * {@code bothE(L).has(...).otherV()} closes on {@link EdgeOtherVertexStep} and translates via
-   * edge-as-node {@code bothV()} plus a target {@code @rid <> source} filter.
+   * {@code bothE(L).has(...).otherV()} closes on {@link EdgeOtherVertexStep} but declines: the only
+   * MATCH rewrite excludes the source vertex via {@code @rid <> source}, which wrongly drops
+   * self-loop endpoints, so it is runtime-incorrect and must fall back to native.
    */
   @Test
-  public void otherVClose_isAccepted() {
+  public void bothEOtherVClose_declines() {
     var admin = graph.traversal().V().bothE("knows").has("w", 1).otherV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(outcome).as("bothE.otherV must decline (self-loop endpoints)")
+        .isEqualTo(Outcome.DECLINE);
+    assertContributedNothing(ctx);
+  }
+
+  /**
+   * {@code outE(L).has(...).otherV()} closes on {@link EdgeOtherVertexStep} and stays accepted: with
+   * a directed edge, {@code otherV} maps cleanly to {@code inV} on the edge-as-node form.
+   */
+  @Test
+  public void outEOtherVClose_isAccepted() {
+    var admin = graph.traversal().V().outE("knows").has("w", 1).otherV().asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("outE.otherV maps otherV→inV and is accepted")
+        .isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.boundaryAlias).isNotEqualTo(BOUNDARY_ALIAS);
   }
 
@@ -365,19 +384,21 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A user {@code as(...)} label on the edge step binds to the minted edge alias so later {@code
-   * select("e")} can project edge properties.
+   * A user {@code as(...)} label on the edge step declines: the label would bind to the edge-as-node
+   * <em>vertex</em> alias, so a later {@code select("e")} would return the target vertex
+   * ({@code YTDBVertexImpl}) rather than the {@code Edge} the traversal produced. Runtime-incorrect,
+   * so it falls back to native.
    */
   @Test
-  public void edgeStepWithAsLabel_bindsEdgeAlias() {
+  public void edgeStepWithAsLabel_declines() {
     var admin = graph.traversal().V().outE("knows").as("e").has("w", 1).inV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.resolveUserLabel("e")).isNotNull();
+    assertThat(outcome).as("an edge-step as() label must decline").isEqualTo(Outcome.DECLINE);
+    assertContributedNothing(ctx);
   }
 
   /** A multi-label edge ({@code outE("knows", "likes")}) declines — multi-label is out of scope. */
