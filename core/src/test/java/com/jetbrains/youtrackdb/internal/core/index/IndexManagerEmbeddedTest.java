@@ -118,7 +118,7 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
         replacement.getLifecycleCell().get());
   }
 
-  /** A successful drop removes the descriptor's registry entry without mutating its retained cell. */
+  /** A successful drop removes the registry entry and releases the handle's lifecycle cell. */
   @Test
   public void dropRemovesLifecycleRegistryEntry() {
     var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
@@ -131,8 +131,8 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     var storage = (AbstractStorage) session.getStorage();
     assertNull("the dropped descriptor must leave the storage registry",
         storage.getIndexLifecycle(descriptorIdentity));
-    assertSame("an already retained cell remains valid for old holders", cell,
-        index.getLifecycleCell());
+    assertNull("the detached handle must release lifecycle ownership", index.getLifecycleCell());
+    assertNotNull("a previously retained cell remains a valid standalone object", cell);
   }
 
   // -----------------------------------------------------------------------
