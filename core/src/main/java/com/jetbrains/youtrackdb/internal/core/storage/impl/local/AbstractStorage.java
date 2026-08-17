@@ -74,6 +74,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
@@ -3860,6 +3861,14 @@ public abstract class AbstractStorage
    * @return the captured dropped engine (slot + durable data) for the failure-path reconstruction.
    */
   public DroppedIndexEngine deleteIndexEngineInCommitWindow(
+      final int externalIndexId, @Nullable IndexEngineReference expectedReference,
+      final AtomicOperation atomicOperation)
+      throws IOException, InvalidIndexEngineIdException {
+    validateIndexEngineReference(externalIndexId, expectedReference);
+    return deleteIndexEngineInCommitWindow(externalIndexId, atomicOperation);
+  }
+
+  public DroppedIndexEngine deleteIndexEngineInCommitWindow(
       final int externalIndexId, final AtomicOperation atomicOperation)
       throws IOException, InvalidIndexEngineIdException {
     assert isCommitWindowActive()
@@ -4281,6 +4290,9 @@ public abstract class AbstractStorage
       var index = changes.getIndex();
       try {
         if (changes.cleared) {
+          final var expectedReference =
+              index instanceof IndexAbstract handle ? handle.getEngineReference() : null;
+          validateIndexEngineReference(index.getIndexId(), expectedReference);
           doClearIndex(atomicOperation, index.getIndexId());
         }
 
@@ -5081,6 +5093,13 @@ public abstract class AbstractStorage
     return keySerializer;
   }
 
+  public void deleteIndexEngine(
+      int indexId, @Nullable IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
+    validateIndexEngineReference(indexId, expectedReference);
+    deleteIndexEngine(indexId);
+  }
+
   public void deleteIndexEngine(int indexId)
       throws InvalidIndexEngineIdException {
     final var internalIndexId = extractInternalId(indexId);
@@ -5143,11 +5162,25 @@ public abstract class AbstractStorage
         .deleteIndexEngine(atomicOperation, engine.getName());
   }
 
+  private void validateIndexEngineReference(
+      int externalIndexId, @Nullable IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
+    engineForDereference(extractInternalId(externalIndexId), expectedReference);
+  }
+
   private void checkIndexId(final int indexId) throws InvalidIndexEngineIdException {
     if (indexId < 0 || indexId >= indexEngines.size() || indexEngines.get(indexId) == null) {
       throw new InvalidIndexEngineIdException(
           "Engine with id " + indexId + " is not registered inside of storage");
     }
+  }
+
+  public boolean removeKeyFromIndex(
+      final int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    validateIndexEngineReference(indexId, expectedReference);
+    return removeKeyFromIndex(indexId, key, atomicOperation);
   }
 
   public boolean removeKeyFromIndex(final int indexId, final Object key,
@@ -5194,6 +5227,16 @@ public abstract class AbstractStorage
     }
   }
 
+  public void clearIndex(
+      final int indexId, @Nullable IndexEngineReference expectedReference) {
+    try {
+      getIndexEngine(indexId, expectedReference);
+    } catch (InvalidIndexEngineIdException exception) {
+      throw new IllegalStateException(exception);
+    }
+    clearIndex(indexId);
+  }
+
   public void clearIndex(final int indexId) {
     try {
       final var internalIndexId = extractInternalId(indexId);
@@ -5235,7 +5278,16 @@ public abstract class AbstractStorage
     }
   }
 
-  public Stream<RID> getIndexValues(int indexId, final Object key, AtomicOperation atomicOperation)
+  public Stream<RID> getIndexValues(
+      int indexId, final Object key, AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    return getIndexValues(
+        indexId, getIndexEngineReference(indexId), key, atomicOperation);
+  }
+
+  public Stream<RID> getIndexValues(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     if (engineAPIVersion != 1) {
@@ -5250,7 +5302,7 @@ public abstract class AbstractStorage
       try {
         checkOpennessAndMigration();
 
-        return doGetIndexValues(indexId, key, atomicOperation);
+        return doGetIndexValues(indexId, expectedReference, key, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -5265,12 +5317,11 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RID> doGetIndexValues(final int indexId, final Object key,
-      AtomicOperation atomicOperation)
+  private Stream<RID> doGetIndexValues(
+      final int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
-    checkIndexId(indexId);
-
-    final var engine = indexEngines.get(indexId);
+    final var engine = engineForDereference(indexId, expectedReference);
     assert indexId == engine.getId();
 
     return ((V1IndexEngine) engine).get(key, atomicOperation);
@@ -5412,6 +5463,14 @@ public abstract class AbstractStorage
   }
 
   public <T> void callIndexEngine(
+      final boolean readOperation, int indexId,
+      @Nullable IndexEngineReference expectedReference, final IndexEngineCallback<T> callback)
+      throws InvalidIndexEngineIdException {
+    validateIndexEngineReference(indexId, expectedReference);
+    callIndexEngine(readOperation, indexId, callback);
+  }
+
+  public <T> void callIndexEngine(
       final boolean readOperation, int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
@@ -5463,6 +5522,14 @@ public abstract class AbstractStorage
     callback.callEngine(engine);
   }
 
+  public void putRidIndexEntry(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, final RID value, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    validateIndexEngineReference(indexId, expectedReference);
+    putRidIndexEntry(indexId, key, value, atomicOperation);
+  }
+
   public void putRidIndexEntry(int indexId, final Object key, final RID value,
       @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
@@ -5497,6 +5564,14 @@ public abstract class AbstractStorage
     assert engine.getId() == indexId;
 
     ((V1IndexEngine) engine).put(atomicOperation, key, value);
+  }
+
+  public boolean removeRidIndexEntry(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, final RID value, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    validateIndexEngineReference(indexId, expectedReference);
+    return removeRidIndexEntry(indexId, key, value, atomicOperation);
   }
 
   public boolean removeRidIndexEntry(int indexId, final Object key, final RID value,
@@ -5547,6 +5622,19 @@ public abstract class AbstractStorage
    *     in-place or the validator rejected the operation (IGNORE).
    * @see IndexEngineValidator#validate(Object, Object, Object)
    */
+  @SuppressWarnings("UnusedReturnValue")
+  public boolean validatedPutIndexValue(
+      final int indexId,
+      @Nullable IndexEngineReference expectedReference,
+      final Object key,
+      final RID value,
+      final IndexEngineValidator<Object, RID> validator,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    validateIndexEngineReference(indexId, expectedReference);
+    return validatedPutIndexValue(indexId, key, value, validator, atomicOperation);
+  }
+
   @SuppressWarnings("UnusedReturnValue")
   public boolean validatedPutIndexValue(
       final int indexId,
@@ -5602,6 +5690,18 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesBetween(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object rangeFrom, final boolean fromInclusive,
+      final Object rangeTo, final boolean toInclusive, final boolean ascSortOrder,
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    getIndexEngine(indexId, expectedReference);
+    return iterateIndexEntriesBetween(
+        indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer,
+        atomicOperation);
+  }
+
+  public Stream<RawPair<Object, RID>> iterateIndexEntriesBetween(
       int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
@@ -5653,6 +5753,16 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesMajor(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object fromKey, final boolean isInclusive, final boolean ascSortOrder,
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    getIndexEngine(indexId, expectedReference);
+    return iterateIndexEntriesMajor(
+        indexId, fromKey, isInclusive, ascSortOrder, transformer, atomicOperation);
+  }
+
+  public Stream<RawPair<Object, RID>> iterateIndexEntriesMajor(
       int indexId,
       final Object fromKey,
       final boolean isInclusive,
@@ -5697,6 +5807,16 @@ public abstract class AbstractStorage
 
     return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, transformer,
         atomicOperation);
+  }
+
+  public Stream<RawPair<Object, RID>> iterateIndexEntriesMinor(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object toKey, final boolean isInclusive, final boolean ascSortOrder,
+      final IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    getIndexEngine(indexId, expectedReference);
+    return iterateIndexEntriesMinor(
+        indexId, toKey, isInclusive, ascSortOrder, transformer, atomicOperation);
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesMinor(
@@ -5746,6 +5866,15 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> getIndexStream(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final IndexEngineValuesTransformer valuesTransformer,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    getIndexEngine(indexId, expectedReference);
+    return getIndexStream(indexId, valuesTransformer, atomicOperation);
+  }
+
+  public Stream<RawPair<Object, RID>> getIndexStream(
       int indexId, final IndexEngineValuesTransformer valuesTransformer,
       @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
@@ -5779,6 +5908,15 @@ public abstract class AbstractStorage
     assert indexId == engine.getId();
 
     return engine.stream(valuesTransformer, atomicOperation);
+  }
+
+  public Stream<RawPair<Object, RID>> getIndexDescStream(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final IndexEngineValuesTransformer valuesTransformer,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    getIndexEngine(indexId, expectedReference);
+    return getIndexDescStream(indexId, valuesTransformer, atomicOperation);
   }
 
   public Stream<RawPair<Object, RID>> getIndexDescStream(
@@ -5819,6 +5957,14 @@ public abstract class AbstractStorage
     return engine.descStream(valuesTransformer, atomicOperation);
   }
 
+  public Stream<Object> getIndexKeyStream(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    getIndexEngine(indexId, expectedReference);
+    return getIndexKeyStream(indexId, atomicOperation);
+  }
+
   public Stream<Object> getIndexKeyStream(int indexId, @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
@@ -5851,6 +5997,14 @@ public abstract class AbstractStorage
     assert indexId == engine.getId();
 
     return engine.keyStream(atomicOperation);
+  }
+
+  public long getIndexSize(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    getIndexEngine(indexId, expectedReference);
+    return getIndexSize(indexId, transformer, atomicOperation);
   }
 
   public long getIndexSize(int indexId, final IndexEngineValuesTransformer transformer,

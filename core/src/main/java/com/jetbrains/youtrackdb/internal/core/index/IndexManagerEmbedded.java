@@ -1525,8 +1525,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         final var engineId = droppedIndex.getIndexId();
         if (engineId >= 0) {
           final var droppedEngine =
-              ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(engineId,
-                  atomicOperation);
+              ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                  engineId, ((IndexAbstract) droppedIndex).getEngineReference(), atomicOperation);
           // Capture the dropped engine so the failure path can reconstruct it: the delete tore the
           // engine out of the in-memory registry synchronously, and a failed commit must put it back.
           plan.droppedEngines().add(droppedEngine);
