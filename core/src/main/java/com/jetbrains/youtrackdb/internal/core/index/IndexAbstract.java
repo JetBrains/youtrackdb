@@ -785,6 +785,12 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  void removeLifecycleRegistrationIfDetached() {
+    if (!state().hasEngine()) {
+      removeLifecycleRegistration();
+    }
+  }
+
   private final class DescriptorIdentityListener implements IdentityChangeListener {
 
     @Override

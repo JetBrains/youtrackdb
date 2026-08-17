@@ -1194,22 +1194,25 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
 
     final IndexAbstract[] droppedIndex = new IndexAbstract[1];
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        final var idx = indexes.get(iIndexName);
-        if (idx != null) {
-          removeClassPropertyIndexInternal(idx);
-          idx.delete(transaction);
-          indexes.remove(iIndexName);
-          droppedIndex[0] = (IndexAbstract) idx;
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          final var idx = indexes.get(iIndexName);
+          if (idx != null) {
+            droppedIndex[0] = (IndexAbstract) idx;
+            removeClassPropertyIndexInternal(idx);
+            idx.delete(transaction);
+            indexes.remove(iIndexName);
+          }
+        } finally {
+          releaseExclusiveLock(session, true);
         }
-      } finally {
-        releaseExclusiveLock(session, true);
+      });
+    } finally {
+      if (droppedIndex[0] != null) {
+        droppedIndex[0].removeLifecycleRegistrationIfDetached();
       }
-    });
-    if (droppedIndex[0] != null) {
-      droppedIndex[0].removeLifecycleRegistration();
     }
   }
 
