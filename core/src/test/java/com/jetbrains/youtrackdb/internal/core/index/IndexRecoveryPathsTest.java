@@ -152,8 +152,9 @@ public class IndexRecoveryPathsTest {
     for (var path : paths) {
       var recoveringFixture = fixture(factory, path.storageMethod());
       path.operation().invoke(recoveringFixture);
-      assertEquals(path.name() + " must install the owner-resolved identifier",
-          VALID_IDENTIFIER, recoveringFixture.index.getIndexId());
+      final var expectedIdentifier = path.name().equals("doDelete") ? -1 : VALID_IDENTIFIER;
+      assertEquals(path.name() + " must publish its final carrier shape",
+          expectedIdentifier, recoveringFixture.index.getIndexId());
 
       var foreignFixture = fixture(factory, path.storageMethod());
       foreignFixture.index.setHandleStateForTest(

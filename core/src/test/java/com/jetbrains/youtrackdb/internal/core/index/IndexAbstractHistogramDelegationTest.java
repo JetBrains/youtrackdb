@@ -52,6 +52,12 @@ public class IndexAbstractHistogramDelegationTest {
   /** Sets the engine identifier used by the delegation fixture. */
   private void setIndexId(int indexId) {
     index.setEngineIdentifierForTest(indexId);
+    try {
+      when(storage.getIndexEngine(indexId, null))
+          .thenAnswer(invocation -> storage.getIndexEngine(indexId));
+    } catch (InvalidIndexEngineIdException exception) {
+      throw new AssertionError(exception);
+    }
   }
 
   /** Sets the descriptor identity needed for owner-bound stale-engine recovery. */
@@ -140,6 +146,7 @@ public class IndexAbstractHistogramDelegationTest {
     when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
         .thenReturn(new AbstractStorage.ResolvedIndexEngine(7, null));
     when(storage.getIndexEngine(7)).thenReturn(btreeEngine);
+    when(storage.getIndexEngine(7, null)).thenReturn(btreeEngine);
 
     // When
     var result = index.getStatistics(session);
@@ -213,6 +220,7 @@ public class IndexAbstractHistogramDelegationTest {
     when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
         .thenReturn(new AbstractStorage.ResolvedIndexEngine(8, null));
     when(storage.getIndexEngine(8)).thenReturn(btreeEngine);
+    when(storage.getIndexEngine(8, null)).thenReturn(btreeEngine);
 
     // When
     var result = index.getHistogram(session);
@@ -310,6 +318,7 @@ public class IndexAbstractHistogramDelegationTest {
     when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
         .thenReturn(new AbstractStorage.ResolvedIndexEngine(9, null));
     when(storage.getIndexEngine(9)).thenReturn(btreeEngine);
+    when(storage.getIndexEngine(9, null)).thenReturn(btreeEngine);
 
     // When
     var result = index.analyzeHistogram(session);

@@ -948,7 +948,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
+        var engine = storage.getIndexEngine(state().engineIdentifier());
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           var mgr = btreeEngine.getHistogramManager();
           if (mgr != null) {
@@ -983,7 +983,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
+        var engine = storage.getIndexEngine(state().engineIdentifier());
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           if (btreeEngine.getHistogramManager() != null) {
             try {
@@ -1163,6 +1163,12 @@ public abstract class IndexAbstract implements Index {
   }
 
   protected void doDelete(FrontendTransaction transaction) {
+    final var initial = state();
+    if (!initial.hasEngine()) {
+      isNeverBuilt(initial);
+      return;
+    }
+
     boolean recovered = false;
     while (true) {
       try {
