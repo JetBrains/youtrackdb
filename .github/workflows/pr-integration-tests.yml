@@ -145,6 +145,11 @@ jobs:
           architecture: x64
           overwrite-settings: false
 
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
       - name: Run Maven Test
         id: tests
         run: >-
@@ -155,7 +160,7 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
-      # This gate provides the authoritative pass or fail signal.
+      # This gate provides the primary pass or fail signal.
       - name: Gate Integration Test Results
         if: success()
         run: python3 .github/scripts/test-failure-gate.py --require failsafe
@@ -205,7 +210,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # This action only reports test results. The gate above decides the job result.
+      # The publisher remains a second layer. It can also fail the job.
       # Keep job_summary enabled. Setting it false makes fork runs exit zero despite failing tests.
       # Upstream issue 789 documents this fork behavior.
       - name: Publish Test Results

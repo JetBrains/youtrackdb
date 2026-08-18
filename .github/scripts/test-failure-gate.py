@@ -57,6 +57,15 @@ def parse_report(path):
             if value < 0:
                 raise ValueError(f"negative {attribute} count '{raw_value}'")
             counts[attribute] = value
+
+        # Report writers normally provide aggregate attributes.
+        # Nested elements keep the gate safe when those aggregates are incomplete.
+        counts["failures"] = max(
+            counts["failures"], sum(1 for _ in suite.iter("failure"))
+        )
+        counts["errors"] = max(
+            counts["errors"], sum(1 for _ in suite.iter("error"))
+        )
         suites.append((suite.get("name") or str(path), counts))
     if not suites:
         raise ValueError("report contains no test suites")
@@ -86,14 +95,19 @@ def main(argv=None):
     failed = False
     failing_suites = []
 
+    reports_by_kind = {
+        kind: sorted(pathlib.Path.cwd().glob(pattern))
+        for kind, pattern in REPORT_PATTERNS.items()
+    }
     for kind in kinds:
-        paths = sorted(pathlib.Path.cwd().glob(REPORT_PATTERNS[kind]))
-        if not paths:
+        if not reports_by_kind[kind]:
             workflow_error(f"No {kind} test reports were found.")
             failed = True
-            continue
 
-        print(f"Found {len(paths)} {kind} report file(s).")
+    # Required kinds control presence checks, while every discovered report controls success.
+    for kind, paths in reports_by_kind.items():
+        if paths:
+            print(f"Found {len(paths)} {kind} report file(s).")
         report_total += len(paths)
         for path in paths:
             try:

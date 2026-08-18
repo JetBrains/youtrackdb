@@ -9,10 +9,12 @@ on:
     paths:
       - '.github/scripts/test-failure-gate.py'
       - '.github/scripts/test-failure-gate-test.py'
+      - '.github/workflows/test-failure-gate-tests.yml'
   pull_request:
     paths:
       - '.github/scripts/test-failure-gate.py'
       - '.github/scripts/test-failure-gate-test.py'
+      - '.github/workflows/test-failure-gate-tests.yml'
   # Allow manual runs after a transient GitHub Actions outage.
   workflow_dispatch: {}
 
