@@ -187,6 +187,35 @@ def test_required_kind_absent():
         check("absent kind annotation identifies failsafe", "::error::No failsafe" in result.stdout)
 
 
+def test_required_kind_skipped_tests_only():
+    """A required kind passes when every declared test is skipped."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_report(
+            root,
+            "failsafe",
+            name="RequiredSkippedSuite",
+            tests=3,
+            skipped=3,
+        )
+        result = run_gate(root, "--require", "failsafe")
+        check("required skipped-only suite exits zero", result.returncode == 0)
+        check("required skipped-only suite prints counts", "3 skipped" in result.stdout)
+
+
+def test_required_kind_with_zero_tests():
+    """A required kind fails when its reports collectively declare zero tests."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_report(root, "failsafe", name="EmptyIntegration", tests=0)
+        result = run_gate(root, "--require", "failsafe")
+        check("required zero-test kind exits non-zero", result.returncode != 0)
+        check(
+            "required zero-test kind emits annotation",
+            "::error::Required failsafe reports contained zero tests." in result.stdout,
+        )
+
+
 def test_skipped_tests_only():
     """A suite containing only skipped tests passes with no failures or errors."""
     with tempfile.TemporaryDirectory() as directory:

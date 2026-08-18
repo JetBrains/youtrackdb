@@ -94,6 +94,8 @@ def main(argv=None):
     suite_total = 0
     failed = False
     failing_suites = []
+    tests_by_kind = {kind: 0 for kind in REPORT_PATTERNS}
+    parse_failed_by_kind = {kind: False for kind in REPORT_PATTERNS}
 
     reports_by_kind = {
         kind: sorted(pathlib.Path.cwd().glob(pattern))
@@ -114,17 +116,28 @@ def main(argv=None):
                 suites = parse_report(path)
             except (ET.ParseError, OSError, ValueError) as error:
                 workflow_error(f"Unable to parse {path}: {error}")
+                parse_failed_by_kind[kind] = True
                 failed = True
                 continue
 
             suite_total += len(suites)
             for suite_name, counts in suites:
+                tests_by_kind[kind] += counts["tests"]
                 for attribute, value in counts.items():
                     totals[attribute] += value
                 if counts["failures"] > 0 or counts["errors"] > 0:
                     failing_suites.append(
                         (suite_name, path, counts["failures"], counts["errors"])
                     )
+
+    for kind in kinds:
+        if (
+            reports_by_kind[kind]
+            and not parse_failed_by_kind[kind]
+            and tests_by_kind[kind] == 0
+        ):
+            workflow_error(f"Required {kind} reports contained zero tests.")
+            failed = True
 
     if failing_suites:
         failed = True
