@@ -45,6 +45,13 @@ def write_report(
     return write_raw_report(root, kind, content, name, module_path)
 
 
+def write_it_source(root, module_path, name="ExampleIT.java"):
+    source = root / module_path / "src" / "test" / "java" / name
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("// Integration test fixture.\n", encoding="utf-8")
+    return source
+
+
 def run_gate(root, *arguments):
     return subprocess.run(
         [sys.executable, str(_SCRIPT), *arguments],
@@ -53,6 +60,37 @@ def run_gate(root, *arguments):
         text=True,
         check=False,
     )
+
+
+def test_allowed_missing_module_suppresses_only_named_module():
+    """An allowance suppresses one module while another missing module still fails."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        for module in ("allowed/module", "missing/module", "reporting/module"):
+            write_it_source(root, module)
+        write_report(root, "failsafe", module_path="reporting/module")
+        result = run_gate(
+            root,
+            "--require",
+            "failsafe",
+            "--allow-missing-module",
+            "allowed/module",
+        )
+        check("unallowed missing module exits non-zero", result.returncode != 0)
+        check("unallowed missing module is named", "missing/module" in result.stdout)
+        check("allowed missing module is omitted", "allowed/module" not in result.stdout)
+
+
+def test_both_expected_modules_report():
+    """Two expected modules pass when both produce required reports."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        for module in ("first", "second"):
+            write_it_source(root, module)
+            write_report(root, "failsafe", module_path=module)
+        result = run_gate(root, "--require", "failsafe")
+        check("two reporting expected modules exit zero", result.returncode == 0)
+        check("two reporting modules contribute tests", "2 test(s)" in result.stdout)
 
 
 def test_both_kinds_required_with_one_present():
@@ -90,6 +128,32 @@ def test_deeply_nested_report():
         result = run_gate(root, "--require", "failsafe")
         check("deeply nested report exits zero", result.returncode == 0)
         check("deeply nested report contributes counts", "2 test(s)" in result.stdout)
+
+
+def test_expected_module_missing_non_required_kind():
+    """A missing expected Failsafe module passes when only Surefire is required."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_it_source(root, "integration-only")
+        write_report(root, "surefire", module_path="unit")
+        result = run_gate(root, "--require", "surefire")
+        check("non-required missing module exits zero", result.returncode == 0)
+        check(
+            "non-required kind emits no missing error",
+            "missing for expected" not in result.stdout,
+        )
+
+
+def test_expected_module_without_required_report():
+    """An expected module without required reports fails and names that module."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_it_source(root, "missing")
+        write_it_source(root, "reporting")
+        write_report(root, "failsafe", module_path="reporting")
+        result = run_gate(root, "--require", "failsafe")
+        check("missing expected module exits non-zero", result.returncode != 0)
+        check("missing expected module is named", "expected module(s): missing" in result.stdout)
 
 
 def test_failing_optional_kind():
@@ -142,6 +206,18 @@ def test_missing_attribute_with_nested_error():
         result = run_gate(root, "--require", "surefire")
         check("nested error without count exits non-zero", result.returncode != 0)
         check("nested error is counted", "1 error(s)" in result.stdout)
+
+
+def test_nested_expected_module_identity():
+    """A deeply nested expected module uses its full relative path as identity."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_it_source(root, "plugins/nested/module")
+        write_it_source(root, "reporting")
+        write_report(root, "failsafe", module_path="reporting")
+        result = run_gate(root, "--require", "failsafe")
+        check("nested missing module exits non-zero", result.returncode != 0)
+        check("nested missing module keeps identity", "plugins/nested/module" in result.stdout)
 
 
 def test_non_numeric_attribute_with_nested_error():

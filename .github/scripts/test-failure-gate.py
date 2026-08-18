@@ -11,6 +11,9 @@ REPORT_PATTERNS = {
     "surefire": "**/target/surefire-reports/TEST-*.xml",
 }
 COUNT_ATTRIBUTES = ("tests", "failures", "errors", "skipped")
+EXPECTED_TEST_PATTERNS = {
+    "failsafe": "**/src/test/**/*IT.java",
+}
 
 
 def workflow_error(message):
@@ -43,6 +46,37 @@ def suite_elements(root):
     if root.tag == "testsuites":
         return list(root.iter("testsuite"))
     raise ValueError(f"unexpected root element <{root.tag}>")
+
+
+def module_identity(module_dir, root):
+    """Return a stable module identity relative to the scan root."""
+    relative = module_dir.relative_to(root)
+    return relative.as_posix() if relative.parts else "."
+
+
+def expected_modules(root, kind):
+    """Find modules whose test sources imply reports for a required kind."""
+    pattern = EXPECTED_TEST_PATTERNS.get(kind)
+    if pattern is None:
+        return set()
+
+    modules = set()
+    for test_source in root.glob(pattern):
+        relative = test_source.relative_to(root)
+        parts = relative.parts
+        for index in range(len(parts) - 1):
+            if parts[index : index + 2] == ("src", "test"):
+                modules.add(module_identity(root.joinpath(*parts[:index]), root))
+                break
+    return modules
+
+
+def report_module(path, root):
+    """Identify the module from the directory containing the report target."""
+    target_dir = path.parent.parent
+    if target_dir.name != "target":
+        raise ValueError(f"report is not below a target directory: {path}")
+    return module_identity(target_dir.parent, root)
 
 
 def parse_report(path):
@@ -83,6 +117,13 @@ def main(argv=None):
         metavar="KIND",
         help="Required report kind. Repeat it or use commas for failsafe and surefire.",
     )
+    parser.add_argument(
+        "--allow-missing-module",
+        action="append",
+        default=[],
+        metavar="MODULE",
+        help="Allow one expected module to omit reports. Repeat for more modules.",
+    )
     args = parser.parse_args(argv)
     try:
         kinds = required_kinds(args.require)
@@ -97,8 +138,9 @@ def main(argv=None):
     tests_by_kind = {kind: 0 for kind in REPORT_PATTERNS}
     parse_failed_by_kind = {kind: False for kind in REPORT_PATTERNS}
 
+    root = pathlib.Path.cwd()
     reports_by_kind = {
-        kind: sorted(pathlib.Path.cwd().glob(pattern))
+        kind: sorted(root.glob(pattern))
         for kind, pattern in REPORT_PATTERNS.items()
     }
     for kind in kinds:
@@ -130,6 +172,7 @@ def main(argv=None):
                         (suite_name, path, counts["failures"], counts["errors"])
                     )
 
+    allowed_missing_modules = set(args.allow_missing_module)
     for kind in kinds:
         if (
             reports_by_kind[kind]
@@ -137,6 +180,21 @@ def main(argv=None):
             and tests_by_kind[kind] == 0
         ):
             workflow_error(f"Required {kind} reports contained zero tests.")
+            failed = True
+
+        reporting_modules = {
+            report_module(path, root) for path in reports_by_kind[kind]
+        }
+        missing_modules = sorted(
+            expected_modules(root, kind)
+            - reporting_modules
+            - allowed_missing_modules
+        )
+        if missing_modules:
+            workflow_error(
+                f"Required {kind} reports are missing for expected module(s): "
+                f"{', '.join(missing_modules)}."
+            )
             failed = True
 
     if failing_suites:
