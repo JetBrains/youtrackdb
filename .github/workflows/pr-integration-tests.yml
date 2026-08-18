@@ -155,14 +155,10 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
-      - name: Verify Integration Test Reports
+      # This gate provides the authoritative pass or fail signal.
+      - name: Gate Integration Test Results
         if: success()
-        run: |
-          if ! find . -path '*/target/failsafe-reports/TEST-*.xml' -type f -print -quit \
-              | grep -q .; then
-            echo "::error::No Failsafe integration test report was produced."
-            exit 1
-          fi
+        run: python3 .github/scripts/test-failure-gate.py --require failsafe
 
       - name: Print VMLens Data Race Report
         if: always()
@@ -209,8 +205,11 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # This action only reports test results. The gate above decides the job result.
+      # Keep job_summary enabled. Setting it false makes fork runs exit zero despite failing tests.
+      # Upstream issue 789 documents this fork behavior.
       - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
         with:
           files: |
