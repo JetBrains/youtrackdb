@@ -335,16 +335,6 @@ public class MatchExecutionPlanner {
   private boolean promoteFilterRidsOnBuild = false;
 
   /**
-   * Snapshot of the explicit pattern-level RID pins ({@code {as: a, rid: #1:2}}),
-   * taken before {@link #promoteStaticRidsFromFilters} folds {@code @rid = ...}
-   * WHERE filters into {@link #aliasPinnedRids}. Index-ordered MATCH gates
-   * single-source mode on this narrower map: an explicit pattern pin guarantees a
-   * single source row, but a promoted {@code @rid} WHERE filter must still route
-   * through FILTERED mode so its plan-time cost check (MIN_LINKBAG) applies.
-   */
-  private Map<String, List<SQLRid>> explicitPatternRids;
-
-  /**
    * Aliases whose class was inferred from edge LINK schema rather than
    * explicitly declared. Inferred aliases must NOT outcompete explicit
    * roots during scheduling — a low-cardinality inferred class can cause
@@ -2235,7 +2225,8 @@ public class MatchExecutionPlanner {
           // edges back into the main plan by not skipping them. Since we already
           // skipped them above, we need to add them now.
           for (var branchEdge : branch.branchEdges()) {
-            addStepsFor(plan, branchEdge, context, prefetchedAliases, first, null, profilingEnabled);
+            addStepsFor(plan, branchEdge, context, prefetchedAliases, first, null,
+                profilingEnabled);
             first = false;
           }
         } else {
