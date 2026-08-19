@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  * The **entry point** step for a MATCH pattern traversal — produces the initial set of
@@ -103,6 +104,11 @@ public class MatchFirstStep extends AbstractExecutionStep {
     if (matchedNodes != null) {
       data = ExecutionStream.resultIterator(matchedNodes.iterator());
     } else {
+      // A step built without a sub-plan is one the planner knows a MatchPrefetchStep feeds. Inside
+      // a hash join's build plan that reasoning does not hold — the build side is materialized
+      // before the upstream prefetch step runs — so those roots keep their own scan.
+      assert executionPlan != null
+          : "no prefetched data and no sub-plan for alias " + alias;
       data = executionPlan.start();
     }
 
@@ -119,6 +125,46 @@ public class MatchFirstStep extends AbstractExecutionStep {
   @Override
   public boolean canBeCached() {
     return executionPlan == null || executionPlan.canBeCached();
+  }
+
+  /**
+   * Exposes the scan sub-plan's steps so plan introspection can see the nested fetch, or an empty
+   * list when this step carries no sub-plan.
+   * <p>
+   * The inherited default reports no children, which hides the sub-plan from every caller that
+   * walks {@link ExecutionStep#getSubSteps()} — {@code EXPLAIN} result documents built by
+   * {@link ExecutionStep#toResult}, and the index-usage scans in the test tree that ask whether a
+   * plan fetches from an index. (No production index-usage scan reads this accessor;
+   * {@code YTDBGraphQuery.usedIndexes} walks top-level steps and {@code getSubExecutionPlans()}
+   * only.) {@link #prettyPrint} already inlines the same sub-plan, so the text rendering was the
+   * only place the nested steps were visible.
+   * <p>
+   * The empty list means the pattern planner built this step without a sub-plan, which it does
+   * for an alias a {@link MatchPrefetchStep} already loads — an alias whose estimated cardinality
+   * is below {@code MatchExecutionPlanner.THRESHOLD} and whose filter does not depend on
+   * {@code $matched}. That step reads the prefetch cache in {@link #internalStart} and would
+   * never start a sub-plan, so its fetch lives under {@code MatchPrefetchStep}, which overrides
+   * this accessor for the same reason. An alias the planner does not prefetch keeps its scan
+   * here. The rule is about how the planner built the step, not about pattern shape: it holds for
+   * an isolated node and for the root of an edge pattern alike.
+   * <p>
+   * A hash join's build plan is the one place a prefetched alias is scanned twice, and the
+   * duplication is in the query rather than in this accessor. {@code HashJoinMatchStep}
+   * materializes its build side before it starts its upstream, so the {@code MatchPrefetchStep}
+   * ahead of it in the chain has not run and its cache does not exist yet; the build root's
+   * sub-plan is the only source of build rows and the planner builds it for every alias. Both
+   * the NOT anti-join and the hash-join branch builders work that way. A caller tallying fetches
+   * through {@code getSubSteps()} therefore reads two class fetches for such an alias, and the
+   * query performs two.
+   * <p>
+   * {@code getSubExecutionPlans()} deliberately keeps its empty default. Callers such as the
+   * index-counting test helpers walk both accessors, so publishing the same nested steps through
+   * both would make them count every nested fetch twice.
+   */
+  @Nonnull
+  @Override
+  public List<ExecutionStep> getSubSteps() {
+    return executionPlan == null ? List.of() : List.copyOf(executionPlan.getSteps());
   }
 
   @Override

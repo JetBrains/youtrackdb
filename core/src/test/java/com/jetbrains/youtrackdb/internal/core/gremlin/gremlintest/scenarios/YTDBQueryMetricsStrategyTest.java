@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.containsStepOfType;
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.findStepOfType;
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -11,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitor
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
@@ -18,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPrefetchStep;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Random;
@@ -187,6 +191,35 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.query).isNull();
   }
 
+  // Regression test for the non-idempotent close(): a started traversal that is closed twice
+  // (toList() closes it once, then the enclosing try-with-resources closes it again) must report
+  // the query to the listener EXACTLY ONCE. Before the `closed` guard was added, close() only
+  // checked `hasStarted`, so the second close re-fired queryFinished(...) and double-counted the
+  // query. Without the fix this asserts callCount == 2 and fails.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void testCloseIsIdempotentAndFiresListenerOnceOnDoubleClose() throws Exception {
+    final var listener = new RememberingListener();
+
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+
+    // toList() drives iteration (hasStarted becomes true) and closes the traversal once;
+    // the try-with-resources on `q` closes it a second time when the block exits.
+    try (var q = g.V().hasLabel("person")) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.query).as("listener should have been notified").isNotNull();
+    assertThat(listener.callCount)
+        .as("close() must fire queryFinished exactly once even when closed twice")
+        .isEqualTo(1);
+  }
+
   // Buggy query listener must not break the traversal or transaction.
   @Test
   @LoadGraphWith(MODERN)
@@ -248,8 +281,14 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .withQueryListener(listener);
 
     g.tx().open();
+    // The prefetch block the assertions below walk is a MATCH artefact, so they only mean what
+    // they say on the translated path. Pinning the kill-switch keeps them pointed there instead
+    // of at whichever source path the current default installs.
+    final var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V().hasLabel("person")) {
       q.toList();
+    } finally {
+      restoreTranslator.run();
     }
     g.tx().commit();
 
@@ -265,6 +304,22 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
         .as("an unindexed scan uses no index step")
         .isFalse();
+    // The label count is under the MATCH prefetch threshold, so the fetch lives in the prefetch
+    // sub-plan -- the negative half of this suite's index-usage answer. The class fetch is
+    // asserted inside that sub-plan, since a contains() on the flat rendering would also hold for
+    // a class fetch rendered beside the prefetch block rather than under it.
+    var prefetch = findStepOfType(listener.planStepsInCallback, MatchPrefetchStep.class);
+    assertThat(prefetch)
+        .as("the person label count is under the prefetch threshold, so the alias is prefetched")
+        .isNotNull();
+    assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromClassExecutionStep.class))
+        .as("the prefetch sub-plan is what scans the class")
+        .isTrue();
+    assertThat(listener.planPrettyInCallback)
+        .as("the rendered plan names the prefetch block and its class fetch, and no index fetch")
+        .contains("+ PREFETCH")
+        .contains("+ FETCH FROM CLASS")
+        .doesNotContain("+ FETCH FROM INDEX");
   }
 
   // An index-backed query must surface a non-null plan whose steps contain a FetchFromIndexStep.
@@ -288,8 +343,13 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .withQueryListener(listener);
 
     g.tx().open();
+    // Pinned to the translated path for the same reason as the unindexed scan above: the prefetch
+    // sub-plan the assertions walk exists only when the traversal compiles to MATCH.
+    final var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V().has("IndexedThing", "code", "abc")) {
       q.toList();
+    } finally {
+      restoreTranslator.run();
     }
     g.tx().commit();
 
@@ -299,13 +359,47 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
         .as("an indexed query uses a FetchFromIndexStep")
         .isTrue();
+    // This is the only Gremlin-level index-usage assertion in the tree, so it pins where the index
+    // step sits, not just that one exists somewhere. One IndexedThing record is under the MATCH
+    // prefetch threshold, so the alias is prefetched and the index fetch belongs in that sub-plan;
+    // an index step reachable only outside it would mean the prefetch itself scans the class. The
+    // structural assertion carries that claim -- two contains() calls on the flat rendering below
+    // would hold just as well for an index step rendered above or beside the prefetch block.
+    var prefetch = findStepOfType(listener.planStepsInCallback, MatchPrefetchStep.class);
+    assertThat(prefetch)
+        .as("one IndexedThing record is under the prefetch threshold, so the alias is prefetched")
+        .isNotNull();
+    assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromIndexStep.class))
+        .as("the prefetch sub-plan is what reads through the index")
+        .isTrue();
+    // Presence of the index step alone would also hold for a plan that reads the index for part
+    // of the predicate and scans the class for the rest, which is not an index-backed query. The
+    // two negative assertions are what make this scenario an index-usage answer rather than an
+    // index-existence one; both siblings above and below carry the same mirror.
+    assertThat(containsStepOfType(prefetch.getSubSteps(), FetchFromClassExecutionStep.class))
+        .as("an indexed alias is read through the index alone, never scanned as well")
+        .isFalse();
+    assertThat(listener.planPrettyInCallback)
+        .as("the rendered plan names the prefetch block and the index fetch, and no class scan")
+        .contains("+ PREFETCH")
+        .contains("+ FETCH FROM INDEX")
+        .doesNotContain("+ FETCH FROM CLASS");
   }
 
-  // A by-id lookup takes the branch that runs no query, so no plan is captured — the listener sees
-  // a null plan even though the callback still fires.
+  // What a by-id lookup surfaces depends on which source path ran, so this scenario pins both arms
+  // of the kill-switch rather than one.
+  //
+  // A BARE g.V(rid) point-lookup now DECLINES to native on both arms: native resolves the record
+  // directly with no query, and translating it would only add an uncached MATCH plan compile with
+  // no join to optimise, so the translator declines it. This scenario therefore pins the new
+  // contract -- both arms run natively and neither captures a plan -- which is trivially on==off.
+  // The pinned-RID fetch promotion the translated path used to exercise (SELECT FROM [#X:Y] rather
+  // than a V scan with an @rid post-filter) is still guarded directly at the SQL layer by
+  // PromoteStaticRidsFromFiltersTest; it no longer applies to a bare Gremlin lookup because that
+  // shape no longer translates. A RID start FOLLOWED by a hop still translates.
   @Test
   @LoadGraphWith(MODERN)
-  public void byIdLookupSurfacesNullPlan() throws Exception {
+  public void bareByIdLookupDeclinesToNativeOnBothArmsAndCapturesNoPlan() throws Exception {
     g.tx().open();
     final var personId = g().V().hasLabel("person").next().id();
     g.tx().commit();
@@ -316,16 +410,40 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .withQueryListener(listener);
 
     g.tx().open();
+    var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V(personId)) {
       q.toList();
+    } finally {
+      restoreTranslator.run();
     }
     g.tx().commit();
 
     assertThat(listener.notified)
-        .as("the listener was notified")
+        .as("the listener was notified on the translator-on path")
         .isTrue();
     assertThat(listener.executionPlan)
-        .as("a by-id lookup runs no query, so no plan is captured")
+        .as("a bare g.V(rid) declines to native even with the translator on, so no plan is captured")
+        .isNull();
+
+    listener.reset();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    restoreTranslator = setTranslatorEnabled(false);
+    try (var q = g().V(personId)) {
+      q.toList();
+    } finally {
+      restoreTranslator.run();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified on the native path too")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("the native by-id path runs no query, so it still captures no plan")
         .isNull();
   }
 
@@ -431,11 +549,19 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .isNull();
   }
 
-  // A downstream limit(0) does NOT prevent the source step from running: the YTDBGraphStep source
-  // supplier executes its query as soon as the traversal is iterated, before RangeGlobalStep can
-  // short-circuit, so a non-null scan plan is still captured. This contradicts the earlier prose
-  // claim that a limit(0) short-circuit leaves the plan null; this test pins the actual observed
-  // behavior for this Gremlin traversal shape.
+  // A downstream limit(0) does not leave the captured plan null. On the translated path there is no
+  // race to describe: RangeGlobalStepRecogniser folds limit(n) into the MATCH walk as SQLLimit and
+  // HasStepRecogniser folds hasLabel, so the whole traversal compiles to one plan behind a single
+  // boundary step. capturedExecutionPlan() reads that step's plan whether or not it yields rows, so
+  // the capture holds at limit(0). Pinning the kill-switch keeps the assertion pointed at that path
+  // rather than at whichever source the current default installs — the native sibling below covers
+  // the other one.
+  //
+  // The boundary-step probe is what makes the pinning mean anything. Both arms capture a plan at
+  // limit(0), for different reasons, and the sibling below asserts exactly the same two facts with
+  // the switch off — so without the probe this scenario would keep passing through the native
+  // mechanism if the shape ever stopped translating, and the two mechanisms the comment above
+  // distinguishes would collapse into one untested claim.
   @Test
   @LoadGraphWith(MODERN)
   public void downstreamLimitZeroStillCapturesSourcePlan() throws Exception {
@@ -445,8 +571,16 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .withQueryListener(listener);
 
     g.tx().open();
+    final var restoreTranslator = setTranslatorEnabled(true);
     try (var q = g().V().hasLabel("person").limit(0)) {
+      var probe = g().V().hasLabel("person").limit(0).asAdmin();
+      probe.applyStrategies();
+      assertThat(TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, probe))
+          .as("this scenario must exercise the MATCH boundary path, not the native source step")
+          .isPresent();
       q.toList();
+    } finally {
+      restoreTranslator.run();
     }
     g.tx().commit();
 
@@ -454,7 +588,38 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .as("the listener was notified")
         .isTrue();
     assertThat(listener.executionPlan)
-        .as("the source step runs before limit(0) short-circuits, so its plan is captured")
+        .as("the boundary step's plan is captured even though limit(0) yields no rows")
+        .isNotNull();
+  }
+
+  // The native counterpart of the scenario above, and the one the ordering prose actually describes:
+  // with the translator off, g.V() installs a YTDBGraphStep whose source supplier runs its query as
+  // soon as the traversal is iterated, before RangeGlobalStep can short-circuit. The plan is
+  // therefore captured for a different reason than on the translated path — the source really did
+  // run — and keeping both pins the two mechanisms separately instead of letting one assertion
+  // stand for whichever path the default happens to select.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void downstreamLimitZeroStillCapturesSourcePlanOnNativePath() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    final var restoreTranslator = setTranslatorEnabled(false);
+    try (var q = g().V().hasLabel("person").limit(0)) {
+      q.toList();
+    } finally {
+      restoreTranslator.run();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("the YTDBGraphStep source supplier runs before limit(0) short-circuits")
         .isNotNull();
   }
 
@@ -485,17 +650,177 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .isNotEmpty();
   }
 
-  // A cache-hit replay of an identical query in the same transaction surfaces a null plan: the
-  // per-transaction result cache re-serves rows from a view whose plan was nulled when the first
-  // (populating) run's stream drained. The first run is fully drained here so the cache entry
-  // closes before the replay. The result cache is off by default, so the test enables it for
-  // the transaction and restores the previous setting afterward.
+  // A cache-hit replay of an identical query in the same transaction surfaces a different plan on
+  // each of the two source paths, so each path gets its own test rather than one test branching on
+  // whichever path the product happens to install. Branching would make both contracts
+  // self-fulfilling: the translator is on by default, so the half-measure leg would never run and a
+  // regression that stopped translating would silently move the assertion instead of failing it.
+  //
+  // Translated path: the Gremlin-to-MATCH boundary owns the compiled plan on the step itself and
+  // never goes through the result cache's plan-nulling path, so the replay still surfaces a plan.
+  // The result cache is off by default, so both tests enable it for the transaction and restore the
+  // previous setting afterward.
   @Test
   @LoadGraphWith(MODERN)
-  public void cacheHitReplaySurfacesNullPlan() throws Exception {
+  public void cacheHitReplayUnderTranslator_keepsCompiledPlan() throws Exception {
+    withResultCacheAndTranslator(
+        true,
+        listener -> {
+          try (var q1 = g().V().hasLabel("person")) {
+            q1.toList(); // populating run — drained so the cache entry closes and nulls its plan
+          }
+          assertThat(listener.executionPlan)
+              .as("the populating run surfaces a non-null plan")
+              .isNotNull();
+
+          var probe = g().V().hasLabel("person").asAdmin();
+          probe.applyStrategies();
+          assertThat(
+              TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, probe))
+              .as("this test must exercise the MATCH boundary path")
+              .isPresent();
+
+          listener.reset();
+          try (var q2 = g().V().hasLabel("person")) {
+            q2.toList(); // replay
+          }
+          g.tx().commit();
+
+          assertThat(listener.notified).as("the listener was notified on the replay").isTrue();
+          assertThat(listener.executionPlan)
+              .as("the MATCH boundary keeps the compiled plan across a TX result-cache replay")
+              .isNotNull();
+        });
+  }
+
+  // Half-measure path: the per-transaction result cache re-serves rows from a view whose plan was
+  // nulled when the first (populating) run's stream drained, so the replay surfaces a null plan.
+  // Reached deterministically by turning the translator kill-switch off.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void cacheHitReplayWithoutTranslator_surfacesNullPlan() throws Exception {
+    withResultCacheAndTranslator(
+        false,
+        listener -> {
+          try (var q1 = g().V().hasLabel("person")) {
+            q1.toList();
+          }
+          assertThat(listener.executionPlan)
+              .as("the populating run surfaces a non-null plan")
+              .isNotNull();
+
+          var probe = g().V().hasLabel("person").asAdmin();
+          probe.applyStrategies();
+          assertThat(TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, probe))
+              .as("this test must exercise the half-measure source path")
+              .isPresent();
+
+          listener.reset();
+          try (var q2 = g().V().hasLabel("person")) {
+            q2.toList();
+          }
+          g.tx().commit();
+
+          assertThat(listener.notified).as("the listener was notified on the replay").isTrue();
+          assertThat(listener.executionPlan)
+              .as("the result-cache view nulls the plan the half-measure source captured")
+              .isNull();
+        });
+  }
+
+  // reset() must re-arm the step's iterator so re-iteration yields the same results. The two source
+  // paths differ in what happens to the retained plan, so each gets its own test: the MATCH boundary
+  // rewinds and keeps its compiled plan, while the half-measure source drops it and re-captures on
+  // the next run. One test branching on which step is installed would pin neither contract.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void resetUnderTranslator_keepsPlanAndReIterationYieldsCorrectResults() {
+    g.tx().open();
+    var restore = setTranslatorEnabled(true);
+    try {
+      final var traversal = g().V().hasLabel("person");
+      final var admin = traversal.asAdmin();
+
+      final var firstRun = traversal.toList();
+      assertThat(firstRun).as("the first run returns the person vertices").isNotEmpty();
+
+      final var matchStep =
+          TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, admin)
+              .orElseThrow(
+                  () -> new AssertionError("this test must exercise the MATCH boundary path"));
+      assertThat(matchStep.getPlan()).as("the first run has a compiled MATCH plan").isNotNull();
+
+      admin.reset();
+      assertThat(matchStep.getPlan())
+          .as("the MATCH boundary keeps its plan across reset()")
+          .isNotNull();
+
+      final var secondRun = traversal.toList();
+      assertThat(secondRun)
+          .as("re-iteration after reset() yields the same correct results")
+          .hasSameSizeAs(firstRun);
+      assertThat(matchStep.getPlan())
+          .as("the MATCH plan is still present after the second run")
+          .isNotNull();
+    } finally {
+      restore.run();
+      g.tx().commit();
+    }
+  }
+
+  @Test
+  @LoadGraphWith(MODERN)
+  public void resetWithoutTranslator_clearsPlanAndReIterationYieldsCorrectResults() {
+    g.tx().open();
+    var restore = setTranslatorEnabled(false);
+    try {
+      final var traversal = g().V().hasLabel("person");
+      final var admin = traversal.asAdmin();
+
+      final var firstRun = traversal.toList();
+      assertThat(firstRun).as("the first run returns the person vertices").isNotEmpty();
+
+      final var graphStep =
+          TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, admin)
+              .orElseThrow(
+                  () -> new AssertionError("this test must exercise the half-measure source path"));
+      assertThat(graphStep.getLastExecutionPlan()).as("the first run captured a plan").isNotNull();
+
+      admin.reset();
+      assertThat(graphStep.getLastExecutionPlan()).as("reset() clears the retained plan").isNull();
+
+      final var secondRun = traversal.toList();
+      assertThat(secondRun)
+          .as("re-iteration after reset() yields the same correct results")
+          .hasSameSizeAs(firstRun);
+      assertThat(graphStep.getLastExecutionPlan())
+          .as("the latest run captured a plan")
+          .isNotNull();
+    } finally {
+      restore.run();
+      g.tx().commit();
+    }
+  }
+
+  /** Body of a cache-hit replay test, run with the TX result cache and a pinned source path. */
+  @FunctionalInterface
+  private interface ReplayBody {
+    void run(RememberingListener listener) throws Exception;
+  }
+
+  /**
+   * Opens a monitored transaction with the TX result cache on and the Gremlin-to-MATCH translator
+   * pinned to {@code translatorEnabled}, runs {@code body}, and restores both settings. Pinning the
+   * kill-switch is what makes each source path reachable deterministically instead of depending on
+   * whichever one the current default installs.
+   */
+  private void withResultCacheAndTranslator(boolean translatorEnabled, ReplayBody body)
+      throws Exception {
     final var cacheWasEnabled =
         GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.getValueAsBoolean();
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    Runnable restoreTranslator = () -> {
+    };
     try {
       final var listener = new RememberingListener();
       ((YTDBTransaction) g.tx())
@@ -503,69 +828,30 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
           .withQueryListener(listener);
 
       g.tx().open();
+      restoreTranslator = setTranslatorEnabled(translatorEnabled);
 
-      try (var q1 = g().V().hasLabel("person")) {
-        q1.toList(); // populating run — fully drained so the cache entry closes and nulls its plan
-      }
-      assertThat(listener.executionPlan)
-          .as("the populating run surfaces a non-null plan")
-          .isNotNull();
-
-      listener.reset();
-
-      try (var q2 = g().V().hasLabel("person")) {
-        q2.toList(); // replay — served from the result cache
-      }
-      g.tx().commit();
-
-      assertThat(listener.notified)
-          .as("the listener was notified on the replay")
-          .isTrue();
-      assertThat(listener.executionPlan)
-          .as("a cache-hit replay surfaces a null plan")
-          .isNull();
+      body.run(listener);
     } finally {
+      restoreTranslator.run();
       GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheWasEnabled);
     }
   }
 
-  // reset() must clear the retained plan and re-arm the step's iterator. This is a distinct test
-  // from a bare post-reset-null check: it re-iterates the traversal and asserts the results are
-  // still correct, which only holds if reset() called super.reset() to re-enable iteration. A
-  // super-less override would leave the step exhausted, so the second run would return no results.
-  @Test
-  @LoadGraphWith(MODERN)
-  public void resetClearsPlanAndReIterationYieldsCorrectResults() {
-    g.tx().open();
-
-    final var traversal = g().V().hasLabel("person");
-    final var admin = traversal.asAdmin();
-
-    final var firstRun = traversal.toList();
-    assertThat(firstRun)
-        .as("the first run returns the person vertices")
-        .isNotEmpty();
-
-    final var graphStep =
-        TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, admin).orElseThrow();
-    assertThat(graphStep.getLastExecutionPlan())
-        .as("the first run captured a plan")
-        .isNotNull();
-
-    admin.reset();
-    assertThat(graphStep.getLastExecutionPlan())
-        .as("reset() clears the retained plan")
-        .isNull();
-
-    final var secondRun = traversal.toList();
-    assertThat(secondRun)
-        .as("re-iteration after reset() yields the same correct results")
-        .hasSameSizeAs(firstRun);
-    assertThat(graphStep.getLastExecutionPlan())
-        .as("the latest run captured a plan")
-        .isNotNull();
-
-    g.tx().commit();
+  /**
+   * Sets the translator kill-switch on the active session and returns the action that restores the
+   * previous value. The strategy reads the flag per session, so the session's own configuration is
+   * the one that has to change.
+   */
+  private Runnable setTranslatorEnabled(boolean enabled) {
+    var configuration =
+        ((YTDBTransaction) g.tx()).getDatabaseSession().getConfiguration();
+    var previous =
+        configuration.getValueAsBoolean(
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    configuration.setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    return () -> configuration.setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, previous);
   }
 
   @SuppressWarnings({"unchecked", "resource"})
@@ -1413,6 +1699,9 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     String transactionTrackingId;
     long startedAtMillis;
     long executionTimeNanos;
+    // Counts every queryFinished invocation. Existing tests assert the last captured value;
+    // the double-close regression test asserts this count equals exactly 1.
+    int callCount;
 
     // Set true whenever queryFinished ran, so a test can tell "callback fired but plan was null"
     // apart from "callback never fired".
@@ -1430,6 +1719,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         long startedAtMillis,
         long executionTimeNanos) {
 
+      this.callCount++;
       this.startedAtMillis = startedAtMillis;
       this.executionTimeNanos = executionTimeNanos;
       this.query = queryDetails.getQuery();
@@ -1453,22 +1743,8 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       executionPlan = null;
       planStepsInCallback = null;
       planPrettyInCallback = null;
+      callCount = 0;
     }
-  }
-
-  /// Recursively scans an execution plan's steps (and their sub-steps) for a step of the given
-  /// type. A [FetchFromIndexStep] marks the query as index-backed; a [FetchFromClassExecutionStep]
-  /// marks it as a full-class scan.
-  private static boolean containsStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
-    for (var step : steps) {
-      if (stepType.isInstance(step)) {
-        return true;
-      }
-      if (containsStepOfType(step.getSubSteps(), stepType)) {
-        return true;
-      }
-    }
-    return false;
   }
 
 }

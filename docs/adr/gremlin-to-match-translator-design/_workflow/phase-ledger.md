@@ -1,0 +1,54 @@
+[2026-07-01T13:04Z] [ctx=info] phase=C track=2 tier=full substate=steps-partial
+[2026-07-02T00:50Z] [ctx=warning] phase=C track=2 tier=full substate=steps-done-review-pending
+[2026-07-08T11:10Z] [ctx=warning] phase=C track=2 tier=full substate=review-done-track-open
+[2026-07-08T11:32Z] [ctx=safe] track=3 substate=decomposition-pending
+[2026-07-08T12:30Z] [ctx=info] phase=C track=3 reconciled_tag=high substate=steps-partial
+[2026-07-08T22:12Z] [ctx=info] phase=C track=3 reconciled_tag=high substate=steps-done-review-pending
+[2026-07-08T23:15Z] [ctx=info] phase=C track=3 reconciled_tag=high substate=review-done-track-open
+[2026-07-15T08:41Z] [ctx=safe] track=4 substate=decomposition-pending
+[2026-07-15T12:23Z] [ctx=safe] phase=0 substate=steps-partial
+[2026-07-15T13:31Z] [ctx=warning] phase=A
+[2026-07-15T15:33Z] [ctx=info] phase=C track=4 reconciled_tag=high substate=steps-partial
+[2026-07-16T14:24Z] [ctx=safe] phase=C track=4 reconciled_tag=high substate=steps-done-review-pending
+[2026-07-20T14:23Z] [ctx=info] phase=C track=4 reconciled_tag=high substate=review-done-track-open
+[2026-07-20T14:23Z] [ctx=info] phase=C track=4 reconciled_tag=high substate=track-complete
+[2026-07-20T14:23Z] [ctx=info] track=5 substate=decomposition-pending
+[2026-07-20T14:50Z] [ctx=info] phase=A track=5 reconciled_tag=high substate=decomposition-complete iter=2 gate=pass
+[2026-07-20T14:55Z] [ctx=info] phase=C track=5 reconciled_tag=high substate=steps-partial
+[2026-07-21T10:17Z] [ctx=unknown] phase=C track=5 reconciled_tag=high substate=steps-partial
+[2026-07-27T12:24Z] [ctx=info] phase=C track=6 reconciled_tag=high substate=track-complete
+[2026-07-27T17:10Z] [ctx=safe] track=7 substate=decomposition-pending
+[2026-07-27T18:10Z] [ctx=safe] phase=0 substate=steps-partial
+[2026-07-27T19:10Z] [ctx=safe] phase=A
+[2026-07-27T20:17Z] [ctx=safe] phase=C track=7 reconciled_tag=high substate=steps-partial
+[2026-07-28T08:30Z] [ctx=info] phase=C track=7 substate=steps-done-review-pending
+[2026-07-28T11:03Z] [ctx=safe] phase=C track=7 substate=review-done-track-open
+[2026-07-28T11:06Z] [ctx=safe] track=8 substate=decomposition-pending
+[2026-07-28T12:14Z] [ctx=info] phase=C track=8 reconciled_tag=high substate=steps-partial
+[2026-07-30T14:32Z] [ctx=unknown] phase=C track=8 substate=steps-done-review-pending
+[2026-08-01T05:23Z] [ctx=info] phase=C track=8 substate=track-complete
+[2026-08-01T05:23Z] [ctx=info] phase=0 substate=steps-partial
+[2026-08-01T06:25Z] [ctx=safe] phase=A
+[2026-08-01T07:35Z] [ctx=info] phase=C track=10 reconciled_tag=high substate=steps-partial
+[2026-08-02T13:33Z] [ctx=info] phase=C track=10 substate=steps-done-review-pending
+[2026-08-02T14:11Z] [ctx=warning] phase=C track=10 substate=steps-done-review-pending
+[2026-08-02T20:41Z] [ctx=safe] track=9 substate=decomposition-pending
+[2026-08-02T22:40Z] [ctx=info] phase=0 substate=steps-partial
+[2026-08-03T00:08Z] [ctx=safe] phase=A
+[2026-08-03T02:57Z] [ctx=info] phase=C track=9 reconciled_tag=high substate=steps-partial
+[2026-08-03T11:23Z] [ctx=info] phase=C track=9 substate=steps-partial
+[2026-08-03T19:05Z] [ctx=info] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
+[2026-08-04T01:20Z] [ctx=warning] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
+[2026-08-04T02:10Z] [ctx=warning] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
+[2026-08-04T04:30Z] [ctx=warning] phase=C track=9 substate=steps-partial paused=handoff-track9-phaseB.md
+[2026-08-04T04:45Z] [ctx=safe] phase=C track=9 substate=steps-partial
+[2026-08-04T06:42Z] [ctx=info] phase=C track=9 substate=steps-done-review-pending
+[2026-08-04T11:09Z] [ctx=warning] phase=C track=9 substate=review-done-track-open
+[2026-08-04T11:12Z] [ctx=warning] phase=C track=9 reconciled_tag=high substate=track-complete
+[2026-08-04T11:11Z] [ctx=warning] track=11 substate=decomposition-pending
+[2026-08-04T13:17Z] [ctx=info] phase=C track=11 reconciled_tag=high substate=steps-partial
+[2026-08-16T15:56Z] [ctx=info] phase=C track=11 substate=steps-partial
+[2026-08-16T18:02Z] [ctx=unknown] phase=C track=11 reconciled_tag=high substate=steps-partial
+[2026-08-16T23:29Z] [ctx=safe] phase=C track=11 substate=steps-done-review-pending
+[2026-08-17T09:40Z] [ctx=safe] phase=C track=11 reconciled_tag=high substate=review-done-track-open
+[2026-08-17T09:40Z] [ctx=safe] phase=C track=11 reconciled_tag=high substate=track-complete

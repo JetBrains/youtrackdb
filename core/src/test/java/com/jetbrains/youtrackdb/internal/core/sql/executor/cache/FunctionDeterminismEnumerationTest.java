@@ -52,7 +52,8 @@ public class FunctionDeterminismEnumerationTest extends DbTestBase {
    */
   private static final Set<String> KNOWN_DETERMINISTIC =
       Set.of(
-          "avg", "coalesce", "count", "decode", "difference", "symmetricdifference", "distance",
+          "avg", "mean", "coalesce", "count", "decode", "difference", "symmetricdifference",
+          "distance",
           "distinct", "encode", "first", "format", "traversededge", "traversedelement",
           "traversedvertex", "if", "assert", "ifnull", "intersect", "last", "list", "map", "max",
           "min", "interval", "set", "sum", "unionall", "mode", "percentile", "median", "variance",

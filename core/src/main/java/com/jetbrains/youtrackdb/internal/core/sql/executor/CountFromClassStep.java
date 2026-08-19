@@ -23,11 +23,12 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExec
  *  Optimized: [CountFromClassStep]                   (reads metadata, O(1))
  * </pre>
  *
- * @see SelectExecutionPlanner#handleHardwiredCountOnClass
+ * @see HardwiredCountOptimizations#handleHardwiredCountOnClass
  */
 public class CountFromClassStep extends AbstractExecutionStep {
 
-  private final SchemaClassInternal target;
+  private final String className;
+  private final boolean polymorphic;
   private final String alias;
 
   /**
@@ -38,8 +39,25 @@ public class CountFromClassStep extends AbstractExecutionStep {
    */
   public CountFromClassStep(
       SchemaClassInternal targetClass, String alias, CommandContext ctx, boolean profilingEnabled) {
+    this(targetClass.getName(), true, alias, ctx, profilingEnabled);
+  }
+
+  /**
+   * @param className        schema class name (resolved at execution time on the active session)
+   * @param polymorphic      when {@code true}, include subclasses in the metadata count
+   * @param alias            the name of the property returned in the result-set
+   * @param ctx              the query context
+   * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
+   */
+  public CountFromClassStep(
+      String className,
+      boolean polymorphic,
+      String alias,
+      CommandContext ctx,
+      boolean profilingEnabled) {
     super(ctx, profilingEnabled);
-    this.target = targetClass;
+    this.className = className;
+    this.polymorphic = polymorphic;
     this.alias = alias;
   }
 
@@ -55,7 +73,7 @@ public class CountFromClassStep extends AbstractExecutionStep {
 
   private Result produce(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var size = session.computeInTxInternal(tx -> target.count(session));
+    var size = session.computeInTxInternal(tx -> session.countClass(className, polymorphic));
     var result = new ResultInternal(session);
     result.setProperty(alias, size);
     return result;
@@ -64,7 +82,11 @@ public class CountFromClassStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
-    var result = spaces + "+ CALCULATE CLASS SIZE: " + target;
+    var result = spaces + "+ CALCULATE CLASS SIZE: " + className;
+    if (!polymorphic) {
+      // Distinguish leaf-exact counts (Gremlin non-poly hasLabel) from hierarchy counts.
+      result += " (exact)";
+    }
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }
@@ -82,6 +104,6 @@ public class CountFromClassStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new CountFromClassStep(target, alias, ctx, profilingEnabled);
+    return new CountFromClassStep(className, polymorphic, alias, ctx, profilingEnabled);
   }
 }

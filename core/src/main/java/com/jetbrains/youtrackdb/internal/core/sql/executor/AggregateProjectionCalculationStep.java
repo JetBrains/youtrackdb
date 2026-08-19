@@ -25,13 +25,15 @@ import java.util.Map;
  *
  *  Processing:
  *    1. Pull all records from upstream
- *    2. Group by the GROUP BY key (city)
+ *    2. Group by the GROUP BY key (city) — a single-item GROUP BY uses the key value
+ *       directly; several items box them in a list
+
  *    3. For each group, accumulate aggregate functions
  *    4. Finalize accumulators (getFinalValue)
  *    5. Emit one result per group
  *
  *  Without GROUP BY (e.g. SELECT count(*) FROM Product):
- *    All records go into a single group with key = [null]
+ *    All records go into a single sentinel bucket.
  * </pre>
  *
  * <pre>
@@ -127,7 +129,7 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
 
     var prevStep = prev;
     var lastRs = prevStep.start(ctx);
-    Map<List<?>, ResultInternal> aggregateResults = new LinkedHashMap<>();
+    Map<Object, ResultInternal> aggregateResults = new LinkedHashMap<>();
     while (lastRs.hasNext(ctx)) {
       if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
         sendTimeout();
@@ -152,21 +154,19 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
     return finalResults;
   }
 
+  /** Shared bucket when there is no GROUP BY — every row lands in one group. Distinct from a
+   *  SQL-NULL group key, which is a legitimate {@code null} HashMap key. */
+  private static final Object NO_GROUP_BY_KEY = new Object();
+
   /**
    * Processes a single upstream record: computes the GROUP BY key, looks up or creates
    * the group's accumulator row, evaluates non-aggregate projections (first visit only),
    * and feeds the record into each aggregate function's accumulation context.
    */
   private void aggregate(
-      Result next, CommandContext ctx, Map<List<?>, ResultInternal> aggregateResults) {
+      Result next, CommandContext ctx, Map<Object, ResultInternal> aggregateResults) {
     var db = ctx.getDatabaseSession();
-    List<Object> key = new ArrayList<>();
-    if (groupBy != null) {
-      for (var item : groupBy.getItems()) {
-        var val = item.execute(next, ctx);
-        key.add(val);
-      }
-    }
+    var key = groupKey(next, ctx);
     var preAggr = aggregateResults.get(key);
     if (preAggr == null) {
       // Early termination: when a limit is set (SKIP+LIMIT with no ORDER BY),
@@ -197,6 +197,27 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
         aggrCtx.apply(next, ctx);
       }
     }
+  }
+
+  /**
+   * The HashMap key for this row. No GROUP BY shares one sentinel bucket. A single GROUP BY item
+   * (Gremlin {@code groupCount().by(k)}, SQL {@code GROUP BY city}) uses the key value itself so
+   * every input row does not allocate a one-element {@link ArrayList}. Several items still box
+   * into a list, matching the previous key shape.
+   */
+  private Object groupKey(Result next, CommandContext ctx) {
+    if (groupBy == null) {
+      return NO_GROUP_BY_KEY;
+    }
+    var items = groupBy.getItems();
+    if (items.size() == 1) {
+      return items.getFirst().execute(next, ctx);
+    }
+    var key = new ArrayList<>(items.size());
+    for (var item : items) {
+      key.add(item.execute(next, ctx));
+    }
+    return key;
   }
 
   @Override

@@ -1,19 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
-import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
-import java.util.Base64;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
@@ -26,24 +30,52 @@ import org.junit.Test;
  *   cache hit returns copy
  * - getters: originalStatement, matchFilters
  * - setOriginalStatement(null) → NPE
+ * - end-to-end: inline property filters (eq via buildWhereClause) and
+ *   MatchWhereBuilder-built predicates (isDefined / isNull / isNotDefined / in)
+ *   verified by scenario-tag identity, not just match count
+ * - buildWhereClause: single-property input always wraps in SQLAndBlock (AST pin)
  */
 @SuppressWarnings("resource")
-public class GqlMatchStatementTest extends GraphBaseTest {
+public class GqlMatchStatementTest extends GqlGraphTestBase {
 
+  /** Creates a read/write GqlExecutionContext for the test graph session. */
   private GqlExecutionContext createCtx() {
-    var gi = (YTDBGraphInternal) graph;
-    var tx = gi.tx();
-    tx.readWrite();
-    return new GqlExecutionContext(tx.getDatabaseSession());
+    return new GqlExecutionContext(readWriteSession());
   }
 
-  /// Helper to create SQLMatchFilter (unified YQL IR) from alias and label.
+  /** Builds a SQLMatchFilter from alias and label via the GQL factory. */
   private static SQLMatchFilter filter(String alias, String label) {
     return SQLMatchFilter.fromGqlNode(alias, label);
   }
 
+  /** Parses GQL text into a GqlMatchStatement via GqlPlanner.parse. */
+  private static GqlMatchStatement parseMatch(String gql) {
+    return requireMatchStatement(GqlPlanner.parse(gql));
+  }
+
+  /** Resolves a cached/parsed GqlMatchStatement via GqlPlanner.getStatement. */
+  private static GqlMatchStatement matchStatement(String query) {
+    return requireMatchStatement(GqlPlanner.getStatement(query, null));
+  }
+
+  /** Asserts the parsed object is a GqlMatchStatement and returns it. */
+  private static GqlMatchStatement requireMatchStatement(Object parsed) {
+    if (!(parsed instanceof GqlMatchStatement match)) {
+      throw new AssertionError("expected GqlMatchStatement, got " + parsed.getClass());
+    }
+    return match;
+  }
+
+  /** Returns the first match filter, asserting the list is non-empty. */
+  private static SQLMatchFilter firstFilter(GqlMatchStatement stm) {
+    Assert.assertNotNull(stm.getMatchFilters());
+    Assert.assertFalse(stm.getMatchFilters().isEmpty());
+    return stm.getMatchFilters().getFirst();
+  }
+
   // ── buildPlan: empty patterns ──
 
+  /** Empty filter list produces a plan whose result stream has no rows. */
   @Test
   public void buildPlan_emptyPatterns_returnsEmptyStream() {
     var statement = new GqlMatchStatement(List.of());
@@ -53,12 +85,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var stream = plan.start(null);
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: single anonymous alias generates $c0 ──
 
+  /** Anonymous alias mints $c0 and the vertex appears under that binding. */
   @Test
   public void buildPlan_singleAnonymous_generatesC0() {
     graph.addVertex(T.label, "MatchStA", "k", "v");
@@ -71,16 +104,17 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: blank alias also generates $c0 ──
 
+  /** Blank alias is treated as anonymous and mints $c0. */
   @Test
   public void buildPlan_blankAlias_generatesC0() {
     graph.addVertex(T.label, "MatchStB", "k", "v");
@@ -93,15 +127,16 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: named alias preserved ──
 
+  /** Named alias is preserved in the result projection. */
   @Test
   public void buildPlan_namedAlias_preservedInResult() {
     graph.addVertex(T.label, "MatchStC", "k", "v");
@@ -114,15 +149,16 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("myAlias"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: multiple anonymous → counter increments ──
 
+  /** Two anonymous patterns mint $c0 and $c1 in a cartesian product. */
   @Test
   public void buildPlan_multipleAnonymous_incrementsCounter() {
     graph.addVertex(T.label, "MatchStD", "k", "v");
@@ -137,17 +173,18 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       var names = row.getPropertyNames();
       Assert.assertTrue(names.contains("$c0"));
       Assert.assertTrue(names.contains("$c1"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: three anonymous → counter increments through $c0, $c1, $c2 ──
 
+  /** Three anonymous patterns mint $c0, $c1, and $c2. */
   @Test
   public void buildPlan_threeAnonymous_generatesC0C1C2() {
     graph.addVertex(T.label, "MatchStF", "k", "v");
@@ -163,18 +200,19 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       var names = row.getPropertyNames();
       Assert.assertTrue("Should contain $c0", names.contains("$c0"));
       Assert.assertTrue("Should contain $c1", names.contains("$c1"));
       Assert.assertTrue("Should contain $c2", names.contains("$c2"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: explicit blank alias (not null) exercises isBlank() branch ──
 
+  /** Two explicit blank aliases each mint the next $c<N> counter value. */
   @Test
   public void buildPlan_explicitBlankAliases_incrementsCounter() {
     graph.addVertex(T.label, "MatchStH", "k", "v");
@@ -190,17 +228,18 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       var names = row.getPropertyNames();
       Assert.assertTrue("Should contain $c0", names.contains("$c0"));
       Assert.assertTrue("Should contain $c1", names.contains("$c1"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: mix of named and anonymous ──
 
+  /** Mixed named and anonymous patterns preserve names and mint $c<N> for anonymous ones. */
   @Test
   public void buildPlan_mixedNamedAndAnonymous_correctAliases() {
     graph.addVertex(T.label, "MatchStE", "k", "v");
@@ -215,26 +254,24 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("x"));
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: null label → default type V ──
 
+  /** Null label defaults to class V in the assembled IR. */
   @Test
   public void buildPlan_nullLabel_usesDefaultTypeV() {
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "MatchNL", "k", "v");
+    graph.addVertex(T.label, "MatchNL", "k", "v");
     graph.tx().commit();
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var statement = new GqlMatchStatement(
           List.of(filter("x", null)));
@@ -246,22 +283,20 @@ public class GqlMatchStatementTest extends GraphBaseTest {
         stream.next();
       }
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
   // ── buildPlan: blank label → default type V ──
 
+  /** Blank label defaults to class V in the assembled IR. */
   @Test
   public void buildPlan_blankLabel_usesDefaultTypeV() {
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "MatchBL", "k", "v");
+    graph.addVertex(T.label, "MatchBL", "k", "v");
     graph.tx().commit();
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var statement = new GqlMatchStatement(
           List.of(filter("y", "")));
@@ -273,86 +308,78 @@ public class GqlMatchStatementTest extends GraphBaseTest {
         stream.next();
       }
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
   // ── createExecutionPlan: single-arg overload uses cache ──
 
+  /** Single-argument createExecutionPlan delegates to the cache-enabled overload. */
   @Test
   public void createExecutionPlan_singleArgOverload_usesCacheByDefault() {
     var query = "MATCH (n:OUser)";
-    var statement = (GqlMatchStatement) GqlPlanner.parse(query);
+    var statement = parseMatch(query);
     statement.setOriginalStatement(query);
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan = statement.createExecutionPlan(ctx);
       Assert.assertNotNull(plan);
       Assert.assertTrue(GqlExecutionPlanCache.instance(session).contains(query));
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
   // ── createExecutionPlan: cache false ──
 
+  /** cache=false creates a fresh plan instance on each call. */
   @Test
   public void createExecutionPlan_cacheFalse_createsDifferentInstances() {
-    var statement = (GqlMatchStatement) GqlPlanner.parse("MATCH (n:OUser)");
+    var statement = parseMatch("MATCH (n:OUser)");
     statement.setOriginalStatement("MATCH (n:OUser)");
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan1 = statement.createExecutionPlan(ctx, false);
       var plan2 = statement.createExecutionPlan(ctx, false);
       Assert.assertNotSame(plan1, plan2);
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
   // ── createExecutionPlan: null originalStatement → no cache ──
 
+  /** Without originalStatement set, plan caching is bypassed. */
   @Test
   public void createExecutionPlan_noOriginalStatement_skipsCache() {
     var statement = new GqlMatchStatement(
         List.of(filter("n", "OUser")));
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan = statement.createExecutionPlan(ctx, true);
       Assert.assertNotNull(plan);
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
   // ── createExecutionPlan: cache hit returns copy ──
 
+  /** Cache hit returns a distinct plan instance (defensive copy semantics). */
   @Test
   public void createExecutionPlan_cacheHit_returnsDifferentInstance() {
     var query = "MATCH (cc:OUser)";
-    var statement = (GqlMatchStatement) GqlPlanner.getStatement(query, null);
+    var statement = matchStatement(query);
     statement.setOriginalStatement(query);
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan1 = statement.createExecutionPlan(ctx, true);
       var plan2 = statement.createExecutionPlan(ctx, true);
@@ -361,12 +388,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       Assert.assertNotSame(plan1, plan2);
       Assert.assertTrue(GqlExecutionPlanCache.instance(session).contains(query));
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
   // ── Getters ──
 
+  /** getOriginalStatement returns the value previously set. */
   @Test
   public void getOriginalStatement_afterSet_returnsValue() {
     var statement = new GqlMatchStatement(List.of());
@@ -374,11 +402,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertEquals("MATCH (x:V)", statement.getOriginalStatement());
   }
 
+  /** getOriginalStatement is null before setOriginalStatement is called. */
   @Test
   public void getOriginalStatement_beforeSet_returnsNull() {
     Assert.assertNull(new GqlMatchStatement(List.of()).getOriginalStatement());
   }
 
+  /** getMatchFilters returns the filter list passed to the constructor. */
   @Test
   public void getPatterns_returnsConstructorFilters() {
     var patterns = List.of(
@@ -388,8 +418,22 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertEquals(patterns, statement.getMatchFilters());
   }
 
+  /**
+   * {@link GqlMatchStatement#buildWhereClause} always wraps conditions in an
+   * {@link SQLAndBlock}, even for a single property — not {@code MatchWhereBuilder.and()},
+   * which would unwrap a lone operand for parser parity and shift plan shape.
+   */
+  @Test
+  public void buildWhereClause_singleProperty_wrapsInSQLAndBlock() {
+    var clause = GqlMatchStatement.buildWhereClause(Map.of("k", "x"));
+    Assert.assertTrue(
+        "single-property buildWhereClause must always produce SQLAndBlock",
+        clause.getBaseExpression() instanceof SQLAndBlock);
+  }
+
   // ── buildWhereClause with RID value ──
 
+  /** RID literal values produce a renderable where clause. */
   @Test
   public void buildWhereClause_ridValue_createsValidClause() {
     var rid = RecordIdInternal.fromString("#12:0", false);
@@ -400,6 +444,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── buildWhereClause with Date value ──
 
+  /** Date literal values produce a renderable where clause. */
   @Test
   public void buildWhereClause_dateValue_createsValidClause() {
     var clause = GqlMatchStatement.buildWhereClause(
@@ -410,6 +455,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── buildWhereClause with List value ──
 
+  /** List literal values produce a renderable where clause. */
   @Test
   public void buildWhereClause_listValue_createsValidClause() {
     var clause = GqlMatchStatement.buildWhereClause(
@@ -420,6 +466,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── End-to-end: inline numeric filter ──
 
+  /** Long property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_numericFilter_matchesVertex() {
     graph.addVertex(T.label, "MatchNumF", "name", "Alice", "age", 30);
@@ -440,12 +487,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for age=30", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline boolean filter ──
 
+  /** Boolean property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_booleanFilter_matchesVertex() {
     graph.addVertex(T.label, "MatchBoolF", "name", "Active", "active", true);
@@ -466,12 +514,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for active=true", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline string filter ──
 
+  /** String property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_stringFilter_matchesVertex() {
     graph.addVertex(T.label, "MatchStrF", "name", "Alice", "city", "NYC");
@@ -492,12 +541,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for city='NYC'", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline double filter ──
 
+  /** Double property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_doubleFilter_matchesVertex() {
     graph.addVertex(T.label, "MatchDblF", "name", "Product1", "price", 19.99);
@@ -518,12 +568,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for price=19.99", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline RID filter ──
 
+  /** RID property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_ridFilter_matchesVertex() {
     var v1 = graph.addVertex(T.label, "MatchRidF", "name", "RefSource");
@@ -546,12 +597,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for ref=<rid>", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline list filter ──
 
+  /** List property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_listFilter_matchesVertex() {
     var tags = List.of("java", "database");
@@ -573,12 +625,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for tags=['java','database']", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline map filter ──
 
+  /** Map property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_mapFilter_matchesVertex() {
     var meta = Map.of("version", "1.0", "author", "Alice");
@@ -600,12 +653,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for metadata={...}", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline date filter ──
 
+  /** Date property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_dateFilter_matchesVertex() {
     var date1 = new Date(1704067200000L); // 2024-01-01 00:00:00 UTC
@@ -628,12 +682,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for eventDate=2024-01-01", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline multiple properties filter ──
 
+  /** Multi-property AND filter matches only the vertex carrying all values. */
   @Test
   public void buildPlan_multiplePropertiesFilter_matchesVertex() {
     graph.addVertex(T.label, "MatchMultiF", "name", "Alice", "age", 30, "city", "NYC");
@@ -655,12 +710,76 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for age=30 AND city='NYC'", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
+  }
+
+  // ── End-to-end: MatchWhereBuilder-built predicates ──
+
+  /**
+   * Shared fixture for entity-presence vs value-layer predicates. Each vertex carries a
+   * distinct {@code scenario} tag so assertions pin identity, not just match count.
+   */
+  private void seedNamePresenceScenario(String className) {
+    graph.addVertex(T.label, className, "name", "Alice", "scenario", "value");
+    graph.addVertex(T.label, className, "name", null, "scenario", "nullValue");
+    graph.addVertex(T.label, className, "scenario", "absent");
+  }
+
+  /** MatchWhereBuilder isDefined matches vertices with present properties, including null-valued ones. */
+  @Test
+  public void buildPlan_builderIsDefined_matchesPresentPropertyIncludingNull() {
+    seedNamePresenceScenario("MatchDefF");
+    graph.tx().commit();
+
+    var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isDefined("name"));
+    Assert.assertEquals(
+        Set.of("value", "nullValue"), matchedScenarioTags("MatchDefF", where));
+  }
+
+  /** MatchWhereBuilder isNull matches absent properties and null-valued present properties. */
+  @Test
+  public void buildPlan_builderIsNull_matchesAbsentAndNullValue() {
+    seedNamePresenceScenario("MatchNullF");
+    graph.tx().commit();
+
+    var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isNull("name"));
+    Assert.assertEquals(
+        Set.of("nullValue", "absent"), matchedScenarioTags("MatchNullF", where));
+  }
+
+  /** MatchWhereBuilder isNotDefined matches only vertices where the property is absent. */
+  @Test
+  public void buildPlan_builderIsNotDefined_matchesOnlyAbsentProperty() {
+    seedNamePresenceScenario("MatchNotDefF");
+    graph.tx().commit();
+
+    var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isNotDefined("name"));
+    Assert.assertEquals(Set.of("absent"), matchedScenarioTags("MatchNotDefF", where));
+  }
+
+  /** MatchWhereBuilder IN filter matches vertices whose tag is in the value list. */
+  @Test
+  public void buildPlan_builderIn_matchesExpectedVertices() {
+    graph.addVertex(T.label, "MatchInF", "status", 1, "scenario", "s1");
+    graph.addVertex(T.label, "MatchInF", "status", 2, "scenario", "s2");
+    graph.addVertex(T.label, "MatchInF", "status", 3, "scenario", "s3");
+    graph.tx().commit();
+
+    var wb = new MatchWhereBuilder();
+    var where =
+        wb.wrap(
+            wb.in(
+                "status",
+                List.of(
+                    MatchLiteralBuilder.toLiteral(1L),
+                    MatchLiteralBuilder.toLiteral(2L))));
+    Assert.assertEquals(Set.of("s1", "s2"), matchedScenarioTags("MatchInF", where));
   }
 
   // ── End-to-end: inline BINARY filter ──
 
+  /** byte[] property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_binaryFilter_matchesVertex() {
     var data1 = "Hello".getBytes();
@@ -683,12 +802,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for data=<binary>", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline DECIMAL filter ──
 
+  /** BigDecimal property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_decimalFilter_matchesVertex() {
     var price1 = new java.math.BigDecimal("19.99");
@@ -711,12 +831,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for price=19.99 (BigDecimal)", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline Set (EMBEDDEDSET) filter ──
 
+  /** Set property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_setFilter_matchesVertex() {
     var tags1 = java.util.Set.of("java", "database");
@@ -739,12 +860,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for tags={java,database}", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
   // ── End-to-end: inline Set of RIDs (LINKSET) filter ──
 
+  /** LinkSet property equality filter matches the seeded vertex by scenario tag. */
   @Test
   public void buildPlan_linksetFilter_matchesVertex() {
     var v1 = graph.addVertex(T.label, "MatchLinksetF", "name", "Target1");
@@ -776,7 +898,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for refs={rid1,rid2}", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -785,18 +907,9 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   // and helper methods through full GQL parsing pipeline
   // ══════════════════════════════════════════════════════════════════
 
-  private static GqlMatchStatement parseMatch(String gql) {
-    return (GqlMatchStatement) GqlPlanner.parse(gql);
-  }
-
-  private static SQLMatchFilter firstFilter(GqlMatchStatement stm) {
-    Assert.assertNotNull(stm.getMatchFilters());
-    Assert.assertFalse(stm.getMatchFilters().isEmpty());
-    return stm.getMatchFilters().getFirst();
-  }
-
   // ── Parser: string literal ──
 
+  /** Parsed inline string property produces a where clause on the match filter. */
   @Test
   public void parse_stringProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {name: 'Karl'})");
@@ -807,6 +920,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: integer literal ──
 
+  /** Parsed inline integer property produces a where clause on the match filter. */
   @Test
   public void parse_integerProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {age: 42})");
@@ -815,6 +929,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: double literal ──
 
+  /** Parsed inline double property produces a where clause on the match filter. */
   @Test
   public void parse_doubleProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {price: 3.14})");
@@ -823,6 +938,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: negative number ──
 
+  /** Parsed negative numeric literal produces a where clause on the match filter. */
   @Test
   public void parse_negativeNumber_createsFilter() {
     var stm = parseMatch("MATCH (a:V {temp: -5})");
@@ -831,12 +947,14 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: boolean literal ──
 
+  /** Parsed boolean true literal produces a where clause on the match filter. */
   @Test
   public void parse_booleanTrue_createsFilter() {
     var stm = parseMatch("MATCH (a:V {active: true})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Parsed boolean false literal produces a where clause on the match filter. */
   @Test
   public void parse_booleanFalse_createsFilter() {
     var stm = parseMatch("MATCH (a:V {active: false})");
@@ -845,6 +963,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: RID literal ──
 
+  /** Parsed RID literal produces a where clause on the match filter. */
   @Test
   public void parse_ridProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {link: #12:0})");
@@ -853,6 +972,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: DATE temporal literal ──
 
+  /** Parsed DATE literal produces a where clause on the match filter. */
   @Test
   public void parse_dateProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {d: DATE '2024-01-15'})");
@@ -861,6 +981,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: TIMESTAMP temporal literal ──
 
+  /** Parsed TIMESTAMP literal produces a where clause on the match filter. */
   @Test
   public void parse_timestampProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {d: TIMESTAMP '2024-01-15 10:30:00'})");
@@ -869,6 +990,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: TIME temporal literal ──
 
+  /** Parsed TIME literal produces a where clause on the match filter. */
   @Test
   public void parse_timeProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {t: TIME '10:30:00'})");
@@ -877,6 +999,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: BINARY literal ──
 
+  /** Parsed BINARY literal produces a where clause on the match filter. */
   @Test
   public void parse_binaryProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {data: BINARY 'SGVsbG8='})");
@@ -885,6 +1008,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: DECIMAL literal ──
 
+  /** Parsed DECIMAL literal produces a where clause on the match filter. */
   @Test
   public void parse_decimalProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {price: DECIMAL '123.456'})");
@@ -893,18 +1017,21 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: list literal ──
 
+  /** Parsed list literal produces a where clause on the match filter. */
   @Test
   public void parse_listProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {tags: [1, 2, 3]})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Parsed empty list literal produces a where clause on the match filter. */
   @Test
   public void parse_emptyList_createsFilter() {
     var stm = parseMatch("MATCH (a:V {tags: []})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Parsed nested list literal produces a where clause on the match filter. */
   @Test
   public void parse_nestedList_createsFilter() {
     var stm = parseMatch("MATCH (a:V {data: [1, 'two', true]})");
@@ -913,18 +1040,21 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: set literal ──
 
+  /** Parsed set literal produces a where clause on the match filter. */
   @Test
   public void parse_setProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {tags: SET(1, 2, 3)})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Parsed empty set literal produces a where clause on the match filter. */
   @Test
   public void parse_emptySet_createsFilter() {
     var stm = parseMatch("MATCH (a:V {tags: SET()})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Parsed nested set literal produces a where clause on the match filter. */
   @Test
   public void parse_nestedSet_createsFilter() {
     var stm = parseMatch("MATCH (a:V {data: SET(SET('a'), SET('b'))})");
@@ -933,12 +1063,14 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: map literal ──
 
+  /** Parsed map literal produces a where clause on the match filter. */
   @Test
   public void parse_mapProperty_createsFilter() {
     var stm = parseMatch("MATCH (a:V {meta: {key: 'value'}})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Parsed map with string key produces a where clause on the match filter. */
   @Test
   public void parse_mapWithStringKey_createsFilter() {
     var stm = parseMatch("MATCH (a:V {meta: {'my key': 'value'}})");
@@ -947,6 +1079,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: multiple properties ──
 
+  /** Parsed multiple inline properties produce an AND-combined where clause. */
   @Test
   public void parse_multipleProperties_createsFilter() {
     var stm = parseMatch("MATCH (a:V {name: 'Karl', age: 30, active: true})");
@@ -955,6 +1088,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── Parser: backtick-quoted label ──
 
+  /** Backtick-quoted label is stripped to the bare class name on the filter. */
   @Test
   public void parse_backtickLabel_stripsBackticks() {
     var stm = parseMatch("MATCH (a:`MyClass` {name: 'test'})");
@@ -962,6 +1096,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertEquals("MyClass", filter.getClassName(null));
   }
 
+  /** Backtick-quoted label without properties still strips backticks from the class name. */
   @Test
   public void parse_backtickLabel_noProperties() {
     var stm = parseMatch("MATCH (a:`QuotedLabel`)");
@@ -981,6 +1116,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   // End-to-end: parser → planner → execution for all literal types
   // ══════════════════════════════════════════════════════════════════
 
+  /** End-to-end MATCH with string inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_stringFilter_matchesVertex() {
     graph.addVertex(T.label, "PrsStrF", "name", "Alice");
@@ -996,10 +1132,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with integer inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_integerFilter_matchesVertex() {
     graph.addVertex(T.label, "PrsIntF", "name", "A", "age", 30);
@@ -1015,10 +1152,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with double inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_doubleFilter_matchesVertex() {
     graph.addVertex(T.label, "PrsDblF", "name", "A", "price", 3.14);
@@ -1034,10 +1172,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with set inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_setFilter_matchesVertex() {
     var tags1 = java.util.Set.of("java", "db");
@@ -1055,10 +1194,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with boolean inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_booleanFilter_matchesVertex() {
     graph.addVertex(T.label, "PrsBoolF", "name", "Active", "active", true);
@@ -1074,10 +1214,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with negative number inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_negativeNumberFilter_matchesVertex() {
     graph.addVertex(T.label, "PrsNegF", "name", "Cold", "temp", -10);
@@ -1093,10 +1234,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with date inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_dateFilter_matchesVertex() throws Exception {
     var targetDate = new SimpleDateFormat("yyyy-MM-dd").parse("2024-01-01");
@@ -1114,10 +1256,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with binary inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_binaryFilter_matchesVertex() {
     var hello = "Hello".getBytes();
@@ -1136,10 +1279,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with decimal inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_decimalFilter_matchesVertex() {
     graph.addVertex(T.label, "PrsDecF", "name", "A", "amount",
@@ -1157,10 +1301,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with list inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_listFilter_matchesVertex() {
     graph.addVertex(T.label, "PrsLstF", "name", "A", "tags",
@@ -1178,10 +1323,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with map inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_mapFilter_matchesVertex() {
     var meta1 = Map.of("v", "1.0");
@@ -1199,10 +1345,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with string-key map inline filter returns the matching vertex. */
   @Test
   public void parseAndExecute_mapWithStringKey_matchesVertex() {
     var meta1 = Map.of("my key", "val1");
@@ -1220,10 +1367,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** End-to-end MATCH with backtick-quoted label returns the matching vertex. */
   @Test
   public void parseAndExecute_backtickLabel_matchesVertex() {
     graph.addVertex(T.label, "PrsBtF", "name", "X");
@@ -1238,7 +1386,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1251,6 +1399,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   // ── String and identifier escape handling ──
 
+  /** Parsed string with escaped quote unescapes to the correct Java value. */
   @Test
   public void parse_stringWithEscapedQuote_unescapes() {
     // Single-quote escape: \' inside a string literal should produce a literal '
@@ -1259,6 +1408,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertNotNull(filter.getFilter());
   }
 
+  /** Parsed string with escaped backslash unescapes to the correct Java value. */
   @Test
   public void parse_stringWithEscapedBackslash_unescapes() {
     // Double-backslash: \\\\ in source becomes \\ in the string literal,
@@ -1267,6 +1417,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Parsed string with escape sequence unescapes to the correct Java value. */
   @Test
   public void parse_stringWithNewline_unescapes() {
     // \\n in the string literal should produce a newline character.
@@ -1274,15 +1425,17 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Literal extraction preserves escaped-quote semantics; end-to-end filter matches only the correct vertex. */
   @Test
+  @SuppressWarnings("unused")
   public void extractLiteralValue_escapedQuoteProducesCorrectString() {
     // Verify the actual extracted value contains a literal quote character.
     var stm = parseMatch("MATCH (a:V {name: 'it\\'s'})");
     var filter = firstFilter(stm);
     // Execute on a matching vertex to verify the filter works end-to-end
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "V",
+    graph.addVertex(T.label, "V",
         "name", "it's");
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "V",
+    graph.addVertex(T.label, "V",
         "name", "its");
     graph.tx().commit();
 
@@ -1294,10 +1447,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse("Should match exactly one vertex", stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
+  /** Backtick label with escaped backticks unescapes to the bare class name. */
   @Test
   public void parse_backtickEscapedLabel_unescapes() {
     // Backtick-quoted label with escaped backtick inside.
@@ -1306,6 +1460,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertEquals("My`Class", filter.getClassName(null));
   }
 
+  /** Backtick-quoted property key unescapes to the correct field name in the filter. */
   @Test
   public void parse_backtickEscapedPropertyKey_unescapes() {
     // Backtick-quoted property key with escaped backtick.
@@ -1313,6 +1468,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
+  /** Reserved keyword used as property key (quoted) is accepted in inline filters. */
   @Test
   public void parse_reservedKeywordAsPropertyKey() {
     // Reserved keywords like 'order' can be used as property keys when
@@ -1331,16 +1487,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_indexedPropertyFilter_usesIndex() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("IdxPrs",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createIndex("IdxPrs.name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "name");
-    });
+    prepareIndexedVertexClass(
+        "IdxPrs",
+        List.of(schemaProperty("name", PropertyType.STRING)),
+        List.of(schemaIndex("IdxPrs.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name")));
 
     graph.addVertex(T.label, "IdxPrs", "name", "Alice");
     graph.addVertex(T.label, "IdxPrs", "name", "Bob");
@@ -1355,7 +1505,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
           "Indexed property filter should use FETCH FROM INDEX, plan was:\n" + planStr,
           planStr.contains("FETCH FROM INDEX"));
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1381,7 +1531,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
           "Non-indexed filter should use FETCH FROM CLASS, plan was:\n" + planStr,
           planStr.contains("FETCH FROM CLASS"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1391,16 +1541,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_indexedPropertyFilter_correctResults() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("IdxPrs2",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("age",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
-      clazz.createIndex("IdxPrs2.age",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "age");
-    });
+    prepareIndexedVertexClass(
+        "IdxPrs2",
+        List.of(schemaProperty("age", PropertyType.INTEGER)),
+        List.of(schemaIndex("IdxPrs2.age", SchemaClass.INDEX_TYPE.NOTUNIQUE, "age")));
 
     graph.addVertex(T.label, "IdxPrs2", "name", "Young", "age", 25);
     graph.addVertex(T.label, "IdxPrs2", "name", "Old", "age", 60);
@@ -1424,7 +1568,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Should find exactly 2 vertices with age=25", 2, count);
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1434,16 +1578,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_indexedPropertyFilter_showsSpecificIndexName() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("IdxNameChk",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("email",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createIndex("IdxNameChk.email",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.UNIQUE,
-          "email");
-    });
+    prepareIndexedVertexClass(
+        "IdxNameChk",
+        List.of(schemaProperty("email", PropertyType.STRING)),
+        List.of(schemaIndex("IdxNameChk.email", SchemaClass.INDEX_TYPE.UNIQUE, "email")));
 
     graph.addVertex(T.label, "IdxNameChk", "email", "alice@test.com");
     graph.tx().commit();
@@ -1457,7 +1595,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
           "Plan should reference the specific index name, plan was:\n" + planStr,
           planStr.contains("IdxNameChk.email"));
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1467,18 +1605,17 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_compositeIndexFilter_usesCompositeIndex() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("CmpIdx",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("firstName",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createProperty("lastName",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createIndex("CmpIdx.fullName",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "firstName", "lastName");
-    });
+    prepareIndexedVertexClass(
+        "CmpIdx",
+        List.of(
+            schemaProperty("firstName", PropertyType.STRING),
+            schemaProperty("lastName", PropertyType.STRING)),
+        List.of(
+            schemaIndex(
+                "CmpIdx.fullName",
+                SchemaClass.INDEX_TYPE.NOTUNIQUE,
+                "firstName",
+                "lastName")));
 
     graph.addVertex(T.label, "CmpIdx", "firstName", "Karl", "lastName", "Marx");
     graph.addVertex(T.label, "CmpIdx", "firstName", "Karl", "lastName", "Lagerfeld");
@@ -1503,7 +1640,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Should find exactly 1 vertex matching both properties", 1, count);
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1514,19 +1651,12 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_partialIndexMatch_usesIndexAndFilter() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("PartIdx",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createProperty("city",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      // Only 'name' is indexed, 'city' is not
-      clazz.createIndex("PartIdx.name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "name");
-    });
+    prepareIndexedVertexClass(
+        "PartIdx",
+        List.of(
+            schemaProperty("name", PropertyType.STRING),
+            schemaProperty("city", PropertyType.STRING)),
+        List.of(schemaIndex("PartIdx.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name")));
 
     graph.addVertex(T.label, "PartIdx", "name", "Alice", "city", "Berlin");
     graph.addVertex(T.label, "PartIdx", "name", "Alice", "city", "London");
@@ -1552,7 +1682,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Should find exactly 1 vertex (Alice in Berlin)", 1, count);
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1563,10 +1693,86 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     parseMatch("MATCH (a:V {path: 'x'})");
   }
 
+  /** Backtick-quoted reserved keyword as property key is accepted. */
   @Test
   public void parse_backtickQuotedReservedKeywordAsPropertyKey_works() {
     // The same keyword works when backtick-quoted.
     var stm = parseMatch("MATCH (a:V {`path`: '/home'})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  /** Runs a single-filter plan and collects {@code scenario} tags from matched vertices. */
+  private Set<String> matchedScenarioTags(String className, SQLWhereClause where) {
+    var filter = SQLMatchFilter.fromGqlNode("a", className);
+    filter.setFilter(where);
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    var tags = new HashSet<String>();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var session = ctx.session();
+      while (stream.hasNext()) {
+        var row = requireResult(stream.next());
+        tags.add(scenarioFromAliasBinding(row.getProperty("a"), session));
+      }
+      return tags;
+    } finally {
+      commitGraphTx();
+    }
+  }
+
+  /** Casts a plan row to {@link Result} or fails with a descriptive assertion error. */
+  private static Result requireResult(Object row) {
+    if (!(row instanceof Result result)) {
+      throw new AssertionError("expected Result, got " + row.getClass());
+    }
+    return result;
+  }
+
+  /** Reads the {@code scenario} tag from an alias binding (nested Result or loaded entity). */
+  private static String scenarioFromAliasBinding(Object bound, DatabaseSessionEmbedded session) {
+    if (bound instanceof Result nested) {
+      return nested.getProperty("scenario");
+    }
+    if (bound instanceof Identifiable id) {
+      return session.getActiveTransaction().<Entity>load(id).getProperty("scenario");
+    }
+    throw new AssertionError("unexpected binding type for alias 'a': " + bound.getClass());
+  }
+
+  /** Schema property descriptor for indexed-class test fixtures. */
+  private record SchemaProperty(String name, PropertyType type) {
+  }
+
+  /** Schema index descriptor for indexed-class test fixtures. */
+  private record SchemaIndex(String name, SchemaClass.INDEX_TYPE type, List<String> fields) {
+  }
+
+  /** Builds a {@link SchemaProperty} fixture entry. */
+  private static SchemaProperty schemaProperty(String name, PropertyType type) {
+    return new SchemaProperty(name, type);
+  }
+
+  /** Builds a {@link SchemaIndex} fixture entry. */
+  private static SchemaIndex schemaIndex(
+      String name, SchemaClass.INDEX_TYPE type, String... fields) {
+    return new SchemaIndex(name, type, List.of(fields));
+  }
+
+  /** Creates a vertex class with the given properties and indexes for EXPLAIN tests. */
+  private void prepareIndexedVertexClass(
+      String className, List<SchemaProperty> properties, List<SchemaIndex> indexes) {
+    ytdbGraph().executeSchemaCode(s -> {
+      var schema = s.getMetadata().getSchema();
+      var clazz = schema.createClass(className, Objects.requireNonNull(schema.getClass("V")));
+      for (var property : properties) {
+        clazz.createProperty(property.name(), property.type());
+      }
+      for (var index : indexes) {
+        clazz.createIndex(
+            index.name(), index.type(), index.fields().toArray(String[]::new));
+      }
+    });
   }
 }

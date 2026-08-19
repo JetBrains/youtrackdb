@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.containsStepOfType;
+import static com.jetbrains.youtrackdb.internal.ExecutionPlanIntrospection.countStepsOfType;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -15,6 +17,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchFirstStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPrefetchStep;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -2316,6 +2320,131 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue("plan should contain MATCH step", plan.contains("MATCH"));
     assertTrue("plan should contain forward arrow", plan.contains("---->"));
     session.commit();
+  }
+
+  /**
+   * An alias the planner prefetches — estimated under MatchExecutionPlanner.THRESHOLD records,
+   * with no dependency on $matched — has its fetch step inside a MatchPrefetchStep sub-plan.
+   * Verifies that fetch is reachable through getSubSteps(), which is how plan introspection —
+   * EXPLAIN documents, the index-usage scans in the test tree — reaches nested content. Person
+   * holds six vertices and carries no filter, so alias a qualifies.
+   */
+  @Test
+  public void testPrefetchStepExposesItsFetchStepBelowThreshold() {
+    session.begin();
+    var result = session.query("MATCH {class:Person, as:a} RETURN a");
+    var prefetch =
+        result.getExecutionPlan().getSteps().stream()
+            .filter(MatchPrefetchStep.class::isInstance)
+            .findFirst()
+            .orElse(null);
+    assertNotNull("six Person vertices are under the prefetch threshold", prefetch);
+    assertTrue(
+        "the prefetch sub-plan's class fetch is visible through getSubSteps()",
+        containsStepOfType(prefetch, FetchFromClassExecutionStep.class));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * An alias the planner does not prefetch keeps its scan under MatchFirstStep's own sub-plan.
+   * Verifies it is reachable through getSubSteps() there too, so plan introspection sees the fetch
+   * whichever step ended up owning it. IndexedVertex holds 1000 vertices, over
+   * MatchExecutionPlanner.THRESHOLD, which is what disqualifies the alias from prefetching here.
+   */
+  @Test
+  public void testMatchFirstStepExposesItsFetchStepAboveThreshold() {
+    session.begin();
+    var result = session.query("MATCH {class:IndexedVertex, as:one} RETURN one");
+    var steps = result.getExecutionPlan().getSteps();
+    assertTrue(
+        "1000 vertices are over the prefetch threshold, so no alias is prefetched",
+        steps.stream().noneMatch(MatchPrefetchStep.class::isInstance));
+    var first =
+        steps.stream().filter(MatchFirstStep.class::isInstance).findFirst().orElse(null);
+    assertNotNull("a MATCH plan starts with a MatchFirstStep", first);
+    assertTrue(
+        "the scan sub-plan's class fetch is visible through getSubSteps()",
+        containsStepOfType(first, FetchFromClassExecutionStep.class));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * A pattern with an edge whose root alias is also prefetched must publish that alias's fetch
+   * exactly once. The planner used to hand the root MatchFirstStep a scan sub-plan regardless of
+   * prefetching; internalStart never started it, because it finds the prefetch cache first, but
+   * getSubSteps() published it anyway, so a caller tallying fetches counted the alias twice for a
+   * query that fetches it once. Both Person aliases here sit under the prefetch threshold, so the
+   * root alias is prefetched and its root step must carry no sub-plan.
+   */
+  @Test
+  public void testPrefetchedRootAliasOfEdgePatternPublishesItsFetchOnce() {
+    session.begin();
+    var result =
+        session.query("MATCH {class:Person, as:a}.out('Friend'){class:Person, as:b} RETURN a, b");
+    var steps = result.getExecutionPlan().getSteps();
+
+    var prefetchCount = steps.stream().filter(MatchPrefetchStep.class::isInstance).count();
+    assertEquals(
+        "both Person aliases are under the prefetch threshold, so both are prefetched",
+        2L, prefetchCount);
+
+    var first = steps.stream().filter(MatchFirstStep.class::isInstance).findFirst().orElse(null);
+    assertNotNull("a MATCH plan starts with a MatchFirstStep", first);
+    assertTrue(
+        "the root step reads the prefetch cache, so it exposes no sub-plan of its own",
+        first.getSubSteps().isEmpty());
+
+    // The whole-plan tally is what a fetch-counting introspection walk sees. One class fetch per
+    // prefetched alias is the count the query actually performs.
+    assertEquals(
+        "each prefetched alias contributes exactly one class fetch to a getSubSteps() walk",
+        prefetchCount, countStepsOfType(steps, FetchFromClassExecutionStep.class));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Pins the one observable output change the sub-step overrides make. EXPLAIN serialises every
+   * step through ExecutionStep.toResult, which recurses getSubSteps(), so the prefetch step's
+   * result document now carries the nested fetch under "subSteps" where it previously carried an
+   * empty list. The executionPlanAsString rendering is unaffected — MatchPrefetchStep.prettyPrint
+   * inlined the sub-plan all along.
+   */
+  @Test
+  public void testExplainMatchResultDocumentCarriesNestedSubSteps() {
+    session.begin();
+    var explain = session.query("EXPLAIN MATCH {class:Person, as:a} RETURN a").toList();
+    assertEquals(1, explain.size());
+
+    Result planDocument = explain.get(0).getProperty("executionPlan");
+    assertNotNull("EXPLAIN should produce an executionPlan document", planDocument);
+    List<Result> stepDocuments = planDocument.getProperty("steps");
+    assertNotNull("the plan document should carry its steps", stepDocuments);
+
+    var prefetchDocument =
+        stepDocuments.stream()
+            .filter(step -> isDocumentFor(step, MatchPrefetchStep.class))
+            .findFirst()
+            .orElse(null);
+    assertNotNull("six Person vertices are under the prefetch threshold", prefetchDocument);
+
+    List<Result> nested = prefetchDocument.getProperty("subSteps");
+    assertNotNull("the prefetch step's document should carry a subSteps list", nested);
+    assertFalse("the nested fetch should appear in the EXPLAIN document", nested.isEmpty());
+
+    // The nested fetch is a class scan, which is what makes the document useful to a caller
+    // asking how the alias is read.
+    assertTrue(
+        "the nested document should name the class-fetch step",
+        nested.stream().anyMatch(step -> isDocumentFor(step, FetchFromClassExecutionStep.class)));
+    session.commit();
+  }
+
+  /** Reports whether an EXPLAIN step document describes a step of the given class. */
+  private static boolean isDocumentFor(Result stepDocument, Class<?> stepType) {
+    return stepType.getName().equals(stepDocument.getProperty(InternalExecutionPlan.JAVA_TYPE));
   }
 
   /**
@@ -4965,6 +5094,344 @@ public class MatchStatementExecutionTest extends DbTestBase {
           "tag0 should be excluded by NOT pattern (also used on old posts)",
           "tag0", r.getProperty("tagName"));
     }
+    session.commit();
+  }
+
+  /**
+   * Filtered {@code MATCH … RETURN count(*)} on a class that exists but has zero records (or zero
+   * matching records after a filter that cannot hit) must emit one row with {@code 0}, not an empty
+   * result. The zero-estimate {@code EmptyStep} short-circuit used to return before
+   * {@code GuaranteeEmptyCountStep} was attached — the same hole that made
+   * {@code g.V().has(...).count().next()} throw after a rolled-back {@code addV} left an empty
+   * vertex class behind.
+   *
+   * <p>The short-circuit itself must survive: a zero-estimate alias means the answer is known
+   * without scheduling the pattern, so the plan is {@code EmptyStep} plus the projection pipeline,
+   * not a full scan plan that happens to yield nothing.
+   */
+  @Test
+  public void testFilteredCountOnEmptyClassReturnsZeroRow() {
+    var className = "MatchEmptyCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class:"
+                + className
+                + ", as:a, where:(name='nobody')} RETURN count(*) as cnt");
+    assertTrue("filtered MATCH count(*) on empty class must return 1 row", result.hasNext());
+    var row = result.next();
+    assertEquals(0L, (long) row.<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        "GuaranteeEmptyCountStep must be present so empty input still emits 0",
+        plan.getSteps().stream().anyMatch(step -> step instanceof GuaranteeEmptyCountStep));
+    assertTrue(
+        "a zero-estimate alias must still exit through EmptyStep instead of scheduling the pattern",
+        plan.getSteps().stream().anyMatch(step -> step instanceof EmptyStep));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Bare {@code MATCH … RETURN count(*)} on a class with records uses the hardwired
+   * {@link CountFromClassStep} fast path (not a pattern scan) and returns the class size.
+   */
+  @Test
+  public void testBareMatchCountOnClass_usesCountFromClassStep() {
+    var className = "MatchHwCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+    session.begin();
+    for (var i = 0; i < 4; i++) {
+      session.execute("CREATE VERTEX " + className + " SET name = 'n" + i + "'").close();
+    }
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query("MATCH {class: " + className + ", as: a} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(4L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        "bare MATCH count(*) must use CountFromClassStep",
+        plan.getSteps().stream().anyMatch(step -> step instanceof CountFromClassStep));
+    assertFalse(
+        "bare MATCH count(*) must not fall through to EmptyStep",
+        plan.getSteps().stream().anyMatch(step -> step instanceof EmptyStep));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Exact {@code @class} filter on a single-node MATCH count is leaf-exact {@code
+   * CountFromClassStep}, matching Gremlin non-polymorphic {@code hasLabel} encoding.
+   */
+  @Test
+  public void testMatchCountWithExactClassFilter_usesExactCountFromClassStep() {
+    var parent = "MatchHwExactParent";
+    var child = "MatchHwExactChild";
+    session.execute("CREATE class " + parent + " extends V").close();
+    session.execute("CREATE class " + child + " extends " + parent).close();
+    session.begin();
+    session.execute("CREATE VERTEX " + parent + " SET name = 'p'").close();
+    session.execute("CREATE VERTEX " + child + " SET name = 'c'").close();
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: "
+                + parent
+                + ", as: a, where: (@class = '"
+                + parent
+                + "')} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(1L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    var planText = plan.prettyPrint(0, 2);
+    assertTrue(
+        "exact @class filter must short-circuit to leaf-exact CountFromClassStep",
+        planText.contains("CALCULATE CLASS SIZE: " + parent + " (exact)"));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * A single-node MATCH count whose filter is not {@code @class} equality must answer the filtered
+   * count, not the class size, on a class that actually holds records. The class-size short-circuit
+   * decides by inspecting the filter AST; if it false-positives on a selective filter it hands back
+   * the whole class count and every row of the filter is silently ignored. Three records, one
+   * match: a false positive answers 3.
+   */
+  @Test
+  public void testMatchCountWithNonClassFilter_countsOnlyMatchingRecords() {
+    var className = "MatchFilteredCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+    session.begin();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Bob'").close();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Carol'").close();
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: "
+                + className
+                + ", as: a, where: (name = 'Alice')} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(
+        "a selective filter must count matches, not the class size",
+        1L,
+        (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertFalse(
+        "a non-@class filter must not fold into the class-size short-circuit",
+        plan.prettyPrint(0, 2).contains("CALCULATE CLASS SIZE"));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * A conjunction that merely contains {@code @class = 'L'} is not a lone class filter: the second
+   * conjunct still selects. Folding it into the class-size short-circuit would drop that conjunct
+   * and answer with the full class count. Two records of the class, one matching the name.
+   */
+  @Test
+  public void testMatchCountWithClassAndNameFilter_countsOnlyMatchingRecords() {
+    var className = "MatchConjunctCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+    session.begin();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX " + className + " SET name = 'Bob'").close();
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: "
+                + className
+                + ", as: a, where: (@class = '"
+                + className
+                + "' AND name = 'Alice')} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(
+        "the name conjunct must still select", 1L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertFalse(
+        "a multi-conjunct filter must not fold into the class-size short-circuit",
+        plan.prettyPrint(0, 2).contains("CALCULATE CLASS SIZE"));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Bare {@code MATCH … RETURN count(*)} on an empty class still emits one row with {@code 0} via
+   * {@link CountFromClassStep} (not {@link EmptyStep}).
+   */
+  @Test
+  public void testBareMatchCountOnEmptyClass_returnsZeroViaCountFromClass() {
+    var className = "MatchHwEmptyCountV";
+    session.execute("CREATE class " + className + " extends V").close();
+
+    session.begin();
+    var result =
+        session.query("MATCH {class: " + className + ", as: a} RETURN count(*) as cnt");
+    assertTrue(result.hasNext());
+    assertEquals(0L, (long) result.next().<Number>getProperty("cnt"));
+    assertFalse(result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        plan.getSteps().stream().anyMatch(step -> step instanceof CountFromClassStep));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Non-count MATCH with a filter on an empty class short-circuits to {@link EmptyStep} (estimate
+   * is 0) and returns zero rows. Unfiltered empty-class MATCH uses {@code classCount + 1} and does
+   * not take this path.
+   */
+  @Test
+  public void testMatchReturnAliasOnEmptyClass_usesEmptyStep() {
+    var className = "MatchEmptyReturnV";
+    session.execute("CREATE class " + className + " extends V").close();
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: " + className + ", as: a, where: (name = 'nobody')} RETURN a");
+    assertFalse("filtered empty-class MATCH must return no rows", result.hasNext());
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertTrue(
+        "zero-estimate non-count MATCH must short-circuit via EmptyStep",
+        plan.getSteps().stream().anyMatch(step -> step instanceof EmptyStep));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * A {@code where: (@rid = ...)} naming a record outside the alias's class returns no rows. The
+   * class and the RID are both constraints on the alias and the pattern means their conjunction,
+   * so a RID from a sibling class satisfies one and fails the other.
+   *
+   * <p>The planner has a fast path that fetches a pinned RID directly instead of scanning the
+   * class, and the fetch it builds carries either the RID list or the class, never both. Taking
+   * that path for a RID it has not proved to be inside the class drops the class from the plan
+   * and the sibling record comes back. Two classes with a common ancestor are the sharp case: the
+   * sibling is a real vertex with a real supertype chain, so nothing downstream rejects it.
+   */
+  @Test
+  public void testRidFilterOutsideAliasClassMatchesNothing() {
+    session.execute("CREATE class RidScopeBase extends V").close();
+    session.execute("CREATE class RidScopeLeft extends RidScopeBase").close();
+    session.execute("CREATE class RidScopeRight extends RidScopeBase").close();
+
+    session.begin();
+    var right = session.newVertex("RidScopeRight");
+    right.setProperty("name", "right-one");
+    session.commit();
+    var rightRid = right.getIdentity();
+
+    session.begin();
+    // Same RID under its own class: the row is there, so an empty result below cannot be blamed
+    // on the record or the RID literal.
+    try (var inClass =
+        session.query(
+            "MATCH {class: RidScopeRight, as: a, where: (@rid = " + rightRid + ")} RETURN a")) {
+      assertEquals(
+          "the sibling's own class must match its RID", 1, inClass.stream().count());
+    }
+    try (var crossClass =
+        session.query(
+            "MATCH {class: RidScopeLeft, as: a, where: (@rid = " + rightRid + ")} RETURN a")) {
+      assertFalse(
+          "a RID from a sibling class must not satisfy a class-constrained alias",
+          crossClass.hasNext());
+    }
+    // The IN form promotes through a separate branch of the same optimisation.
+    try (var crossClassInList =
+        session.query(
+            "MATCH {class: RidScopeLeft, as: a, where: (@rid IN [" + rightRid + "])} RETURN a")) {
+      assertFalse(
+          "the @rid IN form must be scoped to the alias's class too",
+          crossClassInList.hasNext());
+    }
+    session.commit();
+  }
+
+  /**
+   * A pattern root pinned to more RIDs than the prefetch threshold fetches those RIDs instead of
+   * scanning its class.
+   *
+   * <p>Only aliases estimated under MatchExecutionPlanner.THRESHOLD are prefetched, and a pinned
+   * alias estimates at its RID count, so a list of 100 or more skips the prefetch block and
+   * reaches the root-step builder directly. That builder used to test the class before the RIDs
+   * and so dropped the pinned list, leaving a full class scan with an {@code @rid} post-filter —
+   * correct rows over O(class size) work, and invisible to any row-level assertion. Below the
+   * threshold the same query is prefetched through the shared builder, which has always tested
+   * the RIDs first, so the arity here is what makes the case.
+   */
+  @Test
+  public void testAboveThresholdPinnedRidRootOfEdgePatternFetchesByRid() {
+    session.execute("CREATE class RidRootScan extends V").close();
+    session.execute("CREATE class RidRootLink extends E").close();
+
+    // 120 sources, one hub. Both aliases stay above the threshold (the hub makes the unpinned
+    // alias the larger of the two), so neither is prefetched and the pinned alias wins the root.
+    final var pinnedCount = 120;
+    List<Identifiable> sources = new ArrayList<>(pinnedCount);
+    session.begin();
+    session.newVertex("RidRootScan");
+    for (var i = 0; i < pinnedCount; i++) {
+      var source = session.newVertex("RidRootScan");
+      source.setProperty("idx", i);
+      sources.add(source);
+    }
+    session.commit();
+
+    session.begin();
+    session.execute(
+        "CREATE EDGE RidRootLink FROM (SELECT FROM RidRootScan WHERE idx IS NOT NULL)"
+            + " TO (SELECT FROM RidRootScan WHERE idx IS NULL)")
+        .close();
+    session.commit();
+
+    List<String> ridLiterals = new ArrayList<>(pinnedCount);
+    for (var source : sources) {
+      ridLiterals.add(source.getIdentity().toString());
+    }
+
+    session.begin();
+    var result =
+        session.query(
+            "MATCH {class: RidRootScan, as: a, where: (@rid IN ["
+                + String.join(", ", ridLiterals)
+                + "])}.out('RidRootLink'){as: b} RETURN a");
+    var steps = result.getExecutionPlan().getSteps();
+    assertTrue(
+        "120 pinned RIDs are over the prefetch threshold, so no alias is prefetched",
+        steps.stream().noneMatch(MatchPrefetchStep.class::isInstance));
+    var first = steps.stream().filter(MatchFirstStep.class::isInstance).findFirst().orElse(null);
+    assertNotNull("a MATCH plan starts with a MatchFirstStep", first);
+    assertTrue(
+        "the root step fetches the pinned RIDs",
+        containsStepOfType(first, FetchFromRidsStep.class));
+    assertFalse(
+        "and reads nothing else: a class scan beside the RID fetch is the regression",
+        containsStepOfType(first, FetchFromClassExecutionStep.class));
+    assertEquals(
+        "every pinned source has one outgoing link, so the pattern yields one row each",
+        pinnedCount, (int) result.stream().count());
+    result.close();
     session.commit();
   }
 

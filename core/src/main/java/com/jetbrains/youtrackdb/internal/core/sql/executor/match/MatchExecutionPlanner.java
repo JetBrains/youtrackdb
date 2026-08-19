@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.HardwiredCountOptimizations;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
@@ -79,6 +80,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -315,6 +317,23 @@ public class MatchExecutionPlanner {
   private Map<String, List<SQLRid>> aliasPinnedRids;
 
   /**
+   * The subset of {@link #aliasPinnedRids} keys this planner promoted out of a static
+   * {@code @rid} WHERE term, as opposed to reading from a pattern {@code {as: a, rid: #1:2}} slot.
+   * {@link #fetchFilterFor} needs the distinction: only for a promoted alias is the surviving
+   * {@code @rid} term known to enumerate the same records the fetch target does.
+   */
+  private Set<String> promotedRidAliases = Set.of();
+
+  /**
+   * When true, {@link #buildPatterns} promotes the pre-built {@code @rid} / {@code @rid IN}
+   * filters into {@link #aliasPinnedRids} on the additive (pre-built-pattern) path. Set only by
+   * the {@link MatchPlanInputs} constructor — the Gremlin-to-MATCH translator's path — so the GQL
+   * 3-arg constructor, which shares the same early return in {@code buildPatterns}, keeps its
+   * existing plans.
+   */
+  private boolean promoteFilterRidsOnBuild = false;
+
+  /**
    * Aliases whose class was inferred from edge LINK schema rather than
    * explicitly declared. Inferred aliases must NOT outcompete explicit
    * roots during scheduling — a low-cardinality inferred class can cause
@@ -488,6 +507,65 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Creates a planner from pre-built post-parse inputs. Intended for non-SQL front-ends that
+   * produce the complete MATCH input set directly (currently the Gremlin-to-MATCH translator).
+   *
+   * <p>This constructor is purely additive; the three pre-existing constructors are unchanged.
+   * It field-by-field defensive-copies the mutable working maps (and shallow-copies the AST
+   * lists) so the planner can freely mutate {@code aliasClasses} and {@code aliasFilters} during
+   * planning without affecting the caller's record &mdash; {@code aliasClasses} during class
+   * inference into chained edges, and {@code aliasFilters} during NOT-IN anti-join detection
+   * (which strips the rewritten conditions from the per-alias filter map). {@code aliasPinnedRids}
+   * starts empty and is filled by {@link #buildPatterns}, which promotes the pre-built
+   * {@code @rid} / {@code @rid IN} filters so RID-pinned sources take the same fast path as on the
+   * SQL path.
+   *
+   * <p><b>Caching precondition.</b> The inherited {@code statement} field stays {@code null}
+   * because no SQL AST is available, so callers MUST invoke
+   * {@link #createExecutionPlan(CommandContext, boolean, boolean)} with {@code useCache=false}.
+   * Otherwise the cache lookup at the start of {@code createExecutionPlan} dereferences
+   * {@code statement} and throws a {@link NullPointerException}. Plan caching for non-SQL
+   * front-ends would need a separate cache-key mechanism keyed off the front-end's own
+   * fingerprint (e.g. Gremlin bytecode), which is intentionally
+   * out of scope here.
+   *
+   * @param inputs the pre-built post-parse inputs (must not be null)
+   */
+  public MatchExecutionPlanner(@Nonnull MatchPlanInputs inputs) {
+    this.pattern = inputs.pattern();
+    // Defensive copies of the three working maps. The planner mutates aliasClasses (for
+    // class inference into chained edges) and aliasFilters (for NOT-IN anti-join detection),
+    // so without copies a second invocation would observe mutated state from the first.
+    this.aliasClasses = new HashMap<>(inputs.aliasClasses());
+    this.aliasFilters = new HashMap<>(inputs.aliasFilters());
+    // aliasPinnedRids starts empty and mutable; buildPatterns promotes the pre-built @rid /
+    // @rid IN filters into it on this additive path (see promoteFilterRidsOnBuild), so RID-pinned
+    // sources take the same fast path as the SQL path.
+    this.aliasPinnedRids = new LinkedHashMap<>();
+    this.promoteFilterRidsOnBuild = true;
+    // Shallow copies of the AST lists. Translator-built front-ends produce fresh AST
+    // elements that are not shared with anyone else, so element-level deep copy (as the
+    // (SQLMatchStatement) ctor does) is unnecessary; the list-level copy guards against
+    // the caller mutating its own list reference after construction.
+    this.matchExpressions = new ArrayList<>(inputs.matchExpressions());
+    this.notMatchExpressions = new ArrayList<>(inputs.notMatchExpressions());
+    this.returnItems = new ArrayList<>(inputs.returnItems());
+    this.returnAliases = new ArrayList<>(inputs.returnAliases());
+    this.returnNestedProjections = new ArrayList<>(inputs.returnNestedProjections());
+    // Single-value AST fields and primitive flags pass through as-is.
+    this.groupBy = inputs.groupBy();
+    this.orderBy = inputs.orderBy();
+    this.unwind = inputs.unwind();
+    this.limit = inputs.limit();
+    this.skip = inputs.skip();
+    this.returnDistinct = inputs.returnDistinct();
+    this.returnElements = inputs.returnElements();
+    this.returnPaths = inputs.returnPaths();
+    this.returnPatterns = inputs.returnPatterns();
+    this.returnPathElements = inputs.returnPathElements();
+  }
+
+  /**
    * Builds the complete physical execution plan for this `MATCH` query.
    *
    * <p>The plan is assembled as a pipeline of {@link ExecutionStepInternal} instances chained
@@ -527,6 +605,20 @@ public class MatchExecutionPlanner {
 
     var result = new SelectExecutionPlan(context);
 
+    // Shared count short-circuit (SELECT + MATCH): single-node count(*) with no edges/filters
+    // becomes CountFromClassStep before the MATCH scan pipeline is built.
+    if (tryHardwiredMatchCount(result, context, enableProfiling)) {
+      if (useCache
+          && !enableProfiling
+          && statement != null
+          && statement.executinPlanCanBeCached(session)
+          && result.canBeCached()
+          && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+        YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, session);
+      }
+      return result;
+    }
+
     // Phase 3: Estimate how many root records each aliased node will produce.
     var estimatedRootEntries =
         estimateRootEntries(aliasClasses, aliasPinnedRids, aliasFilters, context);
@@ -549,10 +641,22 @@ public class MatchExecutionPlanner {
             .collect(Collectors.toSet());
 
     // Short-circuit: if any non-optional alias has zero estimated records, the query
-    // is guaranteed to produce no results
+    // is guaranteed to produce no results, so skip pattern scheduling and return an empty plan.
+    //
+    // Bare RETURN count(*) (no GROUP BY) still exits here, but not empty-handed: SQL semantics
+    // require a single 0 row (same as SELECT count(*)), so the projection block goes on top of
+    // the EmptyStep and its GuaranteeEmptyCountStep synthesises that row. Returning the bare
+    // EmptyStep made a filtered MATCH count on an empty-but-existing class emit zero rows
+    // instead of {count: 0}, which broke Gremlin g.V().has(...).count().next() after a
+    // rolled-back addV left the class behind; letting the count shape fall through to full
+    // planning fixed that but gave up the O(1) exit, which bites on a disjoint pattern where
+    // CartesianProductStep restarts the empty sub-plan once per row of the other side.
     for (var entry : estimatedRootEntries.entrySet()) {
       if (entry.getValue() == 0L && !isOptional(entry.getKey())) {
         result.chain(new EmptyStep(context, enableProfiling));
+        if (isBareCountStarWithoutGroupBy()) {
+          appendCustomReturnProjection(result, context, enableProfiling);
+        }
         return result;
       }
     }
@@ -629,32 +733,7 @@ public class MatchExecutionPlanner {
         result.chain(new LimitExecutionStep(limit, context, enableProfiling));
       }
     } else {
-      // Custom RETURN expressions — delegate to the SELECT planner for projection,
-      // GROUP BY, ORDER BY, UNWIND, SKIP, LIMIT handling
-      var info = new QueryPlanningInfo();
-      List<SQLProjectionItem> items = new ArrayList<>();
-      for (var i = 0; i < this.returnItems.size(); i++) {
-        var item =
-            new SQLProjectionItem(
-                returnItems.get(i), this.returnAliases.get(i), returnNestedProjections.get(i));
-        items.add(item);
-      }
-      info.projection = new SQLProjection(items, returnDistinct);
-
-      info.projection = SelectExecutionPlanner.translateDistinct(info.projection);
-      info.distinct = info.projection != null && info.projection.isDistinct();
-      if (info.projection != null) {
-        info.projection.setDistinct(false);
-      }
-
-      info.groupBy = this.groupBy;
-      info.orderBy = this.orderBy;
-      info.unwind = this.unwind;
-      info.skip = this.skip;
-      info.limit = this.limit;
-
-      SelectExecutionPlanner.optimizeQuery(info, context);
-      SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+      appendCustomReturnProjection(result, context, enableProfiling);
     }
 
     // --- Store the assembled plan in the cache for future reuse ---
@@ -667,6 +746,129 @@ public class MatchExecutionPlanner {
     }
 
     return result;
+  }
+
+  /**
+   * Appends the projection pipeline for custom RETURN expressions — projection, GROUP BY, ORDER BY,
+   * UNWIND, SKIP, LIMIT — by delegating to the SELECT planner. Shared by the normal end of planning
+   * and by the zero-estimate short-circuit, which needs the identical pipeline (specifically its
+   * {@link GuaranteeEmptyCountStep}) on top of an {@link EmptyStep} so a bare {@code count(*)} over
+   * nothing still answers {@code 0}.
+   */
+  private void appendCustomReturnProjection(
+      SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
+    var info = new QueryPlanningInfo();
+    List<SQLProjectionItem> items = new ArrayList<>();
+    for (var i = 0; i < this.returnItems.size(); i++) {
+      var item =
+          new SQLProjectionItem(
+              returnItems.get(i), this.returnAliases.get(i), returnNestedProjections.get(i));
+      items.add(item);
+    }
+    info.projection = new SQLProjection(items, returnDistinct);
+
+    info.projection = SelectExecutionPlanner.translateDistinct(info.projection);
+    info.distinct = info.projection != null && info.projection.isDistinct();
+    if (info.projection != null) {
+      info.projection.setDistinct(false);
+    }
+
+    info.groupBy = this.groupBy;
+    info.orderBy = this.orderBy;
+    info.unwind = this.unwind;
+    info.skip = this.skip;
+    info.limit = this.limit;
+
+    SelectExecutionPlanner.optimizeQuery(info, context);
+    SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+  }
+
+  /**
+   * {@code true} when RETURN is a bare {@code count(*)} with no GROUP BY — the shape that must emit
+   * a synthetic 0 row on empty input ({@link GuaranteeEmptyCountStep}), so the zero-estimate
+   * {@link EmptyStep} short-circuit must carry the projection pipeline with it rather than return
+   * an empty plan.
+   */
+  private boolean isBareCountStarWithoutGroupBy() {
+    return groupBy == null && isCountStarReturn();
+  }
+
+  /**
+   * {@code true} when RETURN is exactly one bare {@code count(*)} item. Both the empty-count
+   * guarantee ({@link #isBareCountStarWithoutGroupBy}) and the class-size short-circuit ({@link
+   * #tryHardwiredMatchCount}) turn on this shape, and one deciding it differently from the other is
+   * what let a filtered count on an empty class return no row at all — so the literal lives here
+   * once.
+   */
+  private boolean isCountStarReturn() {
+    if (returnItems == null || returnItems.size() != 1) {
+      return false;
+    }
+    return "count(*)".equalsIgnoreCase(returnItems.getFirst().toString().trim());
+  }
+
+  /**
+   * Single-node {@code RETURN count(*)} with no edges and no NOT patterns maps to {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.CountFromClassStep} via the shared helper.
+   * Unfiltered patterns count polymorphically; a lone exact {@code @class = className} filter
+   * counts leaf-exact (Gremlin non-polymorphic {@code hasLabel}). Other filters / multi-node /
+   * grouped counts fall through to the generic MATCH aggregate path (or, for declined Gremlin
+   * shapes, to {@code YTDBGraphCountStrategy}).
+   */
+  private boolean tryHardwiredMatchCount(
+      SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
+    if (!isCountStarReturn()) {
+      return false;
+    }
+    if (returnDistinct
+        || groupBy != null
+        || orderBy != null
+        || unwind != null
+        || skip != null
+        || limit != null) {
+      // A count fast path reads the whole-class count and ignores SKIP/LIMIT, so any pagination
+      // clause must stay on the generic aggregate path where SKIP/LIMIT apply after the count row.
+      return false;
+    }
+    if (pattern == null || pattern.numOfEdges != 0 || pattern.aliasToNode.size() != 1) {
+      return false;
+    }
+    if (notMatchExpressions != null && !notMatchExpressions.isEmpty()) {
+      return false;
+    }
+    if (subPatterns != null && subPatterns.size() > 1) {
+      return false;
+    }
+    var alias = pattern.aliasToNode.keySet().iterator().next();
+    if (aliasPinnedRids != null
+        && aliasPinnedRids.get(alias) != null
+        && !aliasPinnedRids.get(alias).isEmpty()) {
+      return false;
+    }
+    var className = aliasClasses == null ? null : aliasClasses.get(alias);
+    if (className == null || className.isBlank()) {
+      return false;
+    }
+    // No filter → polymorphic count (MATCH/GQL default; bare g.V()/g.E() and poly hasLabel).
+    // Exact @class = className alone → non-polymorphic (Gremlin hasLabel under poly=false).
+    // Any other filter stays on the generic aggregate path; indexed-equality COUNT is still a
+    // SELECT-only Phase-1 deferral (design §"Non-fast-path counts").
+    var polymorphic = true;
+    var filter = aliasFilters == null ? null : aliasFilters.get(alias);
+    if (filter != null) {
+      if (!HardwiredCountOptimizations.isExactClassEqualsOnly(filter, className)) {
+        return false;
+      }
+      polymorphic = false;
+    }
+    var resultAlias =
+        returnAliases != null
+            && !returnAliases.isEmpty()
+            && returnAliases.getFirst() != null
+                ? returnAliases.getFirst().getStringValue()
+                : "count(*)";
+    return HardwiredCountOptimizations.tryMatchCountFromClass(
+        result, className, resultAlias, polymorphic, context, enableProfiling);
   }
 
   /**
@@ -1658,6 +1860,12 @@ public class MatchExecutionPlanner {
     // Build the origin scan: SELECT FROM <class> [WHERE ...]
     // Copy the WHERE clause to prevent mutable filter corruption (same as
     // buildHashJoinBranchPlan and addStepsFor).
+    //
+    // Unlike addStepsFor, this scan is built whether or not the origin alias is prefetched, and
+    // it must be: HashJoinMatchStep.internalStart materializes the build side before it calls
+    // prev.start(), so the upstream MatchPrefetchStep has not run and the context carries no
+    // cache for MatchFirstStep to read. Handing the sub-plan-free constructor to a prefetched
+    // origin alias here makes the anti-join throw on its first row.
     var select = createSelectStatement(
         originClass, originRids, originFilter == null ? null : originFilter.copy());
 
@@ -1704,6 +1912,11 @@ public class MatchExecutionPlanner {
 
     // Copy the WHERE clause to prevent mutable state from the main plan's
     // execution corrupting the build-side filter (matches addStepsFor behavior).
+    //
+    // The scan is built whether or not the scan alias is prefetched, for the same reason as in
+    // buildNotPatternPlan: the build side is materialized before HashJoinMatchStep starts its
+    // upstream, so the prefetch cache does not exist yet and this sub-plan is the only source of
+    // build rows.
     var select = createSelectStatement(
         scanClass, scanRids, scanFilter == null ? null : scanFilter.copy());
     var scanNode = new PatternNode();
@@ -1905,7 +2118,7 @@ public class MatchExecutionPlanner {
         if (branchEdgeSet.contains(edge.edge)) {
           continue; // Skip edges handled by hash join
         }
-        addStepsFor(plan, edge, context, first, profilingEnabled);
+        addStepsFor(plan, edge, context, prefetchedAliases, first, profilingEnabled);
         first = false;
       }
 
@@ -1917,7 +2130,7 @@ public class MatchExecutionPlanner {
           // edges back into the main plan by not skipping them. Since we already
           // skipped them above, we need to add them now.
           for (var branchEdge : branch.branchEdges()) {
-            addStepsFor(plan, branchEdge, context, first, profilingEnabled);
+            addStepsFor(plan, branchEdge, context, prefetchedAliases, first, profilingEnabled);
             first = false;
           }
         } else {
@@ -1935,7 +2148,7 @@ public class MatchExecutionPlanner {
       } else {
         var clazz = aliasClasses.get(node.alias);
         var pinnedRids = pinnedRidsForAlias(node.alias);
-        var filter = aliasFilters.get(node.alias);
+        var filter = fetchFilterFor(node.alias, pinnedRids);
         var select = createSelectStatement(clazz, pinnedRids, filter);
         plan.chain(
             new MatchFirstStep(
@@ -5212,35 +5425,50 @@ public class MatchExecutionPlanner {
    *
    * If the target node of the edge is optional, an {@link OptionalMatchStep} is used
    * instead of a regular {@link MatchStep}.
+   *
+   * @param prefetchedAliases aliases a {@link MatchPrefetchStep} already loads into the context;
+   *                          a root node whose alias is in this set gets the sub-plan-free
+   *                          {@link MatchFirstStep} constructor
    */
   private void addStepsFor(
       SelectExecutionPlan plan,
       EdgeTraversal edge,
       CommandContext context,
+      Set<String> prefetchedAliases,
       boolean first,
       boolean profilingEnabled) {
     if (first) {
       var patternNode = edge.out ? edge.edge.out : edge.edge.in;
-      var clazz = this.aliasClasses.get(patternNode.alias);
-      var pinnedRids = pinnedRidsForAlias(patternNode.alias);
-      var where = aliasFilters.get(patternNode.alias);
-      var select = new SQLSelectStatement(-1);
-      select.setTarget(new SQLFromClause(-1));
-      select.getTarget().setItem(new SQLFromItem(-1));
-      if (clazz != null) {
-        select.getTarget().getItem().setIdentifier(new SQLIdentifier(clazz));
-      } else if (pinnedRids != null) {
-        select.getTarget().getItem().setRids(pinnedRids);
+      if (prefetchedAliases.contains(patternNode.alias)) {
+        // A MatchPrefetchStep earlier in the chain has already loaded this alias, and
+        // MatchFirstStep.internalStart reads that cache instead of starting a sub-plan. Building
+        // a sub-plan anyway hung a plan that never runs off the root step, so a caller tallying
+        // fetches through getSubSteps() counted the alias twice for a query that fetches it once.
+        // The edge-free branch of createPlanForPattern already skips the sub-plan this way.
+        plan.chain(new MatchFirstStep(context, patternNode, profilingEnabled));
+      } else {
+        var clazz = aliasClasses.get(patternNode.alias);
+        var pinnedRids = pinnedRidsForAlias(patternNode.alias);
+        var where = fetchFilterFor(patternNode.alias, pinnedRids);
+        // Shared builder rather than a hand-rolled copy of it. The copy tested the class before
+        // the RIDs, so a pattern root carrying both scanned the class and demoted the pinned list
+        // to a post-filter — and the prefetch filter only spares aliases estimated under
+        // THRESHOLD, so the aliases that reached here were exactly the large RID lists that most
+        // needed the fetch. createSelectStatement takes the RIDs first, which is safe because
+        // promoteStaticRidsFromFilters only pins RIDs it has proved are inside the alias's class
+        // (see pinnedRidsProvablyInClass); a parser `rid:` slot pins one RID and estimates at 1,
+        // so it is prefetched through the same builder and never arrives here.
+        var select =
+            createSelectStatement(clazz, pinnedRids, where == null ? null : where.copy());
+        var subContext = new BasicCommandContext();
+        subContext.setParentWithoutOverridingChild(context);
+        plan.chain(
+            new MatchFirstStep(
+                context,
+                patternNode,
+                select.createExecutionPlan(subContext, profilingEnabled),
+                profilingEnabled));
       }
-      select.setWhereClause(where == null ? null : where.copy());
-      var subContxt = new BasicCommandContext();
-      subContxt.setParentWithoutOverridingChild(context);
-      plan.chain(
-          new MatchFirstStep(
-              context,
-              patternNode,
-              select.createExecutionPlan(subContxt, profilingEnabled),
-              profilingEnabled));
     }
     // Skip edges consumed by a ChainSemiJoin on the next edge — the
     // BackRefHashJoinStep on the next edge covers both.
@@ -5329,7 +5557,7 @@ public class MatchExecutionPlanner {
     for (var alias : aliasesToPrefetch) {
       var targetClass = aliasClasses.get(alias);
       var pinnedRids = pinnedRidsForAlias(alias);
-      var filter = aliasFilters.get(alias);
+      var filter = fetchFilterFor(alias, pinnedRids);
       var prefetchStm =
           createSelectStatement(targetClass, pinnedRids, filter);
 
@@ -5380,6 +5608,16 @@ public class MatchExecutionPlanner {
    */
   private void buildPatterns(CommandContext ctx) {
     if (this.pattern != null) {
+      // Additive path (pre-built pattern + aliasFilters, e.g. the Gremlin-to-MATCH translator):
+      // the pattern and per-alias filters are already populated, so skip the matchExpressions
+      // rebuild below. Static @rid = / @rid IN filters still need promoting to aliasPinnedRids so
+      // the RID fast path and the collapsed root estimate apply, exactly as the rebuild branch
+      // does for the SQL path. Scoped by promoteFilterRidsOnBuild so only the MatchPlanInputs path
+      // (which sets a mutable aliasPinnedRids) promotes; the GQL 3-arg ctor keeps its plans.
+      if (promoteFilterRidsOnBuild) {
+        this.promotedRidAliases = promoteStaticRidsFromFilters(
+            this.aliasFilters, this.aliasClasses, this.aliasPinnedRids, ctx);
+      }
       return;
     }
     List<SQLMatchExpression> allPatterns = new ArrayList<>();
@@ -5421,7 +5659,10 @@ public class MatchExecutionPlanner {
     // size, so a 2M-row class restricted to a few RIDs stops losing root selection
     // to a 10K-row unfiltered class.
     // The promotion also lets createSelectStatement() take the FetchFromRids
-    // fast path instead of a class scan with post-filter.
+    // fast path instead of a class scan with post-filter. aliasClasses is passed in because that
+    // swap discards the alias's class — createSelectStatement treats RIDs and class as mutually
+    // exclusive — so the promoter declines whenever the pinned RIDs are not provably inside the
+    // class (see pinnedRidsProvablyInClass).
     // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
     // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
     // join in the pre-filter pass.
@@ -5430,7 +5671,8 @@ public class MatchExecutionPlanner {
     // still relies on findRidEquality(). {@code @rid IN <list>} has no
     // RidFilterDescriptor analogue; non-root IN lists are enforced via prefetch
     // or post-fetch WHERE evaluation instead.
-    promoteStaticRidsFromFilters(aliasFilters, aliasPinnedRids, ctx);
+    this.promotedRidAliases =
+        promoteStaticRidsFromFilters(aliasFilters, aliasClasses, aliasPinnedRids, ctx);
 
     rebindFilters(aliasFilters);
   }
@@ -5456,13 +5698,22 @@ public class MatchExecutionPlanner {
    *       {@code EdgeRidLookup} or Pattern A back-ref hash join)
    *   <li>expressions that are not early-calculable (depend on per-row context)
    *   <li>{@code @rid IN <subquery>} or non-static right-hand sides
+   *   <li>aliases whose class constraint the pinned RIDs are not provably inside
+   *       (see {@link #pinnedRidsProvablyInClass})
    * </ul>
+   *
+   * @param aliasClasses per-alias class constraints, consulted so a promotion never
+   *                     silently discards one
+   * @return the aliases this call promoted, which is what tells {@link #fetchFilterFor} that an
+   *         alias's {@code @rid} term is the same list its fetch target enumerates
    */
   // Visible for testing
-  static void promoteStaticRidsFromFilters(
+  static Set<String> promoteStaticRidsFromFilters(
       Map<String, SQLWhereClause> aliasFilters,
+      Map<String, String> aliasClasses,
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext ctx) {
+    Set<String> promoted = new HashSet<>();
     for (var entry : aliasFilters.entrySet()) {
       var alias = entry.getKey();
       var filter = entry.getValue();
@@ -5473,6 +5724,7 @@ public class MatchExecutionPlanner {
       if (aliasPinnedRids.containsKey(alias)) {
         continue;
       }
+      var aliasClass = aliasClasses.get(alias);
       var ridExpr = filter.findRidEquality();
       if (ridExpr != null) {
         var involved = ridExpr.getMatchPatternInvolvedAliases();
@@ -5484,7 +5736,12 @@ public class MatchExecutionPlanner {
         }
         var rid = new SQLRid(-1);
         SQLRid.internalPromoteExpression(rid, ridExpr);
-        aliasPinnedRids.put(alias, List.of(rid));
+        var promotedEquality = List.of(rid);
+        if (!pinnedRidsProvablyInClass(promotedEquality, aliasClass, ctx)) {
+          continue;
+        }
+        aliasPinnedRids.put(alias, promotedEquality);
+        promoted.add(alias);
         logger.debug(
             "MATCH planner: promoted @rid = filter to aliasPinnedRids for alias '{}'",
             alias);
@@ -5503,12 +5760,118 @@ public class MatchExecutionPlanner {
       if (promotedList == null || promotedList.isEmpty()) {
         continue;
       }
+      if (!pinnedRidsProvablyInClass(promotedList, aliasClass, ctx)) {
+        continue;
+      }
       aliasPinnedRids.put(alias, promotedList);
+      promoted.add(alias);
       logger.debug(
           "MATCH planner: promoted @rid IN filter ({} RIDs) for alias '{}'",
           promotedList.size(),
           alias);
     }
+    return promoted;
+  }
+
+  /**
+   * Returns the WHERE clause to attach to an alias's direct-RID fetch: the alias filter without
+   * the {@code @rid} term the fetch target already enforces, or the filter unchanged when the term
+   * cannot be removed safely.
+   *
+   * <p>A promoted alias otherwise plans as {@code SELECT FROM [#a, #b, …] WHERE @rid IN [#a, #b,
+   * …]}. The RID target is the enumeration, so the predicate can only ever be true, and it is not
+   * free: a RID target carries no class, so no index absorbs the term and it runs as a filter step
+   * per fetched record. {@code SQLInCondition.evaluate} re-executes the literal collection and
+   * materialises a fresh list of evaluated RIDs on each of those rows, then walks it, which makes
+   * an N-RID lookup cost O(N^2) comparisons and allocations for N record loads.
+   *
+   * <p>Removal is refused unless the term is provably the promoted one. Three conditions have to
+   * hold together: the alias is one this planner's own promotion pinned (a parser {@code rid:}
+   * slot pins a RID the filter never mentions, and stripping an unrelated {@code @rid} term there
+   * would drop a live constraint); the extractor reaches the same term the promoter did, checked
+   * by taking the equality branch exactly when the promoter would have; and what remains carries
+   * no {@code @rid} term at all, which is what rules out a clause holding two of them where the
+   * extractor removed the other one. Any failure returns the original filter and costs only the
+   * optimisation.
+   */
+  @Nullable private SQLWhereClause fetchFilterFor(
+      String alias, @Nullable List<SQLRid> pinnedRids) {
+    var filter = aliasFilters.get(alias);
+    if (filter == null
+        || pinnedRids == null
+        || pinnedRids.isEmpty()
+        || !promotedRidAliases.contains(alias)) {
+      return filter;
+    }
+    // The promoter tries the equality first and only looks for an IN list when there is no rid
+    // equality at all, so branching on the same test reaches the same term it pinned from.
+    var extracted =
+        filter.findRidEquality() != null ? filter.extractRidEquality() : filter.extractRidInList();
+    if (extracted == null) {
+      return filter;
+    }
+    var remaining = extracted.remainingWhere();
+    if (remaining != null
+        && (remaining.findRidEquality() != null || remaining.findRidInList() != null)) {
+      return filter;
+    }
+    return remaining;
+  }
+
+  /**
+   * Whether every pinned RID provably belongs to {@code className} or one of its subclasses.
+   *
+   * <p>The promotion is only safe when it loses nothing. {@link #createSelectStatement} treats a
+   * RID list and a class as mutually exclusive — a non-empty RID list sets the FROM target and the
+   * class arm never runs — so promoting an alias that also carries a class silently drops that
+   * class from the plan. Where the class is the only type constraint the alias has, the fetch then
+   * resolves whatever record the RID names. A translated {@code g.V(rid).hasLabel(L)} under
+   * polymorphic mode is exactly that shape: {@code HasStepRecogniser} re-types the boundary node to
+   * {@code L} and deliberately adds no {@code @class} conjunct, so with the class gone the label
+   * stops being checked at all and a record from an unrelated class is emitted.
+   *
+   * <p>Proof is by collection ownership, the same zero-I/O route
+   * {@code MatchEdgeTraverser.matchesClass} takes: a RID's collection is owned by at most one
+   * schema class, so the immutable schema snapshot answers membership without loading the record.
+   * An unresolvable RID (a parameter expression that needs per-row bindings) or an unowned
+   * collection returns {@code false} — the promotion is skipped and the plan falls back to the
+   * class scan with the {@code @rid} post-filter, which is correct at any arity and is what the
+   * planner emitted before the promotion learned to see code-assembled clauses.
+   *
+   * @param className the alias's class constraint, or {@code null} when it has none — with no
+   *                  class to lose, every promotion is safe
+   */
+  private static boolean pinnedRidsProvablyInClass(
+      List<SQLRid> rids, @Nullable String className, CommandContext ctx) {
+    if (className == null) {
+      return true;
+    }
+    // Collect the collection ids before reaching for the schema: a RID whose collection needs
+    // per-row bindings to resolve is unprovable whatever the schema says, and answering that
+    // first keeps the schema lookup off the path entirely.
+    var collectionIds = new ArrayList<Integer>(rids.size());
+    for (var rid : rids) {
+      var collection = rid.getCollection();
+      if (collection == null || collection.getValue() == null) {
+        return false;
+      }
+      collectionIds.add(collection.getValue().intValue());
+    }
+    var session = ctx == null ? null : ctx.getDatabaseSession();
+    if (session == null) {
+      return false;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return false;
+    }
+    for (var collectionId : collectionIds) {
+      var owner = schema.getClassByCollectionId(collectionId);
+      if (owner == null || !owner.isSubClassOf(className)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Returns the pinned RID list for an alias, or {@code null} if none. */
@@ -5550,15 +5913,45 @@ public class MatchExecutionPlanner {
     if (!(rightVal instanceof Iterable<?> iterable)) {
       return null;
     }
+    // Duplicates are dropped, first occurrence wins. IN is set membership: a class scan with an
+    // `@rid IN [#5:0, #5:0]` post-filter tests each record once and emits it once. The promoted
+    // form enumerates the pinned list instead, so a duplicate left in place would fetch the same
+    // record twice and change the result multiset — g.V().hasId(a, a) is the shape that exposes it.
+    // Keyed on the (collection, position) pair rather than on SQLRid, which inherits identity
+    // equality. The pair is carried by a value record and never folded into a single long: a
+    // 32-bit collection id and a 64-bit position do not fit in 64 bits, and any fold collides —
+    // #0:4294967296 and #1:0 share the packed key (collection << 32) ^ position, and a collision
+    // silently drops the second RID from the list the promoted plan fetches.
     List<SQLRid> rids = new ArrayList<>();
+    Set<RidKey> seen = new HashSet<>();
     for (var item : iterable) {
       var sqlRid = sqlRidFromRuntimeValue(item);
       if (sqlRid == null) {
         return null;
       }
-      rids.add(sqlRid);
+      // sqlRidFromRuntimeValue is the only producer and always sets both fields, so the pair is
+      // always available here; the assert states that rather than adding a dead runtime branch.
+      var collection = sqlRid.getCollection();
+      var position = sqlRid.getPosition();
+      assert collection != null && position != null
+          : "sqlRidFromRuntimeValue must populate both collection and position";
+      if (seen.add(new RidKey(collection.getValue().intValue(), position.getValue().longValue()))) {
+        rids.add(sqlRid);
+      }
     }
     return rids.isEmpty() ? null : rids;
+  }
+
+  /**
+   * Dedup key for a promoted RID: the (collection id, position) pair by value.
+   *
+   * <p>{@link SQLRid} inherits identity equality, so a set of RID nodes never dedups. The pair is
+   * kept as a record rather than packed into a {@code long} because the two fields are 32 and 64
+   * bits wide and any packing loses information — the same reason
+   * {@code StartStepRecogniser.RidKey} exists on the translator side of the same feature.
+   */
+  private record RidKey(int collectionId, long position) {
+
   }
 
   private static boolean isEarlyCalculableInRight(SQLInCondition inCond, CommandContext ctx) {

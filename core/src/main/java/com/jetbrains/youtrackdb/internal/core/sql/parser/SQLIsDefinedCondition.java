@@ -59,6 +59,14 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
     return expression.isDefinedFor(currentRecord);
   }
 
+  public SQLExpression getExpression() {
+    return expression;
+  }
+
+  public void setExpression(SQLExpression expression) {
+    this.expression = expression;
+  }
+
   @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     expression.toString(params, builder);

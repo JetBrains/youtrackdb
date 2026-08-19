@@ -300,6 +300,38 @@ public class ShapeClassifierTest extends DbTestBase {
         ShapeClassifier.classify(parse("select name.toLowerCase() from OUser")));
   }
 
+  /**
+   * A builtin aggregate with no {@code AggregateState} replay arm must classify K0_NONE, never
+   * RECORD: its single row is a scalar with no RID, and the per-record delta builder has nothing to
+   * reconcile it against. {@code mean} is the one a user reaching for a floating-point average
+   * types — {@code avg}'s integer division is why it exists, so it cannot borrow {@code
+   * AGGREGATE_AVG}'s replay either.
+   */
+  @Test
+  public void unreplayableAggregateProjectionClassifiesAsK0None() {
+    for (var sql : new String[] {
+        "select mean(age) from OUser",
+        "select median(age) from OUser",
+        "select mode(age) from OUser",
+        "select variance(age) from OUser",
+        "select stddev(age) from OUser",
+        "select percentile(age, 50) from OUser"
+    }) {
+      Assert.assertEquals(sql, CacheableShape.K0_NONE, ShapeClassifier.classify(parse(sql)));
+    }
+  }
+
+  /**
+   * The same names buried in a mixed projection must not reach RECORD either — recognising them as
+   * aggregates is what keeps {@code projectionContainsAggregate} true for the mixed shape.
+   */
+  @Test
+  public void unreplayableAggregateMixedWithFieldClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select name, mean(age) from OUser")));
+  }
+
   // ===========================================================================
   // aggregateMetadata — the side-tap populate path's per-shape facts
   // ===========================================================================

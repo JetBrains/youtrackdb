@@ -1,0 +1,147 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
+
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import javax.annotation.Nonnull;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
+
+/**
+ * Cheap pre-walk extraction of the translation-cache key and this invocation's {@code ?} bindings.
+ * Dispatches each step to the same class-keyed recogniser registry the walker uses: the recogniser
+ * that would translate the step is the one that lists the tokens it reads. An unregistered step is
+ * encoded by class name and labels only (the walker declines it). A recogniser that returns
+ * {@code false} from {@link StepRecogniser#contributeShape}, or a lambda modulator the extractor
+ * cannot name, marks the extraction incomplete so {@code apply} will not cache a {@code Translate}.
+ *
+ * <p>Lambda {@code by()} modulators ({@link ValueTraversal}, {@link TokenTraversal}, {@link
+ * IdentityTraversal}) have an empty step list; their property key / token lives on the traversal
+ * itself. Encoding them here, once, covers {@code order}/{@code group}/{@code project}/{@code
+ * select} without each recogniser re-implementing the split.
+ */
+final class GremlinShapeExtractor {
+
+  private final Map<Class<?>, StepRecogniser> recognisers;
+
+  private final Set<Class<?>> transparentSteps;
+
+  private final GremlinShapeEncoder encoder;
+
+  private GremlinShapeExtractor(
+      Map<Class<?>, StepRecogniser> recognisers,
+      Set<Class<?>> transparentSteps,
+      GremlinShapeEncoder encoder) {
+    this.recognisers = recognisers;
+    this.transparentSteps = transparentSteps;
+    this.encoder = encoder;
+  }
+
+  static Extraction extract(
+      @Nonnull Map<Class<?>, StepRecogniser> recognisers,
+      @Nonnull Set<Class<?>> transparentSteps,
+      @Nonnull Traversal.Admin<?, ?> traversal,
+      @Nonnull DatabaseSessionEmbedded session) {
+    var extractor =
+        new GremlinShapeExtractor(
+            recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
+    extractor.appendStrategyFlags(traversal);
+    extractor.visit(traversal);
+    return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
+        extractor.encoder.complete());
+  }
+
+  record Extraction(@Nonnull String key, @Nonnull Map<Object, Object> bindings, boolean complete) {
+  }
+
+  private void appendStrategyFlags(Traversal.Admin<?, ?> traversal) {
+    Boolean polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
+    encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
+    encoder.appendToken(
+        "elv",
+        traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent()
+            ? "1"
+            : "0");
+    var productiveKeys =
+        traversal
+            .getStrategies()
+            .getStrategy(ProductiveByStrategy.class)
+            .map(ProductiveByStrategy::getProductiveKeys)
+            .orElse(null);
+    if (productiveKeys == null) {
+      encoder.appendToken("pb", "-");
+    } else {
+      encoder.appendToken("pb", Integer.toString(productiveKeys.size()));
+      for (String key : new TreeSet<>(productiveKeys)) {
+        encoder.appendToken(key);
+      }
+    }
+  }
+
+  private void visit(Traversal.Admin<?, ?> traversal) {
+    if (encodeLambda(traversal)) {
+      return;
+    }
+    int counted = 0;
+    for (Step<?, ?> step : traversal.getSteps()) {
+      if (!transparentSteps.contains(step.getClass())) {
+        counted++;
+      }
+    }
+    encoder.appendToken("T", Integer.toString(counted));
+    for (Step<?, ?> step : traversal.getSteps()) {
+      if (transparentSteps.contains(step.getClass())) {
+        continue;
+      }
+      encoder.appendToken("S", step.getClass().getName());
+      var labels = GremlinStepLabels.userLabels(step);
+      encoder.appendStringSeq("L", labels);
+      var recogniser = recognisers.get(step.getClass());
+      if (recogniser != null && !recogniser.contributeShape(step, encoder)) {
+        encoder.markIncomplete();
+      }
+      if (step instanceof TraversalParent parent) {
+        for (var child : parent.getLocalChildren()) {
+          visit(child.asAdmin());
+        }
+        for (var child : parent.getGlobalChildren()) {
+          visit(child.asAdmin());
+        }
+      }
+    }
+  }
+
+  /**
+   * {@code true} when {@code traversal} is a lambda (no step list) and has been encoded as such.
+   * Unknown lambdas mark the extraction incomplete.
+   */
+  private boolean encodeLambda(Traversal.Admin<?, ?> traversal) {
+    if (traversal instanceof ValueTraversal<?, ?> valueTraversal) {
+      encoder.appendToken("vt", String.valueOf(valueTraversal.getPropertyKey()));
+      return true;
+    }
+    if (traversal instanceof TokenTraversal<?, ?> tokenTraversal) {
+      var token = tokenTraversal.getToken();
+      encoder.appendToken("tt", token == null ? "-" : token.getAccessor());
+      return true;
+    }
+    if (traversal instanceof IdentityTraversal) {
+      encoder.appendToken("idtr", "1");
+      return true;
+    }
+    if (traversal.getSteps().isEmpty()) {
+      encoder.appendToken("lambda", traversal.getClass().getName());
+      encoder.markIncomplete();
+      return true;
+    }
+    return false;
+  }
+}

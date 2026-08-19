@@ -8,7 +8,10 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -40,6 +43,13 @@ import org.junit.Test;
 public class PromoteStaticRidsFromFiltersTest {
 
   private static final BasicCommandContext CTX = new BasicCommandContext();
+
+  /**
+   * The alias-class map for the cases that carry no class constraint. With no class to lose, the
+   * promoter's class guard short-circuits and never touches the schema, which is what lets the
+   * mocked session below stay a bare stub.
+   */
+  private static final Map<String, String> NO_CLASSES = Map.of();
 
   private CommandContext ctx;
 
@@ -112,7 +122,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", "#25:7");
     // The filter is intentionally left intact for the DirectRid pre-filter
@@ -133,7 +143,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", "#25:7");
     assertThat(aliasFilters.get("c").findRidEquality()).isNotNull();
@@ -153,7 +163,7 @@ public class PromoteStaticRidsFromFiltersTest {
     when(ctx.getInputParameters()).thenReturn(Map.of("rid", "#25:7"));
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", ctx, "#25:7");
   }
@@ -171,7 +181,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -186,7 +196,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).isEmpty();
   }
@@ -208,7 +218,7 @@ public class PromoteStaticRidsFromFiltersTest {
     aliasPinnedRids.put("c", existingList);
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).containsEntry("c", existingList);
     // Post single-map consolidation there is no second map to prove placement
@@ -229,7 +239,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).isEmpty();
   }
@@ -247,7 +257,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -265,7 +275,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -283,7 +293,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -303,7 +313,7 @@ public class PromoteStaticRidsFromFiltersTest {
     when(ctx.getInputParameters()).thenReturn(Map.of("rid", "#25:7"));
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", ctx, "#25:7");
     assertThat(aliasFilters.get("c").findRidEquality()).isNotNull();
@@ -320,7 +330,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", "#25:7");
   }
@@ -337,7 +347,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", "#25:7", "#26:8");
     assertThat(aliasFilters).containsKey("c");
@@ -355,7 +365,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", "#25:7", "#26:8");
     assertThat(aliasFilters).containsKey("c");
@@ -375,7 +385,7 @@ public class PromoteStaticRidsFromFiltersTest {
         Map.of("rids", List.of("#25:7", "#26:8")));
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", "#25:7", "#26:8");
   }
@@ -394,7 +404,7 @@ public class PromoteStaticRidsFromFiltersTest {
         Map.of("rids", List.of("#25:7", "#26:8")));
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertPromotedRids(aliasPinnedRids, "c", "#25:7", "#26:8");
     assertThat(aliasFilters.get("c").findRidInList()).isNotNull();
@@ -412,7 +422,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -430,7 +440,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -447,7 +457,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -463,7 +473,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -482,7 +492,7 @@ public class PromoteStaticRidsFromFiltersTest {
     aliasPinnedRids.put("c", existing);
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).containsEntry("c", existing);
   }
@@ -497,7 +507,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -513,7 +523,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -529,7 +539,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -546,7 +556,7 @@ public class PromoteStaticRidsFromFiltersTest {
     when(ctx.getInputParameters()).thenReturn(Map.of("rids", 42));
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -562,7 +572,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).doesNotContainKey("c");
   }
@@ -579,7 +589,7 @@ public class PromoteStaticRidsFromFiltersTest {
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).containsKey("c");
     assertThat(aliasPinnedRids.get("c")).hasSize(1);
@@ -602,7 +612,7 @@ public class PromoteStaticRidsFromFiltersTest {
     aliasPinnedRids.put("c", existingList);
 
     MatchExecutionPlanner.promoteStaticRidsFromFilters(
-        aliasFilters, aliasPinnedRids, ctx);
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).containsEntry("c", existingList);
     // Post single-map consolidation there is no second map to prove placement
@@ -629,4 +639,258 @@ public class PromoteStaticRidsFromFiltersTest {
     assertThat(promoted.get(0).toRecordId((Result) null, CTX).toString()).isEqualTo("#25:7");
     assertThat(promoted.get(1).toRecordId((Result) null, CTX).toString()).isEqualTo("#26:8");
   }
+
+  /**
+   * A repeated RID in the IN list is promoted once, first occurrence winning.
+   *
+   * <p>IN is set membership: the class scan this promotion replaces tests each record once
+   * against the list and emits it once, however many times the list names it. The promoted
+   * form enumerates the pinned list instead, so leaving a duplicate in place fetches the same
+   * record twice and changes the result multiset. {@code g.V().hasId(alice, alice)} is the
+   * traversal that exposes it, and
+   * {@code PredicateTraversalEquivalenceTest.hasIdDuplicate_isSetMembership_matchesNative}
+   * is the end-to-end guard; this test pins the same invariant at the promotion itself.
+   */
+  @Test
+  public void toPromotedSqlRidList_dropsDuplicateRids() {
+    var where = parseWhere("SELECT FROM Comment WHERE @rid in [#25:7, #26:8, #25:7]");
+    SQLInCondition inCond = where.findRidInList();
+    assertThat(inCond).isNotNull();
+
+    var promoted = MatchExecutionPlanner.toPromotedSqlRidList(inCond, ctx);
+
+    assertThat(promoted).hasSize(2);
+    assertThat(promoted.get(0).toRecordId((Result) null, CTX).toString()).isEqualTo("#25:7");
+    assertThat(promoted.get(1).toRecordId((Result) null, CTX).toString()).isEqualTo("#26:8");
+  }
+
+  /**
+   * Two distinct RIDs that a packed dedup key would collapse into one must both be promoted.
+   *
+   * <p>A collection id is 32 bits and a position is 64, so any fold of the pair into a single
+   * {@code long} loses information: {@code (collection << 32) ^ position} maps both
+   * {@code #0:4294967296} and {@code #1:0} to {@code 4294967296}. Under such a key the second RID
+   * is treated as a duplicate and dropped, and because the promoted list is the fetch target
+   * rather than a filter, the record it names is never read — the query returns one row fewer
+   * with no error and no log line. The pair is therefore kept by value.
+   *
+   * <p>Reaching the collision needs a position at or above 2^32, which is a collection that has
+   * allocated more than four billion positions. Positions count allocations rather than live
+   * records, so a long-lived high-churn collection gets there.
+   */
+  @Test
+  public void toPromotedSqlRidList_keepsDistinctRidsWithCollidingPackedKeys() {
+    var where = parseWhere("SELECT FROM Comment WHERE @rid in [#0:4294967296, #1:0]");
+    SQLInCondition inCond = where.findRidInList();
+    assertThat(inCond).isNotNull();
+
+    var promoted = MatchExecutionPlanner.toPromotedSqlRidList(inCond, ctx);
+
+    assertThat(promoted).hasSize(2);
+    assertThat(promoted.get(0).toRecordId((Result) null, CTX).toString())
+        .isEqualTo("#0:4294967296");
+    assertThat(promoted.get(1).toRecordId((Result) null, CTX).toString()).isEqualTo("#1:0");
+  }
+
+  /**
+   * Rebuilds {@code where} with its single leaf condition as the base expression, dropping the
+   * {@code OrBlock(AndBlock(NotBlock(...)))} wrapping the grammar's {@code WhereClause()}
+   * production always adds. This is the shape a clause assembled in code has: {@code
+   * MatchWhereBuilder.and} returns a lone operand unwrapped for parser parity, so a one-condition
+   * alias filter reaches the planner as a bare condition with no wrapper at all. Building the leaf
+   * by re-parsing rather than by hand keeps the condition node itself identical to the parsed tests
+   * above, so the only variable is the missing wrapping.
+   */
+  private static SQLWhereClause unwrapToLeafClause(SQLWhereClause where) {
+    var expr = where.getBaseExpression();
+    assertThat(expr).isInstanceOf(SQLOrBlock.class);
+    var orBlock = (SQLOrBlock) expr;
+    assertThat(orBlock.getSubBlocks()).hasSize(1);
+    var and = orBlock.getSubBlocks().getFirst();
+    assertThat(and).isInstanceOf(SQLAndBlock.class);
+    var subBlocks = ((SQLAndBlock) and).getSubBlocks();
+    assertThat(subBlocks).hasSize(1);
+    var leaf = subBlocks.getFirst();
+    // The grammar routes every atom through NotBlock, negated or not, so a plain condition arrives
+    // wrapped in a pass-through NotBlock. Strip it: the translator's hand-built clause has none.
+    if (leaf instanceof SQLNotBlock notBlock) {
+      leaf = notBlock.getSub();
+    }
+    assertThat(leaf)
+        .as("the leaf must carry no block wrapping, matching a clause assembled in code")
+        .isNotInstanceOfAny(SQLOrBlock.class, SQLAndBlock.class, SQLNotBlock.class);
+
+    var leafClause = new SQLWhereClause(-1);
+    leafClause.setBaseExpression(leaf);
+    return leafClause;
+  }
+
+  /**
+   * A code-assembled {@code WHERE @rid IN [#25:7]} — a bare {@code SQLInCondition} as the base
+   * expression, with no {@code OrBlock}/{@code AndBlock} wrapper — promotes exactly like the parsed
+   * form. This is the shape the Gremlin-to-MATCH translator hands the planner for {@code g.V(rid)}.
+   * Before the leaf branch in {@code SQLWhereClause.findRidConditionInExpression}, the search
+   * bottomed out at the wrapper check and returned null, so the promotion never fired and
+   * {@code createSelectStatement} emitted a full class scan with an {@code @rid} post-filter
+   * instead of a RID fetch — an O(class size) plan for a single-record lookup.
+   */
+  @Test
+  public void unwrappedLiteralRidList_isPromoted() {
+    var leafClause = unwrapToLeafClause(
+        parseWhere("SELECT FROM Comment WHERE @rid in [#25:7]"));
+    assertThat(leafClause.getBaseExpression()).isInstanceOf(SQLInCondition.class);
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7");
+  }
+
+  /**
+   * The multi-RID form of {@link #unwrappedLiteralRidList_isPromoted}: a code-assembled
+   * {@code WHERE @rid IN [#25:7, #26:8]} promotes both RIDs, which is what {@code g.V(id1, id2)}
+   * and the set-membership {@code hasId(id1, id2)} branch produce.
+   */
+  @Test
+  public void unwrappedMultiRidList_isPromoted() {
+    var leafClause = unwrapToLeafClause(
+        parseWhere("SELECT FROM Comment WHERE @rid in [#25:7, #26:8]"));
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7", "#26:8");
+  }
+
+  /**
+   * The equality sibling: a code-assembled {@code WHERE @rid = #25:7} with no wrapper promotes too.
+   * {@code findRidEquality()} and {@code findRidInList()} share the same tree search, so the leaf
+   * branch has to serve both — and the pre-filter pass reads {@code findRidEquality()} on
+   * non-root aliases, which is a second consumer of the same repair.
+   */
+  @Test
+  public void unwrappedLiteralRidEquality_isPromoted() {
+    var leafClause = unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE @rid = #25:7"));
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7");
+  }
+
+  /**
+   * A code-assembled clause with no {@code @rid} term still promotes nothing. Guards the leaf
+   * branch against over-reach: it must widen where the search looks, not what the search accepts.
+   */
+  @Test
+  public void unwrappedNonRidCondition_isNotPromoted() {
+    var leafClause = unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE name = 'foo'"));
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", leafClause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertThat(aliasPinnedRids).isEmpty();
+  }
+
+  /**
+   * A code-assembled AND of two bare conditions promotes its {@code @rid} term wherever the term
+   * sits in the block. {@code MatchWhereBuilder.and} returns an {@code SQLAndBlock} for two or
+   * more operands and its sub-blocks carry none of the pass-through {@code NotBlock} wrapping the
+   * grammar adds, which is the shape {@code g.V(id1, id2).has("age", 30)} reaches the planner
+   * with. The AND loop no longer applies the term extractor to a sub-term itself; it recurses, so
+   * the leaf branch is the only thing that sees these unwrapped sub-terms. The RID term is placed
+   * second here, so a loop that stops after the first sub-term fails.
+   *
+   * <p>A regression keeps the rows right and silently reverts the plan to a class scan with an
+   * {@code @rid} post-filter, which no row-level assertion anywhere can see.
+   */
+  @Test
+  public void unwrappedAndBlockWithRidTerm_isPromoted() {
+    var ridLeaf =
+        unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE @rid in [#25:7]"))
+            .getBaseExpression();
+    var otherLeaf =
+        unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE name = 'foo'"))
+            .getBaseExpression();
+    var and = new SQLAndBlock(-1);
+    and.setSubBlocks(List.of(otherLeaf, ridLeaf));
+    var clause = new SQLWhereClause(-1);
+    clause.setBaseExpression(and);
+
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", clause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertPromotedRids(aliasPinnedRids, "c", "#25:7");
+  }
+
+  /**
+   * A code-assembled {@code NOT (@rid IN [...])} must not promote. {@code MatchWhereBuilder.not}
+   * builds exactly this node — an {@code SQLNotBlock} with {@code negate} set — and the leaf
+   * branch now hands it straight to the term extractor, so the only thing between it and
+   * promotion is the negate guard inside {@code unwrapSingleElementTerm}. Lose that guard and the
+   * planner pins the RID the query excludes as its fetch target, so {@code SELECT FROM [#25:7]}
+   * returns precisely the record that had to be filtered out.
+   */
+  @Test
+  public void unwrappedNegatedRidList_isNotPromoted() {
+    var ridLeaf =
+        unwrapToLeafClause(parseWhere("SELECT FROM Comment WHERE @rid in [#25:7]"))
+            .getBaseExpression();
+    var negated = new SQLNotBlock(-1);
+    negated.setSub(ridLeaf);
+    negated.setNegate(true);
+    var clause = new SQLWhereClause(-1);
+    clause.setBaseExpression(negated);
+
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", clause);
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, NO_CLASSES, aliasPinnedRids, ctx);
+
+    assertThat(aliasPinnedRids).isEmpty();
+  }
+
+  /**
+   * A parameter-bound RID under a class-constrained alias is not promoted. The parameter only
+   * resolves against per-row bindings, so at planning time nothing proves the record it names is
+   * an instance of the alias's class — and promoting would move the fetch to the RID and drop the
+   * class from the plan. The unconstrained sibling
+   * {@link #parameterRid_isPromoted} shows the same clause promoting when there is no class to
+   * lose, so this asserts the class constraint is what blocks it, not the parameter.
+   *
+   * <p>Delete the class guard in {@code promoteStaticRidsFromFilters} and this test fails: the
+   * alias gains a pinned RID.
+   */
+  @Test
+  public void parameterRidUnderClassConstrainedAlias_isNotPromoted() {
+    Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+    aliasFilters.put("c", parseWhere("SELECT FROM Comment WHERE @rid = :rid"));
+    Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
+
+    when(ctx.getInputParameters()).thenReturn(Map.of("rid", "#25:7"));
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(
+        aliasFilters, Map.of("c", "Comment"), aliasPinnedRids, ctx);
+
+    assertThat(aliasPinnedRids).doesNotContainKey("c");
+  }
+
 }

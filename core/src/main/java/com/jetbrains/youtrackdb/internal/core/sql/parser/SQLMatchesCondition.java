@@ -23,6 +23,33 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
   protected SQLExpression rightExpression;
   protected SQLInputParameter rightParam;
 
+  /**
+   * When {@code true}, the pattern is tested with {@link java.util.regex.Matcher#find()}
+   * (an unanchored match anywhere in the value) instead of {@link java.util.regex.Matcher#matches()}
+   * (a full-value match). Parsed SQL {@code MATCHES} is always full-match, so this flag stays
+   * {@code false} for parsed conditions; it is set only when the node is built programmatically to
+   * back the Gremlin {@code Text.regex} predicate, whose semantics are find-anywhere. The flag is a
+   * value-carrying field: it participates in {@link #copy}, {@link #equals} / {@link #hashCode}, and
+   * {@link #splitForAggregation}, and it is reflected in {@link #toGenericStatement} so a find-mode
+   * node and a full-match node on the same expression and pattern do not collide on their plan-cache
+   * fingerprint.
+   */
+  protected boolean findMode = false;
+
+  /**
+   * When {@code true}, a present non-{@code String} value throws {@link
+   * com.jetbrains.youtrackdb.internal.core.exception.NonStringTextOperandException} instead of
+   * yielding {@code false}, mirroring native TinkerPop {@code Text.regex} (String-only). It is set
+   * only when the node is built programmatically by the Gremlin adapter; parser-built (SQL/GQL)
+   * nodes leave it {@code false}, so their lenient behavior is unchanged. A present-{@code null}
+   * value stays return-false (it is never thrown on) — native regex NPEs there, but reproducing that
+   * NPE is an accepted non-goal. The flag is value-carrying: it participates in {@link #copy}, {@link
+   * #equals} / {@link #hashCode}, and {@link #splitForAggregation}, and is reflected in {@link
+   * #toGenericStatement} so a strict node and a lenient node with the same expression, pattern, and
+   * find-mode do not collide on their plan-cache fingerprint.
+   */
+  protected boolean strict = false;
+
   public SQLMatchesCondition(int id) {
     super(id);
   }
@@ -53,10 +80,14 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     }
     var value = expression.execute(currentRecord, ctx);
 
-    return matches(value, regex, ctx);
+    // Strict Gremlin parity: throw on a present non-String value before matching. The helper never
+    // throws on null, so a present-null value falls through to matches() below, which returns false
+    // for it (native regex would NPE on null — reproducing that is an accepted non-goal).
+    TextCollationResolver.requireStringOperand(value, strict, "MATCHES");
+    return matches(value, regex, findMode, ctx);
   }
 
-  private static boolean matches(Object value, String regex, CommandContext ctx) {
+  private static boolean matches(Object value, String regex, boolean findMode, CommandContext ctx) {
     final var key = "MATCHES_" + regex.hashCode();
     var p = (java.util.regex.Pattern) ctx.getVariable(key);
     if (p == null) {
@@ -65,7 +96,11 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     }
 
     if (value instanceof CharSequence) {
-      return p.matcher((CharSequence) value).matches();
+      var matcher = p.matcher((CharSequence) value);
+      // find() matches a substring anywhere (Gremlin Text.regex); matches() requires the whole
+      // value to match (SQL MATCHES). The compiled Pattern is identical either way, so the cache
+      // key above is shared across both modes.
+      return findMode ? matcher.find() : matcher.matches();
     } else {
       return false;
     }
@@ -93,7 +128,10 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     }
     var value = expression.execute(currentRecord, ctx);
 
-    return matches(value, regex, ctx);
+    // See the Identifiable overload: strict throws on a present non-String; present-null returns
+    // false via matches() below.
+    TextCollationResolver.requireStringOperand(value, strict, "MATCHES");
+    return matches(value, regex, findMode, ctx);
   }
 
   @Override
@@ -112,7 +150,17 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
   @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
-    builder.append(" MATCHES ");
+    // Distinct token per mode combination (find and/or strict) so nodes that differ only in a mode
+    // flag get different fingerprints (the plan-cache key is the generic statement). Parsed SQL is
+    // lenient full-match, so " MATCHES " is unchanged.
+    builder.append(" MATCHES");
+    if (findMode) {
+      builder.append("(find)");
+    }
+    if (strict) {
+      builder.append("(strict)");
+    }
+    builder.append(' ');
     if (right != null) {
       builder.append(PARAMETER_PLACEHOLDER);
     } else if (rightExpression != null) {
@@ -169,7 +217,33 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     result.right = right;
     result.rightParam = rightParam == null ? null : rightParam.copy();
     result.rightExpression = rightExpression == null ? null : rightExpression.copy();
+    result.findMode = findMode;
+    result.strict = strict;
     return result;
+  }
+
+  public void setExpression(SQLExpression expression) {
+    this.expression = expression;
+  }
+
+  public void setRightExpression(SQLExpression rightExpression) {
+    this.rightExpression = rightExpression;
+  }
+
+  public void setFindMode(boolean findMode) {
+    this.findMode = findMode;
+  }
+
+  public boolean isFindMode() {
+    return findMode;
+  }
+
+  public void setStrict(boolean strict) {
+    this.strict = strict;
+  }
+
+  public boolean isStrict() {
+    return strict;
   }
 
   @Override
@@ -208,7 +282,13 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     if (!Objects.equals(rightExpression, that.rightExpression)) {
       return false;
     }
-    return Objects.equals(rightParam, that.rightParam);
+    if (!Objects.equals(rightParam, that.rightParam)) {
+      return false;
+    }
+    if (findMode != that.findMode) {
+      return false;
+    }
+    return strict == that.strict;
   }
 
   @Override
@@ -217,6 +297,8 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     result = 31 * result + (right != null ? right.hashCode() : 0);
     result = 31 * result + (rightExpression != null ? rightExpression.hashCode() : 0);
     result = 31 * result + (rightParam != null ? rightParam.hashCode() : 0);
+    result = 31 * result + (findMode ? 1 : 0);
+    result = 31 * result + (strict ? 1 : 0);
     return result;
   }
 
@@ -285,6 +367,8 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     result.rightParam = rightParam == null ? null : rightParam.copy();
     result.rightExpression = rightExpression == null ? null
         : rightExpression.splitForAggregation(aggregateProj, ctx);
+    result.findMode = findMode;
+    result.strict = strict;
     return result;
   }
 }

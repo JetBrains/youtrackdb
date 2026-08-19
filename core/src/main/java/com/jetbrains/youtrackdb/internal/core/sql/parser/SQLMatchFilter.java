@@ -53,6 +53,16 @@ public class SQLMatchFilter extends SimpleNode {
   /// Factory method for GQL parser: creates SQLMatchFilter from simple alias and class name.
   /// Constructs proper YQL IR structure without exposing internal parser-generated type complexity.
   public static SQLMatchFilter fromGqlNode(String alias, String className) {
+    return fromAliasAndClass(alias, className);
+  }
+
+  /**
+   * Factory method for front-ends that construct MATCH AST directly (GQL, Gremlin translators).
+   *
+   * <p>Creates a filter from a simple alias and class name without exposing parser-only internal
+   * structure.
+   */
+  public static SQLMatchFilter fromAliasAndClass(String alias, String className) {
     var filter = new SQLMatchFilter(-1);
     if (alias != null && !alias.isBlank()) {
       filter.setAlias(alias);
@@ -92,6 +102,34 @@ public class SQLMatchFilter extends SimpleNode {
       newItem.filter = filter;
       items.add(newItem);
     }
+  }
+
+  /**
+   * Sets the class constraint, mirroring {@link #setFilter}: the first item that already carries a
+   * class name is rewritten, otherwise a new item carrying only the class is appended. The
+   * representation matches {@link #fromAliasAndClass}'s, so {@link #getClassName} reads it back the
+   * same way regardless of which of the two built the filter.
+   *
+   * <p>Both in-tree callers guard on {@code getClassName(null) == null} before calling, so only the
+   * append arm runs today; the rewrite arm exists for symmetry with {@link #setFilter} and for a
+   * caller that binds without the guard. {@code SQLMatchFilterTest} covers both arms so the
+   * documented contract is real rather than aspirational.
+   *
+   * <p>Front-ends that construct MATCH AST directly need this when they bind a class onto a filter
+   * they did not build — a path item's target filter is created alias-only and its class becomes
+   * known only later, once the traversal step that types the target has been read.
+   */
+  public void setClassName(String className) {
+    var expression = new SQLExpression(new SQLIdentifier(className));
+    for (var item : items) {
+      if (item.className != null) {
+        item.className = expression;
+        return;
+      }
+    }
+    var newItem = new SQLMatchFilterItem(-1);
+    newItem.className = expression;
+    items.add(newItem);
   }
 
   @Nullable

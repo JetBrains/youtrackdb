@@ -1,0 +1,2412 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
+
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryStepTestSupport.drainPayloads;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.lang.reflect.Field;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGenerator;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+
+/**
+ * Unit tests for {@link YTDBMatchPlanStep}. Stubs {@link InternalExecutionPlan} and the underlying
+ * {@link ExecutionStream} via Mockito so the boundary step's plumbing — alias-keyed result
+ * extraction, close ordering, exception-path close, reset re-arming, and clone independence — can be
+ * exercised without a real database.
+ *
+ * <p>The step extends {@code AbstractStep}; iteration is driven through its {@code protected
+ * processNextStart()} (package-visible to this same-package test), which opens the plan's stream on
+ * first call, projects one row per call, and throws {@link NoSuchElementException} (a {@code
+ * FastNoSuchElementException}) once the stream is exhausted, closing the arming's stream as it does
+ * so. The plan itself is closed by {@code close()}, which TinkerPop fires on exhaustion; these
+ * tests drive {@code processNextStart()} directly, so they call {@code close()} explicitly to
+ * observe the plan close.
+ *
+ * <p>The graph is mocked: the projection helper wraps a YTDB raw vertex into a {@link
+ * YTDBVertexImpl}, whose ctor only dereferences the identifiable's {@code getIdentity()} (null for a
+ * mock, harmless here) and stores both references. End-to-end correctness against a real graph and
+ * plan is covered by the integration smoke test that registers the strategy and runs {@code
+ * g.V().toList()}.
+ *
+ * <p>Stubs on the shared {@code traversal} mock use {@link org.mockito.Mockito#lenient()}: this
+ * class runs plain {@code mock()} with no Mockito runner, so strict-stub detection is inert today
+ * and {@code lenient()} is pre-emptive — adopting {@code MockitoJUnitRunner} later would not surface
+ * {@code UnnecessaryStubbingException} on the ctor-only tests, which never reach {@code
+ * processNextStart}.
+ */
+@SuppressWarnings({"unchecked", "rawtypes", "resource"})
+public class YTDBMatchPlanStepTest {
+
+  private YTDBGraphInternal graph;
+  private YTDBTransaction tx;
+  private DatabaseSessionEmbedded threadSession;
+  private Traversal.Admin<Object, Vertex> traversal;
+  private InternalExecutionPlan plan;
+  private CommandContext ctx;
+  private ExecutionStream stream;
+
+  @Before
+  public void setUp() {
+    graph = mock(YTDBGraphInternal.class);
+    traversal = freshTraversal(graph);
+    plan = mock(InternalExecutionPlan.class);
+    ctx = mock(CommandContext.class);
+    stream = mock(ExecutionStream.class);
+    // processNextStart() rebinds the plan to the session active on the iteration thread before
+    // running it (see openArming). Stub that chain — graph.tx() → YTDBTransaction, readWrite() a
+    // no-op, getDatabaseSession() the thread session — so iteration tests exercise the real rebind
+    // path. Lenient because ctor-only tests never reach it.
+    tx = mock(YTDBTransaction.class);
+    threadSession = mock(DatabaseSessionEmbedded.class);
+    lenient().when(graph.tx()).thenReturn(tx);
+    lenient().when(tx.getDatabaseSession()).thenReturn(threadSession);
+    // Default plan stubs used by every iteration test. Lenient because ctor-only tests never invoke
+    // them.
+    lenient().when(plan.getContext()).thenReturn(ctx);
+    lenient().when(plan.start()).thenReturn(stream);
+  }
+
+  // ---- Iteration & projection ----
+
+  /**
+   * Regression for the remote-path {@code SessionNotActivatedException}: the boundary step must
+   * rebind its plan to the session active on the current (iteration) thread before running it. The
+   * plan is built at strategy-application time, which on the server can run on a different thread
+   * than iteration; each worker thread owns its own pooled session, and running the plan against
+   * the compile-time session throws {@code SessionNotActivatedException} because YTDB record reads
+   * require the session active on the reading thread. This pins the rebind order: the first
+   * {@code processNextStart()} opens the transaction ({@code readWrite}) and pushes the thread
+   * session onto the plan's context before {@code plan.start()}. The cross-thread reproduction is
+   * covered end-to-end by the remote TinkerPop process suite; here a mock session asserts only the
+   * order.
+   */
+  @Test
+  public void processNextStart_rebindsThreadSessionOntoPlanContext_beforeStart() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    var order = inOrder(tx, ctx, plan);
+    order.verify(tx).readWrite();
+    order.verify(ctx).setDatabaseSession(threadSession);
+    order.verify(plan).start();
+  }
+
+  /**
+   * Drives two rows through the step and asserts each generated traverser carries the matching raw
+   * vertex in order. Verifies (a) {@code row.getVertex("v")} is read once per row, (b) wrappers
+   * point at distinct raw entities, and (c) exhaustion closes the arming's stream once but leaves
+   * the plan open, and the explicit {@code close()} then closes the plan. Pulling two rows confirms
+   * each call pulls a fresh {@link Result} rather than caching the first.
+   */
+  @Test
+  public void processNextStart_pullsTwoRowsThenExhausts_andClosesStream() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    var ytdbVertex1 =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var ytdbVertex2 =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+
+    // One hasNext probe per processNextStart: true (row1) → true (row2) → false (exhaust/close).
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getVertex("v")).thenReturn(ytdbVertex1);
+    when(row2.getVertex("v")).thenReturn(ytdbVertex2);
+
+    var step = elementStep("v");
+
+    var first = step.processNextStart().get();
+    var second = step.processNextStart().get();
+    assertThatExceptionOfType(NoSuchElementException.class)
+        .isThrownBy(step::processNextStart); // exhaustion triggers close
+
+    // Each generated payload wraps the corresponding raw vertex — guards against a projection that
+    // ever caches/reuses a single Result.
+    assertThat(assertRawEntityOf(first)).isSameAs(ytdbVertex1);
+    assertThat(assertRawEntityOf(second)).isSameAs(ytdbVertex2);
+    verify(row1).getVertex("v");
+    verify(row2).getVertex("v");
+
+    // Exhaustion closes the arming's STREAM but leaves the plan open (so a reset before close could
+    // re-iterate); the plan is closed by close(), which TinkerPop fires on exhaustion — here driven
+    // explicitly because the test calls processNextStart directly rather than through a traversal.
+    verify(stream, times(1)).close(ctx);
+    verify(plan, never()).close();
+
+    step.close();
+    var order = inOrder(stream, plan);
+    order.verify(stream, times(1)).close(ctx); // close() does not re-close the released stream
+    order.verify(plan, times(1)).close();
+  }
+
+  /**
+   * Empty stream (zero rows): the first {@code processNextStart()} probes {@code hasNext} once, gets
+   * false, closes the arming's stream, and throws. This is the canonical "no matches" case (e.g.
+   * {@code g.V(missingId)}). The row is never pulled; the plan is closed by the explicit
+   * {@code close()}, not by exhaustion.
+   */
+  @Test
+  public void processNextStart_emptyStream_closesImmediately() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    // Exhaustion closes the stream but leaves the plan open; close() closes the plan.
+    verify(stream, times(1)).close(ctx);
+    verify(plan, never()).close();
+    verify(stream, never()).next(ctx);
+
+    step.close();
+    verify(plan, times(1)).close();
+  }
+
+  /**
+   * Single-row stream: stresses the exhaustion/close trigger immediately after the first row.
+   * Off-by-one regressions where exhaustion is detected on the wrong boundary would surface here but
+   * not in the multi-row test. Exhaustion closes the stream; the plan is closed by {@code close()}.
+   */
+  @Test
+  public void processNextStart_singleRow_emitsThenCloses() {
+    var row = mock(Result.class);
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v");
+
+    var only = step.processNextStart().get();
+    assertThatExceptionOfType(NoSuchElementException.class)
+        .isThrownBy(step::processNextStart); // exhaustion → stream close
+
+    assertThat(assertRawEntityOf(only)).isSameAs(rawVertex);
+    verify(stream, times(1)).close(ctx);
+    verify(plan, never()).close();
+
+    step.close();
+    verify(plan, times(1)).close();
+  }
+
+  /**
+   * Calling {@code processNextStart()} again past exhaustion keeps throwing {@link
+   * NoSuchElementException} and does NOT re-probe or re-open the stream: the {@code done} guard
+   * short-circuits, so {@code hasNext} is probed exactly once (on the exhausting call) and the plan
+   * is started exactly once.
+   */
+  @Test
+  public void processNextStart_pastExhaustion_keepsThrowingWithoutReopening() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    verify(stream, times(1)).hasNext(ctx);
+    verify(stream, never()).next(ctx);
+    verify(plan, times(1)).start();
+  }
+
+  /**
+   * When the host traversal has no attached graph, opening throws {@link IllegalStateException} —
+   * deliberately NOT {@link NoSuchElementException}, which {@code AbstractStep.hasNext()} swallows as
+   * end-of-iteration and would turn a genuine "no graph" bug into a silent empty result. Because
+   * graph resolution happens before {@code plan.start()}, neither the stream nor the plan was opened,
+   * so nothing leaks. This locks the resolve-before-open ordering.
+   */
+  @Test
+  public void processNextStart_traversalHasNoGraph_throwsBeforeOpeningPlan() {
+    var emptyGraphTraversal = (Traversal.Admin<Object, Vertex>) mock(Traversal.Admin.class);
+    lenient().when(emptyGraphTraversal.getGraph()).thenReturn(Optional.empty());
+    lenient()
+        .when(emptyGraphTraversal.getTraverserGenerator())
+        .thenReturn(B_O_TraverserGenerator.instance());
+    lenient()
+        .when(emptyGraphTraversal.getTraverserSetSupplier())
+        .thenReturn((Supplier) TraverserSet::new);
+
+    var step =
+        new YTDBMatchPlanStep<>(
+            emptyGraphTraversal, Vertex.class, plan, "v", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(IllegalStateException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("no attached graph");
+
+    verify(plan, never()).start();
+    verify(stream, never()).close(ctx);
+    verify(plan, never()).close();
+  }
+
+  // ---- Projection helper ----
+
+  /**
+   * The projection helper returns null when the row does not bind the boundary alias to a vertex.
+   * This is the contract for optional matches that did not yield a binding — downstream native steps
+   * treat a null payload the same as any other absence.
+   */
+  @Test
+  public void projectElement_missingAlias_returnsNull() {
+    var row = mock(Result.class);
+    when(row.getVertex("missing")).thenReturn(null);
+
+    var step = elementStep("missing");
+
+    assertThat(step.projectElement(row, graph)).isNull();
+  }
+
+  /**
+   * The projection helper looks the alias up under the exact name the step was configured with — not
+   * a fixed default — and each wrapper wraps the raw vertex resolved under that step's alias.
+   */
+  @Test
+  public void projectElement_usesConfiguredAlias_andWrapsCorrectRawVertex() {
+    var row = mock(Result.class);
+    var vertexUnderA =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var vertexUnderB =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(row.getVertex("a")).thenReturn(vertexUnderA);
+    when(row.getVertex("b")).thenReturn(vertexUnderB);
+
+    var stepA = elementStep("a");
+    var stepB = elementStep("b");
+
+    var resultA = stepA.projectElement(row, graph);
+    var resultB = stepB.projectElement(row, graph);
+
+    // Each wrapper points at the raw vertex its alias resolved to — swapping the aliases between
+    // stepA / stepB would fail here.
+    assertThat(assertRawEntityOf(resultA)).isSameAs(vertexUnderA);
+    assertThat(assertRawEntityOf(resultB)).isSameAs(vertexUnderB);
+    verify(row).getVertex("a");
+    verify(row).getVertex("b");
+  }
+
+  /**
+   * Projection dispatches on the configured {@code returnClass}. An edge boundary is reserved but
+   * not yet translated, so projecting one throws {@link UnsupportedOperationException} rather than
+   * silently emitting a vertex. This pins that only vertex projection is wired in the current scope
+   * and documents the arm the edge track later fills in; the message names the offending class.
+   */
+  @Test
+  public void projectElement_edgeReturnClass_throwsUnsupportedUntilEdgeTrack() {
+    var row = mock(Result.class);
+    var step =
+        new YTDBMatchPlanStep(traversal, Edge.class, plan, "e", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(UnsupportedOperationException.class)
+        .isThrownBy(() -> step.projectElement(row, graph))
+        .withMessageContaining("edge projection");
+  }
+
+  /**
+   * A return class that is neither a {@link Vertex} nor an {@link Edge} subtype is a translator bug,
+   * not a runtime condition, so projection fails fast with {@link IllegalStateException} naming the
+   * offending class. {@code Element.class} is neither subtype, so it exercises the fall-through arm.
+   */
+  @Test
+  public void projectElement_nonVertexNonEdgeReturnClass_throwsIllegalState() {
+    var row = mock(Result.class);
+    var step =
+        new YTDBMatchPlanStep(traversal, Element.class, plan, "x", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(IllegalStateException.class)
+        .isThrownBy(() -> step.projectElement(row, graph))
+        .withMessageContaining("Vertex or Edge");
+  }
+
+  /**
+   * {@code select("p").by("firstName")} pins {@code unwrapSingletonMap}: the payload is the column
+   * value, not a one-entry map. The boundary alias is stripped and {@code getEntity} is not called
+   * — there is no presence-checked key, so loading the MATCH vertex would re-fetch a record the
+   * payload never reads.
+   */
+  @Test
+  public void projectMap_unwrapSingleton_emitsColumnNotMap_andDoesNotLoadBoundaryEntity() {
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("v", "p"));
+    when(row.getProperty("p")).thenReturn("Alice");
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.MAP,
+            ResultShaping.NONE.withUnwrapSingletonMap(true));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo("Alice");
+    verify(row, never()).getEntity(any());
+  }
+
+  /**
+   * Multi-column {@code select("p", "city")} builds a map and still must not load the boundary
+   * entity: presence keys are empty, so {@code hasProperty} is not consulted.
+   */
+  @Test
+  public void projectMap_selectColumns_doNotLoadBoundaryEntity() {
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("v", "p", "city"));
+    when(row.getProperty("p")).thenReturn("Alice");
+    when(row.getProperty("city")).thenReturn(42);
+
+    var step = shapedStep("v", BoundaryOutputType.MAP, ResultShaping.NONE);
+
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isInstanceOf(Map.class);
+    @SuppressWarnings("unchecked")
+    var map = (Map<Object, Object>) t.get();
+    assertThat(map).containsEntry("p", "Alice").containsEntry("city", 42).doesNotContainKey("v");
+    verify(row, never()).getEntity(any());
+  }
+
+  /**
+   * {@code values}/{@code valueMap} presence checks still load the boundary entity: an absent
+   * property must be omitted, and MATCH stored the alias as a RID.
+   */
+  @Test
+  public void projectMap_presenceKeys_loadBoundaryEntity() {
+    var row = mock(Result.class);
+    var entity = mock(EntityImpl.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("v", "name"));
+    when(row.getEntity("v")).thenReturn(entity);
+    when(entity.hasProperty("name")).thenReturn(true);
+    when(entity.getProperty("name")).thenReturn("Alice");
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.MAP,
+            ResultShaping.NONE.withPresencePropertyKeys(List.of("name")));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    @SuppressWarnings("unchecked")
+    var map = (Map<Object, Object>) t.get();
+    assertThat(map).containsEntry("name", "Alice");
+    verify(row).getEntity("v");
+  }
+
+  // ---- Close lifecycle ----
+
+  /**
+   * Explicit {@code close()} (modelling early termination by a downstream {@code LimitStep}) closes
+   * both the stream and the plan even when the stream still has rows queued. Stream-close runs
+   * before plan-close so the last step can flush buffered state before the plan releases resources.
+   */
+  @Test
+  public void close_earlyTermination_closesStreamThenPlan() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true); // never exhausts on its own
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v");
+    step.processNextStart(); // open the stream, pull one element
+
+    step.close();
+
+    InOrder order = inOrder(stream, plan);
+    order.verify(stream).close(ctx);
+    order.verify(plan).close();
+  }
+
+  /**
+   * {@code close()} is idempotent: a second call after the first is a no-op (the {@code closed}
+   * guard), so the stream and plan are each closed exactly once.
+   */
+  @Test
+  public void close_isIdempotent() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v");
+    step.processNextStart(); // open
+
+    step.close();
+    step.close(); // second close must be a no-op
+
+    verify(stream, times(1)).close(ctx);
+    verify(plan, times(1)).close();
+  }
+
+  /**
+   * If {@code stream.close} throws, the plan is still closed. The close path uses try/catch to
+   * guarantee plan.close runs regardless — without it, every stream-close failure would leak the
+   * plan's resources. Stream-close runs first and its exception propagates.
+   */
+  @Test
+  public void close_streamCloseThrows_planStillClosed() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    doThrow(new RuntimeException("stream close failed")).when(stream).close(ctx);
+
+    var step = elementStep("v");
+    step.processNextStart(); // open
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::close)
+        .withMessageContaining("stream close failed");
+
+    InOrder order = inOrder(stream, plan);
+    order.verify(stream).close(ctx);
+    order.verify(plan).close();
+  }
+
+  /**
+   * When BOTH {@code stream.close} and {@code plan.close} throw during close, the stream-close
+   * failure is the primary exception and the plan-close failure is attached via {@code addSuppressed}
+   * — the plan-close exception must not mask the stream error the operator needs to see.
+   */
+  @Test
+  public void close_bothStreamAndPlanCloseThrow_streamErrorPrimary_planErrorSuppressed() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    doThrow(new RuntimeException("stream close failed")).when(stream).close(ctx);
+    doThrow(new RuntimeException("plan close failed")).when(plan).close();
+
+    var step = elementStep("v");
+    step.processNextStart(); // open
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::close)
+        .withMessageContaining("stream close failed")
+        .satisfies(
+            e -> assertThat(e.getSuppressed())
+                .anySatisfy(s -> assertThat(s).hasMessageContaining("plan close failed")));
+
+    InOrder order = inOrder(stream, plan);
+    order.verify(stream).close(ctx);
+    order.verify(plan).close();
+  }
+
+  /**
+   * When {@code plan.start()} itself throws (e.g. an inner step's {@code internalStart} fails after
+   * opening cursors), the step closes the plan before propagating so the cursors don't leak. The
+   * graph was resolved before the throw, but no stream exists yet, so only the plan is closed.
+   */
+  @Test
+  public void processNextStart_planStartThrows_closesPlanAndPropagates() {
+    when(plan.start()).thenThrow(new RuntimeException("plan start blew up"));
+
+    var step = elementStep("v");
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("plan start blew up");
+
+    verify(plan, times(1)).close();
+    verify(stream, never()).close(ctx); // no stream was opened
+  }
+
+  /**
+   * A failure while iterating the open stream (here {@code stream.next()} throws mid-iteration) must
+   * close the stream and then the plan before propagating, so a stream that blew up part-way does
+   * not leak until traversal teardown. This is the design's boundary-step lifecycle contract for
+   * exceptions during iteration. Also asserts the failed arming is terminal: a subsequent {@code
+   * processNextStart()} ends (throws {@link NoSuchElementException}) without re-opening the
+   * already-closed plan, proving {@code done} was set on the failure path.
+   */
+  @Test
+  public void processNextStart_streamThrowsMidIteration_closesStreamThenPlan_andArmingIsTerminal() {
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenThrow(new RuntimeException("stream blew up mid-iteration"));
+
+    var step = elementStep("v");
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("stream blew up mid-iteration");
+
+    // The failing arming released the stream first, then the plan.
+    InOrder order = inOrder(stream, plan);
+    order.verify(stream).close(ctx);
+    order.verify(plan).close();
+
+    // Terminal: the next pull ends without re-opening the closed plan (started exactly once).
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(plan, times(1)).start();
+  }
+
+  /**
+   * When iteration throws AND the release triggered by that failure also throws (here {@code
+   * stream.next()} blows up and {@code stream.close()} then fails during release), the iteration
+   * failure stays the primary exception and the release failure is attached via {@code
+   * addSuppressed}. This exercises the {@code addSuppressed} arm of {@code processNextStart}'s
+   * own catch block — a distinct site from the {@code close()} both-throw path, which suppresses a
+   * plan-close error onto a stream-close error rather than onto an iteration error.
+   */
+  @Test
+  public void processNextStart_streamThrows_andReleaseAlsoThrows_suppressesReleaseError() {
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenThrow(new RuntimeException("iteration blew up"));
+    doThrow(new RuntimeException("stream close failed")).when(stream).close(ctx);
+
+    var step = elementStep("v");
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("iteration blew up")
+        .satisfies(
+            e -> assertThat(e.getSuppressed())
+                .anySatisfy(s -> assertThat(s).hasMessageContaining("stream close failed")));
+  }
+
+  // ---- Clone semantics ----
+
+  /**
+   * {@link YTDBMatchPlanStep#clone()} gives the clone its OWN deep {@code copy()} of the plan — it
+   * does NOT share the original's plan instance. A {@code SelectExecutionPlan}-family plan carries
+   * mutable per-run state and must be copied before each independent execution (mirroring {@code
+   * HashJoinMatchStep}). The clone is a distinct instance and preserves the alias / output-type
+   * configuration. Neither plan is started merely by cloning.
+   */
+  @Test
+  public void clone_copiesPlan_forIndependentExecution() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+
+    var original = elementStep("v");
+    var cloned = original.clone();
+
+    assertThat(cloned).isNotSameAs(original);
+    assertThat(cloned.getPlan()).isSameAs(copiedPlan);
+    assertThat(cloned.getPlan()).isNotSameAs(original.getPlan());
+    assertThat(original.getPlan()).isSameAs(plan);
+    verify(plan, never()).start();
+    verify(copiedPlan, never()).start();
+    assertThat(cloned.getBoundaryAlias()).isEqualTo("v");
+    assertThat(cloned.getOutputType()).isEqualTo(BoundaryOutputType.ELEMENT);
+  }
+
+  /**
+   * The clone's plan copy must be taken against an ISOLATED CHILD context — a fresh {@link
+   * BasicCommandContext} parented to the original plan's context — not against the original context
+   * itself. This mirrors {@code HashJoinMatchStep}: the child owns its own unsynchronised variable
+   * maps ({@code $current}, {@code $matched}, statistics), so the original's and the clone's
+   * executions cannot race on or leak that per-run state. Copying against the shared context would
+   * leave both plans on the SAME context.
+   */
+  @Test
+  public void clone_copiesPlanAgainstIsolatedChildContext() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var contextCaptor = ArgumentCaptor.forClass(CommandContext.class);
+    when(plan.copy(contextCaptor.capture())).thenReturn(copiedPlan);
+
+    var original = elementStep("v");
+    original.clone();
+
+    var copyContext = contextCaptor.getValue();
+    assertThat(copyContext).isNotSameAs(ctx);
+    assertThat(copyContext).isInstanceOf(BasicCommandContext.class);
+    assertThat(copyContext.getParent()).isSameAs(ctx);
+  }
+
+  /**
+   * Behavioural clone independence: when both the original and the clone are driven, each starts its
+   * OWN plan (the original starts {@code plan}; the clone starts its {@code copy()}). This is what
+   * {@code plan.copy()} in {@code clone()} buys — two independent executions with no shared mutable
+   * plan state. A regression that shared the plan would drive both sides through the same instance.
+   *
+   * <p>Note: {@code AbstractStep.clone()} detaches the clone's traversal to {@code
+   * EmptyTraversal.instance()} until the host re-attaches it. The test re-attaches manually via
+   * {@code setTraversal} so the clone can resolve the graph the way it would in production.
+   */
+  @Test
+  public void clone_startsOwnPlanCopyIndependentlyOfOriginal() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var copiedCtx = mock(CommandContext.class);
+    var copiedStream = mock(ExecutionStream.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(copiedPlan.getContext()).thenReturn(copiedCtx);
+    when(copiedPlan.start()).thenReturn(copiedStream);
+    when(stream.hasNext(ctx)).thenReturn(false);
+    when(copiedStream.hasNext(copiedCtx)).thenReturn(false);
+
+    var original = elementStep("v");
+    var cloned = original.clone();
+    cloned.setTraversal(traversal);
+
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(original::processNextStart);
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(cloned::processNextStart);
+
+    // Each side started exactly its own plan once — proving the executions are independent.
+    verify(plan, times(1)).start();
+    verify(copiedPlan, times(1)).start();
+  }
+
+  /**
+   * A {@code copyOnOpen} step shares the cache template: {@code clone()} does not copy, {@code
+   * close()} before the first open does not close the template, and the first {@code
+   * processNextStart()} copies then starts the copy.
+   */
+  @Test
+  public void copyOnOpen_defersCopyUntilFirstOpen_andDoesNotCloseTemplate() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var copiedCtx = mock(CommandContext.class);
+    var copiedStream = mock(ExecutionStream.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(copiedPlan.getContext()).thenReturn(copiedCtx);
+    when(copiedPlan.start()).thenReturn(copiedStream);
+    when(copiedStream.hasNext(copiedCtx)).thenReturn(false);
+
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal,
+            Vertex.class,
+            plan,
+            "v",
+            BoundaryOutputType.ELEMENT,
+            java.util.Map.of(),
+            ResultShaping.NONE,
+            true);
+    assertThat(step.getPlan()).isSameAs(plan);
+    verify(plan, never()).copy(any());
+
+    var cloned = step.clone();
+    verify(plan, never()).copy(any());
+    assertThat(cloned.getPlan()).isSameAs(plan);
+
+    step.close();
+    verify(plan, never()).close();
+    step.reset();
+
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(plan, times(1)).copy(any());
+    verify(plan, never()).start();
+    verify(copiedPlan).start();
+    assertThat(step.getPlan()).isSameAs(copiedPlan);
+  }
+
+  /**
+   * Concurrency guard for clone independence under real interleaving. The sequential clone tests pin
+   * the object-graph shape (distinct plan copy, isolated child context); this one drives two clones
+   * on two threads a {@link CyclicBarrier} releases together, so their open / start / close paths
+   * overlap. {@code clone()} deep-copies the plan against an isolated child {@link CommandContext} so
+   * two concurrent executions cannot race on per-run context state (the {@code $current} / {@code
+   * $matched} maps are plain HashMaps). Each clone gets its own plan-copy mock, so a regression that
+   * re-shared one plan — or minted one shared child context — shows up here as a wrong per-plan start
+   * count or a captured-context collision, not a heisenbug under load.
+   */
+  @Test
+  public void clone_twoClonesDrivenConcurrently_eachRunsOwnPlanCopy() throws Exception {
+    var copyA = mock(InternalExecutionPlan.class);
+    var copyB = mock(InternalExecutionPlan.class);
+    var ctxA = mock(CommandContext.class);
+    var ctxB = mock(CommandContext.class);
+    var streamA = mock(ExecutionStream.class);
+    var streamB = mock(ExecutionStream.class);
+    // Two clone() calls make two plan.copy() calls; hand each clone its own copy so the concurrent
+    // runs touch disjoint mocks. Capture the child contexts to prove two distinct instances.
+    var childCtxCaptor = ArgumentCaptor.forClass(CommandContext.class);
+    when(plan.copy(childCtxCaptor.capture())).thenReturn(copyA, copyB);
+    when(copyA.getContext()).thenReturn(ctxA);
+    when(copyB.getContext()).thenReturn(ctxB);
+    when(copyA.start()).thenReturn(streamA);
+    when(copyB.start()).thenReturn(streamB);
+    when(streamA.hasNext(ctxA)).thenReturn(false);
+    when(streamB.hasNext(ctxB)).thenReturn(false);
+
+    var original = elementStep("v");
+    var cloneA = original.clone();
+    var cloneB = original.clone();
+    cloneA.setTraversal(traversal);
+    cloneB.setTraversal(traversal);
+
+    var childContexts = childCtxCaptor.getAllValues();
+    assertThat(childContexts).hasSize(2);
+    assertThat(childContexts.get(0)).isNotSameAs(childContexts.get(1));
+
+    var barrier = new CyclicBarrier(2);
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    Runnable driveA =
+        () -> {
+          try {
+            barrier.await();
+            cloneA.forEachRemaining(t -> {
+            });
+          } catch (Throwable t) {
+            errors.add(t);
+          }
+        };
+    Runnable driveB =
+        () -> {
+          try {
+            barrier.await();
+            cloneB.forEachRemaining(t -> {
+            });
+          } catch (Throwable t) {
+            errors.add(t);
+          }
+        };
+    var tA = new Thread(driveA, "cloneA-driver");
+    var tB = new Thread(driveB, "cloneB-driver");
+    tA.start();
+    tB.start();
+    tA.join(5_000);
+    tB.join(5_000);
+
+    // A timed join returns whether the thread finished OR the timeout elapsed. Assert both threads
+    // actually terminated: a regression that made forEachRemaining hang would otherwise leave the
+    // errors list empty (the thread is stuck, not throwing) and leak two live threads into the
+    // shared surefire fork while the test still went green. A completed join is also what
+    // establishes the happens-before edge the verify() calls below rely on.
+    assertThat(tA.isAlive()).as("driver A must terminate, not hang").isFalse();
+    assertThat(tB.isAlive()).as("driver B must terminate, not hang").isFalse();
+
+    assertThat(errors).as("no driver thread threw during concurrent iteration").isEmpty();
+    verify(copyA, times(1)).start();
+    verify(copyB, times(1)).start();
+    verify(plan, never()).start();
+  }
+
+  // ---- Re-iteration via reset() ----
+
+  /**
+   * After {@code reset()} the step is re-armed and {@code processNextStart()} may open the plan again
+   * on the SAME instance — honouring TinkerPop's reset contract (reset makes a start step
+   * re-iterable). This drives one (empty) arming, resets, and drives a second — asserting the second
+   * open re-starts the plan and rewinds it via {@code plan.reset(ctx)} first (the plan's step chain
+   * must be rewound before re-execution).
+   */
+  @Test
+  public void reset_thenProcessNextStart_reRunsPlanOnSameInstance() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    assertThatExceptionOfType(NoSuchElementException.class)
+        .isThrownBy(step::processNextStart); // arming 1
+    step.reset();
+    assertThatExceptionOfType(NoSuchElementException.class)
+        .isThrownBy(step::processNextStart); // arming 2
+
+    verify(plan, times(2)).start();
+    verify(plan, times(1)).reset(ctx);
+  }
+
+  /**
+   * The session rebind runs on every arming, not only the first. TinkerPop may {@code reset()} a
+   * start step and re-iterate it on a different thread (traversal reuse), so a second open must
+   * re-resolve and re-push the thread-active session before the second {@code plan.start()}. A
+   * refactor that rebound only once would reintroduce the remote-path {@code
+   * SessionNotActivatedException} on the re-run.
+   */
+  @Test
+  public void reset_thenProcessNextStart_rebindsSessionAgainBeforeSecondStart() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    // Arming 1: the empty stream makes the first open exhaust and throw; the rebind already ran.
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    step.reset();
+    // Arming 2: a fresh open must rebind again before the second start.
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    verify(tx, times(2)).readWrite();
+    verify(ctx, times(2)).setDatabaseSession(threadSession);
+  }
+
+  /**
+   * A never-started step that is reset (e.g. TinkerPop resets a start step before any iteration)
+   * must NOT call {@code plan.reset(ctx)} on its first open — there is no consumed state to rewind.
+   * This pins the {@code everStarted} guard: the plan is rewound only when re-arming a plan that
+   * actually ran.
+   */
+  @Test
+  public void reset_beforeFirstIteration_doesNotRewindPlanOnFirstOpen() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    step.reset(); // reset before any processNextStart
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    verify(plan, times(1)).start();
+    verify(plan, never()).reset(any());
+  }
+
+  /**
+   * A partially-consumed arming that is {@code reset()} before exhaustion keeps the open stream
+   * alive until the next open (deferred close, so the {@code reset()} that {@code
+   * AbstractStep.clone()} triggers cannot tear down a still-aliased original stream). The next open
+   * closes the stale cursor (stream only — the plan is re-run in place) and rewinds the plan. This
+   * asserts: reset itself closes nothing; the second open closes the stale stream once, keeps the
+   * plan alive, and re-runs it (rewind + start).
+   */
+  @Test
+  public void reset_afterPartialConsume_deferStreamClose_thenReRunsKeepingPlan() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true); // never exhausts → stream left open
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v");
+    step.processNextStart(); // open, consume one row, stream un-exhausted
+
+    step.reset();
+
+    // reset() defers the close — nothing released yet.
+    verify(stream, never()).close(ctx);
+    verify(plan, never()).close();
+
+    // Second open closes the stale cursor (stream only) and re-runs the SAME plan (rewind + start).
+    step.processNextStart();
+    verify(stream, times(1)).close(ctx);
+    verify(plan, never()).close();
+    verify(plan, times(2)).start();
+    verify(plan, times(1)).reset(ctx);
+  }
+
+  // ---- Re-iteration after close() ----
+  //
+  // This is the path a caller reaches by writing "iterate, reset, iterate again": toList() closes
+  // the traversal in a finally, so the boundary step is CLOSED by the time reset() arrives. A closed
+  // plan cannot be rewound — AbstractExecutionStep's close guard is sticky and reset() does not
+  // clear it — so the step swaps in a copy. The mocked plan here can be told to answer copy(), but
+  // it cannot fake WHICH plan object was started, which is what these tests pin.
+
+  /**
+   * The second pass must deliver the same rows as the first. This assertion is the one that matters:
+   * before the fix the closed step ended iteration immediately, so re-iteration produced zero rows
+   * while every plan-identity assertion around it still passed — a test that checked only "the plan
+   * is still there" went green on a traversal that returned nothing.
+   */
+  @Test
+  public void closeThenReset_reIterationYieldsTheSameRows() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    stubPlanCopyDelivering(row);
+
+    var step = elementStep("v");
+    var firstPass = drainPayloads(step);
+    step.close(); // what toList()'s finally does to the traversal
+
+    step.reset();
+    var secondPass = drainPayloads(step);
+    step.close(); // these tests drive processNextStart() directly, so they close explicitly
+
+    assertThat(firstPass).as("the first pass yields the single row").hasSize(1);
+    assertThat(secondPass)
+        .as("the pass after close-then-reset yields the same rows, not an empty result")
+        .hasSize(1);
+    assertThat(assertRawEntityOf(secondPass.getFirst())).isSameAs(rawVertex);
+  }
+
+  /**
+   * The re-arm runs a COPY: {@code copy(...)} is called against the closed plan's own context, and
+   * the closed plan itself is neither restarted nor rewound. Restarting it would run a dead step
+   * chain (empty result plus leaked cursors) and rewinding it cannot help, because {@code
+   * SelectExecutionPlan.reset} forwards to a step-level no-op that never clears the sticky close
+   * guard. The {@code copy(ctx)} argument pins the context-derivation decision: the plan's own
+   * context, not the isolated child context {@code clone()} mints.
+   */
+  @Test
+  public void closeThenReset_startsAFreshCopyAndNeverRestartsTheClosedPlan() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+    var copiedPlan = stubPlanCopyDelivering();
+
+    var step = elementStep("v");
+    drainPayloads(step);
+    step.close();
+
+    step.reset();
+    drainPayloads(step);
+
+    verify(plan, times(1)).copy(ctx);
+    verify(plan, times(1)).start();
+    verify(plan, never()).reset(any());
+    verify(copiedPlan, times(1)).start();
+  }
+
+  /**
+   * The {@code close()} that ends a re-armed pass releases the COPY that ran, not only the original
+   * the first pass closed. Without this the second pass's cursors would leak: the step would hold a
+   * live plan nobody ever closes.
+   */
+  @Test
+  public void closeAfterAReArmedPass_closesThePlanCopyThatRan() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+    var copiedPlan = stubPlanCopyDelivering();
+
+    var step = elementStep("v");
+    drainPayloads(step);
+    step.close();
+    step.reset();
+    drainPayloads(step);
+    step.close();
+
+    verify(copiedPlan, times(1)).close();
+  }
+
+  /**
+   * Pins which plan object an observer sees across a close-then-reset, because {@code
+   * YTDBQueryMetricsStep.capturedExecutionPlan()} reads exactly this accessor from inside the
+   * listener callback it fires on close. The contract: within a pass, up to and including the close
+   * that ends it, the accessor returns the plan that produced that pass's rows. The copy is
+   * therefore installed when the second pass opens, not when {@code reset()} is called — a reset
+   * that is never followed by a re-run has produced no new rows to attribute, so it must leave the
+   * previous pass's plan in place.
+   */
+  @Test
+  public void getPlan_tracksThePlanThatProducedTheCurrentPass_acrossACloseThenReset() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+    var copiedPlan = stubPlanCopyDelivering();
+
+    var step = elementStep("v");
+    drainPayloads(step);
+    step.close();
+    assertThat(step.getPlan()).as("the first pass reports the plan that ran it").isSameAs(plan);
+
+    step.reset();
+    assertThat(step.getPlan())
+        .as("a reset with no re-run installs nothing and keeps the prior pass's plan")
+        .isSameAs(plan);
+
+    drainPayloads(step);
+    assertThat(step.getPlan()).as("the re-armed pass reports its copy").isSameAs(copiedPlan);
+    step.close();
+    assertThat(step.getPlan())
+        .as("the close that ends the pass still reports that pass's plan")
+        .isSameAs(copiedPlan);
+  }
+
+  /**
+   * The same close-then-reset sequence against a REAL {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan}, so the engine's own
+   * copy and close machinery decides the outcome instead of a mock's answers — and so the
+   * production assertions in the re-arm path run for real (this module compiles its surefire
+   * {@code argLine} with {@code -ea}). The fixture's source step stops producing once closed, the
+   * way a real cursor-backed source does, so a re-arm that restarted the closed chain would return
+   * an empty second pass rather than quietly passing.
+   */
+  @Test
+  public void closeThenReset_withARealPlan_replaysRowsWithoutRestartingTheClosedChain() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    var realCtx = new BasicCommandContext();
+    var realPlan = ReplayablePlanFixture.planOver(realCtx, List.of(row));
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal, Vertex.class, realPlan, "v", BoundaryOutputType.ELEMENT);
+
+    var firstPass = drainPayloads(step);
+    step.close();
+    assertThat(realCtx.getVariable(ReplayablePlanFixture.PER_RUN_VARIABLE))
+        .as("the completed pass seeded per-run state onto the context the copy will reuse")
+        .isNotNull();
+
+    step.reset();
+    var secondPass = drainPayloads(step);
+    step.close();
+
+    assertThat(firstPass).hasSize(1);
+    assertThat(secondPass).as("the real plan replays its rows after close-then-reset").hasSize(1);
+
+    var reArmedPlan = step.getPlan();
+    assertThat(reArmedPlan).as("the re-arm installed a copy").isNotSameAs(realPlan);
+    assertThat(reArmedPlan.getContext())
+        .as("the copy runs against the closed plan's own context, seeded state and all")
+        .isSameAs(realCtx);
+    assertThat(ReplayablePlanFixture.startCount(realPlan))
+        .as("the closed chain was started once, by the first pass, and never again")
+        .isEqualTo(1);
+    assertThat(ReplayablePlanFixture.startCount(reArmedPlan))
+        .as("the copy was started once, by the second pass")
+        .isEqualTo(1);
+    assertThat(ReplayablePlanFixture.isClosed(reArmedPlan))
+        .as("the copy is released by the close that ends its pass")
+        .isTrue();
+  }
+
+  /**
+   * A {@code close()} that arrives before the step ever iterated must not send the later re-arm down
+   * the copy path. The caller shape is {@code try (var t = g.V().hasLabel("person")) { if (skip)
+   * return; … }}: {@code Traversal.close()} closes every {@link AutoCloseable} step, so the boundary
+   * step is closed holding a plan it never started. Treating that as an ordinary close would
+   * deep-copy a pristine plan on the next pass and drop the original with nothing left to close it,
+   * so the step records the never-started close separately and the reset returns it to its
+   * first-open state. Iteration stays terminal until that reset arrives, and the close stays
+   * idempotent.
+   */
+  @Test
+  public void closeBeforeAnyIteration_thenReset_startsTheOriginalPlanRatherThanACopy() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    step.close(); // a caller that opened the traversal and returned before iterating
+    step.close(); // still idempotent from the never-started close
+
+    // The close found nothing to release: an unstarted plan has claimed no cursor.
+    verify(plan, never()).close();
+    verify(plan, never()).start();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    step.reset();
+    drainPayloads(step);
+
+    // The original plan runs. Nothing is copied (the plan mock answers copy() with null, which the
+    // production assertion rejects under -ea) and nothing is rewound.
+    verify(plan, times(1)).start();
+    verify(plan, never()).copy(any());
+    verify(plan, never()).reset(any());
+
+    // The pass that did run closes its plan on the way out, as any other pass does.
+    step.close();
+    verify(plan, times(1)).close();
+  }
+
+  /**
+   * A plan start that threw must NOT be mistaken for a step that never started. The failure handler
+   * closes the plan on its way out while the step has yet to record an open — {@code
+   * processNextStart()} marks the step open only once {@code openArming()} returns — so the
+   * never-started close path would otherwise claim the {@code close()} that follows, and the {@code
+   * reset()} after it would hand the next pass the very plan that handler already closed. A closed
+   * chain restarts to nothing (its steps' close guard is sticky), so that pass would report no rows
+   * with no error. The re-arm has to take the copy path, the only route that revives a closed plan.
+   */
+  @Test
+  public void planStartThrows_thenCloseAndReset_reArmsWithACopyRatherThanTheClosedOriginal() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var copiedCtx = mock(CommandContext.class);
+    var copiedStream = mock(ExecutionStream.class);
+    when(plan.start()).thenThrow(new RuntimeException("plan start blew up"));
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(copiedPlan.getContext()).thenReturn(copiedCtx);
+    when(copiedPlan.start()).thenReturn(copiedStream);
+    when(copiedStream.hasNext(copiedCtx)).thenReturn(false);
+
+    var step = elementStep("v");
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("plan start blew up");
+
+    // The traversal closes on the way out of the failed pull. The start handler already released
+    // the plan, so this close finds nothing left to release and must not close it twice.
+    step.close();
+    verify(plan, times(1)).close();
+
+    step.reset();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    // The re-arm ran a fresh copy; the plan the failed start closed was never started again.
+    verify(plan, times(1)).start();
+    verify(plan, times(1)).copy(any());
+    verify(copiedPlan, times(1)).start();
+    assertThat(step.getPlan())
+        .as("the re-armed pass reports the copy it ran, not the closed original")
+        .isSameAs(copiedPlan);
+  }
+
+  /**
+   * The same failed-start-then-re-arm sequence against a REAL {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan}, asserting the rows the
+   * second pass emits rather than mock call counts. The fixture's source throws out of its first
+   * start and replays afterwards, and it stops producing once closed the way a real cursor-backed
+   * source does — so a re-arm that restarted the closed original comes back empty here instead of
+   * quietly passing. The module compiles its surefire {@code argLine} with {@code -ea}, so the
+   * production assertion guarding the copy runs for real.
+   */
+  @Test
+  public void planStartThrows_thenCloseAndReset_withARealPlan_replaysRowsFromAFreshCopy() {
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+    var realCtx = new BasicCommandContext();
+    var realPlan = ReplayablePlanFixture.planFailingItsFirstStart(realCtx, List.of(row));
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal, Vertex.class, realPlan, "v", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(IllegalStateException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining(ReplayablePlanFixture.START_FAILURE_MESSAGE);
+    assertThat(ReplayablePlanFixture.isClosed(realPlan))
+        .as("the start handler released the plan before propagating")
+        .isTrue();
+
+    step.close();
+    step.reset();
+    var secondPass = drainPayloads(step);
+    step.close();
+
+    assertThat(secondPass)
+        .as("the re-armed pass emits the row the failed start never produced")
+        .hasSize(1);
+    assertThat(step.getPlan()).as("the re-arm installed a copy").isNotSameAs(realPlan);
+    assertThat(ReplayablePlanFixture.startCount(realPlan))
+        .as("the chain the failed start closed was started once, by that failure, and never again")
+        .isEqualTo(1);
+    assertThat(ReplayablePlanFixture.startCount(step.getPlan()))
+        .as("the copy was started once, by the re-armed pass")
+        .isEqualTo(1);
+  }
+
+  /**
+   * Cloning must not rewind the ORIGINAL's plan. {@code AbstractStep.clone()} invokes {@code
+   * reset()} on the freshly-cloned instance while it still aliases the original's plan reference (the
+   * clone's own copy is installed later in {@code clone()}). {@code reset()} never rewinds the plan
+   * (rewind is deferred to the next open, which only the arming's own instance reaches), so cloning a
+   * started original never resets its plan.
+   */
+  @Test
+  public void clone_afterOriginalStarted_doesNotResetOriginalsPlan() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var original = elementStep("v");
+    assertThatExceptionOfType(NoSuchElementException.class)
+        .isThrownBy(original::processNextStart); // original started (everStarted=true)
+
+    original.clone(); // AbstractStep.clone() calls reset() on the clone mid-construction
+
+    verify(plan, never()).reset(any());
+  }
+
+  /**
+   * Cloning an original that has an OPEN stream must NOT close that stream. {@code
+   * AbstractStep.clone()} triggers {@code reset()} on the fresh clone while it still aliases the
+   * original's {@code openStream}; the deferred-close design (reset does not close, clone nulls the
+   * clone's reference) keeps that reset from tearing down the original's in-flight cursor. This drives
+   * the original to an open stream, clones it, and asserts the original's stream was never closed as a
+   * side effect.
+   */
+  @Test
+  public void clone_whileOriginalStreamOpen_doesNotCloseOriginalStream() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(stream.hasNext(ctx)).thenReturn(true); // stays open
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+
+    var original = elementStep("v");
+    original.processNextStart(); // opens the plan → openStream set, un-exhausted
+
+    original.clone(); // AbstractStep.clone() calls reset() on the clone mid-construction
+
+    verify(stream, never()).close(ctx);
+  }
+
+  // ---- Clone field-write (no reflection) ----
+
+  /**
+   * The clone installs its plan copy via a plain field write, not reflection. The {@code plan} field
+   * is non-final precisely so {@code clone()} can assign it directly after {@code super.clone()} —
+   * avoiding a post-construction reflective write to a final field, which would void the JMM
+   * final-field publication guarantee. This locks the modifier so a change back to {@code final}
+   * fails here rather than silently regressing the visibility contract.
+   */
+  @Test
+  public void planField_isNonFinal_soCloneAssignsWithoutReflection() throws Exception {
+    Field planField = YTDBMatchPlanStep.class.getDeclaredField("plan");
+    assertThat(java.lang.reflect.Modifier.isFinal(planField.getModifiers()))
+        .as("plan field must be non-final so clone() can assign the copy without reflection")
+        .isFalse();
+  }
+
+  // ---- Ordered list-shaping post-process ----
+
+  /**
+   * The empty-op case (every traversal that exists today) is a structural bypass, not a no-op stage
+   * wrapped around the projection stream: pulling the first traverser advances the underlying stream
+   * by exactly one row. This pins first-result latency — a collect-apply-emit stage would drain the
+   * whole stream before emitting even with no op, passing every behaviour-neutral assertion while
+   * destroying laziness and bounded memory. The stream has three rows available; only the first is
+   * pulled.
+   */
+  @Test
+  public void listShaping_emptyOps_firstPullAdvancesStreamByOneRow_notDrained() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    var row3 = mock(Result.class);
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2, row3);
+    when(row1.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v"); // ResultShaping.NONE — empty listShapingOps
+
+    step.processNextStart(); // pull exactly one traverser
+
+    // First result cost one row, not the whole (3-row) stream: the empty-op bypass stays lazy.
+    verify(stream, times(1)).next(ctx);
+    verify(stream, times(1)).hasNext(ctx);
+  }
+
+  /**
+   * A parameter-bearing, cardinality-changing op proves the carrier is a stream stage, not a 1→1
+   * row-mapper: {@code TagRepeatOp("X", 2)} emits two payloads for every one upstream payload, so a
+   * single projected row yields two traversers — a shape no row-mapper could produce. The stage also
+   * streams across source rows: with two rows queued, both copies of row 1 are served before row 2 is
+   * pulled. This makes the laziness falsifiable — an eager collect-apply-emit stage would drain both
+   * rows before emitting anything, so the first-pull source count (one, not two) fails for the eager
+   * shape while a single-row stream could not tell the two apart. Driven over the SCALAR path so each
+   * projected payload is a deterministic value.
+   */
+  @Test
+  public void listShaping_flatMapOp_expandsEachRowLazily_secondRowNotPulledUntilFirstDrained() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getPropertyNames()).thenReturn(List.of("c"));
+    when(row1.getProperty("c")).thenReturn(5L);
+    when(row2.getPropertyNames()).thenReturn(List.of("c"));
+    when(row2.getProperty("c")).thenReturn(6L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TagRepeatOp("X", 2))));
+
+    // Read payloads through wildcard traversers so get() returns Object: the payload is a String,
+    // not the Vertex the ELEMENT-typed generic would checkcast to.
+    Traverser.Admin<?> t1 = step.processNextStart();
+    assertThat(t1.get()).isEqualTo("X:5");
+    // Lazy across rows: the first copy is served after pulling only row 1; row 2 is untouched.
+    verify(stream, times(1)).next(ctx);
+
+    Traverser.Admin<?> t2 = step.processNextStart();
+    assertThat(t2.get()).isEqualTo("X:5"); // 2nd copy served from the op buffer — no new source pull
+    verify(stream, times(1)).next(ctx);
+
+    Traverser.Admin<?> t3 = step.processNextStart();
+    // Only now, with row 1's expansion drained, is row 2 pulled — the stage streamed, not drained.
+    assertThat(t3.get()).isEqualTo("X:6");
+    verify(stream, times(2)).next(ctx);
+  }
+
+  /**
+   * Ops apply in declared order, left to right: {@code [A, B]} nests as {@code B:A:…} while the
+   * reversed {@code [B, A]} nests as {@code A:B:…}, so the two orderings resolve to observably
+   * distinct application sequences. This is why the carrier is an ordered list — order-less flags
+   * could not tell {@code reverse().unfold()} from {@code unfold().reverse()}. Driven over the SCALAR
+   * path so the projected payload is a deterministic value the tags wrap.
+   */
+  @Test
+  public void listShaping_opsApplyInDeclaredOrder_leftToRight() {
+    assertThat(runSingleScalarThroughOps(new TagRepeatOp("A", 1), new TagRepeatOp("B", 1)))
+        .isEqualTo("B:A:5");
+    assertThat(runSingleScalarThroughOps(new TagRepeatOp("B", 1), new TagRepeatOp("A", 1)))
+        .isEqualTo("A:B:5");
+  }
+
+  /**
+   * The list-shaping stage is the single seam both projection paths reach — including the
+   * group-barrier {@code group} / {@code groupCount} path, which drains the stream into one map and
+   * returns before per-row projection. A cardinality-changing op over that path expands the single
+   * accumulated map into several traversers, so ops registered by {@code fold} / {@code unfold} /
+   * {@code reverse} / {@code tail} after a {@code group} would not silently no-op.
+   */
+  @Test
+  public void listShaping_appliesOnGroupBarrierPath() {
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getProperty("key")).thenReturn("k1");
+    when(row.getProperty("value")).thenReturn(7L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.MAP,
+            ResultShaping.NONE.withAccumulateMap(true).withListShapingOps(
+                List.of(new TagRepeatOp("G", 2))));
+
+    // Read payloads through wildcard traversers so get() returns Object (the payload is a String).
+    Traverser.Admin<?> t1 = step.processNextStart();
+    var first = t1.get();
+    Traverser.Admin<?> t2 = step.processNextStart();
+    var second = t2.get();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    // The one accumulated map became two traversers: the op ran on the group-barrier path. The
+    // accumulated map is fully deterministic ({k1=7}), so assert the exact payload on both copies
+    // rather than a prefix — a regression that appended trailing content or reshaped the map is
+    // caught here.
+    assertThat(first).isEqualTo("G:{k1=7}");
+    assertThat(second).isEqualTo("G:{k1=7}");
+  }
+
+  /**
+   * A null payload is a legitimate emission, not an absence: an unmatched optional element projects
+   * to a null vertex, and the projection source buffers and emits it rather than skipping it. This
+   * drives a null-projecting row ahead of a real-vertex row and asserts the null is emitted first
+   * (order preserved) and the real vertex second. The projection source distinguishes "a null is
+   * buffered" from "nothing buffered" with a separate has-buffered flag precisely because null is a
+   * valid payload; a regression to a null sentinel (treating a null payload as "not buffered") would
+   * loop past the null, dropping the optional and shifting the emitted sequence, and this test would
+   * catch it.
+   */
+  @Test
+  public void processNextStart_nullPayloadIsEmittedNotDropped_andOrderPreserved() {
+    var row1 = mock(Result.class); // optional miss → null vertex
+    var row2 = mock(Result.class); // real vertex
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getVertex("v")).thenReturn(null); // legitimate null payload
+    when(row2.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v");
+
+    var first = step.processNextStart().get(); // the null payload, not row2
+    var second = step.processNextStart().get();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+
+    assertThat(first).isNull(); // null buffered and emitted via the has-buffered flag
+    assertThat(assertRawEntityOf(second)).isSameAs(rawVertex);
+  }
+
+  /**
+   * A partial consume followed by {@code reset()} and reopen rebuilds the shaped iterator fresh
+   * against the rewound plan rather than resuming the abandoned arming's op buffer. This consumes one
+   * of a buffering op's three copies, resets mid-buffer, then reopens: the post-reset pull must
+   * re-project from the stream (a fresh copy), not serve a leftover buffered copy. The stream pull
+   * count is the discriminator — a rebuilt iterator re-projects the row (two source pulls across the
+   * two armings), a resumed stale iterator would serve its buffer without touching the stream (one).
+   * A regression that stopped nulling the shaped iterator on reopen would keep the stale buffer and
+   * fail that count.
+   */
+  @Test
+  public void listShaping_resetAfterPartialConsume_rebuildsShapedIteratorFresh() {
+    var row = mock(Result.class);
+    // One row per arming; the buffering op fans it to three copies, of which the test consumes one.
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("c"));
+    when(row.getProperty("c")).thenReturn(5L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TagRepeatOp("X", 3))));
+
+    // Wildcard traverser so get() returns Object (the payload is a String).
+    Traverser.Admin<?> t1 = step.processNextStart();
+    assertThat(t1.get()).isEqualTo("X:5"); // 1 of 3; two copies left in the op buffer
+    step.reset(); // arming abandoned mid-buffer
+
+    Traverser.Admin<?> t2 = step.processNextStart();
+    assertThat(t2.get()).isEqualTo("X:5"); // fresh projection, not the leftover buffered copy
+    verify(stream, times(2)).next(ctx); // rebuilt re-projects (2); a resumed stale buffer would be 1
+    verify(plan, times(2)).start();
+    verify(plan, times(1)).reset(ctx);
+  }
+
+  /**
+   * An N→1 window-drain op — the cardinality class {@code fold} and {@code tail} use — collapses many
+   * source rows into one bounded payload. The op eagerly consumes the whole projection stream inside
+   * {@code processNextStart}'s try (the same eager-drain-inside-try path {@code group} / {@code
+   * groupCount} take) and emits its single result; a second pull exhausts. This exercises the drain
+   * class through the boundary base, which {@code TagRepeatOp} (1→1 and 1→N only) never reaches.
+   */
+  @Test
+  public void listShaping_drainOp_manyRowsCollapseToOnePayload() {
+    var r1 = mock(Result.class);
+    var r2 = mock(Result.class);
+    var r3 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, true, false);
+    when(stream.next(ctx)).thenReturn(r1, r2, r3);
+    for (var r : List.of(r1, r2, r3)) {
+      when(r.getPropertyNames()).thenReturn(List.of("c"));
+      when(r.getProperty("c")).thenReturn(1L);
+    }
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new DrainToSizeOp())));
+
+    // Wildcard traverser so get() returns Object (the drained payload is a Long count).
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo(3L); // three rows drained into one payload
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(stream, times(3)).next(ctx); // the whole stream was consumed to produce the one payload
+  }
+
+  /**
+   * The production {@code fold()} drain, driven through the boundary base: three projected rows become
+   * one payload holding all three in arrival order. The order assertion is the discriminating half —
+   * three distinct values mean a drain that reversed, sorted, or reused a single slot fails here, where
+   * a fixture of equal values could not tell those apart from a correct fold.
+   */
+  @Test
+  public void listShaping_foldDrainOp_collapsesEveryRowIntoOneListInArrivalOrder() {
+    var r1 = mock(Result.class);
+    var r2 = mock(Result.class);
+    var r3 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, true, false);
+    when(stream.next(ctx)).thenReturn(r1, r2, r3);
+    when(r1.getPropertyNames()).thenReturn(List.of("c"));
+    when(r1.getProperty("c")).thenReturn(1L);
+    when(r2.getPropertyNames()).thenReturn(List.of("c"));
+    when(r2.getProperty("c")).thenReturn(2L);
+    when(r3.getPropertyNames()).thenReturn(List.of("c"));
+    when(r3.getProperty("c")).thenReturn(3L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    // Wildcard traverser so get() returns Object (the drained payload is a List, not a Vertex).
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo(List.of(1L, 2L, 3L));
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(stream, times(3)).next(ctx); // the whole stream went into the one list
+  }
+
+  /**
+   * A dry stream still yields one empty list — native {@code fold()}'s answer over an empty upstream,
+   * and the one case a drain implemented as "emit once per buffered element" would get wrong by
+   * emitting nothing. A traversal returning zero results where native returns one is invisible to any
+   * assertion written over a non-empty fixture, which is why this case is pinned on its own.
+   */
+  @Test
+  public void listShaping_foldDrainOp_dryStreamStillEmitsOneEmptyList() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    assertThat(t.get()).isEqualTo(List.of());
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(stream, never()).next(ctx);
+  }
+
+  /**
+   * A null payload survives the fold and keeps its position. An unmatched optional element projects to
+   * a null vertex and {@code values(key)} projects a present-null property as null, so the drain has to
+   * accumulate into a null-tolerant list: collecting through {@code List.copyOf} or {@code
+   * Stream.toList}'s immutable form would throw on the first such row and take down a shape that works
+   * natively.
+   */
+  @Test
+  public void listShaping_foldDrainOp_nullPayloadSurvivesTheFold() {
+    var row1 = mock(Result.class); // optional miss → null vertex
+    var row2 = mock(Result.class); // real vertex
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getVertex("v")).thenReturn(null);
+    when(row2.getVertex("v")).thenReturn(rawVertex);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.ELEMENT,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    Traverser.Admin<?> t = step.processNextStart();
+    var folded = (List<?>) t.get();
+
+    assertThat(folded).as("both rows are in the list; the null is not dropped").hasSize(2);
+    assertThat(folded.get(0)).as("and it kept its position ahead of the real vertex").isNull();
+    assertThat(assertRawEntityOf(folded.get(1))).isSameAs(rawVertex);
+  }
+
+  /**
+   * The drain's iterator honours the {@link Iterator} contract past its single emission: {@code
+   * hasNext()} stays {@code false} and {@code next()} throws. Driven on the op directly because the
+   * boundary base never asks — it checks {@code hasNext()} and raises its own {@code
+   * FastNoSuchElementException} — so the op's own guard has no other caller and would otherwise return
+   * a second, empty list to anything that composed the stage differently.
+   */
+  @Test
+  public void foldDrainOp_pastItsSingleEmission_isExhaustedAndThrows() {
+    var shaped = new FoldListShapingOp().apply(List.<Object>of(1L, 2L).iterator());
+
+    assertThat(shaped.hasNext()).isTrue();
+    assertThat(shaped.next()).isEqualTo(List.of(1L, 2L));
+    assertThat(shaped.hasNext()).as("one payload, and the stage is spent").isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(shaped::next);
+  }
+
+  /**
+   * The drain rebuilds its buffer on every arming, so a {@code reset()} and reopen re-folds the fresh
+   * projection instead of extending the previous arming's list. One row per arming makes the two
+   * outcomes disjoint: a per-call buffer gives {@code [5]} then {@code [6]}, while a buffer held in a
+   * field would give {@code [5]} then {@code [5, 6]}. That field is also what would make two
+   * concurrently iterated clones of one boundary race, since {@code AbstractStep.clone()} copies the
+   * shaping — and with it the op — by reference.
+   */
+  @Test
+  public void listShaping_foldDrainOp_rebuildsItsBufferOnReopen() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getPropertyNames()).thenReturn(List.of("c"));
+    when(row1.getProperty("c")).thenReturn(5L);
+    when(row2.getPropertyNames()).thenReturn(List.of("c"));
+    when(row2.getProperty("c")).thenReturn(6L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    Traverser.Admin<?> first = step.processNextStart();
+    assertThat(first.get()).isEqualTo(List.of(5L));
+
+    step.reset();
+
+    Traverser.Admin<?> second = step.processNextStart();
+    assertThat(second.get())
+        .as("the second arming folds only its own row; a field-held buffer would carry the first's")
+        .isEqualTo(List.of(6L));
+  }
+
+  /**
+   * The five arms {@code UnfoldStep.flatMap} classifies a payload into, driven on the production stage
+   * directly. Every arm is reachable through a live boundary output type, and three of the five are
+   * unreachable from a translated traversal today — no shape emits an iterator, a raw iterable or an
+   * array payload — so a direct test is the only net they have.
+   *
+   * <p>The map arm is the one worth pinning hardest: it expands into <em>entries</em>, where expanding
+   * into keys or into values would produce a payload count that matches on every fixture. The atomic
+   * arm is second: a stage that expanded only collection-shaped payloads would turn
+   * {@code g.V().unfold()} from an identity into an empty result.
+   */
+  @Test
+  public void unfoldFlatMapOp_classifiesEachPayloadTheWayNativeUnfoldDoes() {
+    assertThat(unfolded(List.of(1L, 2L).iterator()))
+        .as("an iterator is consumed as it stands")
+        .containsExactly(1L, 2L);
+    assertThat(unfolded(List.of("a", "b")))
+        .as("an iterable is expanded through its own iterator")
+        .containsExactly("a", "b");
+    assertThat(unfolded(new LinkedHashMap<>(java.util.Map.of("k", 7L))))
+        .as("a map expands into its entries, not its keys and not its values")
+        .containsExactly(java.util.Map.entry("k", 7L));
+    assertThat(unfolded(new Object[] {"x", "y"}))
+        .as("an object array expands element by element")
+        .containsExactly("x", "y");
+    assertThat(unfolded(new int[] {3, 4}))
+        .as("and a primitive array does too, boxing as native's reflective branch does")
+        .containsExactly(3, 4);
+    assertThat(unfolded(42L)).as("anything else is one payload, emitted unchanged").containsExactly(
+        42L);
+  }
+
+  /**
+   * Payloads the expansion has nothing to emit for are skipped rather than reported as exhaustion, and
+   * a null payload is emitted rather than throwing. The skip matters because an empty list between two
+   * non-empty ones would otherwise cut the stream short at the empty one — native emits nothing for
+   * such a traverser and moves on. The null is the one deliberate deviation from native, which reaches
+   * {@code value.getClass()} unguarded: null payloads are legitimate here, and the exception would
+   * surface mid-iteration where the strategy's throw-safety net can no longer decline.
+   */
+  @Test
+  public void unfoldFlatMapOp_skipsEmptyPayloadsAndEmitsNulls() {
+    var mixed = new ArrayList<>();
+    mixed.add(List.of());
+    mixed.add("kept");
+    mixed.add(null);
+    mixed.add(List.of("last"));
+
+    assertThat(drainOp(new UnfoldListShapingOp(), mixed.iterator()))
+        .as("the empty payload contributes nothing and does not end the stream")
+        .containsExactly("kept", null, "last");
+  }
+
+  /**
+   * The expansion is lazy: the first pull yields the first element of the first payload without
+   * touching the second payload. {@link ListShapingOp} asks a per-payload stage to preserve
+   * first-result latency, and a stage that expanded everything up front would satisfy every content
+   * assertion above while draining the whole projection on the first pull.
+   */
+  @Test
+  public void unfoldFlatMapOp_emitsTheFirstElementBeforePullingTheSecondPayload() {
+    var upstream = countingIterator(List.of(List.of("a1", "a2"), List.of("b1")));
+
+    var shaped = new UnfoldListShapingOp().apply(upstream.iterator);
+
+    assertThat(shaped.next()).isEqualTo("a1");
+    assertThat(upstream.pulls)
+        .as("one payload pulled to produce the first element, not both")
+        .isEqualTo(1);
+    assertThat(shaped.next()).isEqualTo("a2");
+    assertThat(upstream.pulls).as("the rest of the first payload costs no further pull")
+        .isEqualTo(1);
+    assertThat(shaped.next()).isEqualTo("b1");
+    assertThat(upstream.pulls).as("and the second payload is pulled only when needed").isEqualTo(2);
+  }
+
+  /**
+   * The four arms {@code ReverseStep.map} distinguishes, driven on the production stage directly. The
+   * load-bearing claim is the one the class exists for: the stage reverses each payload's own value and
+   * leaves the stream in arrival order, so five distinct payloads come back in the same positions
+   * carrying reversed contents. A stream reverse would return the five payloads unchanged in the
+   * opposite order, which matches on row count and on payload type.
+   */
+  @Test
+  public void reverseValueOp_reversesEachValueAndLeavesTheStreamOrderAlone() {
+    var payloads = new ArrayList<>();
+    payloads.add("abc");
+    payloads.add(List.of(1L, 2L, 3L));
+    payloads.add(List.of("i", "j").iterator());
+    payloads.add(null);
+    payloads.add(7L);
+
+    var reversed = drainOp(new ReverseListShapingOp(), payloads.iterator());
+
+    assertThat(reversed).as("one payload out per payload in, in arrival order").hasSize(5);
+    assertThat(reversed.get(0)).as("a string's characters are reversed").isEqualTo("cba");
+    assertThat(reversed.get(1))
+        .as("a collection becomes a list of its elements in reverse order")
+        .isEqualTo(List.of(3L, 2L, 1L));
+    assertThat(reversed.get(2))
+        .as("and so does an iterator, which becomes a list rather than staying an iterator")
+        .isEqualTo(List.of("j", "i"));
+    assertThat(reversed.get(3)).as("null maps to null").isNull();
+    assertThat(reversed.get(4)).as("and an unreversible payload passes through").isEqualTo(7L);
+  }
+
+  /**
+   * An array payload becomes a reversed {@link List} rather than a reversed array, which is native's
+   * answer and the one arm whose output type differs from its input type. Asserted separately from the
+   * arms above because a stage that reversed the array in place would satisfy an element-order
+   * assertion while mutating the payload the boundary emitted.
+   */
+  @Test
+  public void reverseValueOp_overAnArrayPayload_yieldsAReversedList() {
+    var array = new Object[] {"x", "y", "z"};
+    // A one-element list holding the array itself; List.of(array) would spread it into three payloads.
+    var payloads = new ArrayList<>();
+    payloads.add(array);
+
+    var reversed = drainOp(new ReverseListShapingOp(), payloads.iterator());
+
+    assertThat(reversed).singleElement().isEqualTo(List.of("z", "y", "x"));
+    assertThat(array).as("and the payload the boundary emitted is untouched").containsExactly("x",
+        "y", "z");
+  }
+
+  /**
+   * The window keeps the last {@code n} payloads in arrival order, which is the claim its ring buffer
+   * exists to make cheap. Five payloads through a window of two is the case that exercises eviction and
+   * the cursor rotation: an implementation keeping the first two, or one whose ring wrapped without
+   * rotating the read cursor, returns two payloads either way and only the contents tell them apart.
+   */
+  @Test
+  public void tailWindowOp_keepsTheLastPayloadsInArrivalOrder() {
+    assertThat(drainOp(new TailListShapingOp(2), List.<Object>of(1L, 2L, 3L, 4L, 5L).iterator()))
+        .as("the last two, in the order they arrived")
+        .containsExactly(4L, 5L);
+    assertThat(drainOp(new TailListShapingOp(3), List.<Object>of(1L, 2L, 3L, 4L, 5L).iterator()))
+        .as("a window whose size does not divide the row count rotates correctly too")
+        .containsExactly(3L, 4L, 5L);
+    assertThat(drainOp(new TailListShapingOp(9), List.<Object>of(1L, 2L).iterator()))
+        .as("a window wider than the stream returns the whole stream, unpadded")
+        .containsExactly(1L, 2L);
+    assertThat(drainOp(new TailListShapingOp(2), List.of().iterator()))
+        .as("and a dry stream returns nothing rather than a window of nulls")
+        .isEmpty();
+  }
+
+  /**
+   * A zero window emits nothing and still drains the upstream. Emitting nothing is native's answer —
+   * {@code TailGlobalStep} trims its deque back to the limit after each add — and the drain matters
+   * because the stage is a barrier: the rows behind it have to be consumed either way, and a stage that
+   * short-circuited would leave the plan's stream half-read.
+   */
+  @Test
+  public void tailWindowOp_withAZeroWindow_emitsNothingAndStillDrainsTheUpstream() {
+    var upstream = countingIterator(List.of(1L, 2L, 3L));
+
+    var shaped = new TailListShapingOp(0).apply(upstream.iterator);
+
+    assertThat(shaped.hasNext()).as("a zero window retains nothing").isFalse();
+    assertThat(upstream.pulls).as("but the upstream is consumed, as a barrier must").isEqualTo(3);
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(shaped::next);
+  }
+
+  /**
+   * Null payloads survive the window and keep their positions. This is the case an {@code ArrayDeque}
+   * ring — the obvious bounded deque, and what native uses over traversers — would turn into a
+   * {@link NullPointerException}, because it rejects null elements where a boundary payload may
+   * legitimately be null. Two nulls around a real payload is what makes a stage that silently dropped
+   * them visible: the window would come back short rather than merely different.
+   */
+  @Test
+  public void tailWindowOp_retainsNullPayloads() {
+    var payloads = new ArrayList<>();
+    payloads.add("dropped-by-the-window");
+    payloads.add(null);
+    payloads.add("kept");
+    payloads.add(null);
+
+    assertThat(drainOp(new TailListShapingOp(3), payloads.iterator()))
+        .as("the last three payloads, nulls included and in their arrival positions")
+        .containsExactly(null, "kept", null);
+  }
+
+  /**
+   * A negative window is rejected at construction rather than given a meaning. The recogniser declines
+   * {@code tail(-1)} so no traversal builds this stage, which is exactly why the constructor has to
+   * refuse: a future caller reaching it would otherwise get whatever the ring arithmetic happens to do
+   * with a negative size.
+   */
+  @Test
+  public void tailWindowOp_rejectsANegativeWindowAtConstruction() {
+    assertThatExceptionOfType(IllegalArgumentException.class)
+        .isThrownBy(() -> new TailListShapingOp(-1))
+        .withMessageContaining("-1");
+  }
+
+  /**
+   * The window rebuilds its ring on every arming, so a {@code reset()} and reopen windows the fresh
+   * projection instead of extending the previous arming's. One row per arming makes the two outcomes
+   * disjoint: a per-call ring gives {@code [5]} then {@code [6]}, while a ring held in a field would
+   * give {@code [5]} then {@code [5, 6]} — and that field is also what would make two concurrently
+   * iterated clones of one boundary hand each other's payloads back, since
+   * {@code AbstractStep.clone()} copies the shaping, and with it the stage, by reference.
+   */
+  @Test
+  public void listShaping_tailWindowOp_rebuildsItsRingOnReopen() {
+    var row1 = mock(Result.class);
+    var row2 = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2);
+    when(row1.getPropertyNames()).thenReturn(List.of("c"));
+    when(row1.getProperty("c")).thenReturn(5L);
+    when(row2.getPropertyNames()).thenReturn(List.of("c"));
+    when(row2.getProperty("c")).thenReturn(6L);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TailListShapingOp(2))));
+
+    Traverser.Admin<?> first = step.processNextStart();
+    assertThat(first.get()).isEqualTo(5L);
+
+    step.reset();
+
+    Traverser.Admin<?> second = step.processNextStart();
+    assertThat(second.get())
+        .as("the second arming windows only its own row; a field-held ring would carry the first's")
+        .isEqualTo(6L);
+  }
+
+  /**
+   * A {@code fold()} boundary replays the same list on every re-arm route. There are three routes into
+   * an open arming and the sibling test above covers the first — a {@code reset()} of a partially
+   * consumed pass, which leaves the step OPEN — so this one drives the other two: a reset after the
+   * pass reported exhaustion (DRAINED, which rewinds and re-runs the plan that just ran) and a reset
+   * after {@code close()} (CLOSED, which installs a fresh copy of the closed plan). Every route
+   * re-enters {@code applyListShaping}, which asks the op for a new iterator, so a drain holding its
+   * buffer anywhere outside that iterator would extend the earlier pass's list rather than replace it:
+   * three passes over the same two rows would read {@code [1, 2]}, {@code [1, 2, 1, 2]},
+   * {@code [1, 2, 1, 2, 1, 2]}.
+   */
+  @Test
+  public void listShaping_foldDrainOp_replaysTheSameListFromEveryReArmRoute() {
+    var row1 = scalarRow(1L);
+    var row2 = scalarRow(2L);
+    // Two armings off the original plan (the first pass and the DRAINED re-arm), then one off the copy
+    // the CLOSED re-arm installs.
+    when(stream.hasNext(ctx)).thenReturn(true, true, false, true, true, false);
+    when(stream.next(ctx)).thenReturn(row1, row2, row1, row2);
+    var copiedPlan = stubPlanCopyDelivering(row1, row2);
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new FoldListShapingOp())));
+
+    assertThat(drainPayloads(step))
+        .as("the first pass folds both rows into one list")
+        .containsExactly(List.of(1L, 2L));
+
+    step.reset(); // DRAINED → REARMED: the same plan is rewound and re-run.
+    assertThat(drainPayloads(step))
+        .as("the re-armed pass folds its own rows, not the first pass's as well")
+        .containsExactly(List.of(1L, 2L));
+
+    step.close();
+    step.reset(); // CLOSED → REARMED_AFTER_CLOSE: the next open runs a copy of the closed plan.
+    assertThat(drainPayloads(step))
+        .as("and so does the pass that runs off the plan copy")
+        .containsExactly(List.of(1L, 2L));
+
+    verify(plan, times(2)).start();
+    verify(copiedPlan, times(1)).start();
+  }
+
+  /**
+   * A {@code tail(n)} boundary windows only its own arming's rows, across the same two re-arm routes the
+   * fold case above drives — the ring being the other buffered stage.
+   *
+   * <p><b>Each pass runs over different rows, and that is not cosmetic:</b> a leaked ring holds a window
+   * of the declared size either way, so replaying the same rows makes a stale window read exactly like a
+   * fresh one and the case passes under the defect it names. Only distinct rows per pass separate them —
+   * a ring surviving the re-arm answers the first pass's row where the second pass's own is expected. The
+   * fold case can afford identical rows because a leaked <em>append</em> buffer grows, which shows up as
+   * a longer list rather than as an equal one.
+   */
+  @Test
+  public void listShaping_tailWindowOp_windowsOnlyItsOwnArmingFromEveryReArmRoute() {
+    // Two rows per arming, all six distinct, so a window carried across a re-arm names the pass it came
+    // from. Built ahead of the stubbing chains: scalarRow() stubs a mock of its own, which Mockito
+    // rejects inside another stubbing's argument list.
+    var firstPass = List.of(scalarRow(1L), scalarRow(2L));
+    var secondPass = List.of(scalarRow(3L), scalarRow(4L));
+    var thirdPass = List.of(scalarRow(5L), scalarRow(6L));
+    when(stream.hasNext(ctx)).thenReturn(true, true, false, true, true, false);
+    when(stream.next(ctx))
+        .thenReturn(
+            firstPass.get(0), firstPass.get(1), secondPass.get(0), secondPass.get(1));
+    var copiedPlan = stubPlanCopyDelivering(thirdPass.get(0), thirdPass.get(1));
+
+    var step =
+        shapedStep(
+            "v",
+            BoundaryOutputType.SCALAR,
+            ResultShaping.NONE.withListShapingOps(List.of(new TailListShapingOp(1))));
+
+    assertThat(drainPayloads(step))
+        .as("the first pass keeps the last of its own two rows")
+        .containsExactly(2L);
+
+    step.reset(); // DRAINED → REARMED: the same plan is rewound and re-run.
+    assertThat(drainPayloads(step))
+        .as("the re-armed pass windows its own rows, not the ring the first pass filled")
+        .containsExactly(4L);
+
+    step.close();
+    step.reset(); // CLOSED → REARMED_AFTER_CLOSE: the next open runs a copy of the closed plan.
+    assertThat(drainPayloads(step))
+        .as("and so does the pass that runs off the plan copy")
+        .containsExactly(6L);
+
+    verify(plan, times(2)).start();
+    verify(copiedPlan, times(1)).start();
+  }
+
+  /**
+   * Two clones of a boundary carrying a {@code fold()} drain each fold only their own plan's rows,
+   * driven on two threads a {@link CyclicBarrier} releases together. The sharing this guards is
+   * structural rather than hypothetical: {@code AbstractStep.clone()} copies {@code shaping} by
+   * reference and {@code resetLifecycleForClone()} deliberately leaves it alone, so both clones hold
+   * the <em>same</em> op instance. The probe pins that premise, because a clone path that happened to
+   * hand each clone its own op would let this case pass without exercising the sharing at all.
+   *
+   * <p>A drain buffering in a field rather than inside the iterator it returns hands one clone the
+   * other's rows. Disjoint row values are what make that visible — two clones over equal rows cannot
+   * tell a shared buffer from an isolated one — and the reopen cases above are the deterministic net
+   * for the same field, this one being the guard under real interleaving.
+   */
+  @Test
+  public void clone_withAFoldDrain_eachCloneFoldsOnlyItsOwnRows() throws Exception {
+    var probe = new SharedOpProbe(new FoldListShapingOp());
+    var results = driveTwoClonesConcurrently(probe);
+
+    assertThat(probe.applications())
+        .as("both clones drove one shared op instance, so the isolation below is the op's own doing")
+        .isEqualTo(2);
+    assertThat(results.get(0))
+        .as("the first clone folds the two rows its own plan copy produced")
+        .containsExactly(List.of(1L, 2L));
+    assertThat(results.get(1))
+        .as("and the second folds its own two, with nothing of the first's in the list")
+        .containsExactly(List.of(3L, 4L));
+  }
+
+  /**
+   * The same clone isolation for the other buffered stage: two clones of a boundary carrying a {@code
+   * tail(n)} window each keep the last row of their own plan copy. This is the worse of the two
+   * failures, which is why it is pinned separately rather than left to the fold case: a shared ring
+   * gives each clone a window of exactly the right size holding the wrong rows, so no size assertion
+   * catches it and only the disjoint values do.
+   */
+  @Test
+  public void clone_withATailWindow_eachCloneWindowsOnlyItsOwnRows() throws Exception {
+    var probe = new SharedOpProbe(new TailListShapingOp(1));
+    var results = driveTwoClonesConcurrently(probe);
+
+    assertThat(probe.applications())
+        .as("both clones drove one shared op instance")
+        .isEqualTo(2);
+    assertThat(results.get(0))
+        .as("the first clone keeps the last row of its own plan copy")
+        .containsExactly(2L);
+    assertThat(results.get(1))
+        .as("and the second keeps the last of its own, not a row from the first's window")
+        .containsExactly(4L);
+  }
+
+  /**
+   * The production stages honour the {@link Iterator} contract past exhaustion: {@code hasNext()} stays
+   * {@code false} and {@code next()} throws. Driven on the stages directly because the boundary base
+   * never asks — it checks {@code hasNext()} and raises its own {@code FastNoSuchElementException} — so
+   * each stage's own guard has no other caller and would otherwise hand a null or a stale payload to
+   * anything that composed the stage differently.
+   */
+  @Test
+  public void listShapingOps_pastExhaustion_areSpentAndThrow() {
+    var unfold = new UnfoldListShapingOp().apply(List.<Object>of(List.of("only")).iterator());
+    assertThat(unfold.next()).isEqualTo("only");
+    assertThat(unfold.hasNext()).isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(unfold::next);
+
+    var reverse = new ReverseListShapingOp().apply(List.<Object>of("ab").iterator());
+    assertThat(reverse.next()).isEqualTo("ba");
+    assertThat(reverse.hasNext()).isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(reverse::next);
+
+    var tail = new TailListShapingOp(1).apply(List.<Object>of(1L, 2L).iterator());
+    assertThat(tail.next()).isEqualTo(2L);
+    assertThat(tail.hasNext()).isFalse();
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(tail::next);
+  }
+
+  /**
+   * The seven pre-existing {@code withX} builders each thread {@code listShapingOps} through as the
+   * new constructor argument, so a previously-set op list must survive every one of them. This
+   * asserts each builder carries a pre-set ops list forward unchanged — a copy-paste that passed an
+   * empty list instead of the field would silently reset the ops and corrupt a traversal that pins
+   * ops before a later flag override.
+   */
+  @Test
+  public void resultShaping_withBuilders_preserveListShapingOps() {
+    var ops = List.<ListShapingOp>of(new TagRepeatOp("X", 1));
+    var base = ResultShaping.NONE.withListShapingOps(ops);
+
+    assertThat(base.withDropNullRows(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withDropOnAbsent(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withPresencePropertyKeys(List.of("k")).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withWrapMapValuesInLists(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withAccumulateMap(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withUnwrapSingletonMap(true).listShapingOps()).isEqualTo(ops);
+    assertThat(base.withElementMapTokens(true).listShapingOps()).isEqualTo(ops);
+  }
+
+  /** Every payload {@code op} emits over {@code upstream}, in order, nulls included. */
+  private static List<Object> drainOp(ListShapingOp op, Iterator<Object> upstream) {
+    var emitted = new ArrayList<>();
+    op.apply(upstream).forEachRemaining(emitted::add);
+    return emitted;
+  }
+
+  /** The payloads {@link UnfoldListShapingOp} expands {@code payload} into. */
+  private static List<Object> unfolded(Object payload) {
+    var single = new ArrayList<>();
+    single.add(payload);
+    return drainOp(new UnfoldListShapingOp(), single.iterator());
+  }
+
+  /**
+   * An upstream iterator over {@code payloads} that counts how many payloads have been pulled, so a
+   * laziness claim can be asserted on the pull count rather than inferred from emission order.
+   */
+  private static CountingUpstream countingIterator(List<?> payloads) {
+    return new CountingUpstream(payloads);
+  }
+
+  /** Pull-counting upstream; see {@link #countingIterator}. */
+  private static final class CountingUpstream {
+
+    private int pulls;
+    private final Iterator<Object> iterator;
+
+    private CountingUpstream(List<?> payloads) {
+      var delegate = List.<Object>copyOf(payloads).iterator();
+      this.iterator =
+          new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+              return delegate.hasNext();
+            }
+
+            @Override
+            public Object next() {
+              pulls++;
+              return delegate.next();
+            }
+          };
+    }
+  }
+
+  /**
+   * Drives a single deterministic SCALAR payload ({@code 5}) through the given ops in order and
+   * returns the sole emitted payload as a string. Used to assert declared-order composition without
+   * a real graph.
+   */
+  private String runSingleScalarThroughOps(ListShapingOp... ops) {
+    var localPlan = mock(InternalExecutionPlan.class);
+    var localCtx = mock(CommandContext.class);
+    var localStream = mock(ExecutionStream.class);
+    lenient().when(localPlan.getContext()).thenReturn(localCtx);
+    lenient().when(localPlan.start()).thenReturn(localStream);
+    var row = mock(Result.class);
+    when(localStream.hasNext(localCtx)).thenReturn(true, false);
+    when(localStream.next(localCtx)).thenReturn(row);
+    when(row.getPropertyNames()).thenReturn(List.of("c"));
+    when(row.getProperty("c")).thenReturn(5L);
+
+    var step =
+        new YTDBMatchPlanStep<>(
+            traversal,
+            Vertex.class,
+            localPlan,
+            "v",
+            BoundaryOutputType.SCALAR,
+            java.util.Map.of(),
+            ResultShaping.NONE.withListShapingOps(List.of(ops)));
+
+    var payloads = new ArrayList<>();
+    step.forEachRemaining(t -> payloads.add(t.get()));
+    assertThat(payloads).hasSize(1);
+    return String.valueOf(payloads.getFirst());
+  }
+
+  /**
+   * Test-only placeholder {@link ListShapingOp}: a parameter-bearing, cardinality-changing stream
+   * stage. For each upstream payload {@code p} it emits {@code times} copies of {@code tag + ":" +
+   * p}, so it is a 1→N flat-map that no 1→1 row-mapper could express. It stays lazy — {@code
+   * hasNext} pulls at most one upstream payload to refill its buffer — so it exercises the
+   * framework's laziness as well as its cardinality contract. The real {@code fold} / {@code unfold}
+   * / {@code reverse} / {@code tail} ops replace it later; the framework carries them unchanged.
+   */
+  private record TagRepeatOp(String tag, int times) implements ListShapingOp {
+
+    @Override
+    public Iterator<Object> apply(Iterator<Object> upstream) {
+      return new Iterator<>() {
+        private final ArrayDeque<Object> buffer = new ArrayDeque<>();
+
+        @Override
+        public boolean hasNext() {
+          while (buffer.isEmpty() && upstream.hasNext()) {
+            var payload = upstream.next();
+            for (int i = 0; i < times; i++) {
+              buffer.add(tag + ":" + payload);
+            }
+          }
+          return !buffer.isEmpty();
+        }
+
+        @Override
+        public Object next() {
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          return buffer.removeFirst();
+        }
+      };
+    }
+  }
+
+  /**
+   * Test-only placeholder {@link ListShapingOp} in the N→1 window-drain cardinality class — the class
+   * {@code fold} / {@code tail} use. It eagerly consumes the whole upstream on the first {@code
+   * hasNext}, then emits a single payload: the count of upstream payloads it drained. Modelling the
+   * eager drain lets that cardinality class be exercised through the boundary base without the real
+   * {@code fold} / {@code tail} ops, which arrive later.
+   */
+  private record DrainToSizeOp() implements ListShapingOp {
+
+    @Override
+    public Iterator<Object> apply(Iterator<Object> upstream) {
+      return new Iterator<>() {
+        // null until the drain runs; then false while the single payload is pending, true once served.
+        private Boolean emitted;
+        private Object value;
+
+        @Override
+        public boolean hasNext() {
+          if (emitted == null) {
+            long count = 0;
+            while (upstream.hasNext()) {
+              upstream.next();
+              count++;
+            }
+            value = count;
+            emitted = false;
+          }
+          return !emitted;
+        }
+
+        @Override
+        public Object next() {
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          emitted = true;
+          return value;
+        }
+      };
+    }
+  }
+
+  /**
+   * Wraps a production {@link ListShapingOp} and counts how many times the boundary base asked it for
+   * an iterator. The count is the premise the clone-isolation cases rest on: two clones sharing one op
+   * instance means one probe records two applications, where a clone path that handed each clone its
+   * own op would record one apiece and those cases would stop testing anything. The counter is atomic
+   * because the two clones apply it on two threads.
+   */
+  private static final class SharedOpProbe implements ListShapingOp {
+
+    private final ListShapingOp delegate;
+    private final AtomicInteger applications = new AtomicInteger();
+
+    private SharedOpProbe(ListShapingOp delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public Iterator<Object> apply(Iterator<Object> upstream) {
+      applications.incrementAndGet();
+      return delegate.apply(upstream);
+    }
+
+    private int applications() {
+      return applications.get();
+    }
+  }
+
+  // ---- Test helpers ----
+
+  /**
+   * A mocked result row holding one column, which is the shape a {@code SCALAR} boundary projects: the
+   * base reads the row's single property name and then that property's value.
+   */
+  private static Result scalarRow(Object value) {
+    var row = mock(Result.class);
+    when(row.getPropertyNames()).thenReturn(List.of("c"));
+    when(row.getProperty("c")).thenReturn(value);
+    return row;
+  }
+
+  /**
+   * Clones a {@code SCALAR} boundary carrying {@code op} twice, hands each clone its own plan copy over
+   * disjoint rows ({@code 1, 2} and {@code 3, 4}), drives both on two threads a {@link CyclicBarrier}
+   * releases together, and returns the two payload lists in clone order.
+   *
+   * <p>The disjoint row values are the load-bearing part: a stage leaking state across the two clones
+   * shows up as one clone's rows appearing in the other's payloads, which equal rows could not reveal.
+   * The timed joins are asserted rather than trusted for the reason the sibling concurrency case gives
+   * — a hung driver would otherwise leave the error list empty and leak a live thread into the shared
+   * surefire fork — and a completed join is also the happens-before edge the assertions read across.
+   */
+  private List<List<Object>> driveTwoClonesConcurrently(ListShapingOp op) throws Exception {
+    var copyA = mock(InternalExecutionPlan.class);
+    var copyB = mock(InternalExecutionPlan.class);
+    var ctxA = mock(CommandContext.class);
+    var ctxB = mock(CommandContext.class);
+    var streamA = mock(ExecutionStream.class);
+    var streamB = mock(ExecutionStream.class);
+    // Built before the stubbing chains below: scalarRow() stubs a mock of its own, and Mockito rejects
+    // a stubbing opened inside another one's argument list.
+    var rowA1 = scalarRow(1L);
+    var rowA2 = scalarRow(2L);
+    var rowB1 = scalarRow(3L);
+    var rowB2 = scalarRow(4L);
+    when(plan.copy(any())).thenReturn(copyA, copyB);
+    when(copyA.getContext()).thenReturn(ctxA);
+    when(copyB.getContext()).thenReturn(ctxB);
+    when(copyA.start()).thenReturn(streamA);
+    when(copyB.start()).thenReturn(streamB);
+    when(streamA.hasNext(ctxA)).thenReturn(true, true, false);
+    when(streamA.next(ctxA)).thenReturn(rowA1, rowA2);
+    when(streamB.hasNext(ctxB)).thenReturn(true, true, false);
+    when(streamB.next(ctxB)).thenReturn(rowB1, rowB2);
+
+    var original =
+        shapedStep(
+            "v", BoundaryOutputType.SCALAR, ResultShaping.NONE.withListShapingOps(List.of(op)));
+    var cloneA = original.clone();
+    var cloneB = original.clone();
+    // AbstractStep.clone() detaches the clone's traversal; re-attach so each clone resolves the graph
+    // the way it would in production.
+    cloneA.setTraversal(traversal);
+    cloneB.setTraversal(traversal);
+
+    var drainedA = new AtomicReference<List<Object>>();
+    var drainedB = new AtomicReference<List<Object>>();
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    var barrier = new CyclicBarrier(2);
+    var threadA = new Thread(driver(barrier, cloneA, drainedA, errors), "shaped-cloneA-driver");
+    var threadB = new Thread(driver(barrier, cloneB, drainedB, errors), "shaped-cloneB-driver");
+    threadA.start();
+    threadB.start();
+    threadA.join(5_000);
+    threadB.join(5_000);
+
+    assertThat(threadA.isAlive()).as("driver A must terminate, not hang").isFalse();
+    assertThat(threadB.isAlive()).as("driver B must terminate, not hang").isFalse();
+    assertThat(errors).as("no driver thread threw during concurrent iteration").isEmpty();
+    return List.of(drainedA.get(), drainedB.get());
+  }
+
+  /** One {@link #driveTwoClonesConcurrently} driver: wait on the barrier, drain, publish or record. */
+  private static Runnable driver(
+      CyclicBarrier barrier,
+      AbstractMatchPlanStep<Object, ?> step,
+      AtomicReference<List<Object>> drained,
+      List<Throwable> errors) {
+    return () -> {
+      try {
+        barrier.await();
+        drained.set(drainPayloads(step));
+      } catch (Throwable t) {
+        errors.add(t);
+      }
+    };
+  }
+
+  private YTDBMatchPlanStep<Object, Vertex> elementStep(String alias) {
+    return new YTDBMatchPlanStep<>(
+        traversal, Vertex.class, plan, alias, BoundaryOutputType.ELEMENT);
+  }
+
+  /**
+   * Stubs {@code plan.copy(...)} — the call a re-arm after close makes — with a second mocked plan
+   * whose stream delivers {@code rows} against the same context, and returns that copy so the test
+   * can verify against it.
+   */
+  private InternalExecutionPlan stubPlanCopyDelivering(Result... rows) {
+    var pending = new ArrayDeque<>(List.of(rows));
+    var copiedStream = mock(ExecutionStream.class);
+    lenient().when(copiedStream.hasNext(ctx)).thenAnswer(invocation -> !pending.isEmpty());
+    lenient().when(copiedStream.next(ctx)).thenAnswer(invocation -> pending.removeFirst());
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    lenient().when(copiedPlan.getContext()).thenReturn(ctx);
+    lenient().when(copiedPlan.start()).thenReturn(copiedStream);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    return copiedPlan;
+  }
+
+  private YTDBMatchPlanStep<Object, Vertex> shapedStep(
+      String alias, BoundaryOutputType outputType, ResultShaping shaping) {
+    return new YTDBMatchPlanStep<>(
+        traversal, Vertex.class, plan, alias, outputType, java.util.Map.of(), shaping);
+  }
+
+  /**
+   * Asserts the projected element is a {@link YTDBVertexImpl}, then reflectively reads and returns
+   * its {@code fastPathEntity} field: the raw YTDB entity the wrapper was built from. Comparing that
+   * entity by identity verifies a projected wrapper wraps the right raw vertex without a real graph.
+   * The {@code assert} prefix marks that the helper fails the test when the element is not a {@code
+   * YTDBVertexImpl}, so its embedded type check does not read as a plain accessor.
+   */
+  private static Object assertRawEntityOf(Object tinkerVertex) {
+    assertThat(tinkerVertex).isInstanceOf(YTDBVertexImpl.class);
+    try {
+      Field f =
+          Class.forName("com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl")
+              .getDeclaredField("fastPathEntity");
+      f.setAccessible(true);
+      return f.get(tinkerVertex);
+    } catch (ReflectiveOperationException e) {
+      throw new AssertionError("Failed to read fastPathEntity via reflection", e);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Traversal.Admin<Object, Vertex> freshTraversal(YTDBGraphInternal graph) {
+    var traversal = (Traversal.Admin<Object, Vertex>) mock(Traversal.Admin.class);
+    lenient().when(traversal.getGraph()).thenReturn(Optional.of(graph));
+    lenient()
+        .when(traversal.getTraverserGenerator())
+        .thenReturn(B_O_TraverserGenerator.instance());
+    // AbstractStep's ctor calls traversal.getTraverserSetSupplier().get() to initialise its
+    // starts/ends sets; supply a real empty TraverserSet so the super-ctor does not NPE on the
+    // mock's default-null return. Typed Supplier so signature changes surface at compile time.
+    Supplier<TraverserSet<Object>> traverserSetSupplier = TraverserSet::new;
+    lenient().when(traversal.getTraverserSetSupplier()).thenReturn(traverserSetSupplier);
+    return traversal;
+  }
+}

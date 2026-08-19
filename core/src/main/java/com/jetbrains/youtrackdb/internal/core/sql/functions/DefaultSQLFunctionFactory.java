@@ -48,6 +48,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionDeci
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionEval;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionInterval;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionMax;
+import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionMean;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionMin;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionSum;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLFunctionAssert;
@@ -82,6 +83,7 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
   public void registerDefaultFunctions(DatabaseSessionEmbedded db) {
     // MISC FUNCTIONS
     register(SQLFunctionAverage.NAME, SQLFunctionAverage.class);
+    register(SQLFunctionMean.NAME, SQLFunctionMean.class);
     register(SQLFunctionCoalesce.NAME, new SQLFunctionCoalesce());
     register(SQLFunctionCount.NAME, SQLFunctionCount.class);
     register(SQLFunctionDate.NAME, SQLFunctionDate.class);

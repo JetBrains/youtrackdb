@@ -19,6 +19,7 @@
 | [astar()](YQL-Functions.md#astar)                | [percentile()](YQL-Functions.md#percentile) | [symmetricDifference()](YQL-Functions.md#symmetricdifference)        |                                                    |
 | [bothV()](YQL-Functions.md#bothv)                | [variance()](YQL-Functions.md#variance)     |                                                                      |                                                    |
 |                                                  | [stddev()](YQL-Functions.md#stddev)         |                                                                      |                                                    |
+|                                                  | [mean()](YQL-Functions.md#mean)             |                                                                      |                                                    |
 
 YQL Functions are all the functions bundled with YouTrackDB SQL engine. See also [YQL Methods](YQL-Methods.md).
 
@@ -414,6 +415,28 @@ Syntax: ```avg(<property>)```
 
 ```sql
 SELECT avg(salary) FROM Account
+```
+
+---
+### mean()
+
+Returns the average value, always divided in floating point. That is the one thing it does
+differently from [avg()](YQL-Functions.md#avg), which divides in the property's own arithmetic: over
+the integer ages 29, 27, 32 and 35, `avg(age)` returns 30 and `mean(age)` returns 30.75. Use
+`mean()` on an integer column when the fractional part matters. `avg()` keeps its behaviour, so
+existing queries keep their results.
+
+Null and non-numeric values are skipped rather than counted, so the divisor is the number of values
+that actually contributed, and a mean over no value at all returns null. `DECIMAL` input stays in
+exact arithmetic and divides to 34 significant digits; every other numeric type is summed with the
+same type promotion `avg()` and `sum()` use, then divided as a double.
+
+Syntax: ```mean(<property> [,<property>*])```
+
+#### Example
+
+```sql
+SELECT mean(salary) FROM Account
 ```
 
 ---

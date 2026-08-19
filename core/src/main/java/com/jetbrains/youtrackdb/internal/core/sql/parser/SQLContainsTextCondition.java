@@ -5,6 +5,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
@@ -20,6 +21,22 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   protected SQLExpression left;
   protected SQLExpression right;
 
+  private final TextCollationResolver collate = new TextCollationResolver();
+
+  /**
+   * When {@code true}, a present non-{@code String} left operand throws {@link
+   * com.jetbrains.youtrackdb.internal.core.exception.NonStringTextOperandException} instead of
+   * yielding {@code false}, mirroring native TinkerPop {@code Text.containing} (String-only). It is
+   * set only when the node is built programmatically by the Gremlin adapter; parser-built (SQL/GQL)
+   * nodes leave it {@code false}, so their lenient behavior is unchanged. Strict applies only to the
+   * plain-property path; the {@code any()} / {@code all()} function paths are never built by the
+   * Gremlin adapter and stay lenient. The flag is value-carrying: it participates in {@link #copy},
+   * {@link #equals} / {@link #hashCode}, and {@link #splitForAggregation}, and is reflected in {@link
+   * #toGenericStatement} so a strict node and a lenient node on the same operands do not collide on
+   * their plan-cache fingerprint.
+   */
+  protected boolean strict = false;
+
   public SQLContainsTextCondition(int id) {
     super(id);
   }
@@ -30,16 +47,18 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    var leftValue = left.execute(currentRecord, ctx);
-    if (leftValue == null || !(leftValue instanceof String)) {
+    // Type-check the left operand before any collate transform: strict throws on a present
+    // non-String, lenient (and null/absent) yields false.
+    var leftValue =
+        TextCollationResolver.requireStringOperand(left.execute(currentRecord, ctx), strict,
+            "CONTAINSTEXT");
+    if (leftValue == null) {
       return false;
     }
-    var rightValue = right.execute(currentRecord, ctx);
-    if (rightValue == null || !(rightValue instanceof String)) {
+    if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-
-    return ((String) leftValue).indexOf((String) rightValue) > -1;
+    return containsCollated(leftValue, rightValue, collate.resolve(left, right, currentRecord, ctx));
   }
 
   @Override
@@ -51,31 +70,31 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     if (left.isFunctionAll()) {
       return evaluateAllFunction(currentRecord, ctx);
     }
-    var leftValue = left.execute(currentRecord, ctx);
-    if (leftValue == null || !(leftValue instanceof String)) {
+    var leftValue =
+        TextCollationResolver.requireStringOperand(left.execute(currentRecord, ctx), strict,
+            "CONTAINSTEXT");
+    if (leftValue == null) {
       return false;
     }
-    var rightValue = right.execute(currentRecord, ctx);
-    if (rightValue == null || !(rightValue instanceof String)) {
+    if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-
-    return ((String) leftValue).indexOf((String) rightValue) > -1;
+    return containsCollated(leftValue, rightValue, collate.resolve(left, right, currentRecord, ctx));
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
-    var rightValue = right.execute(currentRecord, ctx);
-    if (rightValue == null || !(rightValue instanceof String)) {
+    if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
 
     for (var s : currentRecord.getPropertyNames()) {
-      var leftValue = currentRecord.getProperty(s);
-      if (leftValue == null || !(leftValue instanceof String)) {
+      if (!(currentRecord.getProperty(s) instanceof String leftValue)) {
         continue;
       }
 
-      if (((String) leftValue).indexOf((String) rightValue) > -1) {
+      // any() spans every property, so each property carries its own declared collation.
+      if (containsCollated(
+          leftValue, rightValue, TextCollationResolver.forProperty(currentRecord, s, ctx))) {
         return true;
       }
     }
@@ -83,22 +102,29 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    var rightValue = right.execute(currentRecord, ctx);
-    if (rightValue == null || !(rightValue instanceof String)) {
+    if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
 
     for (var s : currentRecord.getPropertyNames()) {
-      var leftValue = currentRecord.getProperty(s);
-      if (leftValue == null || !(leftValue instanceof String)) {
+      if (!(currentRecord.getProperty(s) instanceof String leftValue)) {
         return false;
       }
 
-      if (!(((String) leftValue).indexOf((String) rightValue) > -1)) {
+      if (!containsCollated(
+          leftValue, rightValue, TextCollationResolver.forProperty(currentRecord, s, ctx))) {
         return false;
       }
     }
     return true;
+  }
+
+  /** Applies {@code collate} (if any) to both operands, then tests substring containment. */
+  private static boolean containsCollated(String value, String substring,
+      @Nullable Collate collate) {
+    return TextCollationResolver.apply(value, collate)
+            .indexOf(TextCollationResolver.apply(substring, collate))
+        > -1;
   }
 
   @Override
@@ -111,7 +137,9 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
-    builder.append(" CONTAINSTEXT ");
+    // Distinct token in strict mode so a strict node and a lenient node on the same operands produce
+    // different plan-cache fingerprints. Parser-built nodes are lenient, so their token is unchanged.
+    builder.append(strict ? " CONTAINSTEXT(strict) " : " CONTAINSTEXT ");
     right.toGenericStatement(builder);
   }
 
@@ -157,6 +185,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     var result = new SQLContainsTextCondition(-1);
     result.left = left.copy();
     result.right = right.copy();
+    result.strict = strict;
     return result;
   }
 
@@ -185,13 +214,17 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     if (!Objects.equals(left, that.left)) {
       return false;
     }
-    return Objects.equals(right, that.right);
+    if (!Objects.equals(right, that.right)) {
+      return false;
+    }
+    return strict == that.strict;
   }
 
   @Override
   public int hashCode() {
     var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
+    result = 31 * result + (strict ? 1 : 0);
     return result;
   }
 
@@ -259,6 +292,14 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     return right;
   }
 
+  public void setStrict(boolean strict) {
+    this.strict = strict;
+  }
+
+  public boolean isStrict() {
+    return strict;
+  }
+
   @Override
   public boolean isFullTextIndexAware(String indexField) {
     if (left.isBaseIdentifier()) {
@@ -303,6 +344,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     var result = new SQLContainsTextCondition(-1);
     result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
     result.right = right == null ? null : right.splitForAggregation(aggregateProj, ctx);
+    result.strict = strict;
     return result;
   }
 }

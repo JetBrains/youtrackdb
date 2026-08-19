@@ -19,6 +19,11 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -37,9 +42,11 @@ import org.junit.Test;
  * one-by-one:
  *
  * <ul>
- *   <li><b>{@code $}-prefixed names</b> — resolved from the context variables first, then (when
- *       no context variable exists) from the {@link ResultInternal} metadata and temporary
- *       properties, otherwise null.
+ *   <li><b>{@code $}-prefixed names</b> — resolved from the context variables first, then (when no
+ *       context variable exists) from the result's own projection columns, then from the {@link
+ *       ResultInternal} metadata and temporary properties, otherwise null. A record can never store
+ *       such a name, so the projection probe is gated on {@code isProjection()} and no dispatch to
+ *       the record ever happens.
  *   <li><b>{@code out_}/{@code in_} edge accessors and other names that base
  *       {@code validatePropertyName} would reject</b> — routed through hasProperty-first, which
  *       never validates and therefore never throws (hasProperty-first guard).
@@ -102,9 +109,116 @@ public class SQLSuffixIdentifierTest extends DbTestBase {
   }
 
   /**
-   * A {@code $}-prefixed name that matches nothing (no context variable, no metadata, no temporary
-   * property) resolves to null and never dispatches to getProperty. Pins the {@code $}-branch
-   * terminal {@code return null}.
+   * A {@code $}-prefixed name that is a column of the result's own projection resolves to that
+   * column's value. MATCH addresses its pattern nodes through {@code $}-prefixed alias namespaces —
+   * the planner's auto-generated aliases and the Gremlin-to-MATCH translator's reserved
+   * {@code $g2m_} pattern-node aliases — and the RETURN projection reads the matched element back
+   * out by that name. A resolver that treats every {@code $} name as a context/metadata-only lookup
+   * returns null for each row here, which surfaces downstream as a result set of the right size
+   * whose every element is null.
+   */
+  @Test
+  public void dollarNameResolvesFromProjectionColumn() {
+    var ctx = new BasicCommandContext(session);
+    var record = new ResultInternal(session);
+    record.setProperty("$g2m_v0", "matched-element");
+
+    assertThat(resolve("$g2m_v0", record, ctx)).isEqualTo("matched-element");
+  }
+
+  /**
+   * A {@code $}-prefixed projection column shadows same-named metadata and temporary properties:
+   * the projection is probed before either fall-back, so the column value wins. Pins the ordering
+   * inside the {@code $} branch, which the two single-source tests above cannot distinguish.
+   */
+  @Test
+  public void dollarNameProjectionColumnWinsOverMetadataAndTemporaryProperty() {
+    var ctx = new BasicCommandContext(session);
+    var record = new ResultInternal(session);
+    record.setProperty("$g2m_v0", "from-projection");
+    record.setMetadata("$g2m_v0", "from-metadata");
+    record.setTemporaryProperty("$g2m_v0", "from-temporary");
+
+    assertThat(resolve("$g2m_v0", record, ctx)).isEqualTo("from-projection");
+  }
+
+  /**
+   * On an entity-backed (non-projection) result, a {@code $}-prefixed name resolves to null without
+   * throwing and without touching the record. No entity can store such a name — base
+   * {@code validatePropertyName} rejects a leading {@code $} on write — so the projection probe is
+   * gated on {@code isProjection()} and the record is never asked, which on a lazily loaded
+   * RID-only result would otherwise cost a storage read for a guaranteed miss.
+   *
+   * <p>The no-dispatch half of that claim is what the spy pins. Asserting only "returns null without
+   * throwing" cannot witness it: an ungated probe reaches {@code hasProperty}, which misses silently
+   * on any result shape and lets the {@code $} branch fall through to metadata exactly as before, so
+   * the observable outcome is identical with and without the gate. Verifying the dispatch never
+   * happens is the only assertion here that fails when the gate is deleted.
+   */
+  @Test
+  public void dollarNameOnEntityBackedResultResolvesToNullWithoutTouchingTheRecord() {
+    session.createClass("SuffixDollarEntity");
+    session.begin();
+    try {
+      var entity = session.newEntity("SuffixDollarEntity");
+      entity.setProperty("name", "Alice");
+      var record = spy(new ResultInternal(session, entity));
+      var ctx = new BasicCommandContext(session);
+
+      assertThat(record.isProjection())
+          .as("an entity-backed result is not a projection, so the $ probe must be skipped")
+          .isFalse();
+      clearInvocations(record);
+      var suffix = new SQLSuffixIdentifier(new SQLIdentifier("$g2m_v0"));
+      assertThatCode(() -> suffix.execute(record, ctx)).doesNotThrowAnyException();
+      assertThat(suffix.execute(record, ctx)).isNull();
+      verify(record, never()).hasProperty(anyString());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * The shape the {@code isProjection()} gate exists for: a result backed by a bare RID rather than a
+   * materialized entity. Here an ungated probe would not merely miss — {@code hasProperty} takes the
+   * lazy-load branch and issues a record load, a storage read for a name no record can hold. The
+   * entity-backed sibling above cannot reach that branch, because its identifiable is already an
+   * {@code Entity} and resolves in memory, so this is the fixture that makes the cost claim in
+   * {@code SQLSuffixIdentifier}'s comment checkable.
+   *
+   * <p>Resolution is still null and the dispatch still never happens; deleting
+   * {@code isProjection() &&} from the guard makes the verification below fail.
+   */
+  @Test
+  public void dollarNameOnRidBackedResultResolvesToNullWithoutLoadingTheRecord() {
+    session.createClass("SuffixDollarLazy");
+    session.begin();
+    try {
+      var entity = session.newEntity("SuffixDollarLazy");
+      entity.setProperty("name", "Bob");
+      session.commit();
+      session.begin();
+      // A RID is an Identifiable but not an Entity, so ResultInternal keeps it unresolved and
+      // hasProperty would have to load it — the read the gate is there to avoid.
+      var record = spy(new ResultInternal(session, entity.getIdentity()));
+      var ctx = new BasicCommandContext(session);
+
+      assertThat(record.isProjection())
+          .as("a RID-backed result carries no projection map, so the $ probe must be skipped")
+          .isFalse();
+      clearInvocations(record);
+      var suffix = new SQLSuffixIdentifier(new SQLIdentifier("$g2m_v0"));
+      assertThat(suffix.execute(record, ctx)).isNull();
+      verify(record, never()).hasProperty(anyString());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * A {@code $}-prefixed name that matches nothing (no context variable, no projection column, no
+   * metadata, no temporary property) resolves to null and never dispatches to getProperty. Pins the
+   * {@code $}-branch terminal {@code return null}.
    */
   @Test
   public void dollarNameResolvesToNullWhenNothingMatches() {

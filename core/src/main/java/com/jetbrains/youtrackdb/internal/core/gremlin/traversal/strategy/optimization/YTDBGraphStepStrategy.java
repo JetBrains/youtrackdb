@@ -1,12 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
@@ -29,6 +31,10 @@ public final class YTDBGraphStepStrategy
 
   @Override
   public void apply(final Admin<?, ?> traversal) {
+    // A traversal the Gremlin-to-MATCH translator recognised (translator runs before this strategy,
+    // see applyPrior) has its whole step list replaced by a single YTDBMatchPlanStep. That boundary
+    // step extends AbstractStep, not GraphStep, so the rebuildTraversal loop below skips it on its
+    // `instanceof GraphStep` check and leaves the translation intact — no explicit guard needed.
     final var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
     if (polymorphic == null) {
       // means we couldn't access the graph from the traversal
@@ -58,16 +64,14 @@ public final class YTDBGraphStepStrategy
         traversal.getSideEffects().add(name, new ReferenceEdge(
             RID.of(id), e.label(),
             replaceRefVertex((ReferenceVertex) e.inVertex(), replacedVertices),
-            replaceRefVertex((ReferenceVertex) e.outVertex(), replacedVertices)
-        ));
+            replaceRefVertex((ReferenceVertex) e.outVertex(), replacedVertices)));
       }
     });
   }
 
   private static ReferenceVertex replaceRefVertex(
       ReferenceVertex v,
-      HashMap<String, ReferenceVertex> replacedVertices
-  ) {
+      HashMap<String, ReferenceVertex> replacedVertices) {
     if (!(v.id() instanceof String id)) {
       return v;
     }
@@ -162,6 +166,20 @@ public final class YTDBGraphStepStrategy
       idx = idx + 1;
       current = current.getNextStep();
     }
+  }
+
+  /**
+   * Declares that the Gremlin-to-MATCH translator strategy must run <em>before</em> this
+   * strategy. The translator inspects the plain TinkerPop {@link GraphStep} start step and, on a
+   * recognized shape, replaces the whole traversal with a single boundary step; it must therefore
+   * see the traversal before this strategy folds the {@link GraphStep} into a {@link
+   * YTDBGraphStep}. On a decline the translator leaves the step list verbatim and this strategy
+   * runs next as the fallback, preserving today's behavior for shapes the translator does not yet
+   * cover.
+   */
+  @Override
+  public Set<Class<? extends ProviderOptimizationStrategy>> applyPrior() {
+    return Set.of(GremlinToMatchStrategy.class);
   }
 
   public static YTDBGraphStepStrategy instance() {

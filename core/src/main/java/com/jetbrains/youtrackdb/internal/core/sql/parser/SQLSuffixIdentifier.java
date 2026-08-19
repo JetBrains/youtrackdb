@@ -171,12 +171,26 @@ public class SQLSuffixIdentifier extends SimpleNode {
         return result;
       }
       if (iCurrentRecord != null) {
-        // LET-variable shortcut: $-prefixed names fail EntityImpl
+        // $-prefixed shortcut: such a name fails EntityImpl
         // .validatePropertyName at the base level (first char must be
-        // letter/_/@/~), so getProperty would throw. They never live on the
-        // entity — resolve from Result metadata / temporary properties
-        // directly without any record dispatch.
+        // letter/_/@/~), so it can never be stored on a record and
+        // getProperty-first would throw instead of missing. It CAN be a column
+        // of the Result itself, because a projection carries whatever alias its
+        // plan declared and the MATCH alias namespaces are $-prefixed: the
+        // planner's auto-generated MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX
+        // aliases, and the Gremlin-to-MATCH translator's reserved pattern-node
+        // aliases, which a RETURN column addresses by name. Probe the
+        // projection's own columns first, then Result metadata and temporary
+        // properties.
+        //
+        // isProjection() gates the probe so a record-backed Result never
+        // dispatches to the record for a name the record provably cannot hold —
+        // on a lazily loaded RID-only Result from the MATCH path that dispatch
+        // would be a storage read for a guaranteed miss.
         if (varName.startsWith("$")) {
+          if (iCurrentRecord.isProjection() && iCurrentRecord.hasProperty(varName)) {
+            return iCurrentRecord.getProperty(varName);
+          }
           if (iCurrentRecord instanceof ResultInternal resultInternal) {
             if (resultInternal.getMetadataKeys().contains(varName)) {
               return resultInternal.getMetadata(varName);

@@ -1090,6 +1090,18 @@ public class SQLWhereClause extends SimpleNode {
    * Recursively searches for a top-level {@code @rid} condition in a possibly
    * nested AND/OR structure. Handles the double-nesting created by
    * {@code addAliases()} in {@code MatchExecutionPlanner}.
+   *
+   * <p>A leaf expression — one that is neither an {@link SQLOrBlock} nor an
+   * {@link SQLAndBlock} — is handed to {@code termExtractor} directly. The
+   * grammar's {@code WhereClause()} production always assigns an
+   * {@link SQLOrBlock} to {@link #baseExpression}, so a parsed clause never
+   * reaches that branch at the top level; a clause assembled in code does.
+   * {@code MatchWhereBuilder.and} returns a lone operand unwrapped (parser
+   * parity), and the Gremlin-to-MATCH recognisers build one-condition alias
+   * filters that way, so without the leaf branch {@code WHERE @rid IN [#25:0]}
+   * built in code is invisible to both {@link #findRidEquality()} and
+   * {@link #findRidInList()} — and the planner's static-RID promotion silently
+   * degrades a by-RID lookup to a full class scan with an {@code @rid} post-filter.
    */
   @Nullable
   private static <T> T findRidConditionInExpression(
@@ -1103,17 +1115,17 @@ public class SQLWhereClause extends SimpleNode {
     }
     if (expr instanceof SQLAndBlock andBlock) {
       for (var sub : andBlock.subBlocks) {
-        var result = termExtractor.apply(sub);
-        if (result != null) {
-          return result;
-        }
-        result = findRidConditionInExpression(sub, termExtractor);
+        // Each sub-term recurses rather than being extracted here: the leaf branch below is
+        // what applies termExtractor once the recursion bottoms out, and termExtractor's own
+        // unwrapping (single-element blocks, non-negated NOT) still covers the wrapper shapes.
+        var result = findRidConditionInExpression(sub, termExtractor);
         if (result != null) {
           return result;
         }
       }
+      return null;
     }
-    return null;
+    return termExtractor.apply(expr);
   }
 
   /**
@@ -1222,7 +1234,13 @@ public class SQLWhereClause extends SimpleNode {
       expr = orBlock.subBlocks.getFirst();
     }
     if (!(expr instanceof SQLAndBlock andBlock)) {
-      return null;
+      // A leaf base expression is what a clause assembled in code looks like — the grammar always
+      // wraps a parsed clause in OrBlock(AndBlock(...)), but MatchWhereBuilder returns a lone
+      // operand unwrapped. The term is the whole clause, so nothing remains once it is extracted.
+      // Mirrors the leaf branch in findRidConditionInExpression, whose non-destructive siblings
+      // findRidEquality / findRidInList have to agree with this one about where a term can sit.
+      var leafRidExpr = termExtractor.extract(expr);
+      return leafRidExpr == null ? null : new RidExtractionResult(leafRidExpr, null);
     }
     for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
       var ridExpr = termExtractor.extract(andBlock.subBlocks.get(idx));

@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.map.YTDBClassCountStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
@@ -112,7 +112,11 @@ public class YTDBGraphCountStrategy
 
   @Override
   public Set<Class<? extends ProviderOptimizationStrategy>> applyPrior() {
-    return Collections.singleton(YTDBGraphStepStrategy.class);
+    // Both the label-folder and the Gremlin-to-MATCH translator run before this count
+    // optimizer. The translator gets first refusal; on a decline (multi-label counts, or any
+    // unrecognized step elsewhere) this strategy still serves the fast path. Non-polymorphic
+    // single-label counts now translate via MATCH CountFromClassStep(exact).
+    return Set.of(YTDBGraphStepStrategy.class, GremlinToMatchStrategy.class);
   }
 
   public static YTDBGraphCountStrategy instance() {

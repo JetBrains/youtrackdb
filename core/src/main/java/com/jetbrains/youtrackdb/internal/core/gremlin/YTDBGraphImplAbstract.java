@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingExcepti
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.GremlinResultMapper;
 import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RepeatDeclineStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
@@ -71,6 +73,15 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
         TraversalStrategies.GlobalCache.getStrategies(Graph.class)
             .clone()
             .addStrategies(
+                // Position in this list is informational — the strategy resolver topologically
+                // sorts by each strategy's applyPrior()/applyPost(). The translator declares empty
+                // ordering constraints; the three half-measure strategies name it in their own
+                // applyPrior(), so the resolver runs it first and they become the decline fallback.
+                // RepeatDeclineStrategy is the one entry that is not a provider optimization: it is
+                // a decoration strategy, and the resolver's category ordering is what puts it ahead
+                // of TinkerPop's RepeatUnrollStrategy, which is where its whole value lies.
+                RepeatDeclineStrategy.instance(),
+                GremlinToMatchStrategy.instance(),
                 YTDBGraphStepStrategy.instance(),
                 YTDBGraphCountStrategy.instance(),
                 YTDBGraphMatchStepStrategy.instance(),

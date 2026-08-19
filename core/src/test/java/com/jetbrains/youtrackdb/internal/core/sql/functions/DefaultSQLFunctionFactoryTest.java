@@ -41,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionDeci
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionEval;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionInterval;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionMax;
+import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionMean;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionMin;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionSum;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLFunctionAssert;
@@ -91,6 +92,7 @@ public class DefaultSQLFunctionFactoryTest extends DbTestBase {
    */
   private static final String[] ALL_NAMES = {
       SQLFunctionAverage.NAME,
+      SQLFunctionMean.NAME,
       SQLFunctionCoalesce.NAME,
       SQLFunctionCount.NAME,
       SQLFunctionDate.NAME,

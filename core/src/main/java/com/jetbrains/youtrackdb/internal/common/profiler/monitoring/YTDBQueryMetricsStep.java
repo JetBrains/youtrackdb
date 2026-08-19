@@ -4,6 +4,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener.QueryDetails;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import java.util.NoSuchElementException;
@@ -79,11 +81,35 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   }
 
   /// The execution plan of the monitored query for the listener, or {@code null} if none is
-  /// available. The plan lives on the plan-producing source step ([YTDBGraphStep]); this step reads
-  /// it from the source step of its own root traversal at reporting time, so the source step needs
-  /// no knowledge of monitoring. A root traversal has a single such source step; if that step ran
-  /// no plan-backed query (for example a by-id lookup) its plan is {@code null}, which is correct.
+  /// available. Prefers a Gremlin-to-MATCH boundary step when present ({@link YTDBMatchPlanStep} /
+  /// {@link MultiPlanMatchStep}): those steps own the compiled MATCH plan and replace the
+  /// half-measure {@link YTDBGraphStep} source. Otherwise reads {@link
+  /// YTDBGraphStep#getLastExecutionPlan()} from the half-measure source. A root traversal has a
+  /// single such source; if that step ran no plan-backed query (for example a by-id lookup) its
+  /// plan is {@code null}, which is correct. For a multi-plan union the first child's plan is
+  /// surfaced — enough for scan/index detectors that inspect step types.
+  ///
+  /// Called from inside the listener callback [#close] fires, which is what pins WHICH plan object
+  /// a re-iterated traversal reports. A boundary step re-armed after a close swaps its plan for a
+  /// fresh copy, so its accessor returns a different object per pass; the boundary's contract is
+  /// that within a pass — up to and including the close that ends it — the accessor returns the
+  /// plan that produced that pass's rows. Reading it here rather than caching a plan at
+  /// first-iteration time is what keeps each reported run matched to its own plan.
   @Nullable private ExecutionPlan capturedExecutionPlan() {
+    var matchPlan =
+        TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, traversal);
+    if (matchPlan.isPresent()) {
+      return matchPlan.get().getPlan();
+    }
+    var multiPlan =
+        TraversalHelper.getFirstStepOfAssignableClass(MultiPlanMatchStep.class, traversal);
+    if (multiPlan.isPresent()) {
+      // getFirstStepOfAssignableClass returns a raw Optional; pin the wildcard so getPlans()
+      // keeps InternalExecutionPlan rather than erasing to Object.
+      MultiPlanMatchStep<?, ?> multi = multiPlan.get();
+      var plans = multi.getPlans();
+      return plans.isEmpty() ? null : plans.getFirst();
+    }
     return TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, traversal)
         .map(YTDBGraphStep::getLastExecutionPlan)
         .orElse(null);
@@ -129,6 +155,10 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
   @Override
   public void close() throws Exception {
+    // Guard against a second close: close() is not naturally idempotent, and a started
+    // traversal can be closed more than once (e.g. toList() closes it, then an enclosing
+    // try-with-resources closes it again). Set the flag before queryFinished(...) so that
+    // even if the listener throws (the body catches and logs), a later close is still a no-op.
     if (!hasStarted || closed) {
       return;
     }
