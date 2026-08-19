@@ -927,6 +927,99 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     }
   }
 
+  /**
+   * A per-record LET subquery with {@code WHERE @rid = $parent.$current.<field>} must compile
+   * the inner SELECT as a {@code FetchFromCorrelatedRidStep} instead of a full class scan.
+   * This is the IC1-style pattern where the correlated RID is not known at plan time but
+   * resolves to exactly one record per parent row.
+   */
+  @Test
+  public void correlatedRidInLetSubquery_usesCorrelatedRidFetch() {
+    var personClass = createClassInstance().getName();
+    var companyClass = createClassInstance().getName();
+    session.begin();
+    var company = session.newInstance(companyClass);
+    company.setProperty("name", "JetBrains");
+    var companyRid = company.getIdentity();
+    var person = session.newInstance(personClass);
+    person.setProperty("fname", "Alice");
+    person.setProperty("companyRef", companyRid);
+    session.commit();
+
+    var sql = "SELECT fname, $comp as company FROM " + personClass
+        + " LET $comp = (SELECT name FROM " + companyClass
+        + " WHERE @rid = $parent.$current.companyRef)";
+
+    // Verify correctness: the LET subquery should resolve the company by RID.
+    try (var result = session.query(sql)) {
+      Assert.assertTrue("query must return one row", result.hasNext());
+      var row = result.next();
+      Assert.assertEquals("Alice", row.getProperty("fname"));
+      var comp = row.getProperty("company");
+      Assert.assertNotNull("company LET must resolve", comp);
+      Assert.assertFalse("only one row expected", result.hasNext());
+    }
+
+    // Verify plan shape: the inner subquery must use FETCH FROM CORRELATED RID,
+    // not a full class scan.
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "correlated @rid = $parent.$current.<field> must compile to "
+            + "FetchFromCorrelatedRidStep, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertFalse(
+        "the inner subquery must NOT use a full class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + companyClass));
+  }
+
+  /**
+   * Correlated RID fetch with an additional predicate in the LET subquery's WHERE clause:
+   * {@code WHERE @rid = $parent.$current.ref AND status = 'active'}. The RID predicate drives
+   * the fetch and the remaining predicate is applied as a filter.
+   */
+  @Test
+  public void correlatedRidWithExtraPredicate_appliesRemainder() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var activeChild = session.newInstance(childClass);
+    activeChild.setProperty("status", "active");
+    activeChild.setProperty("val", 42);
+    var activeRid = activeChild.getIdentity();
+    var inactiveChild = session.newInstance(childClass);
+    inactiveChild.setProperty("status", "inactive");
+    inactiveChild.setProperty("val", 99);
+    var inactiveRid = inactiveChild.getIdentity();
+    var p1 = session.newInstance(parentClass);
+    p1.setProperty("childRef", activeRid);
+    var p2 = session.newInstance(parentClass);
+    p2.setProperty("childRef", inactiveRid);
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE @rid = $parent.$current.childRef AND status = 'active')";
+
+    try (var result = session.query(sql)) {
+      int count = 0;
+      boolean foundActive = false;
+      boolean foundEmpty = false;
+      while (result.hasNext()) {
+        var row = result.next();
+        var info = row.getProperty("info");
+        if (info instanceof java.util.List<?> list && !list.isEmpty()) {
+          foundActive = true;
+        } else {
+          foundEmpty = true;
+        }
+        count++;
+      }
+      Assert.assertEquals("two parent rows", 2, count);
+      Assert.assertTrue("active child must resolve", foundActive);
+      Assert.assertTrue("inactive child must be filtered out", foundEmpty);
+    }
+  }
+
   /** Counts non-overlapping occurrences of {@code needle} in {@code haystack}. */
   private static int countOccurrences(String haystack, String needle) {
     var count = 0;

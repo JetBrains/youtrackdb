@@ -2358,6 +2358,18 @@ public class SelectExecutionPlanner {
     // filter, which runs after the LET step.
     var ridExpression = extraction.ridExpression();
     if (!ridExpression.isPlanTimeResolvable(ctx)) {
+      // The expression is not resolvable at plan time, but if it refers to $parent (a
+      // correlated per-record LET subquery like `WHERE @rid = $parent.$current.field`),
+      // we can still avoid the full class scan by deferring RID evaluation to execution
+      // time. FetchFromCorrelatedRidStep evaluates the expression once per parent row
+      // and fetches the single record by RID — O(1) instead of O(class size).
+      if (ridExpression.refersToParent()) {
+        var remaining = extraction.remainingWhere();
+        info.whereClause = remaining;
+        info.flattenedWhereClause = null;
+        plan.chain(new FetchFromCorrelatedRidStep(ridExpression, ctx, profilingEnabled));
+        return true;
+      }
       return false;
     }
 
