@@ -9,6 +9,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
@@ -602,6 +603,86 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
 
     // UNIQUE index: get() returns null (not an iterator) when nothing is found.
     assertNull("UNIQUE index get() must return null for a missing key", result);
+  }
+
+  // -----------------------------------------------------------------------
+  //  engine creation failure transitions
+  // -----------------------------------------------------------------------
+
+  /** A failed initial engine construction leaves the new handle in the never-built shape. */
+  @Test
+  public void createEngineFailureLeavesNeverBuiltCarrier() {
+    var clsName = CLASS_NAME + "CreateEngineFailure";
+    var cls = session.createClass(clsName);
+    cls.createProperty("prop", PropertyType.STRING);
+    var sourceName = clsName + ".source";
+    cls.createIndex(sourceName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+    var source = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(sourceName);
+    var failedName = clsName + ".failed";
+    var metadata = new IndexMetadata(
+        failedName, source.getDefinition(), source.getCollections(), source.getType(),
+        source.getAlgorithm(), source.getVersion(), source.getMetadata());
+    var failed = new IndexNotUnique(session.getStorage());
+    var storage = (AbstractStorage) session.getStorage();
+
+    storage.setIndexEngineCreationTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected initial engine construction failure");
+        });
+    session.begin();
+    try {
+      assertThrows(
+          IndexException.class,
+          () -> failed.create(session.getTransactionInternal(), metadata));
+    } finally {
+      storage.setIndexEngineCreationTestHook(null);
+      session.rollback();
+    }
+
+    assertFalse("failed creation must not publish an engine", failed.state().hasEngine());
+    assertNull("failed creation must not allocate descriptor identity",
+        failed.state().descriptorIdentity());
+    assertNull("failed creation must not retain lifecycle ownership",
+        failed.state().lifecycleCell());
+    assertEquals("failed creation must leave no registered engine", -1,
+        storage.loadIndexEngine(failedName));
+  }
+
+  /** A failed rebuild replacement remains durably identified and fails closed on later reads. */
+  @Test
+  public void rebuildEngineFailureLeavesDetachedFailClosedCarrier() {
+    var clsName = CLASS_NAME + "RebuildEngineFailure";
+    var cls = session.createClass(clsName);
+    cls.createProperty("prop", PropertyType.STRING);
+    var indexName = clsName + ".prop";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+    var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(indexName);
+    var descriptorIdentity = index.getIdentity();
+    var storage = (AbstractStorage) session.getStorage();
+
+    storage.setIndexEngineCreationTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected rebuild replacement construction failure");
+        });
+    try {
+      assertThrows(IndexException.class, () -> index.rebuild(session));
+    } finally {
+      storage.setIndexEngineCreationTestHook(null);
+    }
+
+    assertFalse("failed rebuild must leave the old engine detached", index.state().hasEngine());
+    assertEquals("failed rebuild must retain the deleted descriptor identity",
+        descriptorIdentity, index.state().descriptorIdentity());
+    assertNull("failed rebuild must release lifecycle ownership", index.state().lifecycleCell());
+    assertEquals("failed replacement must leave no registered engine", -1,
+        storage.loadIndexEngine(indexName));
+    assertThrows(
+        StaleIndexEngineException.class,
+        () -> session.computeInTx(tx -> index.getRids(session, "missing").toList()));
+    assertEquals("failed rebuild reads must not poison storage", "OPEN",
+        session.getStorage().getStatus().name());
   }
 
   // -----------------------------------------------------------------------
