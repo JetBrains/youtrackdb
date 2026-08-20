@@ -10,7 +10,10 @@ on:
       queries:
         description: >
           Comma-separated query IDs to benchmark (e.g. IS1,IC2,IC13).
-          Leave empty to run the full suite.
+          Leave empty to run the full jmh-ldbc suite, including
+          LdbcGremlinTranslatorBenchmark (translator on/off A/B) as well as
+          LdbcSingleThread / LdbcMultiThread SQL LDBC. Full empty-filter
+          compares need ~21h on CCX33 after Gremlin landed; job timeout is 30h.
         required: false
         type: string
         default: ''
@@ -42,7 +45,10 @@ jobs:
       - type-ccx33
       - image-x86-system-ubuntu-24.04
       - in-nbg1-fsn1-hel1
-    timeout-minutes: 1200
+    # Full empty-filter suite = SQL LDBC (single+multi) + LdbcGremlinTranslator
+    # A/B. Observed wall after Gremlin landed: ~21h on CCX33 (20h timeout killed
+    # head ~50 min early). 30h leaves margin for variance and new shapes.
+    timeout-minutes: 1800
 
     steps:
       # ── Setup ────────────────────────────────────────────────────────────
