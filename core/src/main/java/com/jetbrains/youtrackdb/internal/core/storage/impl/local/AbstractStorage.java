@@ -4725,6 +4725,14 @@ public abstract class AbstractStorage
             + " the index.");
   }
 
+  /** Test-only failure seam fired immediately before non-commit-window engine construction. */
+  private volatile Runnable indexEngineCreationTestHook;
+
+  /** Installs a test-only failure seam for public engine creation and rebuild replacement. */
+  public void setIndexEngineCreationTestHook(final Runnable hook) {
+    indexEngineCreationTestHook = hook;
+  }
+
   public int addIndexEngine(
       final IndexMetadata indexMetadata,
       final Map<String, String> engineProperties) {
@@ -4795,6 +4803,10 @@ public abstract class AbstractStorage
                       cfgEncryptionKey,
                       engineProperties);
 
+              final var creationHook = indexEngineCreationTestHook;
+              if (creationHook != null) {
+                creationHook.run();
+              }
               final var engine = doAddIndexEngine(atomicOperation, engineData);
 
               publishIndexEngine(engineData.getIndexId(), engine);
