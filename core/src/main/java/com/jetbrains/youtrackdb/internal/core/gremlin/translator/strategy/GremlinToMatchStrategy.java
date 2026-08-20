@@ -158,13 +158,13 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Translation telemetry</h2>
  *
- * Outcomes that reach a translation attempt (past the gating cascade above) feed
- * {@link GremlinTranslationMetrics} on the database {@code SharedContext}: successes, declines
- * (unsupported shape or cached decline), and throw-safety-net errors. Each recording also updates
- * the matching {@link com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics}
- * success / decline / error {@code Ratio} metrics. Declined shapes are retained (bounded) so
- * operators can ask which unsupported step lists dominate. Early gate exits are not counted —
- * they are not translator coverage failures.
+ * Outcomes that reach a translation attempt feed {@link GremlinTranslationMetrics} on the
+ * database {@code SharedContext}: successes, declines (unsupported shape, edge / non-vertex start,
+ * repeat veto, or cached decline), and throw-safety-net errors. Each recording also updates the
+ * matching {@link com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics} success /
+ * decline / error {@code Ratio} metrics. Declined shapes are retained (bounded) so operators can
+ * ask which unsupported step lists dominate. Kill-switch / missing session and idempotent
+ * re-applies (boundary already present) are not attempts — those are not coverage failures.
  *
  * <h2>Testability</h2>
  *
@@ -281,13 +281,15 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
-    // Run the O(1) start-step gate before the O(steps) boundary scan, so a traversal that does not
-    // start at a vertex GraphStep declines without walking the whole step list. Idempotency still
-    // holds: an already-translated traversal's start step is a boundary step (an
-    // AbstractMatchPlanStep subtype, not a GraphStep), so hasVertexGraphStart declines it here
-    // anyway; the boundary scan below stays as the guard for the defensive case where an ordinary
-    // step is prepended in front of the boundary.
+    // Start-shape gate is O(1). Already-translated traversals also fail hasVertexGraphStart
+    // (start is a boundary, not a GraphStep), so check containsBoundaryStep before counting a
+    // decline — re-applies must stay outside attempts. Fresh edge / non-vertex starts are product
+    // gaps and count as declines; kill-switch / missing session already returned above.
     if (!hasVertexGraphStart(traversal)) {
+      if (containsBoundaryStep(traversal)) {
+        return;
+      }
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
     }
     // Honour a per-traversal veto. RepeatDeclineStrategy marks a repeat-bearing traversal at
@@ -297,8 +299,10 @@ public final class GremlinToMatchStrategy
     // traversal's own strategy list never carries a provider strategy during the strategy pass, so
     // an absence test would decline every sub-traversal rather than the vetoed ones. See
     // RepeatDeclineStrategy for why the decision has to be taken that early, and for why the marker
-    // lives on the strategies reference's type rather than in the list itself.
+    // lives on the strategies reference's type rather than in the list itself. Variable-depth
+    // repeat is out of scope — count as a decline like any other unsupported shape.
     if (RepeatDeclineStrategy.isVetoed(traversal)) {
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
     }
     if (containsBoundaryStep(traversal)) {

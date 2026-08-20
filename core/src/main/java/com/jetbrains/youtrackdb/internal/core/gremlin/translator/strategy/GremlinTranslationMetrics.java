@@ -17,10 +17,10 @@ import javax.annotation.Nullable;
 
 /**
  * Per-database counters for Gremlin-to-MATCH translation outcomes. Lives on {@code SharedContext}
- * beside {@link GremlinPlanCache}. Counts only translation <em>attempts</em>: shapes that passed
- * the strategy gates (session present, kill-switch on, vertex start, not vetoed, no boundary yet)
- * and then either translated, declined (unsupported or cached decline), or hit the throw-safety
- * net. Early gate exits are not attempts.
+ * beside {@link GremlinPlanCache}. Counts translation <em>attempts</em>: shapes the strategy tried
+ * to cover — successes, declines (unsupported walk, edge / non-vertex start, repeat veto, cached
+ * decline), and throw-safety-net errors. Kill-switch / missing session and idempotent re-applies
+ * (boundary already present) are not attempts.
  *
  * <p>Each recording also feeds three engine-global {@link Ratio} metrics in {@link CoreMetrics}
  * (success / decline / error share of attempts). Shape frequencies for declines are bounded

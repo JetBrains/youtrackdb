@@ -6,12 +6,14 @@ import static org.mockito.Mockito.mock;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.junit.Test;
 
 /**
  * End-to-end wiring of {@link GremlinTranslationMetrics} through {@link GremlinToMatchStrategy}:
- * successful translation, unsupported decline, and throw-safety-net error each advance the
- * per-database counters on the session's shared context.
+ * success, walker decline, edge start, repeat veto, throw-safety error, kill-switch skip, and
+ * idempotent re-apply.
  */
 public class GremlinTranslationTelemetryTest extends GraphBaseTest {
 
@@ -97,5 +99,54 @@ public class GremlinTranslationTelemetryTest extends GraphBaseTest {
               com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED,
               true);
     }
+  }
+
+  /**
+   * Edge starts ({@code g.E()}) are an unsupported product surface (vertex-only milestone) and
+   * count as declines, not silent gate exits.
+   */
+  @Test
+  public void apply_edgeStart_recordsDecline() {
+    var beforeDeclines = metrics().getDeclines();
+    var beforeSuccesses = metrics().getSuccesses();
+    var admin = graph.traversal().E().asAdmin();
+
+    GremlinToMatchStrategy.instance().apply(admin);
+
+    assertThat(metrics().getDeclines()).isEqualTo(beforeDeclines + 1);
+    assertThat(metrics().getSuccesses()).isEqualTo(beforeSuccesses);
+    assertThat(metrics().topDeclinedShapes(5))
+        .anyMatch(s -> s.shape().contains("GraphStep") && s.count() >= 1);
+  }
+
+  /**
+   * Re-applying the strategy to an already-translated traversal is idempotency, not a new attempt —
+   * counters must not move.
+   */
+  @Test
+  public void apply_alreadyTranslated_reapply_doesNotCountAsAttempt() {
+    var admin = graph.traversal().V().asAdmin();
+    GremlinToMatchStrategy.instance().apply(admin);
+    var afterFirst = metrics().getAttempts();
+
+    GremlinToMatchStrategy.instance().apply(admin);
+
+    assertThat(metrics().getAttempts()).isEqualTo(afterFirst);
+  }
+
+  /**
+   * A {@code repeat(...)}-bearing traversal marked by {@link RepeatDeclineStrategy} counts as a
+   * decline (out of scope), not a silent gate exit.
+   */
+  @Test
+  public void apply_repeatVeto_recordsDecline() {
+    var beforeDeclines = metrics().getDeclines();
+    var admin = graph.traversal().V().repeat(__.out()).times(2).asAdmin();
+    TraversalHelper.applyTraversalRecursively(RepeatDeclineStrategy.instance()::apply, admin);
+    assertThat(RepeatDeclineStrategy.isVetoed(admin)).isTrue();
+
+    GremlinToMatchStrategy.instance().apply(admin);
+
+    assertThat(metrics().getDeclines()).isEqualTo(beforeDeclines + 1);
   }
 }

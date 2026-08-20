@@ -128,7 +128,8 @@ public class CoreMetrics {
 
   /**
    * Share of translation attempts that succeed. Numerator = successes; denominator = successes +
-   * declines + errors. Early strategy gates (kill-switch, non-vertex start, etc.) are not attempts.
+   * declines + errors. Kill-switch / missing session and idempotent re-applies are not attempts;
+   * edge starts and repeat vetoes are declines (and therefore attempts).
    */
   public static final MetricDefinition<MetricScope.Global,
       Ratio> GREMLIN_TRANSLATION_SUCCESS_RATIO =
@@ -143,8 +144,8 @@ public class CoreMetrics {
                   100.0));
 
   /**
-   * Share of translation attempts that decline (unsupported shape or cached decline). Same attempt
-   * denominator as {@link #GREMLIN_TRANSLATION_SUCCESS_RATIO}.
+   * Share of translation attempts that decline (unsupported shape, edge / non-vertex start, repeat
+   * veto, or cached decline). Same attempt denominator as {@link #GREMLIN_TRANSLATION_SUCCESS_RATIO}.
    */
   public static final MetricDefinition<MetricScope.Global,
       Ratio> GREMLIN_TRANSLATION_DECLINE_RATIO =
