@@ -669,7 +669,10 @@ public abstract class IndexAbstract implements Index {
     var current = state();
     for (var attempt = 0; attempt < 3; attempt++) {
       if (!current.hasEngine()) {
-        isNeverBuilt(current);
+        if (isNeverBuilt(current)) {
+          throw new StaleIndexEngineException(
+              storage.getName(), "Index '" + getName() + "' has not built its engine yet");
+        }
       }
       try {
         return operation.apply(current);
@@ -691,7 +694,10 @@ public abstract class IndexAbstract implements Index {
     var current = state();
     for (var attempt = 0; attempt < 3; attempt++) {
       if (!current.hasEngine()) {
-        isNeverBuilt(current);
+        if (isNeverBuilt(current)) {
+          throw new StaleIndexEngineException(
+              storage.getName(), "Index '" + getName() + "' has not built its engine yet");
+        }
       }
       try {
         return operation.apply(current);
