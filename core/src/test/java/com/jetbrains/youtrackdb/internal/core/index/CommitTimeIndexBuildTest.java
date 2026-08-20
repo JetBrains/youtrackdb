@@ -534,36 +534,34 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
             + " drop commit",
         1, survivorRids.size());
 
-    // The durable arm: re-parse the index manager's persisted records and reopen the session;
-    // both committed indexes must re-derive from durable state with loadable engines, and the
-    // survivor must still return its committed row. On the disk profile this catches a rollback
-    // that failed to restore the dropped engines' durable configuration entries.
+    // Retry one transactional drop before reload, while its handle still carries the generation
+    // from before failed-drop restoration. The commit-window retry must refresh that carrier.
+    session.begin();
+    indexManager.dropIndex(session, goneIndexName);
+    session.commit();
+    assertFalse("a retry must drop an engine restored after the failed commit",
+        indexManager.existsIndex(goneIndexName));
+    assertTrue("the unrelated restored index must remain usable",
+        indexManager.existsIndex(keepIndexName));
+
+    // The durable arm re-parses the index manager records and reopens the session. The retained
+    // index must load, while the successfully retried drop must remain absent.
     session.getSharedContext().getIndexManager().reload(session);
     reOpen("admin", ADMIN_PASSWORD);
     var reloadedManager = session.getSharedContext().getIndexManager();
     assertTrue("the committed indexes must survive the failed drop in durable state",
         reloadedManager.existsIndex(keepIndexName));
-    assertTrue("the committed indexes must survive the failed drop in durable state",
+    assertFalse("the retried drop must remain durable after reopen",
         reloadedManager.existsIndex(goneIndexName));
-    assertTrue("the surviving indexes' engines must load after a reopen",
+    assertTrue("the surviving index engine must load after a reopen",
         engineIsRegistered(keepIndexName));
-    assertTrue("the surviving indexes' engines must load after a reopen",
+    assertFalse("the dropped engine must remain unregistered after a reopen",
         engineIsRegistered(goneIndexName));
     var reloadedKeep = reloadedManager.getIndex(keepIndexName);
     var reloadedRids =
         session.computeInTx(tx -> reloadedKeep.getRids(session, "survivor").toList());
     assertEquals("the surviving committed index must return its row after a reopen", 1,
         reloadedRids.size());
-
-    // A second transactional drop starts from the restored handle generation. It must refresh the
-    // carrier inside the commit window and complete instead of rejecting the restored reference.
-    session.begin();
-    reloadedManager.dropIndex(session, goneIndexName);
-    session.commit();
-    assertFalse("a retry must drop an engine restored after the failed commit",
-        reloadedManager.existsIndex(goneIndexName));
-    assertTrue("the unrelated restored index must remain usable",
-        reloadedManager.existsIndex(keepIndexName));
   }
 
   /**
