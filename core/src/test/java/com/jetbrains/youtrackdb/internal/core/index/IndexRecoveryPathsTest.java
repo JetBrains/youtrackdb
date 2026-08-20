@@ -98,28 +98,71 @@ public class IndexRecoveryPathsTest {
 
   @Test
   public void indexMultiValuesRecoveryPathsUseOwnerAndRejectForeignOwner() throws Exception {
-    verifyPaths(
-        IndexNotUnique::new,
-        List.of(
-            path("getRidsIgnoreTx", "getIndexValues",
-                fixture -> fixture.index.getRidsIgnoreTx(fixture.session, "key").close()),
-            path("streamEntriesBetween", "iterateIndexEntriesBetween",
-                fixture -> fixture.index.streamEntriesBetween(
-                    fixture.session, "a", true, "z", true, true).close()),
-            path("streamEntriesMajor", "iterateIndexEntriesMajor",
-                fixture -> fixture.index.streamEntriesMajor(
-                    fixture.session, "a", true, true).close()),
-            path("streamEntriesMinor", "iterateIndexEntriesMinor",
-                fixture -> fixture.index.streamEntriesMinor(
-                    fixture.session, "z", true, true).close()),
-            path("streamForKey", "getIndexValues",
-                fixture -> fixture.index.streamEntries(fixture.session, List.of("key"), true)
-                    .toList()),
-            path("size", "getIndexSize", fixture -> fixture.index.size(fixture.session)),
-            path("stream", "getIndexStream",
-                fixture -> fixture.index.stream(fixture.session).close()),
-            path("descStream", "getIndexDescStream",
-                fixture -> fixture.index.descStream(fixture.session).close())));
+    verifyPaths(IndexNotUnique::new, indexMultiValuesPaths());
+  }
+
+  /** Every multi-value read path stops after three persistently stale engine attempts. */
+  @Test(timeout = 10_000)
+  public void indexMultiValuesPersistentStalenessFailsAfterBoundedOwnerRecovery()
+      throws Exception {
+    for (var path : indexMultiValuesPaths()) {
+      var fixture = fixture(IndexNotUnique::new, path.storageMethod(), true);
+
+      var exception = assertThrows(
+          path.name() + " must fail after bounded owner recovery",
+          StaleIndexEngineException.class,
+          () -> path.operation().invoke(fixture));
+
+      assertTrue(path.name() + " must explain the bounded retry",
+          exception.getMessage().contains("remained stale after owner-bound recovery"));
+      assertTrue(path.name() + " must identify the descriptor owner",
+          exception.getMessage().contains(OWNER.toString()));
+      assertEquals(path.name() + " must retain the resolved identifier",
+          VALID_IDENTIFIER, fixture.index.getIndexId());
+      assertEquals(path.name() + " must resolve the owner exactly twice",
+          2, invocationCount(fixture.storage, "resolveIndexEngineByOwner"));
+      assertEquals(path.name() + " must attempt storage exactly three times",
+          3, invocationCount(fixture.storage, path.storageMethod()));
+    }
+  }
+
+  private static List<RecoveryPath> indexMultiValuesPaths() {
+    return List.of(
+        path("getRidsIgnoreTx", "getIndexValues",
+            fixture -> fixture.index.getRidsIgnoreTx(fixture.session, "key").close()),
+        path("streamEntriesBetween", "iterateIndexEntriesBetween",
+            fixture -> fixture.index.streamEntriesBetween(
+                fixture.session, "a", true, "z", true, true).close()),
+        path("streamEntriesMajor", "iterateIndexEntriesMajor",
+            fixture -> fixture.index.streamEntriesMajor(
+                fixture.session, "a", true, true).close()),
+        path("streamEntriesMinor", "iterateIndexEntriesMinor",
+            fixture -> fixture.index.streamEntriesMinor(
+                fixture.session, "z", true, true).close()),
+        path("streamForKey", "getIndexValues",
+            fixture -> fixture.index.streamEntries(fixture.session, List.of("key"), true)
+                .toList()),
+        path("size", "getIndexSize", fixture -> fixture.index.size(fixture.session)),
+        path("stream", "getIndexStream",
+            fixture -> fixture.index.stream(fixture.session).close()),
+        path("descStream", "getIndexDescStream",
+            fixture -> fixture.index.descStream(fixture.session).close()));
+  }
+
+  /** The state-lock form also exhausts after three persistent stale resolutions. */
+  @Test(timeout = 10_000)
+  public void stateLockRecoveryFailsAfterBoundedOwnerRecovery() {
+    var fixture = fixture(IndexNotUnique::new, "getIndexEngineWithStateLock", true);
+
+    var exception = assertThrows(
+        StaleIndexEngineException.class,
+        () -> fixture.index.acquireAtomicExclusiveLock(fixture.atomicOperation));
+
+    assertTrue(exception.getMessage().contains("remained stale after owner-bound recovery"));
+    assertEquals(2,
+        invocationCount(fixture.storage, "resolveIndexEngineByOwnerWithStateLock"));
+    assertEquals(3,
+        invocationCount(fixture.storage, "getIndexEngineWithStateLock"));
   }
 
   @Test

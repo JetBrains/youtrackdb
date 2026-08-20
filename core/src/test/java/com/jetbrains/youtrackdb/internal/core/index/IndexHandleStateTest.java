@@ -12,11 +12,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -66,6 +68,90 @@ public class IndexHandleStateTest {
     assertEquals(2, calls.get());
     assertEquals(7, used.engineIdentifier());
     assertTrue(used.engineReference() == reference);
+  }
+
+  @Test
+  public void neverBuiltAndDetachedCarriersFailBeforeStorageAccess() {
+    var storage = mock(AbstractStorage.class);
+    when(storage.getName()).thenReturn("carrier-test");
+    var index = namedIndex(storage);
+    var calls = new AtomicInteger();
+
+    var neverBuilt = assertThrows(
+        StaleIndexEngineException.class,
+        () -> index.runWithOwner(current -> {
+          calls.incrementAndGet();
+          return current;
+        }));
+    assertTrue(neverBuilt.getMessage().contains("has not built its engine"));
+    assertEquals(0, calls.get());
+
+    var owner = new RecordId(3, 4);
+    index.setHandleStateForTest(-1, owner);
+    var detached = assertThrows(
+        StaleIndexEngineException.class,
+        () -> index.runWithOwner(current -> {
+          calls.incrementAndGet();
+          return current;
+        }));
+    assertTrue(detached.getMessage().contains(owner.toString()));
+    assertEquals(0, calls.get());
+  }
+
+  @Test
+  public void ownerRecoveryRejectsHandleWithoutDurableIdentity() {
+    var storage = mock(AbstractStorage.class);
+    when(storage.getName()).thenReturn("carrier-test");
+    var index = namedIndex(storage);
+    index.setHandleStateForTest(99, null);
+
+    var exception = assertThrows(
+        StaleIndexEngineException.class,
+        () -> index.runWithOwner(current -> {
+          throw new InvalidIndexEngineIdException("stale fixture");
+        }));
+
+    assertTrue(exception.getMessage().contains("no durable owner"));
+  }
+
+  @Test
+  public void missingOwnerFailsClosedDuringRecovery() {
+    var storage = mock(AbstractStorage.class);
+    when(storage.getName()).thenReturn("carrier-test");
+    var owner = new RecordId(3, 4);
+    when(storage.resolveIndexEngineByOwner(owner))
+        .thenThrow(new StaleIndexEngineException("missing owner"));
+    var index = namedIndex(storage);
+    index.setHandleStateForTest(99, owner);
+
+    var exception = assertThrows(
+        StaleIndexEngineException.class,
+        () -> index.runWithOwner(current -> {
+          throw new InvalidIndexEngineIdException("stale fixture");
+        }));
+
+    assertTrue(exception.getMessage().contains(owner.toString()));
+    assertTrue(exception.getMessage().contains("no registered engine"));
+  }
+
+  @Test
+  public void durableIdentityCannotChangeWhileLifecycleIsAttached() throws Exception {
+    var storage = mock(AbstractStorage.class);
+    var cell = mock(IndexLifecycleCell.class);
+    var original = new RecordId(3, 4);
+    var replacement = new RecordId(3, 5);
+    var index = namedIndex(storage);
+    index.setHandleStateForTest(1, original);
+    when(storage.attachIndexEngineOwner(1, original, null)).thenReturn(null);
+    when(storage.getOrCreateIndexLifecycle(original)).thenReturn(cell);
+    index.attachDescriptorIdentity();
+
+    var exception = assertThrows(
+        IllegalStateException.class,
+        () -> invokeDescriptorPublication(index, replacement));
+    assertTrue(exception.getMessage().contains("cannot be replaced"));
+    assertEquals(original, index.state().descriptorIdentity());
+    assertTrue(index.state().lifecycleCell() == cell);
   }
 
   @Test
@@ -168,6 +254,30 @@ public class IndexHandleStateTest {
         Thread.currentThread().interrupt();
         throw new AssertionError(exception);
       }
+    }
+  }
+
+  private static TestIndex namedIndex(AbstractStorage storage) {
+    var index = new TestIndex(storage);
+    var metadata = mock(IndexMetadata.class);
+    when(metadata.getName()).thenReturn("carrier-index");
+    index.im = metadata;
+    return index;
+  }
+
+  private static void invokeDescriptorPublication(TestIndex index, RecordId identity)
+      throws Exception {
+    var method = IndexAbstract.class.getDeclaredMethod(
+        "publishDescriptorIdentity",
+        com.jetbrains.youtrackdb.internal.core.db.record.record.RID.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(index, identity);
+    } catch (InvocationTargetException exception) {
+      if (exception.getCause() instanceof Exception cause) {
+        throw cause;
+      }
+      throw exception;
     }
   }
 

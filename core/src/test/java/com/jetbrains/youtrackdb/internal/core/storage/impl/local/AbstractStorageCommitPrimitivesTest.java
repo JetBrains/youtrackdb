@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.IndexEngineReplacedException;
 import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
@@ -17,12 +18,14 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.UUID;
@@ -30,6 +33,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -1012,6 +1016,92 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
+  /** Attachment rejects every torn reference shape and tolerates reference-less engines. */
+  @Test
+  public void attachIndexEngineOwnerRejectsTornCarrierShapes() throws Exception {
+    var cls = db.createVertexClass("AttachmentShapes");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "AttachmentShapes.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var live = snapshot.engineReference();
+    var owner = index.getIdentity();
+
+    assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+        snapshot.engineIdentifier(), owner, null))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("unexpectedly gained");
+    var foreignSlot = new IndexEngineReference(
+        live.slot() + 1, live.apiVersion(), live.generation() + 1);
+    assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+        snapshot.engineIdentifier(), owner, foreignSlot))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("non-monotonically");
+
+    var engines = indexEngines(storage);
+    var registered = engines.get(live.slot());
+    var referenceLess = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(referenceLess.getId()).thenReturn(live.slot());
+    Mockito.when(referenceLess.getEngineReference()).thenReturn(null);
+    engines.set(live.slot(), referenceLess);
+    try {
+      assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+          snapshot.engineIdentifier(), owner, live))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("lost its process-local reference");
+      assertThat(storage.attachIndexEngineOwner(
+          snapshot.engineIdentifier(), owner, null)).isNull();
+    } finally {
+      engines.set(live.slot(), registered);
+    }
+  }
+
+  /** Reference lookup wrappers preserve runtime failures and errors from the registry engine. */
+  @Test
+  public void referenceLookupPreservesEngineReferenceFailures() throws Exception {
+    assertReferenceLookupFailurePreserved(new IllegalStateException("reference runtime"));
+    assertReferenceLookupFailurePreserved(new AssertionError("reference error"));
+    assertReferenceLookupFailurePreserved(new IOException("reference checked failure"));
+  }
+
+  private void assertReferenceLookupFailurePreserved(Throwable failure) throws Exception {
+    var clsName = "ReferenceLookup" + failure.getClass().getSimpleName();
+    var cls = db.createVertexClass(clsName);
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = clsName + ".value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var slot = snapshot.engineReference().slot();
+    var engines = indexEngines(storage);
+    var throwing = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(throwing.getId()).thenReturn(slot);
+    Mockito.when(throwing.getEngineReference()).thenAnswer(invocation -> {
+      throw failure;
+    });
+    var registered = engines.set(slot, throwing);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      assertForwardedFailure(
+          () -> storage.getIndexEngine(snapshot.engineIdentifier(), snapshot.engineReference()),
+          failure);
+      assertForwardedFailure(
+          () -> storage.getIndexValues(
+              snapshot.engineIdentifier(), snapshot.engineReference(), "key", operation),
+          failure);
+    } finally {
+      engines.set(slot, registered);
+      db.rollback();
+    }
+  }
+
   /** A reference-aware size call keeps the validated engine when its slot changes mid-call. */
   @Test
   public void referenceAwareSizeUsesOneResolvedEngine() throws Exception {
@@ -1048,6 +1138,160 @@ public class AbstractStorageCommitPrimitivesTest {
     } finally {
       engines.set(slot, registered);
       db.rollback();
+    }
+  }
+
+  /** Every reference-aware storage API rejects a different engine before any operation runs. */
+  @Test
+  public void referenceAwareIndexApisRejectReplacedEngine() throws Exception {
+    var cls = db.createVertexClass("ReferenceApiMismatch");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "ReferenceApiMismatch.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var live = snapshot.engineReference();
+    var wrong = new IndexEngineReference(live.slot(), live.apiVersion(), live.generation() + 1);
+    var rid = new RecordId(7, 42);
+    @SuppressWarnings("unchecked")
+    var validator = (IndexEngineValidator<Object,
+        com.jetbrains.youtrackdb.internal.core.db.record.record.RID>) Mockito
+            .mock(IndexEngineValidator.class);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      List<ThrowingCallable> calls = List.of(
+          () -> storage.getIndexValues(
+              snapshot.engineIdentifier(), wrong, "key", operation),
+          () -> storage.getIndexEngine(snapshot.engineIdentifier(), wrong),
+          () -> storage.removeKeyFromIndex(
+              snapshot.engineIdentifier(), wrong, "key", operation),
+          () -> storage.putRidIndexEntry(
+              snapshot.engineIdentifier(), wrong, "key", rid, operation),
+          () -> storage.removeRidIndexEntry(
+              snapshot.engineIdentifier(), wrong, "key", rid, operation),
+          () -> storage.validatedPutIndexValue(
+              snapshot.engineIdentifier(), wrong, "key", rid, validator, operation),
+          () -> storage.callIndexEngine(
+              false, snapshot.engineIdentifier(), wrong, engine -> null),
+          () -> storage.iterateIndexEntriesBetween(
+              snapshot.engineIdentifier(), wrong, "a", true, "z", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMajor(
+              snapshot.engineIdentifier(), wrong, "a", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMinor(
+              snapshot.engineIdentifier(), wrong, "z", true, true, null, operation),
+          () -> storage.getIndexStream(snapshot.engineIdentifier(), wrong, null, operation),
+          () -> storage.getIndexDescStream(snapshot.engineIdentifier(), wrong, null, operation),
+          () -> storage.getIndexKeyStream(snapshot.engineIdentifier(), wrong, operation),
+          () -> storage.getIndexSize(snapshot.engineIdentifier(), wrong, null, operation),
+          () -> storage.deleteIndexEngine(snapshot.engineIdentifier(), wrong));
+
+      for (var call : calls) {
+        assertThatThrownBy(call).isExactlyInstanceOf(IndexEngineReplacedException.class);
+      }
+      assertThatThrownBy(() -> storage.clearIndex(snapshot.engineIdentifier(), wrong))
+          .isExactlyInstanceOf(StaleIndexEngineException.class)
+          .hasCauseInstanceOf(IndexEngineReplacedException.class);
+
+      storage.stateLock.readLock().lock();
+      try {
+        assertThatThrownBy(() -> storage.getIndexEngineWithStateLock(
+            snapshot.engineIdentifier(), wrong))
+            .isExactlyInstanceOf(IndexEngineReplacedException.class);
+      } finally {
+        storage.stateLock.readLock().unlock();
+      }
+
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.enterCommitWindow();
+        try {
+          assertThatThrownBy(() -> storage.deleteIndexEngineInCommitWindow(
+              snapshot.engineIdentifier(), wrong, operation))
+              .isExactlyInstanceOf(IndexEngineReplacedException.class);
+        } finally {
+          storage.exitCommitWindow();
+        }
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+
+      assertThat(storage.loadIndexEngine(indexName)).isEqualTo(snapshot.engineIdentifier());
+    } finally {
+      db.rollback();
+    }
+  }
+
+  /** Query wrappers preserve runtime failures and errors raised by the resolved engine. */
+  @Test
+  public void referenceAwareQueryApisPreserveEngineFailures() throws Exception {
+    assertReferenceAwareQueryFailurePreserved(new IllegalStateException("runtime failure"));
+    assertReferenceAwareQueryFailurePreserved(new AssertionError("error failure"));
+    assertReferenceAwareQueryFailurePreserved(new IOException("checked failure"));
+  }
+
+  private void assertReferenceAwareQueryFailurePreserved(Throwable failure) throws Exception {
+    var clsName = "ReferenceFailure" + failure.getClass().getSimpleName();
+    var cls = db.createVertexClass(clsName);
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = clsName + ".value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var engines = indexEngines(storage);
+    var slot = snapshot.engineReference().slot();
+    var throwing = Mockito.mock(BaseIndexEngine.class, invocation -> {
+      return switch (invocation.getMethod().getName()) {
+        case "getId" -> slot;
+        case "getEngineReference" -> snapshot.engineReference();
+        default -> throw failure;
+      };
+    });
+    var registered = engines.set(slot, throwing);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      List<ThrowingCallable> calls = List.of(
+          () -> storage.iterateIndexEntriesBetween(
+              snapshot.engineIdentifier(), snapshot.engineReference(),
+              "a", true, "z", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMajor(
+              snapshot.engineIdentifier(), snapshot.engineReference(),
+              "a", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMinor(
+              snapshot.engineIdentifier(), snapshot.engineReference(),
+              "z", true, true, null, operation),
+          () -> storage.getIndexStream(
+              snapshot.engineIdentifier(), snapshot.engineReference(), null, operation),
+          () -> storage.getIndexDescStream(
+              snapshot.engineIdentifier(), snapshot.engineReference(), null, operation),
+          () -> storage.getIndexKeyStream(
+              snapshot.engineIdentifier(), snapshot.engineReference(), operation),
+          () -> storage.getIndexSize(
+              snapshot.engineIdentifier(), snapshot.engineReference(), null, operation));
+
+      for (var call : calls) {
+        assertForwardedFailure(call, failure);
+      }
+    } finally {
+      engines.set(slot, registered);
+      db.rollback();
+    }
+  }
+
+  private static void assertForwardedFailure(ThrowingCallable call, Throwable failure) {
+    if (failure instanceof RuntimeException || failure instanceof Error) {
+      assertThatThrownBy(call).isSameAs(failure);
+    } else {
+      assertThatThrownBy(call)
+          .isInstanceOf(RuntimeException.class)
+          .hasCause(failure);
     }
   }
 
