@@ -316,6 +316,84 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(intThirty).isNotEqualTo(longThirty);
   }
 
+  /**
+   * Row-level guard on limit literals: after {@code limit(1)} is cached, {@code limit(2)} must still
+   * return two rows. A fingerprint that collapsed both limits to {@code ?} would serve the first
+   * plan and silently truncate.
+   */
+  @Test
+  public void differentLimits_afterCacheWarm_returnCorrectCardinality() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 1);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 2);
+    graph.addVertex(T.label, "Person", "name", "Carol", "age", 3);
+    graph.tx().commit();
+
+    assertThat(apply(() -> graph.traversal().V().limit(1))).hasSize(1);
+    assertThat(apply(() -> graph.traversal().V().limit(2)))
+        .as("limit(2) must not reuse a cached limit(1) plan")
+        .hasSize(2);
+  }
+
+  /**
+   * Row-level guard on projection keys: after {@code values("name")} is cached, {@code values("age")}
+   * must emit ages, not names.
+   */
+  @Test
+  public void differentValuesKeys_afterCacheWarm_doNotCrossContaminate() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    graph.tx().commit();
+
+    var names = apply(() -> graph.traversal().V().order().by("name").values("name"));
+    assertThat(names).isEqualTo(List.of("Alice", "Bob"));
+
+    var ages = apply(() -> graph.traversal().V().order().by("name").values("age"));
+    assertThat(ages)
+        .as("values(age) must not reuse a cached values(name) plan")
+        .isEqualTo(List.of(30, 40));
+  }
+
+  /**
+   * Integer vs Long {@code has(age)} partitions the shape key; after warming the Integer entry, the
+   * Long walk must still answer correctly for its own binding (and must not be served the Integer
+   * plan).
+   */
+  @Test
+  public void integerThenLongAge_afterCacheWarm_bothReturnCorrectRows() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    graph.tx().commit();
+
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("age", 30))))
+        .containsExactly("Alice");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("age", 30L))))
+        .as("Long 30 must not reuse the Integer-30 cached plan incorrectly")
+        .containsExactly("Alice");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("age", 40L))))
+        .containsExactly("Bob");
+  }
+
+  /**
+   * Predicate order can differ between Gremlin shapes that still compile to one PQD. Warm with
+   * {@code has(age).has(name)}, then run {@code has(name).has(age)} with different bindings — both
+   * must return their own row (walk + PQD hit + shape backfill must not cross-bind).
+   */
+  @Test
+  public void swappedHasOrder_afterCacheWarm_returnsOwnRow() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    graph.tx().commit();
+
+    assertThat(
+        sortedNames(
+            apply(() -> graph.traversal().V().has("age", 30).has("name", "Alice"))))
+        .containsExactly("Alice");
+    assertThat(
+        sortedNames(apply(() -> graph.traversal().V().has("name", "Bob").has("age", 40))))
+        .as("swapped has() order must not return the previously cached person's row")
+        .containsExactly("Bob");
+  }
+
   private String shapeKey(
       java.util.function.Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {

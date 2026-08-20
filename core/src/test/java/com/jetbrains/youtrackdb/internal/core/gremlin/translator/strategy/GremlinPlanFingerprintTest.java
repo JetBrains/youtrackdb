@@ -151,6 +151,118 @@ public class GremlinPlanFingerprintTest {
         .isNotEqualTo(GremlinPlanFingerprint.fingerprint(pathElements));
   }
 
+  /**
+   * Sweep: each planner-visible {@link MatchPlanInputs} distinction that the fingerprint claims to
+   * cover must actually change the key when flipped in isolation. Catches a future edit that drops a
+   * section while leaving the Javadoc claiming full coverage.
+   */
+  @Test
+  public void everyCoveredField_inIsolation_changesFingerprint() {
+    assertDistinct(
+        "optional node",
+        patternWithOptional("n", false),
+        patternWithOptional("n", true));
+
+    var knows = parse("MATCH {class: V, as: a}.out('knows'){as: b} RETURN a");
+    var likes = parse("MATCH {class: V, as: a}.out('likes'){as: b} RETURN a");
+    assertDistinct(
+        "matchExpressions",
+        MatchPlanInputs.builder(new Pattern())
+            .matchExpressions(knows.getMatchExpressions())
+            .returnItems(knows.getReturnItems())
+            .returnAliases(knows.getReturnAliases())
+            .returnNestedProjections(knows.getReturnNestedProjections())
+            .build(),
+        MatchPlanInputs.builder(new Pattern())
+            .matchExpressions(likes.getMatchExpressions())
+            .returnItems(likes.getReturnItems())
+            .returnAliases(likes.getReturnAliases())
+            .returnNestedProjections(likes.getReturnNestedProjections())
+            .build());
+
+    var withNot =
+        parse("MATCH {class: V, as: a}, NOT {as: a}.out('knows'){as: b} RETURN a");
+    var withoutNot = parse("MATCH {class: V, as: a} RETURN a");
+    assertDistinct(
+        "notMatchExpressions",
+        fingerprintInputsFromClauses(withNot),
+        fingerprintInputsFromClauses(withoutNot));
+
+    assertDistinct(
+        "unwind",
+        fingerprintInputsFromClauses(
+            parse("MATCH {class: V, as: a} RETURN a.name AS x UNWIND x")),
+        fingerprintInputsFromClauses(
+            parse("MATCH {class: V, as: a} RETURN a.name AS x")));
+
+    assertDistinct(
+        "returnDistinct",
+        MatchPlanInputs.builder(new Pattern()).returnDistinct(false).build(),
+        MatchPlanInputs.builder(new Pattern()).returnDistinct(true).build());
+
+    assertDistinct(
+        "returnElements",
+        MatchPlanInputs.builder(new Pattern()).returnElements(false).build(),
+        MatchPlanInputs.builder(new Pattern()).returnElements(true).build());
+    assertDistinct(
+        "returnPaths",
+        MatchPlanInputs.builder(new Pattern()).returnPaths(false).build(),
+        MatchPlanInputs.builder(new Pattern()).returnPaths(true).build());
+    assertDistinct(
+        "returnPatterns",
+        MatchPlanInputs.builder(new Pattern()).returnPatterns(false).build(),
+        MatchPlanInputs.builder(new Pattern()).returnPatterns(true).build());
+    assertDistinct(
+        "returnPathElements",
+        MatchPlanInputs.builder(new Pattern()).returnPathElements(false).build(),
+        MatchPlanInputs.builder(new Pattern()).returnPathElements(true).build());
+
+    var plain = parse("MATCH {class: V, as: a} RETURN a");
+    var nested = parse("MATCH {class: V, as: a} RETURN a:{name}");
+    assertDistinct(
+        "returnNestedProjections",
+        fingerprintInputsFromProjection(plain),
+        fingerprintInputsFromProjection(nested));
+
+    var limit2 = parse("MATCH {class: V, as: a} RETURN a LIMIT 2");
+    var limit5 = parse("MATCH {class: V, as: a} RETURN a LIMIT 5");
+    assertDistinct(
+        "limit",
+        fingerprintInputsFromClauses(limit2),
+        fingerprintInputsFromClauses(limit5));
+
+    var skip1 = parse("MATCH {class: V, as: a} RETURN a SKIP 1");
+    var skip2 = parse("MATCH {class: V, as: a} RETURN a SKIP 2");
+    assertDistinct(
+        "skip",
+        fingerprintInputsFromClauses(skip1),
+        fingerprintInputsFromClauses(skip2));
+
+    var personClass =
+        MatchPlanInputs.builder(patternWithAlias("a"))
+            .aliasClasses(java.util.Map.of("a", "Person"))
+            .build();
+    var companyClass =
+        MatchPlanInputs.builder(patternWithAlias("a"))
+            .aliasClasses(java.util.Map.of("a", "Company"))
+            .build();
+    assertDistinct("aliasClasses", personClass, companyClass);
+  }
+
+  private static void assertDistinct(String field, MatchPlanInputs left, MatchPlanInputs right) {
+    assertThat(GremlinPlanFingerprint.fingerprint(left))
+        .as("fingerprints must differ when only %s changes", field)
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(right));
+  }
+
+  private static Pattern patternWithAlias(String alias) {
+    var pattern = new Pattern();
+    var node = new PatternNode();
+    node.alias = alias;
+    pattern.aliasToNode.put(alias, node);
+    return pattern;
+  }
+
   private static MatchPlanInputs patternWithOptional(String alias, boolean optional) {
     var pattern = new Pattern();
     var node = new PatternNode();
@@ -161,39 +273,43 @@ public class GremlinPlanFingerprintTest {
   }
 
   private static String fingerprintForProjection(SQLMatchStatement statement) {
-    var inputs =
-        MatchPlanInputs.builder(new Pattern())
-            .returnItems(statement.getReturnItems())
-            .returnAliases(statement.getReturnAliases())
-            .returnNestedProjections(statement.getReturnNestedProjections())
-            .build();
-    return GremlinPlanFingerprint.fingerprint(inputs);
+    return GremlinPlanFingerprint.fingerprint(fingerprintInputsFromProjection(statement));
+  }
+
+  private static MatchPlanInputs fingerprintInputsFromProjection(SQLMatchStatement statement) {
+    return MatchPlanInputs.builder(new Pattern())
+        .returnItems(statement.getReturnItems())
+        .returnAliases(statement.getReturnAliases())
+        .returnNestedProjections(statement.getReturnNestedProjections())
+        .build();
   }
 
   /**
-   * Builds a fingerprint from the statement's clause fields (expressions, unwind, return modes)
-   * without running the planner's pattern-build pass — enough to pin clause-level distinctions.
+   * Builds inputs from the statement's clause fields (expressions, unwind, return modes) without
+   * running the planner's pattern-build pass — enough to pin clause-level distinctions.
    */
   private static String fingerprintFromStatementClauses(SQLMatchStatement statement) {
-    var inputs =
-        MatchPlanInputs.builder(new Pattern())
-            .matchExpressions(statement.getMatchExpressions())
-            .notMatchExpressions(statement.getNotMatchExpressions())
-            .returnItems(statement.getReturnItems())
-            .returnAliases(statement.getReturnAliases())
-            .returnNestedProjections(statement.getReturnNestedProjections())
-            .groupBy(statement.getGroupBy())
-            .orderBy(statement.getOrderBy())
-            .unwind(statement.getUnwind())
-            .limit(statement.getLimit())
-            .skip(statement.getSkip())
-            .returnDistinct(statement.isReturnDistinct())
-            .returnElements(statement.returnsElements())
-            .returnPaths(statement.returnsPaths())
-            .returnPatterns(statement.returnsPatterns())
-            .returnPathElements(statement.returnsPathElements())
-            .build();
-    return GremlinPlanFingerprint.fingerprint(inputs);
+    return GremlinPlanFingerprint.fingerprint(fingerprintInputsFromClauses(statement));
+  }
+
+  private static MatchPlanInputs fingerprintInputsFromClauses(SQLMatchStatement statement) {
+    return MatchPlanInputs.builder(new Pattern())
+        .matchExpressions(statement.getMatchExpressions())
+        .notMatchExpressions(statement.getNotMatchExpressions())
+        .returnItems(statement.getReturnItems())
+        .returnAliases(statement.getReturnAliases())
+        .returnNestedProjections(statement.getReturnNestedProjections())
+        .groupBy(statement.getGroupBy())
+        .orderBy(statement.getOrderBy())
+        .unwind(statement.getUnwind())
+        .limit(statement.getLimit())
+        .skip(statement.getSkip())
+        .returnDistinct(statement.isReturnDistinct())
+        .returnElements(statement.returnsElements())
+        .returnPaths(statement.returnsPaths())
+        .returnPatterns(statement.returnsPatterns())
+        .returnPathElements(statement.returnsPathElements())
+        .build();
   }
 
   private static SQLMatchStatement parse(String query) {
