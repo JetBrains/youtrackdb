@@ -38,17 +38,17 @@ public class IndexRecoveryPathsTest {
   }
 
   /**
-   * Every single-value read path permits one owner-bound retry. If the resolved engine is also
-   * stale, the path must stop after that retry and report the descriptor instead of looping.
+   * Every single-value read path permits two owner-bound retries. If both resolved engines are
+   * stale, the path must stop after three attempts and report the descriptor instead of looping.
    */
   @Test(timeout = 10_000)
-  public void indexOneValuePersistentStalenessFailsAfterSingleOwnerBoundRetry() throws Exception {
+  public void indexOneValuePersistentStalenessFailsAfterBoundedOwnerRecovery() throws Exception {
     for (var path : indexOneValuePaths()) {
       var fixture = fixture(IndexUnique::new, path.storageMethod(), true);
 
       var exception =
           assertThrows(
-              path.name() + " must fail after one owner-bound retry",
+              path.name() + " must fail after bounded owner recovery",
               StaleIndexEngineException.class,
               () -> path.operation().invoke(fixture));
 
@@ -63,12 +63,12 @@ public class IndexRecoveryPathsTest {
           VALID_IDENTIFIER,
           fixture.index.getIndexId());
       assertEquals(
-          path.name() + " must resolve the owner exactly once",
-          1,
+          path.name() + " must resolve the owner exactly twice",
+          2,
           invocationCount(fixture.storage, "resolveIndexEngineByOwner"));
       assertEquals(
-          path.name() + " must attempt the storage operation exactly twice",
-          2,
+          path.name() + " must attempt the storage operation exactly three times",
+          3,
           invocationCount(fixture.storage, path.storageMethod()));
     }
   }

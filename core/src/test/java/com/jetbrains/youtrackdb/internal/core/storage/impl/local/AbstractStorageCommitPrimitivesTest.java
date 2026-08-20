@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
+import com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
@@ -343,7 +344,7 @@ public class AbstractStorageCommitPrimitivesTest {
 
     storage.stateLock.readLock().lock();
     try {
-      index.setEngineIdentifierForTest(Integer.MAX_VALUE);
+      IndexEngineTestSupport.setEngineIdentifier(index, Integer.MAX_VALUE);
       index.acquireAtomicExclusiveLock(operation);
       try (var executor = Executors.newSingleThreadExecutor()) {
         var writerEntered =
@@ -370,7 +371,7 @@ public class AbstractStorageCommitPrimitivesTest {
     try {
       storage.enterCommitWindow();
       try {
-        index.setEngineIdentifierForTest(Integer.MAX_VALUE);
+        IndexEngineTestSupport.setEngineIdentifier(index, Integer.MAX_VALUE);
         index.acquireAtomicExclusiveLock(operation);
       } finally {
         storage.exitCommitWindow();
@@ -1011,6 +1012,45 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
+  /** A reference-aware size call keeps the validated engine when its slot changes mid-call. */
+  @Test
+  public void referenceAwareSizeUsesOneResolvedEngine() throws Exception {
+    var cls = db.createVertexClass("FusedReferenceSize");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "FusedReferenceSize.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engines = indexEngines(storage);
+    var slot = engines.get(index.getIndexId() & 0x7_FF_FF_FF).getId();
+    var expectedReference = index.engineSnapshot().engineReference();
+    var original = Mockito.mock(BaseIndexEngine.class);
+    var replacement = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(original.getId()).thenReturn(slot);
+    Mockito.when(original.getEngineReference()).thenAnswer(invocation -> {
+      engines.set(slot, replacement);
+      return expectedReference;
+    });
+    Mockito.when(original.size(Mockito.any(), Mockito.isNull(), Mockito.any())).thenReturn(11L);
+    Mockito.when(replacement.getId()).thenReturn(slot);
+    Mockito.when(replacement.size(Mockito.any(), Mockito.isNull(), Mockito.any())).thenReturn(22L);
+
+    var registered = engines.set(slot, original);
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      assertThat(storage.getIndexSize(
+          index.getIndexId(), expectedReference, null, operation)).isEqualTo(11L);
+      Mockito.verify(original).size(storage, null, operation);
+      Mockito.verify(replacement, Mockito.never())
+          .size(Mockito.any(), Mockito.any(), Mockito.any());
+    } finally {
+      engines.set(slot, registered);
+      db.rollback();
+    }
+  }
+
   // ---- Helpers ----
 
   /**
@@ -1035,7 +1075,7 @@ public class AbstractStorageCommitPrimitivesTest {
   }
 
   private static void setIndexIdentifier(IndexAbstract index, int indexIdentifier) {
-    index.setEngineIdentifierForTest(indexIdentifier);
+    IndexEngineTestSupport.setEngineIdentifier(index, indexIdentifier);
   }
 
   private static BaseIndexEngine findEngineByName(AbstractStorage storage, String name)
