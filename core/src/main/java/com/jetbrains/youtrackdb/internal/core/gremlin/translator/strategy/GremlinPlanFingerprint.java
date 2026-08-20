@@ -13,14 +13,17 @@ import javax.annotation.Nonnull;
 
 /**
  * Synthesises a value-independent fingerprint from post-walk {@link MatchPlanInputs} for the
- * {@link GremlinPlanCache}. The key enumerates the positive pattern topology, alias classes, alias
- * filters, detached NOT expressions, return projection, and result-shaping clauses ({@code GROUP
- * BY} / {@code ORDER BY} / {@code LIMIT} / {@code SKIP} / {@code DISTINCT}) — never {@link
+ * {@link GremlinPlanCache}. The key enumerates every planner-visible field on the record: positive
+ * pattern topology (including per-node {@code optional}), alias classes, alias filters, positive
+ * {@code matchExpressions}, detached NOT expressions, return projection (items / aliases / nested
+ * projections), result-shaping ({@code GROUP BY} / {@code ORDER BY} / {@code UNWIND} / {@code LIMIT}
+ * / {@code SKIP} / {@code DISTINCT}), and return-mode flags ({@code $elements} / {@code $paths} /
+ * {@code $patterns} / {@code $pathElements}). It never uses {@link
  * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement#toGenericStatement()}, which
  * omits {@code notMatchExpressions}. Positional parameters render as {@code ?}; structural tokens
- * (class names, {@code ~label}, RIDs) stay verbatim so distinct labels and NOT shapes do not
- * collide. Limit / skip literals stay in the key (they are not positional slots), so {@code
- * limit(2)} and {@code limit(5)} cannot share a cached plan.
+ * (class names, {@code ~label}, RIDs, type-guard literals) stay verbatim so distinct labels and NOT
+ * shapes do not collide. Limit / skip literals stay in the key (they are not positional slots), so
+ * {@code limit(2)} and {@code limit(5)} cannot share a cached plan.
  *
  * <p><b>Every variable-length token is length-prefixed</b> ({@code len:content}) through {@link
  * #appendToken} / {@link #appendRendered}. The key is shared across sessions on one database and
@@ -47,9 +50,11 @@ final class GremlinPlanFingerprint {
     var sb = new StringBuilder(256);
     appendPattern(sb, inputs);
     appendAliasFilters(sb, inputs.aliasFilters());
+    appendMatchExpressions(sb, inputs.matchExpressions());
     appendNotExpressions(sb, inputs.notMatchExpressions());
     appendReturnProjection(sb, inputs);
     appendResultShaping(sb, inputs);
+    appendReturnModes(sb, inputs);
     return sb.toString();
   }
 
@@ -81,6 +86,9 @@ final class GremlinPlanFingerprint {
       appendToken(sb, entry.getKey());
       var cls = aliasClasses.get(entry.getKey());
       appendToken(sb, cls == null ? "" : cls);
+      // optional:true changes scheduler / null-row behaviour; omitting it would let a required
+      // hop and an optional hop share a plan.
+      sb.append(entry.getValue().optional ? '1' : '0');
     }
     sb.append(";E:");
     for (PatternNode node : pattern.aliasToNode.values()) {
@@ -144,13 +152,29 @@ final class GremlinPlanFingerprint {
     }
   }
 
+  /**
+   * Positive MATCH expression list. Gremlin today leaves this empty and builds {@link
+   * MatchPlanInputs#pattern()} directly; SQL still carries the expressions. Fingerprinting them
+   * keeps two inputs that differ only in {@code matchExpressions} from sharing a plan if a future
+   * front-end sets them without regenerating an equivalent pattern topology.
+   */
+  private static void appendMatchExpressions(StringBuilder sb,
+      List<SQLMatchExpression> matchExprs) {
+    sb.append(";M:");
+    for (var expr : matchExprs) {
+      appendRendered(sb, scratch -> appendMatchExpressionStructural(scratch, expr));
+    }
+  }
+
   private static void appendReturnProjection(StringBuilder sb, MatchPlanInputs inputs) {
     sb.append(";R:");
     var items = inputs.returnItems();
     var aliases = inputs.returnAliases();
+    var nestedProjections = inputs.returnNestedProjections();
     for (int i = 0; i < items.size(); i++) {
       var item = items.get(i);
       var alias = aliases.get(i);
+      var nestedProjection = nestedProjections.get(i);
       appendRendered(sb, item::toGenericStatement);
       // Mark alias presence with a fixed byte, then length-prefix the alias itself, so a null alias
       // and an empty-string alias stay distinct and an alias embedding delimiters cannot merge with
@@ -161,6 +185,16 @@ final class GremlinPlanFingerprint {
         sb.append('+');
         appendRendered(sb, alias::toGenericStatement);
       }
+      // Nested projections are planner-visible output shape, stored parallel to the return item.
+      // Omitting them would let `RETURN a` and `RETURN a:{name}` (or two different nested
+      // projections on the same item) share a cached plan key even though the planner carries the
+      // projection structure through MatchPlanInputs.
+      if (nestedProjection == null) {
+        sb.append('-');
+      } else {
+        sb.append('+');
+        appendRendered(sb, nestedProjection::toGenericStatement);
+      }
     }
   }
 
@@ -168,8 +202,8 @@ final class GremlinPlanFingerprint {
    * Appends Track 6 result-shaping clauses. Limit / skip use {@code toString} (not
    * {@code toGenericStatement}): {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNumber}
    * collapses every integer to {@code ?}, which would let {@code limit(2)} and {@code limit(5)}
-   * collide. Group / order keep {@code toGenericStatement} — their discriminators are property
-   * names and directions, not rebound literals.
+   * collide. Group / order / unwind keep {@code toGenericStatement} — their discriminators are
+   * property names and directions, not rebound literals.
    */
   private static void appendResultShaping(StringBuilder sb, MatchPlanInputs inputs) {
     sb.append(";G:");
@@ -180,6 +214,10 @@ final class GremlinPlanFingerprint {
     if (inputs.orderBy() != null) {
       appendRendered(sb, scratch -> inputs.orderBy().toGenericStatement(scratch));
     }
+    sb.append(";U:");
+    if (inputs.unwind() != null) {
+      appendRendered(sb, scratch -> inputs.unwind().toGenericStatement(scratch));
+    }
     sb.append(";L:");
     if (inputs.limit() != null) {
       appendRendered(sb, scratch -> inputs.limit().toString(NO_PARAMS, scratch));
@@ -189,5 +227,19 @@ final class GremlinPlanFingerprint {
       appendRendered(sb, scratch -> inputs.skip().toString(NO_PARAMS, scratch));
     }
     sb.append(";D:").append(inputs.returnDistinct());
+  }
+
+  /**
+   * Return-mode flags ({@code RETURN $elements} / {@code $paths} / {@code $patterns} /
+   * {@code $pathElements}). These select different planner projection paths; omitting them would
+   * let e.g. {@code RETURN a} and {@code RETURN $paths} collide when both happen to carry empty
+   * return-item lists after normalisation.
+   */
+  private static void appendReturnModes(StringBuilder sb, MatchPlanInputs inputs) {
+    sb.append(";RM:")
+        .append(inputs.returnElements() ? '1' : '0')
+        .append(inputs.returnPaths() ? '1' : '0')
+        .append(inputs.returnPatterns() ? '1' : '0')
+        .append(inputs.returnPathElements() ? '1' : '0');
   }
 }

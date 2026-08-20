@@ -124,6 +124,56 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               TimeUnit.SECONDS));
 
+  // --- Gremlin-to-MATCH translation outcomes (fed by GremlinTranslationMetrics) ---
+
+  /**
+   * Share of translation attempts that succeed. Numerator = successes; denominator = successes +
+   * declines + errors. Kill-switch / missing session and idempotent re-applies are not attempts;
+   * edge starts and repeat vetoes are declines (and therefore attempts).
+   */
+  public static final MetricDefinition<MetricScope.Global,
+      Ratio> GREMLIN_TRANSLATION_SUCCESS_RATIO =
+          new MetricDefinition<>(
+              "GremlinTranslationSuccessRatio",
+              "Gremlin Translation Success Ratio",
+              "The ratio of successful Gremlin-to-MATCH translations to translation attempts (in"
+                  + " percents) for the last 60 seconds",
+              MetricType.ratio(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  100.0));
+
+  /**
+   * Share of translation attempts that decline (unsupported shape, edge / non-vertex start, repeat
+   * veto, or cached decline). Same attempt denominator as {@link #GREMLIN_TRANSLATION_SUCCESS_RATIO}.
+   */
+  public static final MetricDefinition<MetricScope.Global,
+      Ratio> GREMLIN_TRANSLATION_DECLINE_RATIO =
+          new MetricDefinition<>(
+              "GremlinTranslationDeclineRatio",
+              "Gremlin Translation Decline Ratio",
+              "The ratio of declined Gremlin-to-MATCH translations to translation attempts (in"
+                  + " percents) for the last 60 seconds",
+              MetricType.ratio(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  100.0));
+
+  /**
+   * Share of translation attempts that hit the throw-safety net. Same attempt denominator as
+   * {@link #GREMLIN_TRANSLATION_SUCCESS_RATIO}.
+   */
+  public static final MetricDefinition<MetricScope.Global, Ratio> GREMLIN_TRANSLATION_ERROR_RATIO =
+      new MetricDefinition<>(
+          "GremlinTranslationErrorRatio",
+          "Gremlin Translation Error Ratio",
+          "The ratio of Gremlin-to-MATCH translation failures (throw-safety net) to translation"
+              + " attempts (in percents) for the last 60 seconds",
+          MetricType.ratio(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              100.0));
+
   public static final Set<MetricDefinition<MetricScope.Global, ?>> GLOBAL_METRICS = Set.of(
       FILE_EVICTION_RATE,
       CACHE_HIT_RATIO,
@@ -135,7 +185,10 @@ public class CoreMetrics {
       QUERY_CACHE_MULTI_INVALIDATION_RATE,
       QUERY_CACHE_OVERFLOW_RATE,
       GREMLIN_PLAN_CACHE_HIT_RATE,
-      GREMLIN_PLAN_CACHE_MISS_RATE);
+      GREMLIN_PLAN_CACHE_MISS_RATE,
+      GREMLIN_TRANSLATION_SUCCESS_RATIO,
+      GREMLIN_TRANSLATION_DECLINE_RATIO,
+      GREMLIN_TRANSLATION_ERROR_RATIO);
 
   // ===================== DATABASE ===================== //
 

@@ -156,6 +156,16 @@ import org.slf4j.LoggerFactory;
  * {@code MatchExecutionPlanner} applies for the YQL/GQL plan cache. Cache-backed single-plan
  * steps copy the stored template on first open rather than during {@code apply}.
  *
+ * <h2>Translation telemetry</h2>
+ *
+ * Outcomes that reach a translation attempt feed {@link GremlinTranslationMetrics} on the
+ * database {@code SharedContext}: successes, declines (unsupported shape, edge / non-vertex start,
+ * repeat veto, or cached decline), and throw-safety-net errors. Each recording also updates the
+ * matching {@link com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics} success /
+ * decline / error {@code Ratio} metrics. Declined shapes are retained (bounded) so operators can
+ * ask which unsupported step lists dominate. Kill-switch / missing session and idempotent
+ * re-applies (boundary already present) are not attempts — those are not coverage failures.
+ *
  * <h2>Testability</h2>
  *
  * The translator and plan builder are injected as the {@link TraversalTranslator} and {@link
@@ -257,6 +267,7 @@ public final class GremlinToMatchStrategy
       // JVM Error or an -ea invariant violation must surface loudly, never degrade to a silent
       // decline.
       declineOnThrow(traversal, e);
+      recordTranslationError(traversal);
     }
   }
 
@@ -270,13 +281,15 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
-    // Run the O(1) start-step gate before the O(steps) boundary scan, so a traversal that does not
-    // start at a vertex GraphStep declines without walking the whole step list. Idempotency still
-    // holds: an already-translated traversal's start step is a boundary step (an
-    // AbstractMatchPlanStep subtype, not a GraphStep), so hasVertexGraphStart declines it here
-    // anyway; the boundary scan below stays as the guard for the defensive case where an ordinary
-    // step is prepended in front of the boundary.
+    // Start-shape gate is O(1). Already-translated traversals also fail hasVertexGraphStart
+    // (start is a boundary, not a GraphStep), so check containsBoundaryStep before counting a
+    // decline — re-applies must stay outside attempts. Fresh edge / non-vertex starts are product
+    // gaps and count as declines; kill-switch / missing session already returned above.
     if (!hasVertexGraphStart(traversal)) {
+      if (containsBoundaryStep(traversal)) {
+        return;
+      }
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
     }
     // Honour a per-traversal veto. RepeatDeclineStrategy marks a repeat-bearing traversal at
@@ -286,22 +299,27 @@ public final class GremlinToMatchStrategy
     // traversal's own strategy list never carries a provider strategy during the strategy pass, so
     // an absence test would decline every sub-traversal rather than the vetoed ones. See
     // RepeatDeclineStrategy for why the decision has to be taken that early, and for why the marker
-    // lives on the strategies reference's type rather than in the list itself.
+    // lives on the strategies reference's type rather than in the list itself. Variable-depth
+    // repeat is out of scope — count as a decline like any other unsupported shape.
     if (RepeatDeclineStrategy.isVetoed(traversal)) {
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
     }
     if (containsBoundaryStep(traversal)) {
       return;
     }
     var extraction = GremlinStepWalker.extractShape(traversal, session);
+    var metrics = GremlinTranslationMetrics.of(session);
     if (populateTranslationCache && extraction.complete()) {
       var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
       if (cached instanceof GremlinTranslationTemplate.Decline) {
+        metrics.recordDecline(stepShape(traversal));
         return;
       }
       if (cached instanceof GremlinTranslationTemplate.Translate translate
           && extraction.bindings().size() == translate.bindingCount()) {
         spliceFromTranslationCache(traversal, translate, extraction.bindings());
+        metrics.recordSuccess();
         return;
       }
     }
@@ -315,9 +333,11 @@ public final class GremlinToMatchStrategy
         GremlinPlanCache.putTranslation(
             extraction.key(), GremlinTranslationTemplate.DECLINE, session);
       }
+      metrics.recordDecline(stepShape(traversal));
       return;
     }
     applyTranslation(traversal, session, translation, planningStart, extraction);
+    metrics.recordSuccess();
   }
 
   /**
@@ -344,6 +364,20 @@ public final class GremlinToMatchStrategy
             LOGGER,
             cause,
             stepShape(traversal));
+  }
+
+  /**
+   * Feeds {@link GremlinTranslationMetrics#recordError} when a session is still attached. The
+   * throw-safety net may fire after the session gate (walk/plan throw) or, rarely, during session
+   * resolution itself — missing session means we cannot attribute the error to a database, so the
+   * counter is skipped and the DEBUG log in {@link #declineOnThrow} remains the sole signal.
+   */
+  private static void recordTranslationError(Traversal.Admin<?, ?> traversal) {
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    if (session == null) {
+      return;
+    }
+    GremlinTranslationMetrics.of(session).recordError(stepShape(traversal));
   }
 
   /**
