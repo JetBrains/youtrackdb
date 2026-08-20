@@ -148,9 +148,11 @@ final class GremlinPlanFingerprint {
     sb.append(";R:");
     var items = inputs.returnItems();
     var aliases = inputs.returnAliases();
+    var nestedProjections = inputs.returnNestedProjections();
     for (int i = 0; i < items.size(); i++) {
       var item = items.get(i);
       var alias = aliases.get(i);
+      var nestedProjection = nestedProjections.get(i);
       appendRendered(sb, item::toGenericStatement);
       // Mark alias presence with a fixed byte, then length-prefix the alias itself, so a null alias
       // and an empty-string alias stay distinct and an alias embedding delimiters cannot merge with
@@ -160,6 +162,16 @@ final class GremlinPlanFingerprint {
       } else {
         sb.append('+');
         appendRendered(sb, alias::toGenericStatement);
+      }
+      // Nested projections are planner-visible output shape, stored parallel to the return item.
+      // Omitting them would let `RETURN a` and `RETURN a:{name}` (or two different nested
+      // projections on the same item) share a cached plan key even though the planner carries the
+      // projection structure through MatchPlanInputs.
+      if (nestedProjection == null) {
+        sb.append('-');
+      } else {
+        sb.append('+');
+        appendRendered(sb, nestedProjection::toGenericStatement);
       }
     }
   }

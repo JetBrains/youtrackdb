@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
@@ -293,6 +294,28 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore);
   }
 
+  /** The per-session polymorphism flag is part of the shape key; toggling it must split entries. */
+  @Test
+  public void polymorphismFlag_discriminatesShapeKeys() {
+    final var polyOn = captureShapeKeyWithPolymorphic(true);
+    final var polyOff = captureShapeKeyWithPolymorphic(false);
+    assertThat(polyOn).isNotEqualTo(polyOff);
+  }
+
+  /**
+   * Translation-cache shape keys are value-independent only within one runtime class. Different
+   * String values share a key, but an Integer and a Long do not.
+   */
+  @Test
+  public void runtimeValueClass_partitionsShapeKey() {
+    var intThirty = shapeKey(() -> graph.traversal().V().has("age", P.eq(30)));
+    var intNinetyNine = shapeKey(() -> graph.traversal().V().has("age", P.eq(99)));
+    var longThirty = shapeKey(() -> graph.traversal().V().has("age", P.eq(30L)));
+
+    assertThat(intThirty).isEqualTo(intNinetyNine);
+    assertThat(intThirty).isNotEqualTo(longThirty);
+  }
+
   private String shapeKey(
       java.util.function.Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {
@@ -324,4 +347,17 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     tx.readWrite();
     return tx.getDatabaseSession();
   }
+
+  private String captureShapeKeyWithPolymorphic(boolean value) {
+    var config = graphSession().getConfiguration();
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, value);
+    try {
+      return shapeKey(() -> graph.traversal().V().hasLabel("Person"));
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
+    }
+  }
+
 }
