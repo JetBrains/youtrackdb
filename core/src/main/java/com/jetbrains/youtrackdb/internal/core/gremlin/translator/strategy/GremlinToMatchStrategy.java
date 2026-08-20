@@ -156,6 +156,16 @@ import org.slf4j.LoggerFactory;
  * {@code MatchExecutionPlanner} applies for the YQL/GQL plan cache. Cache-backed single-plan
  * steps copy the stored template on first open rather than during {@code apply}.
  *
+ * <h2>Translation telemetry</h2>
+ *
+ * Outcomes that reach a translation attempt (past the gating cascade above) feed
+ * {@link GremlinTranslationMetrics} on the database {@code SharedContext}: successes, declines
+ * (unsupported shape or cached decline), and throw-safety-net errors. Each recording also updates
+ * the matching {@link com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics}
+ * success / decline / error {@code Ratio} metrics. Declined shapes are retained (bounded) so
+ * operators can ask which unsupported step lists dominate. Early gate exits are not counted —
+ * they are not translator coverage failures.
+ *
  * <h2>Testability</h2>
  *
  * The translator and plan builder are injected as the {@link TraversalTranslator} and {@link
@@ -257,6 +267,7 @@ public final class GremlinToMatchStrategy
       // JVM Error or an -ea invariant violation must surface loudly, never degrade to a silent
       // decline.
       declineOnThrow(traversal, e);
+      recordTranslationError(traversal);
     }
   }
 
@@ -294,14 +305,17 @@ public final class GremlinToMatchStrategy
       return;
     }
     var extraction = GremlinStepWalker.extractShape(traversal, session);
+    var metrics = GremlinTranslationMetrics.of(session);
     if (populateTranslationCache && extraction.complete()) {
       var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
       if (cached instanceof GremlinTranslationTemplate.Decline) {
+        metrics.recordDecline(stepShape(traversal));
         return;
       }
       if (cached instanceof GremlinTranslationTemplate.Translate translate
           && extraction.bindings().size() == translate.bindingCount()) {
         spliceFromTranslationCache(traversal, translate, extraction.bindings());
+        metrics.recordSuccess();
         return;
       }
     }
@@ -315,9 +329,11 @@ public final class GremlinToMatchStrategy
         GremlinPlanCache.putTranslation(
             extraction.key(), GremlinTranslationTemplate.DECLINE, session);
       }
+      metrics.recordDecline(stepShape(traversal));
       return;
     }
     applyTranslation(traversal, session, translation, planningStart, extraction);
+    metrics.recordSuccess();
   }
 
   /**
@@ -344,6 +360,20 @@ public final class GremlinToMatchStrategy
             LOGGER,
             cause,
             stepShape(traversal));
+  }
+
+  /**
+   * Feeds {@link GremlinTranslationMetrics#recordError} when a session is still attached. The
+   * throw-safety net may fire after the session gate (walk/plan throw) or, rarely, during session
+   * resolution itself — missing session means we cannot attribute the error to a database, so the
+   * counter is skipped and the DEBUG log in {@link #declineOnThrow} remains the sole signal.
+   */
+  private static void recordTranslationError(Traversal.Admin<?, ?> traversal) {
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    if (session == null) {
+      return;
+    }
+    GremlinTranslationMetrics.of(session).recordError(stepShape(traversal));
   }
 
   /**

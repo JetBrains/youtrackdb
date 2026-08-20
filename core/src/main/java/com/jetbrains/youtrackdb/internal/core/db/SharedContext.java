@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.GenesisIncompleteExcepti
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
@@ -72,6 +73,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected YqlExecutionPlanCache yqlExecutionPlanCache;
   protected GqlExecutionPlanCache gqlExecutionPlanCache;
   protected GremlinPlanCache gremlinPlanCache;
+  protected GremlinTranslationMetrics gremlinTranslationMetrics;
   protected volatile boolean loaded = false;
   protected Map<String, Object> resources;
   protected StringCache stringCache;
@@ -149,6 +151,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
     this.registerListener(gremlinPlanCache);
+    gremlinTranslationMetrics = new GremlinTranslationMetrics();
 
     storage
         .setStorageConfigurationUpdateListener(
@@ -385,6 +388,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public GremlinPlanCache getGremlinPlanCache() {
     return gremlinPlanCache;
+  }
+
+  public GremlinTranslationMetrics getGremlinTranslationMetrics() {
+    return gremlinTranslationMetrics;
   }
 
   public AbstractStorage getStorage() {
