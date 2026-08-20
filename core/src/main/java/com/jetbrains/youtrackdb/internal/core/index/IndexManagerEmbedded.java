@@ -1525,11 +1525,20 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // deltas net to a replace (the name stays in both the tx-dropped and tx-created sets), so
       // building the new engine first would collide with the still-registered old one.
       for (final var droppedIndex : plan.dropped()) {
-        final var engineId = droppedIndex.getIndexId();
-        if (engineId >= 0) {
-          final var droppedEngine =
-              ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
-                  engineId, ((IndexAbstract) droppedIndex).getEngineReference(), atomicOperation);
+        final var handle = (IndexAbstract) droppedIndex;
+        var snapshot = handle.engineSnapshot();
+        if (snapshot.engineIdentifier() >= 0) {
+          AbstractStorage.DroppedIndexEngine droppedEngine;
+          try {
+            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
+          } catch (InvalidIndexEngineIdException exception) {
+            // A failed earlier commit can restore the same owner with a fresh engine generation.
+            // Refresh under the commit-window state lock, then retry the side-effect-free check once.
+            final var resolved = handle.resolveOwnedEngineWithStateLock();
+            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);
+          }
           // Capture the dropped engine so the failure path can reconstruct it: the delete tore the
           // engine out of the in-memory registry synchronously, and a failed commit must put it back.
           plan.droppedEngines().add(droppedEngine);

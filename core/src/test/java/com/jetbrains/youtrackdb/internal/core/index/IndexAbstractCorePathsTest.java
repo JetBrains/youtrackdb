@@ -10,6 +10,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -636,6 +637,19 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
             tx -> staleIndex.getRids(session, "replacement-value").toList()));
     session.begin();
     try {
+      assertThrows(
+          StaleIndexEngineException.class,
+          () -> staleIndex.doPut(
+              session, (AbstractStorage) session.getStorage(), "foreign-write",
+              new RecordId(7, 42)));
+      assertEquals("a stale write must not poison storage", "OPEN",
+          session.getStorage().getStatus().name());
+      assertThrows(
+          StaleIndexEngineException.class,
+          () -> staleIndex.acquireAtomicExclusiveLock(
+              session.getActiveTransaction().getAtomicOperation()));
+      assertEquals("detached lock acquisition must not poison storage", "OPEN",
+          session.getStorage().getStatus().name());
       assertThrows(
           StaleIndexEngineException.class,
           () -> staleIndex.delete(session.getTransactionInternal()));

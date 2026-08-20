@@ -35,4 +35,8 @@ public final class IndexEngineTestSupport {
       DatabaseSessionEmbedded session, String indexName) {
     return engine(session, indexName).getId();
   }
+
+  public static void setEngineIdentifier(IndexAbstract index, int engineIdentifier) {
+    index.setEngineIdentifierForTest(engineIdentifier);
+  }
 }

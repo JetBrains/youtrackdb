@@ -40,7 +40,6 @@ import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
-import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
@@ -96,6 +95,8 @@ public abstract class IndexAbstract implements Index {
       new AtomicReference<>(IndexHandleState.EMPTY);
   @Nonnull
   private final IdentityChangeListener identityChangeListener = new DescriptorIdentityListener();
+  @Nonnull
+  private final AtomicReference<ChangeableIdentity> identitySubscription = new AtomicReference<>();
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
@@ -238,13 +239,10 @@ public abstract class IndexAbstract implements Index {
   public void markDeferred(final IndexMetadata indexMetadata) {
     acquireExclusiveLock();
     try {
-      // A transaction-deferred create: record the definition so the handle answers metadata and
-      // size() queries on the public path, but do not build or load a storage engine. indexId
-      // stays -1 (unbuilt); the engine build and shared registration happen at commit. A deferred
-      // handle answers name/definition/collection queries, size() (zero), and value lookups
-      // (get()/getRids(), which short-circuit to no rids); any other engine-backed read (the range
-      // streams, statistics, the histogram) is unsupported until commit builds the engine, because
-      // indexId = -1 cannot be dereferenced by the storage layer.
+      // A transaction-deferred create records the definition without an engine. The carrier keeps
+      // its engine identifier at minus one until commit builds and registers the engine. Value
+      // lookups and size return empty results for this never-built shape. Other engine-backed reads
+      // remain unsupported until commit publishes the engine-bearing carrier.
       this.im = indexMetadata;
       var deferredCollections = indexMetadata.getCollectionsToIndex();
       this.collectionsToIndex =
@@ -541,7 +539,7 @@ public abstract class IndexAbstract implements Index {
    * created the source collections and after the record apply, with {@code stateLock.writeLock()}
    * held and the commit window open. It creates the engine through the storage's commit-window
    * primitive (which allocates a commit-local engine id and buffers the engine files as WAL-reverted
-   * intent), sets {@code indexId} to the built engine's id, and wires the engine.
+   * intent), publishes that engine in the handle carrier, and wires the engine.
    *
    * <p>The engine is created but not yet populated; {@link IndexManagerEmbedded} runs the final-state
    * re-derivation that feeds the transaction's own records into it right after this returns.
@@ -581,7 +579,7 @@ public abstract class IndexAbstract implements Index {
     return resolveOwnedEngine(false);
   }
 
-  private IndexHandleState resolveOwnedEngineWithStateLock() {
+  IndexHandleState resolveOwnedEngineWithStateLock() {
     return resolveOwnedEngine(true);
   }
 
@@ -633,19 +631,82 @@ public abstract class IndexAbstract implements Index {
     return true;
   }
 
-  public void setHandleStateForTest(
+  void setHandleStateForTest(
       int engineIdentifier, @Nullable RID descriptorIdentity) {
     handleState.set(new IndexHandleState(engineIdentifier, null, descriptorIdentity, null));
   }
 
-  public void setEngineIdentifierForTest(int engineIdentifier) {
-    final var current = state();
-    setHandleStateForTest(engineIdentifier, current.descriptorIdentity());
+  void setEngineIdentifierForTest(int engineIdentifier) {
+    updateState(current -> new IndexHandleState(
+        engineIdentifier, current.engineReference(), current.descriptorIdentity(),
+        current.lifecycleCell()));
   }
 
-  public void setDescriptorIdentityForTest(@Nullable RID descriptorIdentity) {
+  void setDescriptorIdentityForTest(@Nullable RID descriptorIdentity) {
+    updateState(current -> new IndexHandleState(
+        current.engineIdentifier(), current.engineReference(), descriptorIdentity,
+        descriptorIdentity != null && descriptorIdentity.isPersistent()
+            ? current.lifecycleCell()
+            : null));
+  }
+
+  public EngineSnapshot engineSnapshot() {
     final var current = state();
-    setHandleStateForTest(current.engineIdentifier(), descriptorIdentity);
+    return new EngineSnapshot(current.engineIdentifier(), current.engineReference());
+  }
+
+  public record EngineSnapshot(
+      int engineIdentifier, @Nullable IndexEngineReference engineReference) {
+  }
+
+  @FunctionalInterface
+  protected interface StateOperation<T> {
+
+    T apply(IndexHandleState current) throws InvalidIndexEngineIdException;
+  }
+
+  protected final <T> T withOwnedEngine(StateOperation<T> operation) {
+    var current = state();
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (!current.hasEngine()) {
+        isNeverBuilt(current);
+      }
+      try {
+        return operation.apply(current);
+      } catch (InvalidIndexEngineIdException exception) {
+        if (attempt == 2) {
+          throw staleAfterOwnerRecovery(current);
+        }
+        final var resolved = resolveOwnedEngine();
+        if (resolved == current) {
+          throw staleAfterOwnerRecovery(current);
+        }
+        current = resolved;
+      }
+    }
+    throw new AssertionError("Unreachable index engine retry state");
+  }
+
+  private <T> T withOwnedEngineAndStateLock(StateOperation<T> operation) {
+    var current = state();
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (!current.hasEngine()) {
+        isNeverBuilt(current);
+      }
+      try {
+        return operation.apply(current);
+      } catch (InvalidIndexEngineIdException exception) {
+        if (attempt == 2) {
+          throw staleAfterOwnerRecovery(current);
+        }
+        final var resolved = resolveOwnedEngineWithStateLock();
+        if (resolved == current) {
+          throw staleAfterOwnerRecovery(current);
+        }
+        current = resolved;
+      }
+    }
+    throw new AssertionError("Unreachable index engine retry state");
   }
 
   private void publishEngine(int engineIdentifier) {
@@ -671,7 +732,7 @@ public abstract class IndexAbstract implements Index {
     updateState(current -> {
       final var existing = current.descriptorIdentity();
       if (existing != null && existing.isPersistent()) {
-        if (existing.equals(publishedIdentity)) {
+        if (existing.equals(publishedIdentity) && !(existing instanceof ChangeableIdentity)) {
           return current;
         }
         if (current.lifecycleCell() != null || !publishedIdentity.isPersistent()) {
@@ -683,6 +744,7 @@ public abstract class IndexAbstract implements Index {
           current.lifecycleCell());
     });
     if (!descriptorIdentity.isPersistent() && descriptorIdentity instanceof ChangeableIdentity id) {
+      identitySubscription.set(id);
       id.addIdentityChangeListener(identityChangeListener);
     }
   }
@@ -691,7 +753,7 @@ public abstract class IndexAbstract implements Index {
     while (true) {
       final var current = state();
       final var replacement = update.apply(current);
-      if (replacement.equals(current) || handleState.compareAndSet(current, replacement)) {
+      if (replacement == current || handleState.compareAndSet(current, replacement)) {
         return;
       }
     }
@@ -755,11 +817,16 @@ public abstract class IndexAbstract implements Index {
       final var replacement = new IndexHandleState(
           current.engineIdentifier(), boundReference, durableIdentity, lifecycleCell);
       if (replacement.equals(current) || handleState.compareAndSet(current, replacement)) {
-        if (descriptorIdentity instanceof ChangeableIdentity changeableIdentity) {
-          changeableIdentity.removeIdentityChangeListener(identityChangeListener);
-        }
+        cancelDescriptorIdentitySubscription();
         return;
       }
+    }
+  }
+
+  private void cancelDescriptorIdentitySubscription() {
+    final var subscription = identitySubscription.getAndSet(null);
+    if (subscription != null) {
+      subscription.removeIdentityChangeListener(identityChangeListener);
     }
   }
 
@@ -767,7 +834,7 @@ public abstract class IndexAbstract implements Index {
     return state().lifecycleCell();
   }
 
-  @Nullable public IndexEngineReference getEngineReference() {
+  @Nullable IndexEngineReference getEngineReference() {
     return state().engineReference();
   }
 
@@ -1116,8 +1183,8 @@ public abstract class IndexAbstract implements Index {
       DatabaseSessionEmbedded session)
       throws InvalidIndexEngineIdException {
     var tx = session.getActiveTransaction();
-    return storage.removeKeyFromIndex(state().engineIdentifier(), state().engineReference(), key,
-        tx.getAtomicOperation());
+    return withOwnedEngine(current -> storage.removeKeyFromIndex(
+        current.engineIdentifier(), current.engineReference(), key, tx.getAtomicOperation()));
   }
 
   @Override
@@ -1486,19 +1553,8 @@ public abstract class IndexAbstract implements Index {
   public Stream<Object> keyStream(@Nonnull AtomicOperation operation) {
     acquireSharedLock();
     try {
-      boolean recovered = false;
-      while (true) {
-        try {
-          return storage.getIndexKeyStream(state().engineIdentifier(), state().engineReference(),
-              operation);
-        } catch (InvalidIndexEngineIdException ignore) {
-          if (recovered) {
-            throw staleAfterOwnerRecovery();
-          }
-          resolveOwnedEngine();
-          recovered = true;
-        }
-      }
+      return withOwnedEngine(current -> storage.getIndexKeyStream(
+          current.engineIdentifier(), current.engineReference(), operation));
     } finally {
       releaseSharedLock();
     }
@@ -1567,81 +1623,34 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
-    BaseIndexEngine engine;
-    boolean recovered = false;
-
-    while (true) {
-      try {
-        engine = storage.getIndexEngineWithStateLock(
-            state().engineIdentifier(), state().engineReference());
-        break;
-      } catch (InvalidIndexEngineIdException ignore) {
-        if (recovered) {
-          throw staleAfterOwnerRecovery();
-        }
-        resolveOwnedEngineWithStateLock();
-        recovered = true;
-      }
-    }
-
-    return engine.acquireAtomicExclusiveLock(atomicOperation);
+    return withOwnedEngineAndStateLock(current -> storage.getIndexEngineWithStateLock(
+        current.engineIdentifier(), current.engineReference()))
+        .acquireAtomicExclusiveLock(atomicOperation);
   }
 
   @Nullable @Override
   public IndexStatistics getStatistics(DatabaseSessionEmbedded session) {
-    boolean recovered = false;
-    while (true) {
-      try {
-        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
-        return engine.getStatistics();
-      } catch (InvalidIndexEngineIdException ignore) {
-        if (recovered) {
-          throw staleAfterOwnerRecovery();
-        }
-        resolveOwnedEngine();
-        recovered = true;
-      }
-    }
+    return withOwnedEngine(current -> storage.getIndexEngine(
+        current.engineIdentifier(), current.engineReference())).getStatistics();
   }
 
   @Nullable @Override
   public EquiDepthHistogram getHistogram(DatabaseSessionEmbedded session) {
-    boolean recovered = false;
-    while (true) {
-      try {
-        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
-        return engine.getHistogram();
-      } catch (InvalidIndexEngineIdException ignore) {
-        if (recovered) {
-          throw staleAfterOwnerRecovery();
-        }
-        resolveOwnedEngine();
-        recovered = true;
-      }
-    }
+    return withOwnedEngine(current -> storage.getIndexEngine(
+        current.engineIdentifier(), current.engineReference())).getHistogram();
   }
 
   @Nullable @Override
   public HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session) {
-    boolean recovered = false;
-    while (true) {
-      try {
-        var engine = storage.getIndexEngine(state().engineIdentifier(), state().engineReference());
-        if (engine instanceof BTreeIndexEngine btreeEngine) {
-          var manager = btreeEngine.getHistogramManager();
-          if (manager != null) {
-            return manager.analyzeIndex();
-          }
-        }
-        return null;
-      } catch (InvalidIndexEngineIdException ignore) {
-        if (recovered) {
-          throw staleAfterOwnerRecovery();
-        }
-        resolveOwnedEngine();
-        recovered = true;
+    final var engine = withOwnedEngine(current -> storage.getIndexEngine(
+        current.engineIdentifier(), current.engineReference()));
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      var manager = btreeEngine.getHistogramManager();
+      if (manager != null) {
+        return manager.analyzeIndex();
       }
     }
+    return null;
   }
 
   private long[] indexCollection(
@@ -1720,34 +1729,28 @@ public abstract class IndexAbstract implements Index {
 
   protected void onIndexEngineChange(
       DatabaseSessionEmbedded session, IndexHandleState initialState) {
-    var current = initialState;
-    boolean recovered = false;
-    while (true) {
-      try {
-        storage.callIndexEngine(
-            false,
-            current.engineIdentifier(),
-            current.engineReference(),
-            engine -> {
-              engine.init(session, im);
-              return null;
-            });
-        break;
-      } catch (InvalidIndexEngineIdException ignore) {
-        if (recovered) {
-          throw staleAfterOwnerRecovery();
-        }
-        current = resolveOwnedEngine();
-        recovered = true;
-      }
-    }
+    withOwnedEngine(current -> {
+      storage.callIndexEngine(
+          false,
+          current.engineIdentifier(),
+          current.engineReference(),
+          engine -> {
+            engine.init(session, im);
+            return null;
+          });
+      return null;
+    });
   }
 
   private StaleIndexEngineException staleAfterOwnerRecovery() {
+    return staleAfterOwnerRecovery(state());
+  }
+
+  private StaleIndexEngineException staleAfterOwnerRecovery(IndexHandleState current) {
     return new StaleIndexEngineException(
         storage.getName(),
         "Index '" + getName() + "' remained stale after owner-bound recovery for descriptor "
-            + state().descriptorIdentity());
+            + current.descriptorIdentity());
   }
 
   /**

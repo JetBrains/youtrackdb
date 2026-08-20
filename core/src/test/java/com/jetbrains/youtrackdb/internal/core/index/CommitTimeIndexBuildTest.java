@@ -554,6 +554,16 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         session.computeInTx(tx -> reloadedKeep.getRids(session, "survivor").toList());
     assertEquals("the surviving committed index must return its row after a reopen", 1,
         reloadedRids.size());
+
+    // A second transactional drop starts from the restored handle generation. It must refresh the
+    // carrier inside the commit window and complete instead of rejecting the restored reference.
+    session.begin();
+    reloadedManager.dropIndex(session, goneIndexName);
+    session.commit();
+    assertFalse("a retry must drop an engine restored after the failed commit",
+        reloadedManager.existsIndex(goneIndexName));
+    assertTrue("the unrelated restored index must remain usable",
+        reloadedManager.existsIndex(keepIndexName));
   }
 
   /**
