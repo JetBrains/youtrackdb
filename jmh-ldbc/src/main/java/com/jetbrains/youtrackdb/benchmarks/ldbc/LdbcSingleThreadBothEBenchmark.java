@@ -2,13 +2,19 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
@@ -23,14 +29,15 @@ import org.openjdk.jmh.annotations.Warmup;
  * {@code .bothE('KNOWS'){where: (creationDate >= :minDate)}} to find recent
  * KNOWS connections of a person in both directions.
  *
- * <p>With the {@code KNOWS.creationDate} index (declared in {@code ldbc-schema.sql}),
- * the MATCH planner builds a RID set from the index and hands it to
- * {@code MatchEdgeTraverser.applyPreFilter()}. Previously, {@code bothE()} returned
- * a plain {@code IterableUtils.chainedIterable} which is not a
- * {@code PreFilterableLinkBagIterable}, so the pre-filter was silently bypassed and
- * all KNOWS edges were loaded before the date condition was checked. After the fix,
- * both the {@code out_KNOWS} and {@code in_KNOWS} link bags are intersected against
- * the index RID set in memory before any edge record is loaded from disk.
+ * <p>With the {@code KNOWS.creationDate} index (created for this microbench only —
+ * see {@link KnowsCreationDateIndex}), the MATCH planner builds a RID set from the
+ * index and hands it to {@code MatchEdgeTraverser.applyPreFilter()}. Previously,
+ * {@code bothE()} returned a plain {@code IterableUtils.chainedIterable} which is
+ * not a {@code PreFilterableLinkBagIterable}, so the pre-filter was silently
+ * bypassed and all KNOWS edges were loaded before the date condition was checked.
+ * After the fix, both the {@code out_KNOWS} and {@code in_KNOWS} link bags are
+ * intersected against the index RID set in memory before any edge record is loaded
+ * from disk.
  *
  * <h2>Why this query is realistic</h2>
  *
@@ -44,10 +51,10 @@ import org.openjdk.jmh.annotations.Warmup;
  *
  * <h2>Schema requirement</h2>
  *
- * <p>Requires the {@code KNOWS.creationDate NOTUNIQUE} index declared in
- * {@code ldbc-schema.sql}. If running against a pre-built database that was created
- * without this index, the benchmark will still produce correct results, but the
- * pre-filter will not engage and throughput will reflect the unoptimised path.
+ * <p>{@code bothEKnows_recentConnections} creates {@code KNOWS.creationDate} for
+ * its Trial and drops it afterwards so the shared on-disk LDBC DB used by IC/IS
+ * forks does not keep an unused KNOWS secondary index (which regresses IC1).
+ * Other methods in this class use indexes already present in {@code ldbc-schema.sql}.
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
@@ -74,6 +81,25 @@ public class LdbcSingleThreadBothEBenchmark {
   private static final int LIMIT = 20;
 
   /**
+   * Trial-scoped helper that installs {@code KNOWS.creationDate} only while
+   * {@link #bothEKnows_recentConnections} runs, then removes it so later IC/IS
+   * benchmarks sharing the same DB path do not pay for the unused index.
+   */
+  @State(Scope.Benchmark)
+  public static class KnowsCreationDateIndex {
+
+    @Setup(Level.Trial)
+    public void setup(LdbcBenchmarkState state) {
+      state.ensureKnowsCreationDateIndex();
+    }
+
+    @TearDown(Level.Trial)
+    public void tearDown(LdbcBenchmarkState state) {
+      state.dropKnowsCreationDateIndex();
+    }
+  }
+
+  /**
    * BothE-KNOWS: recent connections via bidirectional KNOWS traversal with a
    * date pre-filter.
    *
@@ -84,7 +110,10 @@ public class LdbcSingleThreadBothEBenchmark {
    * loading any edge record from disk.
    */
   @Benchmark
-  public List<Map<String, Object>> bothEKnows_recentConnections(LdbcBenchmarkState state) {
+  public List<Map<String, Object>> bothEKnows_recentConnections(
+      LdbcBenchmarkState state, KnowsCreationDateIndex knowsCreationDateIndex) {
+    // Parameter forces JMH to run KnowsCreationDateIndex Trial setup/teardown.
+    Objects.requireNonNull(knowsCreationDateIndex);
     long i = state.nextIndex();
     return state.executeSql(
         LdbcQuerySql.BOTH_E_KNOWS,

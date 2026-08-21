@@ -318,6 +318,33 @@ public class LdbcBenchmarkState {
     });
   }
 
+  /**
+   * Creates {@code KNOWS.creationDate} for the BothE-KNOWS microbench.
+   *
+   * <p>Kept out of {@code ldbc-schema.sql}: the index is unused by IC/IS queries
+   * but still occupies cache for every KNOWS edge and regresses IC1. Dropped
+   * again in {@link #dropKnowsCreationDateIndex()} so a shared on-disk DB does
+   * not leave the index behind for later IC/IS forks in the same suite.
+   */
+  void ensureKnowsCreationDateIndex() {
+    traversal.executeInTx(g -> {
+      var ytg = (YTDBGraphTraversalSource) g;
+      ytg.yql(
+          "CREATE INDEX KNOWS.creationDate IF NOT EXISTS ON KNOWS(creationDate) NOTUNIQUE")
+          .iterate();
+    });
+    log.info("Ensured KNOWS.creationDate index for BothE-KNOWS microbench");
+  }
+
+  /** Drops {@code KNOWS.creationDate} if present; see {@link #ensureKnowsCreationDateIndex()}. */
+  void dropKnowsCreationDateIndex() {
+    traversal.executeInTx(g -> {
+      var ytg = (YTDBGraphTraversalSource) g;
+      ytg.yql("DROP INDEX KNOWS.creationDate IF EXISTS").iterate();
+    });
+    log.info("Dropped KNOWS.creationDate index after BothE-KNOWS microbench");
+  }
+
   @Setup(Level.Trial)
   public void setup() throws Exception {
     String scaleFactor = System.getProperty("ldbc.scale.factor", "1");

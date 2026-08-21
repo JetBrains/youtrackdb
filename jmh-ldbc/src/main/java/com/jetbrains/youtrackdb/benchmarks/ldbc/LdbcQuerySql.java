@@ -41,7 +41,8 @@ final class LdbcQuerySql {
   /**
    * Recent KNOWS connections via bothE — targets the bidirectional pre-filter
    * optimization introduced with {@code PreFilterableChainedIterable}.
-   * Requires {@code KNOWS.creationDate} index (added to {@code ldbc-schema.sql}).
+   * Requires {@code KNOWS.creationDate}; created for the BothE microbench only
+   * (see {@link LdbcSingleThreadBothEBenchmark}), not in {@code ldbc-schema.sql}.
    */
   static final String BOTH_E_KNOWS = loadResource("ldbc-queries/both-e-knows.sql");
 
