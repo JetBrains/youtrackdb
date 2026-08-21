@@ -44,10 +44,10 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
   // if multiple tests shared the same class — which they don't here.
   private static final String CLASS_NAME = "AbsCorePathsTest";
 
-  /** Reattachment refreshes a same-slot engine replacement when its generation changes. */
+  /** Reattachment rejects an unbound same-slot replacement from an older carrier. */
   @SuppressWarnings("unchecked")
   @Test
-  public void attachmentRefreshesSameSlotReplacementGeneration() throws Exception {
+  public void attachmentRejectsUnboundSameSlotReplacementGeneration() throws Exception {
     var cls = session.createClass("SameSlotRefresh");
     cls.createProperty("value", PropertyType.INTEGER);
     var indexName = "SameSlotRefresh.value";
@@ -66,15 +66,13 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
 
     engines.set(oldReference.slot(), replacement);
     try {
-      index.attachDescriptorIdentity();
+      assertThrows(IllegalStateException.class, index::attachDescriptorIdentity);
 
-      assertSame("attachment must install the replacement reference",
-          replacement.getEngineReference(), index.getEngineReference());
-      assertTrue("the replacement generation must advance",
-          index.getEngineReference().generation() > oldReference.generation());
-      assertEquals("the replacement must bind to the existing descriptor", index.getIdentity(),
-          index.getEngineReference().ownerDescriptorIdentity());
-      assertSame("an engine replacement must retain the descriptor lifecycle cell", oldCell,
+      assertSame("rejected attachment must retain the old reference",
+          oldReference, index.getEngineReference());
+      assertNull("rejected attachment must not claim the replacement",
+          replacement.getEngineReference().ownerDescriptorIdentity());
+      assertSame("rejected attachment must retain the descriptor lifecycle cell", oldCell,
           index.getLifecycleCell());
     } finally {
       engines.set(oldReference.slot(), oldEngine);

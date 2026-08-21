@@ -152,12 +152,30 @@ public class AbstractStorageCommitPrimitivesTest {
     assertThat(secondReference).isNotNull();
     assertThat(secondReference.slot()).isEqualTo(firstReference.slot());
     assertThat(secondReference.generation()).isGreaterThan(firstReference.generation());
+    var engines = indexEngines(storage);
+    var registered = engines.get(secondReference.slot());
+    var unboundReplacement = new IndexEngineReference(
+        secondReference.slot(), secondReference.apiVersion(), secondReference.generation() + 1);
+    var unboundEngine = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(unboundEngine.getEngineReference()).thenReturn(unboundReplacement);
+    engines.set(secondReference.slot(), unboundEngine);
+    try {
+      assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+          firstIndexId, firstIndex.getIdentity(), firstReference))
+          .as("an older carrier must not claim an unbound replacement generation")
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("reference changed");
+      assertThat(unboundReplacement.ownerDescriptorIdentity()).isNull();
+    } finally {
+      engines.set(secondReference.slot(), registered);
+    }
+
     var futureReference = new IndexEngineReference(
         secondReference.slot(), secondReference.apiVersion(), secondReference.generation() + 1);
     assertThatThrownBy(() -> storage.attachIndexEngineOwner(
         firstIndexId, firstIndex.getIdentity(), futureReference))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("non-monotonically");
+        .hasMessageContaining("reference changed");
   }
 
   // The public addIndexEngine wrapper (now allocate-id + doAddIndexEngine + publish) must
@@ -324,6 +342,50 @@ public class AbstractStorageCommitPrimitivesTest {
                 });
         assertThat(writerEntered.get(10, TimeUnit.SECONDS))
             .as("engine resolution must not release the commit's outer state read lock")
+            .isFalse();
+      }
+    } finally {
+      storage.stateLock.readLock().unlock();
+      db.rollback();
+    }
+  }
+
+  /** Owner recovery during a data write must not release the commit's outer state read lock. */
+  @Test(timeout = 30_000)
+  public void staleDataWriteRecoveryRetainsOuterStateReadLock() throws Exception {
+    db.activateOnCurrentThread();
+    var cls = db.createVertexClass("StaleDataWriteLock");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("StaleDataWriteLock_value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager()
+        .getIndex("StaleDataWriteLock_value");
+    db.begin();
+
+    storage.stateLock.readLock().lock();
+    try {
+      var snapshot = index.engineSnapshot();
+      var staleIdentifier =
+          snapshot.engineReference().apiVersion() << (Integer.SIZE - 5) | 0x7_FF_FF_FF;
+      IndexEngineTestSupport.setEngineIdentifier(index, staleIdentifier);
+      assertThatThrownBy(() -> index.doPut(
+          db, storage, "key", new RecordId(cls.getCollectionIds()[0], 42)))
+          .hasMessageContaining("Atomic operation is not committed yet");
+      assertThat(index.getIndexId()).isEqualTo(snapshot.engineIdentifier());
+      try (var executor = Executors.newSingleThreadExecutor()) {
+        var writerEntered = executor.submit(() -> {
+          if (!storage.stateLock.writeLock().tryLock()) {
+            return false;
+          }
+          try {
+            return true;
+          } finally {
+            storage.stateLock.writeLock().unlock();
+          }
+        });
+        assertThat(writerEntered.get(10, TimeUnit.SECONDS))
+            .as("owner recovery must retain the commit's outer state read lock")
             .isFalse();
       }
     } finally {
@@ -1039,7 +1101,7 @@ public class AbstractStorageCommitPrimitivesTest {
     assertThatThrownBy(() -> storage.attachIndexEngineOwner(
         snapshot.engineIdentifier(), owner, foreignSlot))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("non-monotonically");
+        .hasMessageContaining("reference changed");
 
     var engines = indexEngines(storage);
     var registered = engines.get(live.slot());

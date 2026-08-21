@@ -1534,7 +1534,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
                 snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
           } catch (InvalidIndexEngineIdException exception) {
             // A failed earlier commit can restore the same owner with a fresh engine generation.
-            // Refresh under the commit-window state lock, then retry the side-effect-free check once.
+            // Refresh under the commit-window state lock, then retry the validated deletion once.
             final var resolved = handle.resolveOwnedEngineWithStateLock();
             droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
                 resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);

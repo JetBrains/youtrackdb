@@ -631,6 +631,15 @@ public abstract class IndexAbstract implements Index {
     return true;
   }
 
+  protected final IndexHandleState engineStateForRead() {
+    final var current = state();
+    if (isNeverBuilt(current)) {
+      throw new StaleIndexEngineException(
+          storage.getName(), "Index '" + getName() + "' has not built its engine yet");
+    }
+    return current;
+  }
+
   void setHandleStateForTest(
       int engineIdentifier, @Nullable RID descriptorIdentity) {
     handleState.set(new IndexHandleState(engineIdentifier, null, descriptorIdentity, null));
@@ -638,14 +647,13 @@ public abstract class IndexAbstract implements Index {
 
   void setEngineIdentifierForTest(int engineIdentifier) {
     updateState(current -> new IndexHandleState(
-        engineIdentifier, current.engineReference(), current.descriptorIdentity(),
-        current.lifecycleCell()));
+        engineIdentifier, null, current.descriptorIdentity(), current.lifecycleCell()));
   }
 
   void setDescriptorIdentityForTest(@Nullable RID descriptorIdentity) {
     updateState(current -> new IndexHandleState(
         current.engineIdentifier(), current.engineReference(), descriptorIdentity,
-        descriptorIdentity != null && descriptorIdentity.isPersistent()
+        descriptorIdentity != null && descriptorIdentity.equals(current.descriptorIdentity())
             ? current.lifecycleCell()
             : null));
   }
@@ -979,7 +987,7 @@ public abstract class IndexAbstract implements Index {
       try {
         final var current = state();
         if (current.hasEngine()) {
-          storage.clearIndex(current.engineIdentifier());
+          storage.clearIndex(current.engineIdentifier(), current.engineReference());
         }
       } catch (Exception e2) {
         LogManager.instance().error(this, "Error during index rebuild", e2);
@@ -1021,7 +1029,7 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier());
+        var engine = storage.getIndexEngine(engineIdentifierForRebuildTail());
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           var mgr = btreeEngine.getHistogramManager();
           if (mgr != null) {
@@ -1052,11 +1060,20 @@ public abstract class IndexAbstract implements Index {
    * B-tree writes inside {@code buildInitialHistogram} happen immediately
    * and require a valid commit timestamp for WAL record emission.
    */
+  private int engineIdentifierForRebuildTail() {
+    final var current = state();
+    if (!current.hasEngine()) {
+      throw new StaleIndexEngineException(
+          storage.getName(), "Index '" + getName() + "' became detached during rebuild");
+    }
+    return current.engineIdentifier();
+  }
+
   private void buildHistogramAfterFill() {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(state().engineIdentifier());
+        var engine = storage.getIndexEngine(engineIdentifierForRebuildTail());
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           if (btreeEngine.getHistogramManager() != null) {
             try {
@@ -1097,7 +1114,7 @@ public abstract class IndexAbstract implements Index {
       try {
         final var current = state();
         if (current.hasEngine()) {
-          storage.clearIndex(current.engineIdentifier());
+          storage.clearIndex(current.engineIdentifier(), current.engineReference());
           clearSucceeded = true;
         }
       } catch (Exception e2) {

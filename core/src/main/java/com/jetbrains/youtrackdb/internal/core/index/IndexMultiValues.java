@@ -92,7 +92,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         return Stream.empty();
       }
       Stream<RID> stream;
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -194,7 +194,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -262,7 +262,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -329,7 +329,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -452,7 +452,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     final var entryKey = key;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -511,7 +511,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
         return 0;
       }
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -550,7 +550,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -649,7 +649,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {

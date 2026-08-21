@@ -91,7 +91,7 @@ public abstract class IndexOneValue extends IndexAbstract {
         // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
         return Stream.empty();
       }
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -170,7 +170,7 @@ public abstract class IndexOneValue extends IndexAbstract {
                       final var collatedKey = getCollatingValue(key);
                       acquireSharedLock();
                       try {
-                        var current = state();
+                        var current = engineStateForRead();
                         var recoveryAttempts = 0;
                         while (true) {
                           try {
@@ -231,7 +231,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -295,7 +295,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -363,7 +363,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -432,7 +432,7 @@ public abstract class IndexOneValue extends IndexAbstract {
         // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
         return 0;
       }
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -459,7 +459,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {
@@ -509,7 +509,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
-      var current = state();
+      var current = engineStateForRead();
       var recoveryAttempts = 0;
       while (true) {
         try {

@@ -50,7 +50,7 @@ public class IndexHandleStateTest {
   @Test
   public void ownerRecoveryReusesTheResolvedCarrier() {
     var storage = mock(AbstractStorage.class);
-    var reference = new IndexEngineReference(7, 1, 2);
+    var reference = new IndexEngineReference(7, 0, 2);
     var owner = new RecordId(3, 4);
     when(storage.resolveIndexEngineByOwner(owner))
         .thenReturn(new AbstractStorage.ResolvedIndexEngine(7, reference));
@@ -231,6 +231,14 @@ public class IndexHandleStateTest {
 
     assertEquals(2, index.state().engineIdentifier());
     assertEquals(replacementIdentity, index.state().descriptorIdentity());
+  }
+
+  /** Carrier construction rejects identifier and reference pairs from different engine slots. */
+  @Test
+  public void engineIdentifierMustMatchReference() {
+    assertThrows(
+        IllegalStateException.class,
+        () -> new IndexHandleState(1, new IndexEngineReference(2, 0, 1), null, null));
   }
 
   @Test
