@@ -96,9 +96,21 @@ public class IndexRecoveryPathsTest {
             fixture -> fixture.index.descStream(fixture.session).close()));
   }
 
+  /** Every single-value stream and range path reports a detached carrier as typed staleness. */
+  @Test
+  public void indexOneValueDetachedReadPathsFailWithTypedStaleness() throws Exception {
+    verifyDetachedPaths(IndexUnique::new, indexOneValuePaths());
+  }
+
   @Test
   public void indexMultiValuesRecoveryPathsUseOwnerAndRejectForeignOwner() throws Exception {
     verifyPaths(IndexNotUnique::new, indexMultiValuesPaths());
+  }
+
+  /** Every multi-value stream and range path reports a detached carrier as typed staleness. */
+  @Test
+  public void indexMultiValuesDetachedReadPathsFailWithTypedStaleness() throws Exception {
+    verifyDetachedPaths(IndexNotUnique::new, indexMultiValuesPaths());
   }
 
   /** Every multi-value read path stops after three persistently stale engine attempts. */
@@ -167,28 +179,42 @@ public class IndexRecoveryPathsTest {
 
   @Test
   public void indexAbstractRecoveryPathsUseOwnerAndRejectForeignOwner() throws Exception {
-    verifyPaths(
+    verifyPaths(IndexNotUnique::new, indexAbstractPaths());
+  }
+
+  /** Rebuild-tail helpers convert detached carriers before storage extracts an identifier. */
+  @Test
+  public void indexAbstractRebuildTailRejectsDetachedCarrierWithTypedStaleness()
+      throws Exception {
+    verifyDetachedPaths(
         IndexNotUnique::new,
-        List.of(
-            path("setBulkLoading", "getIndexEngine",
-                fixture -> invokePrivate(fixture.index, "setBulkLoading", boolean.class, true)),
-            path("buildHistogramAfterFill", "getIndexEngine",
-                fixture -> invokePrivate(fixture.index, "buildHistogramAfterFill")),
-            path("doDelete", "deleteIndexEngine",
-                fixture -> fixture.index.doDelete(fixture.transaction)),
-            path("keyStream", "getIndexKeyStream",
-                fixture -> fixture.index.keyStream(fixture.atomicOperation).close()),
-            path("acquireAtomicExclusiveLock", "getIndexEngineWithStateLock",
-                fixture -> fixture.index.acquireAtomicExclusiveLock(fixture.atomicOperation)),
-            path("getStatistics", "getIndexEngine",
-                fixture -> fixture.index.getStatistics(fixture.session)),
-            path("getHistogram", "getIndexEngine",
-                fixture -> fixture.index.getHistogram(fixture.session)),
-            path("analyzeHistogram", "getIndexEngine",
-                fixture -> fixture.index.analyzeHistogram(fixture.session)),
-            path("onIndexEngineChange", "callIndexEngine",
-                fixture -> fixture.index.onIndexEngineChange(
-                    fixture.session, fixture.index.state()))));
+        indexAbstractPaths().stream()
+            .filter(path -> path.name().equals("setBulkLoading")
+                || path.name().equals("buildHistogramAfterFill"))
+            .toList());
+  }
+
+  private static List<RecoveryPath> indexAbstractPaths() {
+    return List.of(
+        path("setBulkLoading", "getIndexEngine",
+            fixture -> invokePrivate(fixture.index, "setBulkLoading", boolean.class, true)),
+        path("buildHistogramAfterFill", "getIndexEngine",
+            fixture -> invokePrivate(fixture.index, "buildHistogramAfterFill")),
+        path("doDelete", "deleteIndexEngine",
+            fixture -> fixture.index.doDelete(fixture.transaction)),
+        path("keyStream", "getIndexKeyStream",
+            fixture -> fixture.index.keyStream(fixture.atomicOperation).close()),
+        path("acquireAtomicExclusiveLock", "getIndexEngineWithStateLock",
+            fixture -> fixture.index.acquireAtomicExclusiveLock(fixture.atomicOperation)),
+        path("getStatistics", "getIndexEngine",
+            fixture -> fixture.index.getStatistics(fixture.session)),
+        path("getHistogram", "getIndexEngine",
+            fixture -> fixture.index.getHistogram(fixture.session)),
+        path("analyzeHistogram", "getIndexEngine",
+            fixture -> fixture.index.analyzeHistogram(fixture.session)),
+        path("onIndexEngineChange", "callIndexEngine",
+            fixture -> fixture.index.onIndexEngineChange(
+                fixture.session, fixture.index.state())));
   }
 
   private static void verifyPaths(IndexFactory factory, List<RecoveryPath> paths) throws Exception {
@@ -206,6 +232,23 @@ public class IndexRecoveryPathsTest {
           path.name() + " must reject a foreign owner",
           StaleIndexEngineException.class,
           () -> path.operation().invoke(foreignFixture));
+    }
+  }
+
+  private static void verifyDetachedPaths(IndexFactory factory, List<RecoveryPath> paths)
+      throws Exception {
+    for (var path : paths) {
+      var fixture = fixture(factory, path.storageMethod());
+      fixture.index.setHandleStateForTest(-1, OWNER);
+
+      assertThrows(
+          path.name() + " must report detached carrier staleness",
+          StaleIndexEngineException.class,
+          () -> path.operation().invoke(fixture));
+      assertEquals(
+          path.name() + " must fail before unchecked storage identifier extraction",
+          0,
+          invocationCount(fixture.storage, path.storageMethod()));
     }
   }
 

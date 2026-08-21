@@ -4294,6 +4294,10 @@ public abstract class AbstractStorage
         if (changes.cleared) {
           if (index instanceof IndexAbstract handle) {
             final var snapshot = handle.engineSnapshot();
+            if (snapshot.engineIdentifier() < 0) {
+              throw new StaleIndexEngineException(
+                  name, "Index engine became unavailable before index clear");
+            }
             final var internalIndexId = extractInternalId(snapshot.engineIdentifier());
             doClearIndex(
                 atomicOperation, internalIndexId,
@@ -4542,7 +4546,7 @@ public abstract class AbstractStorage
 
   /**
    * Binds a local engine to its durable descriptor after that descriptor obtains or loads its RID.
-   * The expected reference must be identical or precede the live generation at the same slot.
+   * A differing reference is accepted only for a newer engine already bound to the same owner.
    */
   @Nullable public IndexEngineReference attachIndexEngineOwner(
       int externalIndexId, RID descriptorIdentity,
@@ -4574,13 +4578,17 @@ public abstract class AbstractStorage
     if (carrierReference == null) {
       throw new IllegalStateException("Index engine unexpectedly gained a process-local reference");
     }
-    if (liveReference != carrierReference
-        && (liveReference.slot() != carrierReference.slot()
-            || liveReference.generation() <= carrierReference.generation())) {
-      throw new IllegalStateException(
-          "Index engine reference changed non-monotonically from generation "
-              + carrierReference.generation() + " to " + liveReference.generation()
-              + " for slot " + liveReference.slot());
+    if (liveReference != carrierReference) {
+      final var liveOwner = liveReference.ownerDescriptorIdentity();
+      final var isOwnedMonotonicReplacement =
+          liveReference.slot() == carrierReference.slot()
+              && liveReference.generation() > carrierReference.generation()
+              && descriptorIdentity.equals(liveOwner);
+      if (!isOwnedMonotonicReplacement) {
+        throw new IllegalStateException(
+            "Index engine reference changed from generation " + carrierReference.generation()
+                + " to " + liveReference.generation() + " for slot " + liveReference.slot());
+      }
     }
 
     liveReference.bindOwner(descriptorIdentity);
@@ -4594,7 +4602,7 @@ public abstract class AbstractStorage
    */
   public ResolvedIndexEngine resolveIndexEngineByOwner(final RID descriptorIdentity) {
     try {
-      if (isCommitWindowActive()) {
+      if (isCommitWindowActive() || stateLock.isReadLockedByCurrentThread()) {
         return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
       }
 

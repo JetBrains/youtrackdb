@@ -18,6 +18,11 @@ record IndexHandleState(
     if (engineIdentifier < 0 && engineReference != null) {
       throw new IllegalStateException("An absent index engine cannot carry a reference");
     }
+    if (engineReference != null
+        && (engineReference.slot() != (engineIdentifier & 0x7_FF_FF_FF)
+            || engineReference.apiVersion() != engineIdentifier >>> (Integer.SIZE - 5))) {
+      throw new IllegalStateException("An index engine identifier must match its reference");
+    }
     if (lifecycleCell != null
         && (descriptorIdentity == null || !descriptorIdentity.isPersistent())) {
       throw new IllegalStateException("A lifecycle cell requires a durable descriptor identity");
