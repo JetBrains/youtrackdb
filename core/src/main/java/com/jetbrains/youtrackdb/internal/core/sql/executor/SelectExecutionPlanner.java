@@ -2351,25 +2351,32 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    // Only optimize a value resolvable now, at plan time (a literal or bound param). By the
-    // time this runs, extractSubQueries() has rewritten `@rid IN (subquery)` into
-    // `@rid IN $$$SUBQUERY$$_N` — a reference to an internal LET variable. isEarlyCalculated()
-    // still reports it as resolvable, but its value is bound only when the LET step runs during
-    // execution; evaluating it here yields empty and would wrongly collapse the plan to an
-    // EmptyStep. isPlanTimeResolvable() excludes it so the query falls through to the scan +
-    // filter, which runs after the LET step.
+    // Plan-time RID fetch fires only for a literal or bound param. extractSubQueries() rewrites
+    // `@rid IN (subquery)` into `@rid IN $$$SUBQUERY$$_N`. isEarlyCalculated() still reports
+    // that as resolvable, but the value is bound only when the LET step runs; evaluating it
+    // here yields empty and would wrongly collapse the plan to EmptyStep. isPlanTimeResolvable()
+    // excludes it so those queries fall through to scan + filter after the LET.
+    // Correlated `$parent` equality is the other non-plan-time case: the RID is known per
+    // parent row at execution, so FetchFromCorrelatedRidStep evaluates it then instead of
+    // scanning the class. IN-lists that refer to $parent stay on the scan path — the
+    // correlated step loads a single identity, not a list.
     var ridExpression = extraction.ridExpression();
     if (!ridExpression.isPlanTimeResolvable(ctx)) {
-      // The expression is not resolvable at plan time, but if it refers to $parent (a
-      // correlated per-record LET subquery like `WHERE @rid = $parent.$current.field`),
-      // we can still avoid the full class scan by deferring RID evaluation to execution
-      // time. FetchFromCorrelatedRidStep evaluates the expression once per parent row
-      // and fetches the single record by RID — O(1) instead of O(class size).
-      if (ridExpression.refersToParent()) {
+      if (fromEquality && ridExpression.refersToParent()) {
+        var classCollectionIds =
+            resolveClassToCollectionIds(queryTarget.getStringValue(), plan);
+        if (classCollectionIds == null) {
+          // Missing class: fall through so the scan path throws "Class or View not present",
+          // matching the plan-time RID branch and the no-WHERE form of this query.
+          return false;
+        }
         var remaining = extraction.remainingWhere();
         info.whereClause = remaining;
         info.flattenedWhereClause = null;
-        plan.chain(new FetchFromCorrelatedRidStep(ridExpression, ctx, profilingEnabled));
+        // Same IntSet membership shape as ExpandStep / MATCH pre-filter / plan-time RID path.
+        plan.chain(
+            new FetchFromCorrelatedRidStep(
+                ridExpression, classCollectionIds, ctx, profilingEnabled));
         return true;
       }
       return false;
@@ -2481,7 +2488,7 @@ public class SelectExecutionPlanner {
    * Used on the scalar-equality path to mirror {@code QueryOperatorEquals.equals}'s size-1
    * collection unwrap: a scalar {@code @rid} only matches a size-1 collection.
    */
-  @Nullable private static Object singleElementOrNull(@Nullable Iterable<?> iterable) {
+  @Nullable static Object singleElementOrNull(@Nullable Iterable<?> iterable) {
     if (iterable == null) {
       return null;
     }
@@ -2501,7 +2508,7 @@ public class SelectExecutionPlanner {
    * in {@code SQLRid.toRecordId}: an {@link Identifiable} yields its identity, a
    * {@link String} is parsed as a RID, anything else is skipped (null).
    */
-  @Nullable private static RecordIdInternal toRecordIdCandidate(Object value) {
+  @Nullable static RecordIdInternal toRecordIdCandidate(Object value) {
     return switch (value) {
       case null -> null;
       // Drop an identity that is not a RecordIdInternal (e.g. a marker/tombstone RID) rather than

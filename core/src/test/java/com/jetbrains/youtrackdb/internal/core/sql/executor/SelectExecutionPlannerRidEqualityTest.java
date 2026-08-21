@@ -1000,6 +1000,19 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         + " LET $info = (SELECT val FROM " + childClass
         + " WHERE @rid = $parent.$current.childRef AND status = 'active')";
 
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "correlated RID plus remainder must compile to FetchFromCorrelatedRidStep, plan was: "
+            + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertFalse(
+        "the inner subquery must NOT use a full class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+    Assert.assertEquals(
+        "the extra predicate must be chained as exactly one FilterStep, plan was: " + plan,
+        1,
+        countOccurrences(plan, "FILTER ITEMS WHERE"));
+
     try (var result = session.query(sql)) {
       int count = 0;
       boolean foundActive = false;
@@ -1017,6 +1030,111 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
       Assert.assertEquals("two parent rows", 2, count);
       Assert.assertTrue("active child must resolve", foundActive);
       Assert.assertTrue("inactive child must be filtered out", foundEmpty);
+    }
+  }
+
+  /**
+   * A null correlated RID (parent field unset) must yield an empty LET subquery, not a class
+   * scan and not a thrown error — the scan+filter this path replaces also matches nothing for
+   * {@code @rid = null}.
+   */
+  @Test
+  public void correlatedRidNull_yieldsEmptySubquery() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    session.newInstance(childClass).setProperty("val", 1);
+    session.newInstance(parentClass);
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE @rid = $parent.$current.childRef)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "null-RHS correlated fetch must still compile to FetchFromCorrelatedRidStep, plan was: "
+            + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var info = result.next().getProperty("info");
+      Assert.assertTrue(
+          "null RID must produce an empty LET result",
+          info == null || (info instanceof java.util.List<?> list && list.isEmpty()));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * A correlated RID that names a record of a different class than the subquery FROM target must
+   * not be loaded. Scan+filter used class membership for free; the correlated fetch has to apply
+   * the same collection-id check or it would leak a wrong-class record.
+   */
+  @Test
+  public void correlatedRidWrongClass_yieldsEmptySubquery() {
+    var parentClass = createClassInstance().getName();
+    var companyClass = createClassInstance().getName();
+    var personClass = createClassInstance().getName();
+    session.begin();
+    var person = session.newInstance(personClass);
+    person.setProperty("fname", "Alice");
+    var personRid = person.getIdentity();
+    session.newInstance(companyClass).setProperty("name", "JetBrains");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("companyRef", personRid);
+    session.commit();
+
+    var sql = "SELECT $comp as company FROM " + parentClass
+        + " LET $comp = (SELECT name FROM " + companyClass
+        + " WHERE @rid = $parent.$current.companyRef)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "wrong-class RID must still compile to FetchFromCorrelatedRidStep, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var company = result.next().getProperty("company");
+      Assert.assertTrue(
+          "Person RID must not load as a Company",
+          company == null || (company instanceof java.util.List<?> list && list.isEmpty()));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * A correlated RID pointing at a deleted in-class position must yield empty, matching a class
+   * scan that never visits a dangling position.
+   */
+  @Test
+  public void correlatedRidDeletedTarget_yieldsEmptySubquery() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var child = session.newInstance(childClass);
+    child.setProperty("val", 7);
+    var childRid = child.getIdentity();
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("childRef", childRid);
+    session.commit();
+    session.begin();
+    session.execute("delete from " + childClass + " where @rid = " + childRid).close();
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE @rid = $parent.$current.childRef)";
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var info = result.next().getProperty("info");
+      Assert.assertTrue(
+          "deleted target RID must produce an empty LET result",
+          info == null || (info instanceof java.util.List<?> list && list.isEmpty()));
+      Assert.assertFalse(result.hasNext());
     }
   }
 
