@@ -10,13 +10,26 @@ on:
       queries:
         description: >
           Comma-separated query IDs to benchmark (e.g. IS1,IC2,IC13).
-          Leave empty to run the full jmh-ldbc suite, including
-          LdbcGremlinTranslatorBenchmark (translator on/off A/B) as well as
-          LdbcSingleThread / LdbcMultiThread SQL LDBC. Full empty-filter
-          compares need ~21h on CCX33 after Gremlin landed; job timeout is 30h.
+          Leave empty to run the full jmh-ldbc suite: SQL LDBC
+          (LdbcSingleThread / LdbcMultiThread) plus
+          LdbcGremlinTranslatorBenchmark. Gremlin arms are controlled by
+          gremlin_arms (default on-only). Full empty-filter with both arms
+          was ~21h on CCX33; on-only is shorter. Job timeout is 30h.
         required: false
         type: string
         default: ''
+      gremlin_arms:
+        description: >
+          Which LdbcGremlinTranslatorBenchmark arms to run and report.
+          'on' (default) = production path only
+          (-p translatorEnabled=true). 'both' = full translator on/off A/B
+          (roughly doubles Gremlin wall time).
+        required: false
+        type: choice
+        options:
+          - on
+          - both
+        default: on
       base_branch:
         description: >
           Base branch to compare against (fork-point is computed with
@@ -45,9 +58,10 @@ jobs:
       - type-ccx33
       - image-x86-system-ubuntu-24.04
       - in-nbg1-fsn1-hel1
-    # Full empty-filter suite = SQL LDBC (single+multi) + LdbcGremlinTranslator
-    # A/B. Observed wall after Gremlin landed: ~21h on CCX33 (20h timeout killed
-    # head ~50 min early). 30h leaves margin for variance and new shapes.
+    # Full empty-filter suite = SQL LDBC (single+multi) + Gremlin translator.
+    # Default gremlin_arms=on runs only the production arm; both ≈ doubles
+    # Gremlin wall (~21h observed for full A/B on CCX33). 30h timeout leaves
+    # margin for variance and new shapes.
     timeout-minutes: 1800
 
     steps:
@@ -199,9 +213,11 @@ jobs:
 
       - name: Build JMH filter from query list
         id: filter
+        env:
+          QUERIES: ${{ inputs.queries }}
+          GREMLIN_ARMS: ${{ inputs.gremlin_arms }}
         run: |
           set -euo pipefail
-          QUERIES="${{ inputs.queries }}"
           if [ -n "$QUERIES" ]; then
             # Convert "IS1,IC2,IC13" → ".*is1_.*|.*ic2_.*|.*ic13_.*"
             JMH_FILTER=$(echo "$QUERIES" \
@@ -214,6 +230,18 @@ jobs:
           else
             echo "jmh_filter=" >> "$GITHUB_OUTPUT"
             echo "Filter: (all benchmarks)"
+          fi
+
+          # Default production arm only. JMH -p applies to benches that declare
+          # the @Param; SQL LDBC classes without translatorEnabled are unchanged.
+          ARMS="${GREMLIN_ARMS:-on}"
+          echo "gremlin_arms=$ARMS" >> "$GITHUB_OUTPUT"
+          if [ "$ARMS" = "on" ]; then
+            echo "jmh_param_arg=-p translatorEnabled=true" >> "$GITHUB_OUTPUT"
+            echo "Gremlin arms: on (-p translatorEnabled=true)"
+          else
+            echo "jmh_param_arg=" >> "$GITHUB_OUTPUT"
+            echo "Gremlin arms: both (on/off A/B)"
           fi
 
       - name: Save helper scripts
@@ -338,14 +366,19 @@ jobs:
       - name: 'Base: warm OS page cache'
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
         run: |
           FILTER_ARG=""
+          PARAM_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
+          if [ -n "$JMH_PARAM" ]; then
+            PARAM_ARG="$JMH_PARAM "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
             2>&1 | tee /tmp/jmh-warm-base-${{ github.run_id }}.txt
 
           # JMH exits 0 even when all benchmarks fail with -f 0.
@@ -365,14 +398,19 @@ jobs:
       - name: 'Base: run benchmarks'
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
         run: |
           FILTER_ARG=""
+          PARAM_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
+          if [ -n "$JMH_PARAM" ]; then
+            PARAM_ARG="$JMH_PARAM "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}-rf json -rff /tmp/jmh-base-${{ github.run_id }}.json" \
+            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-base-${{ github.run_id }}.json" \
             2>&1 | tee /tmp/jmh-base-log-${{ github.run_id }}.txt
 
           # Validate that JMH produced results (it exits 0 even on total failure)
@@ -452,14 +490,19 @@ jobs:
       - name: 'Head: warm OS page cache'
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
         run: |
           FILTER_ARG=""
+          PARAM_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
+          if [ -n "$JMH_PARAM" ]; then
+            PARAM_ARG="$JMH_PARAM "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
             2>&1 | tee /tmp/jmh-warm-head-${{ github.run_id }}.txt
 
           # JMH exits 0 even when all benchmarks fail with -f 0.
@@ -477,14 +520,19 @@ jobs:
       - name: 'Head: run benchmarks'
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
         run: |
           FILTER_ARG=""
+          PARAM_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
+          if [ -n "$JMH_PARAM" ]; then
+            PARAM_ARG="$JMH_PARAM "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}-rf json -rff /tmp/jmh-head-${{ github.run_id }}.json" \
+            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-head-${{ github.run_id }}.json" \
             2>&1 | tee /tmp/jmh-head-log-${{ github.run_id }}.txt
 
           # Validate that JMH produced results
@@ -512,6 +560,7 @@ jobs:
             --repo-url "${{ github.server_url }}/${{ github.repository }}" \
             --base-load-time "${{ steps.base_load.outputs.load_time }}" \
             --head-load-time "${{ steps.head_load.outputs.load_time }}" \
+            --gremlin-arms "${{ steps.filter.outputs.gremlin_arms }}" \
             --output "/tmp/jmh-comparison-${{ github.run_id }}.md"
 
       - name: Upload artifacts
