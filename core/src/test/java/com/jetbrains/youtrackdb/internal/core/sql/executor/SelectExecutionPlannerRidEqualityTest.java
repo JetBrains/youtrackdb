@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -956,18 +957,6 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         + " LET $comp = (SELECT name FROM " + companyClass
         + " WHERE @rid = $parent.$current.companyRef)";
 
-    // Verify correctness: the LET subquery should resolve the company by RID.
-    try (var result = session.query(sql)) {
-      Assert.assertTrue("query must return one row", result.hasNext());
-      var row = result.next();
-      Assert.assertEquals("Alice", row.getProperty("fname"));
-      var comp = row.getProperty("company");
-      Assert.assertNotNull("company LET must resolve", comp);
-      Assert.assertFalse("only one row expected", result.hasNext());
-    }
-
-    // Verify plan shape: the inner subquery must use FETCH FROM CORRELATED RID,
-    // not a full class scan.
     var plan = explainPlan(sql);
     Assert.assertTrue(
         "correlated @rid = $parent.$current.<field> must compile to "
@@ -976,6 +965,17 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     Assert.assertFalse(
         "the inner subquery must NOT use a full class scan, plan was: " + plan,
         plan.contains("FETCH FROM CLASS " + companyClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue("query must return one row", result.hasNext());
+      var row = result.next();
+      Assert.assertEquals("Alice", row.getProperty("fname"));
+      Assert.assertEquals(
+          "LET must resolve the company named by companyRef",
+          "JetBrains",
+          singleLetProperty(row.getProperty("company"), "name"));
+      Assert.assertFalse("only one row expected", result.hasNext());
+    }
   }
 
   /**
@@ -997,14 +997,17 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     inactiveChild.setProperty("val", 99);
     var inactiveRid = inactiveChild.getIdentity();
     var p1 = session.newInstance(parentClass);
+    p1.setProperty("name", "activeParent");
     p1.setProperty("childRef", activeRid);
     var p2 = session.newInstance(parentClass);
+    p2.setProperty("name", "inactiveParent");
     p2.setProperty("childRef", inactiveRid);
     session.commit();
 
-    var sql = "SELECT $info as info FROM " + parentClass
+    var sql = "SELECT name, $info as info FROM " + parentClass
         + " LET $info = (SELECT val FROM " + childClass
-        + " WHERE @rid = $parent.$current.childRef AND status = 'active')";
+        + " WHERE @rid = $parent.$current.childRef AND status = 'active')"
+        + " ORDER BY name";
 
     var plan = explainPlan(sql);
     Assert.assertTrue(
@@ -1020,22 +1023,20 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         countOccurrences(plan, "FILTER ITEMS WHERE"));
 
     try (var result = session.query(sql)) {
-      int count = 0;
-      boolean foundActive = false;
-      boolean foundEmpty = false;
-      while (result.hasNext()) {
-        var row = result.next();
-        var info = row.getProperty("info");
-        if (info instanceof java.util.List<?> list && !list.isEmpty()) {
-          foundActive = true;
-        } else {
-          foundEmpty = true;
-        }
-        count++;
-      }
-      Assert.assertEquals("two parent rows", 2, count);
-      Assert.assertTrue("active child must resolve", foundActive);
-      Assert.assertTrue("inactive child must be filtered out", foundEmpty);
+      Assert.assertTrue(result.hasNext());
+      var activeRow = result.next();
+      Assert.assertEquals("activeParent", activeRow.getProperty("name"));
+      Assert.assertEquals(
+          "active child must keep val=42 after the remainder filter",
+          42,
+          ((Number) singleLetProperty(activeRow.getProperty("info"), "val")).intValue());
+      Assert.assertTrue(result.hasNext());
+      var inactiveRow = result.next();
+      Assert.assertEquals("inactiveParent", inactiveRow.getProperty("name"));
+      assertLetEmpty(
+          "inactive child must be excluded by status='active'",
+          inactiveRow.getProperty("info"));
+      Assert.assertFalse(result.hasNext());
     }
   }
 
@@ -1065,10 +1066,8 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var info = result.next().getProperty("info");
-      Assert.assertTrue(
-          "null RID must produce an empty LET result",
-          info == null || (info instanceof java.util.List<?> list && list.isEmpty()));
+      assertLetEmpty("null RID must produce an empty LET result",
+          result.next().getProperty("info"));
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1103,10 +1102,8 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var company = result.next().getProperty("company");
-      Assert.assertTrue(
-          "Person RID must not load as a Company",
-          company == null || (company instanceof java.util.List<?> list && list.isEmpty()));
+      assertLetEmpty(
+          "Person RID must not load as a Company", result.next().getProperty("company"));
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1134,21 +1131,25 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         + " LET $info = (SELECT val FROM " + childClass
         + " WHERE @rid = $parent.$current.childRef)";
 
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "deleted-target correlated fetch must still compile to FetchFromCorrelatedRidStep, plan "
+            + "was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var info = result.next().getProperty("info");
-      Assert.assertTrue(
+      assertLetEmpty(
           "deleted target RID must produce an empty LET result",
-          info == null || (info instanceof java.util.List<?> list && list.isEmpty()));
+          result.next().getProperty("info"));
       Assert.assertFalse(result.hasNext());
     }
   }
 
   /**
-   * IC1-shaped LET: {@code SELECT expand(outE(...)) FROM Person WHERE @rid =
-   * $parent.$current.friendVertex}. The RHS is a LINK to a vertex entity (Identifiable), not a raw
-   * RID literal — the same shape LDBC IC1 uses for {@code friendVertex}. Plan must use correlated
-   * RID fetch; result must expose the friend's outgoing STUDY_AT edge.
+   * IC1-shaped LET: expand(outE) from Person where {@code @rid = $parent.$current.friendVertex},
+   * then project {@code inV().name}. RHS is a LINK to a vertex entity (Identifiable). Plan must
+   * use correlated RID fetch; result must be the friend's university name, not a mere edge count.
    */
   @Test
   public void correlatedRidIc1Shape_expandOutE_withEntityFriendVertex() {
@@ -1169,13 +1170,16 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     // Store the vertex entity itself (Identifiable), matching IC1's friendVertex projection.
     var outer = session.newInstance(outerClass);
     outer.setProperty("friendVertex", friend);
-    // Noise person: a fall-through class scan would still "work" but must not be required.
+    // Noise person with no STUDY_AT edge — wrong-friend fetch would yield empty uniName.
     session.newVertex(personClass).setProperty("fname", "Other");
     session.commit();
 
-    var sql = "SELECT $edges as edges FROM " + outerClass
-        + " LET $edges = (SELECT expand(outE('" + studyAt + "')) FROM " + personClass
-        + " WHERE @rid = $parent.$current.friendVertex)";
+    var sql = "SELECT $unis as universities FROM " + outerClass
+        + " LET $unis = ("
+        + "SELECT inV().name as uniName FROM ("
+        + "SELECT expand(outE('" + studyAt + "')) FROM " + personClass
+        + " WHERE @rid = $parent.$current.friendVertex"
+        + "))";
 
     var plan = explainPlan(sql);
     Assert.assertTrue(
@@ -1188,10 +1192,10 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var edges = result.next().getProperty("edges");
-      Assert.assertTrue("LET must materialize the expanded outE result", edges instanceof List);
       Assert.assertEquals(
-          "friend must contribute exactly one STUDY_AT edge", 1, ((List<?>) edges).size());
+          "friendVertex must resolve Bob's STUDY_AT university, not the noise person",
+          "MIT",
+          singleLetProperty(result.next().getProperty("universities"), "uniName"));
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1222,9 +1226,9 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var companyRows = result.next().getProperty("company");
-      Assert.assertTrue(companyRows instanceof List);
-      Assert.assertEquals(1, ((List<?>) companyRows).size());
+      Assert.assertEquals(
+          "JetBrains",
+          singleLetProperty(result.next().getProperty("company"), "name"));
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1258,9 +1262,9 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var info = result.next().getProperty("info");
-      Assert.assertTrue(info instanceof List);
-      Assert.assertEquals(1, ((List<?>) info).size());
+      Assert.assertEquals(
+          11,
+          ((Number) singleLetProperty(result.next().getProperty("info"), "val")).intValue());
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1292,9 +1296,7 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var x = result.next().getProperty("x");
-      Assert.assertTrue(x instanceof List);
-      Assert.assertEquals(1, ((List<?>) x).size());
+      Assert.assertEquals("sub", singleLetProperty(result.next().getProperty("x"), "tag"));
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1324,9 +1326,9 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var info = result.next().getProperty("info");
-      Assert.assertTrue(info instanceof List);
-      Assert.assertEquals(1, ((List<?>) info).size());
+      Assert.assertEquals(
+          3,
+          ((Number) singleLetProperty(result.next().getProperty("info"), "val")).intValue());
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1360,10 +1362,76 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
     try (var result = session.query(sql)) {
       Assert.assertTrue(result.hasNext());
-      var info = result.next().getProperty("info");
-      Assert.assertTrue(
+      assertLetEmpty(
           "@rid = <size-2 collection> must not expand into a multi-fetch",
-          info == null || (info instanceof List<?> list && list.isEmpty()));
+          result.next().getProperty("info"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated equality whose RHS is an empty Collection must yield empty — size-0 unwrap boundary
+   * complementary to the size-1 and size-2+ cases.
+   */
+  @Test
+  public void correlatedRidEmptyCollectionRhs_yieldsEmpty() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    session.newInstance(childClass).setProperty("val", 1);
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("refs");
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE @rid = $parent.$current.refs)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      assertLetEmpty(
+          "@rid = <empty collection> must match nothing",
+          result.next().getProperty("info"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated equality whose RHS is a malformed RID string must yield empty (no throw) — parity
+   * with plan-time {@code @rid = 'garbage'} and QueryOperatorEquals. Successful string parsing is
+   * covered by {@link FetchFromCorrelatedRidStepTest#stringLiteralRidFetchesRecord} (shared
+   * {@code toRecordIdCandidate} String arm).
+   */
+  @Test
+  public void correlatedRidMalformedStringRhs_yieldsEmpty() {
+    var parentSchema = createClassInstance();
+    parentSchema.createProperty("childRef", PropertyType.STRING);
+    var parentClass = parentSchema.getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    session.newInstance(childClass).setProperty("val", 1);
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("childRef", "garbage");
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE @rid = $parent.$current.childRef)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "malformed string RHS must still compile to FetchFromCorrelatedRidStep, plan was: "
+            + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      assertLetEmpty(
+          "malformed RID string must yield empty LET (no throw)",
+          result.next().getProperty("info"));
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1482,11 +1550,17 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
       Assert.assertTrue(result.hasNext());
       var row1 = result.next();
       Assert.assertEquals("p1", row1.getProperty("name"));
-      Assert.assertEquals(1, ((List<?>) row1.getProperty("info")).size());
+      Assert.assertEquals(
+          "first parent must resolve its own child (tag=one), not a stale RID",
+          "one",
+          singleLetProperty(row1.getProperty("info"), "tag"));
       Assert.assertTrue(result.hasNext());
       var row2 = result.next();
       Assert.assertEquals("p2", row2.getProperty("name"));
-      Assert.assertEquals(1, ((List<?>) row2.getProperty("info")).size());
+      Assert.assertEquals(
+          "second parent must resolve its own child (tag=two), not the first parent's RID",
+          "two",
+          singleLetProperty(row2.getProperty("info"), "tag"));
       Assert.assertFalse(result.hasNext());
     }
   }
@@ -1548,6 +1622,69 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
       Assert.assertFalse(
           "@rid = [two rids] must return empty (equals, not IN)", result.hasNext());
     }
+  }
+
+  /**
+   * A scalar {@code @rid = :param} bound to a non-Collection multi-value ({@code Object[]}) must
+   * fall through and return empty — QueryOperatorEquals only unwraps {@code Collection}, so an
+   * array never matches a scalar {@code @rid}. The fast path must not treat arrays as IN-lists.
+   */
+  @Test
+  public void ridEqualsObjectArrayParam_returnsEmpty() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(className);
+    a.setProperty("tag", "a");
+    var b = session.newInstance(className);
+    b.setProperty("tag", "b");
+    var ridA = a.getIdentity();
+    var ridB = b.getIdentity();
+    session.commit();
+
+    Map<Object, Object> params = new HashMap<>();
+    params.put("p", new Object[] {ridA, ridB});
+
+    var sql = "select from " + className + " where @rid = :p";
+    var plan = explainPlanWithParams(sql, params);
+    Assert.assertTrue(
+        "Object[] RHS must fall through to the class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS"));
+    Assert.assertFalse(
+        "Object[] must NOT expand into FetchFromRidsStep, plan was: " + plan,
+        plan.contains("FETCH FROM RIDs"));
+
+    try (var result = session.query(sql, params)) {
+      Assert.assertFalse(
+          "@rid = Object[] must return empty (parity with QueryOperatorEquals)",
+          result.hasNext());
+    }
+  }
+
+  /**
+   * Extracts a single projected property from a one-row LET subquery list result. Fails loudly if
+   * the LET is null, empty, multi-row, or not a {@link Result} — success-path tests must pin the
+   * distinguishing value, not merely {@code size == 1}.
+   */
+  private static Object singleLetProperty(Object letValue, String property) {
+    Assert.assertNotNull("LET result must not be null when a row is expected", letValue);
+    Assert.assertTrue(
+        "LET result must be a List, got: " + letValue.getClass().getName(),
+        letValue instanceof List);
+    var list = (List<?>) letValue;
+    Assert.assertEquals("LET subquery must return exactly one row", 1, list.size());
+    var row = list.get(0);
+    Assert.assertTrue(
+        "LET subquery row must be a Result, got: "
+            + (row == null ? "null" : row.getClass().getName()),
+        row instanceof Result);
+    return ((Result) row).getProperty(property);
+  }
+
+  /** Asserts a LET subquery produced no rows ({@code null} or an empty list). */
+  private static void assertLetEmpty(String message, Object letValue) {
+    Assert.assertTrue(
+        message + " (got: " + letValue + ")",
+        letValue == null || (letValue instanceof List<?> list && list.isEmpty()));
   }
 
   /** Counts non-overlapping occurrences of {@code needle} in {@code haystack}. */
