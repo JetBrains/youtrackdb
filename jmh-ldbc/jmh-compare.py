@@ -29,8 +29,44 @@ def _safe_score_error(value):
         return 0
 
 
+def _suite_for_class(class_name):
+    """Map a JMH class simple name to a comparison suite label."""
+    if "SingleThread" in class_name:
+        return "SingleThread"
+    if "MultiThread" in class_name:
+        return "MultiThread"
+    # LdbcGremlinTranslatorBenchmark (and any future *Gremlin* class) share one
+    # suite so the PR comment can render them as a dedicated section.
+    if "Gremlin" in class_name:
+        return "Gremlin"
+    return class_name
+
+
+def _param_label(params):
+    """Build a short suffix for JMH @Param values, or empty if none.
+
+    ``translatorEnabled`` is the Gremlin A/B arm — render as ``[on]`` / ``[off]``
+    so both arms survive as distinct rows. Without this, parse would key only by
+    method name and the second arm would overwrite the first.
+    """
+    if not params:
+        return ""
+    parts = []
+    for key in sorted(params):
+        value = str(params[key])
+        if key == "translatorEnabled":
+            parts.append("on" if value == "true" else "off")
+        else:
+            parts.append(f"{key}={value}")
+    return f" [{', '.join(parts)}]"
+
+
 def parse_jmh_results(data):
-    """Parse JMH JSON into dict keyed by (query, suite)."""
+    """Parse JMH JSON into dict keyed by (query, suite).
+
+    ``query`` is the benchmark method name, plus a param suffix when JMH
+    ``params`` are present (e.g. ``gremlinKnowsFirstNames [on]``).
+    """
     results = {}
     for entry in data:
         benchmark_full = entry["benchmark"]
@@ -38,20 +74,16 @@ def parse_jmh_results(data):
             continue
         class_name_full, method_name = benchmark_full.rsplit(".", 1)
         class_name = class_name_full.rsplit(".", 1)[-1]
+        suite = _suite_for_class(class_name)
 
-        if "SingleThread" in class_name:
-            suite = "SingleThread"
-        elif "MultiThread" in class_name:
-            suite = "MultiThread"
-        else:
-            suite = class_name
+        label = method_name + _param_label(entry.get("params") or {})
 
         primary = entry.get("primaryMetric", {})
         score = primary.get("score", 0)
         score_error = _safe_score_error(primary.get("scoreError"))
 
-        results[(method_name, suite)] = {
-            "query": method_name,
+        results[(label, suite)] = {
+            "query": label,
             "suite": suite,
             "score": score,
             "score_error": score_error,
@@ -378,12 +410,19 @@ def main():
         lines.append("")
 
     for suite, label in [("SingleThread", "Single-Thread"),
-                         ("MultiThread", "Multi-Thread")]:
+                         ("MultiThread", "Multi-Thread"),
+                         ("Gremlin", "Gremlin Translator")]:
         rows = build_suite_table(base, head, suite)
         if not rows:
             continue
         lines.append(f"### {label} Results")
         lines.append("")
+        if suite == "Gremlin":
+            lines.append(
+                "Translator on/off A/B from `LdbcGremlinTranslatorBenchmark`. "
+                "Each row is one shape \u00d7 arm (`[on]` / `[off]`)."
+            )
+            lines.append("")
         lines.append(
             "| Benchmark | Base ops/s | Base err | Head ops/s | Head err | \u0394% |"
         )
