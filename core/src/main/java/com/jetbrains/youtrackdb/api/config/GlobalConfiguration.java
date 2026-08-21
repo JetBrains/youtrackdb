@@ -1456,6 +1456,21 @@ public enum GlobalConfiguration {
       10,
       true),
 
+  /**
+   * Default null comparison semantic for {@code ORDER BY} items that omit {@code NULLS FIRST} /
+   * {@code NULLS LAST}. See {@link OrderByNullsDefault}. Changeable at runtime so tests and
+   * deployments can flip the default without restarting.
+   */
+  QUERY_ORDER_BY_NULLS_DEFAULT(
+      "youtrackdb.query.orderBy.nullsDefault",
+      "Default null ordering for ORDER BY when NULLS FIRST/LAST is omitted. "
+          + "NULLS_SMALLEST (default): nulls first for ASC, nulls last for DESC. "
+          + "NULLS_LARGEST: nulls last for ASC, nulls first for DESC. "
+          + "An explicit NULLS FIRST/LAST on an ORDER BY item overrides this setting.",
+      OrderByNullsDefault.class,
+      OrderByNullsDefault.NULLS_SMALLEST,
+      true),
+
   QUERY_INDEX_ORDERED_MIN_LINKBAG(
       "youtrackdb.query.indexOrdered.minLinkBag",
       "Minimum LinkBag size below which the index-ordered MATCH optimization"

@@ -42,7 +42,7 @@ MATCH
   ]*
 RETURN [DISTINCT] <expression> [ AS <alias> ] [, <expression> [ AS <alias> ]]*
 GROUP BY <expression> [, <expression>]*
-ORDER BY <expression> [, <expression>]*
+ORDER BY <expression> [, <expression>]* [ ASC|DESC ] [ NULLS FIRST|NULLS LAST ]
 SKIP <number>
 LIMIT <number>
 ```
