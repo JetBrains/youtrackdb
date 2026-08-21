@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -19,6 +20,11 @@ import org.junit.Test;
  * preserving the class-membership and cardinality semantics the scan gave for free. Plan shape is
  * asserted via {@code EXPLAIN}'s {@code executionPlanAsString}: {@code FetchFromRidsStep} renders
  * as "FETCH FROM RIDs" and {@code FetchFromClassExecutionStep} as "FETCH FROM CLASS".
+ *
+ * <p>Correlated {@code @rid = $parent.$current...} (IC1-style LET subqueries) compiles to
+ * {@code FetchFromCorrelatedRidStep} ("FETCH FROM CORRELATED RID"). Negative cases lock the
+ * intentional non-optimizations: correlated {@code IN}, OR of RID equalities, and scalar equality
+ * against a multi-element collection.
  */
 public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
 
@@ -1135,6 +1141,412 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
           "deleted target RID must produce an empty LET result",
           info == null || (info instanceof java.util.List<?> list && list.isEmpty()));
       Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * IC1-shaped LET: {@code SELECT expand(outE(...)) FROM Person WHERE @rid =
+   * $parent.$current.friendVertex}. The RHS is a LINK to a vertex entity (Identifiable), not a raw
+   * RID literal — the same shape LDBC IC1 uses for {@code friendVertex}. Plan must use correlated
+   * RID fetch; result must expose the friend's outgoing STUDY_AT edge.
+   */
+  @Test
+  public void correlatedRidIc1Shape_expandOutE_withEntityFriendVertex() {
+    var personClass = "Person" + System.nanoTime();
+    var uniClass = "Uni" + System.nanoTime();
+    var studyAt = "StudyAt" + System.nanoTime();
+    var outerClass = createClassInstance().getName();
+    session.createVertexClass(personClass);
+    session.createVertexClass(uniClass);
+    session.createEdgeClass(studyAt);
+
+    session.begin();
+    var friend = session.newVertex(personClass);
+    friend.setProperty("fname", "Bob");
+    var uni = session.newVertex(uniClass);
+    uni.setProperty("name", "MIT");
+    session.newEdge(friend, uni, studyAt);
+    // Store the vertex entity itself (Identifiable), matching IC1's friendVertex projection.
+    var outer = session.newInstance(outerClass);
+    outer.setProperty("friendVertex", friend);
+    // Noise person: a fall-through class scan would still "work" but must not be required.
+    session.newVertex(personClass).setProperty("fname", "Other");
+    session.commit();
+
+    var sql = "SELECT $edges as edges FROM " + outerClass
+        + " LET $edges = (SELECT expand(outE('" + studyAt + "')) FROM " + personClass
+        + " WHERE @rid = $parent.$current.friendVertex)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "IC1-shaped correlated @rid = $parent.$current.friendVertex must use "
+            + "FetchFromCorrelatedRidStep, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertFalse(
+        "inner Person lookup must not scan the class, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + personClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var edges = result.next().getProperty("edges");
+      Assert.assertTrue("LET must materialize the expanded outE result", edges instanceof List);
+      Assert.assertEquals(
+          "friend must contribute exactly one STUDY_AT edge", 1, ((List<?>) edges).size());
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated equality whose RHS is a LINK to an entity (Identifiable), not a RID property value.
+   * {@code toRecordIdCandidate}'s Identifiable arm must resolve the identity and fetch the record.
+   */
+  @Test
+  public void correlatedRidEntityLinkRhs_fetchesRecord() {
+    var parentClass = createClassInstance().getName();
+    var companyClass = createClassInstance().getName();
+    session.begin();
+    var company = session.newInstance(companyClass);
+    company.setProperty("name", "JetBrains");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("company", company);
+    session.commit();
+
+    var sql = "SELECT $comp as company FROM " + parentClass
+        + " LET $comp = (SELECT name FROM " + companyClass
+        + " WHERE @rid = $parent.$current.company)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "Identifiable LINK RHS must still use FetchFromCorrelatedRidStep, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var companyRows = result.next().getProperty("company");
+      Assert.assertTrue(companyRows instanceof List);
+      Assert.assertEquals(1, ((List<?>) companyRows).size());
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Reversed correlated operands ({@code $parent.$current.ref = @rid}) must take the same
+   * correlated fetch path as {@code @rid = $parent...} — the equality extractor accepts both
+   * orders.
+   */
+  @Test
+  public void correlatedRidReversedOperands_usesCorrelatedRidFetch() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var child = session.newInstance(childClass);
+    child.setProperty("val", 11);
+    var childRid = child.getIdentity();
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("childRef", childRid);
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE $parent.$current.childRef = @rid)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "reversed correlated equality must use FetchFromCorrelatedRidStep, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertFalse(plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var info = result.next().getProperty("info");
+      Assert.assertTrue(info instanceof List);
+      Assert.assertEquals(1, ((List<?>) info).size());
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Subclass RID under a superclass FROM in a correlated LET must load the subclass record —
+   * polymorphic membership, same as the plan-time subclass criterion.
+   */
+  @Test
+  public void correlatedRidSubclassUnderSuperclass_returnsRecord() {
+    var parentClass = createClassInstance().getName();
+    var superClass = createClassInstance();
+    var subClass = createChildClassInstance(superClass);
+    session.begin();
+    var sub = session.newInstance(subClass.getName());
+    sub.setProperty("tag", "sub");
+    var subRid = sub.getIdentity();
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", subRid);
+    session.commit();
+
+    var sql = "SELECT $x as x FROM " + parentClass
+        + " LET $x = (SELECT tag FROM " + superClass.getName()
+        + " WHERE @rid = $parent.$current.ref)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertFalse(plan.contains("FETCH FROM CLASS " + superClass.getName()));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var x = result.next().getProperty("x");
+      Assert.assertTrue(x instanceof List);
+      Assert.assertEquals(1, ((List<?>) x).size());
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated equality whose RHS evaluates to a size-1 Collection must unwrap and fetch — parity
+   * with QueryOperatorEquals and the plan-time size-1 collection param path.
+   */
+  @Test
+  public void correlatedRidSingleElementCollectionRhs_fetchesRecord() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var child = session.newInstance(childClass);
+    child.setProperty("val", 3);
+    var childRid = child.getIdentity();
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("refs").add(childRid);
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE @rid = $parent.$current.refs)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var info = result.next().getProperty("info");
+      Assert.assertTrue(info instanceof List);
+      Assert.assertEquals(1, ((List<?>) info).size());
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated equality whose RHS is a Collection of size 2+ must yield empty (not expand like IN).
+   * Matches plan-time {@code @rid = [#a, #b]} / multi-element param parity with QueryOperatorEquals.
+   */
+  @Test
+  public void correlatedRidMultiElementCollectionRhs_yieldsEmpty() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(childClass);
+    a.setProperty("val", 1);
+    var b = session.newInstance(childClass);
+    b.setProperty("val", 2);
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("refs").addAll(List.of(a.getIdentity(), b.getIdentity()));
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT val FROM " + childClass
+        + " WHERE @rid = $parent.$current.refs)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "size-2+ equality RHS must still compile to FetchFromCorrelatedRidStep (runtime empty), "
+            + "plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var info = result.next().getProperty("info");
+      Assert.assertTrue(
+          "@rid = <size-2 collection> must not expand into a multi-fetch",
+          info == null || (info instanceof List<?> list && list.isEmpty()));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated {@code @rid IN $parent.$current.<list>} must fall through to a class scan — the
+   * correlated step is equality-only and must not pretend IN expands a parent-bound list.
+   */
+  @Test
+  public void correlatedRidInParentList_fallsThroughToScan() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(childClass);
+    a.setProperty("tag", "a");
+    var b = session.newInstance(childClass);
+    b.setProperty("tag", "b");
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("refs").addAll(List.of(a.getIdentity(), b.getIdentity()));
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid IN $parent.$current.refs)";
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "correlated @rid IN $parent must NOT use FetchFromCorrelatedRidStep, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertTrue(
+        "correlated @rid IN $parent must fall through to the class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var info = result.next().getProperty("info");
+      Assert.assertTrue(info instanceof List);
+      Set<String> tags = new HashSet<>();
+      for (var row : (List<?>) info) {
+        Assert.assertTrue(
+            "LET subquery rows must be Result instances, got: "
+                + (row == null ? "null" : row.getClass().getName()),
+            row instanceof Result);
+        tags.add(((Result) row).getProperty("tag"));
+      }
+      // Scan+filter must still return both members named by the parent list.
+      Assert.assertEquals(Set.of("a", "b"), tags);
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Plan-time {@code @rid = a OR @rid = b} must not take the RID-fetch fast path (multiple OR
+   * branches) and must still return both records via the class scan.
+   */
+  @Test
+  public void ridEqualsOrRidEquals_fallsThroughToScanReturnsBoth() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(className);
+    a.setProperty("tag", "a");
+    var b = session.newInstance(className);
+    b.setProperty("tag", "b");
+    var ridA = a.getIdentity();
+    var ridB = b.getIdentity();
+    session.commit();
+
+    var sql = "select from " + className + " where @rid = " + ridA + " or @rid = " + ridB;
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "@rid = a OR @rid = b must fall through to the class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS"));
+    Assert.assertFalse(
+        "OR of RID equalities must not compile to FetchFromRidsStep, plan was: " + plan,
+        plan.contains("FETCH FROM RIDs"));
+    Assert.assertFalse(plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Set<String> seen = new HashSet<>();
+      while (result.hasNext()) {
+        seen.add(result.next().getProperty("tag"));
+      }
+      Assert.assertEquals(Set.of("a", "b"), seen);
+    }
+  }
+
+  /**
+   * Several parent rows, each with a different correlated RID, must each resolve independently —
+   * one fetch per parent row, not a shared stale RID from the first parent.
+   */
+  @Test
+  public void correlatedRidMultipleParents_eachResolvesOwnTarget() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var c1 = session.newInstance(childClass);
+    c1.setProperty("tag", "one");
+    var c2 = session.newInstance(childClass);
+    c2.setProperty("tag", "two");
+    var p1 = session.newInstance(parentClass);
+    p1.setProperty("name", "p1");
+    p1.setProperty("childRef", c1.getIdentity());
+    var p2 = session.newInstance(parentClass);
+    p2.setProperty("name", "p2");
+    p2.setProperty("childRef", c2.getIdentity());
+    session.commit();
+
+    var sql = "SELECT name, $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.childRef) ORDER BY name";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var row1 = result.next();
+      Assert.assertEquals("p1", row1.getProperty("name"));
+      Assert.assertEquals(1, ((List<?>) row1.getProperty("info")).size());
+      Assert.assertTrue(result.hasNext());
+      var row2 = result.next();
+      Assert.assertEquals("p2", row2.getProperty("name"));
+      Assert.assertEquals(1, ((List<?>) row2.getProperty("info")).size());
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated {@code @rid = $parent...} against a nonexistent FROM class must still throw when the
+   * plan is built (EXPLAIN), matching the plan-time RID path's class-existence contract. The
+   * correlated handler falls through on a missing class so the scan path can raise the error rather
+   * than chaining an EmptyStep that would mask a typo'd class name.
+   */
+  @Test
+  public void correlatedRidNonexistentClass_throwsClassNotPresent() {
+    var parentClass = createClassInstance().getName();
+    var missingClass = "NoSuchClass" + System.nanoTime();
+    session.begin();
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", "#12:0");
+    session.commit();
+
+    var sql = "SELECT $x as x FROM " + parentClass
+        + " LET $x = (SELECT FROM " + missingClass
+        + " WHERE @rid = $parent.$current.ref)";
+    try {
+      explainPlan(sql);
+      Assert.fail("correlated @rid against a missing class must throw at plan time, not EXPLAIN");
+    } catch (CommandExecutionException e) {
+      Assert.assertTrue(
+          "the error must name the missing class, message was: " + e.getMessage(),
+          e.getMessage().contains(missingClass));
+    }
+  }
+
+  /**
+   * Plan-time scalar {@code @rid = [#a, #b]} (equality, Collection size 2) must fall through and
+   * return empty — not IN semantics, not a multi-RID fetch.
+   */
+  @Test
+  public void ridEqualsTwoElementLiteralCollection_returnsEmpty() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(className);
+    a.setProperty("tag", "a");
+    var b = session.newInstance(className);
+    b.setProperty("tag", "b");
+    var ridA = a.getIdentity();
+    var ridB = b.getIdentity();
+    session.commit();
+
+    var sql = "select from " + className + " where @rid = [" + ridA + ", " + ridB + "]";
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "@rid = [a, b] must fall through to the class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS"));
+    Assert.assertFalse(
+        "@rid = [a, b] must NOT expand into FetchFromRidsStep, plan was: " + plan,
+        plan.contains("FETCH FROM RIDs"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertFalse(
+          "@rid = [two rids] must return empty (equals, not IN)", result.hasNext());
     }
   }
 
