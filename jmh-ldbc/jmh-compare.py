@@ -91,6 +91,35 @@ def parse_jmh_results(data):
     return results
 
 
+def filter_gremlin_arms(results, arms="on"):
+    """Keep only the requested Gremlin translator arms.
+
+    Default ``on`` matches production
+    (``QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED`` defaults to true). Off-arm
+    rows are dropped, and the `` [on]`` suffix is stripped so each shape is
+    one bare row — same shape as SQL LDBC. Pass ``both`` to keep the full A/B.
+    """
+    if arms == "both":
+        return results
+
+    filtered = {}
+    for (label, suite), value in results.items():
+        if suite != "Gremlin":
+            filtered[(label, suite)] = value
+            continue
+        if label.endswith(" [off]"):
+            continue
+        if label.endswith(" [on]"):
+            bare = label[: -len(" [on]")]
+            entry = dict(value)
+            entry["query"] = bare
+            filtered[(bare, suite)] = entry
+        else:
+            # Unexpected param label — keep rather than drop silently.
+            filtered[(label, suite)] = value
+    return filtered
+
+
 def compute_scalability(results):
     """Compute MT/ST throughput ratio per query with error propagation.
 
@@ -309,6 +338,15 @@ def main():
                         help="Base database load time in seconds")
     parser.add_argument("--head-load-time", type=float, default=None,
                         help="Head database load time in seconds")
+    parser.add_argument(
+        "--gremlin-arms",
+        choices=("on", "both"),
+        default="on",
+        help=(
+            "Which Gremlin translator arms to report: 'on' (default, "
+            "production path only) or 'both' (translator on/off A/B)"
+        ),
+    )
     parser.add_argument("--output", default="-", help="Output file (- for stdout)")
     args = parser.parse_args()
 
@@ -317,8 +355,8 @@ def main():
     with open(args.head) as f:
         head_data = json.load(f)
 
-    base = parse_jmh_results(base_data)
-    head = parse_jmh_results(head_data)
+    base = filter_gremlin_arms(parse_jmh_results(base_data), args.gremlin_arms)
+    head = filter_gremlin_arms(parse_jmh_results(head_data), args.gremlin_arms)
 
     base_scal = compute_scalability(base)
     head_scal = compute_scalability(head)
@@ -418,10 +456,19 @@ def main():
         lines.append(f"### {label} Results")
         lines.append("")
         if suite == "Gremlin":
-            lines.append(
-                "Translator on/off A/B from `LdbcGremlinTranslatorBenchmark`. "
-                "Each row is one shape \u00d7 arm (`[on]` / `[off]`)."
-            )
+            if args.gremlin_arms == "both":
+                lines.append(
+                    "Translator on/off A/B from "
+                    "`LdbcGremlinTranslatorBenchmark`. "
+                    "Each row is one shape \u00d7 arm (`[on]` / `[off]`)."
+                )
+            else:
+                lines.append(
+                    "Translator-on arm from "
+                    "`LdbcGremlinTranslatorBenchmark` "
+                    "(production default). Pass `--gremlin-arms both` "
+                    "for the off arm too."
+                )
             lines.append("")
         lines.append(
             "| Benchmark | Base ops/s | Base err | Head ops/s | Head err | \u0394% |"
