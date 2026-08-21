@@ -29,8 +29,44 @@ def _safe_score_error(value):
         return 0
 
 
+def _suite_for_class(class_name):
+    """Map a JMH class simple name to a comparison suite label."""
+    if "SingleThread" in class_name:
+        return "SingleThread"
+    if "MultiThread" in class_name:
+        return "MultiThread"
+    # LdbcGremlinTranslatorBenchmark (and any future *Gremlin* class) share one
+    # suite so the PR comment can render them as a dedicated section.
+    if "Gremlin" in class_name:
+        return "Gremlin"
+    return class_name
+
+
+def _param_label(params):
+    """Build a short suffix for JMH @Param values, or empty if none.
+
+    ``translatorEnabled`` is the Gremlin A/B arm — render as ``[on]`` / ``[off]``
+    so both arms survive as distinct rows. Without this, parse would key only by
+    method name and the second arm would overwrite the first.
+    """
+    if not params:
+        return ""
+    parts = []
+    for key in sorted(params):
+        value = str(params[key])
+        if key == "translatorEnabled":
+            parts.append("on" if value == "true" else "off")
+        else:
+            parts.append(f"{key}={value}")
+    return f" [{', '.join(parts)}]"
+
+
 def parse_jmh_results(data):
-    """Parse JMH JSON into dict keyed by (query, suite)."""
+    """Parse JMH JSON into dict keyed by (query, suite).
+
+    ``query`` is the benchmark method name, plus a param suffix when JMH
+    ``params`` are present (e.g. ``gremlinKnowsFirstNames [on]``).
+    """
     results = {}
     for entry in data:
         benchmark_full = entry["benchmark"]
@@ -38,25 +74,50 @@ def parse_jmh_results(data):
             continue
         class_name_full, method_name = benchmark_full.rsplit(".", 1)
         class_name = class_name_full.rsplit(".", 1)[-1]
+        suite = _suite_for_class(class_name)
 
-        if "SingleThread" in class_name:
-            suite = "SingleThread"
-        elif "MultiThread" in class_name:
-            suite = "MultiThread"
-        else:
-            suite = class_name
+        label = method_name + _param_label(entry.get("params") or {})
 
         primary = entry.get("primaryMetric", {})
         score = primary.get("score", 0)
         score_error = _safe_score_error(primary.get("scoreError"))
 
-        results[(method_name, suite)] = {
-            "query": method_name,
+        results[(label, suite)] = {
+            "query": label,
             "suite": suite,
             "score": score,
             "score_error": score_error,
         }
     return results
+
+
+def filter_gremlin_arms(results, arms="on"):
+    """Keep only the requested Gremlin translator arms.
+
+    Default ``on`` matches production
+    (``QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED`` defaults to true). Off-arm
+    rows are dropped, and the `` [on]`` suffix is stripped so each shape is
+    one bare row — same shape as SQL LDBC. Pass ``both`` to keep the full A/B.
+    """
+    if arms == "both":
+        return results
+
+    filtered = {}
+    for (label, suite), value in results.items():
+        if suite != "Gremlin":
+            filtered[(label, suite)] = value
+            continue
+        if label.endswith(" [off]"):
+            continue
+        if label.endswith(" [on]"):
+            bare = label[: -len(" [on]")]
+            entry = dict(value)
+            entry["query"] = bare
+            filtered[(bare, suite)] = entry
+        else:
+            # Unexpected param label — keep rather than drop silently.
+            filtered[(label, suite)] = value
+    return filtered
 
 
 def compute_scalability(results):
@@ -277,6 +338,15 @@ def main():
                         help="Base database load time in seconds")
     parser.add_argument("--head-load-time", type=float, default=None,
                         help="Head database load time in seconds")
+    parser.add_argument(
+        "--gremlin-arms",
+        choices=("on", "both"),
+        default="on",
+        help=(
+            "Which Gremlin translator arms to report: 'on' (default, "
+            "production path only) or 'both' (translator on/off A/B)"
+        ),
+    )
     parser.add_argument("--output", default="-", help="Output file (- for stdout)")
     args = parser.parse_args()
 
@@ -285,8 +355,8 @@ def main():
     with open(args.head) as f:
         head_data = json.load(f)
 
-    base = parse_jmh_results(base_data)
-    head = parse_jmh_results(head_data)
+    base = filter_gremlin_arms(parse_jmh_results(base_data), args.gremlin_arms)
+    head = filter_gremlin_arms(parse_jmh_results(head_data), args.gremlin_arms)
 
     base_scal = compute_scalability(base)
     head_scal = compute_scalability(head)
@@ -378,12 +448,28 @@ def main():
         lines.append("")
 
     for suite, label in [("SingleThread", "Single-Thread"),
-                         ("MultiThread", "Multi-Thread")]:
+                         ("MultiThread", "Multi-Thread"),
+                         ("Gremlin", "Gremlin Translator")]:
         rows = build_suite_table(base, head, suite)
         if not rows:
             continue
         lines.append(f"### {label} Results")
         lines.append("")
+        if suite == "Gremlin":
+            if args.gremlin_arms == "both":
+                lines.append(
+                    "Translator on/off A/B from "
+                    "`LdbcGremlinTranslatorBenchmark`. "
+                    "Each row is one shape \u00d7 arm (`[on]` / `[off]`)."
+                )
+            else:
+                lines.append(
+                    "Translator-on arm from "
+                    "`LdbcGremlinTranslatorBenchmark` "
+                    "(production default). Pass `--gremlin-arms both` "
+                    "for the off arm too."
+                )
+            lines.append("")
         lines.append(
             "| Benchmark | Base ops/s | Base err | Head ops/s | Head err | \u0394% |"
         )
