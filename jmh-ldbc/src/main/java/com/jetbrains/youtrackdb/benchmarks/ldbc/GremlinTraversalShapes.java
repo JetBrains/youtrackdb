@@ -11,37 +11,48 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
- * The Gremlin traversal shapes the on/off translator benchmark measures, plus the two engagement
- * checks that decide whether a measurement is an arm of that A/B or a mislabelled repeat of the
- * same path.
+ * Named Gremlin traversal shapes measured by {@link LdbcGremlinTranslatorBenchmark} on the LDBC
+ * schema, plus engagement checks ({@link #requireTranslated}, {@link #requireNotTranslated}) that
+ * pin whether a shape compiles through the translator.
  *
- * <p>The shapes are named methods here rather than inline expressions in the {@code @Benchmark}
- * bodies so the JMH harness and the in-track JUnit test measure and assert over byte-identical
- * traversals. A benchmark whose shape drifted from the shape the test verified would report an
- * A/B over something nobody checked engages the translator.
+ * <p>The shapes are named methods rather than inline {@code @Benchmark} expressions so the harness
+ * and {@link LdbcGremlinShapeTranslationTest} assert over byte-identical traversals.
  *
- * <h2>Two groups, and why the group a shape sits in is asserted</h2>
+ * <h2>How the numbers are read in CI</h2>
  *
- * <p><b>Translating shapes</b> carry one {@link AbstractMatchPlanStep} with the kill-switch on and
- * none with it off, so their A/B measures MATCH against the native pipeline. <b>Declining shapes</b>
- * carry none on either arm. Their A/B still measures something: {@code GremlinToMatchStrategy} runs,
- * walks the traversal and only then declines, so the on-arm pays a per-compile walk the off-arm does
- * not. Nobody on this branch has priced that walk. A recorded zero today is also the baseline the
- * day the shape starts translating — including the case where the new MATCH plan turns out slower
- * than the native pipeline it replaced.
+ * <p>The {@code ldbc-jmh-compare} workflow compares <b>head against the fork-point with
+ * {@code develop}</b>, with {@code translatorEnabled=true} on both sides — the production Gremlin
+ * path. A PR delta on a translating shape therefore means "this branch changed MATCH-plan
+ * throughput vs {@code develop}", the same framing as the SQL IC/IS benchmarks beside it. The
+ * workflow passes {@code -p translatorEnabled=true}; local runs should do the same when reproducing
+ * a PR comment.
  *
- * <p>Every declining shape asserts {@link #requireNotTranslated} on <em>both</em> arms. A reader
- * cannot then mistake a 0% delta for "MATCH does not help here" when it means "MATCH never ran
- * here", and the assertion is a tripwire: the day a recogniser claims that shape, the test fails and
- * says the recorded baseline needs re-reading.
+ * <h2>Optional axis: translator on vs off (same commit)</h2>
+ *
+ * <p>{@link LdbcGremlinTranslatorBenchmark} still exposes {@code translatorEnabled} as a JMH
+ * {@code @Param} for a secondary A/B: MATCH against the native pipeline on one tree. Run both arms
+ * with {@code -Djmh.args=".*LdbcGremlinTranslator.*"} and no {@code -p} filter, or pass {@code
+ * --gremlin-arms both} to {@code jmh-compare.py}. That axis is for recogniser and kill-switch work,
+ * not for the default PR regression comment.
+ *
+ * <h2>Two shape groups</h2>
+ *
+ * <p><b>Translating shapes</b> carry one {@link AbstractMatchPlanStep} with the kill-switch on. In
+ * CI (translator on both sides) their head-vs-base delta is a regression on the MATCH pipeline. In
+ * the optional on/off A/B, the same shape's delta is MATCH vs native on one commit.
+ *
+ * <p><b>Declining shapes</b> carry no boundary step even with the kill-switch on — the translator
+ * walks and declines, or vetoes before the walk ({@code RepeatDeclineStrategy}). Both CI arms
+ * therefore run native; head-vs-base measures native-pipeline or decline-overhead changes, not MATCH
+ * plan improvements. {@link #requireNotTranslated} on both arms in
+ * {@link LdbcGremlinShapeTranslationTest} is the tripwire when a recogniser starts claiming the
+ * shape.
  *
  * <h2>Relation to the SQL IC / IS benchmarks</h2>
  *
- * <p><b>These numbers are not comparable to this module's IC / IS figures.</b> Those measure SQL
- * MATCH text; these measure a Gremlin traversal with the translator on against the same traversal
- * with it off. The LDBC-derived shapes below are named after the query they follow and carry that
- * query's SQL in their Javadoc, which makes the correspondence auditable — not a claim that the two
- * timings can be divided.
+ * <p><b>Throughput is not comparable across SQL and Gremlin rows</b> — different entry points. The
+ * LDBC-derived shapes below are named after the query they echo; per-method Javadoc carries the SQL
+ * for auditable correspondence, not a claim that timings can be divided.
  *
  * <p>Three of the twenty-one queries in {@code ldbc-queries/} use {@code LET}; most of the rest are
  * plain MATCH patterns. What blocks them is the recogniser set rather than Gremlin's expressiveness,
@@ -84,7 +95,8 @@ public final class GremlinTraversalShapes {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Translating shapes: one boundary step with the kill-switch on, none with it off.
+  // Translating shapes: boundary step with kill-switch on. CI delta = head vs base (translator on).
+  // Optional on/off A/B on one commit = MATCH vs native.
   // ---------------------------------------------------------------------------------------------
 
   /**
@@ -352,9 +364,8 @@ public final class GremlinTraversalShapes {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Declining shapes: no boundary step on either arm. The A/B prices the decline path and reserves
-  // a baseline for the day the shape starts translating. Each asserts requireNotTranslated on both
-  // arms, so it cannot drift into the translating group unnoticed.
+  // Declining shapes: no boundary step with kill-switch on. CI: both sides native — head-vs-base
+  // is not a MATCH win/loss. Optional on/off A/B prices decline overhead on one commit.
   // ---------------------------------------------------------------------------------------------
 
   /**
@@ -387,9 +398,8 @@ public final class GremlinTraversalShapes {
    * why the group changed rather than the spelling.
    *
    * <p>The spelling is kept as authored rather than nudged into something translatable. Paging a
-   * sorted hop is what the LDBC read queries actually ask for, so its A/B is the baseline for the
-   * day a recogniser claims a slice after a sort — and the both-arms assertion fails on that day
-   * and says so.
+   * sorted hop is what the LDBC read queries actually ask for. The both-arms assertion fails the
+   * day a recogniser claims a slice after a sort and signals that CI baselines need re-reading.
    */
   public static YTDBGraphTraversal<Vertex, String> knowsOrderedPage(
       YTDBGraphTraversalSource g, long personId) {
