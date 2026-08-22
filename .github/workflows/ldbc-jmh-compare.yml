@@ -12,8 +12,10 @@ on:
           Comma-separated query IDs to benchmark (e.g. IS1,IC2,IC13).
           Leave empty to run the full jmh-ldbc suite: SQL LDBC
           (LdbcSingleThread / LdbcMultiThread) plus
-          LdbcGremlinTranslatorBenchmark. Gremlin arms are controlled by
-          gremlin_arms (default on-only). Full empty-filter with both arms
+          LdbcGremlinTranslatorBenchmark. Gremlin rows compare head against
+          the fork-point with translator on both sides (gremlin_arms default
+          on). Pass gremlin_arms=both only for an optional on/off A/B on one
+          commit (~doubles Gremlin wall). Full empty-filter with both arms
           was ~21h on CCX33; on-only is shorter. Job timeout is 30h.
         required: false
         type: string
@@ -21,9 +23,10 @@ on:
       gremlin_arms:
         description: >
           Which LdbcGremlinTranslatorBenchmark arms to run and report.
-          'on' (default) = production path only
-          (-p translatorEnabled=true). 'both' = full translator on/off A/B
-          (roughly doubles Gremlin wall time).
+          'on' (default) = production path on base and head
+          (-p translatorEnabled=true) for head-vs-develop compare.
+          'both' = optional same-commit translator on/off A/B (roughly doubles
+          Gremlin wall time; not the default PR comment framing).
         required: false
         type: choice
         options:
@@ -59,9 +62,9 @@ jobs:
       - image-x86-system-ubuntu-24.04
       - in-nbg1-fsn1-hel1
     # Full empty-filter suite = SQL LDBC (single+multi) + Gremlin translator.
-    # Default gremlin_arms=on runs only the production arm; both ≈ doubles
-    # Gremlin wall (~21h observed for full A/B on CCX33). 30h timeout leaves
-    # margin for variance and new shapes.
+    # Default gremlin_arms=on: head vs fork-point, translator on both sides.
+    # gremlin_arms=both ≈ doubles Gremlin wall (~21h observed on CCX33).
+    # 30h timeout leaves margin for variance and new shapes.
     timeout-minutes: 1800
 
     steps:

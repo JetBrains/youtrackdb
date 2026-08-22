@@ -25,7 +25,11 @@ import org.junit.Test;
 
 /**
  * Drives every {@link GremlinTraversalShapes} builder the JMH harness measures, on both kill-switch
- * arms, so a broken A/B is caught by an ordinary build instead of on Hetzner.
+ * arms, so a broken engagement check is caught by an ordinary build instead of on Hetzner.
+ *
+ * <p>This class validates the optional translator on/off axis ({@code translatorEnabled}). The
+ * {@code ldbc-jmh-compare} PR comment instead compares head vs {@code develop} with translator on
+ * both sides — see {@link GremlinTraversalShapes} and {@link LdbcGremlinTranslatorBenchmark}.
  *
  * <p>The {@code @Benchmark} bodies themselves are dataset-bound and cannot run here. What can run
  * is the part that silently goes wrong: whether flipping

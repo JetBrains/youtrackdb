@@ -22,34 +22,49 @@ import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
 /**
- * Translator-on against translator-off over the Gremlin shapes in {@link GremlinTraversalShapes}, on
- * the LDBC schema.
+ * Gremlin translator benchmarks over {@link GremlinTraversalShapes} on the LDBC schema.
  *
- * <p>The A/B axis is a JMH {@code @Param} on {@link TranslatorArm}, so each arm gets its own
- * forks and the kill-switch is flipped once per trial in-process. Nothing is set through
+ * <h2>Primary use: head vs {@code develop} (translator on both sides)</h2>
+ *
+ * <p>The {@code ldbc-jmh-compare} workflow checks out the fork-point and the branch tip, runs this
+ * class on each, and compares throughput — with {@code -p translatorEnabled=true} so base and head
+ * both measure the production MATCH path. Read PR deltas on translating shapes as "did this branch
+ * change Gremlin+translator performance vs {@code develop}?", the same way as {@code
+ * LdbcSingleThread*} / {@code LdbcMultiThread*} SQL rows beside them.
+ *
+ * <h2>Secondary use: translator on vs off (same commit)</h2>
+ *
+ * <p>{@link TranslatorArm} exposes {@code translatorEnabled} as a JMH {@code @Param}. Each value
+ * gets its own forks; the kill-switch is flipped once per trial in-process. Nothing is set through
  * {@code -DargLine=}: on some modules a CLI {@code argLine} replaces the POM's block wholesale
  * (taking {@code -ea}, the heap sizing and every {@code --add-opens} with it) and on others plugin
  * configuration wins and the CLI value is inert. Neither failure is visible in the numbers.
  *
- * <p><b>Two groups of benchmark, read differently.</b> A translating shape's delta is MATCH against
- * the native pipeline. A declining shape's delta is the cost of the decline itself —
- * {@code GremlinToMatchStrategy} runs on the on-arm, walks the traversal and only then hands it back
- * — and doubles as the baseline for the day a recogniser claims that shape. The two groups are
- * separated below and each declining shape's Javadoc says so, because a 0% delta means opposite
- * things in the two groups.
+ * <p>Run both arms locally with {@code -Djmh.args=".*LdbcGremlinTranslator.*"} (no {@code -p}
+ * filter). For {@code jmh-compare.py}, pass {@code --gremlin-arms both} to include off-arm rows in
+ * the markdown comment.
  *
- * <p><b>What these numbers are not.</b> They are not comparable to this module's IC / IS figures —
- * see {@link GremlinTraversalShapes}. The baseline is Hetzner-scoped; a local run measures the
- * harness, not the feature.
+ * <h2>Two benchmark groups, read differently</h2>
  *
- * <p><b>Why the trial setup checks engagement and throws.</b> An A/B whose two arms both ran the
- * same path reports a difference of zero and looks like a clean result. {@link
- * TranslatorArm#setUp} therefore builds two witness traversals — one from each group — applies
- * strategies, and throws unless the boundary step is present exactly where the arm says it should
- * be. It throws rather than asserting because the launcher at {@code jmh-ldbc/pom.xml} runs
- * {@code java} without {@code -ea} — see {@link GremlinTraversalShapes#requireTranslated}.
+ * <p><b>Translating shapes</b> — in CI, head-vs-base delta is MATCH throughput. In the optional
+ * on/off A/B, delta is MATCH vs native on one commit.
  *
- * <p>Run one arm only with {@code -Djmh.args=".*LdbcGremlinTranslator.* -p translatorEnabled=true"}.
+ * <p><b>Declining shapes</b> — in CI, both sides run native; head-vs-base is not evidence that
+ * MATCH helped or hurt. In the optional on/off A/B, delta prices decline overhead ({@code
+ * GremlinToMatchStrategy} runs on the on-arm, walks, then hands back). A ~0% PR delta here usually
+ * means "still declining on both sides", not "translator made no difference".
+ *
+ * <p><b>What these numbers are not.</b> Not comparable to this module's IC/IS SQL throughput — see
+ * {@link GremlinTraversalShapes}. Hetzner-scoped baselines; a local run validates the harness, not
+ * a production regression gate.
+ *
+ * <p><b>Trial setup witness.</b> An arm whose kill-switch failed to flip reports ~0% vs the other
+ * arm and looks clean. {@link TranslatorArm#setUp} builds witness traversals from each group,
+ * applies strategies, and throws unless the boundary step matches the arm — see {@link
+ * GremlinTraversalShapes#requireTranslated}.
+ *
+ * <p>Reproduce the CI arm only: {@code -Djmh.args=".*LdbcGremlinTranslator.* -p
+ * translatorEnabled=true"}.
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
@@ -87,8 +102,8 @@ public class LdbcGremlinTranslatorBenchmark {
   public static class TranslatorArm {
 
     /**
-     * The A/B axis. JMH runs a separate set of forks per value, so a trial never sees both
-     * positions of the kill-switch.
+     * Kill-switch position for this fork. JMH runs separate forks per value; {@code ldbc-jmh-compare}
+     * defaults to {@code true} only so base and head both measure the production path.
      */
     @Param({"true", "false"})
     public boolean translatorEnabled;
@@ -245,7 +260,7 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Translating shapes. Delta = MATCH against the native pipeline.
+  // Translating shapes. CI: head vs base with translator on. Optional A/B: MATCH vs native.
   // ---------------------------------------------------------------------------------------------
 
   /** Shape 2 — the {@code KNOWS} walk under {@code values}: one row per friend. */
@@ -379,18 +394,15 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Declining shapes. Delta = the cost of the decline path, and the baseline for the day the shape
-  // starts translating. A 0% delta here means "MATCH never ran", not "MATCH did not help" — the
-  // both-arms requireNotTranslated in the trial witness and in
-  // LdbcGremlinShapeTranslationTest is what keeps that reading true.
+  // Declining shapes. CI: both sides native — PR delta is not a MATCH regression. Optional on/off
+  // A/B prices decline overhead; LdbcGremlinShapeTranslationTest keeps groups honest.
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * A bare {@code g.V(rid)} point-lookup. Native resolves the id without a query, while a translated
-   * bare lookup would compile an uncached MATCH plan (a RID-bearing walk sets {@code
-   * cacheEligible=false}) with no join to optimise, so the translator DECLINES it — both arms run
-   * natively. The A/B measures the decline-path cost and is the baseline for the day a bare RID
-   * lookup starts translating again. A RID start followed by a hop still translates.
+   * A bare {@code g.V(rid)} point-lookup. Native resolves the id without a query; the translator
+   * declines a bare RID walk ({@code cacheEligible=false}, no join to optimise), so both CI arms
+   * run native. Optional on/off A/B prices decline overhead; a RID start followed by a hop still
+   * translates.
    */
   @Benchmark
   public List<Vertex> gremlinVertexByRidDeclines(LdbcBenchmarkState state, TranslatorArm arm) {
