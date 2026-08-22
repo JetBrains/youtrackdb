@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -130,5 +131,20 @@ public class IndexesTest extends DbTestBase {
     assertNotNull("createIndexInstance must not return null for NOTUNIQUE/BTREE", idx);
     assertTrue("createIndexInstance(NOTUNIQUE/BTREE) must return IndexNotUnique",
         idx instanceof IndexNotUnique);
+  }
+
+  /** A service-loaded factory cannot return a handle outside the supported hierarchy. */
+  @Test
+  public void createIndexInstance_rejectsForeignFactoryHandle() {
+    var exception = assertThrows(IllegalStateException.class,
+        () -> Indexes.createIndexInstance(ForeignIndexFactory.INDEX_TYPE,
+            ForeignIndexFactory.ALGORITHM, session.getStorage()));
+
+    assertTrue("the invariant failure must name the index type",
+        exception.getMessage().contains(ForeignIndexFactory.INDEX_TYPE));
+    assertTrue("the invariant failure must name the algorithm",
+        exception.getMessage().contains(ForeignIndexFactory.ALGORITHM));
+    assertTrue("the invariant failure must name the unexpected concrete class",
+        exception.getMessage().contains(ForeignIndexFactory.foreignHandleClassName()));
   }
 }

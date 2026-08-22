@@ -45,6 +45,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -151,6 +152,12 @@ public class IndexHistogramManager extends StorageComponent {
 
   /** Prevents concurrent rebalances for the same index. */
   private final AtomicBoolean rebalanceInProgress = new AtomicBoolean(false);
+
+  /** Permanently blocks publication and background work after this manager loses its engine slot. */
+  private volatile boolean detached;
+
+  /** Runs immediately before a publication remap. Tests use it to stage slot reuse. */
+  @Nullable private volatile Runnable prePublicationTestHook;
 
   /**
    * Monotonic timestamp ({@link System#nanoTime()}) of last rebalance failure.
@@ -265,6 +272,14 @@ public class IndexHistogramManager extends StorageComponent {
     this.bulkLoading = bulkLoading;
   }
 
+  void setPrePublicationTestHook(@Nullable Runnable hook) {
+    prePublicationTestHook = hook;
+  }
+
+  boolean isDetached() {
+    return detached;
+  }
+
   /**
    * Sets the IO executor for background rebalance scheduling. Called by
    * the storage layer after the database is fully open and the executor
@@ -293,6 +308,15 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   // ---- Lifecycle ----
+
+  /** Permanently blocks this manager from publishing into its former engine slot. */
+  public void detach() {
+    if (detached) {
+      return;
+    }
+    detached = true;
+    cache.remove(engineId);
+  }
 
   /**
    * Checks if the .ixs file exists. Used by the storage layer to decide
@@ -386,8 +410,8 @@ public class IndexHistogramManager extends StorageComponent {
       logger.warn("Failed to flush histogram stats on close for {}",
           getName(), e);
     }
-    cache.remove(engineId);
     fileId = -1;
+    detach();
   }
 
   /**
@@ -401,8 +425,8 @@ public class IndexHistogramManager extends StorageComponent {
     if (fileId != -1) {
       deleteFile(op, fileId);
     }
-    cache.remove(engineId);
     fileId = -1;
+    detach();
   }
 
   /**
@@ -559,21 +583,20 @@ public class IndexHistogramManager extends StorageComponent {
    * @param delta the accumulated delta for this engine
    */
   public void applyDelta(HistogramDelta delta) {
-    cache.compute(engineId, (id, old) -> {
-      if (old == null) {
-        return null; // engine deleted — discard delta silently
-      }
-      return computeNewSnapshot(old, delta);
-    });
+    var published = publish(delta);
+    if (published == null || detached) {
+      return;
+    }
+    // ConcurrentHashMap.compute returns only after the new value is visible. Publishing first and
+    // adding second ensures a flusher that claims this count can also read its snapshot. This method
+    // invokes the remap once and adds once, while every declined result returns before this point.
     long newDirty =
         (long) DIRTY_MUTATIONS.getAndAdd(this, delta.mutationCount)
             + delta.mutationCount;
 
     // Use getAndSet(0) so exactly one thread claims the dirty count and
-    // flushes. Any mutations added by concurrent threads between the
-    // getAndAdd above and the getAndSet here become part of the next batch
-    // (their count is already reflected in the VarHandle and will be
-    // re-accumulated by subsequent applyDelta calls).
+    // flushes. Mutations added after the successful remap become part of
+    // this batch or the next batch, depending on which thread claims them.
     if (newDirty >= persistBatchSize) {
       long claimed = (long) DIRTY_MUTATIONS.getAndSet(this, 0L);
       if (claimed > 0) {
@@ -587,6 +610,53 @@ public class IndexHistogramManager extends StorageComponent {
         }
       }
     }
+  }
+
+  /**
+   * Publishes through one atomic remap so detach and slot replacement cannot interleave.
+   *
+   * @return the value retained in the cache after the remap
+   */
+  @Nullable private HistogramSnapshot publish(UnaryOperator<HistogramSnapshot> merge) {
+    final var hook = prePublicationTestHook;
+    if (hook != null) {
+      hook.run();
+    }
+
+    final var result = cache.compute(engineId, (slot, current) -> {
+      if (detached) {
+        return current;
+      }
+      final var next = merge.apply(current);
+      return next != null ? next : current;
+    });
+    if (result == null || detached) {
+      logger.debug("Declined histogram publication for detached or absent engine {}", engineId);
+    }
+    return result;
+  }
+
+  /**
+   * Publishes a commit delta without the helper lambda and result-array allocations of the general
+   * merge path. The remaining lambda must capture the delta because {@code ConcurrentHashMap.compute}
+   * supplies only the key and current value. The caller records dirty work after this remap returns.
+   */
+  @Nullable private HistogramSnapshot publish(HistogramDelta delta) {
+    final var hook = prePublicationTestHook;
+    if (hook != null) {
+      hook.run();
+    }
+
+    final var result = cache.compute(engineId, (slot, current) -> {
+      if (detached || current == null) {
+        return current;
+      }
+      return computeNewSnapshot(current, delta);
+    });
+    if (result == null || detached) {
+      logger.debug("Declined histogram publication for detached or absent engine {}", engineId);
+    }
+    return result;
   }
 
   /**
@@ -691,10 +761,7 @@ public class IndexHistogramManager extends StorageComponent {
 
   // ---- Planner reads ----
 
-  /**
-   * Returns the current index statistics from the CHM cache.
-   * Reload from page on cache miss.
-   */
+  /** Returns the current index statistics from the CHM cache, or null on a cache miss. */
   @Nullable public IndexStatistics getStatistics() {
     var snapshot = cache.get(engineId);
     if (snapshot != null) {
@@ -762,8 +829,9 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, nonNullCount, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      cache.put(engineId, snapshot);
-      writeSnapshotToPage(op, snapshot);
+      if (publish(current -> snapshot) == snapshot) {
+        writeSnapshotToPage(op, snapshot);
+      }
       // Early exit: return approximate count (no stream consumed).
       // Callers' "recalibration" is effectively a no-op for small indexes.
       return nonNullCount;
@@ -805,8 +873,9 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, 0, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      cache.put(engineId, snapshot);
-      writeSnapshotToPage(op, snapshot);
+      if (publish(current -> snapshot) == snapshot) {
+        writeSnapshotToPage(op, snapshot);
+      }
       return 0;
     }
 
@@ -830,8 +899,9 @@ public class IndexHistogramManager extends StorageComponent {
     var stats = new IndexStatistics(totalCount, exactDistinctCount, nullCount);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, totalCount, 0, false, hll, hllOnPage1);
-    cache.put(engineId, snapshot);
-    writeSnapshotToPage(op, snapshot);
+    if (publish(current -> snapshot) == snapshot) {
+      writeSnapshotToPage(op, snapshot);
+    }
     return scannedNonNull;
   }
 
@@ -847,7 +917,7 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public void maybeScheduleHistogramWork(
       @Nullable ExecutorService executor) {
-    if (executor == null) {
+    if (detached || executor == null) {
       return;
     }
     var snapshot = cache.get(engineId);
@@ -882,7 +952,7 @@ public class IndexHistogramManager extends StorageComponent {
    * @return the refreshed snapshot, or null if the index is empty
    */
   @Nullable public HistogramSnapshot analyzeIndex() {
-    if (keyStreamSupplier == null) {
+    if (detached || keyStreamSupplier == null) {
       return null;
     }
 
@@ -908,7 +978,9 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public void resetOnClear(AtomicOperation op) throws IOException {
     var emptySnapshot = createEmptySnapshot();
-    cache.put(engineId, emptySnapshot);
+    if (publish(current -> emptySnapshot) != emptySnapshot) {
+      return;
+    }
     DIRTY_MUTATIONS.setRelease(this, 0L);
 
     if (fileId != -1) {
@@ -931,6 +1003,9 @@ public class IndexHistogramManager extends StorageComponent {
    * checkpoint/shutdown path uses the no-arg {@link #flushIfDirty()} instead.
    */
   public void flushIfDirty(AtomicOperation op) throws IOException {
+    if (detached) {
+      return;
+    }
     long observed = (long) DIRTY_MUTATIONS.getAcquire(this);
     if (observed > 0 && fileId != -1
         && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
@@ -958,6 +1033,9 @@ public class IndexHistogramManager extends StorageComponent {
    * best-effort and must not block checkpoint or shutdown.
    */
   public void flushIfDirty() {
+    if (detached) {
+      return;
+    }
     long observed = (long) DIRTY_MUTATIONS.getAcquire(this);
     if (observed > 0
         && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
@@ -1731,9 +1809,9 @@ public class IndexHistogramManager extends StorageComponent {
       final var finalHll = newHll;
       final long finalNDV = scannedDistinctCount;
       final boolean finalHllOnPage1 = hllOnPage1;
-      cache.compute(engineId, (id, old) -> {
+      final var published = publish(old -> {
         if (old == null) {
-          return null; // engine deleted during rebalance
+          return null;
         }
         // Use CHM's totalCount/nullCount (most up-to-date — includes concurrent
         // commits after the scan) rather than the scanned values. For distinctCount,
@@ -1754,6 +1832,9 @@ public class IndexHistogramManager extends StorageComponent {
             finalHll,
             finalHllOnPage1);
       });
+      if (published == null || detached) {
+        return;
+      }
 
       // Persist the new snapshot. On failure, mark dirty so the next
       // checkpoint or commit-path batch flush retries the persistence.
@@ -1965,6 +2046,9 @@ public class IndexHistogramManager extends StorageComponent {
    * component-lock wrap closes the race.
    */
   private void flushSnapshotToPage() throws IOException {
+    if (detached) {
+      return;
+    }
     var snapshot = cache.get(engineId);
     if (snapshot == null || fileId == -1) {
       return;

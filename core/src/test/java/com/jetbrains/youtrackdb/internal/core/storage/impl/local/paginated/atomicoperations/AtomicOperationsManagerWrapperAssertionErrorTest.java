@@ -177,7 +177,8 @@ public class AtomicOperationsManagerWrapperAssertionErrorTest {
    */
   private AtomicOperation mockOperationWithLockAlreadyHeld() {
     var operation = mock(AtomicOperation.class);
-    when(operation.containsInLockedObjects(anyString())).thenReturn(true);
+    when(operation.lockedObjectMode(anyString()))
+        .thenReturn(AtomicOperation.ComponentLockMode.EXCLUSIVE);
     return operation;
   }
 

@@ -64,6 +64,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidDatabaseNameExcep
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageExistsException;
@@ -81,6 +82,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -90,6 +92,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleRegistry;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -324,6 +328,8 @@ public abstract class AbstractStorage
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
+  private final IndexLifecycleRegistry indexLifecycleRegistry = new IndexLifecycleRegistry();
+  private long indexEngineGeneration;
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
   /**
@@ -2031,7 +2037,8 @@ public abstract class AbstractStorage
    * collection's approximate record count without taking {@code stateLock}, because the schema-carry
    * commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant read lock
    * would busy-spin. The commit-time index build uses it to enforce the v1 empty-source-collection
-   * bound. Mirrors the lock-free {@link #doGetIndexEngine} precondition: the caller MUST hold
+   * bound. Mirrors the lock-free {@link #getIndexEngineWithStateLock(int)} precondition: the caller
+   * MUST hold
    * {@code stateLock.writeLock()} with the commit window open, which supplies the exclusion and the
    * happens-before edge for the plain-list read.
    *
@@ -2058,7 +2065,8 @@ public abstract class AbstractStorage
    * count before it relies on the v1 empty-source-collection bound, closing the under-report hole
    * where a stale approximate zero would let the build skip committed rows. Exact but cheap on the
    * empty collection the caller has already pre-checked as approximately empty. Mirrors the lock-free
-   * {@link #doGetIndexEngine} precondition: the caller MUST hold {@code stateLock.writeLock()} with
+   * {@link #getIndexEngineWithStateLock(int)} precondition: the caller MUST hold
+   * {@code stateLock.writeLock()} with
    * the commit window open, which supplies the exclusion and the happens-before edge.
    *
    * @param collectionId    a real (>= 0) collection id.
@@ -3789,6 +3797,7 @@ public abstract class AbstractStorage
     final var generatedId = nextFreeIndexEngineId();
     assert generatedId >= indexEngines.size() || indexEngines.get(generatedId) == null
         : "commit-local index-engine allocator returned an occupied slot " + generatedId;
+    discardIndexDeltas(atomicOperation, generatedId);
     // Unlike the reusable slot id above, the file base id is never reused: allocated from the
     // monotonic high-water mark inside this commit's atomic operation (the floor write reverts
     // with a failed commit; the mark itself burns the value).
@@ -3820,7 +3829,10 @@ public abstract class AbstractStorage
    * path (the delete's own {@code IndexHistogramManager} teardown makes the live engine object
    * unusable, so the failure path never re-publishes the torn object).
    */
-  public record DroppedIndexEngine(int internalId, IndexEngineData data) {
+  public record DroppedIndexEngine(
+      int internalId,
+      IndexEngineData data,
+      @Nullable RID ownerDescriptorIdentity) {
 
   }
 
@@ -3861,14 +3873,24 @@ public abstract class AbstractStorage
     assert internalIndexId == engine.getId();
 
     // Capture the durable engine data before the delete removes the config entry it reads. The
-    // captured data (not the torn live engine) drives the failure-path reconstruction.
+    // captured data (not the torn live engine) drives the failure-path reconstruction. Copy the
+    // owner because commit apply can mutate its ChangeableRecordId in place after this capture.
+    final var ownerDescriptorIdentity = engine.getEngineReference() == null
+        ? null
+        : engine.getEngineReference().ownerDescriptorIdentity();
+    final var copiedOwnerDescriptorIdentity = ownerDescriptorIdentity == null
+        ? null
+        : new RecordId(ownerDescriptorIdentity.getCollectionId(),
+            ownerDescriptorIdentity.getCollectionPosition());
     final var capturedData =
         configuration.getIndexEngine(engine.getName(), internalIndexId, atomicOperation);
 
+    discardIndexDeltas(atomicOperation, internalIndexId);
     doDeleteIndexEngine(atomicOperation, engine);
+    detachHistogramManager(engine);
     indexEngines.set(internalIndexId, null);
     indexEngineNameMap.remove(engine.getName());
-    return new DroppedIndexEngine(internalIndexId, capturedData);
+    return new DroppedIndexEngine(internalIndexId, capturedData, copiedOwnerDescriptorIdentity);
   }
 
   /**
@@ -3898,10 +3920,30 @@ public abstract class AbstractStorage
       if (engine == null) {
         continue;
       }
+      detachHistogramManager(engine);
       indexEngines.set(internalId, null);
       indexEngineNameMap.remove(engine.getName());
       revertCreatedIndexEngineStructure(engine);
     }
+  }
+
+  void bindOwnerAndPublishRestoredIndexEngine(
+      int indexId, BaseIndexEngine engine, @Nullable RID ownerDescriptorIdentity) {
+    if (ownerDescriptorIdentity != null) {
+      final var engineReference = engine.getEngineReference();
+      if (engineReference != null) {
+        engineReference.bindOwner(ownerDescriptorIdentity);
+      } else {
+        // Publish reference-less engines because preserving the surviving committed index is safer
+        // than turning optional process-local ownership metadata into a restore failure.
+        LogManager.instance().warn(
+            this,
+            "Restored index engine '" + engine.getName()
+                + "' exposes no process-local reference. Owner " + ownerDescriptorIdentity
+                + " was not bound");
+      }
+    }
+    publishIndexEngine(indexId, engine);
   }
 
   /**
@@ -3965,7 +4007,8 @@ public abstract class AbstractStorage
               if (engine instanceof BTreeIndexEngine btreeEngine) {
                 wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
               }
-              publishIndexEngine(engineData.getIndexId(), engine);
+              bindOwnerAndPublishRestoredIndexEngine(
+                  engineData.getIndexId(), engine, dropped.ownerDescriptorIdentity());
             });
       } catch (final IOException | RuntimeException | AssertionError e) {
         // Loud failure containment: the reconstruction runs while the primary commit exception is
@@ -4338,12 +4381,9 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
-      // Engine may have been dropped concurrently — the commit is already
-      // durable, so the delta for a removed engine is stale and safe to skip.
-      // Safety: indexEngines is a plain ArrayList; concurrent structural
-      // modification is prevented by the stateLock read lock held on the
-      // commit path and the atomic operation serialization for index
-      // creation/deletion.
+      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
+      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
+      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4366,9 +4406,27 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Applies histogram deltas accumulated during the transaction to the
-   * in-memory CHM cache. Called after {@code endTxCommit()} succeeds so
-   * that the cache always reflects committed state only.
+   * Removes transaction-local work keyed by a slot whose engine lifetime has ended. Commit-window
+   * drops run after ordinary index writes, while creates run before replacement population. Thus,
+   * the removed work can only belong to the old owner. Work for the replacement accumulates later.
+   * Holders attached to sibling atomic operations remain untouched.
+   */
+  private static void discardIndexDeltas(
+      final AtomicOperation atomicOperation, final int engineId) {
+    final var countDeltas = atomicOperation.getIndexCountDeltas();
+    if (countDeltas != null) {
+      countDeltas.discard(engineId);
+    }
+
+    final var histogramDeltas = atomicOperation.getHistogramDeltas();
+    if (histogramDeltas != null) {
+      histogramDeltas.discard(engineId);
+    }
+  }
+
+  /**
+   * Applies histogram deltas accumulated during the transaction to the in-memory CHM cache. Called
+   * after {@code endTxCommit()} succeeds so that the cache always reflects committed state only.
    */
   public void applyHistogramDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getHistogramDeltas();
@@ -4394,12 +4452,9 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
-      // Engine may have been dropped concurrently — the commit is already
-      // durable, so the delta for a removed engine is stale and safe to skip.
-      // Safety: indexEngines is a plain ArrayList; concurrent structural
-      // modification is prevented by the stateLock read lock held on the
-      // commit path and the atomic operation serialization for index
-      // creation/deletion.
+      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
+      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
+      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4412,20 +4467,173 @@ public abstract class AbstractStorage
     }
   }
 
-  public int loadIndexEngine(final String name) {
+  /** Allocates process-local identity when a local engine object is constructed. */
+  public synchronized IndexEngineReference allocateIndexEngineReference(int slot, int apiVersion) {
+    if (indexEngineGeneration == Long.MAX_VALUE) {
+      throw new StorageException(name, "Index engine generation space is exhausted");
+    }
+
+    return new IndexEngineReference(slot, apiVersion, ++indexEngineGeneration);
+  }
+
+  /** Returns the stable lifecycle carrier for a durable index descriptor. */
+  public IndexLifecycleCell getOrCreateIndexLifecycle(RID descriptorIdentity) {
+    return indexLifecycleRegistry.getOrCreate(descriptorIdentity);
+  }
+
+  public IndexLifecycleCell getIndexLifecycle(RID descriptorIdentity) {
+    return indexLifecycleRegistry.get(descriptorIdentity);
+  }
+
+  public void removeIndexLifecycle(RID descriptorIdentity) {
+    indexLifecycleRegistry.remove(descriptorIdentity);
+  }
+
+  public IndexEngineReference getIndexEngineReference(int externalIndexId) {
+    if (isCommitWindowActive()) {
+      return getIndexEngineReferenceWithStateLock(externalIndexId);
+    }
+
+    stateLock.readLock().lock();
     try {
+      return getIndexEngineReferenceWithStateLock(externalIndexId);
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  private IndexEngineReference getIndexEngineReferenceWithStateLock(int externalIndexId) {
+    final var internalIndexId = extractInternalId(externalIndexId);
+    try {
+      checkIndexId(internalIndexId);
+    } catch (InvalidIndexEngineIdException e) {
+      throw new IllegalStateException("Cannot resolve an unregistered index engine", e);
+    }
+
+    final var reference = indexEngines.get(internalIndexId).getEngineReference();
+    if (reference == null) {
+      throw new IllegalStateException("Local index engine has no process-local reference");
+    }
+    return reference;
+  }
+
+  /**
+   * Binds a local engine to its durable descriptor after that descriptor obtains or loads its RID.
+   */
+  public IndexEngineReference bindIndexEngineToDescriptor(
+      int externalIndexId, RID descriptorIdentity, IndexEngineReference expectedReference) {
+    if (isCommitWindowActive()) {
+      return bindIndexEngineToDescriptorWithStateLock(
+          externalIndexId, descriptorIdentity, expectedReference);
+    }
+
+    stateLock.readLock().lock();
+    try {
+      return bindIndexEngineToDescriptorWithStateLock(
+          externalIndexId, descriptorIdentity, expectedReference);
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  private IndexEngineReference bindIndexEngineToDescriptorWithStateLock(
+      int externalIndexId, RID descriptorIdentity, IndexEngineReference expectedReference) {
+    final var reference = getIndexEngineReferenceWithStateLock(externalIndexId);
+    if (reference.slot() != expectedReference.slot()
+        || reference.apiVersion() != expectedReference.apiVersion()
+        || reference.generation() != expectedReference.generation()) {
+      throw new IllegalStateException(
+          "Index engine reference changed from generation " + expectedReference.generation()
+              + " to " + reference.generation() + " for slot " + reference.slot());
+    }
+
+    reference.bindOwner(descriptorIdentity);
+    return reference;
+  }
+
+  /**
+   * Resolves the packed identifier of the engine owned by a durable index descriptor.
+   *
+   * <p>The commit-window branch avoids reacquiring the non-reentrant storage state lock.
+   */
+  public int resolveIndexEngineByOwner(final RID descriptorIdentity) {
+    try {
+      if (isCommitWindowActive()) {
+        return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+      }
+
       stateLock.readLock().lock();
       try {
+        return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
 
-        checkOpennessAndMigration();
+  /**
+   * Resolves an engine by descriptor owner while the caller retains the storage state lock.
+   *
+   * @throws StaleIndexEngineException when no registered engine has the requested owner
+   * @throws StorageException when registry ownership is ambiguous
+   */
+  public int resolveIndexEngineByOwnerWithStateLock(final RID descriptorIdentity) {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine owner resolution requires the storage state lock or an active commit"
+              + " window");
+    }
 
-        final var engine = indexEngineNameMap.get(name);
-        if (engine == null) {
-          return -1;
+    checkOpennessAndMigration();
+    int resolvedIdentifier = -1;
+    for (var slot = 0; slot < indexEngines.size(); slot++) {
+      final var engine = indexEngines.get(slot);
+      if (engine == null) {
+        continue;
+      }
+
+      final var reference = engine.getEngineReference();
+      if (reference == null) {
+        // An engine without a reference cannot be owned by any descriptor. Skipping it cannot hide
+        // a possible owner-resolution target.
+        continue;
+      }
+
+      if (descriptorIdentity.equals(reference.ownerDescriptorIdentity())) {
+        if (resolvedIdentifier >= 0) {
+          throw new StorageException(
+              name,
+              "Multiple registered index engines are owned by descriptor "
+                  + descriptorIdentity);
         }
-        final var indexId = indexEngines.indexOf(engine);
-        assert indexId == engine.getId();
-        return generateIndexId(indexId, engine);
+        resolvedIdentifier = generateIndexId(slot, engine);
+      }
+    }
+
+    if (resolvedIdentifier < 0) {
+      throw new StaleIndexEngineException(
+          name,
+          "Cannot resolve index engine for descriptor " + descriptorIdentity
+              + ": no registered engine has that owner");
+    }
+    return resolvedIdentifier;
+  }
+
+  public int loadIndexEngine(final String name) {
+    try {
+      if (isCommitWindowActive()) {
+        return loadIndexEngineWithStateLock(name);
+      }
+
+      stateLock.readLock().lock();
+      try {
+        return loadIndexEngineWithStateLock(name);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -4436,6 +4644,23 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /** Resolves an engine identifier by name while the caller retains the storage state lock. */
+  public int loadIndexEngineWithStateLock(final String name) {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine reload requires the storage state lock or an active commit window");
+    }
+
+    checkOpennessAndMigration();
+    final var engine = indexEngineNameMap.get(name);
+    if (engine == null) {
+      return -1;
+    }
+    final var indexId = indexEngines.indexOf(engine);
+    assert indexId == engine.getId();
+    return generateIndexId(indexId, engine);
   }
 
   public int loadExternalIndexEngine(
@@ -4492,6 +4717,7 @@ public abstract class AbstractStorage
                         indexMetadata.getName());
                 final var engine = indexEngineNameMap.remove(indexMetadata.getName());
                 if (engine != null) {
+                  detachHistogramManager(engine);
                   indexEngines.set(engine.getId(), null);
 
                   engine.delete(atomicOperation);
@@ -4605,6 +4831,19 @@ public abstract class AbstractStorage
   private void publishIndexEngine(final int internalId, final BaseIndexEngine engine) {
     indexEngineNameMap.put(engine.getName(), engine);
     setIndexEngine(internalId, engine);
+  }
+
+  /**
+   * Detaches histogram publication from an engine that is leaving the registry. This must run
+   * before its slot is released, so removal linearizes before a replacement publishes there.
+   */
+  private static void detachHistogramManager(final BaseIndexEngine engine) {
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      final var manager = btreeEngine.getHistogramManager();
+      if (manager != null) {
+        manager.detach();
+      }
+    }
   }
 
   /**
@@ -4846,6 +5085,7 @@ public abstract class AbstractStorage
         // successfully. If the atomic operation rolls back, the maps remain
         // consistent so that addIndexEngine()'s "OLD INDEX FILE" recovery
         // branch can find and clean up the stale engine.
+        detachHistogramManager(engine);
         indexEngines.set(internalIndexId, null);
         indexEngineNameMap.remove(engine.getName());
 
@@ -5018,29 +5258,18 @@ public abstract class AbstractStorage
     return ((V1IndexEngine) engine).get(key, atomicOperation);
   }
 
-  public BaseIndexEngine getIndexEngine(int indexId) throws InvalidIndexEngineIdException {
-    indexId = extractInternalId(indexId);
-
+  public BaseIndexEngine getIndexEngine(final int indexId)
+      throws InvalidIndexEngineIdException {
     try {
-      checkIndexId(indexId);
-
-      // A schema-carrying commit reaches this resolver through the index-apply path
-      // (lockIndexes -> IndexAbstract.acquireAtomicExclusiveLock) while already holding
-      // stateLock.writeLock(). Re-acquiring the read lock there would busy-spin forever on the
-      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free body, the
-      // same seam getPhysicalCollectionNameById and readRecordInternal use. The held write lock
-      // supplies the exclusion and the happens-before edge; the pure-read fast path keeps the lock.
+      // A schema-carrying commit already holds stateLock.writeLock(). The active commit window
+      // proves that ownership and avoids a non-reentrant read-lock acquisition.
       if (isCommitWindowActive()) {
-        checkOpennessAndMigration();
-        return doGetIndexEngine(indexId);
+        return getIndexEngineWithStateLock(indexId);
       }
 
       stateLock.readLock().lock();
       try {
-
-        checkOpennessAndMigration();
-
-        return doGetIndexEngine(indexId);
+        return getIndexEngineWithStateLock(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -5056,28 +5285,18 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Lock-free engine resolver for the commit window. Reads {@code indexEngines.get(id)}
-   * without taking {@code stateLock}, mirroring the lock-free {@link
-   * #doGetAndCheckCollection(int)} for collections. The schema-carrying commit already
-   * holds {@code stateLock.writeLock()} (the write-lock branch chosen at commit entry),
-   * so re-acquiring {@code stateLock.readLock()} through the public {@link
-   * #getIndexEngine(int)} would busy-spin forever on the non-reentrant {@code
-   * ScalableRWLock}. The commit-time index-apply path reaches this resolver instead.
-   *
-   * <p><b>Precondition the caller MUST satisfy:</b> this method does no in-method
-   * synchronization and reads the plain (non-{@code volatile}, non-concurrent) {@code
-   * indexEngines} list directly, so the caller MUST hold {@code stateLock} across the call:
-   * {@code writeLock()} for the commit window, {@code readLock()} for the public wrapper.
-   * That held lock is the only thing that excludes a concurrent registrar and
-   * supplies the happens-before edge making the registry read visibility-safe; off-lock
-   * use (or use under only the metadata write locks, not {@code stateLock}) is a data race
-   * on a plain {@code ArrayList} and is unsupported.
-   *
-   * @param internalId the already-extracted internal index id (not the external,
-   *                   API-version-tagged id).
+   * Resolves an engine without acquiring {@code stateLock}. The caller must already hold the
+   * state read lock, or run inside the commit window while holding the state write lock.
    */
-  private BaseIndexEngine doGetIndexEngine(final int internalId)
+  public BaseIndexEngine getIndexEngineWithStateLock(final int indexId)
       throws InvalidIndexEngineIdException {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine resolution requires the storage state lock or an active commit window");
+    }
+
+    checkOpennessAndMigration();
+    final var internalId = extractInternalId(indexId);
     checkIndexId(internalId);
 
     final var engine = indexEngines.get(internalId);
@@ -6819,6 +7038,75 @@ public abstract class AbstractStorage
       }
 
       LogManager.instance().info(this, "Storage data recover was completed");
+    }
+  }
+
+  /**
+   * Creates a record inside a caller-owned atomic operation. One operation may use these record
+   * primitives for one collection only. Future multi-collection support must lock collections in
+   * ascending identifier order before mutation.
+   *
+   * @return the initial durable record version
+   */
+  public long createRecordInsideAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      @Nonnull final byte[] content,
+      final byte recordType) throws IOException {
+    checkCallerOwnsStateLock();
+    checkOpennessAndMigration();
+    if (!rid.isNew() || !(rid instanceof ChangeableRecordId)) {
+      throw new IllegalArgumentException(
+          "Record creation requires a new changeable record identifier: " + rid);
+    }
+
+    atomicOperation.validateRecordCollectionLockOrder(rid.getCollectionId());
+    makeStorageDirty();
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    collection.acquireAtomicExclusiveLock(atomicOperation);
+    final var position =
+        doCreateRecord(
+            atomicOperation,
+            rid,
+            content,
+            atomicOperation.getCommitTs(),
+            recordType,
+            collection,
+            null);
+    return position.recordVersion;
+  }
+
+  /**
+   * Updates a record inside a caller-owned atomic operation and checks its durable version. One
+   * operation may use these record primitives for one collection only. Future multi-collection
+   * support must lock collections in ascending identifier order before mutation.
+   *
+   * @return the new durable record version
+   */
+  public long updateRecordInsideAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      @Nonnull final byte[] content,
+      final long expectedVersion,
+      final byte recordType) throws IOException {
+    checkCallerOwnsStateLock();
+    checkOpennessAndMigration();
+    if (!rid.isPersistent()) {
+      throw new IllegalArgumentException("Record update requires a persistent identifier: " + rid);
+    }
+
+    atomicOperation.validateRecordCollectionLockOrder(rid.getCollectionId());
+    makeStorageDirty();
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    collection.acquireAtomicExclusiveLock(atomicOperation);
+    return doUpdateRecord(
+        atomicOperation, rid, true, content, expectedVersion, recordType, collection);
+  }
+
+  private void checkCallerOwnsStateLock() {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Caller-owned record writes require the storage state lock or an active commit window");
     }
   }
 

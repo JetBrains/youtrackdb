@@ -522,45 +522,85 @@ public class AtomicOperationsManager {
   }
 
   private void releaseLocks(AtomicOperation operation) {
-    // Release StorageComponent locks (the common case).
-    // Check isExclusiveOwner() to make this method idempotent — it may be called
-    // twice (once by endAtomicOperation, once by ensureThatComponentsUnlocked
-    // in the finally block of AbstractStorage.commit).
+    Throwable releaseFailure = null;
+    // Drain every component even when one release fails, so one broken lock cannot leak the rest.
     var compIter = operation.lockedComponents().iterator();
     while (compIter.hasNext()) {
       var component = compIter.next();
-      if (component.isExclusiveOwner()) {
-        component.unlockExclusive();
+      try {
+        final var mode = operation.lockedObjectMode(component.getLockName());
+        if (mode == AtomicOperation.ComponentLockMode.SHARED) {
+          if (component.isSharedOwner()) {
+            component.unlockShared();
+          }
+        } else if (component.isExclusiveOwner()) {
+          // A null mode is treated as exclusive for compatibility with test doubles.
+          component.unlockExclusive();
+        }
+      } catch (RuntimeException | Error failure) {
+        if (releaseFailure == null) {
+          releaseFailure = failure;
+        } else if (releaseFailure != failure) {
+          releaseFailure.addSuppressed(failure);
+        }
+      } finally {
+        compIter.remove();
       }
-      compIter.remove();
     }
 
-    // Clear the combined dedup set
+    // The mode map is the dedup structure. Draining its key view clears names and modes together.
     var nameIter = operation.lockedObjects().iterator();
     while (nameIter.hasNext()) {
       nameIter.next();
       nameIter.remove();
     }
+
+    if (releaseFailure instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (releaseFailure instanceof Error error) {
+      throw error;
+    }
+  }
+
+  /** Acquires a shared component lock for the lifetime of the atomic operation. */
+  public void acquireSharedLockTillOperationComplete(
+      @Nonnull AtomicOperation operation, @Nonnull StorageComponent component) {
+    storage.checkErrorState();
+
+    final var lockName = component.getLockName();
+    final var heldMode = operation.lockedObjectMode(lockName);
+    if (heldMode != null) {
+      // Exclusive mode is stronger, while a repeated shared acquisition is idempotent.
+      return;
+    }
+
+    component.lockShared();
+    operation.addLockedComponent(component);
+    operation.addLockedObject(lockName, AtomicOperation.ComponentLockMode.SHARED);
   }
 
   /**
-   * Acquires exclusive lock on the given {@link StorageComponent} for the lifetime of the
-   * atomic operation. Uses the component's own
-   * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
-   * ReentrantReadWriteLock} directly — no external map lookup needed. The lock is natively
-   * reentrant.
+   * Acquires an exclusive component lock for the lifetime of the atomic operation.
+   * Shared-to-exclusive upgrades fail before entering the non-upgradable component lock.
    */
   public void acquireExclusiveLockTillOperationComplete(
       @Nonnull AtomicOperation operation, @Nonnull StorageComponent component) {
     storage.checkErrorState();
 
-    if (operation.containsInLockedObjects(component.getLockName())) {
+    final var lockName = component.getLockName();
+    final var heldMode = operation.lockedObjectMode(lockName);
+    if (heldMode == AtomicOperation.ComponentLockMode.SHARED) {
+      throw new IllegalStateException(
+          "Cannot upgrade component '" + lockName + "' from SHARED to EXCLUSIVE mode");
+    }
+    if (heldMode == AtomicOperation.ComponentLockMode.EXCLUSIVE) {
       return;
     }
 
     component.lockExclusive();
     operation.addLockedComponent(component);
-    operation.addLockedObject(component.getLockName());
+    operation.addLockedObject(lockName, AtomicOperation.ComponentLockMode.EXCLUSIVE);
   }
 
 }

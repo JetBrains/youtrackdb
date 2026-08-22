@@ -127,6 +127,16 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     return lockName;
   }
 
+  /** Acquires the shared lock on this component for use by {@link AtomicOperationsManager}. */
+  public void lockShared() {
+    acquireSharedLock();
+  }
+
+  /** Releases the shared lock on this component. */
+  public void unlockShared() {
+    releaseSharedLock();
+  }
+
   /**
    * Acquires the exclusive lock on this component for use by
    * {@link AtomicOperationsManager}. Delegates to the protected
