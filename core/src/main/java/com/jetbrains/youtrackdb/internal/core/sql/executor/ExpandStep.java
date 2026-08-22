@@ -190,8 +190,9 @@ public class ExpandStep extends AbstractExecutionStep {
       }
       case Iterable<?> iterable -> {
         // PreFilterableLinkBagIterable covers both vertex and edge LinkBag
-        // iterables. ChainedIterable (from bothE/both) does not implement the
-        // interface, so it silently degrades to unfiltered iteration.
+        // iterables, including bidirectional both()/bothE() traversals which are
+        // wrapped in a PreFilterableChainedIterable (also implementing the
+        // interface) so pre-filtering is applied to each direction independently.
         if (iterable instanceof PreFilterableLinkBagIterable linkBagIterable
             && (acceptedCollectionIds != null || indexRidSet != null)) {
           var filtered = linkBagIterable;

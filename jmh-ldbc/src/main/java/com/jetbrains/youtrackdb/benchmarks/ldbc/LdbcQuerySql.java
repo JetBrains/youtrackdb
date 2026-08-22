@@ -36,6 +36,45 @@ final class LdbcQuerySql {
   static final String IC12 = loadResource("ldbc-queries/IC12.sql");
   static final String IC13 = loadResource("ldbc-queries/IC13.sql");
 
+  // -- Extension queries (not part of LDBC standard) --
+
+  /**
+   * Recent KNOWS connections via bothE — targets the bidirectional pre-filter
+   * optimization introduced with {@code PreFilterableChainedIterable}.
+   * Requires {@code KNOWS.creationDate}; created for the BothE microbench only
+   * (see {@link LdbcSingleThreadBothEBenchmark}), not in {@code ldbc-schema.sql}.
+   */
+  static final String BOTH_E_KNOWS = loadResource("ldbc-queries/both-e-knows.sql");
+
+  /**
+   * Named KNOWS neighbors via vertex-to-vertex {@code both('KNOWS')} — targets
+   * the {@code PreFilterableChainedIterable} vertex path
+   * ({@code VertexEntityImpl.getVertices(BOTH)}) introduced/fixed by YTDB-646.
+   * KNOWS is bidirectional in LDBC, so both {@code out_KNOWS} and
+   * {@code in_KNOWS} bags are populated — the two-direction shape that actually
+   * builds the chained iterable. Requires the {@code Person.firstName} index.
+   */
+  static final String BOTH_KNOWS_VERTEX =
+      loadResource("ldbc-queries/both-knows-vertex.sql");
+
+  /**
+   * Forum recent-joiners via bothE(HAS_MEMBER) — hub-shape variant of the
+   * pre-filter benchmark, targeting Forums with thousands of members. Requires
+   * {@code HAS_MEMBER.joinDate} index (present in {@code ldbc-schema.sql}).
+   */
+  static final String FORUM_RECENT_JOINERS =
+      loadResource("ldbc-queries/forum-recent-joiners.sql");
+
+  /**
+   * Forum joiner-count via bothE(HAS_MEMBER) — count-only variant designed to
+   * maximise the visible speedup from the bothE pre-filter: no .inV() loads,
+   * no ORDER BY materialization, no attribute projection. The only cost is
+   * the edge scan/filter itself. Uses a narrow 99th-percentile lower-bound
+   * date so ~1% of edges survive.
+   */
+  static final String FORUM_JOINER_COUNT =
+      loadResource("ldbc-queries/forum-joiner-count.sql");
+
   private LdbcQuerySql() {
   }
 

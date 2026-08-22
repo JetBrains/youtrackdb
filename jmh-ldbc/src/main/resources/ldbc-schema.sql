@@ -150,3 +150,6 @@ CREATE INDEX Message.creationDate ON Message(creationDate) NOTUNIQUE;
 CREATE INDEX Forum.creationDate ON Forum(creationDate) NOTUNIQUE;
 CREATE INDEX HAS_MEMBER.joinDate ON HAS_MEMBER(joinDate) NOTUNIQUE;
 CREATE INDEX WORK_AT.workFrom ON WORK_AT(workFrom) NOTUNIQUE;
+-- KNOWS.creationDate is NOT created here. An unused secondary index on every
+-- KNOWS edge regresses IC1 (~3-hop out('KNOWS')) via cache pressure. The
+-- BothE-KNOWS microbench creates/drops it in LdbcSingleThreadBothEBenchmark.

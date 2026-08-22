@@ -522,19 +522,57 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
   }
 
   /**
-   * Verify that bothE() with an indexed edge property still produces correct
-   * results via unfiltered traversal. bothE() is intentionally out of scope
-   * for pre-filtering (returns ChainedIterable, not PreFilterableLinkBagIterable)
-   * and silently degrades to no-op. This test documents the intentional
-   * degradation and guards against regressions.
+   * Verify that bothE() with an explicit alias and an indexed edge property
+   * produces correct results AND that the planner now applies the index
+   * pre-filter (intersection descriptor). Previously bothE() silently degraded
+   * to unfiltered traversal; this test confirms the regression is fixed.
+   *
+   * <p>Pattern: Company -bothE('PFWorkAt'){as: w, where: workFrom < 2015}-> outV() as person
+   * company0 has persons 0 and 5 (workFrom 2010, 2015). workFrom < 2015 -> only person0.
    */
   @Test
-  public void testBothEDegradesToNoPreFilterButReturnsCorrectResults() {
+  public void testBothEWithAliasAppliesIndexPreFilter() {
     session.begin();
 
-    // bothE('PFWorkAt') from company0 should find persons working there.
-    // company0 has persons 0 and 5 (workFrom 2010, 2015).
-    // Filter workFrom < 2015 -> only person0 matches.
+    // Note: explicit {as: w} alias is required for the planner to infer the edge class
+    // 'PFWorkAt' and attach the PFWorkAt_workFrom index as an intersection pre-filter.
+    var query =
+        "MATCH {class: PFCompany, as: c, where: (name = 'company0')}"
+            + ".bothE('PFWorkAt'){as: w, where: (workFrom < 2015)}"
+            + ".outV(){as: p}"
+            + " RETURN p.name";
+    var result = session.query(query).toList();
+
+    assertEquals(1, result.size());
+    assertEquals("person0", result.getFirst().getProperty("p.name"));
+
+    // EXPLAIN should now show intersection pre-filter for bothE with alias
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "bothE with explicit alias should trigger intersection pre-filter "
+            + "(PFWorkAt_workFrom index), but plan was:\n" + plan,
+        plan.contains("intersection:"));
+
+    session.commit();
+  }
+
+  /**
+   * Verify that bothE() WITHOUT an explicit alias still produces correct results AND
+   * still benefits from index pre-filtering. The planner auto-assigns a default alias
+   * (e.g. $YOUTRACKDB_DEFAULT_ALIAS_0), enabling class inference and index intersection
+   * to proceed transparently even without a user-visible alias.
+   *
+   * <p>This test guards against regressions where the absence of an explicit alias
+   * would prevent the optimization from being applied.
+   */
+  @Test
+  public void testBothEWithoutAliasStillAppliesIndexPreFilter() {
+    session.begin();
+
+    // bothE('PFWorkAt') from company0: persons 0 and 5 (workFrom 2010, 2015).
+    // Filter workFrom < 2015 -> only person0.
     var query =
         "MATCH {class: PFCompany, as: c, where: (name = 'company0')}"
             + ".bothE('PFWorkAt'){where: (workFrom < 2015)}"
@@ -545,14 +583,261 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     assertEquals(1, result.size());
     assertEquals("person0", result.getFirst().getProperty("p.name"));
 
-    // EXPLAIN should NOT show intersection descriptor for bothE
+    // The planner auto-assigns a default alias for the bothE step, so class inference
+    // resolves 'PFWorkAt' and the PFWorkAt_workFrom index is used as intersection pre-filter.
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
-    assertFalse(
-        "bothE should NOT trigger pre-filter intersection, but plan was:\n"
-            + plan,
-        plan.contains("(intersection:"));
+    assertNotNull(plan);
+    assertTrue(
+        "bothE without explicit alias should still produce an intersection pre-filter "
+            + "(via auto-assigned default alias), but plan was:\n" + plan,
+        plan.contains("intersection:"));
 
+    session.commit();
+  }
+
+  /**
+   * Verify that both() (vertex-to-vertex bidirectional traversal) returns correct
+   * results after the fix that wraps its LinkBag-backed iterables in
+   * {@code PreFilterableChainedIterable}. Exercises both the OUT and IN directions.
+   *
+   * <p>both('PFWorkAt') from company0 traverses:
+   * <ul>
+   *   <li>OUT direction: no out_PFWorkAt bag on company — 0 results</li>
+   *   <li>IN direction: in_PFWorkAt bag on company — persons 0 and 5</li>
+   * </ul>
+   */
+  @Test
+  public void testBothTraversalReturnsCorrectResults() {
+    session.begin();
+
+    // PFWorkAt edges run FROM person TO company, so both('PFWorkAt') from company0
+    // finds persons 0 (workFrom=2010) and 5 (workFrom=2015).
+    var query =
+        "MATCH {class: PFCompany, as: c, where: (name = 'company0')}"
+            + ".both('PFWorkAt'){as: p}"
+            + " RETURN p.name";
+    var result = session.query(query).toList();
+
+    assertEquals(2, result.size());
+
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("p.name"));
+    }
+    assertTrue("Expected person0 in results", names.contains("person0"));
+    assertTrue("Expected person5 in results", names.contains("person5"));
+
+    session.commit();
+  }
+
+  /**
+   * Verify that {@code both('X')} with a symmetric edge (both endpoints of the
+   * same vertex class) infers the target vertex class from the edge LINK
+   * schema, enabling index pre-filter on an indexed vertex property of the
+   * target alias.
+   *
+   * <p>Setup: a standalone {@code PFKnows} edge class with both endpoints
+   * pointing at {@code PFKnownPerson}. {@code PFKnownPerson.age} has an index.
+   * The query filters the target by {@code age > 30}; the planner should
+   * resolve {@code p} to class {@code PFKnownPerson} and attach the
+   * {@code PFKnownPerson_age} index as an intersection pre-filter.
+   */
+  @Test
+  public void testBothWithSymmetricEdgeInfersClassAndAppliesPreFilter() {
+    session.execute("CREATE class PFKnownPerson extends V").close();
+    session.execute("CREATE property PFKnownPerson.name STRING").close();
+    session.execute("CREATE property PFKnownPerson.age INTEGER").close();
+    session.execute(
+        "CREATE index PFKnownPerson_age on PFKnownPerson (age) NOTUNIQUE").close();
+
+    session.execute("CREATE class PFKnows extends E").close();
+    session.execute("CREATE property PFKnows.out LINK PFKnownPerson").close();
+    session.execute("CREATE property PFKnows.in LINK PFKnownPerson").close();
+
+    session.begin();
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'alice', age = 25").close();
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'bob', age = 35").close();
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'carol', age = 45").close();
+    // dave has age 28 (<= 30) so the age > 30 filter MUST exclude him. This
+    // guards against a pre-filter that fails to exclude non-matching neighbors
+    // (a filter that returned all neighbors would still pass a bob/carol-only
+    // assertion if dave were absent from the graph).
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'dave', age = 28").close();
+    session.execute(
+        "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
+            + " to (select from PFKnownPerson where name='bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
+            + " to (select from PFKnownPerson where name='carol')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
+            + " to (select from PFKnownPerson where name='dave')")
+        .close();
+    session.commit();
+
+    var query =
+        "MATCH {class: PFKnownPerson, as: a, where: (name = 'alice')}"
+            + ".both('PFKnows'){as: p, where: (age > 30)}"
+            + " RETURN p.name";
+    var result = session.query(query).toList();
+
+    // alice.both(PFKnows) = {bob (age=35), carol (age=45), dave (age=28)};
+    // filter age > 30 keeps bob and carol and EXCLUDES dave.
+    assertEquals(2, result.size());
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("p.name"));
+    }
+    assertTrue("Expected bob in results", names.contains("bob"));
+    assertTrue("Expected carol in results", names.contains("carol"));
+    assertFalse("dave (age=28) must be excluded by age > 30",
+        names.contains("dave"));
+
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "both('PFKnows') with a symmetric edge and indexed target property "
+            + "should produce an intersection pre-filter on PFKnownPerson.age, "
+            + "but plan was:\n" + plan,
+        plan.contains("intersection:"));
+  }
+
+  /**
+   * Regression guard for the {@link
+   * com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableChainedIterable
+   * PreFilterableChainedIterable} two-bag path: a vertex that has the SAME edge
+   * label populated in BOTH directions (some OUT neighbors AND some IN
+   * neighbors), so {@code both('LABEL')} builds a real chained iterable over two
+   * non-empty LinkBags at runtime (all other fixtures are one-directional and
+   * collapse to a single iterable).
+   *
+   * <p>Setup: a symmetric {@code PFHub} edge (both endpoints {@code PFHubNode},
+   * {@code age} indexed). A central {@code hub} vertex has OUT edges to
+   * {@code out1}(age=40)/{@code out2}(age=20) and IN edges from
+   * {@code in1}(age=50)/{@code in2}(age=15). {@code both('PFHub'){age > 30}}
+   * must return exactly {@code out1} and {@code in1} — excluding one neighbor
+   * on EACH side. If the chained {@code withClassFilter}/{@code withRidFilter}
+   * delegation dropped a valid neighbor in either sub-iterable (over-exclusion),
+   * or the {@code ChainedIterator} failed to drain both bags, this assertion
+   * would fail.
+   */
+  @Test
+  public void testBothTwoPopulatedDirectionsChainedPreFilter() {
+    session.execute("CREATE class PFHubNode extends V").close();
+    session.execute("CREATE property PFHubNode.name STRING").close();
+    session.execute("CREATE property PFHubNode.age INTEGER").close();
+    session.execute(
+        "CREATE index PFHubNode_age on PFHubNode (age) NOTUNIQUE").close();
+
+    session.execute("CREATE class PFHub extends E").close();
+    session.execute("CREATE property PFHub.out LINK PFHubNode").close();
+    session.execute("CREATE property PFHub.in LINK PFHubNode").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PFHubNode set name = 'hub', age = 33").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'out1', age = 40").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'out2', age = 20").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'in1', age = 50").close();
+    session.execute("CREATE VERTEX PFHubNode set name = 'in2', age = 15").close();
+    // OUT edges: hub -> out1, hub -> out2  (populates out_PFHub on hub)
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='hub')"
+            + " to (select from PFHubNode where name='out1')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='hub')"
+            + " to (select from PFHubNode where name='out2')")
+        .close();
+    // IN edges: in1 -> hub, in2 -> hub  (populates in_PFHub on hub)
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='in1')"
+            + " to (select from PFHubNode where name='hub')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFHub from (select from PFHubNode where name='in2')"
+            + " to (select from PFHubNode where name='hub')")
+        .close();
+    session.commit();
+
+    // hub.both('PFHub') = {out1(40), out2(20), in1(50), in2(15)}; filter
+    // age > 30 keeps out1 and in1 (one survivor per direction) and excludes
+    // out2 and in2 (one excluded per direction). Read-only query needs no tx,
+    // matching the sibling read-only tests in this class.
+    var query =
+        "MATCH {class: PFHubNode, as: h, where: (name = 'hub')}"
+            + ".both('PFHub'){as: n, where: (age > 30)}"
+            + " RETURN n.name";
+    var result = session.query(query).toList();
+
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("n.name"));
+    }
+    assertEquals("Exactly one survivor per direction expected: " + names,
+        2, result.size());
+    assertTrue("out-direction survivor out1 (age=40) must be present",
+        names.contains("out1"));
+    assertTrue("in-direction survivor in1 (age=50) must be present",
+        names.contains("in1"));
+    assertFalse("out-direction out2 (age=20) must be excluded",
+        names.contains("out2"));
+    assertFalse("in-direction in2 (age=15) must be excluded",
+        names.contains("in2"));
+
+    // Symmetric edge -> target class PFHubNode inferred; indexed age -> the
+    // planner attaches an intersection pre-filter that flows into the
+    // PreFilterableChainedIterable spanning both directions.
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "both('PFHub') over two populated directions with an indexed target "
+            + "property should produce an intersection pre-filter, but plan "
+            + "was:\n" + plan,
+        plan.contains("intersection:"));
+  }
+
+  /**
+   * Verify that {@code both('X')} with a heterogeneous edge (different in/out
+   * vertex classes, e.g. {@code PFWorkAt}: out=PFPerson, in=PFCompany) does
+   * NOT infer a target class — because the two endpoints cannot both be
+   * safely represented by a single alias class. The traversal must still
+   * produce correct results (via {@link
+   * com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableChainedIterable
+   * PreFilterableChainedIterable}'s class-filter fallback), but the plan
+   * must not contain a spurious intersection on a wrong class.
+   */
+  @Test
+  public void testBothWithHeterogeneousEdgeSkipsClassInference() {
+    session.begin();
+    // .both('PFWorkAt') from alice: out_PFWorkAt has company0 (alice works there).
+    // in_PFWorkAt on alice is empty. Result: company0.
+    var query =
+        "MATCH {class: PFPerson, as: a, where: (name = 'person0')}"
+            + ".both('PFWorkAt'){as: x}"
+            + " RETURN x.name";
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    assertEquals("company0", result.getFirst().getProperty("x.name"));
+
+    // No target class inferred ⇒ no per-target-class index lookup,
+    // so the plan must NOT claim an intersection pre-filter.
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "both('PFWorkAt') with heterogeneous endpoints must not infer a "
+            + "target class; intersection pre-filter should be skipped. "
+            + "Plan was:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 }
