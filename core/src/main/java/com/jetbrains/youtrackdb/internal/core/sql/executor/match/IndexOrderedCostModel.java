@@ -55,8 +55,11 @@ final class IndexOrderedCostModel {
    * @param histogram            equi-depth histogram for skew correction, or null
    * @param orderAsc             true for ASC scan direction, false for DESC
    * @param downstreamEdgeCount  number of MATCH edges after the target alias.
-   *     With index scan + LIMIT, only K rows traverse these edges; with
-   *     load-all, all N rows do. Each downstream edge costs ~randRead per row.
+   *     Both strategies compared here emit rows in index order under a LIMIT,
+   *     so only K rows traverse these edges in either case. The term is still
+   *     added (at ~randRead per row per edge) so the absolute estimates stay
+   *     comparable with cost numbers produced elsewhere; it cancels out of the
+   *     scan-versus-load-sort comparison itself.
    * @return cost estimate, or null if the index scan should be skipped
    *     (below threshold, zero index, or scan too large)
    */
@@ -126,9 +129,10 @@ final class IndexOrderedCostModel {
 
     // Downstream edge cost: with LIMIT, only K rows traverse downstream
     // edges in BOTH strategies. Index scan produces K rows directly;
-    // loadSortFromRidSet loads all N but sorts and marks PRE_SORTED=true,
+    // loadSortFromLinkBag loads all N but sorts and marks PRE_SORTED=true,
     // so OrderByStep passes through and LimitStep stops after K rows —
-    // only K rows go through downstream MATCH edges.
+    // only K rows go through downstream MATCH edges. Charging both sides
+    // keeps the estimates on the same scale without biasing the choice.
     if (downstreamEdgeCount > 0 && limit > 0) {
       double downstreamPerRow = downstreamEdgeCount * randRead;
       costUnionScan += k * downstreamPerRow;

@@ -448,4 +448,46 @@ public class IndexOrderedEdgeStepCostTest {
     assertEquals("Negative frequencies clamped to 0: 0+10+0+20=30", 30L, sum);
   }
 
+  /**
+   * LDBC SF1 IS2 shape: small person LinkBag vs huge Message.creationDate
+   * index, LIMIT 10, downstream REPLY_OF. Index scan must lose to loadSort —
+   * choosing scan would walk O(indexSize × LIMIT / N) entries. Not a model
+   * bug that benches stay on loadSort.
+   */
+  @Test
+  public void testSf1Is2LikeShapePrefersLoadSortOverIndexScan() {
+    // SF1: ~2.4M messages; curated persons often have ~50–200 posts/comments.
+    int linkBag = 100;
+    long indexSize = 2_400_000L;
+    long limit = 10;
+    int downstreamEdges = 2; // REPLY_OF (+ HAS_CREATOR on original)
+
+    var costs = IndexOrderedCostModel.computeCosts(
+        linkBag, indexSize, limit, null, false, downstreamEdges);
+    assertNotNull(
+        "Costs should be defined (expectedScanLength under MAX_SCAN)", costs);
+    // expectedScanLength = 10 / (100/2.4e6) = 240_000
+    assertEquals(240_000.0, costs.expectedScanLength(), 1.0);
+    assertTrue(
+        "IS2-like sparse LinkBag must prefer loadSort; unionScan="
+            + costs.costUnionScan() + " loadSort=" + costs.costLoadSort(),
+        costs.costUnionScan() > costs.costLoadSort());
+  }
+
+  /**
+   * Opposite of IS2: person owns most of the indexed rows. Index scan must
+   * win — this is the regime integration tests force with large single-source
+   * data and no artificial MAX_SCAN=1.
+   */
+  @Test
+  public void testHighDensityWithLimitPrefersIndexScan() {
+    var costs = IndexOrderedCostModel.computeCosts(
+        200, 200, 5, null, false, 0);
+    assertNotNull(costs);
+    assertTrue(
+        "Dense LinkBag + small LIMIT must prefer index scan; unionScan="
+            + costs.costUnionScan() + " loadSort=" + costs.costLoadSort(),
+        costs.costUnionScan() < costs.costLoadSort());
+  }
+
 }

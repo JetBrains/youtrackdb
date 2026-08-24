@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -77,7 +78,7 @@ final class IndexOrderedPlanner {
       @Nullable String sourceClassName,
       boolean multiFieldOrderBy,
       @Nullable SQLWhereClause targetFilter,
-      @Nullable String targetClassName,
+      @Nonnull String targetClassName,
       boolean isEdgeTraversal,
       int downstreamEdgeCount) {
   }
@@ -431,10 +432,13 @@ final class IndexOrderedPlanner {
     }
 
     // 12. Count downstream edges after the matched edge in the schedule.
-    // These edges represent traversal work done PER result row. With index
-    // scan + LIMIT, only K rows go through downstream edges; with load-all,
-    // all N rows do. This cost difference tips the balance toward index scan
-    // when downstream work is significant (e.g., IS2's REPLY_OF chain).
+    // These edges represent traversal work done PER result row. Both
+    // order-preserving strategies stop after K rows under a LIMIT, so this
+    // count does not by itself favour one over the other; the cost model adds
+    // it to both estimates only to keep them on a comparable scale. The count
+    // matters at runtime instead: it is what makes a bounded step prefer
+    // sorting the loaded targets locally over streaming them unsorted, since
+    // an unsorted stream would push all N rows through the downstream edges.
     int downstreamEdgeCount = 0;
     boolean pastMatched = false;
     for (var edge : sortedEdges) {

@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,8 +86,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** WHERE filter on the target alias (e.g., creationDate < :maxDate). */
   @Nullable private final SQLWhereClause targetFilter;
 
-  /** Class constraint on the target alias (for class-based filtering). */
-  @Nullable private final String targetClassName;
+  /**
+   * Class constraint on the target alias (for class-based filtering). Never
+   * null: {@link IndexOrderedPlanner} rejects the candidate when the target
+   * alias has no resolvable class, so this step is only built with one.
+   */
+  @Nonnull
+  private final String targetClassName;
 
   /**
    * When true, the traversal is .inE()/.outE() and we want edge record RIDs
@@ -99,6 +106,49 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * index scan + LIMIT avoids (only K rows go downstream vs all N).
    */
   private final int downstreamEdgeCount;
+
+  /**
+   * Runtime strategy chosen on the last {@link #internalStart} of this step.
+   * Null until the step runs — EXPLAIN before execution will not show it;
+   * PROFILE / post-query {@link #prettyPrint} will.
+   */
+  @Nullable private volatile RuntimePath chosenRuntimePath;
+
+  /**
+   * Which physical strategy {@link IndexOrderedEdgeStep} actually ran.
+   * Distinct from plan-time {@code multiSourceMode}: that selects the MATCH
+   * binding shape; this records index scan vs local load/sort after the cost
+   * model runs.
+   */
+  public enum RuntimePath {
+    /** Single-source RidSet-filtered B-tree scan ({@code indexScanFiltered}). */
+    INDEX_SCAN("index-scan"),
+    /** Single-source load LinkBag + local sort ({@code loadSortFromLinkBag}). */
+    LOAD_SORT("load-sort"),
+    /** Single-source load LinkBag unsorted ({@code loadFromLinkBag}). */
+    LOAD_UNSORTED("load-unsorted"),
+    /** Multi-source union RidSet + filtered index scan. */
+    UNION_SCAN("union-scan"),
+    /** Multi-source global index scan (no RidSet filter). */
+    GLOBAL_SCAN("global-scan"),
+    /** Multi-source / unbound fallback: stream LinkBags, OrderByStep sorts. */
+    LOAD_UNSORTED_MULTI("load-unsorted-multi");
+
+    private final String label;
+
+    RuntimePath(String label) {
+      this.label = label;
+    }
+
+    String label() {
+      return label;
+    }
+  }
+
+  /** Last runtime path chosen by this step, or null if not started yet. */
+  @Nullable public RuntimePath getChosenRuntimePath() {
+    return chosenRuntimePath;
+  }
 
   public IndexOrderedEdgeStep(
       CommandContext ctx,
@@ -114,7 +164,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Nullable String reverseFieldName,
       @Nullable String sourceClassName,
       @Nullable SQLWhereClause targetFilter,
-      @Nullable String targetClassName,
+      @Nonnull String targetClassName,
       boolean edgeTraversal,
       int downstreamEdgeCount,
       boolean profilingEnabled) {
@@ -190,6 +240,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // Build RidSet only now — it is needed as the bitmap filter for the
       // index-value scan. The fallback paths below iterate the LinkBag
       // directly, so they skip the RidSet allocation.
+      chosenRuntimePath = RuntimePath.INDEX_SCAN;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return indexScanFiltered(ridSetFromLinkBag(linkBag), ctx, upstreamRow);
     } else if (downstreamEdgeCount > 0 && limit > 0) {
@@ -198,11 +249,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // pipeline — only K records traverse expensive downstream edges
       // (REPLY_OF chain, HAS_CREATOR, etc.) instead of all N.
       // Sort cost O(N log N) is trivial for typical LinkBag sizes (~50-500).
+      chosenRuntimePath = RuntimePath.LOAD_SORT;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
     } else {
       // No downstream edges or no LIMIT: stream unsorted to OrderByStep.
       // OrderByStep's bounded heap handles sorting with O(N log K).
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromLinkBag(linkBag, ctx, upstreamRow);
     }
@@ -240,7 +293,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return null;
       }
       if (isAlreadyBoundAndDifferent(upstreamRow, targetRecord, session)) {
@@ -265,12 +318,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadSortFromLinkBag(
       LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
+    // Class filter is per LinkBag entry; resolve the target class once for the scan.
+    var targetClass = resolveTargetClass(ctx);
 
     var records = new ArrayList<Result>();
     for (RidPair pair : linkBag) {
-      var record = loadRecord(ridFromPair(pair), session);
+      var rid = ridFromPair(pair);
+      var record = loadRecord(rid, session);
       if (record != null
-          && matchesTargetFilter(record, ctx)
+          && matchesTargetFilter(record, rid, ctx, targetClass)
           && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
         records.add(record);
       }
@@ -296,6 +352,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadFromLinkBag(
       LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
+    var targetClass = resolveTargetClass(ctx);
     var iter = linkBag.iterator();
     return ExecutionStream.resultIterator(new Iterator<Result>() {
       private Result pending;
@@ -303,9 +360,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Override
       public boolean hasNext() {
         while (pending == null && iter.hasNext()) {
-          var record = loadRecord(ridFromPair(iter.next()), session);
+          var rid = ridFromPair(iter.next());
+          var record = loadRecord(rid, session);
           if (record != null
-              && matchesTargetFilter(record, ctx)
+              && matchesTargetFilter(record, rid, ctx, targetClass)
               && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
             pending = new MatchResultRow(session, upstreamRow, targetAlias, record);
           }
@@ -366,10 +424,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       case FILTERED_BOUND -> filteredBound(ctx);
       case FILTERED_UNBOUND -> filteredUnbound(ctx);
       case UNFILTERED_BOUND -> {
+        // Full index scan + reverse-edge class check; no RidSet filter.
+        chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield unfilteredBound(ctx);
       }
       case UNFILTERED_UNBOUND -> {
+        chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield unfilteredUnbound(ctx);
       }
@@ -408,6 +469,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     int maxSources =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     if (sourceCount > maxSources) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
     }
@@ -420,14 +482,17 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     return switch (strategy) {
       case UNION_RIDSET_SCAN -> {
+        chosenRuntimePath = RuntimePath.UNION_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield indexScanWithUnion(sourceMap, ctx);
       }
       case GLOBAL_SCAN -> {
+        chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield indexScanGlobal(sourceMap, ctx);
       }
       case LOAD_ALL_SORT -> {
+        chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
         yield loadFromSourcesUnsorted(sourceMap, ctx);
       }
@@ -496,10 +561,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var histogram = index.getHistogram(session);
     if (sourceOverflow || ridSetOverflow || unionRidSet.isEmpty()
         || !shouldUseIndexScan(unionRidSet.size(), indexSize, histogram)) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnbound(sourceRids, ctx);
     }
 
+    chosenRuntimePath = RuntimePath.UNION_SCAN;
     ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
     var indexDesc = new IndexSearchDescriptor(index);
     var filteredStep = new RidFilteredIndexValuesStep(
@@ -514,7 +581,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return null;
       }
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
@@ -557,9 +624,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private void forEachMatchingTarget(
       LinkBag linkBag, DatabaseSessionEmbedded session, CommandContext ctx,
       java.util.function.Consumer<Result> consumer) {
+    var targetClass = resolveTargetClass(ctx);
     for (RidPair pair : linkBag) {
-      var record = loadRecord(ridFromPair(pair), session);
-      if (record != null && matchesTargetFilter(record, ctx)) {
+      var rid = ridFromPair(pair);
+      var record = loadRecord(rid, session);
+      if (record != null && matchesTargetFilter(record, rid, ctx, targetClass)) {
         consumer.accept(record);
       }
     }
@@ -599,7 +668,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return ExecutionStream.empty();
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return ExecutionStream.empty();
       }
 
@@ -657,7 +726,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return null;
       }
 
@@ -711,6 +780,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     if (overflow) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(
           CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
@@ -840,7 +910,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     if (targetRecord == null) {
       return ExecutionStream.empty();
     }
-    if (!matchesTargetFilter(targetRecord, ctx)) {
+    if (!matchesTargetFilter(targetRecord, rid, ctx)) {
       return ExecutionStream.empty();
     }
 
@@ -1047,29 +1117,64 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
+   * Resolves the MATCH target class from the session's immutable schema
+   * snapshot. The planner refuses to build this step unless the target class
+   * name resolves at plan time, so {@code null} here means the class was
+   * dropped between planning and execution.
+   *
+   * <p>The snapshot is the required source, not merely a convenient one. Its
+   * classes carry a precomputed polymorphic collection-id set, which is what
+   * makes the per-record membership test in
+   * {@link #matchesTargetFilter(Result, RID, CommandContext, SchemaClass)}
+   * lock-free. Reading the class off the live shared schema instead would
+   * reintroduce the schema lock this step exists to avoid.
+   */
+  @Nullable private SchemaClass resolveTargetClass(CommandContext ctx) {
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    assert schema != null;
+    return schema.getClassInternal(targetClassName);
+  }
+
+  /**
+   * Convenience overload for call sites that filter a single record and have no
+   * loop to hoist the class resolution out of. Loops should resolve the class
+   * once with {@link #resolveTargetClass} and call the four-argument form.
+   */
+  private boolean matchesTargetFilter(
+      Result targetRecord, RID targetRid, CommandContext ctx) {
+    return matchesTargetFilter(
+        targetRecord, targetRid, ctx, resolveTargetClass(ctx));
+  }
+
+  /**
    * Checks if a target record passes the WHERE filter and class constraint.
    * Returns true if the record should be included, false if filtered out.
+   *
+   * <p>Class membership is decided from the record's collection id against
+   * {@code targetClass}, which covers the target class and its subclasses. That
+   * is equivalent to an {@code isSubClassOf} check, but it does not take the
+   * shared schema lock on every record — important when many targets are
+   * filtered under concurrent queries. Same approach as
+   * {@link #unfilteredBound}.
+   *
+   * <p>The caller supplies {@code targetClass} so a filtering loop resolves it
+   * once instead of once per record.
    */
-  private boolean matchesTargetFilter(Result targetRecord, CommandContext ctx) {
+  private boolean matchesTargetFilter(
+      Result targetRecord,
+      RID targetRid,
+      CommandContext ctx,
+      @Nullable SchemaClass targetClass) {
     if (targetFilter != null
         && !targetFilter.matchesFilters(targetRecord, ctx)) {
       return false;
     }
-    if (targetClassName != null) {
-      var entity = targetRecord.asEntityOrNull();
-      if (entity == null) {
-        return false;
-      }
-      var schemaClass = entity.getSchemaClass();
-      if (schemaClass == null) {
-        return false;
-      }
-      if (!schemaClass.getName().equals(targetClassName)
-          && !schemaClass.isSubClassOf(targetClassName)) {
-        return false;
-      }
+    // A class dropped between planning and execution leaves nothing that can
+    // satisfy the constraint.
+    if (targetClass == null) {
+      return false;
     }
-    return true;
+    return targetClass.hasPolymorphicCollectionId(targetRid.getCollectionId());
   }
 
   @Override
@@ -1083,7 +1188,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var direction = orderAsc ? "ASC" : "DESC";
     var mode = multiSourceMode != null ? " (" + multiSourceMode + ")" : "";
     var edgeSuffix = edgeTraversal ? "E" : "";
-    return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + "\n"
+    var path = chosenRuntimePath != null ? " [" + chosenRuntimePath.label() + "]" : "";
+    return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + path + "\n"
         + spaces + "  {" + sourceAlias + "}." + edgeClassName
         + "{" + targetAlias + "} via " + index.getName();
   }
