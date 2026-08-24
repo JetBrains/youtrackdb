@@ -6393,17 +6393,14 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   // Additional branch-coverage tests for IndexOrderedEdgeStep
   // =====================================================================
 
-  // Class inheritance: targetClassName filtering skips records of wrong class
-  // when multiple classes share the same index via a common superclass.
-  // Covers matchesTargetFilter branches: targetClassName != null, class mismatch,
-  // isSubClassOf check.
+  // Class filtering: targetClassName skips unrelated classes in the same LinkBag.
+  // Covers matchesTargetFilter via hasPolymorphicCollectionId (reject path).
   @Test
   public void testIndexOrderedMatchTargetClassInheritance() throws Exception {
     // Person1 has in_TEST_HAS_CREATOR edges pointing to both TestMessage and
     // TestComment vertices. The index is on TestMessage.creationDate. The
     // MATCH query targets {class: TestMessage} — TestComment records in the
     // LinkBag are loaded but fail targetClassName check in matchesTargetFilter.
-    // This exercises the class mismatch branch (lines 873, 882-883).
     session.execute("CREATE CLASS TestPerson EXTENDS V").close();
     session.execute("CREATE CLASS TestMessage EXTENDS V").close();
     session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
@@ -6474,6 +6471,151 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         }
         // DESC order: 100, 99, 98, 97, 96
         Assert.assertEquals(100L, (long) mids.get(0));
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Parent class constraint must accept subclass vertices: TestPost EXTENDS
+   * TestMessage linked on the same edge; {@code {class: TestMessage}} returns
+   * both base messages and posts (polymorphic include via
+   * {@code hasPolymorphicCollectionId}).
+   */
+  @Test
+  public void testIndexOrderedMatchTargetClassIncludesSubclass() throws Exception {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TestPost EXTENDS TestMessage").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    // Enough base + subclass rows for the plan-time cost model to approve
+    // index-ordered MATCH (same scale as testIndexOrderedMatchTargetClassInheritance).
+    for (var i = 1; i <= 50; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    for (var i = 100; i <= 149; i++) {
+      session.execute(
+          "CREATE VERTEX TestPost SET creationDate = '2025-02-01 "
+              + String.format("%02d", (i - 100) / 60) + ":"
+              + String.format("%02d", (i - 100) % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestPost WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        // Posts are dated February (after January base messages) → top-5 are posts
+        Assert.assertEquals(
+            "Parent class constraint should include subclass posts first: " + mids,
+            java.util.List.of(149L, 148L, 147L, 146L, 145L),
+            mids);
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Concrete subclass constraint must reject base-class siblings: {@code {class:
+   * TestPost}} returns only posts, not base TestMessage rows on the same LinkBag.
+   */
+  @Test
+  public void testIndexOrderedMatchTargetClassConcreteSubclassExcludesBase()
+      throws Exception {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TestPost EXTENDS TestMessage").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    for (var i = 1; i <= 50; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    for (var i = 100; i <= 149; i++) {
+      session.execute(
+          "CREATE VERTEX TestPost SET creationDate = '2025-02-01 "
+              + String.format("%02d", (i - 100) / 60) + ":"
+              + String.format("%02d", (i - 100) % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestPost WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestPost, as: m} "
+              + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals(
+            "Concrete subclass constraint should return only posts: " + mids,
+            java.util.List.of(149L, 148L, 147L, 146L, 145L),
+            mids);
+        for (var mid : mids) {
+          Assert.assertTrue(
+              "Base TestMessage rows (1..50) must be excluded, got: " + mid,
+              mid >= 100);
+        }
       }
       session.commit();
     }
@@ -7451,6 +7593,168 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           Assert.assertNull("Second result should have NULL cd (nulls first in ASC)", cds.get(1));
           Assert.assertNotNull("Third result should have non-NULL cd", cds.get(2));
           Assert.assertNotNull("Fourth result should have non-NULL cd", cds.get(3));
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
+  /**
+   * Schema for loadSort polymorphic target tests: base TestMessage, subclass
+   * TestPost, unrelated TestNote on the same LinkBag; each has a TestReply so
+   * MAX_SCAN=1 + LIMIT forces {@code loadSortFromLinkBag}.
+   */
+  private void initLoadSortPolymorphicTargetData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestPerson.name STRING").close();
+    session.execute("CREATE INDEX TestPerson.name ON TestPerson(name) UNIQUE").close();
+
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TestPost EXTENDS TestMessage").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.execute("CREATE CLASS TestNote EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestNote.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestNote.noteId LONG").close();
+
+    session.execute("CREATE CLASS TestReply EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestReply.content STRING").close();
+    session.execute("CREATE CLASS TEST_REPLY_OF EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+
+    // Base messages: msgId 1..2 (Jan 1..2)
+    for (var i = 1; i <= 2; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET msgId = " + i
+              + ", creationDate = '2025-01-" + String.format("%02d", i) + " 00:00:00'")
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+              + i + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+      session.execute(
+          "CREATE VERTEX TestReply SET content = 'reply-msg-" + i + "'").close();
+      session.execute(
+          "CREATE EDGE TEST_REPLY_OF FROM (SELECT FROM TestReply WHERE content = 'reply-msg-"
+              + i + "') TO (SELECT FROM TestMessage WHERE msgId = " + i + ")")
+          .close();
+    }
+
+    // Subclass posts: msgId 10..11 (Jan 10..11) — must match {class: TestMessage}
+    for (var i = 10; i <= 11; i++) {
+      session.execute(
+          "CREATE VERTEX TestPost SET msgId = " + i
+              + ", creationDate = '2025-01-" + String.format("%02d", i) + " 00:00:00'")
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestPost WHERE msgId = "
+              + i + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+      session.execute(
+          "CREATE VERTEX TestReply SET content = 'reply-post-" + i + "'").close();
+      session.execute(
+          "CREATE EDGE TEST_REPLY_OF FROM (SELECT FROM TestReply WHERE content = 'reply-post-"
+              + i + "') TO (SELECT FROM TestPost WHERE msgId = " + i + ")")
+          .close();
+    }
+
+    // Unrelated notes on the same LinkBag — must never match Message/Post class filters
+    for (var i = 100; i <= 101; i++) {
+      session.execute(
+          "CREATE VERTEX TestNote SET noteId = " + i
+              + ", creationDate = '2025-02-01 00:00:00'")
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestNote WHERE noteId = "
+              + i + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+  }
+
+  /**
+   * loadSortFromLinkBag: {@code {class: TestMessage}} includes TestPost subclass
+   * RIDs and excludes unrelated TestNote RIDs on the same LinkBag.
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortIncludesSubclassExcludesUnrelated()
+      throws Exception {
+    initLoadSortPolymorphicTargetData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        var query =
+            "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m}"
+                + ".in('TEST_REPLY_OF'){class: TestReply, as: r} "
+                + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 4";
+        try (var result = session.query(query)) {
+          var plan = getPlan(result);
+          Assert.assertTrue(
+              "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+              plan.contains("INDEX ORDERED MATCH"));
+
+          var mids = new java.util.ArrayList<Long>();
+          while (result.hasNext()) {
+            mids.add(((Number) result.next().getProperty("mid")).longValue());
+          }
+          Assert.assertEquals(
+              "loadSort parent filter should return base+subclass only: " + mids,
+              java.util.List.of(11L, 10L, 2L, 1L),
+              mids);
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
+  /**
+   * loadSortFromLinkBag: {@code {class: TestPost}} returns only subclass rows,
+   * not base TestMessage or unrelated TestNote.
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortConcreteSubclassExcludesBase()
+      throws Exception {
+    initLoadSortPolymorphicTargetData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        var query =
+            "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+                + ".in('TEST_HAS_CREATOR'){class: TestPost, as: m}"
+                + ".in('TEST_REPLY_OF'){class: TestReply, as: r} "
+                + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 4";
+        try (var result = session.query(query)) {
+          var plan = getPlan(result);
+          Assert.assertTrue(
+              "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+              plan.contains("INDEX ORDERED MATCH"));
+
+          var mids = new java.util.ArrayList<Long>();
+          while (result.hasNext()) {
+            mids.add(((Number) result.next().getProperty("mid")).longValue());
+          }
+          Assert.assertEquals(
+              "loadSort concrete subclass filter should return only posts: " + mids,
+              java.util.List.of(11L, 10L),
+              mids);
         }
         session.commit();
       } finally {

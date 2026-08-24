@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
@@ -265,12 +266,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadSortFromLinkBag(
       LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
+    // Resolve once: matchesTargetFilter class-check is per LinkBag entry.
+    var targetClass = resolveTargetClass(ctx);
 
     var records = new ArrayList<Result>();
     for (RidPair pair : linkBag) {
       var record = loadRecord(ridFromPair(pair), session);
       if (record != null
-          && matchesTargetFilter(record, ctx)
+          && matchesTargetFilter(record, ctx, targetClass)
           && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
         records.add(record);
       }
@@ -296,6 +299,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadFromLinkBag(
       LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
+    var targetClass = resolveTargetClass(ctx);
     var iter = linkBag.iterator();
     return ExecutionStream.resultIterator(new Iterator<Result>() {
       private Result pending;
@@ -305,7 +309,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         while (pending == null && iter.hasNext()) {
           var record = loadRecord(ridFromPair(iter.next()), session);
           if (record != null
-              && matchesTargetFilter(record, ctx)
+              && matchesTargetFilter(record, ctx, targetClass)
               && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
             pending = new MatchResultRow(session, upstreamRow, targetAlias, record);
           }
@@ -1047,27 +1051,56 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
+   * Resolves the target class from the immutable schema snapshot, or
+   * {@code null} when there is no class constraint / schema / class.
+   */
+  @Nullable private SchemaClass resolveTargetClass(CommandContext ctx) {
+    if (targetClassName == null) {
+      return null;
+    }
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return null;
+    }
+    return schema.getClassInternal(targetClassName);
+  }
+
+  /**
    * Checks if a target record passes the WHERE filter and class constraint.
    * Returns true if the record should be included, false if filtered out.
+   *
+   * <p>Class membership uses the session's immutable schema snapshot and
+   * {@code hasPolymorphicCollectionId} on the record RID — same pattern as
+   * {@link #unfilteredBound}. Avoids {@code Entity.getSchemaClass()} /
+   * {@code isSubClassOf}, which take the shared schema RW lock per call and
+   * contend under multi-threaded loadSort (e.g. LDBC IS2).
    */
   private boolean matchesTargetFilter(Result targetRecord, CommandContext ctx) {
+    return matchesTargetFilter(targetRecord, ctx, resolveTargetClass(ctx));
+  }
+
+  private boolean matchesTargetFilter(
+      Result targetRecord,
+      CommandContext ctx,
+      @Nullable SchemaClass targetClass) {
     if (targetFilter != null
         && !targetFilter.matchesFilters(targetRecord, ctx)) {
       return false;
     }
     if (targetClassName != null) {
+      // Missing class in the snapshot means nothing can match the constraint.
+      if (targetClass == null) {
+        return false;
+      }
       var entity = targetRecord.asEntityOrNull();
       if (entity == null) {
         return false;
       }
-      var schemaClass = entity.getSchemaClass();
-      if (schemaClass == null) {
+      var identity = entity.getIdentity();
+      if (identity == null) {
         return false;
       }
-      if (!schemaClass.getName().equals(targetClassName)
-          && !schemaClass.isSubClassOf(targetClassName)) {
-        return false;
-      }
+      return targetClass.hasPolymorphicCollectionId(identity.getCollectionId());
     }
     return true;
   }
