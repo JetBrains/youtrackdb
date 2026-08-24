@@ -101,6 +101,49 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private final int downstreamEdgeCount;
 
+  /**
+   * Runtime strategy chosen on the last {@link #internalStart} of this step.
+   * Null until the step runs — EXPLAIN before execution will not show it;
+   * PROFILE / post-query {@link #prettyPrint} will.
+   */
+  @Nullable private volatile RuntimePath chosenRuntimePath;
+
+  /**
+   * Which physical strategy {@link IndexOrderedEdgeStep} actually ran.
+   * Distinct from plan-time {@code multiSourceMode}: that selects the MATCH
+   * binding shape; this records index scan vs local load/sort after the cost
+   * model runs.
+   */
+  public enum RuntimePath {
+    /** Single-source RidSet-filtered B-tree scan ({@code indexScanFiltered}). */
+    INDEX_SCAN("index-scan"),
+    /** Single-source load LinkBag + local sort ({@code loadSortFromLinkBag}). */
+    LOAD_SORT("load-sort"),
+    /** Single-source load LinkBag unsorted ({@code loadFromLinkBag}). */
+    LOAD_UNSORTED("load-unsorted"),
+    /** Multi-source union RidSet + filtered index scan. */
+    UNION_SCAN("union-scan"),
+    /** Multi-source global index scan (no RidSet filter). */
+    GLOBAL_SCAN("global-scan"),
+    /** Multi-source / unbound fallback: stream LinkBags, OrderByStep sorts. */
+    LOAD_UNSORTED_MULTI("load-unsorted-multi");
+
+    private final String label;
+
+    RuntimePath(String label) {
+      this.label = label;
+    }
+
+    String label() {
+      return label;
+    }
+  }
+
+  /** Last runtime path chosen by this step, or null if not started yet. */
+  @Nullable public RuntimePath getChosenRuntimePath() {
+    return chosenRuntimePath;
+  }
+
   public IndexOrderedEdgeStep(
       CommandContext ctx,
       String sourceAlias,
@@ -191,6 +234,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // Build RidSet only now — it is needed as the bitmap filter for the
       // index-value scan. The fallback paths below iterate the LinkBag
       // directly, so they skip the RidSet allocation.
+      chosenRuntimePath = RuntimePath.INDEX_SCAN;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return indexScanFiltered(ridSetFromLinkBag(linkBag), ctx, upstreamRow);
     } else if (downstreamEdgeCount > 0 && limit > 0) {
@@ -199,11 +243,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // pipeline — only K records traverse expensive downstream edges
       // (REPLY_OF chain, HAS_CREATOR, etc.) instead of all N.
       // Sort cost O(N log N) is trivial for typical LinkBag sizes (~50-500).
+      chosenRuntimePath = RuntimePath.LOAD_SORT;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
     } else {
       // No downstream edges or no LIMIT: stream unsorted to OrderByStep.
       // OrderByStep's bounded heap handles sorting with O(N log K).
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromLinkBag(linkBag, ctx, upstreamRow);
     }
@@ -370,10 +416,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       case FILTERED_BOUND -> filteredBound(ctx);
       case FILTERED_UNBOUND -> filteredUnbound(ctx);
       case UNFILTERED_BOUND -> {
+        // Full index scan + reverse-edge class check; no RidSet filter.
+        chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield unfilteredBound(ctx);
       }
       case UNFILTERED_UNBOUND -> {
+        chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield unfilteredUnbound(ctx);
       }
@@ -412,6 +461,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     int maxSources =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     if (sourceCount > maxSources) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
     }
@@ -424,14 +474,17 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     return switch (strategy) {
       case UNION_RIDSET_SCAN -> {
+        chosenRuntimePath = RuntimePath.UNION_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield indexScanWithUnion(sourceMap, ctx);
       }
       case GLOBAL_SCAN -> {
+        chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
         yield indexScanGlobal(sourceMap, ctx);
       }
       case LOAD_ALL_SORT -> {
+        chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
         ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
         yield loadFromSourcesUnsorted(sourceMap, ctx);
       }
@@ -500,10 +553,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var histogram = index.getHistogram(session);
     if (sourceOverflow || ridSetOverflow || unionRidSet.isEmpty()
         || !shouldUseIndexScan(unionRidSet.size(), indexSize, histogram)) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnbound(sourceRids, ctx);
     }
 
+    chosenRuntimePath = RuntimePath.UNION_SCAN;
     ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
     var indexDesc = new IndexSearchDescriptor(index);
     var filteredStep = new RidFilteredIndexValuesStep(
@@ -715,6 +770,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     if (overflow) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(
           CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
@@ -1117,7 +1173,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var direction = orderAsc ? "ASC" : "DESC";
     var mode = multiSourceMode != null ? " (" + multiSourceMode + ")" : "";
     var edgeSuffix = edgeTraversal ? "E" : "";
-    return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + "\n"
+    var path = chosenRuntimePath != null ? " [" + chosenRuntimePath.label() + "]" : "";
+    return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + path + "\n"
         + spaces + "  {" + sourceAlias + "}." + edgeClassName
         + "{" + targetAlias + "} via " + index.getName();
   }

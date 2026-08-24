@@ -6,11 +6,14 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -3133,6 +3136,58 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     return plan.prettyPrint(0, 2);
   }
 
+  /**
+   * Finds the {@link IndexOrderedEdgeStep} in the plan after the query has
+   * started (so {@link IndexOrderedEdgeStep#getChosenRuntimePath()} is set).
+   */
+  private static IndexOrderedEdgeStep findIndexOrderedStep(ResultSet result) {
+    var plan = result.getExecutionPlan();
+    Assert.assertNotNull("Execution plan should be present", plan);
+    var found = findIndexOrderedStep(plan.getSteps());
+    Assert.assertNotNull(
+        "Expected an IndexOrderedEdgeStep in the plan:\n" + plan.prettyPrint(0, 2),
+        found);
+    return found;
+  }
+
+  @Nullable private static IndexOrderedEdgeStep findIndexOrderedStep(
+      List<ExecutionStep> steps) {
+    for (var step : steps) {
+      if (step instanceof IndexOrderedEdgeStep indexOrdered) {
+        return indexOrdered;
+      }
+      var nested = findIndexOrderedStep(step.getSubSteps());
+      if (nested != null) {
+        return nested;
+      }
+    }
+    return null;
+  }
+
+  private static void assertRuntimePath(
+      ResultSet result, IndexOrderedEdgeStep.RuntimePath expected) {
+    var step = findIndexOrderedStep(result);
+    Assert.assertEquals(
+        "Unexpected index-ordered runtime path. Plan:\n"
+            + result.getExecutionPlan().prettyPrint(0, 2),
+        expected,
+        step.getChosenRuntimePath());
+  }
+
+  /**
+   * Asserts a real B-tree index scan ran (single-source RidSet scan, multi-source
+   * union scan, or unfiltered global scan) — not local load/sort.
+   */
+  private static void assertIndexScanRuntimePath(ResultSet result) {
+    var path = findIndexOrderedStep(result).getChosenRuntimePath();
+    Assert.assertTrue(
+        "Expected a real index-scan path, got " + path + ". Plan:\n"
+            + result.getExecutionPlan().prettyPrint(0, 2),
+        path == IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN
+            || path == IndexOrderedEdgeStep.RuntimePath.UNION_SCAN
+            || path == IndexOrderedEdgeStep.RuntimePath.GLOBAL_SCAN);
+  }
+
   /** Sets index-ordered config to known test-safe values. Call restore in finally. */
   private AutoCloseable setIndexOrderedTestConfig() {
     var oldMinLinkBag = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
@@ -3633,6 +3688,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         while (result.hasNext()) {
           mids.add(((Number) result.next().getProperty("mid")).longValue());
         }
+        assertIndexScanRuntimePath(result);
         Assert.assertEquals("Should have 3 results", 3, mids.size());
         // The msgIds with latest timestamps should come first
         // All 3 should be from the highest msgId range (close to 200)
@@ -5248,6 +5304,12 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         while (result.hasNext()) {
           mids.add(((Number) result.next().getProperty("mid")).longValue());
         }
+        // Dense 200-edge LinkBag vs same-size index → true RidSet index scan.
+        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+        Assert.assertTrue(
+            "Plan should label the index-scan path, but was:\n"
+                + result.getExecutionPlan().prettyPrint(0, 2),
+            result.getExecutionPlan().prettyPrint(0, 2).contains("[index-scan]"));
         Assert.assertEquals("Should have 5 results: " + mids, 5, mids.size());
         Assert.assertEquals(200L, (long) mids.get(0));
         Assert.assertEquals(199L, (long) mids.get(1));
@@ -6618,6 +6680,277 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  /**
+   * Direct proof that the lock-friendly class check agrees with the old
+   * {@code getSchemaClass}/{@code isSubClassOf} predicate on every vertex in a
+   * mixed LinkBag (base, subclass, unrelated).
+   */
+  @Test
+  public void testIndexOrderedTargetClassCheckMatchesLegacyPredicate() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TestPost EXTENDS TestMessage").close();
+    session.execute("CREATE CLASS TestNote EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestNote.noteId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    session.execute(
+        "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 00:00:00', msgId = 1")
+        .close();
+    session.execute(
+        "CREATE VERTEX TestPost SET creationDate = '2025-01-02 00:00:00', msgId = 2")
+        .close();
+    session.execute("CREATE VERTEX TestNote SET noteId = 3").close();
+    session.execute(
+        "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = 1)"
+            + " TO (SELECT FROM TestPerson WHERE name = 'person1')")
+        .close();
+    session.execute(
+        "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestPost WHERE msgId = 2)"
+            + " TO (SELECT FROM TestPerson WHERE name = 'person1')")
+        .close();
+    session.execute(
+        "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestNote WHERE noteId = 3)"
+            + " TO (SELECT FROM TestPerson WHERE name = 'person1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    Assert.assertNotNull(schema);
+    var messageClass = schema.getClassInternal("TestMessage");
+    var postClass = schema.getClassInternal("TestPost");
+    Assert.assertNotNull(messageClass);
+    Assert.assertNotNull(postClass);
+
+    var checked = 0;
+    try (var rs = session.query(
+        "SELECT FROM (SELECT expand(in('TEST_HAS_CREATOR')) FROM TestPerson"
+            + " WHERE name = 'person1')")) {
+      while (rs.hasNext()) {
+        var entity = rs.next().asEntity();
+        var legacyMessage = legacyTargetClassMatches(entity, "TestMessage");
+        var legacyPost = legacyTargetClassMatches(entity, "TestPost");
+        var snapshotMessage =
+            messageClass.hasPolymorphicCollectionId(entity.getIdentity().getCollectionId());
+        var snapshotPost =
+            postClass.hasPolymorphicCollectionId(entity.getIdentity().getCollectionId());
+        Assert.assertEquals(
+            "TestMessage filter must match legacy predicate for " + entity.getIdentity(),
+            legacyMessage, snapshotMessage);
+        Assert.assertEquals(
+            "TestPost filter must match legacy predicate for " + entity.getIdentity(),
+            legacyPost, snapshotPost);
+        checked++;
+      }
+    }
+    Assert.assertEquals("Expected base + subclass + unrelated vertices", 3, checked);
+    session.commit();
+  }
+
+  /** Legacy class check used before the immutable-snapshot collection-id path. */
+  private static boolean legacyTargetClassMatches(Entity entity, String targetClassName) {
+    var schemaClass = entity.getSchemaClass();
+    if (schemaClass == null) {
+      return false;
+    }
+    return schemaClass.getName().equals(targetClassName)
+        || schemaClass.isSubClassOf(targetClassName);
+  }
+
+  /**
+   * High-density single-source path (true index scan, not local sort): parent
+   * class filter includes subclass rows; results match classic MATCH with the
+   * optimization disabled.
+   */
+  @Test
+  public void testIndexOrderedMatchIndexScanClassFilterMatchesClassic()
+      throws Exception {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TestPost EXTENDS TestMessage").close();
+    session.execute("CREATE CLASS TestNote EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestNote.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestNote.noteId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    // Dense LinkBag vs index so the cost model picks indexScanFiltered.
+    for (var i = 1; i <= 150; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    for (var i = 200; i <= 249; i++) {
+      session.execute(
+          "CREATE VERTEX TestPost SET creationDate = '2025-02-01 "
+              + String.format("%02d", (i - 200) / 60) + ":"
+              + String.format("%02d", (i - 200) % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestPost WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    // Unrelated type on the same LinkBag — must not appear for {class: TestMessage}.
+    for (var i = 1; i <= 20; i++) {
+      session.execute(
+          "CREATE VERTEX TestNote SET creationDate = '2025-03-01 00:00:00', noteId = "
+              + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestNote WHERE noteId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 10";
+
+    java.util.List<Long> indexOrderedMids;
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH (index-scan density), but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        indexOrderedMids = collectMids(result);
+        assertIndexScanRuntimePath(result);
+      }
+      session.commit();
+    }
+
+    // Disable the optimization: classic MATCH with the same class filter.
+    var oldMin = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
+    GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(Integer.MAX_VALUE);
+    try {
+      session.begin();
+      java.util.List<Long> classicMids;
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertFalse(
+            "Optimization should be off, but plan was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        classicMids = collectMids(result);
+      }
+      Assert.assertEquals(
+          "Index-scan class filter must match classic MATCH results",
+          classicMids, indexOrderedMids);
+      // Top rows are February posts (subclass), proving polymorphic include on scan path.
+      Assert.assertEquals(
+          java.util.List.of(249L, 248L, 247L, 246L, 245L, 244L, 243L, 242L, 241L, 240L),
+          indexOrderedMids);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(oldMin);
+    }
+  }
+
+  /**
+   * High-density index scan with a concrete subclass filter: only posts, and
+   * the ordered ids match classic MATCH with the optimization disabled.
+   */
+  @Test
+  public void testIndexOrderedMatchIndexScanConcreteSubclassMatchesClassic()
+      throws Exception {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TestPost EXTENDS TestMessage").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    for (var i = 1; i <= 150; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    for (var i = 200; i <= 249; i++) {
+      session.execute(
+          "CREATE VERTEX TestPost SET creationDate = '2025-02-01 "
+              + String.format("%02d", (i - 200) / 60) + ":"
+              + String.format("%02d", (i - 200) % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestPost WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestPost, as: m} "
+            + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+
+    java.util.List<Long> indexOrderedMids;
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      try (var result = session.query(query)) {
+        Assert.assertTrue(getPlan(result).contains("INDEX ORDERED MATCH"));
+        indexOrderedMids = collectMids(result);
+        assertIndexScanRuntimePath(result);
+      }
+      session.commit();
+    }
+
+    var oldMin = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
+    GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(Integer.MAX_VALUE);
+    try {
+      session.begin();
+      java.util.List<Long> classicMids;
+      try (var result = session.query(query)) {
+        Assert.assertFalse(getPlan(result).contains("INDEX ORDERED MATCH"));
+        classicMids = collectMids(result);
+      }
+      Assert.assertEquals(classicMids, indexOrderedMids);
+      Assert.assertEquals(
+          java.util.List.of(249L, 248L, 247L, 246L, 245L), indexOrderedMids);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(oldMin);
+    }
+  }
+
+  private static java.util.List<Long> collectMids(ResultSet result) {
+    var mids = new java.util.ArrayList<Long>();
+    while (result.hasNext()) {
+      mids.add(((Number) result.next().getProperty("mid")).longValue());
+    }
+    return mids;
+  }
+
   // UNFILTERED_BOUND with class inheritance: reverse edge class check filters
   // out sources of wrong class. Covers hasPolymorphicCollectionId branches.
   @Test
@@ -6852,6 +7185,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         while (result.hasNext()) {
           mids.add(((Number) result.next().getProperty("mid")).longValue());
         }
+        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
         // Only msgIds > 190 pass filter: 191..200 → 10 available, LIMIT 5
         Assert.assertEquals("Should have 5 results", 5, mids.size());
         for (var mid : mids) {
@@ -7487,6 +7821,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             cds.add(row.getProperty("cd"));
             contents.add(row.getProperty("rc"));
           }
+          assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
+          Assert.assertTrue(
+              "Plan should label load-sort, but was:\n"
+                  + result.getExecutionPlan().prettyPrint(0, 2),
+              result.getExecutionPlan().prettyPrint(0, 2).contains("[load-sort]"));
           Assert.assertEquals("Should have 4 results: " + cds, 4, cds.size());
 
           // Reply content should be bound for every row
