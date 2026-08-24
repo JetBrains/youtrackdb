@@ -16,7 +16,8 @@ on:
           the fork-point with translator on both sides (gremlin_arms default
           on). Pass gremlin_arms=both only for an optional on/off A/B on one
           commit (~doubles Gremlin wall). Full empty-filter with both arms
-          was ~21h on CCX33; on-only is shorter. Job timeout is 30h.
+          was ~21h on CCX33; run on CCX53 (32 vCPU) to match nightly
+          multi-thread core count. Job timeout is 30h.
         required: false
         type: string
         default: ''
@@ -58,13 +59,15 @@ jobs:
   compare:
     runs-on:
       - self-hosted
-      - type-ccx33
+      # CCX53: 32 dedicated vCPUs — same core count as nightly baremetal so
+      # @Threads(Threads.MAX) multi-thread scores are comparable (CCX33 was 8).
+      - type-ccx53
       - image-x86-system-ubuntu-24.04
       - in-nbg1-fsn1-hel1
     # Full empty-filter suite = SQL LDBC (single+multi) + Gremlin translator.
     # Default gremlin_arms=on: head vs fork-point, translator on both sides.
     # gremlin_arms=both ≈ doubles Gremlin wall (~21h observed on CCX33).
-    # 30h timeout leaves margin for variance and new shapes.
+    # 30h timeout leaves margin for variance and new shapes on CCX53.
     timeout-minutes: 1800
 
     steps:
