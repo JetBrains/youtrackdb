@@ -3523,6 +3523,110 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  /**
+   * Sparse multi-source setup: 5 persons with 20 messages each (100 edges into
+   * the optimized traversal) plus 300 orphan messages that sit in the same index
+   * without a creator edge. Connected messages take every fourth date slot, so
+   * the reachable fraction of the index is a uniform 1/4 — the density band
+   * where a union-RidSet index scan is cheaper than loading all 100 targets to
+   * sort them locally, and cheaper than a global scan that would load every
+   * fourth-of-a-match entry.
+   */
+  private void initIndexOrderedMatchSparseMultiSourceData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    // Connected messages: msgId 1..100 on date slots 4, 8, ... 400.
+    // person1 owns msgId 1..20, person5 owns msgId 81..100, so the newest
+    // connected messages all belong to person5.
+    var msgId = 0;
+    for (var p = 1; p <= 5; p++) {
+      session.execute("CREATE VERTEX TestPerson SET name = 'person" + p + "'").close();
+      for (var d = 1; d <= 20; d++) {
+        msgId++;
+        session.execute(
+            "CREATE VERTEX TestMessage SET creationDate = '"
+                + dateForSlot(msgId * 4) + "', msgId = " + msgId)
+            .close();
+        session.execute(
+            "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+                + msgId + ") TO (SELECT FROM TestPerson WHERE name = 'person" + p + "')")
+            .close();
+      }
+    }
+    // Orphan messages fill the remaining three of every four date slots. They
+    // enlarge the index without being reachable through the edge, which is what
+    // pushes density down to 1/4.
+    var orphanId = 1000;
+    for (var slot = 1; slot <= 400; slot++) {
+      if (slot % 4 == 0) {
+        continue;
+      }
+      orphanId++;
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '"
+              + dateForSlot(slot) + "', msgId = " + orphanId)
+          .close();
+    }
+    session.commit();
+  }
+
+  /** Maps a 1-based date slot to a distinct datetime that grows with the slot. */
+  private static String dateForSlot(int slot) {
+    return java.time.LocalDate.of(2025, 1, 1).plusDays(slot - 1L) + " 00:00:00";
+  }
+
+  /**
+   * Sparse FILTERED_BOUND traversal (WHERE on the source plus the source alias in
+   * RETURN) at 1/4 density: the cost model must pick the union-RidSet index scan
+   * rather than loading and sorting all 100 targets. Asserts the runtime path so
+   * a future cost-model change that silently stops scanning shows up here, and
+   * asserts the bound source alias so the reverse-edge lookup that this path
+   * relies on is checked at the same time.
+   */
+  @Test
+  public void testIndexOrderedMatchFilteredBoundUnionScan() throws Exception {
+    initIndexOrderedMatchSparseMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "Plan should use FILTERED_BOUND mode, but was:\n" + plan,
+            plan.contains("FILTERED_BOUND"));
+
+        var mids = new java.util.ArrayList<Long>();
+        var names = new HashSet<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          names.add(row.getProperty("pname"));
+        }
+        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.UNION_SCAN);
+        Assert.assertEquals(List.of(100L, 99L, 98L, 97L, 96L), mids);
+        Assert.assertEquals(
+            "Newest connected messages all belong to person5", Set.of("person5"), names);
+      }
+      session.commit();
+    }
+  }
+
   // Multi-source FILTERED_UNBOUND mode with WHERE filter and source alias NOT in RETURN uses union-RidSet-only mode.
   @Test
   public void testIndexOrderedMatchMultiSourceFilteredUnbound() throws Exception {
@@ -4876,46 +4980,49 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // FILTERED_BOUND union overflow (RidSet exceeds MAX_RIDSET_SIZE during union build) falls back to loadFromSourcesUnsorted.
+  /**
+   * FILTERED_BOUND union overflow: the RidSet cap is set below the number of
+   * edges being unioned, so the bitmap is abandoned mid-build and the step
+   * streams the source LinkBags unsorted instead. The fallback clears
+   * PRE_SORTED, so OrderByStep does the sorting and the order must match the
+   * union-scan run in {@link #testIndexOrderedMatchFilteredBoundUnionScan}.
+   *
+   * <p>Uses the sparse (1/4 density) data on purpose: at density 1 the cost
+   * model picks a global scan and never builds a union RidSet, so the overflow
+   * branch would not be reached at all.
+   */
   @Test
-  public void testIndexOrderedMatchFilteredBoundUnionOverflow() {
-    initIndexOrderedMatchMultiSourceData();
+  public void testIndexOrderedMatchFilteredBoundUnionOverflow() throws Exception {
+    initIndexOrderedMatchSparseMultiSourceData();
 
-    var oldMaxRidSet = GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValue();
-    var oldMinLinkBag = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
-    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(3);
-    GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(1);
-    try {
-      session.begin();
-      // FILTERED_BOUND + cost model approves → tries UNION_RIDSET_SCAN →
-      // union exceeds maxRidSetSize(3) → overflow → loadFromSourcesUnsorted
-      var query =
-          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
-              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
-              + "RETURN p.name as pname, m.creationDate as cd"
-              + " ORDER BY cd DESC LIMIT 5";
-      try (var result = session.query(query)) {
-        var plan = getPlan(result);
-        Assert.assertTrue(
-            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
-            plan.contains("INDEX ORDERED MATCH"));
-
-        // Overflow → loadFromSourcesUnsorted → OrderByStep sorts
-        var days = new java.util.ArrayList<Integer>();
-        while (result.hasNext()) {
-          days.add(dayOfMonth(result.next().getProperty("cd")));
-        }
-        Assert.assertEquals("Should have 5 results: " + days, 5, days.size());
-        for (var i = 0; i < days.size() - 1; i++) {
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxRidSet = GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValue();
+      GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(10);
+      try {
+        session.begin();
+        var query =
+            "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+                + "RETURN p.name as pname, m.msgId as mid"
+                + " ORDER BY m.creationDate DESC LIMIT 5";
+        try (var result = session.query(query)) {
+          var plan = getPlan(result);
           Assert.assertTrue(
-              "Results should be in DESC order after fallback: " + days,
-              days.get(i) >= days.get(i + 1));
+              "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+              plan.contains("INDEX ORDERED MATCH"));
+
+          var mids = new java.util.ArrayList<Long>();
+          while (result.hasNext()) {
+            mids.add(((Number) result.next().getProperty("mid")).longValue());
+          }
+          assertRuntimePath(
+              result, IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+          Assert.assertEquals(List.of(100L, 99L, 98L, 97L, 96L), mids);
         }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(oldMaxRidSet);
       }
-      session.commit();
-    } finally {
-      GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(oldMaxRidSet);
-      GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(oldMinLinkBag);
     }
   }
 
@@ -6457,13 +6564,21 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   // Additional branch-coverage tests for IndexOrderedEdgeStep
   // =====================================================================
 
-  // Class filter rejects unrelated types that share the source LinkBag.
+  /**
+   * A LinkBag mixing TestMessage and TestComment must yield only messages for
+   * {@code {class: TestMessage}}.
+   *
+   * <p>On this single-hop shape the cost model picks the index scan, and the
+   * index on TestMessage.creationDate holds no TestComment entries, so the scan
+   * itself is what keeps the comments out — the class filter never sees them.
+   * The test therefore asserts the scan path explicitly rather than claiming to
+   * exercise the filter. Rejection by the class filter is covered on the
+   * LinkBag-driven paths by
+   * {@link #testIndexOrderedMatchLoadSortIncludesSubclassExcludesUnrelated} and
+   * {@link #testIndexOrderedMatchLoadSortConcreteSubclassExcludesBase}.
+   */
   @Test
   public void testIndexOrderedMatchTargetClassInheritance() throws Exception {
-    // Person1 has in_TEST_HAS_CREATOR edges pointing to both TestMessage and
-    // TestComment vertices. The index is on TestMessage.creationDate. The
-    // MATCH query targets {class: TestMessage} — TestComment records in the
-    // LinkBag must be dropped by the target class filter.
     session.execute("CREATE CLASS TestPerson EXTENDS V").close();
     session.execute("CREATE CLASS TestMessage EXTENDS V").close();
     session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
@@ -6506,11 +6621,25 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
     session.commit();
 
+    // Control assertion on the data itself: without a class constraint the same
+    // traversal reaches all 150 linked vertices. Without this, an assertion that
+    // "only messages came back" could pass simply because the comments were
+    // never reachable through the edge.
+    session.begin();
+    try (var result = session.query(
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){as: m} RETURN m.msgId as mid")) {
+      Assert.assertEquals(
+          "Both messages and comments must share person1's LinkBag",
+          150, collectNullableMids(result).size());
+    }
+    session.commit();
+
     try (var cfg = setIndexOrderedTestConfig()) {
       session.begin();
-      // Target class = TestMessage → only TestMessage records should be returned.
-      // Person1's LinkBag has both TestMessage and TestComment RIDs; when loading,
-      // TestComment records fail the targetClassName check.
+      // The comments are dated February, newer than every message, so under a DESC
+      // sort any comment reaching the output would take a slot in this window and
+      // surface as a null msgId.
       var query =
           "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
               + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
@@ -6521,22 +6650,23 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
             plan.contains("INDEX ORDERED MATCH"));
 
-        var mids = new java.util.ArrayList<Long>();
-        while (result.hasNext()) {
-          mids.add(((Number) result.next().getProperty("mid")).longValue());
-        }
-        Assert.assertEquals("Should have 5 results (only TestMessage)", 5, mids.size());
-        // All returned records must be TestMessage (msgId 1..100)
-        for (var mid : mids) {
-          Assert.assertTrue(
-              "Only TestMessage (1..100) should be returned, got: " + mid,
-              mid >= 1 && mid <= 100);
-        }
-        // DESC order: 100, 99, 98, 97, 96
-        Assert.assertEquals(100L, (long) mids.get(0));
+        var mids = collectNullableMids(result);
+        assertIndexScanRuntimePath(result);
+        Assert.assertEquals(
+            "Only TestMessage rows may reach the output: " + mids,
+            expectedDescending(100, 96), mids);
       }
       session.commit();
     }
+  }
+
+  /** Builds the inclusive descending list {@code [from, from-1, ... to]}. */
+  private static java.util.List<Long> expectedDescending(long from, long to) {
+    var expected = new java.util.ArrayList<Long>();
+    for (var v = from; v >= to; v--) {
+      expected.add(v);
+    }
+    return expected;
   }
 
   /**
@@ -6595,15 +6725,12 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
             plan.contains("INDEX ORDERED MATCH"));
 
-        var mids = new java.util.ArrayList<Long>();
-        while (result.hasNext()) {
-          mids.add(((Number) result.next().getProperty("mid")).longValue());
-        }
-        // Posts are dated February (after January base messages) → top-5 are posts
+        var mids = collectNullableMids(result);
+        // Posts are the newest rows, so a parent-class filter that wrongly rejected
+        // the subclass would fill this window with January base messages instead.
         Assert.assertEquals(
-            "Parent class constraint should include subclass posts first: " + mids,
-            java.util.List.of(149L, 148L, 147L, 146L, 145L),
-            mids);
+            "Parent class constraint should include subclass posts: " + mids,
+            expectedDescending(149, 145), mids);
       }
       session.commit();
     }
@@ -6628,9 +6755,13 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
     session.begin();
     session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    // Base messages are dated March — deliberately NEWER than the posts. Under a
+    // DESC sort a filter that failed to reject them would put them at the head of
+    // the result, which the assertion below catches. Dating them older would let
+    // the sort hide the leak past the LIMIT.
     for (var i = 1; i <= 50; i++) {
       session.execute(
-          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+          "CREATE VERTEX TestMessage SET creationDate = '2025-03-01 "
               + String.format("%02d", i / 60) + ":"
               + String.format("%02d", i % 60) + ":00', msgId = " + i)
           .close();
@@ -6664,19 +6795,12 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
             plan.contains("INDEX ORDERED MATCH"));
 
-        var mids = new java.util.ArrayList<Long>();
-        while (result.hasNext()) {
-          mids.add(((Number) result.next().getProperty("mid")).longValue());
-        }
+        var mids = collectNullableMids(result);
+        // Base messages are the newest rows, so a filter that failed to reject
+        // them would fill this whole window with msgIds 50..46.
         Assert.assertEquals(
             "Concrete subclass constraint should return only posts: " + mids,
-            java.util.List.of(149L, 148L, 147L, 146L, 145L),
-            mids);
-        for (var mid : mids) {
-          Assert.assertTrue(
-              "Base TestMessage rows (1..50) must be excluded, got: " + mid,
-              mid >= 100);
-        }
+            expectedDescending(149, 145), mids);
       }
       session.commit();
     }
@@ -6951,6 +7075,38 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       mids.add(((Number) result.next().getProperty("mid")).longValue());
     }
     return mids;
+  }
+
+  /**
+   * Collects {@code mid} for every row, mapping a missing property to null
+   * instead of throwing. Class-filter tests use this so a row that leaked past
+   * the filter (an unrelated type that has no {@code msgId}) is reported as a
+   * null in the assertion message rather than crashing the collection loop.
+   */
+  private static java.util.List<Long> collectNullableMids(ResultSet result) {
+    var mids = new java.util.ArrayList<Long>();
+    while (result.hasNext()) {
+      Object mid = result.next().getProperty("mid");
+      mids.add(mid == null ? null : ((Number) mid).longValue());
+    }
+    return mids;
+  }
+
+  /**
+   * Asserts the step drove the traversal from the source LinkBag rather than
+   * from an index scan. Class-filter tests need this: on a scan path the index
+   * itself only holds entries of the indexed class, so unrelated types are
+   * excluded before the class filter ever sees them, and the test would pass
+   * with the filter removed.
+   */
+  private static void assertLinkBagRuntimePath(ResultSet result) {
+    var path = findIndexOrderedStep(result).getChosenRuntimePath();
+    Assert.assertTrue(
+        "Class filtering must be exercised on a LinkBag-driven path, got " + path
+            + ". Plan:\n" + result.getExecutionPlan().prettyPrint(0, 2),
+        path == IndexOrderedEdgeStep.RuntimePath.LOAD_SORT
+            || path == IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED
+            || path == IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
   }
 
   // UNFILTERED_BOUND with class inheritance: reverse edge class check filters
@@ -8005,7 +8161,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           .close();
     }
 
-    // Unrelated notes on the same LinkBag — must never match Message/Post class filters
+    // Unrelated notes on the same LinkBag — must never match Message/Post class
+    // filters. They are dated February, newer than every message and post, so a
+    // leak surfaces at the head of a DESC result. Each note also gets a reply, so
+    // the downstream TEST_REPLY_OF hop cannot quietly drop a leaked note and make
+    // the class filter look like it worked.
     for (var i = 100; i <= 101; i++) {
       session.execute(
           "CREATE VERTEX TestNote SET noteId = " + i
@@ -8014,6 +8174,13 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       session.execute(
           "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestNote WHERE noteId = "
               + i + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+      session.execute(
+          "CREATE VERTEX TestReply SET content = 'reply-note-" + i + "'").close();
+      session.execute(
+          "CREATE EDGE TEST_REPLY_OF FROM (SELECT FROM TestReply WHERE content ="
+              + " 'reply-note-" + i + "') TO (SELECT FROM TestNote WHERE noteId = "
+              + i + ")")
           .close();
     }
     session.commit();
@@ -8037,17 +8204,17 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
                 + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m}"
                 + ".in('TEST_REPLY_OF'){class: TestReply, as: r} "
-                + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 4";
+                + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 10";
         try (var result = session.query(query)) {
           var plan = getPlan(result);
           Assert.assertTrue(
               "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
               plan.contains("INDEX ORDERED MATCH"));
 
-          var mids = new java.util.ArrayList<Long>();
-          while (result.hasNext()) {
-            mids.add(((Number) result.next().getProperty("mid")).longValue());
-          }
+          var mids = collectNullableMids(result);
+          assertLinkBagRuntimePath(result);
+          // The LIMIT exceeds the candidate count, so a leaked note would appear
+          // as a null at the head instead of being pushed out of the window.
           Assert.assertEquals(
               "Parent class filter should return base+subclass only: " + mids,
               java.util.List.of(11L, 10L, 2L, 1L),
@@ -8078,17 +8245,17 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
                 + ".in('TEST_HAS_CREATOR'){class: TestPost, as: m}"
                 + ".in('TEST_REPLY_OF'){class: TestReply, as: r} "
-                + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 4";
+                + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 10";
         try (var result = session.query(query)) {
           var plan = getPlan(result);
           Assert.assertTrue(
               "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
               plan.contains("INDEX ORDERED MATCH"));
 
-          var mids = new java.util.ArrayList<Long>();
-          while (result.hasNext()) {
-            mids.add(((Number) result.next().getProperty("mid")).longValue());
-          }
+          var mids = collectNullableMids(result);
+          assertLinkBagRuntimePath(result);
+          // Notes (newest, now with replies of their own) and base messages must
+          // both be rejected, leaving exactly the two posts.
           Assert.assertEquals(
               "Concrete subclass filter should return only posts: " + mids,
               java.util.List.of(11L, 10L),

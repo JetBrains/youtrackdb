@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,8 +86,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** WHERE filter on the target alias (e.g., creationDate < :maxDate). */
   @Nullable private final SQLWhereClause targetFilter;
 
-  /** Class constraint on the target alias (for class-based filtering). */
-  @Nullable private final String targetClassName;
+  /**
+   * Class constraint on the target alias (for class-based filtering). Never
+   * null: {@link IndexOrderedPlanner} rejects the candidate when the target
+   * alias has no resolvable class, so this step is only built with one.
+   */
+  @Nonnull
+  private final String targetClassName;
 
   /**
    * When true, the traversal is .inE()/.outE() and we want edge record RIDs
@@ -158,7 +164,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Nullable String reverseFieldName,
       @Nullable String sourceClassName,
       @Nullable SQLWhereClause targetFilter,
-      @Nullable String targetClassName,
+      @Nonnull String targetClassName,
       boolean edgeTraversal,
       int downstreamEdgeCount,
       boolean profilingEnabled) {
@@ -287,7 +293,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return null;
       }
       if (isAlreadyBoundAndDifferent(upstreamRow, targetRecord, session)) {
@@ -317,9 +323,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     var records = new ArrayList<Result>();
     for (RidPair pair : linkBag) {
-      var record = loadRecord(ridFromPair(pair), session);
+      var rid = ridFromPair(pair);
+      var record = loadRecord(rid, session);
       if (record != null
-          && matchesTargetFilter(record, ctx, targetClass)
+          && matchesTargetFilter(record, rid, ctx, targetClass)
           && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
         records.add(record);
       }
@@ -353,9 +360,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Override
       public boolean hasNext() {
         while (pending == null && iter.hasNext()) {
-          var record = loadRecord(ridFromPair(iter.next()), session);
+          var rid = ridFromPair(iter.next());
+          var record = loadRecord(rid, session);
           if (record != null
-              && matchesTargetFilter(record, ctx, targetClass)
+              && matchesTargetFilter(record, rid, ctx, targetClass)
               && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
             pending = new MatchResultRow(session, upstreamRow, targetAlias, record);
           }
@@ -573,7 +581,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return null;
       }
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
@@ -616,9 +624,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private void forEachMatchingTarget(
       LinkBag linkBag, DatabaseSessionEmbedded session, CommandContext ctx,
       java.util.function.Consumer<Result> consumer) {
+    var targetClass = resolveTargetClass(ctx);
     for (RidPair pair : linkBag) {
-      var record = loadRecord(ridFromPair(pair), session);
-      if (record != null && matchesTargetFilter(record, ctx)) {
+      var rid = ridFromPair(pair);
+      var record = loadRecord(rid, session);
+      if (record != null && matchesTargetFilter(record, rid, ctx, targetClass)) {
         consumer.accept(record);
       }
     }
@@ -658,7 +668,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return ExecutionStream.empty();
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return ExecutionStream.empty();
       }
 
@@ -716,7 +726,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
-      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
         return null;
       }
 
@@ -900,7 +910,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     if (targetRecord == null) {
       return ExecutionStream.empty();
     }
-    if (!matchesTargetFilter(targetRecord, ctx)) {
+    if (!matchesTargetFilter(targetRecord, rid, ctx)) {
       return ExecutionStream.empty();
     }
 
@@ -1108,58 +1118,63 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /**
    * Resolves the MATCH target class from the session's immutable schema
-   * snapshot, or {@code null} when there is no class constraint / schema /
-   * class.
+   * snapshot. The planner refuses to build this step unless the target class
+   * name resolves at plan time, so {@code null} here means the class was
+   * dropped between planning and execution.
+   *
+   * <p>The snapshot is the required source, not merely a convenient one. Its
+   * classes carry a precomputed polymorphic collection-id set, which is what
+   * makes the per-record membership test in
+   * {@link #matchesTargetFilter(Result, RID, CommandContext, SchemaClass)}
+   * lock-free. Reading the class off the live shared schema instead would
+   * reintroduce the schema lock this step exists to avoid.
    */
   @Nullable private SchemaClass resolveTargetClass(CommandContext ctx) {
-    if (targetClassName == null) {
-      return null;
-    }
     var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
-    if (schema == null) {
-      return null;
-    }
+    assert schema != null;
     return schema.getClassInternal(targetClassName);
+  }
+
+  /**
+   * Convenience overload for call sites that filter a single record and have no
+   * loop to hoist the class resolution out of. Loops should resolve the class
+   * once with {@link #resolveTargetClass} and call the four-argument form.
+   */
+  private boolean matchesTargetFilter(
+      Result targetRecord, RID targetRid, CommandContext ctx) {
+    return matchesTargetFilter(
+        targetRecord, targetRid, ctx, resolveTargetClass(ctx));
   }
 
   /**
    * Checks if a target record passes the WHERE filter and class constraint.
    * Returns true if the record should be included, false if filtered out.
    *
-   * <p>Class membership uses the immutable schema snapshot and the record's
-   * collection id (the target class and its subclasses). That is equivalent to
-   * an {@code isSubClassOf} check, but does not take the shared schema lock on
-   * every record — important when many targets are filtered under concurrent
-   * queries. Same approach as {@link #unfilteredBound}.
+   * <p>Class membership is decided from the record's collection id against
+   * {@code targetClass}, which covers the target class and its subclasses. That
+   * is equivalent to an {@code isSubClassOf} check, but it does not take the
+   * shared schema lock on every record — important when many targets are
+   * filtered under concurrent queries. Same approach as
+   * {@link #unfilteredBound}.
+   *
+   * <p>The caller supplies {@code targetClass} so a filtering loop resolves it
+   * once instead of once per record.
    */
-  private boolean matchesTargetFilter(Result targetRecord, CommandContext ctx) {
-    return matchesTargetFilter(targetRecord, ctx, resolveTargetClass(ctx));
-  }
-
   private boolean matchesTargetFilter(
       Result targetRecord,
+      RID targetRid,
       CommandContext ctx,
       @Nullable SchemaClass targetClass) {
     if (targetFilter != null
         && !targetFilter.matchesFilters(targetRecord, ctx)) {
       return false;
     }
-    if (targetClassName != null) {
-      // Missing class in the snapshot means nothing can match the constraint.
-      if (targetClass == null) {
-        return false;
-      }
-      var entity = targetRecord.asEntityOrNull();
-      if (entity == null) {
-        return false;
-      }
-      var identity = entity.getIdentity();
-      if (identity == null) {
-        return false;
-      }
-      return targetClass.hasPolymorphicCollectionId(identity.getCollectionId());
+    // A class dropped between planning and execution leaves nothing that can
+    // satisfy the constraint.
+    if (targetClass == null) {
+      return false;
     }
-    return true;
+    return targetClass.hasPolymorphicCollectionId(targetRid.getCollectionId());
   }
 
   @Override

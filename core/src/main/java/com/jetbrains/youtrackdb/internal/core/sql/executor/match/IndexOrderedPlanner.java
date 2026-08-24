@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -77,7 +78,7 @@ final class IndexOrderedPlanner {
       @Nullable String sourceClassName,
       boolean multiFieldOrderBy,
       @Nullable SQLWhereClause targetFilter,
-      @Nullable String targetClassName,
+      @Nonnull String targetClassName,
       boolean isEdgeTraversal,
       int downstreamEdgeCount) {
   }
