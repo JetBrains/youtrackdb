@@ -30,10 +30,13 @@ on:
           Gremlin wall time; not the default PR comment framing).
         required: false
         type: choice
+        # Both values must stay quoted: YAML coerces a bare `on` to the boolean
+        # true, which the dispatch form then offers as "true" and passes on to
+        # `--gremlin-arms`, where it is not a valid choice.
         options:
-          - on
-          - both
-        default: on
+          - 'on'
+          - 'both'
+        default: 'on'
       base_branch:
         description: >
           Base branch to compare against (fork-point is computed with
@@ -241,6 +244,16 @@ jobs:
           # Default production arm only. JMH -p applies to benches that declare
           # the @Param; SQL LDBC classes without translatorEnabled are unchanged.
           ARMS="${GREMLIN_ARMS:-on}"
+          # `true` reaches here from any dispatch whose workflow file still has
+          # the unquoted `on` option. Reject anything else now rather than at
+          # the compare step, which runs after hours of benchmarking.
+          if [ "$ARMS" = "true" ]; then
+            ARMS=on
+          fi
+          if [ "$ARMS" != "on" ] && [ "$ARMS" != "both" ]; then
+            echo "::error::Unsupported gremlin_arms='$ARMS' (expected on|both)."
+            exit 1
+          fi
           echo "gremlin_arms=$ARMS" >> "$GITHUB_OUTPUT"
           if [ "$ARMS" = "on" ]; then
             echo "jmh_param_arg=-p translatorEnabled=true" >> "$GITHUB_OUTPUT"
