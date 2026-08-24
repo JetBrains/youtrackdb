@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
 import org.junit.Assert;
@@ -7075,6 +7076,206 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       mids.add(((Number) result.next().getProperty("mid")).longValue());
     }
     return mids;
+  }
+
+  /**
+   * The LDBC IS2 query, verbatim from {@code jmh-ldbc/.../ldbc-queries/IS2.sql}
+   * with the parameters inlined. Kept as a constant so a drift between this test
+   * and the benchmarked query is a visible edit rather than a silent divergence.
+   */
+  private static final String LDBC_IS2_QUERY =
+      "MATCH {class: LdbcPerson, as: p, where: (id = 1)}"
+          + "  .in('LDBC_HAS_CREATOR'){as: message}"
+          + "  .out('LDBC_REPLY_OF'){while: ($currentMatch.@class = 'LdbcComment'),"
+          + "                        where: (@class = 'LdbcPost'), as: originalPost}"
+          + "  .out('LDBC_HAS_CREATOR'){as: author}"
+          + " RETURN message.id as messageId,"
+          + "  coalesce(message.imageFile, message.content) as messageContent,"
+          + "  message.creationDate as messageCreationDate,"
+          + "  originalPost.id as originalPostId,"
+          + "  author.id as originalPostAuthorId,"
+          + "  author.firstName as originalPostAuthorFirstName,"
+          + "  author.lastName as originalPostAuthorLastName"
+          + " ORDER BY messageCreationDate DESC"
+          + " LIMIT 10";
+
+  /**
+   * End-to-end regression for the LDBC IS2 query shape — the benchmark this
+   * optimization was built for.
+   *
+   * <p>The JMH harness hands its rows to JMH and never inspects them, and the
+   * benchmark workflows run no correctness step, so a change that wrongly
+   * discarded matching rows would register there as a throughput improvement.
+   * This test pins the rows instead: it runs IS2 with the optimization enabled
+   * and again with it disabled, and requires both to return the same result.
+   *
+   * <p>The schema mirrors {@code ldbc-schema.sql}: LdbcPost and LdbcComment both
+   * extend LdbcMessage, the ORDER BY index sits on the parent
+   * LdbcMessage.creationDate, and LDBC_HAS_CREATOR declares its endpoints as
+   * LINK properties. Those endpoint declarations matter — the {@code {as:
+   * message}} pattern in IS2 carries no {@code class:} constraint, so the
+   * planner infers LdbcMessage for it from the edge definition. Reproducing that
+   * inference is the point: the target class filter then has to accept both
+   * subclasses, which is exactly the behaviour the optimization changed.
+   */
+  @Test
+  public void testIndexOrderedMatchLdbcIs2ShapeMatchesClassic() throws Exception {
+    initLdbcIs2ShapeData();
+
+    List<Map<String, Object>> optimized;
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      try (var result = session.query(LDBC_IS2_QUERY)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "IS2 should use INDEX ORDERED MATCH, but plan was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        optimized = collectRows(result);
+      }
+      session.commit();
+    }
+
+    // The reference run drops the ORDER BY index rather than tuning a threshold.
+    // QUERY_INDEX_ORDERED_MIN_LINKBAG only forces the step onto its load-sort
+    // path, so it cannot produce a plan free of IndexOrderedEdgeStep; without an
+    // index on the sort property the planner has nothing to match and falls back
+    // to classic MATCH plus a full sort. The data is untouched, so the two runs
+    // remain directly comparable.
+    session.execute("DROP INDEX LdbcMessage.creationDate").close();
+
+    session.begin();
+    List<Map<String, Object>> classic;
+    try (var result = session.query(LDBC_IS2_QUERY)) {
+      var plan = getPlan(result);
+      Assert.assertFalse(
+          "Reference run must not use the optimization, but plan was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      classic = collectRows(result);
+    }
+    session.commit();
+    Assert.assertEquals(
+        "IS2 must return identical rows with and without the optimization",
+        classic, optimized);
+
+    // Comparing two runs proves agreement but not that either returned anything,
+    // so pin the expected content too. The newest ten messages are the level-2
+    // comments 60..51; each resolves through two REPLY_OF hops to post id-40.
+    Assert.assertEquals("IS2 must fill its LIMIT", 10, optimized.size());
+    var messageIds = new java.util.ArrayList<Long>();
+    var originalPostIds = new java.util.ArrayList<Long>();
+    for (var row : optimized) {
+      messageIds.add(((Number) row.get("messageId")).longValue());
+      originalPostIds.add(((Number) row.get("originalPostId")).longValue());
+      Assert.assertEquals("author must be the single curated person",
+          1L, ((Number) row.get("originalPostAuthorId")).longValue());
+      Assert.assertEquals("coalesce must fall through to content",
+          "msg-" + row.get("messageId"), row.get("messageContent"));
+    }
+    Assert.assertEquals(expectedDescending(60, 51), messageIds);
+    Assert.assertEquals(expectedDescending(20, 11), originalPostIds);
+  }
+
+  /**
+   * Collects every projected column of every row as a name-keyed map, preserving
+   * row order. Keyed by name rather than position because
+   * {@code getPropertyNames()} does not promise projection order, and sorted so
+   * a mismatch prints readably.
+   */
+  private static List<Map<String, Object>> collectRows(ResultSet result) {
+    var rows = new java.util.ArrayList<Map<String, Object>>();
+    while (result.hasNext()) {
+      var row = result.next();
+      var values = new java.util.TreeMap<String, Object>();
+      for (var name : row.getPropertyNames()) {
+        values.put(name, row.getProperty(name));
+      }
+      rows.add(values);
+    }
+    return rows;
+  }
+
+  /**
+   * Builds a miniature LDBC graph for the IS2 shape: one person owning 20 posts,
+   * 20 comments replying to those posts, and 20 further comments replying to
+   * those comments. The two comment levels give the recursive REPLY_OF hop
+   * something to walk — the newest messages resolve to their original post
+   * through two hops, not one.
+   *
+   * <p>creationDate increases with id, so ORDER BY creationDate DESC is a total
+   * order and the expected top-10 is unambiguous.
+   */
+  private void initLdbcIs2ShapeData() {
+    session.execute("CREATE CLASS LdbcPerson EXTENDS V").close();
+    session.execute("CREATE PROPERTY LdbcPerson.id LONG").close();
+    session.execute("CREATE PROPERTY LdbcPerson.firstName STRING").close();
+    session.execute("CREATE PROPERTY LdbcPerson.lastName STRING").close();
+
+    session.execute("CREATE CLASS LdbcMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY LdbcMessage.id LONG").close();
+    session.execute("CREATE PROPERTY LdbcMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY LdbcMessage.content STRING").close();
+    session.execute("CREATE CLASS LdbcPost EXTENDS LdbcMessage").close();
+    // Posts carry imageFile in LDBC; left unset so the query's coalesce falls
+    // through to content, as it does for most real rows.
+    session.execute("CREATE PROPERTY LdbcPost.imageFile STRING").close();
+    session.execute("CREATE CLASS LdbcComment EXTENDS LdbcMessage").close();
+
+    // The LINK endpoint declarations are what let the planner infer the class of
+    // the unconstrained {as: message} alias.
+    session.execute("CREATE CLASS LDBC_HAS_CREATOR EXTENDS E").close();
+    session.execute("CREATE PROPERTY LDBC_HAS_CREATOR.out LINK LdbcMessage").close();
+    session.execute("CREATE PROPERTY LDBC_HAS_CREATOR.in LINK LdbcPerson").close();
+    session.execute("CREATE CLASS LDBC_REPLY_OF EXTENDS E").close();
+    session.execute("CREATE PROPERTY LDBC_REPLY_OF.out LINK LdbcComment").close();
+    session.execute("CREATE PROPERTY LDBC_REPLY_OF.in LINK LdbcMessage").close();
+
+    session.execute("CREATE INDEX LdbcPerson.id ON LdbcPerson(id) UNIQUE").close();
+    session.execute(
+        "CREATE INDEX LdbcMessage.creationDate ON LdbcMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute(
+        "CREATE VERTEX LdbcPerson SET id = 1, firstName = 'Ada', lastName = 'Lovelace'")
+        .close();
+    for (var id = 1; id <= 20; id++) {
+      createIs2Message("LdbcPost", id);
+    }
+    // Level-1 comments reply to the post 20 ids below them.
+    for (var id = 21; id <= 40; id++) {
+      createIs2Message("LdbcComment", id);
+      createIs2Reply(id, id - 20);
+    }
+    // Level-2 comments reply to the level-1 comment 20 ids below them, so their
+    // original post is two hops away.
+    for (var id = 41; id <= 60; id++) {
+      createIs2Message("LdbcComment", id);
+      createIs2Reply(id, id - 20);
+    }
+    session.commit();
+  }
+
+  /** Creates one IS2 message of the given class and links it to the person. */
+  private void createIs2Message(String className, int id) {
+    session.execute(
+        "CREATE VERTEX " + className + " SET id = " + id
+            + ", content = 'msg-" + id + "'"
+            + ", creationDate = '2025-01-01 " + String.format("%02d", id / 60)
+            + ":" + String.format("%02d", id % 60) + ":00'")
+        .close();
+    session.execute(
+        "CREATE EDGE LDBC_HAS_CREATOR"
+            + " FROM (SELECT FROM LdbcMessage WHERE id = " + id + ")"
+            + " TO (SELECT FROM LdbcPerson WHERE id = 1)")
+        .close();
+  }
+
+  private void createIs2Reply(int fromId, int toId) {
+    session.execute(
+        "CREATE EDGE LDBC_REPLY_OF"
+            + " FROM (SELECT FROM LdbcMessage WHERE id = " + fromId + ")"
+            + " TO (SELECT FROM LdbcMessage WHERE id = " + toId + ")")
+        .close();
   }
 
   /**
