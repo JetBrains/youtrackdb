@@ -3091,7 +3091,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   /**
    * Large single-source setup: 1 person with 200 messages.
    * High edge count relative to index size should make the cost model choose
-   * indexScanFiltered over loadAllAndSort.
+   * indexScanFiltered over loadSortFromLinkBag.
    */
   private void initIndexOrderedMatchLargeData() {
     session.execute("CREATE CLASS TestPerson EXTENDS V").close();
@@ -4467,7 +4467,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // Single-source RidSet overflow (ridSet exceeds MAX_RIDSET_SIZE) triggers loadAllAndSort fallback with correct results.
+  // Union RidSet overflow (union exceeds QUERY_PREFILTER_MAX_RIDSET_SIZE) makes the
+  // multi-source path drop the bitmap and stream from the source LinkBags instead;
+  // ORDER BY must still produce correctly sorted results.
   @Test
   public void testIndexOrderedMatchSingleSourceMaxRidSetOverflow() {
     initIndexOrderedMatchData(false);
@@ -5322,8 +5324,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   // True single-source via {rid:} syntax with MAX_SCAN=1 forces the runtime
-  // cost model to reject index scan, exercising the loadFromRidSet fallback path.
-  // Covers the false branch of shouldUseIndexScan → loadFromRidSet with its
+  // cost model to reject index scan, exercising the loadFromLinkBag fallback path.
+  // Covers the false branch of shouldUseIndexScan → loadFromLinkBag with its
   // stream pipeline (filter by targetFilter + targetClassName).
   @Test
   public void testIndexOrderedMatchTrueSingleSourceLoadFromRidSet() throws Exception {
@@ -5342,7 +5344,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         }
 
         // {rid:} → single-source. MAX_SCAN=1 → runtime cost model rejects
-        // → loadFromRidSet (unsorted). OrderByStep sorts with bounded heap.
+        // → loadFromLinkBag (unsorted). OrderByStep sorts with bounded heap.
         var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
             + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
             + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd DESC LIMIT 5";
@@ -7229,8 +7231,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // True single-source via {rid:} with target WHERE + loadFromRidSet path.
-  // MAX_SCAN=1 forces runtime cost rejection → loadFromRidSet with target filter.
+  // True single-source via {rid:} with target WHERE + loadFromLinkBag path.
+  // MAX_SCAN=1 forces runtime cost rejection → loadFromLinkBag with target filter.
   @Test
   public void testIndexOrderedMatchSingleSourceLoadFromRidSetWithTargetFilter()
       throws Exception {
@@ -7248,7 +7250,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           rid = ridResult.next().getProperty("r").toString();
         }
 
-        // {rid:} → single-source. MAX_SCAN=1 → loadFromRidSet.
+        // {rid:} → single-source. MAX_SCAN=1 → loadFromLinkBag.
         // Target WHERE (msgId > 190) → matchesTargetFilter exercised in stream.
         var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
             + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
@@ -7271,7 +7273,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // Single-source cost model rejection (small data) exercises loadFromRidSet with
+  // Single-source cost model rejection (small data) exercises loadFromLinkBag with
   // target WHERE filter. Covers the filter branches in the stream pipeline.
   @Test
   public void testIndexOrderedMatchSingleSourceLoadFromRidSetWithFilter() throws Exception {
@@ -7280,7 +7282,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     try (var cfg = setIndexOrderedTestConfig()) {
       session.begin();
       // person1 has 10 messages. With setIndexOrderedTestConfig the cost model
-      // approves, so force loadFromRidSet by lowering MAX_SCAN to make cost model
+      // approves, so force loadFromLinkBag by lowering MAX_SCAN to make cost model
       // prefer direct load over index scan at runtime.
       var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
       GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1);
@@ -7292,7 +7294,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
                 + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 3";
         try (var result = session.query(query)) {
           // Plan may or may not use INDEX ORDERED MATCH depending on plan-time.
-          // If it does, runtime cost model rejects → loadFromRidSet path.
+          // If it does, runtime cost model rejects → loadFromLinkBag path.
           // Either way, results must be correct.
           var mids = new java.util.ArrayList<Long>();
           while (result.hasNext()) {
@@ -7707,9 +7709,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   // =====================================================================
-  // loadSortFromRidSet coverage: single-source with downstream edges +
+  // loadSortFromLinkBag coverage: single-source with downstream edges +
   // LIMIT triggers local sort fallback when cost model rejects index scan.
-  // Exercises: loadSortFromRidSet, sortByOrderProperty (including null
+  // Exercises: loadSortFromLinkBag, sortByOrderProperty (including null
   // handling for both-null, va-null, vb-null branches).
   // =====================================================================
 
@@ -7773,14 +7775,14 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   /**
    * Single-source 3-hop pattern: the cost model rejects index scan (MAX_SCAN=1)
    * but downstream edges exist (msg→reply) and LIMIT is present, so the step
-   * falls into the loadSortFromRidSet path — loads all targets from LinkBag,
+   * falls into the loadSortFromLinkBag path — loads all targets from LinkBag,
    * sorts locally by creationDate, and emits as a pre-sorted stream.
    *
    * <p>Includes null creationDate values to exercise sortByOrderProperty null
    * handling: both-null, va-null, and vb-null branches in the comparator.
    *
-   * <p>Covers: processUpstreamRow lines 171-178 (downstreamEdges+LIMIT branch),
-   * loadSortFromRidSet lines 222-243, sortByOrderProperty lines 274-292.
+   * <p>Covers the downstream-edges-plus-LIMIT branch of processUpstreamRow,
+   * loadSortFromLinkBag, and sortByOrderProperty.
    */
   @Test
   public void testIndexOrderedMatchLoadSortFromRidSetWithDownstreamEdges()
@@ -7789,7 +7791,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
     // Use setIndexOrderedTestConfig to lower MIN_LINKBAG so the planner
     // approves, then set MAX_SCAN=1 so the runtime cost model rejects
-    // index scan — forcing the loadSortFromRidSet fallback.
+    // index scan — forcing the loadSortFromLinkBag fallback.
     try (var cfg = setIndexOrderedTestConfig()) {
       var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
       GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
@@ -7797,7 +7799,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         session.begin();
         // 3-hop: person → message → reply. ORDER BY on intermediate alias 'm'.
         // The edge p→m is the optimized edge; m→r is a downstream edge.
-        // downstreamEdgeCount=1, limit=4 → loadSortFromRidSet path.
+        // downstreamEdgeCount=1, limit=4 → loadSortFromLinkBag path.
         var query =
             "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
                 + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m}"
