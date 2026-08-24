@@ -6393,14 +6393,13 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   // Additional branch-coverage tests for IndexOrderedEdgeStep
   // =====================================================================
 
-  // Class filtering: targetClassName skips unrelated classes in the same LinkBag.
-  // Covers matchesTargetFilter via hasPolymorphicCollectionId (reject path).
+  // Class filter rejects unrelated types that share the source LinkBag.
   @Test
   public void testIndexOrderedMatchTargetClassInheritance() throws Exception {
     // Person1 has in_TEST_HAS_CREATOR edges pointing to both TestMessage and
     // TestComment vertices. The index is on TestMessage.creationDate. The
     // MATCH query targets {class: TestMessage} — TestComment records in the
-    // LinkBag are loaded but fail targetClassName check in matchesTargetFilter.
+    // LinkBag must be dropped by the target class filter.
     session.execute("CREATE CLASS TestPerson EXTENDS V").close();
     session.execute("CREATE CLASS TestMessage EXTENDS V").close();
     session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
@@ -6477,10 +6476,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * Parent class constraint must accept subclass vertices: TestPost EXTENDS
-   * TestMessage linked on the same edge; {@code {class: TestMessage}} returns
-   * both base messages and posts (polymorphic include via
-   * {@code hasPolymorphicCollectionId}).
+   * A parent-class MATCH filter must also accept subclass vertices on the same
+   * edge (e.g. TestPost under TestMessage).
    */
   @Test
   public void testIndexOrderedMatchTargetClassIncludesSubclass() throws Exception {
@@ -6549,8 +6546,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * Concrete subclass constraint must reject base-class siblings: {@code {class:
-   * TestPost}} returns only posts, not base TestMessage rows on the same LinkBag.
+   * A concrete subclass MATCH filter must reject base-class siblings on the
+   * same LinkBag (TestPost only, not plain TestMessage).
    */
   @Test
   public void testIndexOrderedMatchTargetClassConcreteSubclassExcludesBase()
@@ -7602,9 +7599,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * Schema for loadSort polymorphic target tests: base TestMessage, subclass
-   * TestPost, unrelated TestNote on the same LinkBag; each has a TestReply so
-   * MAX_SCAN=1 + LIMIT forces {@code loadSortFromLinkBag}.
+   * Graph for class-filter tests on the local-sort fallback: base message,
+   * subclass post, and an unrelated note on the same LinkBag; a downstream
+   * reply edge plus LIMIT forces sort-before-traverse instead of an index scan.
    */
   private void initLoadSortPolymorphicTargetData() {
     session.execute("CREATE CLASS TestPerson EXTENDS V").close();
@@ -7682,8 +7679,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * loadSortFromLinkBag: {@code {class: TestMessage}} includes TestPost subclass
-   * RIDs and excludes unrelated TestNote RIDs on the same LinkBag.
+   * On the local-sort fallback, a parent-class filter still includes subclass
+   * targets and drops unrelated types from the same LinkBag.
    */
   @Test
   public void testIndexOrderedMatchLoadSortIncludesSubclassExcludesUnrelated()
@@ -7711,7 +7708,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             mids.add(((Number) result.next().getProperty("mid")).longValue());
           }
           Assert.assertEquals(
-              "loadSort parent filter should return base+subclass only: " + mids,
+              "Parent class filter should return base+subclass only: " + mids,
               java.util.List.of(11L, 10L, 2L, 1L),
               mids);
         }
@@ -7723,8 +7720,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * loadSortFromLinkBag: {@code {class: TestPost}} returns only subclass rows,
-   * not base TestMessage or unrelated TestNote.
+   * On the local-sort fallback, a concrete subclass filter returns only that
+   * subclass, not base-class or unrelated vertices from the same LinkBag.
    */
   @Test
   public void testIndexOrderedMatchLoadSortConcreteSubclassExcludesBase()
@@ -7752,7 +7749,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             mids.add(((Number) result.next().getProperty("mid")).longValue());
           }
           Assert.assertEquals(
-              "loadSort concrete subclass filter should return only posts: " + mids,
+              "Concrete subclass filter should return only posts: " + mids,
               java.util.List.of(11L, 10L),
               mids);
         }

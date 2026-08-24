@@ -266,7 +266,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadSortFromLinkBag(
       LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
-    // Resolve once: matchesTargetFilter class-check is per LinkBag entry.
+    // Class filter is per LinkBag entry; resolve the target class once for the scan.
     var targetClass = resolveTargetClass(ctx);
 
     var records = new ArrayList<Result>();
@@ -1051,8 +1051,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Resolves the target class from the immutable schema snapshot, or
-   * {@code null} when there is no class constraint / schema / class.
+   * Resolves the MATCH target class from the session's immutable schema
+   * snapshot, or {@code null} when there is no class constraint / schema /
+   * class.
    */
   @Nullable private SchemaClass resolveTargetClass(CommandContext ctx) {
     if (targetClassName == null) {
@@ -1069,11 +1070,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * Checks if a target record passes the WHERE filter and class constraint.
    * Returns true if the record should be included, false if filtered out.
    *
-   * <p>Class membership uses the session's immutable schema snapshot and
-   * {@code hasPolymorphicCollectionId} on the record RID — same pattern as
-   * {@link #unfilteredBound}. Avoids {@code Entity.getSchemaClass()} /
-   * {@code isSubClassOf}, which take the shared schema RW lock per call and
-   * contend under multi-threaded loadSort (e.g. LDBC IS2).
+   * <p>Class membership uses the immutable schema snapshot and the record's
+   * collection id (the target class and its subclasses). That is equivalent to
+   * an {@code isSubClassOf} check, but does not take the shared schema lock on
+   * every record — important when many targets are filtered under concurrent
+   * queries. Same approach as {@link #unfilteredBound}.
    */
   private boolean matchesTargetFilter(Result targetRecord, CommandContext ctx) {
     return matchesTargetFilter(targetRecord, ctx, resolveTargetClass(ctx));
