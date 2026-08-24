@@ -146,12 +146,18 @@ jobs:
           fi
           echo "Database loaded successfully from CSV"
 
+      # LdbcSingleThreadBothEBenchmark is excluded here and in the measured run.
+      # It is the only class that writes to the shared on-disk DB (it installs
+      # KNOWS.creationDate for one method), and an index build over every KNOWS
+      # edge evicts hot Person/KNOWS pages that the IC/IS benchmarks measure
+      # against — enough to move IC1 by ~14%. A DB-mutating benchmark does not
+      # belong in a suite whose scores are tracked as a trend by the alerter.
       - name: Warm OS page cache
         run: |
           set -euo pipefail
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            -Djmh.args="-e LdbcSingleThreadBothEBenchmark -f 0 -wi 0 -i 1 -r 5s -t 1" \
             2>&1 | tee /tmp/jmh-warm-${{ github.run_id }}.txt
 
           # JMH exits 0 even when all benchmarks fail with -f 0.
@@ -172,7 +178,7 @@ jobs:
           set -euo pipefail
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="-rf json -rff /tmp/jmh-results-${{ github.run_id }}.json" \
+            -Djmh.args="-e LdbcSingleThreadBothEBenchmark -rf json -rff /tmp/jmh-results-${{ github.run_id }}.json" \
             2>&1 | tee /tmp/jmh-bench-log-${{ github.run_id }}.txt
 
       - name: Validate benchmark results

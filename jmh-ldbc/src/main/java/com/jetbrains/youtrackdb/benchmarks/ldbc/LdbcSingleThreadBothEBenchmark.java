@@ -54,7 +54,20 @@ import org.openjdk.jmh.annotations.Warmup;
  * <p>{@code bothEKnows_recentConnections} creates {@code KNOWS.creationDate} for
  * its Trial and drops it afterwards so the shared on-disk LDBC DB used by IC/IS
  * forks does not keep an unused KNOWS secondary index (which regresses IC1).
- * Other methods in this class use indexes already present in {@code ldbc-schema.sql}.
+ * {@code LdbcBenchmarkState.tearDown()} repeats the drop as a safety net, because
+ * JMH does not order teardowns across {@code @State} classes. Other methods in
+ * this class use indexes already present in {@code ldbc-schema.sql}.
+ *
+ * <h2>Why this class is excluded from the A/B compare suite</h2>
+ *
+ * <p>{@code ldbc-jmh-compare.yml} passes {@code -e} to skip this class on the
+ * full-suite path. Two reasons. It is the only benchmark class that writes to the
+ * shared on-disk DB, and an index build over every KNOWS edge evicts hot
+ * Person/KNOWS pages that the IC/IS benchmarks measure against — IC1 traverses
+ * KNOWS three hops deep and is the most exposed. It also yields no comparison
+ * signal, because the fork-point side of an A/B run does not have these
+ * benchmarks at all, so every row reads as "new". Run it on demand with
+ * {@code -Djmh.args="LdbcSingleThreadBothEBenchmark"}.
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
@@ -96,6 +109,25 @@ public class LdbcSingleThreadBothEBenchmark {
     @TearDown(Level.Trial)
     public void tearDown(LdbcBenchmarkState state) {
       state.dropKnowsCreationDateIndex();
+    }
+  }
+
+  /**
+   * Trial-scoped helper that computes the hub-bench parameters (top-100 Forums by
+   * {@code HAS_MEMBER} bag size, plus the selective {@code joinDate} bounds).
+   *
+   * <p>These live behind a state class rather than in
+   * {@code LdbcBenchmarkState.setup()} because that setup is shared by every
+   * benchmark class: the Forum scan would then run in every IC/IS fork, both
+   * lengthening their setup and changing the page-cache state they measure
+   * against. Declaring it here scopes the work to forks of this class.
+   */
+  @State(Scope.Benchmark)
+  public static class ForumHubParams {
+
+    @Setup(Level.Trial)
+    public void setup(LdbcBenchmarkState state) {
+      state.computeForumHubParams();
     }
   }
 
@@ -168,7 +200,10 @@ public class LdbcSingleThreadBothEBenchmark {
    */
   @Benchmark
   public List<Map<String, Object>> bothEHasMember_recentJoiners(
-      LdbcBenchmarkState state) {
+      LdbcBenchmarkState state, ForumHubParams forumHubParams) {
+    // Parameter forces JMH to run ForumHubParams Trial setup, which populates
+    // the forumHubId / forumHubMinJoinDate pools read below.
+    Objects.requireNonNull(forumHubParams);
     long i = state.nextIndex();
     return state.executeSql(
         LdbcQuerySql.FORUM_RECENT_JOINERS,
@@ -193,7 +228,10 @@ public class LdbcSingleThreadBothEBenchmark {
    */
   @Benchmark
   public List<Map<String, Object>> bothEHasMember_joinerCount(
-      LdbcBenchmarkState state) {
+      LdbcBenchmarkState state, ForumHubParams forumHubParams) {
+    // Parameter forces JMH to run ForumHubParams Trial setup, which populates
+    // the forumHubId / forumHubVeryNarrowJoinDate pools read below.
+    Objects.requireNonNull(forumHubParams);
     long i = state.nextIndex();
     return state.executeSql(
         LdbcQuerySql.FORUM_JOINER_COUNT,
