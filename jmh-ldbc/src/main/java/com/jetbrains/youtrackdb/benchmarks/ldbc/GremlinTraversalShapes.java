@@ -33,7 +33,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  *
  * <p>{@link LdbcGremlinTranslatorBenchmark} still exposes {@code translatorEnabled} as a JMH
  * {@code @Param} for a secondary A/B: MATCH against the native pipeline on one tree. Run both arms
- * with {@code -Djmh.args=".*LdbcGremlinTranslator.*"} and no {@code -p} filter, or pass {@code
+ * with {@code -Djmh.args=".*gremlin_.*"} and no {@code -p} filter, or pass {@code
  * --gremlin-arms both} to {@code jmh-compare.py}. That axis is for recogniser and kill-switch work,
  * not for the default PR regression comment.
  *
