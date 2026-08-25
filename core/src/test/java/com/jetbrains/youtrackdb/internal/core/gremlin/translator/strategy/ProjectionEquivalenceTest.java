@@ -76,6 +76,62 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().values("foo"));
   }
 
+  /**
+   * A slice behind {@code values(age)} promotes the absence drop into a pattern conjunct, so
+   * {@code LIMIT} / {@code SKIP} / {@code range} count survivors. Only the last-scanned vertex
+   * carries {@code age=44}: {@code limit(1)} keeps it, {@code skip(1)} and {@code range(1, 3)}
+   * skip it and return empty. A leading {@code has(name, …)} still translates. {@code skip(0)}
+   * is the no-op control that never promotes.
+   */
+  @Test
+  public void valuesThenSlice_translatesAndCountsSurvivors() {
+    seedAgeOnLastScannedVertex();
+
+    assertEquivalent(
+        "g.V().values(age).limit(1)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").limit(1));
+    assertEquivalent(
+        "g.V().values(age).skip(1)",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().values("age").skip(1));
+    assertEquivalent(
+        "g.V().values(age).range(1, 3)",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().values("age").range(1, 3));
+    assertEquivalent(
+        "g.V().values(age).skip(0)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("age").skip(0));
+
+    withTranslatorOff(
+        () -> {
+          assertThat(graph.traversal().V().values("age").limit(1).toList())
+              .as("native drops the four ageless rows first, so limit(1) keeps the one age")
+              .containsExactly(44);
+          assertThat(graph.traversal().V().values("age").skip(1).toList())
+              .as("native has nothing left to skip past")
+              .isEmpty();
+        });
+  }
+
+  /**
+   * A leading filter does not block the promotion: {@code has(name, Person4)} narrows the scan to
+   * one vertex, and if that vertex is the aged one the slice still translates over the survivor.
+   */
+  @Test
+  public void hasThenValuesThenLimit_translates() {
+    seedAgeOnLastScannedVertex();
+    var lastName = lastScannedVertexName();
+
+    assertEquivalent(
+        "g.V().has(name, " + lastName + ").values(age).limit(1)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", lastName).values("age").limit(1));
+  }
+
   // ---------------------------------------------------------------------------
   // properties(key): the element form declines where the value would be read.
   // AdjacentToIncidentStrategy rewrites a written values(key) into the element
@@ -1747,6 +1803,39 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.addVertex(T.label, "Person", "age", 44, "nick", "c");
     graph.tx().commit();
+  }
+
+  /**
+   * Five vertices, then {@code age=44} put on whichever one scans last, read back at seed time
+   * rather than assumed. Scan order is not stable across JVM forks, so the fixture discovers it;
+   * what the slice cases need is only that the aged vertex is not among the first rows a slice
+   * would take.
+   */
+  private void seedAgeOnLastScannedVertex() {
+    for (var i = 0; i < 5; i++) {
+      graph.addVertex(T.label, "Person", "name", "Person" + i);
+    }
+    graph.tx().commit();
+
+    withTranslatorOff(
+        () -> {
+          var scanned = graph.traversal().V().toList();
+          assertThat(scanned).as("fixture must seed five vertices").hasSize(5);
+          ((Vertex) scanned.get(scanned.size() - 1)).property("age", 44);
+          graph.tx().commit();
+        });
+  }
+
+  /** The {@code name} of the vertex that currently scans last — the one {@link
+   *  #seedAgeOnLastScannedVertex} ages. */
+  private String lastScannedVertexName() {
+    var holder = new String[1];
+    withTranslatorOff(
+        () -> {
+          var scanned = graph.traversal().V().toList();
+          holder[0] = ((Vertex) scanned.get(scanned.size() - 1)).value("name");
+        });
+    return holder[0];
   }
 
   /**

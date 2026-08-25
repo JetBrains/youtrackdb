@@ -682,7 +682,7 @@ final class GremlinStepWalker {
    * presence conjunct into the pattern, so its row-dropping happens before the clause exactly as
    * native does it. The unguarded projection path is the wrong one, because its drop rides
    * post-plan shaping instead; {@link RangeGlobalStepRecogniser} carries the other half of that
-   * story and the decline that closes it.
+   * story and promotes the drop into a pattern conjunct when a slice arrives.
    */
   private static boolean capturedCardinalityClause(RecognitionContext ctx) {
     return ctx.skip() != null || ctx.limit() != null || ctx.returnDistinct();

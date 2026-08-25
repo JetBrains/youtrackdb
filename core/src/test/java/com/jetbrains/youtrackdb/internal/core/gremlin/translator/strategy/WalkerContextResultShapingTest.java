@@ -174,6 +174,56 @@ public class WalkerContextResultShapingTest {
   }
 
   /**
+   * Promoting a pinned drop writes {@code key IS DEFINED} on the recorded alias and leaves
+   * {@code dropOnAbsent} on as a fail-safe. Without an alias the same drop cannot promote — the
+   * union path copies shaping without re-declaring the alias.
+   */
+  @Test
+  public void promotePresenceDrop_writesConjunctOrDeclinesWithoutAlias() {
+    var withAlias = new WalkerContext(true, false);
+    withAlias.setResultShaping(
+        ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of("age")));
+    withAlias.setPresenceDropAlias("v");
+
+    assertThat(withAlias.promotePresenceDropToPatternFilter()).isTrue();
+    assertThat(withAlias.aliasFilters)
+        .as("the conjunct lands on the recorded alias")
+        .containsKey("v");
+    assertThat(withAlias.aliasFilters.get("v").toString())
+        .as("the conjunct is key IS DEFINED, evaluated inside the plan")
+        .contains("age")
+        .containsIgnoringCase("defined");
+    assertThat(withAlias.shaping().dropOnAbsent())
+        .as("the shaping drop stays on as a fail-safe")
+        .isTrue();
+
+    var withoutAlias = new WalkerContext(true, false);
+    withoutAlias.setResultShaping(
+        ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of("age")));
+    assertThat(withoutAlias.promotePresenceDropToPatternFilter())
+        .as("a drop whose alias was never recorded cannot promote")
+        .isFalse();
+  }
+
+  /**
+   * {@code setResultShaping} clears the recorded alias, so a later copy of a drop-on-absent
+   * shaping (the union agreed-shaping write) cannot promote against a stale alias.
+   */
+  @Test
+  public void setResultShaping_clearsPresenceDropAlias() {
+    var ctx = new WalkerContext(true, false);
+    ctx.setResultShaping(
+        ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of("age")));
+    ctx.setPresenceDropAlias("v");
+    ctx.setResultShaping(
+        ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of("age")));
+
+    assertThat(ctx.promotePresenceDropToPatternFilter())
+        .as("a replace drops the alias, so a copied drop cannot promote")
+        .isFalse();
+  }
+
+  /**
    * A pass-through stage that carries a readable identity. Two ops written as identical lambdas would
    * still be distinct instances, so the order assertion would hold, but neither the source nor an
    * {@code AssertionError} would show a reader which op is which — a failure would name two synthetic

@@ -77,7 +77,10 @@ final class GremlinProjectionAssembler {
    *
    * <p>Keeping the conjunct off the main-line arm matters: {@code IS DEFINED} has no estimator in the
    * MATCH root-selection cost model (see {@link ByModulatorPresence}'s {@code @implNote}), and the
-   * main line already expresses the same drop through {@code dropOnAbsent}.
+   * main line already expresses the same drop through {@code dropOnAbsent}. A following slice
+   * promotes the conjunct on demand through {@link
+   * RecognitionContext#promotePresenceDropToPatternFilter}, so the estimator caveat applies only to
+   * that sliced surface rather than to every {@code values(k)}.
    *
    * @param contributePresenceConjunct whether the captured child still emits nothing for an element
    *     without the property once its remaining steps have run. Read only on the captured-child path;
@@ -108,6 +111,9 @@ final class GremlinProjectionAssembler {
       // dropOnAbsent + presence key so the plan step drops rows where the entity lacks the property.
       ctx.setResultShaping(
           ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of(propertyKey)));
+      // After setResultShaping, which clears any previous alias. The slice recogniser promotes
+      // this alias into a pattern conjunct when a real SKIP / LIMIT arrives.
+      ctx.setPresenceDropAlias(boundary);
     } else if (contributePresenceConjunct) {
       // A captured child's shaping is swallowed, so the same drop travels as a pattern conjunct.
       ByModulatorPresence.requireProjectedProperty(ctx, boundary, propertyKey);

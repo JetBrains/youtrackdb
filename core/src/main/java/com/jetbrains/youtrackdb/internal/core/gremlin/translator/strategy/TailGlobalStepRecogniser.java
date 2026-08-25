@@ -23,11 +23,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStep
  * so it covers the recognisers written after this one too.
  *
  * <p>The window itself does sit behind a row-dropping projection safely, which is worth naming because
- * the neighbouring {@code LIMIT} does not. {@code values(key)} drops absent-property rows in the
- * boundary's own payload projection, and the window runs after that projection, so
- * {@code values(k).tail(2)} takes the last two <em>survivors</em> — which is what Gremlin does with that
- * spelling. A statement-level {@code LIMIT} counts rows the drop has not removed yet, which is the
- * divergence {@code RangeGlobalStepRecogniser} declines on {@code dropsRowsOnAbsentProperty}.
+ * the neighbouring {@code LIMIT} needed a promotion to do the same. {@code values(key)} drops
+ * absent-property rows in the boundary's own payload projection, and the window runs after that
+ * projection, so {@code values(k).tail(2)} takes the last two <em>survivors</em> — which is what
+ * Gremlin does with that spelling. A statement-level {@code LIMIT} would count rows the drop has not
+ * removed yet; {@code RangeGlobalStepRecogniser} therefore promotes the drop into a pattern conjunct
+ * before capturing the slice.
  *
  * <h2>Post-union, the window is refused because it reads positions</h2>
  *

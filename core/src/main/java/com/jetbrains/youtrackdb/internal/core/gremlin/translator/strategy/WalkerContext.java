@@ -141,6 +141,14 @@ final class WalkerContext implements RecognitionContext {
   ResultShaping shaping = ResultShaping.NONE;
 
   /**
+   * Alias whose entity a pinned {@code dropOnAbsent} checks. Set beside the shaping write that
+   * turns the flag on; cleared by every {@link #setResultShaping} so a later replace cannot promote
+   * against a stale alias. {@link UnionStepRecogniser} copies agreed child shaping without
+   * re-declaring the alias, so a post-union slice cannot promote and stays declined.
+   */
+  @Nullable String presenceDropAlias;
+
+  /**
    * Field-access expression from the immediately preceding single-key property extraction, consumed
    * by aggregate recognisers ({@code values("age").mean()}).
    */
@@ -638,11 +646,36 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void setResultShaping(@Nonnull ResultShaping shaping) {
     this.shaping = shaping;
+    // A wholesale replace drops any alias a previous drop-on-absent write recorded. The writer that
+    // turns dropOnAbsent back on has to re-declare it; UnionStepRecogniser's agreed-shaping path
+    // does not, so a post-union slice cannot promote and stays declined.
+    this.presenceDropAlias = null;
+  }
+
+  @Override
+  public void setPresenceDropAlias(@Nullable String alias) {
+    this.presenceDropAlias = alias;
   }
 
   @Override
   public boolean dropsRowsOnAbsentProperty() {
     return shaping.dropOnAbsent();
+  }
+
+  @Override
+  public boolean promotePresenceDropToPatternFilter() {
+    if (!shaping.dropOnAbsent()) {
+      return true;
+    }
+    if (presenceDropAlias == null) {
+      return false;
+    }
+    for (var key : shaping.presencePropertyKeys()) {
+      ByModulatorPresence.requireProjectedProperty(this, presenceDropAlias, key);
+    }
+    // dropOnAbsent stays on: after the conjunct no row lacking the key survives, so the shaping
+    // drop is redundant, but it cannot remove a row the conjunct left.
+    return true;
   }
 
   @Override

@@ -516,6 +516,24 @@ public class SubTraversalPredicateAdapterTest {
   }
 
   /**
+   * A combinator child cannot promote a drop-on-absent into a pattern conjunct. The parent's
+   * {@code true} (nothing to promote, no drop pinned) is the discriminating half: Mockito would
+   * answer {@code false} for an unstubbed parent and make both arms agree for the wrong reason.
+   */
+  @Test
+  public void promotePresenceDrop_falseOnSubWalk_trueOnAParentWithNothingToPromote() {
+    var parent = new WalkerContext(true, false);
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+
+    assertThat(parent.promotePresenceDropToPatternFilter())
+        .as("a top-level context with no drop has nothing to promote")
+        .isTrue();
+    assertThat(adapter.promotePresenceDropToPatternFilter())
+        .as("a sub-walk declines instead of promoting, and never delegates the parent's true")
+        .isFalse();
+  }
+
+  /**
    * The gate-side query answers empty on a sub-walk without delegating a parent that does carry a
    * stage — the discriminating half being the parent's non-empty answer, which a bare
    * {@code isEmpty()} on a fresh parent could not tell from a delegated one. The walker reads this

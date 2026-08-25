@@ -1326,17 +1326,18 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * The mirror of the slice gate: a slice behind a {@code values(k)} declines, because the
-   * projection's row-dropping rides post-plan shaping and a statement-level {@code LIMIT} would
-   * count rows the drop has not removed yet.
+   * A slice behind {@code values(k)} promotes the absence drop into a pattern conjunct, so the
+   * walk survives and the statement-level {@code LIMIT} counts survivors.
    */
   @Test
-  public void walk_valuesThenSlice_declines() {
+  public void walk_valuesThenSlice_translates() {
     var admin = graph.traversal().V().values("age").limit(1).asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).isNull();
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().limit()).isNotNull();
+    assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
   }
 
   /**
