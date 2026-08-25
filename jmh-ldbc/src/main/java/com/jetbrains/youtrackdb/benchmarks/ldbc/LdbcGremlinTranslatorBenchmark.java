@@ -263,7 +263,7 @@ public class LdbcGremlinTranslatorBenchmark {
   // Translating shapes. CI: head vs base with translator on. Optional A/B: MATCH vs native.
   // ---------------------------------------------------------------------------------------------
 
-  /** Shape 2 — the {@code KNOWS} walk under {@code values}: one row per friend. */
+  /** LDBC: none. One-hop {@code KNOWS} under {@code values}. */
   @Benchmark
   public List<String> gremlinKnowsFirstNames(LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
@@ -271,7 +271,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.knowsFirstNames(t, arm.personId(i)).toList());
   }
 
-  /** Shape 3 — the same walk under {@code count()}: the aggregate pushes into the MATCH plan. */
+  /** LDBC: none. {@link GremlinTraversalShapes#knowsFirstNames} under {@code count()}. */
   @Benchmark
   public Long gremlinKnowsFirstNameCount(LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
@@ -280,9 +280,8 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * Shape 4 — the same walk under {@code fold()}: the drain the boundary step applies after
-   * projection. A run whose {@code youtrackdb-core} predates the {@code FoldStep} registry entry
-   * declines the shape, so both arms run natively and the two numbers coincide.
+   * LDBC: none. {@link GremlinTraversalShapes#knowsFirstNames} under {@code fold()}. A core that
+   * predates {@code FoldStep} declines the shape and both arms run natively.
    */
   @Benchmark
   public List<String> gremlinKnowsFirstNamesFolded(LdbcBenchmarkState state, TranslatorArm arm) {
@@ -291,7 +290,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.knowsFirstNamesFolded(t, arm.personId(i)).next());
   }
 
-  /** Shape 5 — IS1's {@code IS_LOCATED_IN} join with the city columns. */
+  /** LDBC: IS1 reduced. City-side columns of the person–city join. */
   @Benchmark
   public List<Map<Object, Object>> gremlinIs1PersonCityProfile(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -300,7 +299,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.is1PersonCityProfile(t, arm.personId(i)).toList());
   }
 
-  /** Shape 6 — IS3's friend columns under an {@code ORDER BY}. */
+  /** LDBC: IS3 reduced. Friend columns under {@code ORDER BY firstName}; no edge date. */
   @Benchmark
   public List<Map<Object, Object>> gremlinIs3FriendsWithNames(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -309,7 +308,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.is3FriendsWithNames(t, arm.personId(i)).toList());
   }
 
-  /** Shape 7 — IS5 whole: the message's author, every column projected. */
+  /** LDBC: IS5 complete. Message author; every SQL column. */
   @Benchmark
   public List<Map<Object, Object>> gremlinIs5MessageCreator(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -318,7 +317,91 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.is5MessageCreator(t, arm.messageId(i)).toList());
   }
 
-  /** Shape 8 — two chained {@code KNOWS} hops: MATCH path enumeration against two native passes. */
+  /**
+   * LDBC: IS2 reduced. Person messages newest first; no original-post climb, coalesce, or LIMIT.
+   */
+  @Benchmark
+  public List<Map<Object, Object>> gremlinIs2PersonMessages(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is2PersonMessages(t, arm.personId(i)).toList());
+  }
+
+  /**
+   * LDBC: IS6 reduced. Post's Forum and moderator; no {@code REPLY_OF} climb from a Comment.
+   */
+  @Benchmark
+  public List<Map<String, Object>> gremlinIs6ForumOfPost(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is6ForumOfPost(t, arm.messageId(i)).toList());
+  }
+
+  /**
+   * LDBC: IS7 reduced. Reply authors; no optional KNOWS, coalesce, or LIMIT.
+   */
+  @Benchmark
+  public List<Map<Object, Object>> gremlinIs7RepliesWithAuthors(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.is7RepliesWithAuthors(t, arm.messageId(i)).toList());
+  }
+
+  /**
+   * LDBC: IC2 reduced. Friends' messages before the curated max date, newest first; no coalesce
+   * or LIMIT. Uses {@code ic2PersonId}/{@code ic2MaxDate}, not the IS person pool.
+   */
+  @Benchmark
+  public List<Map<Object, Object>> gremlinIc2FriendsMessagesOrdered(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes
+            .ic2FriendsMessagesOrdered(t, state.ic2PersonId(i), state.ic2MaxDate(i))
+            .toList());
+  }
+
+  /**
+   * LDBC: IC7 reduced. Likers' first names; no like-edge date, optional KNOWS, or GROUP BY.
+   * Uses {@code ic7PersonId}.
+   */
+  @Benchmark
+  public List<String> gremlinIc7Likers(LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.ic7Likers(t, state.ic7PersonId(i)).toList());
+  }
+
+  /**
+   * LDBC: IC8 reduced. Comments replying to a person's messages, newest first; no creator
+   * columns, coalesce, or LIMIT. Uses {@code ic8PersonId}.
+   */
+  @Benchmark
+  public List<Map<Object, Object>> gremlinIc8RecentRepliesOrdered(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.ic8RecentRepliesOrdered(t, state.ic8PersonId(i)).toList());
+  }
+
+  /**
+   * LDBC: IC11 reduced. Direct friends' companies in the curated country; no FoF, workFrom, or
+   * LIMIT. Uses {@code ic11PersonId}/{@code ic11CountryName}.
+   */
+  @Benchmark
+  public List<Map<String, Object>> gremlinIc11FriendsCompaniesInCountry(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes.ic11FriendsCompaniesInCountry(
+            t, state.ic11PersonId(i), state.ic11CountryName(i))
+            .toList());
+  }
+
+  /** LDBC: none. Two chained {@code KNOWS} hops. */
   @Benchmark
   public List<String> gremlinTwoHopKnows(LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
@@ -327,8 +410,7 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * Shape 9 — two hops with an indexed filter on the intermediate one, where MATCH can enter the
-   * pattern from the filtered alias and native cannot.
+   * LDBC: none. Two-hop {@code KNOWS} with an indexed filter on the intermediate hop.
    */
   @Benchmark
   public List<String> gremlinKnowsFilteredByFriendFirstName(
@@ -340,7 +422,7 @@ public class LdbcGremlinTranslatorBenchmark {
             .toList());
   }
 
-  /** Shape 10 — three hops with a {@code where()} back-reference to the first hop's alias. */
+  /** LDBC: none. Three-hop {@code KNOWS} with {@code where(neq)} against a mid-walk alias. */
   @Benchmark
   public List<String> gremlinThreeHopKnowsExcludingIntermediate(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -350,7 +432,7 @@ public class LdbcGremlinTranslatorBenchmark {
             .toList());
   }
 
-  /** Shape 11 — IS1's full projection: both aliases reached through {@code select}. */
+  /** LDBC: IS1 reduced. {@code select("p", "city")} of firstName and city id. */
   @Benchmark
   public List<Map<String, Object>> gremlinIs1FullProfile(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -359,7 +441,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.is1FullProfile(t, arm.personId(i)).toList());
   }
 
-  /** Shape 12 — {@code GROUP BY} with {@code count(*)} pushed into the plan. */
+  /** LDBC: none. {@code groupCount().by(lastName)}. */
   @Benchmark
   public Map<Object, Long> gremlinKnowsGroupCountByLastName(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -369,8 +451,7 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * Shape 13 — a person's friends not located in a given place: MATCH's hash anti-join against the
-   * native pipeline's per-candidate re-walk of {@code IS_LOCATED_IN}.
+   * LDBC: none. Hash anti-join of friends not located in a place.
    */
   @Benchmark
   public List<String> gremlinFriendsNotLocatedInPlace(
@@ -383,8 +464,7 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * Shape 14 — a mutual-friend triangle closed by a {@code where()} back-reference to the start:
-   * MATCH's topological self-join against the native pipeline's full three-hop expansion.
+   * LDBC: none. Three-hop {@code KNOWS} triangle closed by {@code where(eq(start))}.
    */
   @Benchmark
   public List<String> gremlinMutualFriendTriangle(LdbcBenchmarkState state, TranslatorArm arm) {
@@ -399,10 +479,7 @@ public class LdbcGremlinTranslatorBenchmark {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * A bare {@code g.V(rid)} point-lookup. Native resolves the id without a query; the translator
-   * declines a bare RID walk ({@code cacheEligible=false}, no join to optimise), so both CI arms
-   * run native. Optional on/off A/B prices decline overhead; a RID start followed by a hop still
-   * translates.
+   * LDBC: none. Bare {@code g.V(rid)} point-lookup; translator declines, both CI arms native.
    */
   @Benchmark
   public List<Vertex> gremlinVertexByRidDeclines(LdbcBenchmarkState state, TranslatorArm arm) {
@@ -411,7 +488,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.personByRid(t, arm.personRid(i)).toList());
   }
 
-  /** {@code ORDER BY} with {@code SKIP} / {@code LIMIT} paging: a slice behind a captured sort. */
+  /** LDBC: none. {@code order().by(firstName).range(1, 3)}; slice-after-sort declines. */
   @Benchmark
   public List<String> gremlinKnowsOrderedPageDeclines(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -421,8 +498,7 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * IC1's variable-depth walk: vetoed by {@code RepeatDeclineStrategy} before the walker runs, so
-   * this is the cheapest decline route in the group and the floor the other two are read against.
+   * LDBC: IC1 fragment. {@code repeat(out(KNOWS)).times(3)}; {@code RepeatDeclineStrategy} veto.
    */
   @Benchmark
   public List<String> gremlinRepeatKnowsToThreeHopsDeclines(
@@ -432,7 +508,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.repeatKnowsToThreeHops(t, arm.personId(i)).toList());
   }
 
-  /** IS4's {@code coalesce} projection: declines part-way through the walk on {@code CoalesceStep}. */
+  /** LDBC: IS4 fragment. {@code coalesce(imageFile, content)}; declines on {@code CoalesceStep}. */
   @Benchmark
   public List<String> gremlinCoalesceMessageContentDeclines(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -441,7 +517,7 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.coalesceMessageContent(t, arm.messageId(i)).toList());
   }
 
-  /** IS7's optional hop: declines part-way through the walk, and reserves the Phase 2 baseline. */
+  /** LDBC: IS7 fragment. {@code optional(out(KNOWS))} after the author; declines on {@code optional()}. */
   @Benchmark
   public List<String> gremlinOptionalFriendOfCreatorDeclines(
       LdbcBenchmarkState state, TranslatorArm arm) {
@@ -451,10 +527,8 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * IS3 whole: edge {@code creationDate} and friend {@code firstName} via {@code select}. Declines
-   * because the {@code as("k")} label on {@code outE(KNOWS)} would bind to the edge-as-node vertex
-   * alias, so {@code select("k")} would read the target vertex rather than the friendship edge —
-   * see {@link GremlinTraversalShapes#is3FriendsWithDates}. Both arms run natively.
+   * LDBC: IS3 full attempt. Edge date plus friend name via {@code select}; declines on edge
+   * {@code as("k")}. See {@link GremlinTraversalShapes#is3FriendsWithDates}.
    */
   @Benchmark
   public List<Map<String, Object>> gremlinIs3FriendsWithDatesDeclines(
