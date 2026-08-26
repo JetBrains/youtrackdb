@@ -66,7 +66,8 @@ import org.junit.Test;
  *
  * <h2>Fixture</h2>
  *
- * <p>Five people, two places and two messages — the smallest graph that distinguishes the shapes:
+ * <p>Five people, two places, two messages, one forum and one organisation — the smallest graph
+ * that distinguishes the shapes:
  *
  * <ul>
  *   <li>{@code KNOWS}: Alice→Bob, Alice→Carol, Bob→Dave, Bob→Alice, Carol→Erin, and Erin→everyone
@@ -77,7 +78,8 @@ import org.junit.Test;
  *   <li>{@code IS_LOCATED_IN}: Alice→Zurich, Bob→Berlin — two cities, so an IS1 plan that ignores
  *       the join returns both.
  *   <li>A {@code Post} authored by Bob and a {@code Comment} authored by Carol replying to it, for
- *       the IS4 / IS5 / IS7 shapes.
+ *       the IS4 / IS5 / IS7 shapes. Alice likes the post (IC7). Forum {@code Wall} contains the
+ *       post and Alice moderates it (IS6). Bob works at organisation Acme in China (IC11).
  * </ul>
  *
  * <p>The flag is flipped through {@link GlobalConfiguration}, not through a session-local
@@ -102,6 +104,15 @@ public class LdbcGremlinShapeTranslationTest {
 
   /** A {@code Comment} authored by Carol, replying to {@link #POST}. */
   private static final long COMMENT = 1001;
+
+  private static final long POST_AT = 1_600_000_100_000L;
+  private static final long COMMENT_AT = 1_600_000_200_000L;
+  /** Exclusive upper bound for IC2's {@code creationDate < maxDate} filter. */
+  private static final long IC2_MAX_DATE = 1_600_000_300_000L;
+
+  private static final long FORUM = 10;
+  private static final long COMPANY = 50;
+  private static final long CHINA = 300;
 
   /**
    * {@code KNOWS.creationDate} values. Distinct and ordered so a projection of the edge property is
@@ -155,11 +166,20 @@ public class LdbcGremlinShapeTranslationTest {
       createKnows(t, ERIN, CAROL, 1_600_000_013_000L);
       createKnows(t, ERIN, DAVE, 1_600_000_014_000L);
 
-      insertMessage(t, "Post", POST, "post-1000", 1_600_000_100_000L);
-      insertMessage(t, "Comment", COMMENT, "c-1001", 1_600_000_200_000L);
+      insertMessage(t, "Post", POST, "post-1000", POST_AT);
+      insertMessage(t, "Comment", COMMENT, "c-1001", COMMENT_AT);
       createHasCreator(t, POST, BOB);
       createHasCreator(t, COMMENT, CAROL);
       createReplyOf(t, COMMENT, POST);
+
+      insertForum(t, FORUM, "Wall");
+      createContainerOf(t, FORUM, POST);
+      createHasModerator(t, FORUM, ALICE);
+      createLikes(t, ALICE, POST);
+      insertOrganisation(t, COMPANY, "Acme");
+      insertPlace(t, CHINA, "China");
+      createWorkAt(t, BOB, COMPANY);
+      createOrgLocatedIn(t, COMPANY, CHINA);
     });
 
     aliceRid = g.computeInTx(
@@ -297,6 +317,106 @@ public class LdbcGremlinShapeTranslationTest {
         "IS5: …hasLabel(Message).has(id).out(HAS_CREATOR).valueMap(id, firstName, lastName)",
         t -> GremlinTraversalShapes.is5MessageCreator(t, POST),
         List.of("{firstName=[Bob], id=[" + BOB + "], lastName=[Bobson]}"));
+  }
+
+  /**
+   * IS2 reduced — Bob's messages newest first. Only the post is his; Carol's comment must not
+   * appear. Compared in stream order because the shape keeps {@code ORDER BY creationDate DESC}.
+   */
+  @Test
+  public void is2PersonMessagesTranslatesOnAndRunsNativeOffInDateOrder() {
+    assertTranslatesInOrder(
+        "IS2 reduced: …in(HAS_CREATOR).hasLabel(Message).order().by(creationDate, desc)"
+            + ".valueMap(id, content, creationDate)",
+        t -> GremlinTraversalShapes.is2PersonMessages(t, BOB),
+        List.of(
+            "{content=[post-1000], creationDate=[date:" + POST_AT + "], id=[" + POST + "]}"));
+  }
+
+  /**
+   * IS6 reduced — the post's forum title and moderator first name. SQL climbs {@code REPLY_OF}
+   * from any Message; this shape starts at the Post and walks {@code in(CONTAINER_OF)}. Labels
+   * bind on {@code has()} like IS1, not on {@code hasLabel}.
+   */
+  @Test
+  public void is6ForumOfPostTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IS6 reduced: …in(CONTAINER_OF).hasLabel(Forum).has(id, neq(-1)).as(forum)"
+            + ".out(HAS_MODERATOR).has(id, neq(-1)).as(moderator).select(forum, moderator)"
+            + ".by(title).by(firstName)",
+        t -> GremlinTraversalShapes.is6ForumOfPost(t, POST),
+        List.of("{forum=Wall, moderator=Alice}"));
+  }
+
+  /**
+   * IS7 reduced — authors of direct replies to the post. Carol replied; Alice did not, so a plan
+   * that walked {@code KNOWS} instead of {@code REPLY_OF} would return her.
+   */
+  @Test
+  public void is7RepliesWithAuthorsTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IS7 reduced: …in(REPLY_OF).out(HAS_CREATOR).valueMap(id, firstName, lastName)",
+        t -> GremlinTraversalShapes.is7RepliesWithAuthors(t, POST),
+        List.of("{firstName=[Carol], id=[" + CAROL + "], lastName=[Carolson]}"));
+  }
+
+  /**
+   * IC2 reduced — Alice's friends' messages before {@link #IC2_MAX_DATE}, newest first. Carol's
+   * comment then Bob's post. Dave has no messages, so a plan that ignored {@code KNOWS} and
+   * scanned {@code Message} would still pass if it also ignored the date filter; the two-row
+   * ordered list is the discriminant.
+   */
+  @Test
+  public void ic2FriendsMessagesOrderedTranslatesOnAndRunsNativeOffInDateOrder() {
+    assertTranslatesInOrder(
+        "IC2 reduced: …out(KNOWS).in(HAS_CREATOR).has(creationDate, lt).order()"
+            + ".by(creationDate, desc).valueMap(id, content, creationDate)",
+        t -> GremlinTraversalShapes.ic2FriendsMessagesOrdered(t, ALICE, new Date(IC2_MAX_DATE)),
+        List.of(
+            "{content=[c-1001], creationDate=[date:" + COMMENT_AT + "], id=[" + COMMENT + "]}",
+            "{content=[post-1000], creationDate=[date:" + POST_AT + "], id=[" + POST + "]}"));
+  }
+
+  /**
+   * IC7 reduced — first names of people who liked Bob's messages. Alice liked the post; a plan
+   * that walked {@code KNOWS} instead of {@code LIKES} would also return Carol and Dave.
+   */
+  @Test
+  public void ic7LikersTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IC7 reduced: …in(HAS_CREATOR).in(LIKES).values(firstName)",
+        t -> GremlinTraversalShapes.ic7Likers(t, BOB),
+        List.of("Alice"));
+  }
+
+  /**
+   * IC8 reduced — comments that reply to Bob's messages, newest first. Carol's comment replies to
+   * Bob's post; a plan that returned the post itself would fail the {@code hasLabel(Comment)}
+   * filter.
+   */
+  @Test
+  public void ic8RecentRepliesOrderedTranslatesOnAndRunsNativeOffInDateOrder() {
+    assertTranslatesInOrder(
+        "IC8 reduced: …in(HAS_CREATOR).in(REPLY_OF).hasLabel(Comment).order()"
+            + ".by(creationDate, desc).valueMap(id, content, creationDate)",
+        t -> GremlinTraversalShapes.ic8RecentRepliesOrdered(t, BOB),
+        List.of(
+            "{content=[c-1001], creationDate=[date:" + COMMENT_AT + "], id=[" + COMMENT + "]}"));
+  }
+
+  /**
+   * IC11 reduced — companies of Alice's friends located in China. Bob works at Acme in China;
+   * Carol does not work anywhere, so a plan that skipped {@code WORK_AT} returns nothing and a
+   * plan that skipped the country filter still has only Acme in this fixture.
+   */
+  @Test
+  public void ic11FriendsCompaniesInCountryTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IC11 reduced: …out(WORK_AT).hasLabel(Organisation).has(id, neq(-1)).as(company)"
+            + ".out(IS_LOCATED_IN).has(name, China).as(country).select(company, country)"
+            + ".by(name).by(name)",
+        t -> GremlinTraversalShapes.ic11FriendsCompaniesInCountry(t, ALICE, "China"),
+        List.of("{company=Acme, country=China}"));
   }
 
   /**
@@ -736,5 +856,71 @@ public class LdbcGremlinShapeTranslationTest {
         "CREATE EDGE REPLY_OF FROM (SELECT FROM Message WHERE id = :comment)"
             + " TO (SELECT FROM Message WHERE id = :message)",
         "comment", commentId, "message", messageId).iterate();
+  }
+
+  private static void insertForum(YTDBGraphTraversalSource t, long id, String title) {
+    requireCreated(
+        "INSERT INTO Forum",
+        t.yql(
+            "INSERT INTO Forum SET id = :id, title = :title, creationDate = :cd",
+            "id", id, "title", title, "cd", POST_AT).toList());
+  }
+
+  private static void insertOrganisation(YTDBGraphTraversalSource t, long id, String name) {
+    requireCreated(
+        "INSERT INTO Organisation",
+        t.yql(
+            "INSERT INTO Organisation SET id = :id, type = :type, name = :name",
+            "id", id, "type", "company", "name", name).toList());
+  }
+
+  private static void createContainerOf(
+      YTDBGraphTraversalSource t, long forumId, long messageId) {
+    createEdge(t, "CONTAINER_OF", "Forum", forumId, "Post", messageId);
+  }
+
+  private static void createHasModerator(
+      YTDBGraphTraversalSource t, long forumId, long personId) {
+    createEdge(t, "HAS_MODERATOR", "Forum", forumId, "Person", personId);
+  }
+
+  private static void createLikes(YTDBGraphTraversalSource t, long personId, long messageId) {
+    createEdge(t, "LIKES", "Person", personId, "Message", messageId);
+  }
+
+  private static void createWorkAt(YTDBGraphTraversalSource t, long personId, long orgId) {
+    requireCreated(
+        "CREATE EDGE WORK_AT",
+        t.yql(
+            "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
+                + " TO (SELECT FROM Organisation WHERE id = :to) SET workFrom = :wf",
+            "from", personId, "to", orgId, "wf", 2008).toList());
+  }
+
+  private static void createOrgLocatedIn(
+      YTDBGraphTraversalSource t, long orgId, long placeId) {
+    createEdge(t, "IS_LOCATED_IN", "Organisation", orgId, "Place", placeId);
+  }
+
+  private static void createEdge(
+      YTDBGraphTraversalSource t,
+      String edgeLabel,
+      String fromClass,
+      long fromId,
+      String toClass,
+      long toId) {
+    requireCreated(
+        "CREATE EDGE " + edgeLabel,
+        t.yql(
+            "CREATE EDGE " + edgeLabel
+                + " FROM (SELECT FROM " + fromClass + " WHERE id = :from)"
+                + " TO (SELECT FROM " + toClass + " WHERE id = :to)",
+            "from", fromId, "to", toId).toList());
+  }
+
+  private static void requireCreated(String what, List<?> created) {
+    if (created.isEmpty()) {
+      throw new IllegalStateException(what + " produced no rows");
+    }
   }
 }

@@ -40,13 +40,13 @@ def _gremlin_on_off_fixture():
     """Minimal base/head JSON with Gremlin on+off and one SQL ST row."""
     base = [
         _entry(
-            f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+            f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
             100.0,
             score_error=1.0,
             params={"translatorEnabled": "true"},
         ),
         _entry(
-            f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+            f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
             200.0,
             score_error=2.0,
             params={"translatorEnabled": "false"},
@@ -55,13 +55,13 @@ def _gremlin_on_off_fixture():
     ]
     head = [
         _entry(
-            f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+            f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
             110.0,
             score_error=1.0,
             params={"translatorEnabled": "true"},
         ),
         _entry(
-            f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+            f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
             190.0,
             score_error=2.0,
             params={"translatorEnabled": "false"},
@@ -111,14 +111,14 @@ class TestSuiteDetection(unittest.TestCase):
         """Gremlin translator benches land in the Gremlin suite, not the raw class."""
         out = cmp.parse_jmh_results([
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 100.0,
                 params={"translatorEnabled": "true"},
             ),
         ])
-        self.assertIn(("gremlinKnowsFirstNames [on]", "Gremlin"), out)
+        self.assertIn(("gremlin_knowsFirstNames [on]", "Gremlin"), out)
         self.assertNotIn(
-            ("gremlinKnowsFirstNames [on]", "LdbcGremlinTranslatorBenchmark"),
+            ("gremlin_knowsFirstNames [on]", "LdbcGremlinTranslatorBenchmark"),
             out,
         )
 
@@ -128,51 +128,51 @@ class TestGremlinParamArms(unittest.TestCase):
         """Both translator arms must survive parse — previously the second overwrote."""
         out = cmp.parse_jmh_results([
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 100.0,
                 params={"translatorEnabled": "true"},
             ),
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 200.0,
                 params={"translatorEnabled": "false"},
             ),
         ])
         self.assertEqual(len(out), 2)
-        self.assertEqual(out[("gremlinKnowsFirstNames [on]", "Gremlin")]["score"], 100.0)
-        self.assertEqual(out[("gremlinKnowsFirstNames [off]", "Gremlin")]["score"], 200.0)
+        self.assertEqual(out[("gremlin_knowsFirstNames [on]", "Gremlin")]["score"], 100.0)
+        self.assertEqual(out[("gremlin_knowsFirstNames [off]", "Gremlin")]["score"], 200.0)
 
     def test_filter_default_keeps_on_only_and_strips_suffix(self):
         """Default arms=on drops off and strips [on] so each shape is one bare row."""
         parsed = cmp.parse_jmh_results([
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 100.0,
                 params={"translatorEnabled": "true"},
             ),
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 200.0,
                 params={"translatorEnabled": "false"},
             ),
             _entry(f"{ST_CLS}.is1_personProfile", 10.0),
         ])
         filtered = cmp.filter_gremlin_arms(parsed, "on")
-        self.assertIn(("gremlinKnowsFirstNames", "Gremlin"), filtered)
-        self.assertNotIn(("gremlinKnowsFirstNames [on]", "Gremlin"), filtered)
-        self.assertNotIn(("gremlinKnowsFirstNames [off]", "Gremlin"), filtered)
+        self.assertIn(("gremlin_knowsFirstNames", "Gremlin"), filtered)
+        self.assertNotIn(("gremlin_knowsFirstNames [on]", "Gremlin"), filtered)
+        self.assertNotIn(("gremlin_knowsFirstNames [off]", "Gremlin"), filtered)
         self.assertIn(("is1_personProfile", "SingleThread"), filtered)
 
     def test_filter_both_keeps_arm_labels(self):
         """arms=both leaves the [on]/[off] labels untouched."""
         parsed = cmp.parse_jmh_results([
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 100.0,
                 params={"translatorEnabled": "true"},
             ),
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 200.0,
                 params={"translatorEnabled": "false"},
             ),
@@ -184,12 +184,12 @@ class TestGremlinParamArms(unittest.TestCase):
         """Non-translator params stay readable as key=value in the label."""
         out = cmp.parse_jmh_results([
             _entry(
-                f"{GREMLIN_CLS}.gremlinKnowsFirstNames",
+                f"{GREMLIN_CLS}.gremlin_knowsFirstNames",
                 1.0,
                 params={"threads": "8", "mode": "thrpt"},
             ),
         ])
-        self.assertIn(("gremlinKnowsFirstNames [mode=thrpt, threads=8]", "Gremlin"), out)
+        self.assertIn(("gremlin_knowsFirstNames [mode=thrpt, threads=8]", "Gremlin"), out)
 
     def test_no_params_keeps_bare_method_name(self):
         """SQL LDBC entries without JMH params keep the plain method label."""
@@ -205,7 +205,7 @@ class TestGremlinTableInMarkdown(unittest.TestCase):
         base, head = _gremlin_on_off_fixture()
         md = _run_compare(base, head)
         self.assertIn("### Gremlin Translator Results", md)
-        self.assertIn("gremlinKnowsFirstNames", md)
+        self.assertIn("gremlin_knowsFirstNames", md)
         self.assertNotIn("[off]", md)
         self.assertNotIn("[on]", md)
         self.assertIn("production default", md)
@@ -216,8 +216,8 @@ class TestGremlinTableInMarkdown(unittest.TestCase):
         """--gremlin-arms both keeps the full A/B labels in the table."""
         base, head = _gremlin_on_off_fixture()
         md = _run_compare(base, head, extra_argv=["--gremlin-arms", "both"])
-        self.assertIn("gremlinKnowsFirstNames [on]", md)
-        self.assertIn("gremlinKnowsFirstNames [off]", md)
+        self.assertIn("gremlin_knowsFirstNames [on]", md)
+        self.assertIn("gremlin_knowsFirstNames [off]", md)
         self.assertIn("`[on]` / `[off]`", md)
 
 

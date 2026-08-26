@@ -65,7 +65,7 @@ def parse_jmh_results(data):
     """Parse JMH JSON into dict keyed by (query, suite).
 
     ``query`` is the benchmark method name, plus a param suffix when JMH
-    ``params`` are present (e.g. ``gremlinKnowsFirstNames [on]``).
+    ``params`` are present (e.g. ``gremlin_knowsFirstNames [on]``).
     """
     results = {}
     for entry in data:

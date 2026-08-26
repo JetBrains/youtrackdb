@@ -9,15 +9,18 @@ on:
     inputs:
       queries:
         description: >
-          Comma-separated query IDs to benchmark (e.g. IS1,IC2,IC13).
-          Leave empty to run the full jmh-ldbc suite: SQL LDBC
-          (LdbcSingleThread / LdbcMultiThread) plus
-          LdbcGremlinTranslatorBenchmark. Gremlin rows compare head against
-          the fork-point with translator on both sides (gremlin_arms default
-          on). Pass gremlin_arms=both only for an optional on/off A/B on one
-          commit (~doubles Gremlin wall). Full empty-filter with both arms
-          was ~21h on CCX33; run on CCX53 (32 vCPU) to match nightly
-          multi-thread core count. Job timeout is 30h.
+          Comma-separated query IDs (e.g. IS1,IC2,IC13), or gremlin for
+          LdbcGremlinTranslatorBenchmark only (methods are named gremlin_*).
+          A query ID matches SQL (.*is1_.*) and any Gremlin shape that
+          echoes it (gremlin_is1_*). The one complete SQL twin is
+          gremlin_is5_messageCreator. Leave empty for the full suite: SQL
+          LDBC (LdbcSingleThread / LdbcMultiThread) plus Gremlin. Gremlin
+          rows compare head against the fork-point with translator on both
+          sides (gremlin_arms default on). Pass gremlin_arms=both only for
+          an optional on/off A/B on one commit (~doubles Gremlin wall).
+          Full empty-filter with both arms was ~21h on CCX33; run on CCX53
+          (32 vCPU) to match nightly multi-thread core count. Job timeout
+          is 30h.
         required: false
         type: string
         default: ''
