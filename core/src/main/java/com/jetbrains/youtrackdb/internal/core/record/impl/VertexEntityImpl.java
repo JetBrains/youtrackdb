@@ -132,12 +132,14 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   @Override
   public Iterable<Vertex> getVertices(Direction direction, String... type) {
     checkForBinding();
-    if (direction == Direction.BOTH) {
-      return IterableUtils.chainedIterable(
-          getVertices(Direction.OUT, type), getVertices(Direction.IN, type));
-    } else {
-      return getVerticesOptimized(direction, type);
-    }
+    // For BOTH, delegate to the single flat-list path (mirroring getEdges(BOTH)/getEdgesInternal)
+    // rather than nesting two chainIterables over separate OUT/IN lists. This produces one
+    // PreFilterableChainedIterable spanning all out_/in_ properties so the MATCH engine can
+    // pre-filter even when one direction is empty (an empty OUT/IN list previously produced a
+    // non-pre-filterable result, disabling pre-filtering for asymmetric both()). Note the
+    // resulting neighbor order is out_/in_ interleaved by edge-property name, not OUT-all-then
+    // IN-all grouped; this is an intentional implementation detail (no consumer depends on order).
+    return getVerticesOptimized(direction, type);
   }
 
   /**
@@ -183,14 +185,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
-    if (iterables.size() == 1) {
-      return iterables.getFirst();
-    } else if (iterables.isEmpty()) {
-      return Collections.emptyList();
-    }
-
-    //noinspection unchecked
-    return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
+    return chainIterables(iterables);
   }
 
   @Override
@@ -359,10 +354,37 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
+    return chainIterables(iterables);
+  }
+
+  /**
+   * Chains a list of per-property edge/vertex iterables into a single iterable. When every element
+   * implements {@link PreFilterableLinkBagIterable} (i.e. each is backed by a LinkBag), they are
+   * wrapped in a {@link PreFilterableChainedIterable} so the MATCH engine can apply index
+   * pre-filters across all directions/labels without touching disk. Otherwise the method falls
+   * back to a plain Commons chained iterable. The list is walked in a single pass.
+   */
+  private static <T> Iterable<T> chainIterables(List<Iterable<T>> iterables) {
+    if (iterables.isEmpty()) {
+      return Collections.emptyList();
+    }
     if (iterables.size() == 1) {
       return iterables.getFirst();
-    } else if (iterables.isEmpty()) {
-      return Collections.emptyList();
+    }
+
+    var subs = new PreFilterableLinkBagIterable[iterables.size()];
+    var allPreFilterable = true;
+    for (var i = 0; i < iterables.size(); i++) {
+      if (iterables.get(i) instanceof PreFilterableLinkBagIterable pfli) {
+        subs[i] = pfli;
+      } else {
+        allPreFilterable = false;
+        break;
+      }
+    }
+    if (allPreFilterable) {
+      //noinspection unchecked
+      return (Iterable<T>) (Object) new PreFilterableChainedIterable(subs);
     }
 
     //noinspection unchecked

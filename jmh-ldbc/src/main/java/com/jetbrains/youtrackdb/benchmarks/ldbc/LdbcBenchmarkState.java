@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -62,6 +63,23 @@ public class LdbcBenchmarkState {
 
   // Curated per-query parameters — populated by ParameterCurator after DB load
   private ParameterCurator.CuratedParams curatedParams;
+
+  // Hub-bench parameters: Forum IDs sorted by HAS_MEMBER link-bag size (desc)
+  // plus the 95th/99th-percentile joinDate bounds. Computed by
+  // computeForumHubParams() from the BothE microbench's OWN Trial setup, never
+  // from setup(). setup() is shared by every benchmark class, and the Forum scan
+  // touches every Forum's HAS_MEMBER bag — running it in every fork of every
+  // IC/IS class perturbs the page-cache state each trial inherits right before
+  // its warmup, which shifts IC/IS scores that have nothing to do with YTDB-646.
+  private long[] popularForumIds;
+  private Date cachedSelectiveDate;
+  private Date cachedVerySelectiveDate;
+
+  // True once the microbench installed KNOWS.creationDate on the shared on-disk
+  // DB. tearDown() consults this to drop the index before closing the session,
+  // so the DB is left exactly as found even if the microbench's own state
+  // teardown never runs (JMH does not order teardowns across @State classes).
+  private boolean knowsCreationDateIndexInstalled;
 
   private final AtomicLong counter = new AtomicLong();
 
@@ -216,6 +234,108 @@ public class LdbcBenchmarkState {
     return p.tagClassName();
   }
 
+  // -- BothE-KNOWS extension parameters --
+
+  /**
+   * Person IDs for the BothE-KNOWS benchmark. Reuses the IS person-ID pool,
+   * which selects active persons likely to have multiple KNOWS connections.
+   */
+  public long bothEKnowsPersonId(long idx) {
+    return curatedParams.isPersonIds()[(int) (idx
+        % curatedParams.isPersonIds().length)];
+  }
+
+  /**
+   * Lower-bound date for the BothE-KNOWS benchmark. Reuses the shared dates
+   * pool (also used by IC5), which covers the KNOWS activity period in the dataset.
+   */
+  public Date bothEKnowsMinDate(long idx) {
+    return curatedParams.dates()[(int) (idx % curatedParams.dates().length)];
+  }
+
+  /**
+   * Target-vertex {@code firstName} filter for the vertex {@code both('KNOWS')}
+   * benchmark. Reuses the IC1 curated first-name pool (real first names present
+   * in the dataset, backed by the {@code Person.firstName} index) so the
+   * pre-filter engages across both link-bag directions.
+   */
+  public String bothKnowsFirstName(long idx) {
+    var p = curatedParams.ic1()[(int) (idx % curatedParams.ic1().length)];
+    return p.firstName();
+  }
+
+  // -- BothE-HAS_MEMBER (hub) extension parameters --
+
+  /**
+   * Popular Forum ID cycled across the top-100 by {@code HAS_MEMBER} bag size.
+   * These are hub vertices with thousands of incident edges — the shape where
+   * the YTDB-646 pre-filter measurably beats the pre-fix path.
+   *
+   * <p>Requires {@link #computeForumHubParams()} to have run in this trial.
+   */
+  public long forumHubId(long idx) {
+    return popularForumIds[(int) (idx % popularForumIds.length)];
+  }
+
+  /**
+   * Selective lower-bound date for the hub bench. Fixed at the 95th percentile
+   * of curated dates so that {@code HAS_MEMBER.joinDate >=} filter passes
+   * roughly ~5% of edges — narrow enough for the index-assisted pre-filter
+   * set to visibly reduce edge loads on large bags.
+   *
+   * <p>Requires {@link #computeForumHubParams()} to have run in this trial.
+   */
+  public Date forumHubMinJoinDate(long idx) {
+    return cachedSelectiveDate;
+  }
+
+  /**
+   * Very narrow (~1% selective) lower-bound date used by the count/exists
+   * benches. At this selectivity, a hub Forum with thousands of members
+   * yields only dozens of surviving edges — the gap between "load all edges"
+   * (no pre-filter) and "load ~1% of edges via index intersection" (with
+   * pre-filter) is the dominant cost, making the optimization visible.
+   *
+   * <p>Requires {@link #computeForumHubParams()} to have run in this trial.
+   */
+  public Date forumHubVeryNarrowJoinDate(long idx) {
+    return cachedVerySelectiveDate;
+  }
+
+  /**
+   * Computes the hub-bench parameters: the top-100 Forums by {@code HAS_MEMBER}
+   * bag size and the 95th/99th-percentile {@code joinDate} bounds.
+   *
+   * <p>Called from the BothE microbench's own Trial setup, deliberately not from
+   * {@link #setup()}. The Forum scan reads every Forum's {@code HAS_MEMBER} bag,
+   * so running it from the shared setup would make every IC/IS fork pay for it
+   * and would change the page-cache state those benchmarks measure against.
+   *
+   * <p>Idempotent, so repeated calls within one trial are free.
+   */
+  void computeForumHubParams() {
+    if (popularForumIds != null) {
+      return;
+    }
+
+    var sortedDates = curatedParams.dates().clone();
+    Arrays.sort(sortedDates);
+    cachedSelectiveDate =
+        sortedDates[Math.min(sortedDates.length - 1, (int) (sortedDates.length * 0.95))];
+    cachedVerySelectiveDate =
+        sortedDates[Math.min(sortedDates.length - 1, (int) (sortedDates.length * 0.99))];
+
+    // Ordinary Forums have dozens of members, hubs have tens of thousands; only
+    // the hubs produce link bags large enough for the pre-filter to show a gap.
+    popularForumIds = executeSql(
+        "SELECT id, outE(\"HAS_MEMBER\").size() as sz "
+            + "FROM Forum ORDER BY sz DESC LIMIT 100")
+        .stream()
+        .mapToLong(row -> ((Number) row.get("id")).longValue())
+        .toArray();
+    log.info("Top-100 popular Forum IDs cached for hub benches");
+  }
+
   /** IC13: two distinct person IDs. */
   public long ic13Person1Id(long idx) {
     return curatedParams.ic13PersonIds1()[(int) (idx
@@ -238,6 +358,50 @@ public class LdbcBenchmarkState {
           .map(obj -> (Map<String, Object>) obj)
           .toList();
     });
+  }
+
+  /**
+   * Creates {@code KNOWS.creationDate} for the BothE-KNOWS microbench.
+   *
+   * <p>Kept out of {@code ldbc-schema.sql}: the index is unused by IC/IS queries
+   * but still occupies cache for every KNOWS edge and regresses IC1. It is
+   * dropped again by {@link #dropKnowsCreationDateIndex()} and, as a safety net,
+   * by {@link #tearDown()}, so a shared on-disk DB never keeps the index for
+   * later IC/IS forks in the same suite.
+   */
+  void ensureKnowsCreationDateIndex() {
+    traversal.executeInTx(g -> {
+      var ytg = (YTDBGraphTraversalSource) g;
+      ytg.yql(
+          "CREATE INDEX KNOWS.creationDate IF NOT EXISTS ON KNOWS(creationDate) NOTUNIQUE")
+          .iterate();
+    });
+    knowsCreationDateIndexInstalled = true;
+    log.info("Ensured KNOWS.creationDate index for BothE-KNOWS microbench");
+  }
+
+  /**
+   * Drops {@code KNOWS.creationDate} if this trial installed it; see
+   * {@link #ensureKnowsCreationDateIndex()}.
+   *
+   * <p>Never propagates a failure. The caller is a JMH teardown, and letting an
+   * exception escape there would discard the trial's already-collected results.
+   * A failure here is reported through the log and retried by {@link #tearDown()}.
+   */
+  void dropKnowsCreationDateIndex() {
+    if (!knowsCreationDateIndexInstalled) {
+      return;
+    }
+    try {
+      traversal.executeInTx(g -> {
+        var ytg = (YTDBGraphTraversalSource) g;
+        ytg.yql("DROP INDEX KNOWS.creationDate IF EXISTS").iterate();
+      });
+      knowsCreationDateIndexInstalled = false;
+      log.info("Dropped KNOWS.creationDate index after BothE-KNOWS microbench");
+    } catch (RuntimeException e) {
+      log.warn("Failed to drop KNOWS.creationDate index; will retry on teardown", e);
+    }
   }
 
   @Setup(Level.Trial)
@@ -287,6 +451,13 @@ public class LdbcBenchmarkState {
 
   @TearDown(Level.Trial)
   public void tearDown() {
+    // Restore the shared on-disk DB before the session goes away. The microbench
+    // state that installed the index drops it in its own teardown, but JMH gives
+    // no ordering guarantee between @State teardowns, so that drop may run after
+    // this method has already closed the session. Dropping here first makes the
+    // restore independent of that order.
+    dropKnowsCreationDateIndex();
+
     try {
       if (traversal != null) {
         traversal.close();

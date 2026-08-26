@@ -244,6 +244,15 @@ jobs:
             echo "Filter: (all benchmarks)"
           fi
 
+          # LdbcSingleThreadBothEBenchmark is the only class that writes to the
+          # shared on-disk DB (it installs KNOWS.creationDate for one method).
+          # Building an index over every KNOWS edge evicts hot Person/KNOWS pages
+          # that the IC/IS benchmarks measure against, and IC1 — three hops of
+          # KNOWS — regressed ~14% because of it. The class also produces no A/B
+          # signal: the fork-point side does not contain it, so every row reads
+          # as "new". Exclude it on both sides and run it on demand instead.
+          echo "jmh_exclude=-e LdbcSingleThreadBothEBenchmark" >> "$GITHUB_OUTPUT"
+
           # Default production arm only. JMH -p applies to benches that declare
           # the @Param; SQL LDBC classes without translatorEnabled are unchanged.
           ARMS="${GREMLIN_ARMS:-on}"
@@ -389,18 +398,23 @@ jobs:
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
           JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
+          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
         run: |
           FILTER_ARG=""
           PARAM_ARG=""
+          EXCLUDE_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
           if [ -n "$JMH_PARAM" ]; then
             PARAM_ARG="$JMH_PARAM "
           fi
+          if [ -n "$JMH_EXCLUDE" ]; then
+            EXCLUDE_ARG="$JMH_EXCLUDE "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
             2>&1 | tee /tmp/jmh-warm-base-${{ github.run_id }}.txt
 
           # JMH exits 0 even when all benchmarks fail with -f 0.
@@ -421,18 +435,23 @@ jobs:
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
           JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
+          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
         run: |
           FILTER_ARG=""
           PARAM_ARG=""
+          EXCLUDE_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
           if [ -n "$JMH_PARAM" ]; then
             PARAM_ARG="$JMH_PARAM "
           fi
+          if [ -n "$JMH_EXCLUDE" ]; then
+            EXCLUDE_ARG="$JMH_EXCLUDE "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-base-${{ github.run_id }}.json" \
+            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-base-${{ github.run_id }}.json" \
             2>&1 | tee /tmp/jmh-base-log-${{ github.run_id }}.txt
 
           # Validate that JMH produced results (it exits 0 even on total failure)
@@ -513,18 +532,23 @@ jobs:
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
           JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
+          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
         run: |
           FILTER_ARG=""
           PARAM_ARG=""
+          EXCLUDE_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
           if [ -n "$JMH_PARAM" ]; then
             PARAM_ARG="$JMH_PARAM "
           fi
+          if [ -n "$JMH_EXCLUDE" ]; then
+            EXCLUDE_ARG="$JMH_EXCLUDE "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
             2>&1 | tee /tmp/jmh-warm-head-${{ github.run_id }}.txt
 
           # JMH exits 0 even when all benchmarks fail with -f 0.
@@ -543,18 +567,23 @@ jobs:
         env:
           JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
           JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
+          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
         run: |
           FILTER_ARG=""
           PARAM_ARG=""
+          EXCLUDE_ARG=""
           if [ -n "$JMH_FILTER" ]; then
             FILTER_ARG="$JMH_FILTER "
           fi
           if [ -n "$JMH_PARAM" ]; then
             PARAM_ARG="$JMH_PARAM "
           fi
+          if [ -n "$JMH_EXCLUDE" ]; then
+            EXCLUDE_ARG="$JMH_EXCLUDE "
+          fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-head-${{ github.run_id }}.json" \
+            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-head-${{ github.run_id }}.json" \
             2>&1 | tee /tmp/jmh-head-log-${{ github.run_id }}.txt
 
           # Validate that JMH produced results

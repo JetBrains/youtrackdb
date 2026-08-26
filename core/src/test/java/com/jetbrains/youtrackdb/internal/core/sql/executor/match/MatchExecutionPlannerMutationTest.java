@@ -1479,12 +1479,13 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
-   * bothE resets currentEdgeClass: outE('KNOWS') followed by bothE('X') followed by
-   * inV() → inV should NOT infer a class because bothE reset the state. bothE('X')
-   * itself also gets no inference (not a recognized edge-method type).
+   * bothE('X') sets currentEdgeClass like outE/inE and the alias class is the edge
+   * class itself — mirroring outE/inE inference. When X is not registered in the
+   * schema, the subsequent inV() still cannot infer its linked vertex class
+   * (lookupLinkedVertexClass returns null), so v stays uninferred.
    */
   @Test
-  public void addAliases_bothE_resetsCurrentEdgeClass() {
+  public void addAliases_bothE_inferredLikeOutE_inVUninferredWhenUnregistered() {
     registerClass("KNOWS", 500);
 
     var expr = mockExpression(
@@ -1497,7 +1498,38 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), Set.of(), new java.util.HashSet<>());
 
-    assertThat(aliasClasses).containsOnly(entry("e1", "KNOWS"));
+    assertThat(aliasClasses)
+        .containsOnly(entry("e1", "KNOWS"), entry("e2", "X"));
+  }
+
+  /**
+   * Positive counterpart to the unregistered case above: {@code bothE('KNOWS')}
+   * with a REGISTERED symmetric edge class ({@code KNOWS.in -> Person}) sets
+   * currentEdgeClass to KNOWS, and the following {@code inV()} infers its linked
+   * vertex class (Person) from the edge's "in" LINK schema — exactly like
+   * {@code outE('KNOWS').inV()}. Guards {@code bothE} downstream class inference.
+   */
+  @Test
+  public void addAliases_bothE_inVInfersRegisteredEdgeLinkedClass() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("KNOWS", 500);
+
+    // Symmetric KNOWS.in -> Person (inV reads the "in" property linked class).
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var expr = mockExpression(
+        mockPathItem("bothE", "KNOWS", "e"),
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), Set.of(), new java.util.HashSet<>());
+
+    assertThat(aliasClasses)
+        .containsOnly(entry("e", "KNOWS"), entry("v", "Person"));
   }
 
   /**
