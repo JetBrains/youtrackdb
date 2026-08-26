@@ -795,6 +795,14 @@ SQLIdentifier Identifier():
 	|
 	token = <COLLATE>
 	|
+	// FIRST/LAST/NULLS are ORDER BY keywords (NULLS FIRST|LAST) but must remain
+	// usable as identifiers so first()/last() and aliases like AS first still parse.
+	token = <FIRST>
+	|
+	token = <LAST>
+	|
+	token = <NULLS>
+	|
 	token = <INDEX>
 	|
 	token = <ENGINE>
