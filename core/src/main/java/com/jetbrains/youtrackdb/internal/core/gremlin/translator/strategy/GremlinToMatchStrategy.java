@@ -529,8 +529,10 @@ public final class GremlinToMatchStrategy
   /**
    * Production plan builder: routes the translated {@link MatchPlanInputs} through the additive
    * {@link MatchExecutionPlanner#MatchExecutionPlanner(MatchPlanInputs) constructor} and builds
-   * the plan eagerly. Cache-eligible shapes get/put through {@link GremlinPlanCache}; RID-bearing
-   * shapes always build uncached.
+   * the plan eagerly, with the walk's positional parameters installed on the planning context so
+   * root selection and IndexOrdered cost estimates see bound {@code ?} values (mirrors
+   * {@code SQLMatchStatement}). Cache-eligible shapes get/put through {@link GremlinPlanCache};
+   * RID-bearing shapes always build uncached.
    *
    * <p>Package-private rather than private so a test can wrap it in a fixture {@link
    * MatchPlanBuilder} that parks between union children: the concurrent-invalidation guard below is
@@ -544,7 +546,8 @@ public final class GremlinToMatchStrategy
     assert !translation.isMultiPlan()
         : "single-plan buildPlan helper cannot build a multi-plan translation";
     if (!translation.cacheEligible()) {
-      return buildPlanUncached(session, requireInputs(translation));
+      return buildPlanUncached(
+          session, requireInputs(translation), translation.inputParameters());
     }
     var inputs = requireInputs(translation);
     var fingerprint = GremlinPlanFingerprint.fingerprint(inputs);
@@ -552,7 +555,7 @@ public final class GremlinToMatchStrategy
     if (cached != null) {
       return cached;
     }
-    var plan = buildPlanUncached(session, inputs);
+    var plan = buildPlanUncached(session, inputs, translation.inputParameters());
     // Cache only if no metadata invalidation landed after planningStart (captured before the walk).
     // A concurrent DDL that fires between the schema read and this put would otherwise leave a plan
     // built against the pre-change schema in the shared per-database cache, served to every later
@@ -620,9 +623,23 @@ public final class GremlinToMatchStrategy
     }
   }
 
+  /**
+   * Builds a MATCH plan with the walk's positional parameters installed on the planning context —
+   * the same order {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement}
+   * uses. Root selection and IndexOrdered cost estimates call {@code WHERE.estimate} during
+   * planning; without bound {@code ?} values a UNIQUE {@code id = ?} collapses to
+   * {@code classCount / 2} and a smaller mid-walk alias (e.g. Forum behind {@code IS DEFINED})
+   * can win the root and full-scan. Parameters are also re-installed at execute time on the
+   * boundary step; planning needs them first so the cached plan shape is the selective one.
+   */
   private static InternalExecutionPlan buildPlanUncached(
-      DatabaseSessionEmbedded session, MatchPlanInputs inputs) {
+      DatabaseSessionEmbedded session,
+      MatchPlanInputs inputs,
+      Map<Object, Object> inputParameters) {
     var ctx = new BasicCommandContext(session);
+    if (!inputParameters.isEmpty()) {
+      ctx.setInputParameters(inputParameters);
+    }
     return new MatchExecutionPlanner(inputs)
         .createExecutionPlan(ctx, /* enableProfiling */ false, /* useCache */ false);
   }

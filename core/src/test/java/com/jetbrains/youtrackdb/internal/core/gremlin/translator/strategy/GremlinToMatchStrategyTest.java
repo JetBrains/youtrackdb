@@ -19,6 +19,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcat
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
@@ -1164,6 +1166,72 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         .as("a duplicate-id g.V(ids) must decline to native, leaving the step list verbatim")
         .isEqualTo(stepsBefore);
     assertThat(admin.getSteps()).noneMatch(GremlinToMatchStrategyTest::isBoundary);
+  }
+
+  /**
+   * Planning must see bound {@code ?} values (like SQLMatchStatement). Without them a UNIQUE
+   * {@code id = ?} estimates {@code classCount / 2}; a smaller mid-walk class carrying
+   * {@code IS DEFINED} from {@code select().by()} can win the root and full-scan — the IS6/IC11
+   * catastrophe. Fixture: many Forums, one Post with UNIQUE id; assert the plan roots at the
+   * Post origin, not at Forum.
+   */
+  @Test
+  public void uniqueIdParamAtPlanTime_rootsAtStartNotSmallerMidWalkAlias() {
+    var post = session.createVertexClass("Post");
+    post.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    session.createVertexClass("Forum");
+    session.createEdgeClass("CONTAINER_OF");
+
+    session.begin();
+    for (var i = 0; i < 40; i++) {
+      session.execute("CREATE VERTEX Forum SET title = 'f" + i + "'").close();
+    }
+    session.execute("CREATE VERTEX Post SET id = 1").close();
+    session.execute(
+        "CREATE EDGE CONTAINER_OF FROM (SELECT FROM Forum WHERE title = 'f0') "
+            + "TO (SELECT FROM Post WHERE id = 1)")
+        .close();
+    session.commit();
+
+    var admin =
+        graph.traversal()
+            .V()
+            .hasLabel("Post")
+            .has("id", 1L)
+            .in("CONTAINER_OF")
+            .hasLabel("Forum")
+            .as("forum")
+            .select("forum")
+            .by("title")
+            .asAdmin();
+    admin.applyStrategies();
+    assertThat(admin.getSteps())
+        .as("shape must translate")
+        .anyMatch(GremlinToMatchStrategyTest::isBoundary);
+
+    var boundary =
+        admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance)
+            .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+            .findFirst()
+            .orElseThrow();
+    var planText = boundary.getPlan().prettyPrint(0, 2);
+    var rootAlias = planRootAliasFromPretty(planText);
+    assertThat(rootAlias)
+        .as(
+            "UNIQUE id=? must win root over a smaller Forum class; plan was:\n" + planText)
+        .isEqualTo("$g2m_v0");
+  }
+
+  /** Alias after the first {@code + SET} line in a MATCH plan pretty-print. */
+  private static String planRootAliasFromPretty(String planText) {
+    var lines = planText.lines().toList();
+    for (var i = 0; i < lines.size() - 1; i++) {
+      if ("+ SET".equals(lines.get(i).strip())) {
+        return lines.get(i + 1).strip();
+      }
+    }
+    throw new AssertionError("plan names no root alias on a SET line:\n" + planText);
   }
 
   /**
