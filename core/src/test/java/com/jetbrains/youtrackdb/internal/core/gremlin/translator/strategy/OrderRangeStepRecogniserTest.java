@@ -589,30 +589,42 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The mirror ordering: a slice <em>behind</em> a row-dropping projection. {@code values(age)}
-   * drops property-less rows through post-plan shaping, so a statement-level {@code LIMIT 1} counted
-   * a row the drop then removed and returned nothing, where native drops first and returns the one
-   * age. Both arms enumerate rows in the same order, so this is not order luck — with {@code age}
-   * on the vertex that scans last, the translated arm's {@code LIMIT 1} always lands on a
-   * property-less row.
+   * A slice behind {@code values(age)} promotes the absence drop into a pattern conjunct, so
+   * {@code LIMIT} counts survivors. On this fixture only the last-scanned vertex carries {@code age},
+   * so both arms return that one value. The reverse spelling {@code limit(1).values(age)} still
+   * translates and still means something else: it takes one row then drops, and on this fixture
+   * that row has no {@code age}.
    */
   @Test
-  public void valuesThenLimit_declinesAndReturnsNativeRows() {
+  public void valuesThenLimit_translatesAndCountsSurvivors() {
     seedAgeOnLastScannedVertex();
-    assertClauseThenStepDeclines(
+    assertTranslatesAndMatchesNativeValues(
         "g.V().values(age).limit(1)",
-        () -> graph.traversal().V().values("age").limit(1),
+        () -> graph.traversal().V().values("age").limit(1));
+    support.assertEquivalent(
+        "g.V().limit(1).values(age) — reverse spelling, drop after the slice",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        TranslatorEquivalenceSupport::sortedStrings,
         () -> graph.traversal().V().limit(1).values("age"));
   }
 
-  /** The skip half of the same defect, and it errs in the opposite direction: the translated arm
-   *  kept the one age where native, having dropped first, has nothing left to skip past. */
+  /**
+   * The skip half of the same promotion. Native drops first and has nothing left to skip, so both
+   * arms return empty. The reverse spelling {@code skip(1).values(age)} keeps the aged vertex (it
+   * scans last) and is the non-empty control that the two spellings still differ.
+   */
   @Test
-  public void valuesThenSkip_declinesAndReturnsNativeRows() {
+  public void valuesThenSkip_translatesAndCountsSurvivors() {
     seedAgeOnLastScannedVertex();
-    assertClauseThenStepDeclines(
+    support.assertEquivalent(
         "g.V().values(age).skip(1)",
-        () -> graph.traversal().V().values("age").skip(1),
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        TranslatorEquivalenceSupport::sortedStrings,
+        () -> graph.traversal().V().values("age").skip(1));
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().skip(1).values(age) — reverse spelling, drop after the skip",
         () -> graph.traversal().V().skip(1).values("age"));
   }
 
@@ -670,11 +682,9 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * not the other way round — a change that re-admitted any of these three shapes would fail on the
    * boundary count first, which is the signal a row comparison cannot give.
    *
-   * <p>The decline of the first two is over-determined: the slice sits behind a captured
-   * {@code ORDER BY} and behind a row-dropping projection, and either gate alone refuses it. So the
-   * control removes the slice rather than the sort — {@code values(name).order()} translates on this
-   * same fixture, which is what proves the fixture can engage a boundary step at all and keeps the
-   * three declines attributable to the slice.
+   * <p>The decline of the first two is keyed on the captured {@code ORDER BY}: after the drop-on-absent
+   * promotion a slice behind {@code values(k)} would otherwise translate, so stripping the slice
+   * (rather than the sort) is still the control that proves the fixture can engage a boundary step.
    */
   @Test
   public void sortedSliceOverAProjection_declines_withATranslatingControl() {
@@ -850,9 +860,9 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   /**
    * Five vertices, then {@code age} put on whichever one scans <em>last</em>, read back at seed time
    * rather than assumed. Scan order is not stable across JVM forks, so the fixture discovers it
-   * instead of predicting it; what the cases need is only that the aged vertex is not among the
-   * first rows a slice would take. Native drops the four property-less rows before slicing and so
-   * always sees exactly one value; the translated arm slices first and lands on a property-less row.
+   * instead of predicting it. Native drops the four property-less rows before slicing and so
+   * always sees exactly one value; a translation that sliced first would land on a property-less
+   * row. The promotion this suite now pins keeps the two arms in agreement.
    */
   private void seedAgeOnLastScannedVertex() {
     for (var i = 0; i < 5; i++) {

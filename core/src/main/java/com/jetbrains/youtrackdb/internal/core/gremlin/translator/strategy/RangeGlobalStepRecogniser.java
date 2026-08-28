@@ -34,36 +34,30 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  *
  * <h2>A slice behind a drop-on-absent projection</h2>
  *
- * The gate above closes the ordering where the slice comes first. This one closes the other, and
- * the two are the same collision seen from opposite ends: {@code g.V().limit(2).values(age)} and
- * {@code g.V().values(age).limit(2)} also compile to one statement, and it means the first.
- *
- * <p>{@code values(key)} drops rows whose entity lacks the property, and on the main line that drop
- * rides {@code dropOnAbsent} result shaping, which the plan step applies to the plan's <em>output</em>.
+ * {@code values(key)} drops rows whose entity lacks the property. On the main line that drop rides
+ * {@code dropOnAbsent} result shaping, which the plan step applies to the plan's <em>output</em>.
  * A statement-level {@code LIMIT} therefore counts rows the drop has not removed yet, where Gremlin
  * counts only survivors. Measured on five vertices with {@code age} on the one that scans last, both
  * arms enumerating identically: {@code g.V().values(age).limit(1)} returned {@code []} translated
  * against {@code [44]} native, and {@code g.V().values(age).skip(1)} returned {@code [44]} against
- * {@code []}. So this recogniser declines once {@link RecognitionContext#dropsRowsOnAbsentProperty()}
- * holds.
+ * {@code []}.
  *
- * <p>The guard reads one boolean, {@link RecognitionContext#dropsRowsOnAbsentProperty()}, which the
- * projection recogniser writes. So the decline covers exactly the orderings where the projection was
- * recognised first, and the reverse spelling {@code g.V().limit(n).values(k)} is accepted because
- * the slice reached this recogniser before any shaping existed — taking {@code n} rows and then
- * dropping is what native does in that spelling too. The boolean says nothing about the pattern's
- * conjuncts. A preceding {@code order().by(k)} writes {@code k IS DEFINED}, which would make the
- * shaping drop a no-op and the slice safe, and the guard neither reads that nor needs to: it is
- * strictly more conservative than the rule that conjunct would license, so it costs coverage and
- * never correctness. The aggregate path needs no guard at all, writing its presence conjunct into
- * the pattern rather than relying on shaping.
+ * <p>The captured-child path already has the matching alternative: a {@code key IS DEFINED} conjunct
+ * in the alias filters, evaluated inside the plan and therefore before {@code SKIP} / {@code LIMIT}.
+ * When a real slice arrives behind a main-line drop, this recogniser promotes the same conjunct
+ * through {@link RecognitionContext#promotePresenceDropToPatternFilter} rather than declining. The
+ * promotion is lazy: a {@code values(k)} with no slice keeps today's shaping-only plan, so the
+ * {@code IS DEFINED} estimator gap ({@code SQLWhereClause.estimate} falls back to
+ * {@code classCount / 2} and can pick a presence-only alias as root) applies only to sliced
+ * shapes. A no-op slice ({@code skip(0)}, {@code range(0, -1)}) never promotes.
  *
- * <p>The price is the {@code values(k).limit(n)} surface, which is a common spelling — a top-N over
- * a projected property gives up its plan and runs on the native traverser pipeline. Nothing narrower
- * was available: the drop is a post-plan operation by construction, so no ordering of the existing
- * clauses expresses it, and making the projection contribute a pattern conjunct instead would change
- * every {@code values(k)} plan's root-selection estimate. Spelling the slice before the projection
- * ({@code g.V().limit(n).values(k)}) still translates, and means something different.
+ * <p>The reverse spelling {@code g.V().limit(n).values(k)} still translates without promotion,
+ * because the slice reached this recogniser before any shaping existed — taking {@code n} rows and
+ * then dropping is what native does in that spelling too. The two spellings compile to different
+ * statements and mean different things.
+ *
+ * <p>A combinator child cannot promote: {@code SubTraversalPredicateAdapter} answers {@code false},
+ * so {@code and(values(k).limit(n))} still declines.
  *
  * <h2>A slice behind a captured {@code ORDER BY}</h2>
  *
@@ -204,15 +198,9 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (normalized.noop()) {
       return Outcome.ACCEPTED;
     }
-    // A real slice behind a row-dropping projection counts the wrong rows — see the class Javadoc's
-    // "A slice behind a drop-on-absent projection". Checked after the no-op test so skip(0) and
-    // range(0, -1), which select no position, still ride through.
-    if (ctx.dropsRowsOnAbsentProperty()) {
-      return Outcome.DECLINE;
-    }
     // A real slice behind a captured ORDER BY cuts into a tie group the sort does not resolve, and
     // the two pipelines resolve it differently — see the class Javadoc's "A slice behind a captured
-    // ORDER BY". Same placement rationale as the guard above: a slice that selects no position
+    // ORDER BY". Same placement rationale as the no-op test: a slice that selects no position
     // cannot cut into anything. The decline is not free on memory either: it trades the plan's
     // bounded top-N heap for the native barrier step's full materialisation, which the same Javadoc
     // section prices along with what a narrower rule would need.
@@ -223,6 +211,12 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     // map the terminator emits — see the class Javadoc's "A slice behind a grouping terminator".
     // Same placement rationale as the two guards above.
     if (ctx.groupBy() != null) {
+      return Outcome.DECLINE;
+    }
+    // Promotion mutates the context (writes alias filters), so it sits after every remaining
+    // decline. A no-op slice never reaches here. See the class Javadoc's "A slice behind a
+    // drop-on-absent projection".
+    if (ctx.dropsRowsOnAbsentProperty() && !ctx.promotePresenceDropToPatternFilter()) {
       return Outcome.DECLINE;
     }
     if (normalized.skip() > 0) {

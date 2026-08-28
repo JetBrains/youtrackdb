@@ -463,6 +463,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // context only; a combinator filter sub-walk never shapes the parent's rows.
   }
 
+  @Override
+  public void setPresenceDropAlias(@Nullable String alias) {
+    // Swallowed — see setResultShaping.
+  }
+
   /**
    * Always false, and not delegated to the parent. Since {@link #setResultShaping} is swallowed
    * this context never holds a shaping of its own, and the parent's is not the sub-walk's business:
@@ -471,6 +476,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    */
   @Override
   public boolean dropsRowsOnAbsentProperty() {
+    return false;
+  }
+
+  /**
+   * Always false. See {@link RecognitionContext#promotePresenceDropToPatternFilter()} — a combinator
+   * child's shaping is swallowed, so there is nothing to promote and a slice inside the child
+   * declines.
+   */
+  @Override
+  public boolean promotePresenceDropToPatternFilter() {
     return false;
   }
 

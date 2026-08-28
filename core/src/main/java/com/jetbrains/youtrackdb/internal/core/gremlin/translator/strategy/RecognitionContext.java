@@ -373,12 +373,30 @@ interface RecognitionContext extends ParamSink {
 
   /**
    * Whether the shaping pinned so far drops rows whose entity lacks a projected property — the
-   * {@code dropOnAbsent} half of {@code values(key)}. {@link RangeGlobalStepRecogniser} reads it to
-   * refuse a slice behind such a projection: the plan step applies the drop to the plan's output,
-   * so a statement-level {@code SKIP} / {@code LIMIT} would count rows the drop has not removed yet
-   * while Gremlin counts only the survivors. See that recogniser for the measured divergence.
+   * {@code dropOnAbsent} half of {@code values(key)}. {@link RangeGlobalStepRecogniser} reads it
+   * when a slice arrives: a statement-level {@code SKIP} / {@code LIMIT} would count rows the
+   * post-plan drop has not removed yet, so the recogniser promotes the drop into a pattern conjunct
+   * through {@link #promotePresenceDropToPatternFilter()} rather than declining. See that
+   * recogniser for the measured divergence that made the promotion necessary.
    */
   boolean dropsRowsOnAbsentProperty();
+
+  /**
+   * Records the alias whose entity {@link #dropsRowsOnAbsentProperty()} checks. The projection that
+   * turns {@code dropOnAbsent} on writes it alongside the shaping; a later {@link #setResultShaping}
+   * clears it. {@link #promotePresenceDropToPatternFilter()} reads it.
+   */
+  void setPresenceDropAlias(@Nullable String alias);
+
+  /**
+   * Promotes a pinned {@code dropOnAbsent} into {@code key IS DEFINED} alias conjuncts so a
+   * following slice counts survivors rather than pre-drop rows. Returns {@code true} when there is
+   * nothing to promote, or when the conjuncts were written. Returns {@code false} when this context
+   * cannot express the promotion — a combinator child whose shaping is swallowed, or a drop whose
+   * alias was never recorded — in which case the caller declines. See {@link
+   * #dropsRowsOnAbsentProperty()} for why the slice needs the conjunct at all.
+   */
+  boolean promotePresenceDropToPatternFilter();
 
   /**
    * Appends one ordered list-shaping stage to the shaping pinned so far, keeping the flags and the
