@@ -1140,6 +1140,41 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
   }
 
   /**
+   * Serialized plans carry {@code nullsFirst}; legacy blobs without it fall back to {@code orderAsc}
+   * (NULLS_SMALLEST semantic).
+   */
+  @Test
+  public void deserializeRestoresNullsFirstAndFallsBackWhenOmitted() {
+    var fixture = createIndexedClass();
+    var index = getIndex(fixture.indexName);
+    var ctx = newContext();
+    var original =
+        new FetchFromIndexStep(new IndexSearchDescriptor(index), true, false, ctx, false);
+
+    var serialized = (ResultInternal) original.serialize(session);
+    assertThat(serialized.<Boolean>getProperty("nullsFirst")).isFalse();
+
+    var copy = new FetchFromIndexStep(null, true, ctx, false);
+    copy.reset();
+    copy.deserialize(serialized, session);
+    assertThat(copy.isOrderAsc()).isTrue();
+    assertThat(copy.isNullsFirst()).isFalse();
+
+    serialized.setProperty("nullsFirst", null);
+    var legacy = new FetchFromIndexStep(null, true, ctx, false);
+    legacy.reset();
+    legacy.deserialize(serialized, session);
+    assertThat(legacy.isNullsFirst()).isTrue();
+
+    serialized.setProperty("orderAsc", false);
+    serialized.setProperty("nullsFirst", null);
+    var legacyDesc = new FetchFromIndexStep(null, false, ctx, false);
+    legacyDesc.reset();
+    legacyDesc.deserialize(serialized, session);
+    assertThat(legacyDesc.isNullsFirst()).isFalse();
+  }
+
+  /**
    * A serialized form with an unknown index name causes deserialization to fail while the desc
    * is being rebuilt ({@code indexManager.getIndex(...)} returns {@code null}, and building an
    * {@link IndexSearchDescriptor} with a null index fails the first time the descriptor is used).
