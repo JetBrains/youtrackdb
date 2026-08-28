@@ -51,13 +51,14 @@ public final class YTDBOrderRidTieBreakStrategy
         .forEach(YTDBOrderRidTieBreakStrategy::appendRidTieBreak);
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
   private static void appendRidTieBreak(OrderGlobalStep<?, ?> step) {
     var comparators = step.getComparators();
     if (comparators == null || comparators.isEmpty() || hasExplicitTieBreak(comparators)) {
       return;
     }
-    step.addComparator(new TokenTraversal(T.id).asAdmin(), (Comparator) Order.asc);
+    // Same modulator Gremlin builds for order().by(T.id, asc); Admin wiring is required by
+    // OrderGlobalStep.modulateBy (see ByModulatorTranslator for the read-side counterpart).
+    step.modulateBy(new TokenTraversal(T.id).asAdmin(), Order.asc);
   }
 
   private static boolean hasExplicitTieBreak(
