@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import com.jetbrains.youtrackdb.internal.core.sql.OrderByRidTieBreakUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
@@ -112,7 +111,6 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     if (!ctx.bindStepLabels(orderStep, boundary)) {
       return Outcome.DECLINE;
     }
-    OrderByRidTieBreakUtil.appendRidTieBreakIfMissing(items, boundary);
     ctx.setOrderBy(MatchProjectionBuilder.orderBy(items));
     return Outcome.ACCEPTED;
   }

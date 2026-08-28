@@ -18,11 +18,11 @@ import org.apache.tinkerpop.gremlin.structure.T;
 import org.javatuples.Pair;
 
 /**
- * Appends {@code by(T.id, asc)} to native Gremlin {@code order()} steps so tie groups sort by RID,
- * matching the implicit {@code @rid ASC} tie-break applied in {@link
- * com.jetbrains.youtrackdb.internal.core.sql.OrderByRidTieBreakUtil} during YQL execution. Runs
- * after {@link GremlinToMatchStrategy}: translated shapes lose their {@code OrderGlobalStep}
- * before this strategy runs. Shapes that already spell {@code by("id", asc)} skip the append.
+ * Appends {@code by(T.id, asc)} to every {@link OrderGlobalStep} before {@link
+ * GremlinToMatchStrategy} runs. Translated shapes pick up {@code @rid} through {@link
+ * ByModulatorTranslator}; declined shapes keep the patched step for native Gremlin execution.
+ * Shapes that already spell {@code by("id", asc)} or sort on {@code T.id} / identity skip the
+ * append.
  */
 public final class YTDBOrderRidTieBreakStrategy
     extends AbstractTraversalStrategy<ProviderOptimizationStrategy>
@@ -38,7 +38,7 @@ public final class YTDBOrderRidTieBreakStrategy
   }
 
   @Override
-  public Set<Class<? extends ProviderOptimizationStrategy>> applyPrior() {
+  public Set<Class<? extends ProviderOptimizationStrategy>> applyPost() {
     return Set.of(GremlinToMatchStrategy.class);
   }
 

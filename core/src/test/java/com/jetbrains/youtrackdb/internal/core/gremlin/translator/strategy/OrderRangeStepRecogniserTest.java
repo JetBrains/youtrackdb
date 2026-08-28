@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -54,9 +55,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void bareOrder_sortsByRidAsc() {
     var admin = graph.traversal().V().order().asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy).isNotNull();
@@ -69,9 +69,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void orderByProperty_desc() {
     var admin = graph.traversal().V().order().by("name", Order.desc).asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.toString()).contains("name");
@@ -86,9 +85,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var admin =
         graph.traversal().V().order().by("age", Order.asc).by("name", Order.desc).asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.getItems()).hasSize(3);
@@ -96,16 +94,15 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   /**
    * LDBC IC2/IC8 spell {@code order().by(creationDate, desc).by(id, asc)} — explicit {@code id} is
-   * the tie-break, so translation must not append a third {@code @rid} key.
+   * the tie-break, so {@link YTDBOrderRidTieBreakStrategy} must not append {@code by(T.id)}.
    */
   @Test
   public void orderByDateThenId_skipsRidTieBreak() {
     var admin = graph.traversal().V().order()
         .by("creationDate", Order.desc).by("id", Order.asc).asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.getItems()).hasSize(2);
@@ -119,9 +116,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void orderByIdOnly_skipsRidTieBreak() {
     var admin = graph.traversal().V().order().by("id", Order.asc).asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.getItems()).hasSize(1);
@@ -154,9 +150,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var ctx = seededContext();
     ctx.userLabelToAlias.put("k", "$g2m_edge_0");
     ctx.patternBuilder.registerUserLabel("$g2m_edge_0", "k");
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
-    assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
-        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
   }
 
   /** {@code Order.shuffle} has no MATCH equivalent and declines. */
@@ -279,10 +273,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void sliceAfterCapturedOrderBy_declines() {
     var admin = graph.traversal().V().order().by("name").limit(2).asAdmin();
     var ctx = seededContext();
-    assertThat(
-        OrderGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, OrderGlobalStep.class),
-            ctx))
-        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy).isNotNull();
 
     var outcome =
@@ -332,6 +323,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     while (cursor.peek() != null && !(cursor.peek() instanceof OrderGlobalStep)) {
       cursor.take();
     }
+    applyOrderTieBreak(admin);
     assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
         .isEqualTo(Outcome.ACCEPTED);
     while (cursor.peek() != null && !(cursor.peek() instanceof OrderGlobalStep)) {
@@ -355,6 +347,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var ctx = seededContext();
     var cursor = cursorAt(admin, OrderGlobalStep.class);
 
+    applyOrderTieBreak(admin);
     var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
@@ -372,9 +365,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .by(org.apache.tinkerpop.gremlin.structure.T.id)
             .asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
@@ -1294,6 +1286,17 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
     ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
     return ctx;
+  }
+
+  private static Outcome recognizeOrder(Traversal.Admin<?, ?> admin, WalkerContext ctx) {
+    applyOrderTieBreak(admin);
+    return OrderGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, OrderGlobalStep.class), ctx);
+  }
+
+  /** Mirrors production: tie-break runs before {@link GremlinToMatchStrategy}. */
+  private static void applyOrderTieBreak(Traversal.Admin<?, ?> admin) {
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
   }
 
   private static StepStreamCursor cursorAt(Traversal.Admin<?, ?> admin, Class<?> stepType) {
