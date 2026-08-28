@@ -914,6 +914,23 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Vertices that tie on the sort key must return the same tag sequence on both Gremlin arms once
+   * YQL execution and native {@code order()} both tie-break on RID.
+   */
+  @Test
+  public void orderByTiedName_matchesNativeAndTranslatedOrder() {
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t3");
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t1");
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t2");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(name).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("name").values("tag"));
+  }
+
+  /**
    * A real slice behind {@code order().by(k)} declines, because MATCH's {@code ORDER BY} on a
    * repeated key is a partial order and a bound cutting inside a tie group keeps an arbitrary
    * member of it. Three of the four vertices here share the name {@code Tie}, so {@code LIMIT 2}

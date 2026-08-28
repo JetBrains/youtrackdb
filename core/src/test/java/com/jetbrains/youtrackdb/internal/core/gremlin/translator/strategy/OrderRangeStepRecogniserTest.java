@@ -76,6 +76,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.toString()).contains("name");
     assertThat(ctx.orderBy.toString()).containsIgnoringCase("DESC");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
+    assertThat(ctx.orderBy.getItems()).hasSize(2);
   }
 
   /** Multi-key {@code order().by(...).by(...)} emits multiple ORDER BY items. */
@@ -89,7 +91,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.orderBy.getItems()).hasSize(2);
+    assertThat(ctx.orderBy.getItems()).hasSize(3);
   }
 
   /** {@code order().by(select('k').by(key))} resolves through {@link ByModulatorTranslator}. */

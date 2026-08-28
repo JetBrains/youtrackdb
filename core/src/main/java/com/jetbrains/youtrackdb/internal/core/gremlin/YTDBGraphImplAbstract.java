@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBProductiveOrderByStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -83,6 +84,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
                 // of TinkerPop's RepeatUnrollStrategy, which is where its whole value lies.
                 RepeatDeclineStrategy.instance(),
                 GremlinToMatchStrategy.instance(),
+                YTDBOrderRidTieBreakStrategy.instance(),
                 YTDBGraphStepStrategy.instance(),
                 YTDBGraphCountStrategy.instance(),
                 YTDBGraphMatchStepStrategy.instance(),
