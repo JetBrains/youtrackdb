@@ -3,11 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import java.lang.reflect.Field;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
@@ -21,7 +23,9 @@ import org.javatuples.Pair;
  * order()} steps. TinkerPop's default comparator already matches {@link
  * OrderByNullsDefault#NULLS_SMALLEST}, so this strategy is a no-op in that case. When the effective
  * default is {@link OrderByNullsDefault#NULLS_LARGEST}, it wraps {@link OrderGlobalStep}
- * comparators so null placement follows the same rule as YQL {@code ORDER BY}.
+ * comparators so null placement follows the same rule as YQL {@code ORDER BY}. Runs after {@link
+ * GremlinToMatchStrategy}: a recognized shape loses its {@code OrderGlobalStep} to the boundary
+ * splice, so wrapping applies only to the native-decline fallback.
  */
 public final class YTDBOrderNullsStrategy
     extends AbstractTraversalStrategy<ProviderOptimizationStrategy>
@@ -48,6 +52,16 @@ public final class YTDBOrderNullsStrategy
 
   public static YTDBOrderNullsStrategy instance() {
     return INSTANCE;
+  }
+
+  /**
+   * Declares that the Gremlin-to-MATCH translator must run first. On a recognized shape the
+   * translator replaces the whole step list, so {@code OrderGlobalStep} instances disappear before
+   * this strategy runs; on a decline they remain for native comparator wrapping.
+   */
+  @Override
+  public Set<Class<? extends ProviderOptimizationStrategy>> applyPrior() {
+    return Set.of(GremlinToMatchStrategy.class);
   }
 
   @Override

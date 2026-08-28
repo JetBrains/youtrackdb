@@ -79,6 +79,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
                 // sorts by each strategy's applyPrior()/applyPost(). The translator declares empty
                 // ordering constraints; the three half-measure strategies name it in their own
                 // applyPrior(), so the resolver runs it first and they become the decline fallback.
+                // YTDBOrderNullsStrategy also waits on the translator (applyPrior) so comparator
+                // wrapping hits only native-decline order() steps.
                 // RepeatDeclineStrategy is the one entry that is not a provider optimization: it is
                 // a decoration strategy, and the resolver's category ordering is what puts it ahead
                 // of TinkerPop's RepeatUnrollStrategy, which is where its whole value lies.

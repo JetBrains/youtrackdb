@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -19,6 +20,13 @@ import org.junit.Test;
  * because TinkerPop's comparator already matches it.
  */
 public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
+
+  /** Runs after the translator so wrapping targets only native-decline {@code order()} steps. */
+  @Test
+  public void applyPrior_waitsForGremlinToMatchStrategy() {
+    assertThat(YTDBOrderNullsStrategy.instance().applyPrior())
+        .containsExactly(GremlinToMatchStrategy.class);
+  }
 
   @After
   public void restoreDefault() {
