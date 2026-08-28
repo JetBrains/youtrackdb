@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
-import java.lang.reflect.Field;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -31,20 +30,6 @@ public final class YTDBOrderRidTieBreakStrategy
 
   private static final YTDBOrderRidTieBreakStrategy INSTANCE = new YTDBOrderRidTieBreakStrategy();
 
-  private static final Field COMPARATORS_FIELD;
-  private static final Field MULTI_COMPARATOR_FIELD;
-
-  static {
-    try {
-      COMPARATORS_FIELD = OrderGlobalStep.class.getDeclaredField("comparators");
-      COMPARATORS_FIELD.setAccessible(true);
-      MULTI_COMPARATOR_FIELD = OrderGlobalStep.class.getDeclaredField("multiComparator");
-      MULTI_COMPARATOR_FIELD.setAccessible(true);
-    } catch (NoSuchFieldException e) {
-      throw new ExceptionInInitializerError(e);
-    }
-  }
-
   private YTDBOrderRidTieBreakStrategy() {
   }
 
@@ -68,19 +53,15 @@ public final class YTDBOrderRidTieBreakStrategy
 
   @SuppressWarnings({"unchecked", "rawtypes"})
   private static void appendRidTieBreak(OrderGlobalStep<?, ?> step) {
-    try {
-      var comparators = (List<Pair<Admin, Comparator>>) COMPARATORS_FIELD.get(step);
-      if (comparators == null || comparators.isEmpty() || hasExplicitTieBreak(comparators)) {
-        return;
-      }
-      comparators.add(new Pair<>(new TokenTraversal(T.id).asAdmin(), Order.asc));
-      MULTI_COMPARATOR_FIELD.set(step, null);
-    } catch (IllegalAccessException e) {
-      throw new IllegalStateException("Failed to append OrderGlobalStep RID tie-break", e);
+    var comparators = step.getComparators();
+    if (comparators == null || comparators.isEmpty() || hasExplicitTieBreak(comparators)) {
+      return;
     }
+    step.addComparator(new TokenTraversal(T.id).asAdmin(), (Comparator) Order.asc);
   }
 
-  private static boolean hasExplicitTieBreak(List<Pair<Admin, Comparator>> comparators) {
+  private static boolean hasExplicitTieBreak(
+      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
     var lastModulator = comparators.getLast().getValue0();
     if (lastModulator instanceof TokenTraversal token && T.id.equals(token.getToken())) {
       return true;

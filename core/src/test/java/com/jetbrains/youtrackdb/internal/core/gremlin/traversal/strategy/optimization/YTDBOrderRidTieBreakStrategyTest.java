@@ -3,11 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import java.lang.reflect.Field;
 import java.util.Comparator;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
-import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -20,20 +18,9 @@ import org.junit.Test;
  */
 public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
 
-  private static final Field COMPARATORS_FIELD;
-
-  static {
-    try {
-      COMPARATORS_FIELD = OrderGlobalStep.class.getDeclaredField("comparators");
-      COMPARATORS_FIELD.setAccessible(true);
-    } catch (NoSuchFieldException e) {
-      throw new ExceptionInInitializerError(e);
-    }
-  }
-
   /** Property sort steps gain a trailing {@code T.id ASC} modulator. */
   @Test
-  public void apply_appendsIdComparatorAfterPropertySort() throws IllegalAccessException {
+  public void apply_appendsIdComparatorAfterPropertySort() {
     var admin = graph.traversal().V().order().by("name").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
@@ -42,16 +29,16 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .map(OrderGlobalStep.class::cast)
         .findFirst()
         .orElseThrow();
-    var comparators = comparators(orderStep);
-    assertThat(comparators).hasSize(2);
-    assertThat(comparators.get(1).getValue0()).isInstanceOf(TokenTraversal.class);
-    assertThat(((TokenTraversal) comparators.get(1).getValue0()).getToken()).isEqualTo(T.id);
-    assertThat(comparators.get(1).getValue1()).isEqualTo(Order.asc);
+    assertThat(comparators(orderStep)).hasSize(2);
+    var idComparator = comparators(orderStep).get(1);
+    assertThat(idComparator.getValue0()).isInstanceOf(TokenTraversal.class);
+    assertThat(((TokenTraversal) idComparator.getValue0()).getToken()).isEqualTo(T.id);
+    assertThat(idComparator.getValue1()).isEqualTo(Order.asc);
   }
 
-  /** Bare {@code order()} with no comparators yet must stay untouched. */
+  /** Bare {@code order()} keeps its default identity comparator and gains no {@code T.id}. */
   @Test
-  public void apply_leavesBareOrderUntouched() throws IllegalAccessException {
+  public void apply_leavesBareOrderUntouched() {
     var admin = graph.traversal().V().order().asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
@@ -60,12 +47,12 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .map(OrderGlobalStep.class::cast)
         .findFirst()
         .orElseThrow();
-    assertThat(comparators(orderStep)).isEmpty();
+    assertThat(comparators(orderStep)).hasSize(1);
   }
 
   /** {@code order().by(T.id)} must not gain a duplicate id modulator. */
   @Test
-  public void apply_leavesExplicitIdSortUntouched() throws IllegalAccessException {
+  public void apply_leavesExplicitIdSortUntouched() {
     var admin = graph.traversal().V().order().by(T.id).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
@@ -79,7 +66,7 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
 
   /** LDBC-style {@code by("id", asc)} must not gain a duplicate {@code T.id} modulator. */
   @Test
-  public void apply_leavesExplicitIdPropertySortUntouched() throws IllegalAccessException {
+  public void apply_leavesExplicitIdPropertySortUntouched() {
     var admin = graph.traversal().V().order().by("creationDate", Order.desc).by("id", Order.asc)
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
@@ -93,8 +80,9 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private static List<Pair<Admin, Comparator>> comparators(OrderGlobalStep<?, ?> step)
-      throws IllegalAccessException {
-    return (List<Pair<Admin, Comparator>>) COMPARATORS_FIELD.get(step);
+  private static
+      List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin, Comparator>>
+      comparators(OrderGlobalStep step) {
+    return step.getComparators();
   }
 }
