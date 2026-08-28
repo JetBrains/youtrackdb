@@ -2844,7 +2844,11 @@ public class SelectExecutionPlanner {
         // Null-key stream placement follows the first ORDER BY item (explicit NULLS FIRST/LAST or
         // the global NULLS_SMALLEST/NULLS_LARGEST default). The index can always honor that by
         // concatenating the null bucket before or after the B-tree scan.
-        var nullsFirst = info.orderBy.getItems().getFirst().resolveNullsFirst();
+        var nullsFirst =
+            info.orderBy
+                .getItems()
+                .getFirst()
+                .resolveNullsFirst(ctx.getDatabaseSession().getConfiguration());
         plan.chain(
             new FetchFromIndexValuesStep(
                 new IndexSearchDescriptor(idx),
@@ -3123,7 +3127,10 @@ public class SelectExecutionPlanner {
       // keep the legacy NULLS_SMALLEST default (nullsFirst == ascending).
       var nullsFirst =
           (info.orderBy != null && !info.orderBy.getItems().isEmpty())
-              ? info.orderBy.getItems().getFirst().resolveNullsFirst()
+              ? info.orderBy
+                  .getItems()
+                  .getFirst()
+                  .resolveNullsFirst(ctx.getDatabaseSession().getConfiguration())
               : ascending;
       result.add(
           new FetchFromIndexStep(desc, ascending, nullsFirst, ctx, profilingEnabled));

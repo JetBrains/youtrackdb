@@ -48,6 +48,21 @@ public class SQLOrderByItemNullOrderingTest {
     assertTrue(item(SQLOrderByItem.DESC, null).resolveNullsFirst());
   }
 
+  /**
+   * Per-storage {@link com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration} overrides
+   * the runtime global when resolving an omitted NULLS clause.
+   */
+  @Test
+  public void storageLocalDefaultOverridesRuntimeGlobal() {
+    GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.setValue(OrderByNullsDefault.NULLS_SMALLEST);
+    var storageConfig = new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration();
+    storageConfig.setValue(
+        GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_LARGEST);
+
+    assertFalse(item(SQLOrderByItem.ASC, null).resolveNullsFirst(storageConfig));
+    assertTrue(item(SQLOrderByItem.DESC, null).resolveNullsFirst(storageConfig));
+  }
+
   private static SQLOrderByItem item(String type, String nullOrdering) {
     var item = new SQLOrderByItem();
     item.setType(type);

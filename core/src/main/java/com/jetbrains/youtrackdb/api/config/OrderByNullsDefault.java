@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.api.config;
 
 /**
- * Comparison-semantic default for null placement in {@code ORDER BY} when an item omits
- * {@code NULLS FIRST} / {@code NULLS LAST}.
+ * Comparison-semantic default for null placement in {@code ORDER BY} and Gremlin {@code order()}
+ * when an item omits {@code NULLS FIRST} / {@code NULLS LAST}.
  *
  * <p>Composes with {@code ASC}/{@code DESC}:
  * <ul>

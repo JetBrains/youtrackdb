@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderNullsStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBProductiveOrderByStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -91,6 +92,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
                 // whole process, so a registration gated on configuration would freeze the
                 // decision at first class load. The strategy reads the setting in its own apply().
                 YTDBProductiveOrderByStrategy.instance(),
+                YTDBOrderNullsStrategy.instance(),
                 YTDBQueryMetricsStrategy.instance()));
   }
 

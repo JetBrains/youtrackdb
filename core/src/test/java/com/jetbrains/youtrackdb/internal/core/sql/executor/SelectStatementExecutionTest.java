@@ -7237,6 +7237,35 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Per-storage {@code youtrackdb.query.orderBy.nullsDefault} overrides the runtime global when the
+   * NULLS clause is omitted.
+   */
+  @Test
+  public void testOrderByStorageLocalDefaultOverridesGlobal() {
+    GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.setValue(OrderByNullsDefault.NULLS_SMALLEST);
+    session
+        .getStorage()
+        .getContextConfiguration()
+        .setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT,
+            OrderByNullsDefault.NULLS_LARGEST);
+    try {
+      var className = "testOrderByStorageNullsLargest";
+      createPlainNameClass(className);
+      seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+      var ordered = orderedNamesInMemory(className, "ASC");
+
+      Assert.assertEquals(Arrays.asList("a", "b", "c", null, null), ordered);
+    } finally {
+      GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.resetToDefault();
+      session
+          .getStorage()
+          .getContextConfiguration()
+          .setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, null);
+    }
+  }
+
+  /**
    * COLLATE + {@code NULLS LAST}: null placement comes from the NULLS clause (absolute), while
    * non-null string ordering uses the collate. Forces in-memory sort because COLLATE disables the
    * index-for-sort optimization.

@@ -1457,15 +1457,18 @@ public enum GlobalConfiguration {
       true),
 
   /**
-   * Default null comparison semantic for {@code ORDER BY} items that omit {@code NULLS FIRST} /
-   * {@code NULLS LAST}. See {@link OrderByNullsDefault}. Changeable at runtime so tests and
-   * deployments can flip the default without restarting.
+   * Default null comparison semantic for {@code ORDER BY} and Gremlin {@code order()} when no
+   * explicit {@code NULLS FIRST}/{@code NULLS LAST} is given. See {@link OrderByNullsDefault}.
+   * Per-storage {@link com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration} values
+   * override the runtime global. Changeable at runtime so tests and deployments can flip the
+   * default without restarting.
    */
   QUERY_ORDER_BY_NULLS_DEFAULT(
       "youtrackdb.query.orderBy.nullsDefault",
-      "Default null ordering for ORDER BY when NULLS FIRST/LAST is omitted. "
+      "Default null ordering for ORDER BY and Gremlin order() when NULLS FIRST/LAST is omitted. "
           + "NULLS_SMALLEST (default): nulls first for ASC, nulls last for DESC. "
           + "NULLS_LARGEST: nulls last for ASC, nulls first for DESC. "
+          + "Per-storage settings override the runtime global. "
           + "An explicit NULLS FIRST/LAST on an ORDER BY item overrides this setting.",
       OrderByNullsDefault.class,
       OrderByNullsDefault.NULLS_SMALLEST,

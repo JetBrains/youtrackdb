@@ -1,9 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -88,25 +89,23 @@ public class SQLOrderByItem {
   }
 
   /**
-   * Resolves whether nulls should sort before non-nulls for this item.
-   *
-   * <p>Precedence: explicit {@code NULLS FIRST}/{@code NULLS LAST} wins (absolute). Otherwise the
-   * global {@link OrderByNullsDefault} composes with ASC/DESC.
+   * Resolves whether nulls should sort before non-nulls for this item using the runtime global
+   * default only. Prefer {@link #resolveNullsFirst(ContextConfiguration)} when a session or storage
+   * configuration is available.
    */
   public boolean resolveNullsFirst() {
-    if (NULLS_FIRST.equals(nullOrdering)) {
-      return true;
-    }
-    if (NULLS_LAST.equals(nullOrdering)) {
-      return false;
-    }
-    var def = GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.<OrderByNullsDefault>getValue();
-    var ascending = !DESC.equals(type);
-    if (def == OrderByNullsDefault.NULLS_LARGEST) {
-      return !ascending;
-    }
-    // NULLS_SMALLEST (default): ASC -> nulls first, DESC -> nulls last
-    return ascending;
+    return resolveNullsFirst(null);
+  }
+
+  /**
+   * Resolves whether nulls should sort before non-nulls for this item.
+   *
+   * <p>Precedence: explicit {@code NULLS FIRST}/{@code NULLS LAST} wins (absolute). Otherwise
+   * {@link GlobalConfiguration#QUERY_ORDER_BY_NULLS_DEFAULT} is read from {@code config} when set,
+   * falling back to the runtime global, and composes with ASC/DESC.
+   */
+  public boolean resolveNullsFirst(@Nullable ContextConfiguration config) {
+    return OrderByNullsUtil.resolveNullsFirst(nullOrdering, !DESC.equals(type), config);
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
@@ -204,7 +203,7 @@ public class SQLOrderByItem {
       if (aVal == null && bVal == null) {
         return 0;
       }
-      var nullsFirst = resolveNullsFirst();
+      var nullsFirst = resolveNullsFirst(ctx.getDatabaseSession().getConfiguration());
       if (aVal == null) {
         return nullsFirst ? -1 : 1;
       }
