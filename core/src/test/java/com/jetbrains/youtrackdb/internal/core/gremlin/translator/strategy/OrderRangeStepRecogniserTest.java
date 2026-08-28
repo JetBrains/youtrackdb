@@ -93,8 +93,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * LDBC IC2/IC8 spell {@code order().by(creationDate, desc).by(id, asc)} — explicit {@code id} is
-   * the tie-break, so {@link YTDBOrderRidTieBreakStrategy} must not append {@code by(T.id)}.
+   * Multi-key sort ending on property {@code id} already has an explicit tie-break —
+   * {@link YTDBOrderRidTieBreakStrategy} must not append {@code by(T.id)}.
    */
   @Test
   public void orderByDateThenId_skipsRidTieBreak() {
@@ -111,7 +111,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.orderBy.toString()).doesNotContain("@rid");
   }
 
-  /** Sole {@code order().by(id)} already sorts on the business key — no trailing {@code @rid}. */
+  /** Sole {@code order().by("id")} already ends on property {@code id} — no trailing {@code @rid}. */
   @Test
   public void orderByIdOnly_skipsRidTieBreak() {
     var admin = graph.traversal().V().order().by("id", Order.asc).asAdmin();
@@ -709,7 +709,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * is closed on both sides.
    *
    * <p><b>Why the boundary count is the whole point here.</b> These spellings were once reported as
-   * a translator-on / translator-off divergence, measured over an indexed LDBC-shaped fixture, and
+   * a translator-on / translator-off divergence over an indexed fixture with tied sort keys, and
    * the report was retired on the ground that both arms came back with the same rows. A declined
    * shape runs the native pipeline on both arms, so its rows agree whatever a translation would have
    * done: over a shape that declines, a row comparison holds by construction and settles nothing.

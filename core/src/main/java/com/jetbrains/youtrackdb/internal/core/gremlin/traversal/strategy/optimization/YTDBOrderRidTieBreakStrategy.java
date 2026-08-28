@@ -21,8 +21,8 @@ import org.javatuples.Pair;
  * Appends {@code by(T.id, asc)} to every {@link OrderGlobalStep} before {@link
  * GremlinToMatchStrategy} runs. Translated shapes pick up {@code @rid} through {@link
  * ByModulatorTranslator}; declined shapes keep the patched step for native Gremlin execution.
- * Shapes that already spell {@code by("id", asc)} or sort on {@code T.id} / identity skip the
- * append.
+ * Shapes that already end on property {@code id}, sort on {@code T.id}, or use an identity
+ * modulator skip the append.
  */
 public final class YTDBOrderRidTieBreakStrategy
     extends AbstractTraversalStrategy<ProviderOptimizationStrategy>

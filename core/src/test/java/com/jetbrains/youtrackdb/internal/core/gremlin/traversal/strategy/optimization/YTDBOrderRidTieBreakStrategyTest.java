@@ -64,7 +64,7 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(comparators(orderStep)).hasSize(1);
   }
 
-  /** LDBC-style {@code by("id", asc)} must not gain a duplicate {@code T.id} modulator. */
+  /** Multi-key sort ending on property {@code id} must not gain a duplicate {@code T.id} modulator. */
   @Test
   public void apply_leavesExplicitIdPropertySortUntouched() {
     var admin = graph.traversal().V().order().by("creationDate", Order.desc).by("id", Order.asc)
