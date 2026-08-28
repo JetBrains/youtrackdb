@@ -94,6 +94,41 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.orderBy.getItems()).hasSize(3);
   }
 
+  /**
+   * LDBC IC2/IC8 spell {@code order().by(creationDate, desc).by(id, asc)} — explicit {@code id} is
+   * the tie-break, so translation must not append a third {@code @rid} key.
+   */
+  @Test
+  public void orderByDateThenId_skipsRidTieBreak() {
+    var admin = graph.traversal().V().order()
+        .by("creationDate", Order.desc).by("id", Order.asc).asAdmin();
+    var ctx = seededContext();
+    var cursor = cursorAt(admin, OrderGlobalStep.class);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.getItems()).hasSize(2);
+    assertThat(ctx.orderBy.toString()).contains("creationDate");
+    assertThat(ctx.orderBy.toString()).contains("id");
+    assertThat(ctx.orderBy.toString()).doesNotContain("@rid");
+  }
+
+  /** Sole {@code order().by(id)} already sorts on the business key — no trailing {@code @rid}. */
+  @Test
+  public void orderByIdOnly_skipsRidTieBreak() {
+    var admin = graph.traversal().V().order().by("id", Order.asc).asAdmin();
+    var ctx = seededContext();
+    var cursor = cursorAt(admin, OrderGlobalStep.class);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.getItems()).hasSize(1);
+    assertThat(ctx.orderBy.toString()).contains("id");
+    assertThat(ctx.orderBy.toString()).doesNotContain("@rid");
+  }
+
   /** {@code order().by(select('k').by(key))} resolves through {@link ByModulatorTranslator}. */
   @Test
   public void orderBySelectModulator_resolvesLabel() {

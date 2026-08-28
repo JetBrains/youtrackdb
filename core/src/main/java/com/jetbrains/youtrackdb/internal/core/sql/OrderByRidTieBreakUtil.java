@@ -1,22 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
-import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.List;
 
 /**
- * Keeps Gremlin-translated and native Gremlin {@code order()} aligned with YQL execution: append
- * {@code boundaryAlias.@rid ASC} to translated {@code ORDER BY} when no explicit tie-break is
- * present, and apply the same RID tie-break at runtime in {@link
- * com.jetbrains.youtrackdb.internal.core.sql.executor.OrderByStep} when explicit keys still tie.
- *
- * <p>Native Gremlin gets {@code by(T.id, asc)} from {@link
+ * Appends {@code boundaryAlias.@rid ASC} to a Gremlin-translated {@code ORDER BY} when the last
+ * sort key is neither {@code @rid} nor the business {@code id} property. Native Gremlin gets the
+ * same rule from {@link
  * com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy}.
- * Shapes that already spell {@code by("id", asc)} (LDBC IC2/IC8) skip the extra key so the MATCH
- * AST stays on business columns only.
  */
 public final class OrderByRidTieBreakUtil {
 
@@ -24,31 +16,6 @@ public final class OrderByRidTieBreakUtil {
   private static final String ID_PROPERTY = "id";
 
   private OrderByRidTieBreakUtil() {
-  }
-
-  /**
-   * Compares two rows by {@code orderBy}, then by {@code boundaryAlias.@rid ASC} when all explicit
-   * keys tie and the last key is neither {@code @rid} nor {@code id}.
-   */
-  public static int compare(SQLOrderBy orderBy, Result a, Result b, CommandContext ctx) {
-    var cmp = orderBy.compare(a, b, ctx);
-    if (cmp != 0) {
-      return cmp;
-    }
-    var items = orderBy.getItems();
-    if (items == null || items.isEmpty()) {
-      return 0;
-    }
-    var last = items.getLast();
-    if (sortsByRid(last) || sortsByIdProperty(last)) {
-      return 0;
-    }
-    var alias = last.getAlias();
-    if (alias == null || alias.isBlank()) {
-      return 0;
-    }
-    return ProjectionExpressionFactories.orderByRecordAttribute(alias, RID_ATTR, true)
-        .compare(a, b, ctx);
   }
 
   /**
