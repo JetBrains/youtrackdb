@@ -121,6 +121,11 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    * the element RID otherwise. {@code g.V().values("name").order()} sorts names, not RIDs, and
    * before this distinction existed it emitted the six names in RID order and called it sorted.
    * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no YQL-text round-trip.
+   *
+   * <p>Contract with {@code YTDBOrderRidTieBreakStrategy}: identity → {@code @rid} is valid only on
+   * element boundaries. Map-entry / projected-map order must not reach this branch as a stand-in
+   * for a group key — those shapes decline today; when enabled they must map {@code Column.keys}
+   * (or entry identity) to the GROUP BY key, never to {@code @rid}.
    */
   private static SQLOrderByItem resolveSortItem(
       RecognitionContext ctx,
