@@ -211,6 +211,72 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .isEqualTo(Column.keys);
   }
 
+  /**
+   * Default {@code group()} keys are elements — local order gains {@code select(keys).id()}, not
+   * raw keys (Vertex is not {@code Comparable}).
+   */
+  @Test
+  public void apply_appendsSelectKeysIdToOrderLocalOnDefaultGroup() {
+    var admin = graph.traversal().V()
+        .group().by().by(__.count())
+        .order(Scope.local)
+        .by(Column.values)
+        .asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var local = admin.getSteps().stream()
+        .filter(OrderLocalStep.class::isInstance)
+        .map(OrderLocalStep.class::cast)
+        .findFirst()
+        .orElseThrow();
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin,
+        Comparator>> localComparators = local.getComparators();
+    assertThat(localComparators).hasSize(2);
+    var tieBreak = localComparators.get(1).getValue0();
+    assertThat(tieBreak).isNotInstanceOf(ColumnTraversal.class);
+    assertThat(tieBreak.getEndStep()).isInstanceOf(
+        org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep.class);
+  }
+
+  /** Bare local {@code order(local)} over folded elements becomes {@code T.id} (replaces identity). */
+  @Test
+  public void apply_replacesBareOrderLocalIdentityWithIdOnFoldedElements() {
+    var admin = graph.traversal().V().fold().order(Scope.local).asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var local = admin.getSteps().stream()
+        .filter(OrderLocalStep.class::isInstance)
+        .map(OrderLocalStep.class::cast)
+        .findFirst()
+        .orElseThrow();
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin,
+        Comparator>> localComparators = local.getComparators();
+    assertThat(localComparators).hasSize(1);
+    assertThat(localComparators.get(0).getValue0()).isInstanceOf(TokenTraversal.class);
+    assertThat(((TokenTraversal) localComparators.get(0).getValue0()).getToken()).isEqualTo(T.id);
+  }
+
+  /** {@code select} is not assumed to be an element stream — identity, not {@code T.id}. */
+  @Test
+  public void apply_appendsIdentityAfterSelectOrder() {
+    var admin = graph.traversal().V().as("a").select("a").order().by("name").asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(2);
+    assertThat(comparators.get(1).getValue0()).isInstanceOf(IdentityTraversal.class);
+  }
+
+  /** {@code Order.shuffle} must not gain a tie-break modulator. */
+  @Test
+  public void apply_leavesShuffleUntouched() {
+    var admin = graph.traversal().V().order().by(Order.shuffle).asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+    assertThat(comparators(orderStep(admin))).hasSize(1);
+  }
+
   /** Bare local {@code order(local)} over folded scalars already has identity — leave untouched. */
   @Test
   public void apply_leavesBareOrderLocalOnFoldedScalarsUntouched() {
@@ -257,6 +323,13 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(
         graph.traversal().V().hasLabel("person")
             .group().by("name").by(__.outE().values("weight").sum())
+            .order(Scope.local)
+            .by(Column.values)
+            .next())
+        .isNotNull();
+    assertThat(
+        graph.traversal().V().hasLabel("person")
+            .group().by().by(__.count())
             .order(Scope.local)
             .by(Column.values)
             .next())
