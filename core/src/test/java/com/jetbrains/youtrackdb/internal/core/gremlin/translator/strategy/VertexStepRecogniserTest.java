@@ -194,6 +194,49 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * After {@code AdjacentToIncidentStrategy} rewrites {@code out(L).count()} to an edge-returning
+   * hop followed by {@code CountGlobalStep}, the router claims a folded vertex hop and leaves
+   * {@code count()} on the cursor for {@link CountGlobalStepRecogniser}. Strategies run with the
+   * translator off so the hop+count step list survives for the router unit assertion.
+   */
+  @Test
+  public void countConsumedEdgeHop_claimsFoldedHopAndLeavesCount() {
+    var flag =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    var original = session.getConfiguration().getValueAsBoolean(flag);
+    session.getConfiguration().setValue(flag, false);
+    try {
+      var admin = graph.traversal().V().out("knows").count().asAdmin();
+      admin.applyStrategies();
+      assertThat(admin.getSteps().size())
+          .as("translator off: hop+count must remain as separate steps")
+          .isGreaterThanOrEqualTo(3);
+      var hop = (VertexStepContract<?>) admin.getSteps().get(1);
+      assertThat(hop.returnsEdge())
+          .as("precondition: AdjacentToIncidentStrategy rewrote out(L).count() to returnsEdge")
+          .isTrue();
+      assertThat(admin.getSteps().get(2).getClass().getSimpleName())
+          .as("precondition: CountGlobalStep still follows the hop")
+          .isEqualTo("CountGlobalStep");
+
+      var ctx = contextWithStartBoundary();
+      var cursor = cursorAfterStart(admin);
+      var before = cursor.position();
+
+      var outcome = VertexStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+      assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+      assertThat(cursor.position() - before)
+          .as("only the hop is consumed; count stays for CountGlobalStepRecogniser")
+          .isEqualTo(1);
+      assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+      assertThat(cursor.peek().getClass().getSimpleName()).isEqualTo("CountGlobalStep");
+    } finally {
+      session.getConfiguration().setValue(flag, original);
+    }
+  }
+
+  /**
    * A non-{@link VertexStep} (the start {@code GraphStep} at cursor position 0) declines cleanly rather
    * than throwing {@code ClassCastException}: the router re-asserts its {@code instanceof VertexStep}
    * precondition before touching {@code returnsEdge()}, so a future registry mistake that routed a

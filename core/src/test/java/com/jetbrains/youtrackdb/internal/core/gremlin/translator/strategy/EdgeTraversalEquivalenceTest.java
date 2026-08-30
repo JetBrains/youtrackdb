@@ -998,6 +998,24 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         traversal);
   }
 
+  /**
+   * Unpinned {@code g.V().outE(knows).has(weight,gte 1.0).inV().hasLabel(Person)} lets the planner
+   * root at the labelled Person target and reverse-walk the edge-as-node chain. Edge weight must
+   * still apply (via aliasFilters on the edge alias) so only josh survives — same multiset as native.
+   */
+  @Test
+  public void unpinnedOutEHasInVHasLabel_returnsSameMultisetAsNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().outE(knows).has(weight,gte 1.0).inV().hasLabel(Person)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .outE("knows")
+            .has("weight", P.gte(1.0d))
+            .inV()
+            .hasLabel("Person"));
+  }
+
   // ---------------------------------------------------------------------------
   // Fixture helpers.
   // ---------------------------------------------------------------------------
