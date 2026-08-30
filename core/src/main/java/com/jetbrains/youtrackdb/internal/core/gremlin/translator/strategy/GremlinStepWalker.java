@@ -1206,6 +1206,15 @@ final class GremlinStepWalker {
     // filters are merged — so the pass runs here.
     bindPathItemConstraints(ir.pattern(), finalAliasFilters, ir.aliasClasses());
 
+    // Edge-as-node WHERE also lives on the path item (forward MatchEdgeTraverser reads it there).
+    // Reverse schedules root at a selective target and walk back through the edge alias via
+    // MatchReverseEdgeTraverser, which only sees leftFilter from aliasFilters — so merge edge
+    // filters here, after bindPathItemConstraints, to avoid AND-ing the same clause onto the path
+    // item a second time.
+    for (var entry : ctx.edgeFilters.entrySet()) {
+      finalAliasFilters.merge(entry.getKey(), entry.getValue(), GremlinStepWalker::andWhere);
+    }
+
     // Only the fields a single-node g.V() translation actually carries are set; the rest keep their
     // null/false defaults (matchExpressions/notMatchExpressions normalise to empty lists in the
     // compact constructor). The builder names each field so a future track adding one cannot silently

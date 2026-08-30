@@ -56,9 +56,13 @@ final class WalkerContext implements RecognitionContext {
    *  entries on the same alias. */
   final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
 
-  /** Per-edge-alias WHERE clauses for non-adjacent edge filtering (the {@code outE(L).has(...).inV()}
-   *  shape). Populated by {@link #putEdgeFilter} for observability; the same clause also travels on
-   *  the edge path item via {@link #addEdgeAsNode}, so it is not re-read at result-build time. */
+  /**
+   * Per-edge-alias WHERE clauses for non-adjacent edge filtering (the {@code outE(L).has(...).inV()}
+   * shape). The same clause travels on the edge path item via {@link #addEdgeAsNode} for forward
+   * walks. {@link GremlinStepWalker#buildResult} also merges these entries into
+   * {@code MatchPlanInputs.aliasFilters} after {@code bindPathItemConstraints}, so a reverse-rooted
+   * schedule can apply them as {@code leftFilter} on the edge alias.
+   */
   final Map<String, SQLWhereClause> edgeFilters = new LinkedHashMap<>();
 
   /** Detached NOT pattern chains produced by edge-bearing {@code NotStep} recognisers. Wired into
