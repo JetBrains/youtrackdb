@@ -899,7 +899,10 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().valueMap("name").dedup());
   }
 
-  /** {@code order().by("name")} matches native order for a deterministic seed. */
+  /**
+   * {@code order().by("name")} — sequence equality on=off, and the sorted names themselves (seed is
+   * deliberately not insertion-ordered).
+   */
   @Test
   public void orderByName_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Carol");
@@ -911,6 +914,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().order().by(name).values(name)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().order().by("name").values("name"));
+    assertThat(graph.traversal().V().order().by("name").values("name").toList())
+        .as("sorted names must be Alice,Bob,Carol — not insertion order Carol,Alice,Bob")
+        .containsExactly("Alice", "Bob", "Carol");
   }
 
   /**
@@ -928,6 +934,133 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().order().by(name).values(tag)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().order().by("name").values("tag"));
+  }
+
+  /**
+   * Bare {@code order()} (identity → {@code @rid} / strategy leaves identity) — same tag sequence
+   * on both arms. Tags differ so the RID order is observable.
+   */
+  @Test
+  public void bareOrder_matchesNativeRidOrder() {
+    graph.addVertex(T.label, "Person", "tag", "c");
+    graph.addVertex(T.label, "Person", "tag", "a");
+    graph.addVertex(T.label, "Person", "tag", "b");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().values("tag"));
+  }
+
+  /** Explicit {@code by(T.id)} — same RID total order as bare {@code order()} on elements. */
+  @Test
+  public void orderByTokenId_matchesNative() {
+    graph.addVertex(T.label, "Person", "tag", "c");
+    graph.addVertex(T.label, "Person", "tag", "a");
+    graph.addVertex(T.label, "Person", "tag", "b");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(T.id).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by(T.id).values("tag"));
+  }
+
+  /**
+   * All ages tied — primary key does not separate rows; trailing RID from the strategy must make
+   * on and off agree on the tag sequence.
+   */
+  @Test
+  public void orderByTiedAge_matchesNativeRidTieBreak() {
+    graph.addVertex(T.label, "Person", "age", 30, "tag", "c");
+    graph.addVertex(T.label, "Person", "age", 30, "tag", "a");
+    graph.addVertex(T.label, "Person", "age", 30, "tag", "b");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(age).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("age").values("tag"));
+  }
+
+  /**
+   * Descending property sort — sequence pin plus on=off. Seed is neither insertion- nor
+   * ascending-ordered.
+   */
+  @Test
+  public void orderByNameDesc_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Mallory");
+    graph.addVertex(T.label, "Person", "name", "Zoe");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(name, desc).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("name", Order.desc).values("name"));
+    assertThat(graph.traversal().V().order().by("name", Order.desc).values("name").toList())
+        .containsExactly("Zoe", "Mallory", "Alice");
+  }
+
+  /**
+   * Multi-key with a tie on the first key: ages 20/30/20 → names Ann, Cy before Ben. Projects names
+   * so the expected sequence is visible (not only RID strings).
+   */
+  @Test
+  public void orderByAgeThenName_tiedAge_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Ben", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Cy", "age", 20);
+    graph.addVertex(T.label, "Person", "name", "Ann", "age", 20);
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(age).by(name).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .order().by("age", Order.asc).by("name", Order.asc)
+            .values("name"));
+    assertThat(
+        graph.traversal().V()
+            .order().by("age", Order.asc).by("name", Order.asc)
+            .values("name").toList())
+        .containsExactly("Ann", "Cy", "Ben");
+  }
+
+  /** {@code hasLabel} then {@code order().by(name)} — filter + sort, sequence on=off. */
+  @Test
+  public void hasLabel_orderByName_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Zoe");
+    graph.addVertex(T.label, "Software", "name", "Ignore");
+    graph.addVertex(T.label, "Person", "name", "Ada");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().hasLabel(Person).order().by(name).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").order().by("name").values("name"));
+    assertThat(
+        graph.traversal().V().hasLabel("Person").order().by("name").values("name").toList())
+        .containsExactly("Ada", "Zoe");
+  }
+
+  /**
+   * Property {@code id} (unique in the fixture) — strategy skips trailing {@code T.id}; on and off
+   * must still agree on the name sequence.
+   */
+  @Test
+  public void orderByPropertyId_matchesNativeWithoutExtraRid() {
+    graph.addVertex(T.label, "Person", "id", "p3", "name", "Carol");
+    graph.addVertex(T.label, "Person", "id", "p1", "name", "Alice");
+    graph.addVertex(T.label, "Person", "id", "p2", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(id).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("id").values("name"));
+    assertThat(graph.traversal().V().order().by("id").values("name").toList())
+        .containsExactly("Alice", "Bob", "Carol");
   }
 
   /**

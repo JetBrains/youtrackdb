@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
@@ -124,14 +126,21 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
             .by(__.select("friend").by("name"), Order.asc));
   }
 
-  /** Two boundary keys on the same alias sort lexically like native. */
+  /** Two boundary keys on the same alias; age ties break on name — sequence of names on=off. */
   @Test
   public void orderBy_multiKeySameAlias_matchesNative() {
     seedOrderedPeople();
     assertEquivalentOrdered(
-        "g.V().order().by(age).by(name)",
+        "g.V().order().by(age).by(name).values(name)",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V().order().by("age", Order.asc).by("name", Order.asc));
+        () -> graph.traversal().V()
+            .order().by("age", Order.asc).by("name", Order.asc)
+            .values("name"));
+    assertThat(
+        graph.traversal().V()
+            .order().by("age", Order.asc).by("name", Order.asc)
+            .values("name").toList())
+        .containsExactly("Ann", "Cy", "Ben");
   }
 
   // ---------------------------------------------------------------------------
