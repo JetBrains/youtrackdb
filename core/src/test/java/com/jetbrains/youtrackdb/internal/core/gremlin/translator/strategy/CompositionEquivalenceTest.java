@@ -46,8 +46,9 @@ import org.junit.Test;
  *       the edge-as-node vertex alias).
  *   <li><b>{@code bothE(L).has(...).otherV()}</b> — declines (self-loop RID rewrite is wrong); directed
  *       {@code outE.has.inV} / {@code inE.has.outV} translate.
- *   <li><b>Multi-label hop / {@code hasLabel}</b> — {@code out(a,b)} and polymorphic multi-label
- *       {@code hasLabel(L1,L2)} decline.
+ *   <li><b>Polymorphic multi-label {@code hasLabel}</b> — {@code hasLabel(L1,L2)} under default
+ *       polymorphic mode declines; multi-label hops {@code out(a,b)} / {@code outE(a,b).has.inV}
+ *       translate.
  *   <li><b>Edge-bearing combinator child</b> — {@code and}/{@code or}/{@code where}/{@code filter}
  *       with a hop inside declines (existence would join-fan-out); pure property children translate.
  *   <li><b>Labelled {@code where(as(a)…)}</b> — scope steps unregistered → decline.
@@ -647,13 +648,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .where(__.as("a").has("age", P.eq(30))));
   }
 
-  /** Multi-label hop declines. */
+  /** Multi-label hop translates — MATCH {@code out('knows','created')} carries both labels. */
   @Test
-  public void multiLabel_out_declines() {
+  public void multiLabel_out_matchesNative() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().out(knows,created)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("knows", "created"));
   }
 
