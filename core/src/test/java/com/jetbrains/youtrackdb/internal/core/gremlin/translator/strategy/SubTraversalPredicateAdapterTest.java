@@ -177,7 +177,8 @@ public class SubTraversalPredicateAdapterTest {
     assertThat(adapter.hasEdges()).as("a bare addNode is a re-type, not a hop — still pure-filter")
         .isFalse();
 
-    adapter.addEdge(BOUNDARY_ALIAS, FIRST_ANON_ALIAS, MatchPatternBuilder.Direction.OUT, "knows");
+    adapter.addEdge(BOUNDARY_ALIAS, FIRST_ANON_ALIAS, MatchPatternBuilder.Direction.OUT,
+        new String[] {"knows"});
     assertThat(adapter.hasEdges()).as("an addEdge is a hop — the child is now edge-bearing")
         .isTrue();
     adapter.addEdgeAsNode(
@@ -185,7 +186,7 @@ public class SubTraversalPredicateAdapterTest {
         "$g2m_edge_0",
         SECOND_ANON_ALIAS,
         MatchPatternBuilder.Direction.OUT,
-        "knows",
+        new String[] {"knows"},
         MatchPatternBuilder.Direction.IN,
         null);
     adapter.putEdgeFilter("$g2m_edge_0", whereClause("since"));
@@ -356,7 +357,8 @@ public class SubTraversalPredicateAdapterTest {
     var parent = parentWithBoundary(Map.of());
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
     adapter.addEdge(
-        BOUNDARY_ALIAS, FIRST_ANON_ALIAS, MatchPatternBuilder.Direction.OUT, "knows");
+        BOUNDARY_ALIAS, FIRST_ANON_ALIAS, MatchPatternBuilder.Direction.OUT,
+        new String[] {"knows"});
     adapter.addNode(FIRST_ANON_ALIAS, "V");
     adapter.putAliasFilter(FIRST_ANON_ALIAS, whereClause("age"));
     adapter.markOutcome(Outcome.ACCEPTED);

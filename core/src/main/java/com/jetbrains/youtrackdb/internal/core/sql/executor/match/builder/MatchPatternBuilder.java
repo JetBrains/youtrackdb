@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternEdge;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.MatchEdgePathItems;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
@@ -114,8 +113,25 @@ public final class MatchPatternBuilder {
   }
 
   /**
+   * Single-label overload of {@link #addEdge(String, String, Direction, String[], SQLWhereClause,
+   * SQLWhereClause, Integer)}.
+   */
+  public MatchPatternBuilder addEdge(
+      @Nonnull String fromAlias,
+      @Nonnull String toAlias,
+      @Nonnull Direction dir,
+      String edgeLabel,
+      SQLWhereClause edgeFilter,
+      SQLWhereClause whileCondition,
+      Integer maxDepth) {
+    String[] labels =
+        edgeLabel != null && !edgeLabel.isBlank() ? new String[] {edgeLabel} : null;
+    return addEdge(fromAlias, toAlias, dir, labels, edgeFilter, whileCondition, maxDepth);
+  }
+
+  /**
    * Registers an edge {@code fromAlias} → {@code toAlias} with the given direction and (optional)
-   * edge label. Either alias is implicitly created via {@link Pattern#addExpression}'s internal
+   * edge labels. Either alias is implicitly created via {@link Pattern#addExpression}'s internal
    * {@code getOrCreateNode} if it hasn't been registered yet.
    *
    * <p>{@code edgeFilter} is attached as the path item's target-vertex filter — i.e. the
@@ -133,7 +149,7 @@ public final class MatchPatternBuilder {
       @Nonnull String fromAlias,
       @Nonnull String toAlias,
       @Nonnull Direction dir,
-      String edgeLabel,
+      String[] edgeLabels,
       SQLWhereClause edgeFilter,
       SQLWhereClause whileCondition,
       Integer maxDepth) {
@@ -151,12 +167,10 @@ public final class MatchPatternBuilder {
     }
 
     var pathItem = new SQLMatchPathItem(-1);
-    var edgeIdent =
-        edgeLabel != null && !edgeLabel.isBlank() ? new SQLIdentifier(edgeLabel) : null;
     switch (dir) {
-      case OUT -> pathItem.outPath(edgeIdent);
-      case IN -> pathItem.inPath(edgeIdent);
-      case BOTH -> pathItem.bothPath(edgeIdent);
+      case OUT -> pathItem.outPathWithLabels(edgeLabels);
+      case IN -> pathItem.inPathWithLabels(edgeLabels);
+      case BOTH -> pathItem.bothPathWithLabels(edgeLabels);
     }
     pathItem.setFilter(toFilter);
 
@@ -169,7 +183,25 @@ public final class MatchPatternBuilder {
   }
 
   /**
-   * Registers the edge-as-node form {@code fromAlias --<edgeDir>E(edgeLabel){as: edgeAlias, where:
+   * Single-label overload of {@link #addEdgeAsNode(String, String, String, Direction, String[],
+   * Direction, SQLWhereClause)}.
+   */
+  public MatchPatternBuilder addEdgeAsNode(
+      @Nonnull String fromAlias,
+      @Nonnull String edgeAlias,
+      @Nonnull String toAlias,
+      @Nonnull Direction edgeDir,
+      String edgeLabel,
+      @Nonnull Direction closingVertexDir,
+      SQLWhereClause edgeFilter) {
+    String[] labels =
+        edgeLabel != null && !edgeLabel.isBlank() ? new String[] {edgeLabel} : null;
+    return addEdgeAsNode(
+        fromAlias, edgeAlias, toAlias, edgeDir, labels, closingVertexDir, edgeFilter);
+  }
+
+  /**
+   * Registers the edge-as-node form {@code fromAlias --<edgeDir>E(edgeLabels){as: edgeAlias, where:
    * edgeFilter}--> edgeAlias --<closingVertexDir>V(){as: toAlias}--> toAlias} as a single MATCH
    * expression with two path items.
    *
@@ -187,8 +219,8 @@ public final class MatchPatternBuilder {
    * @param toAlias          non-null alias of the target vertex (the far endpoint)
    * @param edgeDir          direction of the edge hop: {@code OUT}→{@code outE}, {@code IN}→{@code
    *                         inE}, {@code BOTH}→{@code bothE}
-   * @param edgeLabel        the single edge label; a null/blank label emits the method with no
-   *                         parameter (all edge types)
+   * @param edgeLabels       edge labels; null/empty emits the method with no parameter (all edge
+   *                         types)
    * @param closingVertexDir direction of the closing vertex hop: {@code OUT}→{@code outV}, {@code
    *                         IN}→{@code inV}, {@code BOTH}→{@code bothV}. For a proper far-vertex hop,
    *                         this is the opposite of {@code edgeDir} ({@code outE}→{@code inV},
@@ -201,13 +233,13 @@ public final class MatchPatternBuilder {
       @Nonnull String edgeAlias,
       @Nonnull String toAlias,
       @Nonnull Direction edgeDir,
-      String edgeLabel,
+      String[] edgeLabels,
       @Nonnull Direction closingVertexDir,
       SQLWhereClause edgeFilter) {
     checkNotBuilt();
     var edgeItem =
         MatchEdgePathItems.edgeMethodItem(
-            edgeMethodName(edgeDir), edgeLabel, edgeAlias, edgeFilter);
+            edgeMethodName(edgeDir), edgeLabels, edgeAlias, edgeFilter);
     var vertexItem =
         MatchEdgePathItems.vertexMethodItem(closingVertexMethodName(closingVertexDir), toAlias);
 
