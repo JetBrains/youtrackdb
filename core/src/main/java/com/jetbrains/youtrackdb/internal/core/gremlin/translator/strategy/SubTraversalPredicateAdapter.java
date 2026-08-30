@@ -325,8 +325,8 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
       String fromAlias,
       String toAlias,
       MatchPatternBuilder.Direction dir,
-      @Nullable String edgeLabel) {
-    capturedPattern.addEdge(fromAlias, toAlias, dir, edgeLabel, null, null, null);
+      @Nullable String[] edgeLabels) {
+    capturedPattern.addEdge(fromAlias, toAlias, dir, edgeLabels, null, null, null);
     hasEdges = true;
   }
 
@@ -336,11 +336,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
       String edgeAlias,
       String toAlias,
       MatchPatternBuilder.Direction edgeDir,
-      @Nullable String edgeLabel,
+      @Nullable String[] edgeLabels,
       MatchPatternBuilder.Direction closingVertexDir,
       @Nullable SQLWhereClause edgeFilter) {
     capturedPattern.addEdgeAsNode(
-        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter);
+        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabels, closingVertexDir, edgeFilter);
     hasEdges = true;
   }
 
