@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeOtherVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
@@ -27,14 +28,18 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceho
  *       EdgeVertexStep} / {@link EdgeOtherVertexStep} → {@link EdgeHopRecogniser};
  *   <li>{@code returnsEdge() == true} singleton inside a combinator sub-walk → {@link
  *       CombinatorFoldedHopRecogniser};
+ *   <li>{@code returnsEdge() == true} followed by {@link CountGlobalStep} → folded hop via
+ *       {@link GremlinPatternAssembler#claimFoldedHop} ({@code AdjacentToIncidentStrategy} rewrote
+ *       {@code out(L).count()} to edge-returning {@code outE}; edge count equals neighbour count);
  *   <li>any other edge-returning head (e.g. top-level {@code outE(L)}) → {@link Outcome#DECLINE}.
  * </ul>
  *
  * <p>The router <em>peeks</em> the head to read {@code returnsEdge()} and delegates without consuming
- * it: the chosen handler takes the head from the cursor itself, so the router adds no behaviour beyond
- * the split and forwards the handler's {@link Outcome} verbatim. It re-asserts the head implements
- * {@link VertexStepContract}, so a step outside that contract that reached it through a future registry
- * mistake declines cleanly rather than throwing.
+ * it for the first three branches: the chosen handler takes the head from the cursor itself. The
+ * count-consumed branch takes the hop here before {@code claimFoldedHop}, leaving {@code count()} for
+ * {@link CountGlobalStepRecogniser}. It re-asserts the head implements {@link VertexStepContract}, so
+ * a step outside that contract that reached it through a future registry mistake declines cleanly
+ * rather than throwing.
  */
 final class VertexStepRecogniser implements StepRecogniser {
 
@@ -60,6 +65,14 @@ final class VertexStepRecogniser implements StepRecogniser {
     }
     if (cursor.peek(1) == null && ctx instanceof SubTraversalPredicateAdapter) {
       return CombinatorFoldedHopRecogniser.INSTANCE.recognize(cursor, ctx);
+    }
+    // AdjacentToIncidentStrategy rewrites out(L).count() → outE(L).count(). Counting edges of a
+    // labelled hop equals counting the far vertices, so claim the folded vertex-hop IR and leave
+    // count() for CountGlobalStepRecogniser. Exact class match — subclasses are not this rewrite.
+    var next = cursor.peek(1);
+    if (next != null && next.getClass() == CountGlobalStep.class) {
+      var step = (VertexStepContract<?>) cursor.take();
+      return GremlinPatternAssembler.claimFoldedHop(step, ctx);
     }
     return Outcome.DECLINE;
   }
