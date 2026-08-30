@@ -233,13 +233,13 @@ interface RecognitionContext extends ParamSink {
   /** Registers a pattern node under {@code alias} rooted at {@code className}, non-optional. */
   void addNode(String alias, String className);
 
-  /** Registers an unfiltered edge {@code fromAlias --dir(edgeLabel)--> toAlias} on the pattern. */
+  /** Registers an unfiltered edge {@code fromAlias --dir(edgeLabels)--> toAlias} on the pattern. */
   void addEdge(
       String fromAlias, String toAlias, MatchPatternBuilder.Direction dir,
-      @Nullable String edgeLabel);
+      @Nullable String[] edgeLabels);
 
   /**
-   * Registers the edge-as-node form {@code fromAlias --edgeDir E(edgeLabel){edgeFilter}--> edgeAlias
+   * Registers the edge-as-node form {@code fromAlias --edgeDir E(edgeLabels){edgeFilter}--> edgeAlias
    * --closingVertexDir V()--> toAlias}, the only IR shape that can filter an edge rather than the
    * target vertex.
    */
@@ -248,7 +248,7 @@ interface RecognitionContext extends ParamSink {
       String edgeAlias,
       String toAlias,
       MatchPatternBuilder.Direction edgeDir,
-      @Nullable String edgeLabel,
+      @Nullable String[] edgeLabels,
       MatchPatternBuilder.Direction closingVertexDir,
       @Nullable SQLWhereClause edgeFilter);
 

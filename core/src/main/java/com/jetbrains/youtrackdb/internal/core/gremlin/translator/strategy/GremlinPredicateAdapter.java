@@ -175,6 +175,41 @@ final class GremlinPredicateAdapter {
   }
 
   /**
+   * Schema-backed gate for one or more edge/vertex classes (multi-label hops). True when any named
+   * class declares the key as the requested type; a null/empty label array routes every key to
+   * unknown (strict / keep type guard).
+   */
+  static PropertyTypeGate schemaGate(RecognitionContext ctx, @Nullable String[] classNames) {
+    return new PropertyTypeGate() {
+      @Override
+      public boolean isDeclaredString(String key) {
+        if (classNames == null) {
+          return false;
+        }
+        for (var className : classNames) {
+          if (ctx.isDeclaredStringProperty(className, key)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      @Override
+      public boolean declaredTypeIn(String key, List<String> typeNames) {
+        if (classNames == null) {
+          return false;
+        }
+        for (var className : classNames) {
+          if (ctx.isDeclaredPropertyTypeIn(className, key, typeNames)) {
+            return true;
+          }
+        }
+        return false;
+      }
+    };
+  }
+
+  /**
    * Resolves a user-facing Gremlin {@code as(...)} label to the pattern alias the walker minted for
    * the step it labelled, or {@code null} when the label names no node in the pattern. The
    * {@code $matched} row the executor evaluates a label-reference accessor against is keyed on

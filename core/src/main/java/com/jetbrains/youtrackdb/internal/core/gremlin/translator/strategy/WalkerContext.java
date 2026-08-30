@@ -545,8 +545,8 @@ final class WalkerContext implements RecognitionContext {
       String fromAlias,
       String toAlias,
       MatchPatternBuilder.Direction dir,
-      @Nullable String edgeLabel) {
-    patternBuilder.addEdge(fromAlias, toAlias, dir, edgeLabel, null, null, null);
+      @Nullable String[] edgeLabels) {
+    patternBuilder.addEdge(fromAlias, toAlias, dir, edgeLabels, null, null, null);
   }
 
   @Override
@@ -555,11 +555,11 @@ final class WalkerContext implements RecognitionContext {
       String edgeAlias,
       String toAlias,
       MatchPatternBuilder.Direction edgeDir,
-      @Nullable String edgeLabel,
+      @Nullable String[] edgeLabels,
       MatchPatternBuilder.Direction closingVertexDir,
       @Nullable SQLWhereClause edgeFilter) {
     patternBuilder.addEdgeAsNode(
-        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter);
+        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabels, closingVertexDir, edgeFilter);
   }
 
   @Override

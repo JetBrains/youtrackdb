@@ -265,11 +265,25 @@ public class MatchPatternBuilderTest {
   public void addEdge_nullEdgeLabel_pathItemRendersWithDefaultEdgeClass() {
     var ir =
         new MatchPatternBuilder()
-            .addEdge("a", "b", Direction.OUT, null, null, null, null)
+            .addEdge("a", "b", Direction.OUT, (String) null, null, null, null)
             .build();
     var rendered = renderPathItemFor(ir);
     // SQLBaseExpression string-quoting (see graphPath) wraps the class name in quotes.
     assertEquals(".out(\"E\"){as: b}", rendered);
+  }
+
+  /**
+   * Multi-label {@code addEdge} renders both labels as method parameters:
+   * {@code .out("knows", "likes"){as: b}}.
+   */
+  @Test
+  public void addEdge_multiLabel_pathItemRendersBothLabels() {
+    var ir =
+        new MatchPatternBuilder()
+            .addEdge("a", "b", Direction.OUT, new String[] {"knows", "likes"}, null, null, null)
+            .build();
+    var rendered = renderPathItemFor(ir);
+    assertEquals(".out(\"knows\", \"likes\"){as: b}", rendered);
   }
 
   /**

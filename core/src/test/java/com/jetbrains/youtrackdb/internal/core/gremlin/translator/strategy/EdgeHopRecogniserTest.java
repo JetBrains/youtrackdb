@@ -441,17 +441,24 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
     assertThat(ctx.resolveUserLabel("v")).isEqualTo(FIRST_ANON_ALIAS);
   }
 
-  /** A multi-label edge ({@code outE("knows", "likes")}) declines — multi-label is out of scope. */
+  /** A multi-label edge ({@code outE("knows", "likes").inV()}) is claimed with both labels. */
   @Test
-  public void multiLabelEdge_declines() {
+  public void multiLabelEdge_isClaimed() {
     var admin = graph.traversal().V().outE("knows", "likes").inV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("a multi-label edge must decline").isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).as("a multi-label edge must be accepted").isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    var ir = ctx.patternBuilder.build();
+    assertThat(ir.pattern().aliasToNode)
+        .containsOnlyKeys(BOUNDARY_ALIAS, FIRST_EDGE_ALIAS, FIRST_ANON_ALIAS);
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
   }
 
   /**

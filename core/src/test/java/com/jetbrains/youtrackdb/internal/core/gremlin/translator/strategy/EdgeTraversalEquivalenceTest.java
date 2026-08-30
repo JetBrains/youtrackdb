@@ -615,16 +615,15 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Decline case — a multi-label hop falls back to native.
+  // Multi-label hop — MATCH out('a','b') carries both labels.
   // ---------------------------------------------------------------------------
 
   /**
-   * A multi-label hop {@code g.V().out("knows", "likes")} declines — multi-label edge traversal is
-   * out of scope for Phase 1. Seeded with both a {@code knows} and a {@code likes} edge so the native
-   * fallback returns a non-trivial two-label result the equivalence check pins.
+   * A multi-label hop {@code g.V().out("knows", "likes")} translates. Seeded with both a {@code
+   * knows} and a {@code likes} edge so the multiset covers both labels.
    */
   @Test
-  public void multiLabelHop_declinesToNative() {
+  public void multiLabelHop_returnsSameMultisetAsNative() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
@@ -634,8 +633,30 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().out(knows, likes) (multi-label)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("knows", "likes"));
+  }
+
+  /**
+   * Multi-label edge filter chain {@code outE("knows","likes").has("since", lt).inV()} translates
+   * and matches native — both labels on the edge method, edge property filter retained.
+   */
+  @Test
+  public void multiLabelOutEHasInV_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("likes", carol, "since", 2011);
+    alice.addEdge("knows", dave, "since", 2020); // filtered out by since < 2015
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V(alice).outE(knows, likes).has(since, lt 2015).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(alice.id()).outE("knows", "likes").has("since", P.lt(2015))
+            .inV());
   }
 
   // ---------------------------------------------------------------------------
