@@ -54,9 +54,12 @@ import org.junit.Test;
  *       with a hop inside declines (existence would join-fan-out); pure property children translate.
  *   <li><b>Labelled {@code where(as(a)…)}</b> — scope steps unregistered → decline.
  *   <li><b>{@code where(P).by(...)}</b> — modulateBy property projection out of Phase 1.
- *   <li><b>{@code dedup().by(...)}</b> / values-then-dedup / prior-label {@code dedup(a)} —
- *       declines; bare element {@code dedup()} translates.
- *   <li><b>Keyless {@code valueMap()}/{@code elementMap()}</b> — declines; keyed forms translate.
+ *   <li><b>{@code dedup().by(property)}</b> on an element boundary translates (post-projection dedup);
+ *       values-then-dedup, prior-label {@code dedup(a)}, and post-union {@code dedup().by(...)} decline;
+ *       bare element {@code dedup()} and {@code RETURN DISTINCT} translate.
+ *   <li><b>Keyless {@code valueMap()}/{@code elementMap()}</b> — on the generic {@code V} root declines;
+ *       on a typed boundary ({@code hasLabel(L)} with schema-declared properties) translates; keyed
+ *       forms always translate.
  *   <li><b>Post-union hop/filter/order/positional slice</b> — declines; union+{@code count}/early
  *       {@code dedup} translate.
  *   <li><b>Bare RID point-lookup</b> — {@code g.V(id)} / {@code hasId} with no hop declines (native
@@ -762,17 +765,17 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .order().by(__.select("k").by("since"), Order.asc));
   }
 
-  /** dedup().by(property) declines. */
+  /** dedup().by(property) dedups on modulator value while emitting elements. */
   @Test
-  public void dedup_by_declines() {
+  public void dedup_by_matchesNative() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().out(created).dedup().by(name)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("created").dedup().by("name"));
   }
 
-  /** values then dedup declines. */
+  /** values then dedup declines — boundary is no longer ELEMENT. */
   @Test
   public void values_dedup_declines() {
     ModernGraphFixture.seed(graph, session);
@@ -782,13 +785,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").values("name").dedup());
   }
 
-  /** Keyless valueMap declines. */
+  /** Keyless valueMap on a typed boundary enumerates schema-declared properties. */
   @Test
-  public void valueMap_keyless_declines() {
+  public void valueMap_keyless_onHasLabel_matchesNative() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().hasLabel(Person).valueMap()",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person").valueMap());
   }
 
@@ -898,13 +901,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .out("created"));
   }
 
-  /** Singleton-collection eq declines. */
+  /** Singleton collection {@code eq([v])} normalizes to scalar {@code eq(v)}. */
   @Test
-  public void has_eqSingletonCollection_declines() {
+  public void has_eqSingletonCollection_matchesNative() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().has(name,eq([marko]))",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().has("name", P.eq(List.of("marko"))));
   }
 
