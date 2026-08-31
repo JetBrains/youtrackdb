@@ -325,6 +325,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public List<String> expandPolymorphicClassClosure(List<String> rootLabels) {
+    return parent.expandPolymorphicClassClosure(rootLabels);
+  }
+
+  @Override
   public List<String> boundaryDeclaredPropertyKeys() {
     return parent.boundaryDeclaredPropertyKeys();
   }
@@ -459,6 +464,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public void markEdgeAlias(String internalAlias) {
+    parent.markEdgeAlias(internalAlias);
+  }
+
+  @Override
+  public boolean isEdgeAlias(String internalAlias) {
+    return parent.isEdgeAlias(internalAlias);
+  }
+
+  @Override
   public void clearReturnProjection() {
     // Swallowed — sub-walk children do not shape the parent's RETURN clause.
   }
@@ -484,6 +499,18 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // Captured locally for containment / post-cardinality gates; never forwarded — a filter child
     // does not shape the parent's RETURN clause.
     capturedReturnDistinct = distinct;
+  }
+
+  @Nullable @Override
+  public String rowDedupAlias() {
+    // Delegated like returnDistinct: a child must see a parent cardinality capture so it does
+    // not claim a step on the wrong side of the parent's prior-label filter.
+    return parent.rowDedupAlias();
+  }
+
+  @Override
+  public void setRowDedupAlias(@Nullable String alias) {
+    // Swallowed — see setReturnDistinct.
   }
 
   @Override
@@ -536,6 +563,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   public void setResultShaping(@Nonnull ResultShaping shaping) {
     // Swallowed — boundary row-projection shaping is pinned by terminal recognisers on the outer
     // context only; a combinator filter sub-walk never shapes the parent's rows.
+  }
+
+  @Override
+  public boolean emitGroupEntries() {
+    return false;
+  }
+
+  @Override
+  public void enableGroupEntryEmit() {
+    // Swallowed — see setResultShaping.
   }
 
   @Override
