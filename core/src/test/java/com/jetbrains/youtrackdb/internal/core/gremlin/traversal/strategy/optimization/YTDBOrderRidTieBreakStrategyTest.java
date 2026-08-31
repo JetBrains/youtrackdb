@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Scope;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ColumnTraversal;
@@ -21,7 +22,7 @@ import org.junit.Test;
 
 /**
  * {@link YTDBOrderRidTieBreakStrategy} appends a stream-typed secondary key: {@code T.id} on
- * elements, {@code Column.keys} on group entries, identity elsewhere.
+ * elements, {@code Column.keys} or {@code select(keys).id()} on group entries, identity elsewhere.
  */
 public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
 
@@ -108,10 +109,34 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
     var comparators = comparators(orderStep(admin));
-    assertThat(comparators).hasSize(2);
+    assertThat(comparators).hasSize(3);
     assertThat(comparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
     assertThat(((ColumnTraversal) comparators.get(1).getValue0()).getColumn())
         .isEqualTo(Column.keys);
+    assertThat(comparators.get(2).getValue0()).isInstanceOf(IdentityTraversal.class);
+  }
+
+  /**
+   * Default {@code group().unfold().order()} with element keys gains {@code select(keys).id()},
+   * not raw {@code Column.keys} (Vertex is not {@code Comparable}).
+   */
+  @Test
+  public void apply_appendsSelectKeysIdAfterUnfoldedDefaultGroup() {
+    var admin = graph.traversal().V()
+        .group().by().by(__.count())
+        .unfold()
+        .order()
+        .by(__.select(Column.values), Order.desc)
+        .asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(3);
+    var tieBreak = comparators.get(1).getValue0();
+    assertThat(tieBreak).isNotInstanceOf(ColumnTraversal.class);
+    assertThat(tieBreak.getEndStep()).isInstanceOf(
+        org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep.class);
+    assertThat(comparators.get(2).getValue0()).isInstanceOf(IdentityTraversal.class);
   }
 
   /** Explicit {@code by(Column.keys)} already ties on the entry key — no duplicate keys modulator. */
@@ -365,6 +390,44 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(second).isEqualTo(first);
   }
 
+  /**
+   * The same key may appear in entries from different maps after {@code inject(m1,m2).unfold()}.
+   * Values and keys both tie — entry identity must still yield a stable sequence.
+   */
+  @Test
+  public void apply_tiedUnfoldedMapsDuplicateKeys_sortDeterministicallyByIdentity() {
+    var first = drainDuplicateKeyAcrossInjectedMaps();
+    var second = drainDuplicateKeyAcrossInjectedMaps();
+    assertThat(first).containsExactly("alice", "alice");
+    assertThat(second).isEqualTo(first);
+  }
+
+  /**
+   * Two projected group maps unfolded to entries — same key {@code alice} in both maps, values tie.
+   * Uses identity (not {@code group().unfold()} MAP_ENTRY path) but exercises cross-map duplicates.
+   */
+  @Test
+  public void apply_tiedProjectedMapsUnfoldDuplicateKeys_sortDeterministically() {
+    seedKnowsGraphForLocalGroupDuplicateKeys();
+    graph.tx().commit();
+
+    var first = drainDuplicateKeyAcrossProjectedMapsUnfold();
+    var second = drainDuplicateKeyAcrossProjectedMapsUnfold();
+    assertThat(first).containsExactly("alice", "alice", "bob");
+    assertThat(second).isEqualTo(first);
+  }
+
+  private void seedKnowsGraphForLocalGroupDuplicateKeys() {
+    var marko = graph.addVertex(T.label, "person", "name", "marko");
+    var josh = graph.addVertex(T.label, "person", "name", "josh");
+    var aliceOne = graph.addVertex(T.label, "person", "name", "alice");
+    var aliceTwo = graph.addVertex(T.label, "person", "name", "alice");
+    var bob = graph.addVertex(T.label, "person", "name", "bob");
+    marko.addEdge("knows", aliceOne);
+    marko.addEdge("knows", bob);
+    josh.addEdge("knows", aliceTwo);
+  }
+
   @SuppressWarnings("unchecked")
   private List<String> drainTiedInjectedEntryKeys() {
     var entries = (List<Map.Entry<String, Integer>>) (List<?>) graph.traversal()
@@ -380,6 +443,32 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     var entries = (List<Map.Entry<String, Integer>>) (List<?>) graph.traversal().V()
         .hasLabel("person")
         .group().by("name").by(__.constant(1))
+        .unfold()
+        .order()
+        .by(__.select(Column.values), Order.asc)
+        .toList();
+    return entries.stream().map(Map.Entry::getKey).toList();
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> drainDuplicateKeyAcrossInjectedMaps() {
+    var entries = (List<Map.Entry<String, Integer>>) (List<?>) graph.traversal()
+        .inject(Map.of("alice", 1), Map.of("alice", 1))
+        .unfold()
+        .order()
+        .by(__.select(Column.values), Order.asc)
+        .toList();
+    return entries.stream().map(Map.Entry::getKey).toList();
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> drainDuplicateKeyAcrossProjectedMapsUnfold() {
+    var entries = (List<Map.Entry<String, Integer>>) (List<?>) graph.traversal().V()
+        .has("name", P.within("marko", "josh"))
+        .project("map")
+        .by(__.out("knows").group().by("name").by(__.constant(1)))
+        .select("map")
+        .unfold()
         .unfold()
         .order()
         .by(__.select(Column.values), Order.asc)

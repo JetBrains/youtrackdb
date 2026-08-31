@@ -70,7 +70,9 @@ import org.javatuples.Pair;
  *
  * <ul>
  *   <li>Global order over graph elements → {@code by(T.id, asc)} (MATCH {@code @rid}).
- *   <li>Global order over map entries after {@code group*().unfold()} → {@code by(keys, asc)}.
+ *   <li>Global order over map entries after {@code group*().unfold()} → {@code by(keys, asc)}
+ *       or {@code select(keys).id()} when the group key is an element, then {@code by(identity)}
+ *       when the same key can repeat across different maps in the stream.
  *   <li>Global order over anything else → {@code by(identity, asc)} (TinkerPop orderability).
  *   <li>Local {@code order(local)}: folded elements → {@code T.id} (replacing bare identity);
  *       map from {@code group*}/{@code project}/{@code *Map} → {@code keys} or
@@ -124,7 +126,11 @@ public final class YTDBOrderRidTieBreakStrategy
     // Admin wiring is required by OrderGlobalStep.modulateBy (same as order().by(...)).
     switch (classifyFrom(step.getPreviousStep())) {
       case ELEMENT -> step.modulateBy(new TokenTraversal(T.id).asAdmin(), Order.asc);
-      case MAP_ENTRY -> step.modulateBy(new ColumnTraversal(Column.keys).asAdmin(), Order.asc);
+      case MAP_ENTRY -> {
+        step.modulateBy(globalMapEntryTieBreakModulator(step), Order.asc);
+        // Same key may repeat across entries from different maps (local group, inject+unfold, …).
+        step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
+      }
       case OTHER -> step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
     }
   }
@@ -215,17 +221,49 @@ public final class YTDBOrderRidTieBreakStrategy
     return StreamKind.OTHER;
   }
 
-  /** Key modulator for local map order: element group keys need {@code id()}, not raw keys. */
+  /** Global {@code group*().unfold().order()} — same key modulator policy as local map order. */
   @SuppressWarnings({"unchecked", "rawtypes"})
+  private static Admin<?, ?> globalMapEntryTieBreakModulator(OrderGlobalStep<?, ?> orderStep) {
+    var groupStep = unfoldedGroupStep(orderStep);
+    return mapEntryKeyTieBreakModulator(groupStep);
+  }
+
+  /** Key modulator for local map order: element group keys need {@code id()}, not raw keys. */
   private static Admin<?, ?> entryKeyTieBreakModulator(OrderLocalStep<?, ?> orderStep) {
     Step<?, ?> current = orderStep.getPreviousStep();
     while (!(current instanceof EmptyStep) && isTransparent(current)) {
       current = current.getPreviousStep();
     }
-    if (groupKeyIsElement(current)) {
+    if (current instanceof GroupStep
+        || current instanceof GroupCountStep
+        || current instanceof ProjectStep
+        || current instanceof PropertyMapStep
+        || current instanceof ElementMapStep) {
+      return mapEntryKeyTieBreakModulator(current);
+    }
+    return new ColumnTraversal(Column.keys).asAdmin();
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static Admin<?, ?> mapEntryKeyTieBreakModulator(Step<?, ?> groupOrMapStep) {
+    if (groupOrMapStep != null && groupKeyIsElement(groupOrMapStep)) {
       return (Admin) __.select(Column.keys).id().asAdmin();
     }
     return new ColumnTraversal(Column.keys).asAdmin();
+  }
+
+  private static Step<?, ?> unfoldedGroupStep(OrderGlobalStep<?, ?> orderStep) {
+    Step<?, ?> current = orderStep.getPreviousStep();
+    while (!(current instanceof EmptyStep) && isTransparent(current)) {
+      current = current.getPreviousStep();
+    }
+    if (current instanceof UnfoldStep unfold) {
+      var beforeUnfold = unfold.getPreviousStep();
+      if (beforeUnfold instanceof GroupStep || beforeUnfold instanceof GroupCountStep) {
+        return beforeUnfold;
+      }
+    }
+    return null;
   }
 
   private static boolean groupKeyIsElement(Step<?, ?> groupOrMapStep) {
