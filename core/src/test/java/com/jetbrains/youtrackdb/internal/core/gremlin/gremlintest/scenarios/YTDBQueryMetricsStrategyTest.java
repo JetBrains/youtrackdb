@@ -389,17 +389,12 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   // What a by-id lookup surfaces depends on which source path ran, so this scenario pins both arms
   // of the kill-switch rather than one.
   //
-  // A BARE g.V(rid) point-lookup now DECLINES to native on both arms: native resolves the record
-  // directly with no query, and translating it would only add an uncached MATCH plan compile with
-  // no join to optimise, so the translator declines it. This scenario therefore pins the new
-  // contract -- both arms run natively and neither captures a plan -- which is trivially on==off.
-  // The pinned-RID fetch promotion the translated path used to exercise (SELECT FROM [#X:Y] rather
-  // than a V scan with an @rid post-filter) is still guarded directly at the SQL layer by
-  // PromoteStaticRidsFromFiltersTest; it no longer applies to a bare Gremlin lookup because that
-  // shape no longer translates. A RID start FOLLOWED by a hop still translates.
+  // A bare g.V(rid) point-lookup translates on the translator-on arm (MATCH seek by @rid) and
+  // runs natively with no SQL plan on the translator-off arm. EXACT monitoring therefore captures
+  // a SelectExecutionPlan only when the kill-switch is on.
   @Test
   @LoadGraphWith(MODERN)
-  public void bareByIdLookupDeclinesToNativeOnBothArmsAndCapturesNoPlan() throws Exception {
+  public void bareByIdLookupCapturesPlanOnlyWhenTranslatorOn() throws Exception {
     g.tx().open();
     final var personId = g().V().hasLabel("person").next().id();
     g.tx().commit();
@@ -422,8 +417,8 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .as("the listener was notified on the translator-on path")
         .isTrue();
     assertThat(listener.executionPlan)
-        .as("a bare g.V(rid) declines to native even with the translator on, so no plan is captured")
-        .isNull();
+        .as("a bare g.V(rid) with the translator on runs through MATCH and captures a plan")
+        .isNotNull();
 
     listener.reset();
     ((YTDBTransaction) g.tx())

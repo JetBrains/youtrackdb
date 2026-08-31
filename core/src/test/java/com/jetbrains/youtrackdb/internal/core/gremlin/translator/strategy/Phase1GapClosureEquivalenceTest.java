@@ -35,63 +35,60 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
   // Edge alias — bind, project, sort.
   // ---------------------------------------------------------------------------
 
-  /**
-   * {@code outE(L).as(k).inV().select(k).by(since)} declines: the edge as() label would bind to the
-   * edge-as-node vertex alias, so {@code select(k)} would return the target vertex not the edge.
-   */
+  /** {@code outE(L).as(k).inV().select(k).by(since)} binds the edge alias and projects edge properties. */
   @Test
-  public void edgeAlias_selectByProperty_declines() {
+  public void edgeAlias_selectByProperty_matchesNative() {
     var ids = seedKnowsWithSince();
     assertEquivalent(
         "g.V(alice).outE(knows).as(k).inV().select(k).by(since)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(ids.alice()).outE("knows").as("k").inV().select("k").by("since"));
   }
 
-  /** Edge alias without an interposed {@code has(...)} still declines (edge-alias select). */
+  /** Edge alias without an interposed {@code has(...)} still binds and projects. */
   @Test
-  public void edgeAlias_noHasFilter_selectByProperty_declines() {
+  public void edgeAlias_noHasFilter_selectByProperty_matchesNative() {
     var ids = seedKnowsWithSince();
     assertEquivalent(
         "g.V(alice).outE(knows).as(k).inV().select(k).by(since) (no has)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(ids.alice()).outE("knows").as("k").inV().select("k").by("since"));
   }
 
-  /** Two-label {@code select(k, friend).by(...)} without order — edge alias declines. */
+  /** Two-label {@code select(k, friend).by(...)} without order — edge + vertex alias projection. */
   @Test
-  public void edgeAlias_selectTwoLabels_noOrder_declines() {
+  public void edgeAlias_selectTwoLabels_noOrder_matchesNative() {
     var ids = seedKnowsWithSinceAndNames();
     assertEquivalent(
         "…outE(k).inV().as(friend).select(k,friend).by(since).by(name)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(ids.alice())
             .outE("knows").as("k")
             .inV().as("friend")
             .select("k", "friend").by("since").by("name"));
   }
 
-  /** {@code order().by(name)} on the hop target after edge alias bind — declines (edge alias). */
+  /** {@code order().by(name)} on the hop target after edge alias bind. */
   @Test
-  public void edgeAlias_orderByFriendName_declines() {
+  public void edgeAlias_orderByFriendName_matchesNative() {
     var ids = seedKnowsWithSinceAndNames();
     assertEquivalentOrdered(
         "…outE(k).inV().as(friend).order().by(name)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(ids.alice())
             .outE("knows").as("k")
             .inV().as("friend")
             .order().by("name", Order.asc));
   }
 
-  /** IS3-shaped order + two-label select — declines (edge alias). */
+  /** IS3-shaped order + two-label select. */
   @Test
-  public void edgeAlias_is3Shape_selectTwoLabels_declines() {
+  public void edgeAlias_is3Shape_selectTwoLabels_matchesNative() {
     var ids = seedKnowsWithSinceAndNames();
     assertEquivalentOrdered(
         "…outE(knows).as(k).inV().as(friend).order().by(firstName)"
             + ".select(k,friend).by(since).by(name)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(ids.alice())
             .outE("knows").as("k")
             .inV().as("friend")
@@ -99,26 +96,26 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
             .select("k", "friend").by("since").by("name"));
   }
 
-  /** Single cross-alias {@code order().by(select(k).by(since))} modulator — declines (edge alias). */
+  /** Single cross-alias {@code order().by(select(k).by(since))} modulator. */
   @Test
-  public void orderBy_selectKModulatorOnly_declines() {
+  public void orderBy_selectKModulatorOnly_matchesNative() {
     var ids = seedKnowsWithSinceAndNames();
     assertEquivalentOrdered(
         "…order().by(select(k).by(since))",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(ids.alice())
             .outE("knows").as("k")
             .inV().as("friend")
             .order().by(__.select("k").by("since"), Order.asc));
   }
 
-  /** Cross-alias sort with a bound edge alias modulator — declines (edge alias). */
+  /** Cross-alias sort with a bound edge alias modulator. */
   @Test
-  public void orderBy_selectEdgeModulator_thenVertexProperty_declines() {
+  public void orderBy_selectEdgeModulator_thenVertexProperty_matchesNative() {
     var ids = seedKnowsWithSinceAndNames();
     assertEquivalentOrdered(
         "…order().by(select(k).by(since)).by(name)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(ids.alice())
             .outE("knows").as("k")
             .inV().as("friend")
@@ -188,21 +185,21 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
   // hasLabel — multi-label and missing class.
   // ---------------------------------------------------------------------------
 
-  /** Multi-label {@code hasLabel} + property filter — declines under default polymorphic mode. */
+  /** Multi-label {@code hasLabel} + property filter — translates under default polymorphic mode. */
   @Test
-  public void hasLabelMultiLabel_withPropertyFilter_declines() {
+  public void hasLabelMultiLabel_withPropertyFilter_matchesNative() {
     seedPersonEmployeeHierarchy();
     graph.addVertex(T.label, "Person", "name", "Zara");
     graph.tx().commit();
     assertEquivalent(
         "g.V().hasLabel(Person, Employee).has(name, Eve)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person", "Employee").has("name", "Eve"));
   }
 
-  /** Three-label {@code hasLabel} via {@code within(...)} — declines under default polymorphic mode. */
+  /** Three-label {@code hasLabel} via {@code within(...)} — translates under default polymorphic mode. */
   @Test
-  public void hasLabelThreeLabels_declines() {
+  public void hasLabelThreeLabels_matchesNative() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     session.getSchema().createClass("Manager", person);
@@ -212,7 +209,7 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
     graph.tx().commit();
     assertEquivalent(
         "g.V().hasLabel(Person, Employee, Manager)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person", "Employee", "Manager"));
   }
 
@@ -231,9 +228,9 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Foo"));
   }
 
-  /** Post-hop multi-label on a hop target — declines under default polymorphic mode. */
+  /** Post-hop multi-label on a hop target — translates under default polymorphic mode. */
   @Test
-  public void postHopHasLabelMultiLabel_declines() {
+  public void postHopHasLabelMultiLabel_matchesNative() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
@@ -242,7 +239,7 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
     graph.tx().commit();
     assertEquivalent(
         "g.V(alice).out(knows).hasLabel(Person, Employee)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(alice.id()).out("knows").hasLabel("Person", "Employee"));
   }
 
