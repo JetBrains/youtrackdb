@@ -327,6 +327,9 @@ final class WalkerContext implements RecognitionContext {
    *  {@link #nextEdgeAlias()}; see {@link #anonVertexAliases}. */
   private final AliasSequence edgeAliases = new AliasSequence(EDGE_ALIAS_PREFIX);
 
+  /** Internal pattern aliases that bind an edge-as-node hop (for edge {@code select} projection). */
+  private final Set<String> edgeBoundAliases = new HashSet<>();
+
   /** Convenience constructor with no schema snapshot — used by unit tests that exercise recogniser
    *  logic without a live session. Every property resolves as "not a declared String", so a
    *  {@code startingWith} routes to the strict full-scan form. Carries no registry, so it cannot drive
@@ -517,6 +520,30 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
+  public List<String> expandPolymorphicClassClosure(List<String> rootLabels) {
+    if (schema == null || rootLabels.isEmpty()) {
+      return List.copyOf(rootLabels);
+    }
+    var expanded = new java.util.LinkedHashSet<String>();
+    for (var root : rootLabels) {
+      if (root == null || root.isBlank()) {
+        continue;
+      }
+      expanded.add(root);
+      var clazz = schema.getClass(root);
+      if (clazz == null) {
+        continue;
+      }
+      for (var sub : clazz.getAllSubclasses()) {
+        if (sub.isVertexType()) {
+          expanded.add(sub.getName());
+        }
+      }
+    }
+    return List.copyOf(expanded);
+  }
+
+  @Override
   public List<String> boundaryDeclaredPropertyKeys() {
     var className = boundaryClassName();
     if (schema == null || className == null || VERTEX_ROOT_CLASS.equals(className)) {
@@ -681,6 +708,16 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
+  public void markEdgeAlias(String internalAlias) {
+    edgeBoundAliases.add(internalAlias);
+  }
+
+  @Override
+  public boolean isEdgeAlias(String internalAlias) {
+    return edgeBoundAliases.contains(internalAlias);
+  }
+
+  @Override
   public void clearReturnProjection() {
     returnItems.clear();
     returnAliases.clear();
@@ -702,6 +739,16 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void setReturnDistinct(boolean distinct) {
     this.returnDistinct = distinct;
+  }
+
+  @Nullable @Override
+  public String rowDedupAlias() {
+    return shaping.rowDedupAlias();
+  }
+
+  @Override
+  public void setRowDedupAlias(@Nullable String alias) {
+    this.shaping = shaping.withRowDedupAlias(alias);
   }
 
   @Override
@@ -762,6 +809,16 @@ final class WalkerContext implements RecognitionContext {
     // turns dropOnAbsent back on has to re-declare it; UnionStepRecogniser's agreed-shaping path
     // does not, so a post-union slice cannot promote and stays declined.
     this.presenceDropAlias = null;
+  }
+
+  @Override
+  public boolean emitGroupEntries() {
+    return shaping.emitGroupEntries();
+  }
+
+  @Override
+  public void enableGroupEntryEmit() {
+    this.shaping = shaping.withEmitGroupEntries(true);
   }
 
   @Override
