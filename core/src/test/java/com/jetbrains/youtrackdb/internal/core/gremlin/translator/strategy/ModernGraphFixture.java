@@ -53,7 +53,11 @@ final class ModernGraphFixture {
    */
   static Modern seed(YTDBGraph graph, DatabaseSessionEmbedded session) {
     session.createVertexClass("Person");
+    session.getSchema().getClass("Person").createProperty("name", PropertyType.STRING);
+    session.getSchema().getClass("Person").createProperty("age", PropertyType.INTEGER);
     session.createVertexClass("Software");
+    session.getSchema().getClass("Software").createProperty("name", PropertyType.STRING);
+    session.getSchema().getClass("Software").createProperty("lang", PropertyType.STRING);
     session.createEdgeClass("knows").createProperty("weight", PropertyType.DOUBLE);
     session.createEdgeClass("created").createProperty("weight", PropertyType.DOUBLE);
 

@@ -199,6 +199,20 @@ public final class ByModulatorTranslator {
         .isPresent();
   }
 
+  /**
+   * Resolves a {@code dedup().by(...)} modulator into the field whose distinct values drive
+   * deduplication — a declared property key or a record attribute ({@code @rid} / {@code @class}).
+   */
+  public static Optional<DedupModulatorKey> translateDedupModulatorKey(
+      Traversal.Admin<?, ?> modulator) {
+    return classifyKey(modulator)
+        .map(ref -> new DedupModulatorKey(ref.recordAttr(), ref.name()));
+  }
+
+  /** Key side of {@code dedup().by(...)} for post-projection stream deduplication. */
+  public record DedupModulatorKey(boolean recordAttribute, String fieldName) {
+  }
+
   /** Classifies a key-side modulator into a field reference, independent of the target alias. */
   private static Optional<FieldRef> classifyKey(Traversal.Admin<?, ?> modulator) {
     if (modulator == null) {

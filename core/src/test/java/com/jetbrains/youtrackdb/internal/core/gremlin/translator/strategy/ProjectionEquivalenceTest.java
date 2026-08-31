@@ -1236,12 +1236,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().as("v").dedup("v"));
   }
 
-  /**
-   * {@code dedup().by("name")} declines to native — MATCH cannot DISTINCT-ON a property while
-   * still emitting the current element.
-   */
+  /** {@code dedup().by("name")} dedups on the modulator value while emitting elements. */
   @Test
-  public void dedupByName_declinesToNative() {
+  public void dedupByName_matchesNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
@@ -1249,7 +1246,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().dedup().by(name)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().dedup().by("name"));
   }
 
@@ -1640,14 +1637,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().valueMap(true, "name"));
   }
 
-  /**
-   * A key-less {@code valueMap} / {@code elementMap} projects every property, which needs a
-   * schema-driven enumeration this cut does not have, so all four spellings decline. Requesting the
-   * tokens does not supply a key list: a plan built from the token columns alone returns
-   * {@code {id, label}} per element and silently loses every property.
-   */
+  /** Key-less maps on the generic {@code V} root still decline — no schema class to enumerate. */
   @Test
-  public void keylessValueMapAndElementMap_decline() {
+  public void keylessValueMapAndElementMap_onGenericRoot_decline() {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.tx().commit();
 
@@ -1657,13 +1649,47 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().valueMap(true)", Recognition.DECLINED, () -> graph.traversal().V().valueMap(true));
     assertEquivalent(
         "g.V().elementMap()", Recognition.DECLINED, () -> graph.traversal().V().elementMap());
-    // The fourth spelling is the one the deleted derivation keyed off: with(WithOptions.tokens) is
-    // the second route to a non-zero token bit set on a step carrying no key list, so under
-    // isElementMap = tokens != 0 it skipped the empty-key decline exactly as valueMap(true) did.
     assertEquivalent(
         "g.V().valueMap().with(WithOptions.tokens)",
         Recognition.DECLINED,
         () -> graph.traversal().V().valueMap().with(WithOptions.tokens));
+  }
+
+  /** Keyless {@code valueMap()} / {@code elementMap()} on a {@code hasLabel(Person)} boundary. */
+  @Test
+  public void hasLabelPerson_valueMap_matchesNative() {
+    session.getSchema().createClass("Person", session.getSchema().getClass("V"));
+    session.getSchema()
+        .getClass("Person")
+        .createProperty(
+            "name",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
+    session.getSchema()
+        .getClass("Person")
+        .createProperty(
+            "age",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().hasLabel(Person).valueMap()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").valueMap());
+    assertEquivalent(
+        "g.V().hasLabel(Person).elementMap()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").elementMap());
+  }
+
+  /** {@code out(created).dedup().by(name)} dedups software authors by name. */
+  @Test
+  public void hopDedupByName_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().out(created).dedup().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().out("created").dedup().by("name"));
   }
 
   // --- terminators that must read the value a preceding values(key) projected --------------------

@@ -516,6 +516,23 @@ final class WalkerContext implements RecognitionContext {
     return clazz != null && clazz.isVertexType();
   }
 
+  @Override
+  public List<String> boundaryDeclaredPropertyKeys() {
+    var className = boundaryClassName();
+    if (schema == null || className == null || VERTEX_ROOT_CLASS.equals(className)) {
+      return List.of();
+    }
+    var clazz = schema.getClass(className);
+    if (clazz == null) {
+      return List.of();
+    }
+    return clazz.getProperties().stream()
+        .map(p -> p.getName())
+        .filter(name -> !isReservedHasKey(name))
+        .sorted()
+        .toList();
+  }
+
   // --- RecognitionContext: alias minting --------------------------------------------------------
 
   /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). Each call

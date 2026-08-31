@@ -220,6 +220,13 @@ interface RecognitionContext extends ParamSink {
    */
   boolean isVertexClass(String className);
 
+  /**
+   * Declared property names on {@link #boundaryClassName()}, in stable sorted order, excluding
+   * reserved {@code has} keys. Empty when the boundary is still the generic {@code V} root, the class
+   * is unknown, or no schema snapshot is available.
+   */
+  List<String> boundaryDeclaredPropertyKeys();
+
   // --- Alias minting ----------------------------------------------------------------------------
 
   /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). */
