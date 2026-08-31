@@ -461,6 +461,24 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
     assertThat(rendered.toString()).contains("knows").contains("likes");
   }
 
+  /** Multi-label {@code inE("knows", "likes").inV()} is claimed with both labels. */
+  @Test
+  public void multiLabelInEdge_isClaimed() {
+    var admin = graph.traversal().V().inE("knows", "likes").outV().asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a multi-label inE/outV edge must be accepted")
+        .isEqualTo(Outcome.ACCEPTED);
+    var ir = ctx.patternBuilder.build();
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
+  }
+
   /**
    * A label-less edge chain ({@code outE().has("w", 1).inV()}, all edge types) is claimed, not
    * declined: {@code getEdgeLabels()} is empty (length 0), which the guard accepts, passing a null edge
