@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ValuesFlatMapListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
@@ -78,16 +79,20 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
         .isNull();
   }
 
-  /** Multi-key {@code values("a","b")} declines — flatMap has no boundary equivalent yet. */
+  /** Multi-key {@code values("a","b")} pins ELEMENT projection + {@link ValuesFlatMapListShapingOp}. */
   @Test
-  public void valuesMultiKey_declines() {
+  public void valuesMultiKey_pinsFlatMapShaping() {
     var admin = graph.traversal().V().values("a", "b").asAdmin();
     var ctx = contextAfterStart(admin);
     var cursor = cursorAt(admin, PropertiesStep.class);
 
     var outcome = PropertiesStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.ELEMENT);
+    assertThat(ctx.shaping().listShapingOps()).hasSize(1);
+    assertThat(ctx.shaping().listShapingOps().getFirst())
+        .isInstanceOf(ValuesFlatMapListShapingOp.class);
   }
 
   /** {@code select("v")} after {@code as("v")} surfaces the label in RETURN as {@code MAP}. */
