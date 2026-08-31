@@ -127,24 +127,26 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Polymorphic multi-label {@code hasLabel("Person", "Employee")} declines: {@code @class IN [...]}
-   * is leaf-exact and drops polymorphic subclasses of the listed classes, under-matching native
-   * hierarchy-aware {@code hasLabel}. No cheap subclass expansion exists here, so it falls back to
-   * native. The recogniser contributes nothing.
+   * Polymorphic multi-label {@code hasLabel("Person", "Employee")} expands each listed class to its
+   * subclass closure before {@code @class IN}, mirroring native hierarchy-aware {@code hasLabel}.
    */
   @Test
-  public void hasLabelMultiLabelPolymorphic_declines() {
+  public void hasLabelMultiLabelPolymorphic_expandsSubclassClosure() {
     var person = session.createVertexClass("Person");
-    session.getSchema().createClass("Employee", person);
+    var employee = session.getSchema().createClass("Employee", person);
+    session.getSchema().createClass("Manager", employee);
     var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
     var ctx = contextWithStartBoundary(true, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
     var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("polymorphic multi-label hasLabel must decline (subclass undercount)")
-        .isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(renderBoundaryFilter(ctx))
+        .as("polymorphic multi-label hasLabel expands to subclass-aware @class IN")
+        .contains("@class IN");
+    assertThat(ctx.patternBuilder.build().aliasClasses())
+        .containsEntry(BOUNDARY_ALIAS, "V");
   }
 
   /**
