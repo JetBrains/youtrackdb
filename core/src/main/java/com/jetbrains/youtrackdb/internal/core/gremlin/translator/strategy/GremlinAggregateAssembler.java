@@ -39,7 +39,10 @@ final class GremlinAggregateAssembler {
    * limit.
    */
   private static boolean hasPreAggregateCardinalityClause(RecognitionContext ctx) {
-    return ctx.limit() != null || ctx.skip() != null || ctx.returnDistinct();
+    return ctx.limit() != null
+        || ctx.skip() != null
+        || ctx.returnDistinct()
+        || ctx.rowDedupAlias() != null;
   }
 
   /**

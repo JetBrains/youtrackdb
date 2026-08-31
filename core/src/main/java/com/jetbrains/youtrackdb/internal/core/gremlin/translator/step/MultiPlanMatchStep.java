@@ -10,8 +10,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -445,7 +447,67 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
         yield s;
       }
       case PostConcatOp.Dedup ignored -> PostConcatStreams.dedup(stream, getBoundaryAlias());
+      case PostConcatOp.Order order -> PostConcatStreams.sort(stream, order.items());
     };
+  }
+
+  /**
+   * Union arms that end in {@code group()} / {@code groupCount()} each emit one map natively. A
+   * single {@link #drainGroupRowsToMap} over the concatenated GROUP BY stream would merge every arm
+   * into one map — drain each child plan separately instead.
+   */
+  @Override
+  protected Iterator<Object> openProjectionSource() {
+    if (!accumulatesGroupMap()) {
+      return super.openProjectionSource();
+    }
+    var coordinator = planContext();
+    var childPlans = plans;
+    return new Iterator<>() {
+      private int index;
+      private Object buffered;
+      private boolean hasBuffered;
+
+      @Override
+      public boolean hasNext() {
+        if (hasBuffered) {
+          return true;
+        }
+        while (index < childPlans.size()) {
+          buffered = drainChildPlanToGroupMap(childPlans.get(index++), coordinator);
+          hasBuffered = true;
+          return true;
+        }
+        return false;
+      }
+
+      @Override
+      public Object next() {
+        if (!hasBuffered && !hasNext()) {
+          throw new NoSuchElementException();
+        }
+        var payload = buffered;
+        buffered = null;
+        hasBuffered = false;
+        return payload;
+      }
+    };
+  }
+
+  /** Runs one child plan to completion and accumulates its GROUP BY rows into one map. */
+  private LinkedHashMap<Object, Object> drainChildPlanToGroupMap(
+      InternalExecutionPlan childPlan, CommandContext coordinator) {
+    var childContext = childPlan.getContext();
+    childContext.setDatabaseSession(coordinator.getDatabaseSession());
+    ExecutionStream stream = null;
+    try {
+      stream = childPlan.start();
+      return drainGroupRowsToMap(childContext, stream);
+    } finally {
+      if (stream != null) {
+        stream.close(childContext);
+      }
+    }
   }
 
   @Override

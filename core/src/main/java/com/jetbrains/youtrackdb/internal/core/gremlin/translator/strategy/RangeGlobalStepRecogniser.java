@@ -194,8 +194,9 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     }
     // A real slice behind a grouping terminator would slice the GROUP BY rows instead of the single
     // map the terminator emits — see the class Javadoc's "A slice behind a grouping terminator".
-    // Same placement rationale as the two guards above.
-    if (ctx.groupBy() != null) {
+    // Exception: emitGroupEntries (groupCount().unfold()) — LIMIT applies to entry rows, matching
+    // native.
+    if (ctx.groupBy() != null && !ctx.emitGroupEntries()) {
       return Outcome.DECLINE;
     }
     // Promotion mutates the context (writes alias filters), so it sits after every remaining

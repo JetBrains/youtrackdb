@@ -9,8 +9,12 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanM
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -198,15 +202,16 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code order()} after union still declines — in-memory post-concat sort is not in this cut.
+   * {@code order().by(...)} after {@code union(...)} sorts the concatenated multiset in memory via
+   * {@link PostConcatOp.Order}; sort keys match the single-plan recogniser path.
    */
   @Test
-  public void unionThenOrder_declines() {
+  public void unionThenOrder_byName_matchesNative() {
     seedKnowsChain();
     assertEquivalent(
-        "g.V().union(out(knows), in(knows)).order()",
-        Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order());
+        "g.V().union(out(knows), in(knows)).order().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order().by("name"));
   }
 
   /**
@@ -874,6 +879,57 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         "g.V().union(has(name, gt(27)), has(name, eq(Alice)))",
         Recognition.RECOGNIZED_MULTI_PLAN,
         shape);
+  }
+
+  /**
+   * Each union arm ending in {@code groupCount()} must emit its own map — not one map merged across
+   * arms. From Alice: {@code out(knows)} yields {@code {Bob=1, Carol=1}}; {@code in(knows)} yields
+   * {@code {Bob=1}} because Bob knows Alice.
+   */
+  @Test
+  public void union_groupCount_perArmMaps_matchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("knows", carol);
+    bob.addEdge("knows", alice);
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).union(out(k).groupCount().by(name), in(k).groupCount().by(name))",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V(aliceId)
+            .union(
+                __.out("knows").groupCount().by("name"),
+                __.in("knows").groupCount().by("name")),
+        UnionTraversalEquivalenceTest::canonicalizeMaps);
+  }
+
+  /** Sorted key order so map payloads compare as multisets independent of LinkedHashMap iteration. */
+  private static List<String> canonicalizeMaps(List<?> results) {
+    return results.stream().map(UnionTraversalEquivalenceTest::canonicalizeMapPayload).sorted()
+        .toList();
+  }
+
+  private static String canonicalizeMapPayload(Object value) {
+    if (value instanceof Map<?, ?> map) {
+      return map.entrySet().stream()
+          .sorted(Comparator.comparing(e -> String.valueOf(e.getKey())))
+          .map(e -> String.valueOf(e.getKey()) + "=" + String.valueOf(e.getValue()))
+          .collect(Collectors.joining(",", "{", "}"));
+    }
+    return String.valueOf(value);
+  }
+
+  private void assertEquivalent(
+      String scenario,
+      Recognition expected,
+      Supplier<GraphTraversal<?, ?>> traversalSupplier,
+      Function<List<?>, List<String>> renderer) {
+    support.assertEquivalent(
+        scenario, expected, Cardinality.NON_EMPTY, renderer, traversalSupplier);
   }
 
   /**
