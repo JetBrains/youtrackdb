@@ -574,14 +574,15 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().has("age", P.outside(20, 30)));
   }
 
-  /** Size-1 collection equality declines under D3 — the whole traversal falls back to native. */
+  /** Size-1 collection equality normalizes to scalar eq and matches native singleton auto-unbox. */
   @Test
-  public void singletonCollectionEq_declines() {
+  public void singletonCollectionEq_matchesNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
     assertEquivalent(
         "g.V().has(name, eq([Alice])) singleton collection",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().has("name", P.eq(List.of("Alice"))));
   }
 

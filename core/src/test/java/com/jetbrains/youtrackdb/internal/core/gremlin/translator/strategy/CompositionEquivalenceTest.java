@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import java.util.ArrayList;
@@ -47,8 +49,7 @@ import org.junit.Test;
  *   <li><b>{@code bothE(L).has(...).otherV()}</b> — declines (self-loop RID rewrite is wrong); directed
  *       {@code outE.has.inV} / {@code inE.has.outV} translate.
  *   <li><b>Polymorphic multi-label {@code hasLabel}</b> — {@code hasLabel(L1,L2)} under default
- *       polymorphic mode declines; multi-label hops {@code out(a,b)} / {@code outE(a,b).has.inV}
- *       translate.
+ *       polymorphic mode declines; non-polymorphic {@code @class IN} and multi-label hops translate.
  *   <li><b>Edge-bearing combinator child</b> — {@code and}/{@code or}/{@code where}/{@code filter}
  *       with a hop inside declines (existence would join-fan-out); pure property children translate.
  *   <li><b>Labelled {@code where(as(a)…)}</b> — scope steps unregistered → decline.
@@ -658,7 +659,27 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().out("knows", "created"));
   }
 
-  /** Polymorphic multi-label hasLabel declines. */
+  /** Multi-label {@code in(knows,created)} on the modern graph. */
+  @Test
+  public void multiLabel_in_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().in(knows,created)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().in("knows", "created"));
+  }
+
+  /** Multi-label {@code both(knows,created)} on the modern graph. */
+  @Test
+  public void multiLabel_both_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().both(knows,created)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().both("knows", "created"));
+  }
+
+  /** Polymorphic multi-label hasLabel declines under default polymorphic mode. */
   @Test
   public void hasLabel_multi_then_out_declines() {
     var person = session.createVertexClass("Person");
@@ -672,6 +693,25 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         "g.V().hasLabel(Person,Employee).out(knows)",
         Recognition.DECLINED,
         () -> graph.traversal().V().hasLabel("Person", "Employee").out("knows"));
+  }
+
+  /**
+   * Non-polymorphic multi-label {@code hasLabel(Person,Employee).out(knows)} translates: {@code @class
+   * IN} mirrors native leaf-exact membership.
+   */
+  @Test
+  public void hasLabel_multi_then_out_nonPolymorphic_matchesNative() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
+    session.createEdgeClass("knows");
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var eve = graph.addVertex(T.label, "Employee", "name", "Eve");
+    alice.addEdge("knows", eve);
+    graph.tx().commit();
+    withPolymorphicDefault(false, () -> assertEquivalent(
+        "non-polymorphic g.V().hasLabel(Person,Employee).out(knows)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person", "Employee").out("knows")));
   }
 
   /** bothE.has.otherV from a pinned start declines. */
@@ -1042,5 +1082,23 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
       return "N:" + number.doubleValue();
     }
     return value.getClass().getSimpleName() + ":" + value;
+  }
+
+  private void withPolymorphicDefault(boolean value, Runnable body) {
+    var config = graphSession().getConfiguration();
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, value);
+    try {
+      body.run();
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
+    }
+  }
+
+  private com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded graphSession() {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    return tx.getDatabaseSession();
   }
 }

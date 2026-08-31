@@ -67,8 +67,8 @@ import org.apache.tinkerpop.gremlin.structure.T;
  * <h2>Translate-all-then-contribute</h2>
  *
  * The recogniser validates and translates <em>every</em> container before it mutates the context: an
- * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id, a
- * size-1 collection equality) declines with zero {@code WalkerContext} mutation. The label bind opens
+ * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id)
+ * declines with zero {@code WalkerContext} mutation. The label bind opens
  * the contribution block for the same reason — a colliding label declines before the re-type and the
  * filter land, and {@code bindStepLabels} itself checks every label before it writes any of them.
  * The accumulated filters go in through one {@link RecognitionContext#putAliasFilter} on the boundary

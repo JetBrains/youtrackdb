@@ -39,7 +39,7 @@ import org.junit.Test;
  * (returns {@code null}) everything it cannot faithfully reproduce so the recogniser falls the whole
  * traversal back to the native pipeline. Each test names the predicate it drives and the expected
  * outcome (an AST shape, or a decline), with special attention to the absent-property guard,
- * the NULL comparand rewrites, and the singleton-collection decline.
+ * the NULL comparand rewrites, and singleton-collection normalization.
  */
 public class GremlinPredicateAdapterTest {
 
@@ -198,26 +198,30 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
-   * {@code has("age", P.eq([30]))} — a size-1 collection under {@code eq} — declines. {@code
-   * QueryOperatorEquals} auto-unboxes a singleton against a scalar, and field cardinality is unknown
-   * at translation time, so a translated {@code age = [30]} could diverge from native. Declining
-   * falls the traversal back to the native pipeline.
+   * {@code has("age", P.eq([30]))} — a size-1 collection under {@code eq} — normalizes to scalar
+   * {@code age = 30}, mirroring native {@code QueryOperatorEquals} singleton auto-unbox.
    */
   @Test
-  public void eqSingletonCollection_declines() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("age", P.eq(List.of(30)))))
-        .as("a size-1 collection under eq declines under the singleton-collection rule")
-        .isNull();
+  public void eqSingletonCollection_normalizesToScalarEq() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", P.eq(List.of(30))));
+    assertThat(expr)
+        .as("a size-1 collection under eq normalizes to scalar equality")
+        .isInstanceOf(SQLBinaryCondition.class);
   }
 
-  /** {@code has("age", P.neq([30]))} — a size-1 collection under {@code neq} — declines, symmetric to eq. */
+  /**
+   * {@code has("age", P.neq([30]))} — a size-1 collection under {@code neq} — normalizes to scalar
+   * {@code age <> 30}, symmetric to eq.
+   */
   @Test
-  public void neqSingletonCollection_declines() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("age", P.neq(List.of(30)))))
-        .as("a size-1 collection under neq declines under the singleton-collection rule")
-        .isNull();
+  public void neqSingletonCollection_normalizesToScalarNeq() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", P.neq(List.of(30))));
+    assertThat(expr)
+        .as("a size-1 collection under neq normalizes to presence-guarded scalar inequality")
+        .isNotNull()
+        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock.class);
   }
 
   /**
@@ -954,7 +958,7 @@ public class GremlinPredicateAdapterTest {
         new Case("notRegex", new HasContainer("name", TextP.notRegex("r")), unknown),
         new Case("and", new HasContainer("age", P.gt(1).and(P.lt(5))), unknown),
         new Case("not eq", new HasContainer("age", P.not(P.eq(1))), unknown),
-        new Case("singleton eq decline", new HasContainer("age", P.eq(List.of(30))), unknown));
+        new Case("singleton eq normalize", new HasContainer("age", P.eq(List.of(30))), unknown));
     for (var c : cases) {
       assertThat(capturedBinds(c.container(), c.gate(), /* viaFilter= */ false))
           .as(c.name())
