@@ -68,20 +68,21 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnDistinct).isFalse();
   }
 
-  /**
-   * {@code dedup().by("name")} declines — MATCH cannot DISTINCT-ON a property while still emitting
-   * the current element under {@code ELEMENT} projection.
-   */
+  /** {@code dedup().by("name")} registers a post-projection dedup list-shaping stage. */
   @Test
-  public void dedupWithByChild_declines() {
+  public void dedupWithByChild_appendsListShapingOp() {
     var admin = graph.traversal().V().dedup().by("name").asAdmin();
     var ctx = seededContext();
     var cursor = cursorAtDedup(admin);
 
     var outcome = DedupGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.returnDistinct).isFalse();
+    assertThat(ctx.shaping().listShapingOps()).hasSize(1);
+    assertThat(ctx.shaping().listShapingOps().getFirst())
+        .isInstanceOf(
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.DedupByModulatorListShapingOp.class);
   }
 
   /** {@code g.V().as("v")} binds the start label through {@link StartStepRecogniser}. */
