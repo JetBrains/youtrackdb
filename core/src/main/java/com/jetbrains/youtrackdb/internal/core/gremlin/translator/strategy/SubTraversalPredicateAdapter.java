@@ -325,6 +325,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public List<String> boundaryDeclaredPropertyKeys() {
+    return parent.boundaryDeclaredPropertyKeys();
+  }
+
+  @Override
   public String nextAnonVertexAlias() {
     return parent.nextAnonVertexAlias();
   }

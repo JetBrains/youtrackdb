@@ -175,12 +175,11 @@ final class GremlinProjectionAssembler {
       return Outcome.DECLINE;
     }
     if (propertyKeys == null || propertyKeys.length == 0) {
-      // No key list means every property, enumerated at iteration time — decline until
-      // schema-driven all-property projection lands. This covers valueMap(), elementMap(),
-      // valueMap(true) and valueMap().with(WithOptions.tokens) alike: requesting the id / label
-      // tokens says nothing about which properties to project, and a plan built from the token
-      // columns alone returns {id, label} per element and silently loses every property.
-      return Outcome.DECLINE;
+      var schemaKeys = ctx.boundaryDeclaredPropertyKeys();
+      if (schemaKeys.isEmpty()) {
+        return Outcome.DECLINE;
+      }
+      propertyKeys = schemaKeys.toArray(String[]::new);
     }
     ctx.clearReturnProjection();
     // Entity column — omitted from the emitted MAP; used for hasProperty and property values.
