@@ -6,7 +6,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -74,6 +77,15 @@ final class PostConcatStreams {
           Object id = raw instanceof Identifiable identifiable ? identifiable.getIdentity() : raw;
           return seen.add(id) ? result : null;
         });
+  }
+
+  /**
+   * Drains {@code upstream}, sorts rows with {@link SQLOrderByItem#compare}, and replays them in
+   * order. Used for {@code union(…).order().by(…)} where SQL {@code ORDER BY} cannot span arms.
+   */
+  static ExecutionStream sort(
+      @Nonnull ExecutionStream upstream, @Nonnull List<SQLOrderByItem> items) {
+    return new SortStream(upstream, List.copyOf(items));
   }
 
   /** Drain-and-count decorator; see {@link #count(ExecutionStream)}. */
@@ -175,6 +187,77 @@ final class PostConcatStreams {
     @Override
     public void close(CommandContext ctx) {
       upstream.close(ctx);
+    }
+  }
+
+  /** Sort decorator; see {@link #sort(ExecutionStream, List)}. */
+  private static final class SortStream implements ExecutionStream {
+
+    private final ExecutionStream upstream;
+    private final List<SQLOrderByItem> items;
+    private final List<Result> sorted = new ArrayList<>();
+    private int index;
+    private boolean materialized;
+    private boolean upstreamClosed;
+
+    SortStream(ExecutionStream upstream, List<SQLOrderByItem> items) {
+      this.upstream = upstream;
+      this.items = items;
+    }
+
+    @Override
+    public boolean hasNext(CommandContext ctx) {
+      ensure(ctx);
+      return index < sorted.size();
+    }
+
+    @Override
+    public Result next(CommandContext ctx) {
+      if (!hasNext(ctx)) {
+        throw new IllegalStateException();
+      }
+      return sorted.get(index++);
+    }
+
+    @Override
+    public void close(CommandContext ctx) {
+      closeUpstreamOnce(ctx);
+      sorted.clear();
+      index = 0;
+      materialized = false;
+    }
+
+    private void closeUpstreamOnce(CommandContext ctx) {
+      if (upstreamClosed) {
+        return;
+      }
+      upstreamClosed = true;
+      upstream.close(ctx);
+    }
+
+    private void ensure(CommandContext ctx) {
+      if (materialized) {
+        return;
+      }
+      materialized = true;
+      try {
+        while (upstream.hasNext(ctx)) {
+          sorted.add(upstream.next(ctx));
+        }
+      } finally {
+        closeUpstreamOnce(ctx);
+      }
+      sorted.sort(
+          (a, b) -> {
+            for (var item : items) {
+              var cmp = item.compare(a, b, ctx);
+              if (cmp != 0) {
+                return cmp;
+              }
+            }
+            return 0;
+          });
+      index = 0;
     }
   }
 }
