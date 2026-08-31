@@ -288,6 +288,40 @@ public class VertexHopRecogniserTest extends GraphBaseTest {
     assertThat(rendered.toString()).contains("knows").contains("likes");
   }
 
+  /** Multi-label {@code in("knows", "likes")} is claimed with both labels on the MATCH method. */
+  @Test
+  public void multiLabelInHop_isClaimed() {
+    var admin = graph.traversal().V().in("knows", "likes").asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a multi-label in() hop must be accepted").isEqualTo(Outcome.ACCEPTED);
+    var ir = ctx.patternBuilder.build();
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
+  }
+
+  /** Multi-label {@code both("knows", "likes")} is claimed with both labels. */
+  @Test
+  public void multiLabelBothHop_isClaimed() {
+    var admin = graph.traversal().V().both("knows", "likes").asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a multi-label both() hop must be accepted").isEqualTo(Outcome.ACCEPTED);
+    var ir = ctx.patternBuilder.build();
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
+  }
+
   /**
    * A single blank edge label declines via the {@code isBlank()} guard — the branch a real DSL hop
    * cannot reach (the DSL rejects a blank label at construction), so it is driven with a mock that

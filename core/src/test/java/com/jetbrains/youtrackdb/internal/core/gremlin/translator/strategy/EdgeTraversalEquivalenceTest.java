@@ -659,6 +659,63 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
             .inV());
   }
 
+  /**
+   * A multi-label hop {@code g.V().in("knows", "likes")} translates — same {@code String[]} plumbing
+   * as {@code out(a,b)}.
+   */
+  @Test
+  public void multiLabelInHop_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("likes", carol);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().in(knows, likes) (multi-label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().in("knows", "likes"));
+  }
+
+  /**
+   * A multi-label hop {@code g.V().both("knows", "likes")} translates.
+   */
+  @Test
+  public void multiLabelBothHop_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("likes", carol);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().both(knows, likes) (multi-label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().both("knows", "likes"));
+  }
+
+  /**
+   * Multi-label {@code inE("knows","likes").has("since", lt).outV()} translates.
+   */
+  @Test
+  public void multiLabelInEHasOutV_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("likes", carol, "since", 2011);
+    alice.addEdge("knows", dave, "since", 2020);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V(bob).inE(knows, likes).has(since, lt 2015).outV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(bob.id()).inE("knows", "likes").has("since", P.lt(2015)).outV());
+  }
+
   // ---------------------------------------------------------------------------
   // Absent-property edge filters — the neq presence guard and its companions.
   // ---------------------------------------------------------------------------

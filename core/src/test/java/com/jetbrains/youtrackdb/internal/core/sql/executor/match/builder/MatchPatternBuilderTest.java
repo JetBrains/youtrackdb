@@ -286,6 +286,22 @@ public class MatchPatternBuilderTest {
     assertEquals(".out(\"knows\", \"likes\"){as: b}", rendered);
   }
 
+  /** Multi-label {@code in} and {@code both} render both labels as method parameters. */
+  @Test
+  public void addEdge_multiLabel_inAndBoth_pathItemsRenderBothLabels() {
+    var inIr =
+        new MatchPatternBuilder()
+            .addEdge("a", "b", Direction.IN, new String[] {"knows", "likes"}, null, null, null)
+            .build();
+    assertEquals(".in(\"knows\", \"likes\"){as: b}", renderPathItemFor(inIr));
+
+    var bothIr =
+        new MatchPatternBuilder()
+            .addEdge("a", "b", Direction.BOTH, new String[] {"knows", "likes"}, null, null, null)
+            .build();
+    assertEquals(".both(\"knows\", \"likes\"){as: b}", renderPathItemFor(bothIr));
+  }
+
   /**
    * Neither alias was registered via {@link MatchPatternBuilder#addNode}; {@link
    * MatchPatternBuilder#addEdge} must implicitly create both.
