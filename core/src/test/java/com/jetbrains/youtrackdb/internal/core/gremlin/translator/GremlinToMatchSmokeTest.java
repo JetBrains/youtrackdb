@@ -196,7 +196,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    * native pipeline.
    */
   @Test
-  public void bareSingleIdLookupDeclinesAndReturnsVertex() {
+  public void bareSingleIdLookupTranslatesAndReturnsVertex() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
@@ -204,8 +204,8 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var admin = graph.traversal().V(bob.id()).asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
-        .as("a bare g.V(id) point-lookup must decline to native")
-        .isZero();
+        .as("a bare g.V(id) point-lookup must translate")
+        .isEqualTo(1);
 
     var vertices = admin.toList().stream().toList();
     assertThat(vertices).hasSize(1);
@@ -222,7 +222,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    * produces an empty stream against live storage — it does not throw or emit a phantom row.
    */
   @Test
-  public void bareSingleIdLookup_nonExistentRid_declinesReturnsEmpty() {
+  public void bareSingleIdLookup_nonExistentRid_returnsEmpty() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     // Build a RID that provably addresses no stored record: add a throwaway vertex, commit so it is
     // assigned a real persisted collection:position, capture that RID, then delete the vertex. A
@@ -240,8 +240,8 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var admin = graph.traversal().V(missing).asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
-        .as("a bare g.V(missingRid) point-lookup must decline to native")
-        .isZero();
+        .as("a bare g.V(missingRid) point-lookup must translate")
+        .isEqualTo(1);
 
     assertThat(admin.toList())
         .as("g.V(missingRid) must return empty, matching native g.V(missingRid)")
@@ -253,7 +253,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    * two addressed vertices. Order is not pinned, so the assertion is on id/name sets.
    */
   @Test
-  public void bareMultiIdLookupDistinctIds_declines() {
+  public void bareMultiIdLookupDistinctIds_translates() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
@@ -262,8 +262,8 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var admin = graph.traversal().V(alice.id(), carol.id()).asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
-        .as("a bare g.V(id1, id2) point-lookup must decline to native")
-        .isZero();
+        .as("a bare g.V(id1, id2) point-lookup must translate")
+        .isEqualTo(1);
 
     var returned = admin.toList().stream().toList();
     var idsReturned = returned.stream().map(Vertex::id).collect(Collectors.toSet());
@@ -295,8 +295,8 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var admin = graph.traversal().V(alice.id(), missing).asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
-        .as("a bare distinct existing+missing id pair must decline to native")
-        .isZero();
+        .as("a bare distinct existing+missing id pair must translate")
+        .isEqualTo(1);
 
     var ids = admin.toList().stream().map(Vertex::id).collect(Collectors.toSet());
     assertThat(ids)

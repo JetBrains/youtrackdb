@@ -132,14 +132,6 @@ final class HasStepRecogniser implements StepRecogniser {
       }
     }
 
-    // A multi-label hasLabel(L1, L2) is expressed as @class IN [L1, L2, …], which is leaf-exact and
-    // therefore drops polymorphic subclasses of L1/L2. In polymorphic mode that under-matches native
-    // hierarchy-aware hasLabel, so decline to native (there is no cheap subclass expansion here). The
-    // non-polymorphic @class IN path stays — it mirrors native non-polymorphic hasLabel exactly.
-    if (labelConstraint instanceof ParsedLabelConstraint.Multi && ctx.polymorphic()) {
-      return Outcome.DECLINE;
-    }
-
     // A hasLabel on a class that does not exist in the schema at translation time declines to
     // native. Native resolves the class at execution time, so if the class is created later in the
     // same open transaction (DDL-in-tx — e.g. g.addV("Person") in one project() by() and
@@ -218,7 +210,11 @@ final class HasStepRecogniser implements StepRecogniser {
         whereExprs.add(WHERE.classEquals(name));
       }
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
-      whereExprs.add(WHERE.classIn(multi.names()));
+      var classNames =
+          ctx.polymorphic()
+              ? ctx.expandPolymorphicClassClosure(multi.names())
+              : multi.names();
+      whereExprs.add(WHERE.classIn(classNames));
     }
     if (!whereExprs.isEmpty()) {
       var merged = WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0]));

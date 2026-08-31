@@ -171,23 +171,19 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * A BARE RID point-lookup ({@code g.V(id)} / {@code g.V(id1, id2)} with no subsequent hop)
-   * declines to native. Native resolves the RIDs directly with no query, whereas the translator
-   * would compile an uncached MATCH plan every call (a RID-bearing walk sets {@code
-   * cacheEligible=false}, bypassing the plan cache) — a net regression with no join to optimise. A
-   * decline is trivially on==off. Both the single- and multi-RID bare shapes decline; a RID start
-   * followed by a hop still translates (the two tests above).
+   * A bare RID point-lookup ({@code g.V(id)} / {@code g.V(id1, id2)} with no subsequent hop)
+   * translates and matches native.
    */
   @Test
-  public void walk_bareRidLookup_declinesNoJoinToOptimise() {
+  public void walk_bareRidLookup_translates() {
     assertThat(GremlinStepWalker.production().walk(graph.traversal().V("#25:3").asAdmin()))
-        .as("bare g.V(id) point-lookup must decline")
-        .isNull();
+        .as("bare g.V(id) point-lookup must translate")
+        .isNotNull();
     assertThat(
         GremlinStepWalker.production()
             .walk(graph.traversal().V("#25:3", "#25:7").asAdmin()))
-        .as("bare g.V(id1, id2) point-lookup must decline")
-        .isNull();
+        .as("bare g.V(id1, id2) point-lookup must translate")
+        .isNotNull();
   }
 
   // ---------------------------------------------------------------------------
@@ -1093,8 +1089,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V().as("a").out().as("b").dedup("a","b")} declines — prior-hop uniqueness while
-   * emitting the current traverser is not expressible as MATCH {@code DISTINCT} on RETURN.
+   * {@code g.V().as("a").out().as("b").dedup("a","b")} declines — multi-key prior uniqueness is
+   * not a single row-dedup alias.
    */
   @Test
   public void walk_multiHopNamedDedup_declines() {
