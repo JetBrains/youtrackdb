@@ -277,7 +277,8 @@ final class GremlinPlanFingerprint {
         .append(shaping.wrapMapValuesInLists() ? '1' : '0')
         .append(shaping.accumulateMap() ? '1' : '0')
         .append(shaping.unwrapSingletonMap() ? '1' : '0')
-        .append(shaping.elementMapTokens() ? '1' : '0');
+        .append(shaping.elementMapTokens() ? '1' : '0')
+        .append(shaping.emitGroupEntries() ? '1' : '0');
     sb.append(";PK:");
     for (var key : shaping.presencePropertyKeys()) {
       appendToken(sb, key);
@@ -295,6 +296,10 @@ final class GremlinPlanFingerprint {
     sb.append(";RI:");
     for (var key : shaping.recordIdMapKeys()) {
       appendToken(sb, key);
+    }
+    sb.append(";RD:");
+    if (shaping.rowDedupAlias() != null) {
+      appendToken(sb, shaping.rowDedupAlias());
     }
     sb.append(";LS:");
     for (ListShapingOp op : shaping.listShapingOps()) {

@@ -25,6 +25,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
@@ -78,6 +79,20 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().values(foo)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("foo"));
+  }
+
+  /** Multi-key {@code values(k1, k2)} flat-maps property values in key order. */
+  @Test
+  public void values_multiKey_flatMapsInOrder() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "Carol");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().values(name, age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("name", "age"));
   }
 
   /**
@@ -914,12 +929,11 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code dedup()} after {@code values(k)} declines to native: a RETURN DISTINCT over the boundary
-   * presence column deduped on (entity, value) and the unique entity defeated it. Native dedups the
-   * projected names; the payloads must match.
+   * {@code dedup()} after {@code values(k)} collapses duplicate scalars after projection — native
+   * dedups the projected names; MATCH cannot express that with {@code RETURN DISTINCT} alone.
    */
   @Test
-  public void valuesDedup_declinesToNative() {
+  public void valuesDedup_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
@@ -927,20 +941,20 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().values(name).dedup()",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("name").dedup());
   }
 
-  /** {@code valueMap(k).dedup()} likewise declines to native (map output type, not ELEMENT). */
+  /** {@code valueMap(k).dedup()} collapses duplicate maps after projection. */
   @Test
-  public void valueMapDedup_declinesToNative() {
+  public void valueMapDedup_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.tx().commit();
 
     assertEquivalent(
         "g.V().valueMap(name).dedup()",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().valueMap("name").dedup());
   }
 
@@ -1251,11 +1265,11 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Named dedup on a prior path label declines to native (unique-by-{@code a}, emit-{@code b} is
-   * not MATCH {@code DISTINCT} on RETURN).
+   * Named dedup on a prior path label keeps the first current element per prior RID (unique-by-
+   * {@code a}, emit-{@code b}).
    */
   @Test
-  public void namedDedup_priorLabel_declinesToNative() {
+  public void namedDedup_priorLabel_matchNative() {
     var a = graph.addVertex(T.label, "Person", "name", "Alice");
     var b1 = graph.addVertex(T.label, "Person", "name", "Bob");
     var b2 = graph.addVertex(T.label, "Person", "name", "Carol");
@@ -1265,7 +1279,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().as(a).out(knows).as(b).dedup(a)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().as("a").out("knows").as("b").dedup("a"));
   }
 
@@ -1879,6 +1893,43 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().groupCount().by(name).order().by(age)",
         Recognition.DECLINED,
         () -> graph.traversal().V().groupCount().by("name").order().by("age"));
+  }
+
+  /**
+   * {@code groupCount().unfold().order().by(Column.values/keys).limit(n)} sorts and slices GROUP BY
+   * rows as Map.Entry payloads — SQL-native ORDER BY + LIMIT, not a sort of the folded map.
+   */
+  @Test
+  public void groupCount_unfold_order_limit_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().groupCount().by(name).unfold().order().by(Column.values,desc).by(Column.keys).limit(2)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().groupCount().by("name")
+            .unfold()
+            .order().by(Column.values, Order.desc).by(Column.keys, Order.asc)
+            .limit(2));
+  }
+
+  /** Bare {@code groupCount().unfold()} emits the entry multiset without folding back to one map. */
+  @Test
+  public void groupCount_unfold_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().groupCount().by(name).unfold()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().groupCount().by("name").unfold());
   }
 
   /**
@@ -2583,6 +2634,10 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     }
     if (value instanceof Vertex vertex) {
       return "V:" + Objects.toString(vertex.id());
+    }
+    // Map.Entry before Map: entry payloads must not be mistaken for accumulated maps.
+    if (value instanceof Map.Entry<?, ?> entry) {
+      return "E:" + canonicalizeOne(entry.getKey()) + "=" + canonicalizeOne(entry.getValue());
     }
     if (value instanceof Map<?, ?> map) {
       return map.entrySet().stream()
