@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import javax.annotation.Nonnull;
 
 /**
@@ -47,7 +46,7 @@ public class FetchFromCorrelatedRidStep extends AbstractExecutionStep {
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.ridExpression = ridExpression;
-    this.classCollectionIds = Objects.requireNonNull(classCollectionIds);
+    this.classCollectionIds = classCollectionIds;
   }
 
   @Override
