@@ -327,21 +327,20 @@ public class YTDBMatchPlanStepTest {
     verify(row).getVertex("b");
   }
 
-  /**
-   * Projection dispatches on the configured {@code returnClass}. An edge boundary is reserved but
-   * not yet translated, so projecting one throws {@link UnsupportedOperationException} rather than
-   * silently emitting a vertex. This pins that only vertex projection is wired in the current scope
-   * and documents the arm the edge track later fills in; the message names the offending class.
-   */
+  /** Edge-boundary projection wraps the matched edge as {@link YTDBEdgeImpl}. */
   @Test
-  public void projectElement_edgeReturnClass_throwsUnsupportedUntilEdgeTrack() {
+  public void projectElement_edgeReturnClass_wrapsEdge() {
+    var edgeEntity = mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Edge.class);
+    when(edgeEntity.isEdge()).thenReturn(true);
+    when(edgeEntity.asEdge()).thenReturn(edgeEntity);
     var row = mock(Result.class);
+    when(row.getProperty("e")).thenReturn(edgeEntity);
     var step =
         new YTDBMatchPlanStep(traversal, Edge.class, plan, "e", BoundaryOutputType.ELEMENT);
 
-    assertThatExceptionOfType(UnsupportedOperationException.class)
-        .isThrownBy(() -> step.projectElement(row, graph))
-        .withMessageContaining("edge projection");
+    var result = step.projectElement(row, graph);
+    assertThat(result)
+        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl.class);
   }
 
   /**

@@ -97,13 +97,6 @@ final class EdgeHopRecogniser implements StepRecogniser {
     if (ctx.boundaryAlias() == null) {
       return Outcome.DECLINE;
     }
-    // A user as() label on the edge step binds to the edge-as-node vertex alias via bindStepLabels,
-    // so a later select(L) returns the target vertex (YTDBVertexImpl) rather than the Edge the
-    // traversal actually produced. That is runtime-incorrect, so decline the whole traversal to
-    // native and let the on==off invariant hold.
-    if (!edgeStep.getLabels().isEmpty()) {
-      return Outcome.DECLINE;
-    }
     // Resolve the edge-label arity — one rule shared with VertexHopRecogniser (see
     // GremlinPatternAssembler.resolveEdgeLabel): one or more named labels or a label-less all-types
     // edge translates; a blank label slot declines. A null labels array (label-less) flows to
@@ -118,20 +111,6 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // Consume the has(...) run (barriers interleaved in it are skipped by the cursor), then the closing
     // vertex hop — inV/outV via EdgeVertexStep, otherV via EdgeOtherVertexStep.
     var hasSteps = cursor.takeWhile(HasStep.class);
-    // A user as() label anywhere on the EDGE segment declines. The label above catches a bare
-    // outE(L).as(k), but when an edge-property has() forces the edge-as-node path,
-    // FilterRankingStrategy relocates a label authored on the edge step forward onto the following
-    // has() (a filter does not transform the traverser), and a label authored directly on that
-    // has() (outE(L).has(prop).as(k)) also lands there. Either way the traverser at that point is
-    // the edge, so select(k) must return the Edge — but the edge-as-node form would bind k to the
-    // edge/target vertex alias and select(k) would return a vertex (YTDBVertexImpl cannot be cast
-    // to Edge). Decline to native. A label on the closing inV/outV/otherV vertex is NOT an edge
-    // label — it binds the target vertex correctly — so it is intentionally not checked here.
-    for (HasStep<?> has : hasSteps) {
-      if (!has.getLabels().isEmpty()) {
-        return Outcome.DECLINE;
-      }
-    }
     Step closingStep;
     MatchPatternBuilder.Direction closingVertexDir;
     var closingVertex = cursor.takeIf(EdgeVertexStep.class);
@@ -204,8 +183,9 @@ final class EdgeHopRecogniser implements StepRecogniser {
     if (!ctx.bindStepLabels(closingStep, targetAlias)) {
       return Outcome.DECLINE;
     }
+    ctx.markEdgeAlias(edgeAlias);
 
-    // AND-merge the accumulated predicates into one edge WHERE (null when the edge is unfiltered, e.g.
+    // AND-merge the accumulated predicates
     // an outE(L).barrier().inV() chain that never folded). Record it under the edge alias so the
     // accumulation is observable, and hand the same clause to the assembler, which puts it on the edge
     // path item so it filters the edge rather than the target vertex.

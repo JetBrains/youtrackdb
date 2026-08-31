@@ -2,12 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ValuesFlatMapListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
@@ -50,6 +52,36 @@ final class GremlinProjectionAssembler {
     // selectAfterValues_keepsTheAbsenceDrop).
     if (!ctx.promotePresenceDropToPatternFilter()) {
       return Outcome.DECLINE;
+    }
+    if (userLabels.size() == 1) {
+      var userLabel = userLabels.iterator().next();
+      var internalAlias = ctx.resolveUserLabel(userLabel);
+      if (internalAlias == null) {
+        return Outcome.DECLINE;
+      }
+      // After dedup(), MATCH DISTINCT keys the RETURN row — a foreign hop label is not
+      // Gremlin's "dedup current, then select another path label" contract.
+      if (ctx.returnDistinct() && !boundary.equals(internalAlias)) {
+        return Outcome.DECLINE;
+      }
+      if (ctx.isEdgeAlias(internalAlias)) {
+        ctx.clearReturnProjection();
+        ctx.setSingleReturnColumn(internalAlias);
+        ctx.pinBoundary(internalAlias, BoundaryOutputType.ELEMENT, Edge.class);
+        ctx.setResultShaping(ResultShaping.NONE);
+        return Outcome.ACCEPTED;
+      }
+      // A bare select of a vertex alias that is not the current boundary must repin the walk to
+      // that alias (ELEMENT), not leave boundaryAlias on the prior hop. Otherwise a following
+      // values()/properties() reads the wrong entity — e.g. select("e").order().by("weight")
+      // .select("v").values("name") would read "name" from the edge alias and drop every row.
+      if (!internalAlias.equals(boundary)) {
+        ctx.clearReturnProjection();
+        ctx.setSingleReturnColumn(internalAlias);
+        ctx.pinBoundary(internalAlias, BoundaryOutputType.ELEMENT, Vertex.class);
+        ctx.setResultShaping(ResultShaping.NONE);
+        return Outcome.ACCEPTED;
+      }
     }
     ctx.clearReturnProjection();
     for (String userLabel : userLabels) {
@@ -148,6 +180,30 @@ final class GremlinProjectionAssembler {
       ByModulatorPresence.requireProjectedProperty(ctx, boundary, propertyKey);
     }
     ctx.pinBoundary(boundary, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Configures multi-key {@code values(k1, k2, …)}: project the boundary vertex, then flat-map keys
+   * in declaration order via {@link ValuesFlatMapListShapingOp}.
+   */
+  static Outcome configureMultiKeyValues(RecognitionContext ctx, String[] propertyKeys) {
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null || propertyKeys == null || propertyKeys.length == 0) {
+      return Outcome.DECLINE;
+    }
+    for (String propertyKey : propertyKeys) {
+      if (propertyKey == null || propertyKey.isBlank()
+          || WalkerContext.isReservedHasKey(propertyKey)) {
+        return Outcome.DECLINE;
+      }
+    }
+    ctx.clearReturnProjection();
+    ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
+    ctx.pinBoundary(boundary, BoundaryOutputType.ELEMENT, Vertex.class);
+    ctx.setResultShaping(
+        ResultShaping.NONE.withListShapingOps(
+            List.of(new ValuesFlatMapListShapingOp(propertyKeys))));
     return Outcome.ACCEPTED;
   }
 
