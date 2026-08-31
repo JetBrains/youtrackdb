@@ -393,6 +393,56 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
+   * IC3 reduced — Alice's friends' messages in China inside a one-millisecond window around the
+   * post. Bob's post is located in China; Carol's comment is not.
+   */
+  @Test
+  public void ic3FriendsMessagesInCountryTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IC3 reduced: …out(KNOWS).in(HAS_CREATOR)…out(IS_LOCATED_IN).has(name, China)",
+        t -> GremlinTraversalShapes.ic3FriendsMessagesInCountry(
+            t, ALICE, "China", new Date(POST_AT - 1), new Date(POST_AT + 1)),
+        List.of(
+            "{firstName=Bob, lastName=Bobson, msgCountry=China, personId=" + BOB + "}"));
+  }
+
+  /**
+   * IC4 reduced — tag {@code groupCount} on Alice's friends' posts in the same window as IC3,
+   * unfolded and ordered by count then name (SQL top-N). Bob's post carries rock and jazz.
+   */
+  @Test
+  public void ic4FriendPostTagsTranslatesOnAndRunsNativeOffInOrder() {
+    assertTranslatesInOrder(
+        "IC4 reduced: …groupCount().by(name).unfold().order().by(values,desc).by(keys).limit",
+        t -> GremlinTraversalShapes.ic4FriendPostTags(
+            t, ALICE, new Date(POST_AT - 1), new Date(POST_AT + 1)),
+        List.of("jazz=1", "rock=1"));
+  }
+
+  /**
+   * IC5 reduced — forums containing Alice's friends' posts. Bob's post lives in forum Wall.
+   */
+  @Test
+  public void ic5FriendPostForumsTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IC5 reduced: …in(CONTAINER_OF).as(forum…).dedup(forumId).select",
+        t -> GremlinTraversalShapes.ic5FriendPostForums(t, ALICE),
+        List.of("{forumId=" + FORUM + ", forumTitle=Wall}"));
+  }
+
+  /**
+   * IC6 reduced — tag {@code groupCount} on Alice's friends' posts (no date window), unfolded and
+   * ordered like IC4. Same tags as IC4 on this fixture.
+   */
+  @Test
+  public void ic6FriendPostTagCountsTranslatesOnAndRunsNativeOffInOrder() {
+    assertTranslatesInOrder(
+        "IC6 reduced: …groupCount().by(name).unfold().order().by(values,desc).by(keys).limit",
+        t -> GremlinTraversalShapes.ic6FriendPostTagCounts(t, ALICE),
+        List.of("jazz=1", "rock=1"));
+  }
+
+  /**
    * IC7 reduced — first names of people who liked Bob's messages. Alice liked the post; a plan
    * that walked {@code KNOWS} instead of {@code LIKES} would also return Carol and Dave.
    */

@@ -10,6 +10,7 @@ import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
@@ -535,28 +536,34 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IC4 reduced — tags on direct friends' posts in a date window, {@code groupCount} by name.
+   * LDBC: IC4 reduced — tags on direct friends' posts in a date window, {@code groupCount} by name,
+   * top {@link #RESULT_LIMIT} by count then tag name (SQL {@code ORDER BY postCount DESC, tagName}).
    *
    * <p>Gaps vs SQL IC4:
    * <ul>
    *   <li>[not-yet-translatable] {@code NOT} anti-join for tags used on older posts (shape counts
    *       every in-window tag)
-   *   <li>[not-yet-translatable] {@code ORDER BY}/{@code LIMIT} after {@code groupCount} — plain
-   *       {@code order}+{@code limit} translate on this branch; the post-aggregate slice still declines
    * </ul>
    */
-  public static YTDBGraphTraversal<Vertex, Map<Object, Long>> ic4FriendPostTags(
+  public static YTDBGraphTraversal<Vertex, Map.Entry<Object, Long>> ic4FriendPostTags(
       YTDBGraphTraversalSource g, long personId, Date startDate, Date endDate) {
-    return g.V()
-        .hasLabel(PERSON_LABEL)
-        .has("id", personId)
-        .out(KNOWS_LABEL)
-        .in(HAS_CREATOR_LABEL)
-        .hasLabel(POST_LABEL)
-        .has("creationDate", P.gte(startDate))
-        .has("creationDate", P.lt(endDate))
-        .out(HAS_TAG_LABEL)
-        .groupCount().by("name");
+    @SuppressWarnings("unchecked")
+    YTDBGraphTraversal<Vertex, Map.Entry<Object, Long>> traversal =
+        (YTDBGraphTraversal<Vertex, Map.Entry<Object, Long>>) (YTDBGraphTraversal<?, ?>) g.V()
+            .hasLabel(PERSON_LABEL)
+            .has("id", personId)
+            .out(KNOWS_LABEL)
+            .in(HAS_CREATOR_LABEL)
+            .hasLabel(POST_LABEL)
+            .has("creationDate", P.gte(startDate))
+            .has("creationDate", P.lt(endDate))
+            .out(HAS_TAG_LABEL)
+            .groupCount().by("name")
+            .unfold()
+            .order().by(Column.values, Order.desc)
+            .by(Column.keys, Order.asc)
+            .limit(RESULT_LIMIT);
+    return traversal;
   }
 
   /**
@@ -569,10 +576,11 @@ public final class GremlinTraversalShapes {
    *   <li>[not-yet-translatable] per-forum post {@code count} ({@code GROUP BY} forum)
    *   <li>[depends-on-above] {@code ORDER BY postCount}/{@code LIMIT} — {@code order}+{@code limit}
    *       already translate; omitted until the count column exists
-   *   <li>[not-yet-translatable] {@code dedup()} after a labeled hop — named scope keys on
-   *       {@code DedupGlobalStep} decline (MATCH {@code DISTINCT} is whole-row only); shape emits
-   *       one row per friend-post→forum path
    * </ul>
+   *
+   * <p>{@code dedup("forumId")} is named dedup on the current boundary (forum after
+   * {@code in(CONTAINER_OF)}), so MATCH {@code RETURN DISTINCT} collapses friend-post→forum path
+   * duplicates before {@code select}.
    */
   public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic5FriendPostForums(
       YTDBGraphTraversalSource g, long personId) {
@@ -583,31 +591,38 @@ public final class GremlinTraversalShapes {
         .in(HAS_CREATOR_LABEL)
         .hasLabel(POST_LABEL)
         .in(CONTAINER_OF_LABEL).as("forumId", "forumTitle")
+        .dedup("forumId")
         .select("forumId", "forumTitle").by("id").by("title");
   }
 
   /**
-   * LDBC: IC6 reduced — tag names on direct friends' posts ({@code groupCount}).
+   * LDBC: IC6 reduced — tag names on direct friends' posts ({@code groupCount}), top
+   * {@link #RESULT_LIMIT} by count then tag name.
    *
    * <p>Gaps vs SQL IC6:
    * <ul>
    *   <li>[not-yet-translatable] FoF {@code while} depth &lt; 2
    *   <li>[not-yet-translatable] co-occurrence filter with a given tag ({@code where(out(HAS_TAG))}
    *       declines)
-   *   <li>[not-yet-translatable] {@code ORDER BY}/{@code LIMIT} after {@code groupCount} — plain
-   *       {@code order}+{@code limit} translate on this branch; the post-aggregate slice still declines
    * </ul>
    */
-  public static YTDBGraphTraversal<Vertex, Map<Object, Long>> ic6FriendPostTagCounts(
+  public static YTDBGraphTraversal<Vertex, Map.Entry<Object, Long>> ic6FriendPostTagCounts(
       YTDBGraphTraversalSource g, long personId) {
-    return g.V()
-        .hasLabel(PERSON_LABEL)
-        .has("id", personId)
-        .out(KNOWS_LABEL)
-        .in(HAS_CREATOR_LABEL)
-        .hasLabel(POST_LABEL)
-        .out(HAS_TAG_LABEL)
-        .groupCount().by("name");
+    @SuppressWarnings("unchecked")
+    YTDBGraphTraversal<Vertex, Map.Entry<Object, Long>> traversal =
+        (YTDBGraphTraversal<Vertex, Map.Entry<Object, Long>>) (YTDBGraphTraversal<?, ?>) g.V()
+            .hasLabel(PERSON_LABEL)
+            .has("id", personId)
+            .out(KNOWS_LABEL)
+            .in(HAS_CREATOR_LABEL)
+            .hasLabel(POST_LABEL)
+            .out(HAS_TAG_LABEL)
+            .groupCount().by("name")
+            .unfold()
+            .order().by(Column.values, Order.desc)
+            .by(Column.keys, Order.asc)
+            .limit(RESULT_LIMIT);
+    return traversal;
   }
 
   /**
