@@ -18,6 +18,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -54,14 +55,14 @@ import org.junit.Test;
  *       with a hop inside declines (existence would join-fan-out); pure property children translate.
  *   <li><b>Labelled {@code where(as(a)…)}</b> — scope steps unregistered → decline.
  *   <li><b>{@code where(P).by(...)}</b> — modulateBy property projection out of Phase 1.
- *   <li><b>{@code dedup().by(property)}</b> on an element boundary translates (post-projection dedup);
- *       values-then-dedup, prior-label {@code dedup(a)}, and post-union {@code dedup().by(...)} decline;
- *       bare element {@code dedup()} and {@code RETURN DISTINCT} translate.
+ *   <li><b>{@code dedup().by(property)}</b> on an element boundary translates (post-projection
+ *       dedup), including post-union; {@code values(k).dedup()} and prior-label {@code dedup(a)}
+ *       translate; bare element {@code dedup()} and {@code RETURN DISTINCT} translate.
  *   <li><b>Keyless {@code valueMap()}/{@code elementMap()}</b> — on the generic {@code V} root declines;
  *       on a typed boundary ({@code hasLabel(L)} with schema-declared properties) translates; keyed
  *       forms always translate.
- *   <li><b>Post-union hop/filter/order/positional slice</b> — declines; union+{@code count}/early
- *       {@code dedup} translate.
+   *   <li><b>Post-union hop/filter/positional slice</b> — declines; union+{@code count}/early
+   *       {@code dedup}/{@code order} translate.
  *   <li><b>Bare RID point-lookup</b> — {@code g.V(id)} / {@code hasId} with no hop declines (native
  *       seek); the same id with a hop translates.
  *   <li><b>{@code Order.shuffle}</b> / second {@code order()} / order after {@code group} — decline.
@@ -682,9 +683,9 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().both("knows", "created"));
   }
 
-  /** Polymorphic multi-label hasLabel declines under default polymorphic mode. */
+  /** Polymorphic multi-label hasLabel expands subclass closure and translates. */
   @Test
-  public void hasLabel_multi_then_out_declines() {
+  public void hasLabel_multi_then_out_matchesNative() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     session.createEdgeClass("knows");
@@ -694,7 +695,7 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
     graph.tx().commit();
     assertEquivalent(
         "g.V().hasLabel(Person,Employee).out(knows)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person", "Employee").out("knows"));
   }
 
@@ -732,24 +733,43 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .bothE("knows").has("since", P.lt(2015)).otherV());
   }
 
-  /** Edge as() + select declines. */
+  /** Edge as() + select translates with edge property projection. */
   @Test
-  public void outE_as_inV_selectEdge_declines() {
+  public void outE_as_inV_selectEdge_matchesNative() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     alice.addEdge("knows", bob, "since", 2010);
     graph.tx().commit();
     assertEquivalent(
         "g.V(alice).outE(knows).as(k).inV().select(k).by(since)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(alice.id())
             .outE("knows").as("k").inV()
             .select("k").by("since"));
   }
 
-  /** Cross-alias order by select(edge) declines. */
+  /**
+   * TinkerPop DedupTest compliance shape: select edge, order by weight, re-select vertex,
+   * values+dedup. Repinning select("v") to the vertex alias is required so values("name") reads
+   * the target vertex rather than the prior edge boundary.
+   */
   @Test
-  public void orderBy_selectEdge_declines() {
+  public void outE_selectEdge_order_selectVertex_values_dedup_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().outE().as(e).inV().as(v).select(e).order().by(weight).select(v).values(name).dedup()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .outE().as("e")
+            .inV().as("v")
+            .select("e").order().by("weight", Order.asc)
+            .select("v").values("name")
+            .dedup());
+  }
+
+  /** Cross-alias order by select(edge) modulator. */
+  @Test
+  public void orderBy_selectEdge_matchesNative() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
@@ -758,7 +778,7 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
     graph.tx().commit();
     assertEquivalentOrdered(
         "…outE.as(k).inV.order().by(select(k).by(since))",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(alice.id())
             .outE("knows").as("k")
             .inV()
@@ -775,14 +795,63 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().out("created").dedup().by("name"));
   }
 
-  /** values then dedup declines — boundary is no longer ELEMENT. */
+  /** values then dedup collapses duplicate scalars after projection. */
   @Test
-  public void values_dedup_declines() {
+  public void values_dedup_matchesNative() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().hasLabel(Person).values(name).dedup()",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person").values("name").dedup());
+  }
+
+  /** Prior-label dedup(a) keeps the first out-neighbour per labelled source. */
+  @Test
+  public void priorLabel_dedup_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().as(a).out(knows).dedup(a)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("a").out("knows").dedup("a"));
+  }
+
+  /** Post-union dedup().by(prop) dedups concatenated elements by property. */
+  @Test
+  public void union_dedup_by_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().union(out(knows), out(created)).dedup().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .union(__.out("knows"), __.out("created"))
+            .dedup().by("name"));
+  }
+
+  /**
+   * groupCount().unfold().order().by(Column.values/keys).limit(n) — SQL-native ORDER BY + LIMIT on
+   * GROUP BY rows, emitting Map.Entry payloads.
+   */
+  @Test
+  public void groupCount_unfold_order_limit_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalentOrdered(
+        "g.V().hasLabel(Person).groupCount().by(name).unfold()"
+            + ".order().by(Column.values,desc).by(Column.keys).limit(2)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").groupCount().by("name")
+            .unfold()
+            .order().by(Column.values, Order.desc).by(Column.keys, Order.asc)
+            .limit(2));
+  }
+
+  /** groupCount().unfold() alone emits entry multiset (no fold to one map). */
+  @Test
+  public void groupCount_unfold_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().hasLabel(Person).groupCount().by(name).unfold()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").groupCount().by("name").unfold());
   }
 
   /** Keyless valueMap on a typed boundary enumerates schema-declared properties. */
@@ -795,13 +864,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").valueMap());
   }
 
-  /** Bare g.V(id) point-lookup declines; contrast with V(id).out which translates. */
+  /** Bare g.V(id) point-lookup translates and matches native. */
   @Test
-  public void bare_V_id_declines() {
+  public void bare_V_id_matchesNative() {
     var m = ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V(marko) — bare RID point-lookup",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(m.marko().id()));
   }
 
@@ -817,13 +886,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .out("created"));
   }
 
-  /** Order after union declines. */
+  /** Order after union translates via in-memory {@link PostConcatOp.Order}. */
   @Test
-  public void union_then_order_declines() {
+  public void union_then_order_matchesNative() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().union(out(knows), out(created)).order().by(name)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V()
             .union(__.out("knows"), __.out("created"))
             .order().by("name", Order.asc));
@@ -965,9 +1034,9 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .bothE("knows").has("since", P.gte(2010)).otherV());
   }
 
-  /** Vertex as() translates; edge as() declines — same select spelling. */
+  /** Vertex as() and edge as() both translate with the same select spelling. */
   @Test
-  public void asPlacement_vertexVsEdge_documentsException() {
+  public void asPlacement_vertexVsEdge_bothTranslate() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     alice.addEdge("knows", bob, "since", 2010);
@@ -980,19 +1049,19 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .select("f").by("name"));
     assertEquivalent(
         "edge as: g.V(alice).outE(knows).as(k).inV().select(k).by(since)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(alice.id())
             .outE("knows").as("k").inV()
             .select("k").by("since"));
   }
 
-  /** Bare V(id) declines; V(id).out translates. */
+  /** Bare V(id) and V(id).out both translate. */
   @Test
-  public void ridLookup_bareVsWithHop_documentsException() {
+  public void ridLookup_bareAndWithHop_matchNative() {
     var m = ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "bare: g.V(marko)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(m.marko().id()));
     assertEquivalent(
         "with hop: g.V(marko).out(knows)",
@@ -1065,6 +1134,10 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
     }
     if (value instanceof Vertex vertex) {
       return "V:" + Objects.toString(vertex.id());
+    }
+    // Map.Entry before Map: SimpleEntry implements Map but must render as one pair, not a fold.
+    if (value instanceof Map.Entry<?, ?> entry) {
+      return "E:" + canonicalizeOne(entry.getKey()) + "=" + canonicalizeOne(entry.getValue());
     }
     if (value instanceof Map<?, ?> map) {
       return map.entrySet().stream()
