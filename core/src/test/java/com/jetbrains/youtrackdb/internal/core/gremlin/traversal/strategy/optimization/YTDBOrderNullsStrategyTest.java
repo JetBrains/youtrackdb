@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
@@ -18,13 +19,19 @@ import org.apache.tinkerpop.gremlin.structure.T;
 import org.javatuples.Pair;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * {@link YTDBOrderNullsStrategy} applies {@link GlobalConfiguration#QUERY_ORDER_BY_NULLS_DEFAULT}
  * to native Gremlin {@code order()} when the effective default is {@link
  * OrderByNullsDefault#NULLS_LARGEST}. {@link OrderByNullsDefault#NULLS_SMALLEST} is a no-op
  * because TinkerPop's comparator already matches it.
+ *
+ * <p>Marked {@code @Category(SequentialTest)} because it mutates the process-wide
+ * {@code QUERY_ORDER_BY_NULLS_DEFAULT} global; the default surefire execution runs four test classes
+ * in parallel in one virtual machine, so the mutation would leak between classes.
  */
+@Category(SequentialTest.class)
 public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
 
   private static final Field COMPARATORS_FIELD;
