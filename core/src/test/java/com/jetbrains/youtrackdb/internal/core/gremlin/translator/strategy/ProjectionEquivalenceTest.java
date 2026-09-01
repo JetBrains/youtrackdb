@@ -1045,11 +1045,14 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Property {@code id} (unique in the fixture) — strategy skips trailing {@code T.id}; on and off
-   * must still agree on the name sequence.
+   * Property {@code id}, unique in this fixture, so the appended record identifier key separates
+   * nothing and the {@code id} order alone decides the answer. The strategy no longer skips a
+   * property named {@code id}, so this case pins that the appended key leaves a genuinely unique
+   * primary key alone. The duplicate-value counterpart lives in
+   * {@code OrderRidTieBreakEquivalenceTest}.
    */
   @Test
-  public void orderByPropertyId_matchesNativeWithoutExtraRid() {
+  public void orderByPropertyId_matchesNativeWithAppendedRid() {
     graph.addVertex(T.label, "Person", "id", "p3", "name", "Carol");
     graph.addVertex(T.label, "Person", "id", "p1", "name", "Alice");
     graph.addVertex(T.label, "Person", "id", "p2", "name", "Bob");

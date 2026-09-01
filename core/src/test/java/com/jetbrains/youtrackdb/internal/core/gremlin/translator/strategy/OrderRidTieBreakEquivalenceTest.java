@@ -26,8 +26,20 @@ import org.junit.Test;
  * class from a committed one, and TinkerPop orderability compares two sibling classes by class name
  * before it compares values, so the native arm grouped every pending vertex ahead of every committed
  * one while the translated arm sorted all of them numerically.
+ *
+ * <p>The two property {@code id} cases cover the deleted skip rule. A sort whose last key was a
+ * property named {@code id} used to receive no appended key at all, because that property was
+ * assumed unique per class.
  */
 public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
+
+  /** The tags of {@link #seedDuplicateIdPeople} in the order they were inserted. */
+  private static final List<String> INSERTION_ORDER_TAGS =
+      List.of("b-first", "a-first", "b-second", "a-second");
+
+  /** The tags of {@link #seedDuplicateIdHopTargets} in the order their edges were added. */
+  private static final List<String> EDGE_INSERTION_ORDER_TAGS =
+      List.of("t1", "t2", "t3", "t4");
 
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
@@ -147,18 +159,154 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Several vertices sharing one value in a property named {@code id}. The strategy used to skip a
+   * sort whose last key was such a property, on the assumption that it was unique per class. Two
+   * rows share each of the two values here, so the appended key is the only thing that orders a
+   * group, and without it the two arms were free to answer different sequences.
+   */
+  @Test
+  public void duplicateIdPropertyWithoutABound_matchesNativeAndFollowsRecordIdOrder() {
+    seedDuplicateIdPeople();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(id).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("id").values("tag"));
+
+    var oracle = tagsByIdThenRecordIdOrder();
+    assertThat(oracle).as("the oracle must cover every seeded row").hasSize(4);
+    assertThat(oracle)
+        .as("the fixture must separate sorted order from insertion order, or the case is blind")
+        .isNotEqualTo(INSERTION_ORDER_TAGS);
+    assertThat(graph.traversal().V().order().by("id").values("tag").toList())
+        .as("the duplicate id values tie, so the appended key decides inside each group")
+        .isEqualTo(oracle);
+  }
+
+  /**
+   * The discriminating duplicate {@code id} shape. A hop puts its targets in edge insertion order,
+   * which this fixture makes the reverse of the record identifier order, so a stable sort over one
+   * tie group and a record identifier sort answer opposite sequences. A plain scan cannot witness
+   * that, because there arrival order and record identifier order are the same order.
+   */
+  @Test
+  public void duplicateIdPropertyAfterAHopWithoutABound_followsRecordIdOrder() {
+    seedDuplicateIdHopTargets();
+
+    assertEquivalentOrdered(
+        "g.V().out(knows).order().by(id).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().out("knows").order().by("id").values("tag"));
+
+    var oracle = hopTargetTagsInRecordIdOrder();
+    assertThat(oracle).as("the oracle must cover every hop target").hasSize(4);
+    assertThat(oracle)
+        .as("the fixture must separate record identifier order from edge insertion order, or a "
+            + "missing tie-break cannot be witnessed here")
+        .isNotEqualTo(EDGE_INSERTION_ORDER_TAGS);
+    assertThat(graph.traversal().V().out("knows").order().by("id").values("tag").toList())
+        .as("every target ties on id, so the appended key decides the whole sequence")
+        .isEqualTo(oracle);
+  }
+
+  /**
+   * The same hop under a bound of three, which cuts inside the single four-row tie group. The shape
+   * declines, because a real slice behind a captured {@code ORDER BY} does, so the prefix assertion
+   * rather than the two-arm comparison carries the claim: which three targets survive is decided by
+   * the appended key.
+   */
+  @Test
+  public void duplicateIdPropertyAfterAHopWithALimit_keepsTheOrderedPrefix() {
+    seedDuplicateIdHopTargets();
+
+    assertEquivalentOrdered(
+        "g.V().out(knows).order().by(id).limit(3).values(tag)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().out("knows").order().by("id").limit(3).values("tag"));
+
+    var oracle = hopTargetTagsInRecordIdOrder();
+    assertThat(oracle)
+        .as("the fixture must separate record identifier order from edge insertion order")
+        .isNotEqualTo(EDGE_INSERTION_ORDER_TAGS);
+    assertThat(
+        graph.traversal().V().out("knows").order().by("id").limit(3).values("tag").toList())
+        .as("a bound cutting inside a tie group must keep the ordered prefix")
+        .isEqualTo(oracle.subList(0, 3));
+  }
+
+  /**
    * The tags of every stored vertex, sorted by collection identifier and then by collection
    * position. An independent oracle for the appended key, read off the identifiers rather than off
    * an ordered query.
    */
   private List<String> tagsInRecordIdOrder() {
     return graph.traversal().V().toList().stream()
-        .sorted(
-            Comparator
-                .comparingInt((Vertex vertex) -> ((RID) vertex.id()).getCollectionId())
-                .thenComparingLong(vertex -> ((RID) vertex.id()).getCollectionPosition()))
+        .sorted(byRecordId())
         .map(vertex -> vertex.<String>value("tag"))
         .toList();
+  }
+
+  /**
+   * Four people over two values of a property named {@code id}, two rows each, inserted so that
+   * insertion order and sorted order disagree. Sorting by {@code id} therefore leaves two tie groups
+   * of two, which is what a bound of three cuts into.
+   */
+  private void seedDuplicateIdPeople() {
+    graph.addVertex(T.label, "Person", "id", "b", "tag", "b-first");
+    graph.addVertex(T.label, "Person", "id", "a", "tag", "a-first");
+    graph.addVertex(T.label, "Person", "id", "b", "tag", "b-second");
+    graph.addVertex(T.label, "Person", "id", "a", "tag", "a-second");
+    graph.tx().commit();
+  }
+
+  /**
+   * One source knowing four targets that all share one value in a property named {@code id}. The
+   * targets are created in the reverse of the order their edges are added, so the hop's arrival order
+   * and the record identifier order are opposite sequences over one tie group. A fixture where the
+   * two coincide cannot witness a missing tie-break, because a stable sort on equal keys returns
+   * arrival order and the record identifier sort returns the other one.
+   */
+  private void seedDuplicateIdHopTargets() {
+    var fourth = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t4");
+    var third = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t3");
+    var second = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t2");
+    var first = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t1");
+    var source = graph.addVertex(T.label, "Person", "tag", "source");
+    source.addEdge("knows", first);
+    source.addEdge("knows", second);
+    source.addEdge("knows", third);
+    source.addEdge("knows", fourth);
+    graph.tx().commit();
+  }
+
+  /**
+   * The tags of every stored vertex, sorted by the {@code id} property and then by collection
+   * identifier and position. The oracle for the plain-scan duplicate {@code id} case: the written key
+   * first, the appended record identifier key second, read off the stored values themselves.
+   */
+  private List<String> tagsByIdThenRecordIdOrder() {
+    return graph.traversal().V().toList().stream()
+        .sorted(
+            Comparator
+                .comparing((Vertex vertex) -> vertex.<String>value("id"))
+                .thenComparing(byRecordId()))
+        .map(vertex -> vertex.<String>value("tag"))
+        .toList();
+  }
+
+  /** The tags of the hop's targets in record identifier order — they all tie on {@code id}. */
+  private List<String> hopTargetTagsInRecordIdOrder() {
+    return graph.traversal().V().out("knows").toList().stream()
+        .sorted(byRecordId())
+        .map(vertex -> vertex.<String>value("tag"))
+        .toList();
+  }
+
+  /** Collection identifier first, collection position second — the order the appended key promises. */
+  private static Comparator<Vertex> byRecordId() {
+    return Comparator
+        .comparingInt((Vertex vertex) -> ((RID) vertex.id()).getCollectionId())
+        .thenComparingLong(vertex -> ((RID) vertex.id()).getCollectionPosition());
   }
 
   /** Three people with distinct tags and one shared age, committed. */

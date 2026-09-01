@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -87,10 +86,10 @@ import org.javatuples.Pair;
  * </ul>
  *
  * <p>Skips when the last comparator is {@code Order.shuffle}, the record identifier key,
- * {@code Column.keys} (or {@code select(keys)}), identity where that is already a valid total order,
- * or property {@code "id"}. Property {@code id} is assumed unique in domain data — appending a
- * record identifier would not change order when that holds and would only add comparator work.
- * Duplicate property {@code id} values remain an intentional stability exception, alongside shuffle.
+ * {@code Column.keys} (or {@code select(keys)}), or identity where that is already a valid total
+ * order. A property named {@code id} carries no skip. Nothing in the engine makes such a property
+ * unique, so duplicate values in it tie, and an untied group is exactly what makes the two arms
+ * answer different sequences. {@code Order.shuffle} is the only remaining stability exception.
  *
  * <p>Recogniser contract: identity → {@code @rid} only on element boundaries. Entry / map
  * translation must map {@code Column.keys} to the GROUP BY key — never to {@code @rid}.
@@ -174,7 +173,7 @@ public final class YTDBOrderRidTieBreakStrategy
   private static void ensureGlobalElementSortKey(
       OrderGlobalStep<?, ?> step,
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (endsWithRecordIdSortKey(comparators) || endsWithPropertyId(comparators)) {
+    if (endsWithRecordIdSortKey(comparators)) {
       return;
     }
     if (endsWithTokenId(comparators) || endsWithIdentity(comparators)) {
@@ -187,7 +186,7 @@ public final class YTDBOrderRidTieBreakStrategy
   private static void ensureLocalElementTieBreak(
       OrderLocalStep<?, ?> step,
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (endsWithRecordIdSortKey(comparators) || endsWithPropertyId(comparators)) {
+    if (endsWithRecordIdSortKey(comparators)) {
       return;
     }
     if (endsWithTokenId(comparators) || endsWithIdentity(comparators)) {
@@ -201,8 +200,7 @@ public final class YTDBOrderRidTieBreakStrategy
       OrderLocalStep<?, ?> step,
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
     if (selectsEntryKeyTieBreak(comparators.getLast().getValue0())
-        || endsWithRecordIdSortKey(comparators)
-        || endsWithPropertyId(comparators)) {
+        || endsWithRecordIdSortKey(comparators)) {
       return;
     }
     var keyModulator = entryKeyTieBreakModulator(step);
@@ -387,11 +385,7 @@ public final class YTDBOrderRidTieBreakStrategy
     if (lastModulator instanceof IdentityTraversal) {
       return true;
     }
-    if (selectsEntryKeyTieBreak(lastModulator)) {
-      return true;
-    }
-    // Property "id" is treated as a domain-unique surrogate — see class Javadoc.
-    return endsWithPropertyId(comparators);
+    return selectsEntryKeyTieBreak(lastModulator);
   }
 
   private static boolean endsWithRecordIdSortKey(
@@ -408,13 +402,6 @@ public final class YTDBOrderRidTieBreakStrategy
   private static boolean endsWithIdentity(
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
     return comparators.getLast().getValue0() instanceof IdentityTraversal;
-  }
-
-  private static boolean endsWithPropertyId(
-      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    return ByModulatorTranslator.keyModulatorPropertyKey(comparators.getLast().getValue0())
-        .filter("id"::equals)
-        .isPresent();
   }
 
   /**

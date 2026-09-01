@@ -130,13 +130,22 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(orderStep(admin).getLabels()).containsExactly("sorted");
   }
 
-  /** Multi-key sort ending on property {@code id} must not gain a {@code T.id} modulator. */
+  /**
+   * A multi-key element sort whose last key is a property named {@code id} gains the record
+   * identifier key like any other. The strategy used to skip this shape, treating the property as a
+   * unique surrogate. Nothing in the engine makes it unique, so its duplicate values tie and the
+   * sequence needs the appended key.
+   */
   @Test
-  public void apply_leavesExplicitIdPropertySortUntouched() {
+  public void apply_appendsRecordIdKeyAfterPropertyIdSort() {
     var admin = graph.traversal().V().order().by("creationDate", Order.desc).by("id", Order.asc)
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(comparators(orderStep(admin))).hasSize(2);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(3);
+    assertRecordIdKey(comparators.get(2).getValue0());
+    assertThat(comparators.get(2).getValue1()).isEqualTo(Order.asc);
   }
 
   /**
@@ -584,12 +593,18 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertRecordIdKey(localComparators.get(0).getValue0());
   }
 
-  /** Local element order ending on property {@code id} must not gain a {@code T.id} modulator. */
+  /**
+   * Local element order whose last key is a property named {@code id} gains the record identifier
+   * key too, because a folded element list ties on duplicate values exactly as a global stream does.
+   */
   @Test
-  public void apply_leavesExplicitIdPropertyOrderLocalOnFoldedElementsUntouched() {
+  public void apply_appendsRecordIdKeyAfterPropertyIdOrderLocalOnFoldedElements() {
     var admin = graph.traversal().V().fold().order(Scope.local).by("id").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(localComparators(localOrderStep(admin))).hasSize(1);
+
+    var localComparators = localComparators(localOrderStep(admin));
+    assertThat(localComparators).hasSize(2);
+    assertRecordIdKey(localComparators.get(1).getValue0());
   }
 
   /**
@@ -808,16 +823,24 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(comparators(orderStep(admin))).hasSize(1);
   }
 
-  /** Local map order ending on property {@code id} must not gain a keys modulator. */
+  /**
+   * Local map order whose last key is a property named {@code id} gains the entry key modulator, for
+   * the same reason: the group key is what separates two entries carrying one duplicate value.
+   */
   @Test
-  public void apply_leavesExplicitIdPropertyOrderLocalOnGroupMapUntouched() {
+  public void apply_appendsKeysAfterPropertyIdOrderLocalOnGroupMap() {
     var admin = graph.traversal().V()
         .group().by("name")
         .order(Scope.local)
         .by("id")
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(localComparators(localOrderStep(admin))).hasSize(1);
+
+    var localComparators = localComparators(localOrderStep(admin));
+    assertThat(localComparators).hasSize(2);
+    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
+    assertThat(((ColumnTraversal) localComparators.get(1).getValue0()).getColumn())
+        .isEqualTo(Column.keys);
   }
 
   /**

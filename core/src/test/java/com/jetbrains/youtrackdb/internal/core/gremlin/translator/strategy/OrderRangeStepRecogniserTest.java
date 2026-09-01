@@ -93,11 +93,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Multi-key sort ending on property {@code id} already has an explicit tie-break —
-   * {@link YTDBOrderRidTieBreakStrategy} must not append {@code by(T.id)}.
+   * A multi-key sort whose last key is a property named {@code id} receives the record identifier
+   * item like any other element sort. {@link YTDBOrderRidTieBreakStrategy} used to skip this shape,
+   * on the assumption that such a property is unique per class. Nothing in the engine declares that,
+   * so duplicate values in it tie, and a tie no key breaks is what let the two arms answer different
+   * sequences.
    */
   @Test
-  public void orderByDateThenId_skipsRidTieBreak() {
+  public void orderByDateThenId_stillGainsRidTieBreak() {
     var admin = graph.traversal().V().order()
         .by("creationDate", Order.desc).by("id", Order.asc).asAdmin();
     var ctx = seededContext();
@@ -105,24 +108,24 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.orderBy.getItems()).hasSize(2);
+    assertThat(ctx.orderBy.getItems()).hasSize(3);
     assertThat(ctx.orderBy.toString()).contains("creationDate");
-    assertThat(ctx.orderBy.toString()).contains("id");
-    assertThat(ctx.orderBy.toString()).doesNotContain("@rid");
+    assertThat(ctx.orderBy.toString()).contains(".id");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
   }
 
-  /** Sole {@code order().by("id")} already ends on property {@code id} — no trailing {@code @rid}. */
+  /** A sole {@code order().by("id")} gains the same trailing {@code @rid} item, for one reason. */
   @Test
-  public void orderByIdOnly_skipsRidTieBreak() {
+  public void orderByIdOnly_stillGainsRidTieBreak() {
     var admin = graph.traversal().V().order().by("id", Order.asc).asAdmin();
     var ctx = seededContext();
 
     var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.orderBy.getItems()).hasSize(1);
-    assertThat(ctx.orderBy.toString()).contains("id");
-    assertThat(ctx.orderBy.toString()).doesNotContain("@rid");
+    assertThat(ctx.orderBy.getItems()).hasSize(2);
+    assertThat(ctx.orderBy.toString()).contains(".id");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
   }
 
   /** {@code order().by(select('k').by(key))} resolves through {@link ByModulatorTranslator}. */
