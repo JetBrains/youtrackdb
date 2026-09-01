@@ -18,7 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ParentOnlyChain;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
