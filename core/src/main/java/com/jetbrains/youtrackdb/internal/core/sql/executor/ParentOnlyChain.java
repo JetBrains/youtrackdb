@@ -43,20 +43,38 @@ import javax.annotation.Nullable;
  *       {@code $parent}-rooted chain.
  * </ul>
  *
- * <p>The root and every link resolve through {@code SQLSuffixIdentifier}, which reads only the
- * value handed to it by the previous link (the parent context for the root). It never consults the
- * current-record system variable, so the whole chain is current-record independent.
+ * <p>The root and every link resolve through {@code SQLSuffixIdentifier}. A link reads the value
+ * the previous link handed down, and it may <i>also</i> read the current-record context variable.
+ * A link whose name starts with a dollar sign is resolved by
+ * {@code BasicCommandContext.getVariable}, whose {@code current} case returns
+ * {@code VAR_CURRENT} (see {@code BasicCommandContext.java:236}), and a property miss falls back
+ * the same way. So {@code $parent.$current.ref.$current} really does read that slot: a chain is
+ * not, on its own, independent of the current-record variable.
+ *
+ * <p>The chain is nonetheless safe here, for a different reason. {@link LetQueryStep} installs an
+ * intermediate context that owns {@code VAR_CURRENT} for the correlated subquery (see
+ * {@code LetQueryStep.java:104-107}), so the slot holds the same parent row whichever inner plan
+ * runs. The correlated fetch and the class scan plus filter therefore read the same value and
+ * return the same rows.
+ *
+ * <p>That is an invariant of the surrounding step, not of the chain itself. Any future widening of
+ * this gate, and any new caller that evaluates an admitted chain outside a {@link LetQueryStep},
+ * must re-examine this point before relying on it.
  *
  * <h2>Rejected, with no exception</h2>
  *
  * <ul>
- *   <li><b>Every function call and every method call, anywhere.</b> {@code SQLFunctionCall},
- *       {@code SQLMethodCall} and {@code SQLFunctionEval} fall back to the current-record system
- *       variable when the record argument is {@code null}, so they read the inner row with no
- *       signal in the syntax tree. Verified counterexample:
+ *   <li><b>Every function call and every method call, anywhere.</b> {@code SQLFunctionCall} (see
+ *       {@code SQLFunctionCall.java:119-127}) and {@code SQLMethodCall} fall back to the
+ *       current-record system variable when the record argument is {@code null}, so they read the
+ *       inner row with no signal in the syntax tree. The asymmetry is what breaks parity: under
+ *       the scan plus filter the record argument is the inner row, so no fallback fires, while
+ *       under the fetch it is {@code null}, so the call silently changes subject. An admitted
+ *       chain link has no such asymmetry, because it reads the same slot under both plans.
+ *       Verified counterexample:
  *       {@code @rid = ifnull($parent.$current.missing, first(out('GE')))} returns three rows
  *       through scan plus filter and zero rows through the fetch step. Determinism of the function
- *       is irrelevant — the hidden read is what breaks parity.
+ *       is irrelevant, because the silent change of subject is the defect.
  *   <li><b>Any subquery</b>, which parses into a parenthesis expression or a collection literal
  *       under the level-zero identifier, and is evaluated against the current record.
  *   <li><b>A bracket modifier carrying a condition, a range, or a right binary condition</b>

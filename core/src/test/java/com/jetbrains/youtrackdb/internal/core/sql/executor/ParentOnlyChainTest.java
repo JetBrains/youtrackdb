@@ -95,6 +95,24 @@ public class ParentOnlyChainTest {
     assertAccepted("$parent.$current.refs[0][1]");
   }
 
+  /**
+   * Benchmark guard: the two right-hand expressions that the LDBC benchmark queries actually use
+   * must stay inside the whitelist. IC1 correlates on {@code $parent.$current.friendVertex} and
+   * IC10 on {@code $parent.$current.fofVertex}. Both are the reason the correlated fetch exists,
+   * so a later tightening of the gate that drops either one would silently erase the reported
+   * throughput gain while every other test stayed green.
+   *
+   * <p>This is one half of the pin. It proves the gate accepts these expressions. The other half
+   * is {@code LdbcCorrelatedRidShapeTest} in the {@code jmh-ldbc} module, which proves the two
+   * benchmark SQL resources still contain exactly these expressions. Neither half needs a schema
+   * or a benchmark run, and both must be updated together if a benchmark query is rewritten.
+   */
+  @Test
+  public void ldbcBenchmarkCorrelatedExpressions_areAccepted() {
+    assertAccepted("$parent.$current.friendVertex");
+    assertAccepted("$parent.$current.fofVertex");
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Rejected: nothing to walk
   // ---------------------------------------------------------------------------------------------

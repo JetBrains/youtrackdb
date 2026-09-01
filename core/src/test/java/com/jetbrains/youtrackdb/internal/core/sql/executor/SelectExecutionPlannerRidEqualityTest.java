@@ -1661,14 +1661,20 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
   }
 
   /**
-   * Gate whitelist, accept: a bare parent row reference {@code @rid = $parent.$current} is a
-   * chain rooted at {@code $parent} whose single link is a plain identifier, so it must keep the
-   * correlated fetch. Only the plan shape is asserted: {@code $parent.$current} evaluates to a
-   * {@code Result}, and the coercion of a {@code Result}-valued right side is the value-domain
-   * track, not the gate.
+   * Gate whitelist, accept, plan selection only: a bare parent row reference
+   * {@code @rid = $parent.$current} is a chain rooted at {@code $parent} whose single link is a
+   * plain identifier, so the gate must keep the correlated fetch.
+   *
+   * <p>KNOWN GAP, deliberately not asserted. {@code $parent.$current} evaluates to a
+   * {@code Result}, and {@code SelectExecutionPlanner.toRecordIdCandidate} has no {@code Result}
+   * case, so the fast path returns no rows today while the class scan plus filter returns one.
+   * This test therefore asserts plan selection and nothing else. Row parity for a
+   * {@code Result}-valued right side is the acceptance condition of the value-domain track, which
+   * owns the coercion. No assertion here pins the current zero-row outcome, because pinning a
+   * defect would make the fix look like a regression.
    */
   @Test
-  public void correlatedRidBareParentRow_usesCorrelatedRidFetch() {
+  public void correlatedRidBareParentRow_selectsCorrelatedRidPlanOnly() {
     var className = createClassInstance().getName();
     session.begin();
     session.newInstance(className).setProperty("tag", "a");
@@ -1728,12 +1734,19 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
   }
 
   /**
-   * Gate whitelist, accept: a constant bracket index over a parent LET variable
-   * ({@code @rid = $parent.$r[0]}) is still a chain rooted at {@code $parent}, so the gate admits
-   * it. Plan shape only: {@code $r} holds subquery rows, whose coercion is the value-domain track.
+   * Gate whitelist, accept, plan selection only: a constant bracket index over a parent LET
+   * variable ({@code @rid = $parent.$r[0]}) is still a chain rooted at {@code $parent}, so the gate
+   * must admit it.
+   *
+   * <p>KNOWN GAP, deliberately not asserted. {@code $r} holds subquery rows, so the index yields a
+   * {@code Result}, and {@code SelectExecutionPlanner.toRecordIdCandidate} has no {@code Result}
+   * case. The fast path therefore returns no rows today while the class scan plus filter returns
+   * one. This test asserts plan selection and nothing else. Row parity for a {@code Result}-valued
+   * right side is the acceptance condition of the value-domain track. No assertion here pins the
+   * current zero-row outcome, because pinning a defect would make the fix look like a regression.
    */
   @Test
-  public void correlatedRidConstantIndexOnParentLetVariable_usesCorrelatedRidFetch() {
+  public void correlatedRidConstantIndexOnParentLetVariable_selectsCorrelatedRidPlanOnly() {
     var parentClass = createClassInstance().getName();
     var childClass = createClassInstance().getName();
     session.begin();
