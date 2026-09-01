@@ -130,13 +130,13 @@ public final class CachedEntry {
 
   /**
    * Null placement for every ORDER BY comparison this entry drives, resolved on first use and kept
-   * for the entry's whole life. One shared value is required for correctness, not an optimisation:
-   * the delta builder sorts the inject list and the view merges that list against the cached rows.
+   * for the entry's whole life. One shared value is required for correctness, not for speed. The
+   * delta builder sorts the inject list, and the view merges that list against the cached rows.
    * Resolving twice would let a configuration change land between the two reads, and the merge would
    * then emit an unsorted result. The frozen cached rows were produced under the placement in force
-   * at populate time, so keeping that placement is also the closer match to a fresh execution.
-   * {@code null} until the first comparison, so an entry with no ORDER BY never reads the storage
-   * configuration at all.
+   * at populate time. Keeping that placement is also the closer match to a fresh execution. The
+   * field stays {@code null} until the first comparison, so an entry with no ORDER BY never reads the
+   * storage configuration.
    */
   @Nullable private OrderByNullsDefault nullsDefault;
 

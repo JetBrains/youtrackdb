@@ -127,9 +127,9 @@ public final class OrderByNullsUtil {
   }
 
   /**
-   * Parses one raw configuration value by constant name, ignoring case. The rule is exactly the one
-   * {@link GlobalConfiguration#setValue} applies, so a value the setter accepts reads back here and
-   * a value the setter rejects is rejected here too. Surrounding whitespace is not tolerated.
+   * Parses one raw configuration value by constant name, ignoring case. The rule is the one {@link
+   * GlobalConfiguration#setValue} applies. A value the setter accepts reads back here, and a value
+   * the setter rejects is rejected here too. Surrounding whitespace is not tolerated.
    *
    * @return the matching constant, or {@code null} when the value is absent or names no constant
    */

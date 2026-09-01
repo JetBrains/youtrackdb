@@ -159,11 +159,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   /**
    * Stored values of enum-typed keys that named no constant when this storage loaded, by key.
    *
-   * <p>The load path keeps such a value out of the effective configuration, so the global default
-   * stays in force and no reader ever sees text where a constant belongs. The store path writes the
-   * value back unchanged. Without that write-back the next clean close would drop the entry and
-   * erase what the operator recorded, because the store path only writes keys the effective
-   * configuration holds. A later release that learns the value keeps its chance to apply it.
+   * <p>The load path keeps such a value out of the effective configuration. The global default
+   * therefore stays in force, and no reader sees text where a constant belongs. The store path
+   * writes the value back unchanged. It otherwise writes only the keys the effective configuration
+   * holds, so the next clean close would drop the entry and erase the operator's intent. A later
+   * release that learns the value keeps its chance to apply it.
    *
    * <p>Both paths run under the write lock, like every other configuration property.
    */
@@ -1168,9 +1168,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   /**
    * Renders the effective value of one configuration key for storage.
    *
-   * <p>An enum is written by constant name, because the load path matches constant names. A future
-   * constant that renders its text form differently would otherwise be written in a form the load
-   * path cannot match, and the setting would disappear on the second reopen.
+   * <p>An enum is written by constant name, because the load path matches constant names. Consider a
+   * future constant whose text form differs from its name. Writing that text form would produce a
+   * value the load path cannot match, and the setting would disappear on reopen.
    *
    * @return the text to persist, or {@code null} when the key holds no value
    */

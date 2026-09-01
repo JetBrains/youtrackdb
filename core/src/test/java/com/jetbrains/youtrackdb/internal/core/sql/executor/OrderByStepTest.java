@@ -826,8 +826,8 @@ public class OrderByStepTest extends DbTestBase {
   /**
    * The same cutoff under NULLS_LARGEST, where the index-ordered input ends with the null keys. The
    * cutoff must treat a null primary key as worse than the kept rows and stop, keeping [1, 2]. A
-   * placement that disagreed with the input order would rank the null key first, admit it into the
-   * heap, and evict the row that belongs in the answer.
+   * placement that disagreed with the input order would rank the null key first. The heap would then
+   * admit it and evict a row that belongs in the answer.
    */
   @Test
   public void earlyTerminationTreatsNullKeyAsWorseUnderNullsLargest() {

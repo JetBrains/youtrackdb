@@ -662,8 +662,8 @@ public class CachedResultSetViewTest {
 
   /**
    * The merge ranks rows by the entry's placement, which the delta build already used to sort the
-   * inject list. The storage setting puts nulls last, so an injected row with no sort key must be
-   * emitted after both cached rows, and the entry must hold that one resolved placement afterwards.
+   * inject list. The storage setting puts nulls last. An injected row with no sort key must be
+   * emitted after both cached rows. The entry must then hold exactly one resolved placement.
    */
   @Test
   public void mergeUsesThePlacementOwnedByTheEntry() {

@@ -142,9 +142,9 @@ public class StorageConfigurationEnumValueTest {
 
   /**
    * A skipped value must not be erased. The store path writes back only what the effective
-   * configuration holds, so a skipped key would disappear at the next clean close and the operator's
-   * recorded intent would be lost without a trace. The second reopen has to report the same value
-   * again, which it can only do when the value is still on disk.
+   * configuration holds. A skipped key would therefore disappear at the next clean close, and the
+   * recorded intent would be lost. The second reopen has to report the same value again, which it
+   * can only do when the value is still on disk.
    */
   @Test
   public void storedInvalidValueSurvivesACleanClose() {
@@ -184,8 +184,8 @@ public class StorageConfigurationEnumValueTest {
 
   /**
    * The tolerance is bounded to enum-typed keys. A damaged value of a non-enum key still fails the
-   * open, and the failure has to come from the configuration load rather than from anything else the
-   * open does. The open reports it as a refusal to open the database, with the load error as a cause.
+   * open. The failure has to come from the configuration load, not from anything else the open does.
+   * The open reports it as a refusal to open the database, with the load error as a cause.
    */
   @Test
   public void storedInvalidValueOfNonEnumKeyStillFailsTheOpen() {
