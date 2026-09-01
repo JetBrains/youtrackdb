@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
+import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IdempotentExecutionStream;
@@ -125,6 +127,18 @@ public final class CachedEntry {
   @Nullable private List<Result> cachedInjectList;
 
   private long cachedDeltaVersion = -1;
+
+  /**
+   * Null placement for every ORDER BY comparison this entry drives, resolved on first use and kept
+   * for the entry's whole life. One shared value is required for correctness, not an optimisation:
+   * the delta builder sorts the inject list and the view merges that list against the cached rows.
+   * Resolving twice would let a configuration change land between the two reads, and the merge would
+   * then emit an unsorted result. The frozen cached rows were produced under the placement in force
+   * at populate time, so keeping that placement is also the closer match to a fresh execution.
+   * {@code null} until the first comparison, so an entry with no ORDER BY never reads the storage
+   * configuration at all.
+   */
+  @Nullable private OrderByNullsDefault nullsDefault;
 
   // Per-entry record-cap guard. The cache installs the cap and the overflow callback at put time; the
   // view's row append checks the cap so an entry whose populate crosses it removes itself from the
@@ -263,6 +277,29 @@ public final class CachedEntry {
 
   @Nullable public SQLOrderBy getOrderBy() {
     return orderBy;
+  }
+
+  /**
+   * The null placement every comparison on this entry uses, resolved from {@code ctx} on the first
+   * call. Call it only where a comparison follows, because the first call reads the storage
+   * configuration under its lock.
+   *
+   * @param ctx the context of the query that drives the comparison
+   */
+  @Nonnull
+  public OrderByNullsDefault resolveNullsDefault(@Nonnull CommandContext ctx) {
+    if (nullsDefault == null) {
+      nullsDefault = OrderByNullsUtil.resolveDefaultForSort(ctx);
+    }
+    return nullsDefault;
+  }
+
+  /**
+   * The already resolved null placement, or {@code null} when no comparison has needed one. Exposed
+   * so a test can prove that an entry without an ORDER BY never resolves.
+   */
+  @Nullable OrderByNullsDefault resolvedNullsDefault() {
+    return nullsDefault;
   }
 
   /**

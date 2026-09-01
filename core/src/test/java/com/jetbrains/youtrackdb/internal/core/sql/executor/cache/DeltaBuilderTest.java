@@ -2,10 +2,13 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -571,5 +574,46 @@ public class DeltaBuilderTest {
     assertEquals("Unrelated-class mutation contributes no inject", 0, cursor.injectSize());
     assertFalse(cursor.hasNextInject());
     db.rollback();
+  }
+
+  /**
+   * Null placement belongs to the entry, so the sorted inject list and the later view merge cannot
+   * disagree. The first build resolves NULLS_LARGEST from the storage setting and sorts the null key
+   * last. Changing the storage setting and rebuilding at a fresher mutation version must keep the
+   * first placement, because the frozen cached rows were produced under it. A second resolution
+   * would sort the null key first here and leave the merge ranking rows the other way.
+   */
+  @Test
+  public void nullPlacementIsResolvedOncePerEntry() {
+    var storageConfig = db.getStorage().getContextConfiguration();
+    storageConfig.setValue(
+        GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_LARGEST);
+    try {
+      db.begin();
+      var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
+      var entry = recordEntry(null, orderBy, List.of());
+
+      newRec(10);
+      db.newEntity(CLASS_NAME); // no sort key, so it compares as null
+      var first = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
+
+      assertEquals(2, first.injectSize());
+      assertEquals(Integer.valueOf(10), first.getInjectList().get(0).getProperty(FIELD));
+      assertNull("NULLS_LARGEST puts the null key last",
+          first.getInjectList().get(1).getProperty(FIELD));
+
+      storageConfig.setValue(
+          GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_SMALLEST);
+      newRec(20); // advances the mutation version, which forces a rebuild
+      var second = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
+
+      assertEquals(OrderByNullsDefault.NULLS_LARGEST, entry.resolvedNullsDefault());
+      assertEquals(3, second.injectSize());
+      assertNull("the entry keeps its placement across rebuilds",
+          second.getInjectList().get(2).getProperty(FIELD));
+      db.rollback();
+    } finally {
+      storageConfig.setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, null);
+    }
   }
 }
