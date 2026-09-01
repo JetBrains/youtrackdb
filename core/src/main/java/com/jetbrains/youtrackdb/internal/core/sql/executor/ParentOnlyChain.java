@@ -19,9 +19,9 @@ import javax.annotation.Nullable;
  * occur anywhere in this expression". That is the right question for its ten existing callers and
  * it is deliberately left alone. It is the wrong question for the correlated RID fetch, which
  * evaluates the expression exactly once per parent row with a {@code null} current record (see
- * {@link FetchFromCorrelatedRidStep}). Any sub-expression that reads the current record then reads
- * {@code null} — or worse, a stale record — and rows are silently lost relative to the
- * scan-plus-filter plan the fetch replaces.
+ * {@link FetchFromCorrelatedRidStep}). Any sub-expression whose value depends on the record it is
+ * evaluated against can therefore diverge from the scan-plus-filter plan the fetch replaces, and
+ * rows are silently lost.
  *
  * <p>So this predicate is <i>universal</i>: every node of the expression must be provably
  * independent of the current record, and any node shape not explicitly proven safe is rejected.
@@ -43,52 +43,25 @@ import javax.annotation.Nullable;
  *       {@code $parent}-rooted chain.
  * </ul>
  *
- * <p>The root and every link resolve through {@code SQLSuffixIdentifier}. A link reads the value
- * the previous link handed down, and it may <i>also</i> read the current-record context variable.
- * A link whose name starts with a dollar sign is resolved by
- * {@code BasicCommandContext.getVariable}, whose {@code current} case returns
- * {@code VAR_CURRENT} (see {@code BasicCommandContext.java:236}), and a property miss falls back
- * the same way. So {@code $parent.$current.ref.$current} really does read that slot: a chain is
- * not, on its own, independent of the current-record variable.
- *
- * <p>The chain is nonetheless safe here, for a different reason. Both steps that host a correlated
- * subquery seed {@code VAR_CURRENT} with the parent row on an intermediate context, then attach
- * that context between the subquery and the outer one: {@link LetQueryStep} at
- * {@code LetQueryStep.java:104-107} and {@link MaterializedLetGroupStep} at
- * {@code MaterializedLetGroupStep.java:102-104}.
- *
- * <p>Ownership of the slot is the mechanism that makes the seeding stick.
- * {@code BasicCommandContext.setSystemVariable} (lines 80 to 91) walks up the parent chain and
- * writes to the nearest ancestor that already holds the slot, rather than shadowing it locally.
- * {@code getSystemVariable} resolves upward the same way. Once the intermediate context owns
- * {@code VAR_CURRENT}, every read and every write from a descendant context lands on that one
- * value. The slot therefore holds the same parent row whichever inner plan runs, so the correlated
- * fetch and the class scan plus filter return the same rows.
- *
- * <p>That is an invariant of the surrounding steps, not of the chain itself. Any future widening of
- * this gate, and any new caller that evaluates an admitted chain outside one of those two steps,
- * must re-examine this point before relying on it.
+ * <p>An admitted chain is safe in today's callers, which are all LET-hosted correlated subqueries.
+ * Any future widening of this gate, and any new caller, must re-examine that safety rather than
+ * assume it. For why a LET-hosted subquery is safe, read {@code LetQueryStep.java:100-104}, which
+ * is the authoritative ground truth.
  *
  * <h2>Rejected, with no exception</h2>
  *
  * <ul>
- *   <li><b>Every function call and every method call, anywhere.</b> Both reach the current-record
- *       system variable, by different routes, and neither route is visible in the syntax tree.
- *       {@code SQLFunctionCall} falls back to it only when the resolved record is {@code null}
- *       ({@code SQLFunctionCall.java:119-127}). {@code SQLMethodCall} reads it unconditionally on
- *       every invocation, at lines 128, 165, 182 and 202, and prefers it over the chain value when
- *       resolving both its parameters and its graph-function subject.
+ *   <li><b>Every function call and every method call, anywhere.</b> Both can reach the
+ *       current-record system variable, and neither route is visible in the syntax tree. See
+ *       {@code SQLFunctionCall} and {@code SQLMethodCall} for how each one does so.
  *
- *       <p>The conditional fallback is what breaks parity in the verified case. Under the scan plus
- *       filter the record argument is the inner row, so no fallback fires. Under the fetch it is
- *       {@code null}, so the call silently changes subject. Counterexample:
+ *       <p>Verified counterexample:
  *       {@code @rid = ifnull($parent.$current.missing, first(out('GE')))} returns three rows
  *       through scan plus filter and zero rows through the fetch step. Determinism of the function
- *       is irrelevant, because the silent change of subject is the defect. The unconditional read
- *       has not been shown to diverge, and it has not been shown to be safe either, so a method
- *       call is refused on the same closed-whitelist principle.
- *   <li><b>Any subquery</b>, which parses into a parenthesis expression or a collection literal
- *       under the level-zero identifier, and is evaluated against the current record.
+ *       is irrelevant. A method call has not been shown to diverge and has not been shown to be
+ *       safe either, so it is refused on the same closed-whitelist principle.
+ *   <li><b>Any subquery</b>. It parses into a parenthesis expression, or into a collection literal
+ *       under the level-zero identifier, and neither of those is a chain.
  *   <li><b>A bracket modifier carrying a condition, a range, or a right binary condition</b>
  *       ({@code [name = 'x']}, {@code [0..2]}, {@code [= 3]}). A condition body is a full boolean
  *       expression evaluated per element and can read anything. A range selector and a right
@@ -208,8 +181,8 @@ final class ParentOnlyChain {
    * @return {@code true} when the link is a plain dotted step or a single constant index
    */
   private static boolean isAcceptedLink(SQLModifier link) {
-    // Rejected outright: a method call hides a current-record read, and a condition, a range or a
-    // right binary condition is an evaluated body this whitelist does not prove safe.
+    // Rejected outright: a method call can reach the current record, and a condition, a range or
+    // a right binary condition is an evaluated body this whitelist does not prove safe.
     if (link.getMethodCall() != null
         || ParentChainAstAccess.condition(link) != null
         || ParentChainAstAccess.arrayRange(link) != null
@@ -235,11 +208,11 @@ final class ParentOnlyChain {
   }
 
   /**
-   * Returns whether a bracket index is current-record independent, which means a literal, a bind
-   * parameter, or a nested {@code $parent}-rooted chain.
+   * Returns whether a bracket index is a literal, a bind parameter, or a nested
+   * {@code $parent}-rooted chain.
    *
    * @param selector the single index selector of a bracket step
-   * @return {@code true} when the index cannot read the current record
+   * @return {@code true} when the index is one of those three shapes
    */
   private static boolean isAcceptedIndex(SQLArraySelector selector) {
     // A RID selector is dead weight here: SQLArraySelector.getValue ignores the rid field and

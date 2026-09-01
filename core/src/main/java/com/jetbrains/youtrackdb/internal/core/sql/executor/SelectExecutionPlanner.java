@@ -2365,8 +2365,8 @@ public class SelectExecutionPlanner {
     // SQLExpression.refersToParent(). refersToParent() is existential — it fires when a $parent
     // reference occurs anywhere — so it also admits expressions whose value depends on the inner
     // row, for example `ifnull($parent.$current.missing, first(out('GE')))`. The correlated step
-    // evaluates the expression once with a null current record, so such an expression reads the
-    // wrong record and rows are silently lost. refersToParent() is left untouched because its
+    // evaluates the expression once with a null current record, so such an expression can diverge
+    // from the scan and rows are silently lost. refersToParent() is left untouched because its
     // other callers rely on the existential meaning.
     var ridExpression = extraction.ridExpression();
     if (!ridExpression.isPlanTimeResolvable(ctx)) {

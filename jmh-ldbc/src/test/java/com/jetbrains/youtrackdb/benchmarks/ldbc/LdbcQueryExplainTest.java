@@ -233,13 +233,14 @@ public class LdbcQueryExplainTest {
    * post-filter, because the fetch is where the reported IC10 throughput gain comes from.
    *
    * <p>This pins the real plan, which is what a substring check on the SQL resource cannot do. Two
-   * traced rewrites keep the predicate text intact yet lose the fetch, and both are caught here:
-   * wrapping the predicate in a top-level OR makes
+   * traced rewrites keep the predicate text intact yet lose the fetch, and both are caught here.
+   * Wrapping the predicate in a top-level OR makes
    * {@code handleClassAsTargetWithRidEquality} bail on the multi-branch flattened WHERE
-   * (SelectExecutionPlanner.java:2337), and nesting the {@code FROM Person} target inside a
-   * subquery makes it bail on the null class target (SelectExecutionPlanner.java:2332). Either
-   * rewrite restores {@code FETCH FROM CLASS Person} plus {@code FILTER ITEMS WHERE} with no change
-   * in returned rows, so only a plan assertion detects it.
+   * (SelectExecutionPlanner.java:2337). Nesting the {@code FROM Person} target inside a subquery
+   * takes the plan down {@code SelectExecutionPlanner.handleSubqueryAsTarget} instead, so the
+   * class-target handler never runs. Either rewrite falls back to a class scan, restoring
+   * {@code FETCH FROM CLASS Person} plus {@code FILTER ITEMS WHERE} with no change in returned
+   * rows, so only a plan assertion detects it.
    *
    * <p>Run this class with {@code -am}. Without it Maven resolves {@code youtrackdb-core} from the
    * local repository, which can predate this branch, and the assertion then measures a stale core

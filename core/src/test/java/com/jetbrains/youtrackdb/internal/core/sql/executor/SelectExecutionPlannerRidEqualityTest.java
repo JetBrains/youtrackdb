@@ -1856,10 +1856,10 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
   }
 
   /**
-   * Gate whitelist, reject: a method call on a parent-rooted value. {@code SQLMethodCall} reaches
-   * the current-record system variable the same way a function call does, so the gate refuses the
-   * whole chain even though every named link is parent-rooted. The rows prove the scan fallback
-   * still resolves the same single child.
+   * Gate whitelist, reject: a method call on a parent-rooted value. {@code SQLMethodCall} can also
+   * reach the current-record system variable, by its own route, so the gate refuses the whole chain
+   * even though every named link is parent-rooted. The rows prove the scan fallback still resolves
+   * the same single child.
    */
   @Test
   public void correlatedRidMethodCallOnParentValue_fallsThroughToScan() {

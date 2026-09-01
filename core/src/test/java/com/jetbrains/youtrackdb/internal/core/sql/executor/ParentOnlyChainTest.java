@@ -30,8 +30,7 @@ public class ParentOnlyChainTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * The bare parent context variable is a chain with zero links. It resolves to the parent command
-   * context and reads nothing from the current record, so the whitelist admits it.
+   * The bare parent context variable is a chain with zero links, which the whitelist admits.
    */
   @Test
   public void bareParentVariable_isAccepted() {
@@ -39,8 +38,8 @@ public class ParentOnlyChainTest {
   }
 
   /**
-   * A dotted chain of plain identifiers under the parent root is the canonical accepted shape.
-   * Each link reads only the value the previous link produced, so no link can reach the inner row.
+   * A dotted chain of plain identifiers under the parent root is the canonical accepted shape, and
+   * the one the LDBC benchmark queries use.
    */
   @Test
   public void plainIdentifierChain_isAccepted() {
@@ -63,8 +62,7 @@ public class ParentOnlyChainTest {
 
   /**
    * A bracket index whose body is a literal number, a literal string, a named bind parameter, or a
-   * positional bind parameter is constant for the whole execution, so the indexed chain stays
-   * current-record independent and is admitted.
+   * positional bind parameter is a constant, so the indexed chain is admitted.
    */
   @Test
   public void constantBracketIndex_isAccepted() {
@@ -78,7 +76,7 @@ public class ParentOnlyChainTest {
 
   /**
    * A bracket index that is itself a parent-rooted chain is admitted, because the nested chain is
-   * checked by the same predicate and therefore cannot read the current record either.
+   * checked by the same predicate and so meets the same bar as the outer one.
    */
   @Test
   public void parentRootedBracketIndex_isAccepted() {
@@ -237,7 +235,7 @@ public class ParentOnlyChainTest {
 
   /**
    * A method call is rejected at every chain position: on the root, in the middle of the chain, and
-   * at the end. {@code SQLMethodCall} reaches the current record the same way a function call does.
+   * at the end. {@code SQLMethodCall} can also reach the current record, by its own route.
    */
   @Test
   public void methodCallAtEveryChainPosition_isRejected() {
@@ -321,9 +319,9 @@ public class ParentOnlyChainTest {
   }
 
   /**
-   * A bracket index that is neither a constant nor a parent-rooted chain reads the current record.
-   * A bare identifier, a dotted inner path, an arithmetic index and the {@code null} literal are
-   * all rejected.
+   * A bracket index that is neither a constant nor a parent-rooted chain can read the current
+   * record. A bare identifier, a dotted inner path, an arithmetic index and the {@code null}
+   * literal are all rejected.
    */
   @Test
   public void nonConstantNonParentBracketIndex_isRejected() {
