@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
@@ -618,5 +619,119 @@ public class OrderByStepTest extends DbTestBase {
     step.setPrevious(timeoutAwareUpstream(ctx, makeRows(ctx, 3, 1, 2), 100));
 
     collect(step.start(ctx), ctx);
+  }
+
+  // ── Null placement: resolved once per sort ──
+
+  /**
+   * Rows carrying an explicit {@code null} sort key. A value of {@code null} in {@code values} is
+   * emitted as a row whose sort property is absent, which the comparison treats as null.
+   */
+  private List<Result> makeNullableRows(CommandContext ctx, Integer... values) {
+    var rows = new ArrayList<Result>();
+    for (var v : values) {
+      var r = new ResultInternal(ctx.getDatabaseSession());
+      if (v != null) {
+        r.setProperty(SORT_FIELD, v);
+      }
+      rows.add(r);
+    }
+    return rows;
+  }
+
+  /**
+   * Upstream that sets the global null-ordering default to {@code flipTo} right after it has handed
+   * out its first row, simulating a configuration change that lands while a sort is running.
+   */
+  private AbstractExecutionStep flippingUpstream(
+      CommandContext ctx, List<Result> rows, OrderByNullsDefault flipTo) {
+    return new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+        var delegate = new ArrayList<>(rows).iterator();
+        return ExecutionStream.resultIterator(
+            new java.util.Iterator<>() {
+              private int served;
+
+              @Override
+              public boolean hasNext() {
+                return delegate.hasNext();
+              }
+
+              @Override
+              public Result next() {
+                var row = delegate.next();
+                served++;
+                if (served == 1) {
+                  GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.setValue(flipTo);
+                }
+                return row;
+              }
+            });
+      }
+    };
+  }
+
+  /**
+   * The bounded heap must resolve null placement once, when the sort starts, not on every comparison
+   * that touches a null. The upstream flips the global default to NULLS_LARGEST after its first row,
+   * which for ASC would move nulls to the end. Resolving per comparison would therefore reject the
+   * trailing null row and return [1, 2]; one placement for the whole run keeps the NULLS_SMALLEST
+   * that was in force at sort start and returns [null, 1].
+   */
+  @Test
+  public void boundedHeapKeepsOnePlacementWhenGlobalFlipsMidSort() {
+    GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.setValue(OrderByNullsDefault.NULLS_SMALLEST);
+    try {
+      var ctx = ctx();
+      var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 2, ctx, -1, false);
+      step.setPrevious(
+          flippingUpstream(
+              ctx,
+              makeNullableRows(ctx, 1, 2, null),
+              OrderByNullsDefault.NULLS_LARGEST));
+
+      var results = collect(step.start(ctx), ctx);
+
+      Assert.assertEquals(2, results.size());
+      Assert.assertNull(results.getFirst().getProperty(SORT_FIELD));
+      Assert.assertEquals(1, (int) results.get(1).getProperty(SORT_FIELD));
+      // The flip did land: the test would be vacuous if the upstream never changed the value.
+      Assert.assertEquals(
+          OrderByNullsDefault.NULLS_LARGEST,
+          GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.<OrderByNullsDefault>getValue());
+    } finally {
+      GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.resetToDefault();
+    }
+  }
+
+  /**
+   * Under the default configuration (NULLS_SMALLEST) null placement is unchanged by the hoist: nulls
+   * sort first for ASC and last for DESC, on both the unbounded and the bounded path.
+   */
+  @Test
+  public void defaultConfigurationPlacesNullsSmallest() {
+    var ctx = ctx();
+    var ascending = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, -1, false);
+    ascending.setPrevious(upstream(ctx, makeNullableRows(ctx, 2, null, 1)));
+
+    var ascendingRows = collect(ascending.start(ctx), ctx);
+    Assert.assertEquals(3, ascendingRows.size());
+    Assert.assertNull(ascendingRows.get(0).getProperty(SORT_FIELD));
+    Assert.assertEquals(1, (int) ascendingRows.get(1).getProperty(SORT_FIELD));
+    Assert.assertEquals(2, (int) ascendingRows.get(2).getProperty(SORT_FIELD));
+
+    var descending = new OrderByStep(orderBy(SQLOrderByItem.DESC), 2, ctx, -1, false);
+    descending.setPrevious(upstream(ctx, makeNullableRows(ctx, 2, null, 1)));
+
+    var descendingRows = collect(descending.start(ctx), ctx);
+    Assert.assertEquals(2, descendingRows.size());
+    Assert.assertEquals(2, (int) descendingRows.get(0).getProperty(SORT_FIELD));
+    Assert.assertEquals(1, (int) descendingRows.get(1).getProperty(SORT_FIELD));
   }
 }

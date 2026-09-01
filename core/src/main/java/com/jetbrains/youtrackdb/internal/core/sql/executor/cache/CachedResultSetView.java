@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
+import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -113,6 +115,14 @@ public final class CachedResultSetView implements ResultSet {
   /** Context used to drive the entry's shared stream when lazy-pulling the tail. */
   private final CommandContext ctx;
 
+  /**
+   * Null-placement default for every ORDER BY comparison this view makes, resolved once at
+   * construction. The whole merge is one comparison sequence, so re-reading the configuration per
+   * comparison would both take a storage lock per row and let a mid-iteration configuration change
+   * emit rows under two different orders.
+   */
+  private final OrderByNullsDefault nullsDefault;
+
   /** Per-view positional cursor into the entry's shared {@link CachedEntry#getResults()}. */
   private int position;
 
@@ -192,6 +202,7 @@ public final class CachedResultSetView implements ResultSet {
     this.tx = tx;
     this.executionPlan = executionPlan;
     this.ctx = ctx;
+    this.nullsDefault = OrderByNullsUtil.resolveDefaultForSort(ctx);
     // Pin the entry for this view's whole lifetime so LRU eviction cannot close the shared stream out
     // from under an in-flight iteration; the pin is released on close / natural exhaustion. The
     // cache-code re-entrancy guard is NOT held for the view's lifetime: hasNext() re-enters it around
@@ -276,7 +287,7 @@ public final class CachedResultSetView implements ResultSet {
       // the replay cannot mirror).
       var orderBy = entry.getOrderBy();
       if (orderBy != null && rows.size() > 1) {
-        rows.sort((a, b) -> orderBy.compare(a, b, ctx));
+        rows.sort((a, b) -> orderBy.compare(a, b, ctx, nullsDefault));
       }
       distinctRows = rows;
     }
@@ -401,7 +412,7 @@ public final class CachedResultSetView implements ResultSet {
       // comparison so a projected ORDER BY column (e.g. u.name) resolves and the comparator ranks on the
       // projected value, not the raw record.
       var cmp = orderBy == null ? -1 : orderBy.compare(projectForCompare(deltaHead),
-          projectCacheHeadForCompare(cacheHead), ctx);
+          projectCacheHeadForCompare(cacheHead), ctx, nullsDefault);
       if (cmp <= 0) {
         return project(delta.advanceInject());
       }

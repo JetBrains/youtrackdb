@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.ArrayList;
@@ -195,10 +196,14 @@ public final class DeltaBuilder {
     final var orderBy = entry.getOrderBy();
     if (orderBy != null && injectList.size() > 1) {
       final var projector = entry.getReturnProjector();
+      // Null placement is resolved once for this sort, not per comparison: the read takes a storage
+      // lock, and a configuration change mid-sort would break the comparator contract.
+      final var nullsDefault = OrderByNullsUtil.resolveDefaultForSort(ctx);
       if (projector == null) {
-        injectList.sort((a, b) -> orderBy.compare(a, b, ctx));
+        injectList.sort((a, b) -> orderBy.compare(a, b, ctx, nullsDefault));
       } else {
-        injectList.sort((a, b) -> orderBy.compare(projector.apply(a), projector.apply(b), ctx));
+        injectList.sort(
+            (a, b) -> orderBy.compare(projector.apply(a), projector.apply(b), ctx, nullsDefault));
       }
     }
 

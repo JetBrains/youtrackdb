@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
@@ -94,7 +95,9 @@ public class SQLOrderByItem {
    * configuration is available.
    */
   public boolean resolveNullsFirst() {
-    return resolveNullsFirst(null);
+    // Resolves the global default explicitly rather than passing a null configuration, which would
+    // be ambiguous between the two single-argument overloads.
+    return resolveNullsFirst(OrderByNullsUtil.resolveDefault(null));
   }
 
   /**
@@ -106,6 +109,17 @@ public class SQLOrderByItem {
    */
   public boolean resolveNullsFirst(@Nullable ContextConfiguration config) {
     return OrderByNullsUtil.resolveNullsFirst(nullOrdering, !DESC.equals(type), config);
+  }
+
+  /**
+   * Resolves whether nulls should sort before non-nulls for this item from a default that the caller
+   * already resolved for the whole sort. No configuration is read here, so every comparison of one
+   * sort sees the same placement.
+   *
+   * @param nullsDefault the default resolved once at the start of the sort
+   */
+  public boolean resolveNullsFirst(OrderByNullsDefault nullsDefault) {
+    return OrderByNullsUtil.composeNullsFirst(nullOrdering, !DESC.equals(type), nullsDefault);
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
@@ -132,7 +146,15 @@ public class SQLOrderByItem {
     }
   }
 
-  public int compare(Result a, Result b, CommandContext ctx) {
+  /**
+   * Compares two rows by this sort key.
+   *
+   * @param nullsDefault the null-placement default resolved once for the whole sort (see {@link
+   *     OrderByNullsUtil#resolveDefaultForSort}). It is a parameter rather than a per-comparison
+   *     read because a configuration change in the middle of a sort would otherwise break the
+   *     comparator contract, and because the read takes a storage lock.
+   */
+  public int compare(Result a, Result b, CommandContext ctx, OrderByNullsDefault nullsDefault) {
     Object aVal = null;
     Object bVal = null;
     if (rid != null) {
@@ -203,7 +225,7 @@ public class SQLOrderByItem {
       if (aVal == null && bVal == null) {
         return 0;
       }
-      var nullsFirst = resolveNullsFirst(ctx.getDatabaseSession().getConfiguration());
+      var nullsFirst = resolveNullsFirst(nullsDefault);
       if (aVal == null) {
         return nullsFirst ? -1 : 1;
       }
