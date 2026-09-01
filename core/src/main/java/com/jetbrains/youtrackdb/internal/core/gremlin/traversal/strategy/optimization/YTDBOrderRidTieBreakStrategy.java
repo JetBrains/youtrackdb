@@ -1,16 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ColumnTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
@@ -63,31 +64,36 @@ import org.apache.tinkerpop.gremlin.structure.T;
 import org.javatuples.Pair;
 
 /**
- * Appends a stream-typed secondary sort key to every global and local {@code order()} step before
- * {@link GremlinToMatchStrategy} runs. Every {@code OrderGlobalStep} / {@code OrderLocalStep} that
- * lacks an explicit tie-break gains one, so tie groups are totally ordered whether the translator
- * accepts the shape or declines to native Gremlin.
+ * Gives every global and local {@code order()} step a stream-typed secondary sort key, before
+ * {@link GremlinToMatchStrategy} runs. Tie groups then carry one total order whether the translator
+ * accepts the shape or declines it to the native Gremlin pipeline. The key is appended
+ * unconditionally on an accepted shape — it is not conditioned on the primary key repeating, because
+ * the strategy cannot know whether it repeats.
  *
  * <ul>
- *   <li>Global order over graph elements → {@code by(T.id, asc)} (MATCH {@code @rid}).
- *   <li>Global order over map entries after {@code group*().unfold()} → {@code by(keys, asc)}
- *       or {@code select(keys).id()} when the group key is an element, then {@code by(identity)}
- *       when the same key can repeat across different maps in the stream.
- *   <li>Global order over anything else → {@code by(identity, asc)} (TinkerPop orderability).
- *   <li>Local {@code order(local)}: folded elements → {@code T.id} (replacing bare identity);
- *       map from {@code group*}/{@code project}/{@code *Map} → {@code keys} or
- *       {@code select(keys).id()} when the group key is an element; otherwise identity.
+ *   <li>Order over graph elements → {@link RecordIdSortKeyTraversal}, which is the MATCH
+ *       {@code @rid} order. A trailing element token or bare identity is <em>replaced</em> by it
+ *       rather than followed, because both of those sort mixed identifier classes by class name.
+ *   <li>Global order over map entries after {@code group*().unfold()} → {@code by(keys)} for a
+ *       scalar group key, the same record identifier key for an element group key, then
+ *       {@code by(identity)} because one key can repeat across different maps in the stream.
+ *   <li>Global order over anything else → {@code by(identity)}, which TinkerPop orderability makes
+ *       total over the payloads it can compare.
+ *   <li>Local {@code order(local)}: folded elements → the record identifier key; a map from
+ *       {@code group*} / {@code project} / {@code *Map} → {@code keys} or the record identifier key
+ *       for an element key; an unproven member type → nothing at all, because
+ *       {@code OrderLocalStep} casts every projection to {@code Comparable} and an unproven member
+ *       is what makes that cast fail.
  * </ul>
  *
- * <p>Skips when the last comparator is {@code Order.shuffle}, {@code T.id}, {@code Column.keys}
- * (or {@code select(keys).id()}), identity where that is a valid total order, or property
- * {@code "id"}. Property {@code id} is assumed unique in domain data — appending {@code T.id}
- * would not change order when that holds and would only add comparator work. Duplicate property
- * {@code id} values remain an intentional stability exception (alongside shuffle).
+ * <p>Skips when the last comparator is {@code Order.shuffle}, the record identifier key,
+ * {@code Column.keys} (or {@code select(keys)}), identity where that is already a valid total order,
+ * or property {@code "id"}. Property {@code id} is assumed unique in domain data — appending a
+ * record identifier would not change order when that holds and would only add comparator work.
+ * Duplicate property {@code id} values remain an intentional stability exception, alongside shuffle.
  *
- * <p>Recogniser contract: {@code IdentityTraversal} → {@code @rid} only on element boundaries.
- * Future entry/map translation must map {@code Column.keys} to the GROUP BY key — never
- * {@code @rid}.
+ * <p>Recogniser contract: identity → {@code @rid} only on element boundaries. Entry / map
+ * translation must map {@code Column.keys} to the GROUP BY key — never to {@code @rid}.
  */
 public final class YTDBOrderRidTieBreakStrategy
     extends AbstractTraversalStrategy<ProviderOptimizationStrategy>
@@ -120,25 +126,30 @@ public final class YTDBOrderRidTieBreakStrategy
 
   private static void appendGlobalTieBreak(OrderGlobalStep<?, ?> step) {
     var comparators = step.getComparators();
-    if (isShuffle(comparators) || hasExplicitTieBreak(comparators)) {
+    if (isShuffle(comparators)) {
       return;
     }
-    // Admin wiring is required by OrderGlobalStep.modulateBy (same as order().by(...)).
     switch (classifyFrom(step.getPreviousStep())) {
-      case ELEMENT -> step.modulateBy(new TokenTraversal(T.id).asAdmin(), Order.asc);
+      case ELEMENT -> ensureGlobalElementSortKey(step, comparators);
       case MAP_ENTRY -> {
-        step.modulateBy(globalMapEntryTieBreakModulator(step), Order.asc);
-        // Same key may repeat across entries from different maps (local group, inject+unfold, …).
-        step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
+        if (!hasExplicitTieBreak(comparators)) {
+          step.modulateBy(globalMapEntryTieBreakModulator(step), Order.asc);
+          // One key can repeat across entries of different maps (local group, inject+unfold, …).
+          step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
+        }
       }
-      case OTHER -> step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
+      case OTHER -> {
+        if (!hasExplicitTieBreak(comparators)) {
+          step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
+        }
+      }
     }
   }
 
   /**
    * Local order sorts collection or map members. {@code OrderLocalStep} casts each modulator
-   * projection to {@code Comparable}, so bare identity on vertices or map entries must be
-   * replaced — not appended after.
+   * projection to {@code Comparable}, so a bare identity over elements or map entries must be
+   * replaced rather than followed, and an unproven member type must gain no modulator at all.
    */
   private static void appendLocalTieBreak(OrderLocalStep<?, ?> step) {
     var comparators = step.getComparators();
@@ -149,116 +160,172 @@ public final class YTDBOrderRidTieBreakStrategy
       case ELEMENT -> ensureLocalElementTieBreak(step, comparators);
       case MAP_ENTRY -> ensureLocalMapEntryTieBreak(step, comparators);
       case OTHER -> {
-        if (!hasExplicitTieBreak(comparators)) {
-          step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
-        }
+        // Nothing: an unproven member is exactly the case where the Comparable cast throws.
       }
     }
+  }
+
+  /**
+   * A trailing element token or identity is replaced, not followed. Both of them route through
+   * TinkerPop orderability, which compares two sibling record identifier classes by class name and
+   * then by text — so a transaction-local identifier sorts as a block ahead of a committed one, and
+   * the translated arm, which compares numerically, answers a different sequence.
+   */
+  private static void ensureGlobalElementSortKey(
+      OrderGlobalStep<?, ?> step,
+      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
+    if (endsWithRecordIdSortKey(comparators) || endsWithPropertyId(comparators)) {
+      return;
+    }
+    if (endsWithTokenId(comparators) || endsWithIdentity(comparators)) {
+      replaceLastGlobalModulator(step, new RecordIdSortKeyTraversal<>());
+      return;
+    }
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), Order.asc);
   }
 
   private static void ensureLocalElementTieBreak(
       OrderLocalStep<?, ?> step,
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (endsWithTokenId(comparators) || endsWithPropertyId(comparators)) {
+    if (endsWithRecordIdSortKey(comparators) || endsWithPropertyId(comparators)) {
       return;
     }
-    if (endsWithIdentity(comparators)) {
-      replaceOrSetLocalModulator(step, new TokenTraversal(T.id).asAdmin());
+    if (endsWithTokenId(comparators) || endsWithIdentity(comparators)) {
+      replaceLastLocalModulator(step, new RecordIdSortKeyTraversal<>());
       return;
     }
-    step.modulateBy(new TokenTraversal(T.id).asAdmin(), Order.asc);
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), Order.asc);
   }
 
   private static void ensureLocalMapEntryTieBreak(
       OrderLocalStep<?, ?> step,
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
     if (selectsEntryKeyTieBreak(comparators.getLast().getValue0())
+        || endsWithRecordIdSortKey(comparators)
         || endsWithPropertyId(comparators)) {
       return;
     }
     var keyModulator = entryKeyTieBreakModulator(step);
     if (endsWithIdentity(comparators)) {
-      replaceOrSetLocalModulator(step, keyModulator);
+      replaceLastLocalModulator(step, keyModulator);
       return;
     }
     step.modulateBy(keyModulator, Order.asc);
   }
 
   /**
-   * Bare {@code order(local)} often has an empty comparator field and a synthetic identity from
-   * {@code getComparators()}; {@code modulateBy} then installs the real modulator. When identity
-   * is already stored, {@code replaceLocalChild} swaps it in place (append would still ClassCast).
+   * Replaces the modulator of the <em>last</em> comparator slot, keeping every other slot and every
+   * comparator.
+   *
+   * <p>{@code replaceLocalChild} cannot express that. It matches a slot by {@code equals}, and every
+   * {@code IdentityTraversal} equals every other one, so it rewrites the first identity slot instead
+   * of the requested one — leaving the trailing identity in place and the sort key wrong. There is no
+   * positional setter on {@code ComparatorHolder}, so the step is rebuilt with the slot list the
+   * strategy wants and swapped in at the same index. The index is found by reference, not by
+   * {@code TraversalHelper.stepIndex}, which matches on {@code hashCode} and would find an earlier
+   * equal-looking order step.
+   *
+   * <p>A bare {@code order()} keeps its fast path: its comparator field is empty and
+   * {@code getComparators} synthesises the identity slot, so {@code modulateBy} installs the real
+   * modulator with nothing to replace.
    */
-  private static void replaceOrSetLocalModulator(
-      OrderLocalStep<?, ?> step, Admin<?, ?> modulator) {
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static void replaceLastGlobalModulator(OrderGlobalStep step, Admin<?, ?> modulator) {
     if (step.getLocalChildren().isEmpty()) {
       step.modulateBy(modulator, Order.asc);
       return;
     }
-    var last = step.getComparators().getLast().getValue0();
-    step.replaceLocalChild(last, modulator);
+    var comparators = (List<Pair<Admin, Comparator>>) step.getComparators();
+    var replacement = new OrderGlobalStep(step.getTraversal());
+    // Carried explicitly: a preceding range fold already pushed its bound onto the old step.
+    replacement.setLimit(step.getLimit());
+    fillComparators(comparators, modulator, replacement::addComparator);
+    swapStep(step, replacement);
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static void replaceLastLocalModulator(OrderLocalStep step, Admin<?, ?> modulator) {
+    if (step.getLocalChildren().isEmpty()) {
+      step.modulateBy(modulator, Order.asc);
+      return;
+    }
+    var comparators = (List<Pair<Admin, Comparator>>) step.getComparators();
+    var replacement = new OrderLocalStep(step.getTraversal());
+    fillComparators(comparators, modulator, replacement::addComparator);
+    swapStep(step, replacement);
+  }
+
+  /** Copies every slot into {@code sink}, substituting {@code modulator} for the last one. */
+  @SuppressWarnings("rawtypes")
+  private static void fillComparators(
+      List<Pair<Admin, Comparator>> comparators,
+      Admin<?, ?> modulator,
+      BiConsumer<Admin, Comparator> sink) {
+    var last = comparators.size() - 1;
+    for (var i = 0; i < comparators.size(); i++) {
+      var slot = comparators.get(i);
+      sink.accept(i == last ? modulator : slot.getValue0(), slot.getValue1());
+    }
+  }
+
+  /** Swaps {@code replacement} in at the exact index {@code step} occupies, labels included. */
+  private static void swapStep(Step<?, ?> step, Step<?, ?> replacement) {
+    var traversal = step.getTraversal();
+    var steps = traversal.getSteps();
+    var index = 0;
+    while (index < steps.size() && steps.get(index) != step) {
+      index++;
+    }
+    TraversalHelper.copyLabels(step, replacement, false);
+    traversal.removeStep(index);
+    traversal.addStep(index, replacement);
   }
 
   /**
-   * Members of a local order: folded pre-fold stream, or map entries when ordering a
-   * {@code group*}/{@code project}/{@code *Map} result in place.
+   * Members of a local order: the pre-fold stream when a {@code fold()} produced the collection, or
+   * map entries when a {@code group*} / {@code project} / {@code *Map} result is ordered in place.
    */
   private static StreamKind classifyLocalMembers(OrderLocalStep<?, ?> step) {
-    Step<?, ?> current = step.getPreviousStep();
-    while (!(current instanceof EmptyStep) && isTransparent(current)) {
-      current = current.getPreviousStep();
+    var source = upstreamSource(step.getPreviousStep());
+    if (source instanceof FoldStep) {
+      return classifyFrom(source.getPreviousStep());
     }
-    if (current instanceof FoldStep) {
-      return classifyFrom(current.getPreviousStep());
-    }
-    if (current instanceof GroupStep
-        || current instanceof GroupCountStep
-        || current instanceof ProjectStep
-        || current instanceof PropertyMapStep
-        || current instanceof ElementMapStep) {
-      return StreamKind.MAP_ENTRY;
-    }
-    return StreamKind.OTHER;
+    return emitsMap(source) ? StreamKind.MAP_ENTRY : StreamKind.OTHER;
   }
 
   /** Global {@code group*().unfold().order()} — same key modulator policy as local map order. */
-  @SuppressWarnings({"unchecked", "rawtypes"})
   private static Admin<?, ?> globalMapEntryTieBreakModulator(OrderGlobalStep<?, ?> orderStep) {
-    var groupStep = unfoldedGroupStep(orderStep);
-    return mapEntryKeyTieBreakModulator(groupStep);
+    return mapEntryKeyTieBreakModulator(unfoldedGroupStep(orderStep));
   }
 
-  /** Key modulator for local map order: element group keys need {@code id()}, not raw keys. */
+  /** Key modulator for local map order: an element group key needs the record identifier key. */
   private static Admin<?, ?> entryKeyTieBreakModulator(OrderLocalStep<?, ?> orderStep) {
-    Step<?, ?> current = orderStep.getPreviousStep();
-    while (!(current instanceof EmptyStep) && isTransparent(current)) {
-      current = current.getPreviousStep();
-    }
-    if (current instanceof GroupStep
-        || current instanceof GroupCountStep
-        || current instanceof ProjectStep
-        || current instanceof PropertyMapStep
-        || current instanceof ElementMapStep) {
-      return mapEntryKeyTieBreakModulator(current);
-    }
-    return new ColumnTraversal(Column.keys).asAdmin();
+    var source = upstreamSource(orderStep.getPreviousStep());
+    return emitsMap(source) ? mapEntryKeyTieBreakModulator(source) : entryKeysModulator();
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
+  /**
+   * An element group key is not {@code Comparable}, and its identifier reaches the comparator as
+   * more than one class, so it goes through the same record identifier key as an element stream —
+   * {@link com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKey} reads
+   * the entry's key itself. A scalar key stays on plain {@code by(keys)}.
+   */
   private static Admin<?, ?> mapEntryKeyTieBreakModulator(Step<?, ?> groupOrMapStep) {
     if (groupOrMapStep != null && groupKeyIsElement(groupOrMapStep)) {
-      return (Admin) __.select(Column.keys).id().asAdmin();
+      return new RecordIdSortKeyTraversal<>();
     }
+    return entryKeysModulator();
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static Admin<?, ?> entryKeysModulator() {
     return new ColumnTraversal(Column.keys).asAdmin();
   }
 
   private static Step<?, ?> unfoldedGroupStep(OrderGlobalStep<?, ?> orderStep) {
-    Step<?, ?> current = orderStep.getPreviousStep();
-    while (!(current instanceof EmptyStep) && isTransparent(current)) {
-      current = current.getPreviousStep();
-    }
-    if (current instanceof UnfoldStep unfold) {
-      var beforeUnfold = unfold.getPreviousStep();
+    var source = upstreamSource(orderStep.getPreviousStep());
+    if (source instanceof UnfoldStep) {
+      var beforeUnfold = upstreamSource(source.getPreviousStep());
       if (beforeUnfold instanceof GroupStep || beforeUnfold instanceof GroupCountStep) {
         return beforeUnfold;
       }
@@ -300,18 +367,20 @@ public final class YTDBOrderRidTieBreakStrategy
 
   private static boolean isShuffle(
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (comparators == null || comparators.isEmpty()) {
-      return false;
-    }
     return Order.shuffle.equals(comparators.getLast().getValue1());
   }
 
+  /**
+   * Whether the last comparator already carries a total order the strategy would only duplicate.
+   * Also the idempotence guard: a second application of the strategy sees its own appended
+   * modulator here and adds nothing.
+   */
   private static boolean hasExplicitTieBreak(
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (comparators == null || comparators.isEmpty()) {
+    var lastModulator = comparators.getLast().getValue0();
+    if (lastModulator instanceof RecordIdSortKeyTraversal) {
       return true;
     }
-    var lastModulator = comparators.getLast().getValue0();
     if (lastModulator instanceof TokenTraversal token && T.id.equals(token.getToken())) {
       return true;
     }
@@ -325,28 +394,24 @@ public final class YTDBOrderRidTieBreakStrategy
     return endsWithPropertyId(comparators);
   }
 
+  private static boolean endsWithRecordIdSortKey(
+      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
+    return comparators.getLast().getValue0() instanceof RecordIdSortKeyTraversal;
+  }
+
   private static boolean endsWithTokenId(
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (comparators == null || comparators.isEmpty()) {
-      return false;
-    }
     var last = comparators.getLast().getValue0();
     return last instanceof TokenTraversal token && T.id.equals(token.getToken());
   }
 
   private static boolean endsWithIdentity(
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (comparators == null || comparators.isEmpty()) {
-      return false;
-    }
     return comparators.getLast().getValue0() instanceof IdentityTraversal;
   }
 
   private static boolean endsWithPropertyId(
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (comparators == null || comparators.isEmpty()) {
-      return false;
-    }
     return ByModulatorTranslator.keyModulatorPropertyKey(comparators.getLast().getValue0())
         .filter("id"::equals)
         .isPresent();
@@ -377,26 +442,38 @@ public final class YTDBOrderRidTieBreakStrategy
   }
 
   /**
-   * Walks upstream until a step that clearly emits elements, map entries, or something else.
-   * Filter / barrier / identity steps are transparent. {@code fold().unfold()} continues past the
-   * fold so vertex folds recover the element stream. {@code select}/{@code selectOne} are not
-   * assumed to be elements — identity orderability covers element payloads safely.
+   * The single upstream walk every classification and every key lookup shares: the first step that
+   * is not transparent, or {@link EmptyStep} when the chain holds none. Three private copies of this
+   * walk had diverged, so a shape could be classified one way and have its key modulator chosen
+   * another way.
+   */
+  private static Step<?, ?> upstreamSource(Step<?, ?> start) {
+    var current = start;
+    while (!(current instanceof EmptyStep) && isTransparent(current)) {
+      current = current.getPreviousStep();
+    }
+    return current;
+  }
+
+  /**
+   * Walks upstream to the step that decides what the stream holds. The element test runs before the
+   * map / flat-map test, because {@code VertexStep}, {@code EdgeVertexStep} and the other graph
+   * steps <em>are</em> map or flat-map steps: with the map test first, {@code out()} and
+   * {@code otherV()} fell through to the unproven case and lost the record identifier key.
+   * {@code fold().unfold()} continues past the fold so a vertex fold recovers its element stream.
+   * {@code select} / {@code selectOne} are not assumed to be elements.
    */
   private static StreamKind classifyFrom(Step<?, ?> start) {
-    Step<?, ?> current = start;
+    var current = upstreamSource(start);
     while (!(current instanceof EmptyStep)) {
-      if (isTransparent(current)) {
-        current = current.getPreviousStep();
-        continue;
-      }
       if (current instanceof UnfoldStep) {
-        var beforeUnfold = current.getPreviousStep();
+        var beforeUnfold = upstreamSource(current.getPreviousStep());
         if (beforeUnfold instanceof GroupStep || beforeUnfold instanceof GroupCountStep) {
           return StreamKind.MAP_ENTRY;
         }
         if (beforeUnfold instanceof FoldStep) {
           // fold().unfold() restores the pre-fold stream — keep walking.
-          current = beforeUnfold.getPreviousStep();
+          current = upstreamSource(beforeUnfold.getPreviousStep());
           continue;
         }
         // index().unfold() and other unfolds → pairs / unknown payloads.
@@ -405,21 +482,26 @@ public final class YTDBOrderRidTieBreakStrategy
       if (current instanceof SelectStep || current instanceof SelectOneStep) {
         return StreamKind.OTHER;
       }
-      if (current instanceof MapStep || current instanceof FlatMapStep) {
-        return localChildEmitsElements(current) ? StreamKind.ELEMENT : StreamKind.OTHER;
-      }
       if (emitsElements(current)) {
         return StreamKind.ELEMENT;
       }
       if (emitsNonElement(current)) {
         return StreamKind.OTHER;
       }
+      if (current instanceof MapStep || current instanceof FlatMapStep) {
+        return childrenEmitElements(current) ? StreamKind.ELEMENT : StreamKind.OTHER;
+      }
       return StreamKind.OTHER;
     }
     return StreamKind.OTHER;
   }
 
-  private static boolean localChildEmitsElements(Step<?, ?> step) {
+  /**
+   * A map or flat-map step re-emits elements only when <em>every</em> branch does. Reading the first
+   * branch alone called {@code coalesce(out(), constant(x))} an element stream, and the constant then
+   * met a modulator that only accepts elements.
+   */
+  private static boolean childrenEmitElements(Step<?, ?> step) {
     if (!(step instanceof TraversalParent parent)) {
       return false;
     }
@@ -427,11 +509,25 @@ public final class YTDBOrderRidTieBreakStrategy
     if (children.isEmpty()) {
       return false;
     }
-    var end = children.getFirst().getEndStep();
-    if (emitsNonElement(end)) {
-      return false;
+    for (var child : children) {
+      if (classifyChild(child, step.getPreviousStep()) != StreamKind.ELEMENT) {
+        return false;
+      }
     }
-    return emitsElements(end) || end instanceof FilterStep || end instanceof IdentityStep;
+    return true;
+  }
+
+  /**
+   * What one branch of a map / flat-map step emits. A branch that is only filters, only identity, or
+   * a bare lambda re-emits its parent's input, so the parent's input decides — reading the branch's
+   * last step class alone called {@code map(filter(...))} over a map stream an element stream.
+   */
+  private static StreamKind classifyChild(Admin<?, ?> child, Step<?, ?> parentInput) {
+    var end = child.getEndStep();
+    if (upstreamSource(end) instanceof EmptyStep) {
+      return classifyFrom(parentInput);
+    }
+    return classifyFrom(end);
   }
 
   private static boolean isTransparent(Step<?, ?> step) {
@@ -456,13 +552,18 @@ public final class YTDBOrderRidTieBreakStrategy
         || step instanceof ElementStep;
   }
 
-  private static boolean emitsNonElement(Step<?, ?> step) {
-    return step instanceof FoldStep
-        || step instanceof GroupStep
+  /** The steps whose output is a map, so a following local order sorts entries. */
+  private static boolean emitsMap(Step<?, ?> step) {
+    return step instanceof GroupStep
         || step instanceof GroupCountStep
         || step instanceof ProjectStep
         || step instanceof PropertyMapStep
-        || step instanceof ElementMapStep
+        || step instanceof ElementMapStep;
+  }
+
+  private static boolean emitsNonElement(Step<?, ?> step) {
+    return emitsMap(step)
+        || step instanceof FoldStep
         || step instanceof PropertyValueStep
         || step instanceof CountGlobalStep
         || step instanceof SumGlobalStep

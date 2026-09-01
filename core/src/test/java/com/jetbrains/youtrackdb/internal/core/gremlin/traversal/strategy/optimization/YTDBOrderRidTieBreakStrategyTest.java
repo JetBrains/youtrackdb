@@ -3,57 +3,131 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Scope;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ColumnTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
-import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderLocalStep;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.javatuples.Pair;
 import org.junit.Test;
 
 /**
- * {@link YTDBOrderRidTieBreakStrategy} appends a stream-typed secondary key: {@code T.id} on
- * elements, {@code Column.keys} or {@code select(keys).id()} on group entries, identity elsewhere.
+ * {@link YTDBOrderRidTieBreakStrategy} appends a stream-typed secondary key: the record identifier
+ * sort key on elements and on element group keys, {@code Column.keys} on scalar group entries,
+ * identity on a global stream of anything else, and nothing at all on a local order whose member
+ * type is unproven.
  */
 public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
 
-  /** Element property sorts gain a trailing {@code T.id ASC} modulator. */
+  /** Element property sorts gain a trailing record identifier key, ascending. */
   @Test
-  public void apply_appendsIdComparatorAfterPropertySort() {
+  public void apply_appendsRecordIdKeyAfterPropertySort() {
     var admin = graph.traversal().V().order().by("name").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
     var orderStep = orderStep(admin);
     assertThat(comparators(orderStep)).hasSize(2);
     var tieBreak = comparators(orderStep).get(1);
-    assertThat(tieBreak.getValue0()).isInstanceOf(TokenTraversal.class);
-    assertThat(((TokenTraversal) tieBreak.getValue0()).getToken()).isEqualTo(T.id);
+    assertRecordIdKey(tieBreak.getValue0());
     assertThat(tieBreak.getValue1()).isEqualTo(Order.asc);
   }
 
-  /** Bare {@code order()} keeps its default identity comparator and gains no duplicate. */
+  /**
+   * Bare {@code order()} over elements stores one synthetic identity slot. Identity over elements is
+   * element orderability, which is the record identifier order by class name rather than by number,
+   * so the slot is replaced instead of followed.
+   */
   @Test
-  public void apply_leavesBareOrderUntouched() {
+  public void apply_replacesBareOrderIdentityWithRecordIdKey() {
     var admin = graph.traversal().V().order().asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(comparators(orderStep(admin))).hasSize(1);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(1);
+    assertRecordIdKey(comparators.get(0).getValue0());
   }
 
-  /** {@code order().by(T.id)} must not gain a duplicate id modulator. */
+  /**
+   * A user-written {@code by(T.id)} over elements is replaced by the record identifier key, and the
+   * slot count stays at one. The token sorts two identifier classes by class name; the key sorts
+   * them numerically, which is what the translated arm does.
+   */
   @Test
-  public void apply_leavesExplicitIdSortUntouched() {
+  public void apply_replacesExplicitTokenIdSortWithRecordIdKey() {
     var admin = graph.traversal().V().order().by(T.id).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(comparators(orderStep(admin))).hasSize(1);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(1);
+    assertRecordIdKey(comparators.get(0).getValue0());
+  }
+
+  /** Replacing a descending {@code by(T.id)} keeps the descending comparator on that slot. */
+  @Test
+  public void apply_replacingTokenIdSortKeepsItsDirection() {
+    var admin = graph.traversal().V().order().by(T.id, Order.desc).asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(1);
+    assertRecordIdKey(comparators.get(0).getValue0());
+    assertThat(comparators.get(0).getValue1()).isEqualTo(Order.desc);
+  }
+
+  /**
+   * Only the trailing slot is replaced. With a property key first and a bare {@code by(Order.asc)}
+   * second, the property slot must survive, which an {@code equals}-matched replacement loses
+   * because every identity traversal is equal to every other one.
+   */
+  @Test
+  public void apply_replacesTrailingIdentityAndKeepsEarlierSlots() {
+    var admin = graph.traversal().V().order().by("name", Order.desc).by(Order.asc).asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(2);
+    assertThat(comparators.get(0).getValue0()).isInstanceOf(ValueTraversal.class);
+    assertThat(((ValueTraversal) comparators.get(0).getValue0()).getPropertyKey())
+        .isEqualTo("name");
+    assertThat(comparators.get(0).getValue1()).isEqualTo(Order.desc);
+    assertRecordIdKey(comparators.get(1).getValue0());
+  }
+
+  /**
+   * Two identity slots: the earlier one must keep its position while the trailing one becomes the
+   * key. This is the slot that an {@code equals}-matched replacement rewrites by mistake.
+   */
+  @Test
+  public void apply_replacesOnlyTheTrailingOfTwoIdentitySlots() {
+    var admin = graph.traversal().V().order().by(Order.desc).by(Order.asc).asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(2);
+    assertThat(comparators.get(0).getValue0()).isInstanceOf(IdentityTraversal.class);
+    assertThat(comparators.get(0).getValue1()).isEqualTo(Order.desc);
+    assertRecordIdKey(comparators.get(1).getValue0());
+  }
+
+  /** A step label on the replaced order step survives the rebuild. */
+  @Test
+  public void apply_replacementKeepsStepLabels() {
+    var admin = graph.traversal().V().order().by(T.id).as("sorted").asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+    assertThat(orderStep(admin).getLabels()).containsExactly("sorted");
   }
 
   /** Multi-key sort ending on property {@code id} must not gain a {@code T.id} modulator. */
@@ -117,11 +191,11 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Default {@code group().unfold().order()} with element keys gains {@code select(keys).id()},
-   * not raw {@code Column.keys} (Vertex is not {@code Comparable}).
+   * Default {@code group().unfold().order()} with element keys gains the record identifier key, not
+   * raw {@code Column.keys}, because a vertex is not {@code Comparable}.
    */
   @Test
-  public void apply_appendsSelectKeysIdAfterUnfoldedDefaultGroup() {
+  public void apply_appendsRecordIdKeyAfterUnfoldedDefaultGroup() {
     var admin = graph.traversal().V()
         .group().by().by(__.count())
         .unfold()
@@ -132,10 +206,7 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
 
     var comparators = comparators(orderStep(admin));
     assertThat(comparators).hasSize(3);
-    var tieBreak = comparators.get(1).getValue0();
-    assertThat(tieBreak).isNotInstanceOf(ColumnTraversal.class);
-    assertThat(tieBreak.getEndStep()).isInstanceOf(
-        org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep.class);
+    assertRecordIdKey(comparators.get(1).getValue0());
     assertThat(comparators.get(2).getValue0()).isInstanceOf(IdentityTraversal.class);
   }
 
@@ -165,15 +236,13 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(comparators(orderStep(admin))).hasSize(1);
   }
 
-  /** {@code fold().unfold()} restores the element stream — append {@code T.id}, not identity. */
+  /** {@code fold().unfold()} restores the element stream — append the key, not identity. */
   @Test
-  public void apply_appendsIdAfterFoldUnfold() {
+  public void apply_appendsRecordIdKeyAfterFoldUnfold() {
     var admin = graph.traversal().V().fold().unfold().order().by("name").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
-    var tieBreak = comparators(orderStep(admin)).get(1);
-    assertThat(tieBreak.getValue0()).isInstanceOf(TokenTraversal.class);
-    assertThat(((TokenTraversal) tieBreak.getValue0()).getToken()).isEqualTo(T.id);
+    assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
   }
 
   /** {@code project().order()} orders maps — identity tie-break, never {@code T.id}. */
@@ -193,23 +262,15 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(comparators.get(1).getValue0()).isInstanceOf(IdentityTraversal.class);
   }
 
-  /** Local {@code order(local)} over folded vertices gains {@code T.id} (not identity). */
+  /** Local {@code order(local)} over folded vertices gains the record identifier key. */
   @Test
-  public void apply_appendsIdToOrderLocalOnFoldedElements() {
+  public void apply_appendsRecordIdKeyToOrderLocalOnFoldedElements() {
     var admin = graph.traversal().V().fold().order(Scope.local).by("name").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
-    var local = admin.getSteps().stream()
-        .filter(OrderLocalStep.class::isInstance)
-        .map(OrderLocalStep.class::cast)
-        .findFirst()
-        .orElseThrow();
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin,
-        Comparator>> localComparators = local.getComparators();
+    var localComparators = localComparators(localOrderStep(admin));
     assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(TokenTraversal.class);
-    assertThat(((TokenTraversal) localComparators.get(1).getValue0()).getToken()).isEqualTo(T.id);
+    assertRecordIdKey(localComparators.get(1).getValue0());
   }
 
   /** Local {@code order(local)} over a {@code group()} map gains {@code Column.keys}. */
@@ -222,14 +283,7 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
-    var local = admin.getSteps().stream()
-        .filter(OrderLocalStep.class::isInstance)
-        .map(OrderLocalStep.class::cast)
-        .findFirst()
-        .orElseThrow();
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin,
-        Comparator>> localComparators = local.getComparators();
+    var localComparators = localComparators(localOrderStep(admin));
     assertThat(localComparators).hasSize(2);
     assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
     assertThat(((ColumnTraversal) localComparators.get(1).getValue0()).getColumn())
@@ -237,11 +291,11 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Default {@code group()} keys are elements — local order gains {@code select(keys).id()}, not
-   * raw keys (Vertex is not {@code Comparable}).
+   * Default {@code group()} keys are elements — local order gains the record identifier key, not
+   * raw keys, because a vertex is not {@code Comparable}.
    */
   @Test
-  public void apply_appendsSelectKeysIdToOrderLocalOnDefaultGroup() {
+  public void apply_appendsRecordIdKeyToOrderLocalOnDefaultGroup() {
     var admin = graph.traversal().V()
         .group().by().by(__.count())
         .order(Scope.local)
@@ -249,52 +303,33 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
-    var local = admin.getSteps().stream()
-        .filter(OrderLocalStep.class::isInstance)
-        .map(OrderLocalStep.class::cast)
-        .findFirst()
-        .orElseThrow();
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin,
-        Comparator>> localComparators = local.getComparators();
+    var localComparators = localComparators(localOrderStep(admin));
     assertThat(localComparators).hasSize(2);
-    var tieBreak = localComparators.get(1).getValue0();
-    assertThat(tieBreak).isNotInstanceOf(ColumnTraversal.class);
-    assertThat(tieBreak.getEndStep()).isInstanceOf(
-        org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep.class);
+    assertRecordIdKey(localComparators.get(1).getValue0());
   }
 
-  /** Bare local {@code order(local)} over folded elements becomes {@code T.id} (replaces identity). */
+  /** Bare local {@code order(local)} over folded elements becomes the key, replacing identity. */
   @Test
-  public void apply_replacesBareOrderLocalIdentityWithIdOnFoldedElements() {
+  public void apply_replacesBareOrderLocalIdentityWithRecordIdKeyOnFoldedElements() {
     var admin = graph.traversal().V().fold().order(Scope.local).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
-    var local = admin.getSteps().stream()
-        .filter(OrderLocalStep.class::isInstance)
-        .map(OrderLocalStep.class::cast)
-        .findFirst()
-        .orElseThrow();
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin,
-        Comparator>> localComparators = local.getComparators();
+    var localComparators = localComparators(localOrderStep(admin));
     assertThat(localComparators).hasSize(1);
-    assertThat(localComparators.get(0).getValue0()).isInstanceOf(TokenTraversal.class);
-    assertThat(((TokenTraversal) localComparators.get(0).getValue0()).getToken()).isEqualTo(T.id);
+    assertRecordIdKey(localComparators.get(0).getValue0());
   }
 
   /**
    * Explicit {@code by(Order.asc)} on folded elements stores {@code IdentityTraversal} — replace
-   * in place with {@code T.id}.
+   * in place with the record identifier key.
    */
   @Test
-  public void apply_replacesExplicitIdentityOrderLocalWithIdOnFoldedElements() {
+  public void apply_replacesExplicitIdentityOrderLocalWithRecordIdKeyOnFoldedElements() {
     var admin = graph.traversal().V().fold().order(Scope.local).by(Order.asc).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     var localComparators = localComparators(localOrderStep(admin));
     assertThat(localComparators).hasSize(1);
-    assertThat(localComparators.get(0).getValue0()).isInstanceOf(TokenTraversal.class);
-    assertThat(((TokenTraversal) localComparators.get(0).getValue0()).getToken()).isEqualTo(T.id);
+    assertRecordIdKey(localComparators.get(0).getValue0());
   }
 
   /** {@code select} is not assumed to be an element stream — identity, not {@code T.id}. */
@@ -376,6 +411,100 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
+   * Regression, folded element stream sorted locally by a property. {@code out()} is a flat-map
+   * step, so before the classification fix this stream was unproven, gained a bare identity, and
+   * failed the {@code Comparable} cast on a vertex. Expected: two names in ascending order inside
+   * one folded list.
+   */
+  @Test
+  public void execute_foldedHopSortedLocallyByProperty_returnsSortedMembers() {
+    seedTwoKnownPeople();
+
+    var folded = graph.traversal().V().out().fold().order(Scope.local).by("name").toList();
+
+    assertThat(folded).as("fold() is a global barrier, so it emits one list").hasSize(1);
+    assertThat(names(folded.get(0))).containsExactly("josh", "vadas");
+  }
+
+  /**
+   * Regression, grouped element stream sorted locally by values. The default {@code by()} keys the
+   * group on the hop's vertices, and before the fix the key was believed scalar, so a vertex met the
+   * {@code Comparable} cast. Expected: one map holding both hop targets, each counted once.
+   */
+  @Test
+  public void execute_groupedHopSortedLocallyByValues_returnsOneMapPerRow() {
+    seedTwoKnownPeople();
+
+    var maps = graph.traversal().V().out()
+        .group().by().by(__.count())
+        .order(Scope.local).by(Column.values)
+        .toList();
+
+    assertThat(maps).hasSize(1);
+    assertThat((Map<?, ?>) maps.get(0)).hasSize(2);
+  }
+
+  /**
+   * Regression, element map stream mapped through a filter and sorted by a selected key. The filter
+   * child made the map stream look like an element stream, and the appended element-only modulator
+   * then rejected a {@code LinkedHashMap}. Expected: both maps, ordered by the selected name.
+   */
+  @Test
+  public void execute_elementMapThroughFilterSortedBySelectedKey_returnsSortedMaps() {
+    seedTwoKnownPeople();
+
+    var maps = graph.traversal().V()
+        .elementMap()
+        .map(__.filter(__.select("name")))
+        .order().by(__.select("name"))
+        .toList();
+
+    assertThat(maps.stream().map(row -> String.valueOf(((Map<?, ?>) row).get("name"))).toList())
+        .containsExactly("josh", "marko", "vadas");
+  }
+
+  /**
+   * Regression, branching step mixing elements with a constant. {@code coalesce} exposes its
+   * branches as local children, and reading the first branch alone called the whole stream elements,
+   * so the constant met an element-only modulator. Expected: every row survives, two of them hop
+   * targets and two the constant, because only marko has an outgoing edge.
+   */
+  @Test
+  public void execute_coalesceMixingElementsAndConstant_returnsEveryRow() {
+    seedTwoKnownPeople();
+
+    var rows = graph.traversal().V()
+        .coalesce(arm(__.out()), arm(__.constant("none")))
+        .order().by(__.constant(1))
+        .toList();
+
+    assertThat(rows).hasSize(4);
+    assertThat(rows.stream().filter("none"::equals).toList()).hasSize(2);
+  }
+
+  /**
+   * A second application of the strategy must change nothing, including for an order step nested
+   * inside a child traversal, which is where the recursive step scan reaches it a second time.
+   */
+  @Test
+  public void apply_isIdempotentForNestedOrderStep() {
+    var admin = graph.traversal().V()
+        .local(__.out().order().by("name"))
+        .order().by("name")
+        .asAdmin();
+
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+    var firstOuter = renderComparators(orderStep(admin));
+    var firstNested = renderComparators(nestedOrderStep(admin));
+
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    assertThat(renderComparators(orderStep(admin))).isEqualTo(firstOuter);
+    assertThat(renderComparators(nestedOrderStep(admin))).isEqualTo(firstNested);
+    assertThat(firstNested).hasSize(2);
+  }
+
+  /**
    * Injected map entries that tie on {@code values} sort by identity — same key sequence every
    * run.
    */
@@ -432,23 +561,27 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Local order without a fold/group predecessor is OTHER — append identity after a property sort.
+   * Local order with no fold or map producer upstream cannot prove its member type, so it gains no
+   * modulator at all. Appending one would meet the {@code Comparable} cast with an unknown member.
    */
   @Test
-  public void apply_appendsIdentityToOrderLocalOnElementStream() {
+  public void apply_appendsNothingToOrderLocalWithUnprovenMembers() {
     var admin = graph.traversal().V().order(Scope.local).by("name").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(IdentityTraversal.class);
+    assertThat(localComparators(localOrderStep(admin))).hasSize(1);
   }
 
-  /** Local element order ending on {@code T.id} must not gain a duplicate id modulator. */
+  /**
+   * Local element order ending on {@code T.id} becomes the record identifier key on that same slot,
+   * for the same reason the global case does.
+   */
   @Test
-  public void apply_leavesExplicitIdOrderLocalOnFoldedElementsUntouched() {
+  public void apply_replacesExplicitTokenIdOrderLocalOnFoldedElements() {
     var admin = graph.traversal().V().fold().order(Scope.local).by(T.id).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(localComparators(localOrderStep(admin))).hasSize(1);
+    var localComparators = localComparators(localOrderStep(admin));
+    assertThat(localComparators).hasSize(1);
+    assertRecordIdKey(localComparators.get(0).getValue0());
   }
 
   /** Local element order ending on property {@code id} must not gain a {@code T.id} modulator. */
@@ -584,11 +717,11 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Default {@code groupCount().unfold().order()} keys are elements — {@code select(keys).id()}
-   * plus identity.
+   * Default {@code groupCount().unfold().order()} keys are elements — the record identifier key plus
+   * identity.
    */
   @Test
-  public void apply_appendsSelectKeysIdAfterUnfoldedDefaultGroupCount() {
+  public void apply_appendsRecordIdKeyAfterUnfoldedDefaultGroupCount() {
     var admin = graph.traversal().V()
         .groupCount()
         .unfold()
@@ -598,16 +731,15 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     var comparators = comparators(orderStep(admin));
     assertThat(comparators).hasSize(3);
-    assertThat(comparators.get(1).getValue0().getEndStep()).isInstanceOf(
-        org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep.class);
+    assertRecordIdKey(comparators.get(1).getValue0());
   }
 
   /**
-   * Explicit {@code group().by(identity)} still projects element keys — same {@code select(keys).id()}
+   * Explicit {@code group().by(identity)} still projects element keys — same record identifier key
    * modulator as default {@code by()}.
    */
   @Test
-  public void apply_appendsSelectKeysIdAfterUnfoldedGroupByIdentity() {
+  public void apply_appendsRecordIdKeyAfterUnfoldedGroupByIdentity() {
     var admin = graph.traversal().V()
         .group().by(__.identity()).by(__.count())
         .unfold()
@@ -617,16 +749,15 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     var comparators = comparators(orderStep(admin));
     assertThat(comparators).hasSize(3);
-    assertThat(comparators.get(1).getValue0().getEndStep()).isInstanceOf(
-        org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep.class);
+    assertRecordIdKey(comparators.get(1).getValue0());
   }
 
   /**
-   * Group key traversal that emits elements ({@code outE}) needs {@code select(keys).id()}, not raw
+   * Group key traversal that emits elements ({@code outE}) needs the record identifier key, not raw
    * keys.
    */
   @Test
-  public void apply_appendsSelectKeysIdAfterUnfoldedGroupByOutEdges() {
+  public void apply_appendsRecordIdKeyAfterUnfoldedGroupByOutEdges() {
     var admin = graph.traversal().V()
         .group().by(__.outE()).by(__.count())
         .unfold()
@@ -636,8 +767,7 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     var comparators = comparators(orderStep(admin));
     assertThat(comparators).hasSize(3);
-    assertThat(comparators.get(1).getValue0().getEndStep()).isInstanceOf(
-        org.apache.tinkerpop.gremlin.process.traversal.step.map.IdStep.class);
+    assertRecordIdKey(comparators.get(1).getValue0());
   }
 
   /** {@code index().unfold()} is not a group-entry stream — identity tie-break. */
@@ -691,39 +821,72 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * {@code map} whose child emits elements recovers the element stream — append {@code T.id}.
+   * {@code map} whose child emits elements recovers the element stream — append the key.
    */
   @Test
-  public void apply_appendsIdAfterMapEmittingElements() {
+  public void apply_appendsRecordIdKeyAfterMapEmittingElements() {
     var admin = graph.traversal().V()
         .map(__.identity())
         .order()
         .by("name")
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var tieBreak = comparators(orderStep(admin)).get(1);
-    assertThat(tieBreak.getValue0()).isInstanceOf(TokenTraversal.class);
-    assertThat(((TokenTraversal) tieBreak.getValue0()).getToken()).isEqualTo(T.id);
+    assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
   }
 
   /**
-   * {@code flatMap} ending in a filter still projects elements — append {@code T.id}.
+   * {@code flatMap} ending in a filter still projects elements — append the key. The filter is
+   * transparent, so the child's own {@code out()} decides.
    */
   @Test
-  public void apply_appendsIdAfterFlatMapEndingInFilter() {
+  public void apply_appendsRecordIdKeyAfterFlatMapEndingInFilter() {
     var admin = graph.traversal().V()
         .flatMap(__.out().hasLabel("person"))
         .order()
         .by("name")
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var tieBreak = comparators(orderStep(admin)).get(1);
-    assertThat(tieBreak.getValue0()).isInstanceOf(TokenTraversal.class);
+    assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
+  }
+
+  /**
+   * A {@code map} child that is only a filter re-emits the parent's input, so a map stream stays a
+   * map stream. Reading the child's last step class alone called this an element stream and then
+   * met a {@code LinkedHashMap} with an element-only modulator.
+   */
+  @Test
+  public void apply_appendsIdentityAfterMapFilterOverMapStream() {
+    var admin = graph.traversal().V()
+        .elementMap()
+        .map(__.filter(__.select("name")))
+        .order()
+        .by(__.select("name"))
+        .asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+    assertThat(comparators(orderStep(admin)).get(1).getValue0())
+        .isInstanceOf(IdentityTraversal.class);
+  }
+
+  /**
+   * A branching step whose branches disagree is not an element stream. {@code coalesce} keeps its
+   * branches as local children, and the first one alone said element while the second emits a
+   * constant.
+   */
+  @Test
+  public void apply_appendsIdentityAfterCoalesceMixingElementsAndConstant() {
+    var admin = graph.traversal().V()
+        .coalesce(arm(__.out()), arm(__.constant("none")))
+        .order()
+        .by(__.constant(1))
+        .asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+    assertThat(comparators(orderStep(admin)).get(1).getValue0())
+        .isInstanceOf(IdentityTraversal.class);
   }
 
   /** Transparent filter/barrier/dedup/range do not hide an element stream. */
   @Test
-  public void apply_appendsIdAfterTransparentStepsOnElements() {
+  public void apply_appendsRecordIdKeyAfterTransparentStepsOnElements() {
     var admin = graph.traversal().V()
         .identity()
         .dedup()
@@ -732,29 +895,26 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .by("name")
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(comparators(orderStep(admin)).get(1).getValue0())
-        .isInstanceOf(TokenTraversal.class);
+    assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
   }
 
   /**
-   * {@code VertexStep}/{@code EdgeOtherVertexStep} extend flat/map steps without local children, so
-   * classification falls through to OTHER — identity tie-break (not {@code T.id}).
+   * {@code outE()} is an edge stream. {@code VertexStep} extends {@code FlatMapStep}, so the map
+   * test running first hid every edge and vertex hop behind the unproven case.
    */
   @Test
-  public void apply_appendsIdentityAfterOutEdgesOrder() {
+  public void apply_appendsRecordIdKeyAfterOutEdgesOrder() {
     var admin = graph.traversal().V().outE().order().by("weight").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(comparators(orderStep(admin)).get(1).getValue0())
-        .isInstanceOf(IdentityTraversal.class);
+    assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
   }
 
-  /** {@code otherV()} is classified as OTHER for the same FlatMap/Map reason — identity. */
+  /** {@code otherV()} is a vertex stream, for the same reason {@code outE()} is an edge stream. */
   @Test
-  public void apply_appendsIdentityAfterOtherVOrder() {
+  public void apply_appendsRecordIdKeyAfterOtherVOrder() {
     var admin = graph.traversal().V().outE().otherV().order().by("name").asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(comparators(orderStep(admin)).get(1).getValue0())
-        .isInstanceOf(IdentityTraversal.class);
+    assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
   }
 
   /**
@@ -796,6 +956,54 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     var admin = graph.traversal().V().order(Scope.local).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     assertThat(localComparators(localOrderStep(admin))).hasSize(1);
+  }
+
+  /** Three people, marko knowing both of the others, so {@code out()} yields two vertices. */
+  private void seedTwoKnownPeople() {
+    var marko = graph.addVertex(T.label, "person", "name", "marko");
+    var josh = graph.addVertex(T.label, "person", "name", "josh");
+    var vadas = graph.addVertex(T.label, "person", "name", "vadas");
+    marko.addEdge("knows", josh);
+    marko.addEdge("knows", vadas);
+    graph.tx().commit();
+  }
+
+  private static List<String> names(Object foldedRow) {
+    return ((List<?>) foldedRow).stream()
+        .map(member -> ((Vertex) member).<String>value("name"))
+        .toList();
+  }
+
+  /** Asserts that {@code modulator} is the appended record identifier sort key. */
+  private static void assertRecordIdKey(Object modulator) {
+    assertThat(modulator).isInstanceOf(RecordIdSortKeyTraversal.class);
+  }
+
+  /** Comparator slots as text, so two applications of the strategy can be compared as lists. */
+  @SuppressWarnings("rawtypes")
+  private static List<String> renderComparators(OrderGlobalStep step) {
+    return comparators(step).stream()
+        .map(pair -> pair.getValue0().getClass().getSimpleName() + "/" + pair.getValue1())
+        .toList();
+  }
+
+  /** The single {@code order()} step inside the first child traversal of {@code admin}. */
+  private static OrderGlobalStep<?, ?> nestedOrderStep(Traversal.Admin<?, ?> admin) {
+    return admin.getSteps().stream()
+        .filter(TraversalParent.class::isInstance)
+        .map(TraversalParent.class::cast)
+        .flatMap(parent -> parent.getLocalChildren().stream())
+        .flatMap(child -> child.getSteps().stream())
+        .filter(OrderGlobalStep.class::isInstance)
+        .map(step -> (OrderGlobalStep<?, ?>) step)
+        .findFirst()
+        .orElseThrow();
+  }
+
+  /** Widens a branch traversal so mixed-type {@code coalesce} arms compile. */
+  @SuppressWarnings("unchecked")
+  private static Traversal<?, Object> arm(Traversal<?, ?> traversal) {
+    return (Traversal<?, Object>) traversal;
   }
 
   private void seedKnowsGraphForLocalGroupDuplicateKeys() {
@@ -857,8 +1065,7 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     return entries.stream().map(Map.Entry::getKey).toList();
   }
 
-  private static OrderGlobalStep<?, ?>
-      orderStep(org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> admin) {
+  private static OrderGlobalStep<?, ?> orderStep(Traversal.Admin<?, ?> admin) {
     return admin.getSteps().stream()
         .filter(OrderGlobalStep.class::isInstance)
         .map(OrderGlobalStep.class::cast)
@@ -866,8 +1073,7 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .orElseThrow();
   }
 
-  private static OrderLocalStep<?, ?> localOrderStep(
-      org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> admin) {
+  private static OrderLocalStep<?, ?> localOrderStep(Traversal.Admin<?, ?> admin) {
     return admin.getSteps().stream()
         .filter(OrderLocalStep.class::isInstance)
         .map(OrderLocalStep.class::cast)
@@ -876,16 +1082,13 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private static
-      List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin, Comparator>>
-      comparators(OrderGlobalStep step) {
+  private static List<Pair<Traversal.Admin, Comparator>> comparators(OrderGlobalStep step) {
     return step.getComparators();
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private static
-      List<Pair<org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin, Comparator>>
-      localComparators(OrderLocalStep<?, ?> step) {
+  private static List<Pair<Traversal.Admin, Comparator>> localComparators(
+      OrderLocalStep<?, ?> step) {
     return (List) step.getComparators();
   }
 }
