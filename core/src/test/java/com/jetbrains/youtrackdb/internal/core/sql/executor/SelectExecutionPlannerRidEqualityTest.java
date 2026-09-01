@@ -1661,6 +1661,331 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
   }
 
   /**
+   * Gate whitelist, accept: a bare parent row reference {@code @rid = $parent.$current} is a
+   * chain rooted at {@code $parent} whose single link is a plain identifier, so it must keep the
+   * correlated fetch. Only the plan shape is asserted: {@code $parent.$current} evaluates to a
+   * {@code Result}, and the coercion of a {@code Result}-valued right side is the value-domain
+   * track, not the gate.
+   */
+  @Test
+  public void correlatedRidBareParentRow_usesCorrelatedRidFetch() {
+    var className = createClassInstance().getName();
+    session.begin();
+    session.newInstance(className).setProperty("tag", "a");
+    session.commit();
+
+    var sql = "SELECT $self as self FROM " + className
+        + " LET $self = (SELECT tag FROM " + className
+        + " WHERE @rid = $parent.$current)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "$parent.$current is a parent-rooted chain, so the gate must keep the correlated fetch, "
+            + "plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+  }
+
+  /**
+   * Gate whitelist, accept: a constant bracket index over a parent-rooted link list
+   * ({@code @rid = $parent.$current.refs[0]}) stays on the correlated fetch, because the index is
+   * a literal and every link is parent-rooted. The indexed element is a plain RID, so the rows are
+   * asserted as well: the fetch must return exactly the first linked child and not the second.
+   */
+  @Test
+  public void correlatedRidConstantIndexOnParentList_fetchesFirstElement() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var first = session.newInstance(childClass);
+    first.setProperty("tag", "first");
+    var second = session.newInstance(childClass);
+    second.setProperty("tag", "second");
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("refs")
+        .addAll(List.of(first.getIdentity(), second.getIdentity()));
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.refs[0])";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "a literal index on a parent chain must keep the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertFalse(
+        "the child scan must be gone once the correlated fetch is chosen, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "the literal index must select the first linked child, not the second",
+          "first",
+          singleLetProperty(result.next().getProperty("info"), "tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Gate whitelist, accept: a constant bracket index over a parent LET variable
+   * ({@code @rid = $parent.$r[0]}) is still a chain rooted at {@code $parent}, so the gate admits
+   * it. Plan shape only: {@code $r} holds subquery rows, whose coercion is the value-domain track.
+   */
+  @Test
+  public void correlatedRidConstantIndexOnParentLetVariable_usesCorrelatedRidFetch() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    session.newInstance(childClass).setProperty("tag", "a");
+    session.newInstance(parentClass).setProperty("name", "p");
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $r = (SELECT FROM " + childClass + "),"
+        + " $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$r[0])";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "a literal index on a parent LET variable must keep the correlated fetch, plan was: "
+            + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+  }
+
+  /**
+   * Gate whitelist, reject: a function call anywhere on the right side falls back to the class
+   * scan plus filter. Here {@code ifnull}'s first argument is a bare inner property, so the scan
+   * evaluates it once per inner row, while the correlated fetch would evaluate it once against a
+   * null record. The rows prove the fallback still resolves the parent reference.
+   */
+  @Test
+  public void correlatedRidFunctionCallArgument_fallsThroughToScan() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var target = session.newInstance(childClass);
+    target.setProperty("tag", "target");
+    var other = session.newInstance(childClass);
+    other.setProperty("tag", "other");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", target.getIdentity());
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = ifnull(otherRef, $parent.$current.ref))";
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "a function call on the right side must NOT use the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertTrue(
+        "a rejected right side must fall through to the child scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "scan plus filter must still coalesce to the parent reference and match one child",
+          "target",
+          singleLetProperty(result.next().getProperty("info"), "tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Gate whitelist, reject, the counterexample that motivates the whitelist: a function that reads
+   * the inner row with no signal in the syntax tree. {@code out()} falls back to the current-record
+   * system variable when the record argument is null, so the correlated fetch would evaluate it
+   * once against null and return nothing, while the scan plus filter matches every self-looped
+   * vertex. Each vertex has an edge to itself, so per-row {@code first(out(edge))} is the row
+   * itself and all three rows match.
+   */
+  @Test
+  public void correlatedRidHiddenInnerRowFunctionRead_fallsThroughToScan() {
+    var vertexClass = "Vtx" + System.nanoTime();
+    var edgeClass = "Loop" + System.nanoTime();
+    var parentClass = createClassInstance().getName();
+    session.createVertexClass(vertexClass);
+    session.createEdgeClass(edgeClass);
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      var vertex = session.newVertex(vertexClass);
+      vertex.setProperty("tag", "v" + i);
+      session.newEdge(vertex, vertex, edgeClass);
+    }
+    session.newInstance(parentClass).setProperty("name", "p");
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + vertexClass
+        + " WHERE @rid = ifnull($parent.$current.missing, first(out('" + edgeClass + "'))))";
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "a hidden inner-row read through a function must NOT use the correlated fetch, plan was: "
+            + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertTrue(
+        "the rejected right side must fall through to the vertex scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + vertexClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "every self-looped vertex must match when the function is evaluated per row",
+          Set.of("v0", "v1", "v2"),
+          letTags(result.next().getProperty("info")));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Gate whitelist, reject: a method call on a parent-rooted value. {@code SQLMethodCall} reaches
+   * the current-record system variable the same way a function call does, so the gate refuses the
+   * whole chain even though every named link is parent-rooted. The rows prove the scan fallback
+   * still resolves the same single child.
+   */
+  @Test
+  public void correlatedRidMethodCallOnParentValue_fallsThroughToScan() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var first = session.newInstance(childClass);
+    first.setProperty("tag", "first");
+    var second = session.newInstance(childClass);
+    second.setProperty("tag", "second");
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("refs")
+        .addAll(List.of(first.getIdentity(), second.getIdentity()));
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.refs.asList()[0])";
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "a method call in the chain must NOT use the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertTrue(
+        "a rejected right side must fall through to the child scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "scan plus filter must still select the first linked child",
+          "first",
+          singleLetProperty(result.next().getProperty("info"), "tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Gate whitelist, reject: an arithmetic composition is not a single chain, so the gate refuses
+   * it even though both operands are parent-rooted. The null-coalescing operator keeps the value
+   * well defined, so the rows prove the scan fallback resolves the right-hand operand.
+   */
+  @Test
+  public void correlatedRidArithmeticOperand_fallsThroughToScan() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var target = session.newInstance(childClass);
+    target.setProperty("tag", "target");
+    var other = session.newInstance(childClass);
+    other.setProperty("tag", "other");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", target.getIdentity());
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.missingRef ?? $parent.$current.ref)";
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "an arithmetic operand must NOT use the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertTrue(
+        "a rejected right side must fall through to the child scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "scan plus filter must coalesce the absent operand to the parent reference",
+          "target",
+          singleLetProperty(result.next().getProperty("info"), "tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Gate whitelist, reject: a bare inner property name has no {@code $parent} root at all, so it
+   * reads the inner row by definition and must stay on the scan. Only the child that links to
+   * itself satisfies {@code @rid = selfRef}, which pins that the filter runs per inner row.
+   */
+  @Test
+  public void correlatedRidBareInnerProperty_fallsThroughToScan() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var selfLinked = session.newInstance(childClass);
+    selfLinked.setProperty("tag", "self");
+    selfLinked.setProperty("selfRef", selfLinked.getIdentity());
+    var otherLinked = session.newInstance(childClass);
+    otherLinked.setProperty("tag", "other");
+    otherLinked.setProperty("selfRef", selfLinked.getIdentity());
+    session.newInstance(parentClass).setProperty("name", "p");
+    session.commit();
+
+    var sql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = selfRef)";
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "a bare inner property must NOT use the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertTrue(
+        "a bare inner property must fall through to the child scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "only the self-linked child satisfies the per-row predicate",
+          Set.of("self"),
+          letTags(result.next().getProperty("info")));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Collects the {@code tag} projection of every row of a LET subquery list result. Used by the
+   * multi-row fallback assertions, where the row set matters but the order does not.
+   */
+  private static Set<String> letTags(Object letValue) {
+    Assert.assertNotNull("LET result must not be null when rows are expected", letValue);
+    Assert.assertTrue(
+        "LET result must be a List, got: " + letValue.getClass().getName(),
+        letValue instanceof List);
+    Set<String> tags = new HashSet<>();
+    for (var row : (List<?>) letValue) {
+      Assert.assertTrue(
+          "LET subquery row must be a Result, got: "
+              + (row == null ? "null" : row.getClass().getName()),
+          row instanceof Result);
+      tags.add(((Result) row).getProperty("tag"));
+    }
+    return tags;
+  }
+
+  /**
    * Extracts a single projected property from a one-row LET subquery list result. Fails loudly if
    * the LET is null, empty, multi-row, or not a {@link Result} — success-path tests must pin the
    * distinguishing value, not merely {@code size == 1}.

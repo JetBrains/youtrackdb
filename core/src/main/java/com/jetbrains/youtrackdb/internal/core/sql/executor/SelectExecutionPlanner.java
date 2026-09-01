@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ParentOnlyChain;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
@@ -2360,9 +2361,17 @@ public class SelectExecutionPlanner {
     // parent row at execution, so FetchFromCorrelatedRidStep evaluates it then instead of
     // scanning the class. IN-lists that refer to $parent stay on the scan path — the
     // correlated step loads a single identity, not a list.
+    //
+    // The gate is ParentOnlyChain.isParentOnlyChain, a closed syntactic whitelist, and NOT
+    // SQLExpression.refersToParent(). refersToParent() is existential — it fires when a $parent
+    // reference occurs anywhere — so it also admits expressions whose value depends on the inner
+    // row, for example `ifnull($parent.$current.missing, first(out('GE')))`. The correlated step
+    // evaluates the expression once with a null current record, so such an expression reads the
+    // wrong record and rows are silently lost. refersToParent() is left untouched because its
+    // other callers rely on the existential meaning.
     var ridExpression = extraction.ridExpression();
     if (!ridExpression.isPlanTimeResolvable(ctx)) {
-      if (fromEquality && ridExpression.refersToParent()) {
+      if (fromEquality && ParentOnlyChain.isParentOnlyChain(ridExpression)) {
         var classCollectionIds =
             resolveClassToCollectionIds(queryTarget.getStringValue(), plan);
         if (classCollectionIds == null) {
