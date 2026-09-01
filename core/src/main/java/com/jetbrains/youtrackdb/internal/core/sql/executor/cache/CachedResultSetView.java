@@ -276,7 +276,7 @@ public final class CachedResultSetView implements ResultSet {
       // the replay cannot mirror).
       var orderBy = entry.getOrderBy();
       if (orderBy != null && rows.size() > 1) {
-        var nullsDefault = entry.resolveNullsDefault(ctx);
+        var nullsDefault = entry.nullsDefault(ctx);
         rows.sort((a, b) -> orderBy.compare(a, b, ctx, nullsDefault));
       }
       distinctRows = rows;
@@ -405,7 +405,7 @@ public final class CachedResultSetView implements ResultSet {
       // sorted the inject list. The first comparison resolves it, and a view without an ORDER BY
       // never asks, which keeps a storage read off that path.
       var cmp = orderBy == null ? -1 : orderBy.compare(projectForCompare(deltaHead),
-          projectCacheHeadForCompare(cacheHead), ctx, entry.resolveNullsDefault(ctx));
+          projectCacheHeadForCompare(cacheHead), ctx, entry.nullsDefault(ctx));
       if (cmp <= 0) {
         return project(delta.advanceInject());
       }

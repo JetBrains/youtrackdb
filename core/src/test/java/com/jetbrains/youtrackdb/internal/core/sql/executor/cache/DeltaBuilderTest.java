@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -578,13 +579,13 @@ public class DeltaBuilderTest {
 
   /**
    * Null placement belongs to the entry, so the sorted inject list and the later view merge cannot
-   * disagree. The first build resolves NULLS_LARGEST from the storage setting and sorts the null key
+   * disagree. The first build reads NULLS_LARGEST from the storage setting and sorts the null key
    * last. Changing the storage setting and rebuilding at a fresher mutation version must keep the
-   * first placement, because the frozen cached rows were produced under it. A second resolution
-   * would sort the null key first here and leave the merge ranking rows the other way.
+   * first placement. The frozen cached rows were produced under it. A second reading would sort the
+   * null key first here, and the merge would then rank rows the other way.
    */
   @Test
-  public void nullPlacementIsResolvedOncePerEntry() {
+  public void nullPlacementIsFixedOncePerEntry() {
     var storageConfig = db.getStorage().getContextConfiguration();
     storageConfig.setValue(
         GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_LARGEST);
@@ -607,7 +608,7 @@ public class DeltaBuilderTest {
       newRec(20); // advances the mutation version, which forces a rebuild
       var second = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
 
-      assertEquals(OrderByNullsDefault.NULLS_LARGEST, entry.resolvedNullsDefault());
+      assertEquals(OrderByNullsDefault.NULLS_LARGEST, entry.fixedNullsDefault());
       assertEquals(3, second.injectSize());
       assertNull("the entry keeps its placement across rebuilds",
           second.getInjectList().get(2).getProperty(FIELD));
@@ -615,5 +616,50 @@ public class DeltaBuilderTest {
     } finally {
       storageConfig.setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, null);
     }
+  }
+
+  /**
+   * A seed installed at populate governs every later comparison. The delta build must not read the
+   * configuration again, so a change landing between populate and the first build cannot drift the
+   * order. Here the seed says nulls last, the storage setting says nulls first, and the sorted
+   * inject list has to follow the seed.
+   */
+  @Test
+  public void seededPlacementSurvivesALaterConfigurationChange() {
+    var storageConfig = db.getStorage().getContextConfiguration();
+    storageConfig.setValue(
+        GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_SMALLEST);
+    try {
+      db.begin();
+      var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
+      var entry = recordEntry(null, orderBy, List.of());
+      entry.seedNullsDefault(OrderByNullsDefault.NULLS_LARGEST);
+
+      newRec(10);
+      db.newEntity(CLASS_NAME); // no sort key, so it compares as null
+      var cursor = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
+
+      assertEquals(2, cursor.injectSize());
+      assertEquals(Integer.valueOf(10), cursor.getInjectList().get(0).getProperty(FIELD));
+      assertNull("the seed decides, not the current setting",
+          cursor.getInjectList().get(1).getProperty(FIELD));
+      db.rollback();
+    } finally {
+      storageConfig.setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, null);
+    }
+  }
+
+  /** Seeding twice is a bug, because two comparisons of one entry must rank rows alike. */
+  @Test
+  public void secondSeedIsRejected() {
+    db.begin();
+    var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
+    var entry = recordEntry(null, orderBy, List.of());
+    entry.seedNullsDefault(OrderByNullsDefault.NULLS_LARGEST);
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> entry.seedNullsDefault(OrderByNullsDefault.NULLS_SMALLEST));
+    db.rollback();
   }
 }

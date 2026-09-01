@@ -657,7 +657,7 @@ public class CachedResultSetViewTest {
 
     assertEquals(3, drainValues(view).size());
     assertNull("a view with no sort key must not read the configuration",
-        entry.resolvedNullsDefault());
+        entry.fixedNullsDefault());
   }
 
   /**
@@ -677,7 +677,7 @@ public class CachedResultSetViewTest {
       var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, tx(), null, ctx());
 
       assertEquals(Arrays.asList(1, 2, null), drainValues(view));
-      assertEquals(OrderByNullsDefault.NULLS_LARGEST, entry.resolvedNullsDefault());
+      assertEquals(OrderByNullsDefault.NULLS_LARGEST, entry.fixedNullsDefault());
     } finally {
       storageConfig.setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, null);
     }

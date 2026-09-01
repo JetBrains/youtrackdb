@@ -129,14 +129,20 @@ public final class CachedEntry {
   private long cachedDeltaVersion = -1;
 
   /**
-   * Null placement for every ORDER BY comparison this entry drives, resolved on first use and kept
-   * for the entry's whole life. One shared value is required for correctness, not for speed. The
-   * delta builder sorts the inject list, and the view merges that list against the cached rows.
-   * Resolving twice would let a configuration change land between the two reads, and the merge would
-   * then emit an unsorted result. The frozen cached rows were produced under the placement in force
-   * at populate time. Keeping that placement is also the closer match to a fresh execution. The
-   * field stays {@code null} until the first comparison, so an entry with no ORDER BY never reads the
-   * storage configuration.
+   * Null placement for every ORDER BY comparison this entry drives.
+   *
+   * <p>The cache fixes it at populate through {@link #seedNullsDefault}, and it never changes after
+   * that. One value per entry is required for correctness, not for speed. The delta builder sorts
+   * the inject list, and the view merges that list against the cached rows. Two reads could straddle
+   * a configuration change, and the merged result would then come out unsorted.
+   *
+   * <p>Populate is the right moment because the rows the populating execution froze are already
+   * ordered under the value in force then. A later reading would rank the injected rows against a
+   * cached prefix ordered the other way.
+   *
+   * <p>Stays {@code null} for an entry with no ORDER BY, which never compares rows. An entry built
+   * outside the cache, as a test does, may also reach a comparison unseeded. The first comparison
+   * then fixes the value, so the one-value rule holds either way.
    */
   @Nullable private OrderByNullsDefault nullsDefault;
 
@@ -280,14 +286,32 @@ public final class CachedEntry {
   }
 
   /**
-   * The null placement every comparison on this entry uses, resolved from {@code ctx} on the first
-   * call. Call it only where a comparison follows, because the first call reads the storage
-   * configuration under its lock.
+   * Fixes the null placement of this entry at populate, before any row is compared.
+   *
+   * <p>The cache calls this for an entry that carries an ORDER BY. A second call is rejected,
+   * because two comparisons on one entry must never rank rows differently.
+   *
+   * @param seeded the placement in force when this entry was populated
+   */
+  public void seedNullsDefault(@Nonnull OrderByNullsDefault seeded) {
+    if (nullsDefault != null) {
+      throw new IllegalStateException(
+          "The null placement of a cached entry is fixed once, at populate");
+    }
+    nullsDefault = seeded;
+  }
+
+  /**
+   * The null placement every comparison on this entry uses.
+   *
+   * <p>Returns the seed the cache installed at populate. An entry built outside the cache has no
+   * seed, and then this call fixes the value from {@code ctx}. Call it only where a comparison
+   * follows, because an unseeded first call reads the storage configuration under its lock.
    *
    * @param ctx the context of the query that drives the comparison
    */
   @Nonnull
-  public OrderByNullsDefault resolveNullsDefault(@Nonnull CommandContext ctx) {
+  public OrderByNullsDefault nullsDefault(@Nonnull CommandContext ctx) {
     if (nullsDefault == null) {
       nullsDefault = OrderByNullsUtil.resolveDefaultForSort(ctx);
     }
@@ -295,10 +319,10 @@ public final class CachedEntry {
   }
 
   /**
-   * The already resolved null placement, or {@code null} when no comparison has needed one. Exposed
-   * so a test can prove that an entry without an ORDER BY never resolves.
+   * The placement already fixed for this entry, or {@code null} when none is. Exposed so a test can
+   * prove that populate seeds it, and that an entry with no ORDER BY never reads the configuration.
    */
-  @Nullable OrderByNullsDefault resolvedNullsDefault() {
+  @Nullable OrderByNullsDefault fixedNullsDefault() {
     return nullsDefault;
   }
 
