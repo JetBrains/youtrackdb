@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -681,7 +682,7 @@ public class OrderByStepTest extends DbTestBase {
    * The bounded heap must resolve null placement once, when the sort starts, not on every comparison
    * that touches a null. The upstream flips the global default to NULLS_LARGEST after its first row,
    * which for ASC would move nulls to the end. Resolving per comparison would therefore reject the
-   * trailing null row and return [1, 2]; one placement for the whole run keeps the NULLS_SMALLEST
+   * trailing null row and return [1, 2]. One placement for the whole run keeps the NULLS_SMALLEST
    * that was in force at sort start and returns [null, 1].
    */
   @Test
@@ -711,7 +712,7 @@ public class OrderByStepTest extends DbTestBase {
   }
 
   /**
-   * Under the default configuration (NULLS_SMALLEST) null placement is unchanged by the hoist: nulls
+   * Under the default configuration (NULLS_SMALLEST) null placement is unchanged by the hoist. Nulls
    * sort first for ASC and last for DESC, on both the unbounded and the bounded path.
    */
   @Test
@@ -733,5 +734,121 @@ public class OrderByStepTest extends DbTestBase {
     Assert.assertEquals(2, descendingRows.size());
     Assert.assertEquals(2, (int) descendingRows.get(0).getProperty(SORT_FIELD));
     Assert.assertEquals(1, (int) descendingRows.get(1).getProperty(SORT_FIELD));
+  }
+
+  // ── Early termination with null sort keys ──
+
+  /** A two-item ORDER BY, so the first item can act as the pre-sorted primary key hint. */
+  private SQLOrderBy orderByPrimaryAndTag() {
+    var primary = new SQLOrderByItem();
+    primary.setAlias(SORT_FIELD);
+    primary.setType(SQLOrderByItem.ASC);
+    var secondary = new SQLOrderByItem();
+    secondary.setAlias("tag");
+    secondary.setType(SQLOrderByItem.ASC);
+    var orderBy = new SQLOrderBy(-1);
+    orderBy.setItems(new ArrayList<>(List.of(primary, secondary)));
+    return orderBy;
+  }
+
+  /** Rows carrying the primary sort key and a tag, where a {@code null} key means no property. */
+  private List<Result> makeTaggedRows(CommandContext ctx, Integer... values) {
+    var rows = new ArrayList<Result>();
+    for (var v : values) {
+      var r = new ResultInternal(ctx.getDatabaseSession());
+      if (v != null) {
+        r.setProperty(SORT_FIELD, v);
+      }
+      r.setProperty("tag", String.valueOf(v));
+      rows.add(r);
+    }
+    return rows;
+  }
+
+  /** Upstream that counts how many rows the step actually pulled. */
+  private AbstractExecutionStep countingUpstream(
+      CommandContext ctx, List<Result> rows, AtomicInteger pulled) {
+    return new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+        var delegate = new ArrayList<>(rows).iterator();
+        return ExecutionStream.resultIterator(
+            new java.util.Iterator<>() {
+              @Override
+              public boolean hasNext() {
+                return delegate.hasNext();
+              }
+
+              @Override
+              public Result next() {
+                pulled.incrementAndGet();
+                return delegate.next();
+              }
+            });
+      }
+    };
+  }
+
+  /**
+   * Early termination on an index-ordered input, with null primary keys, under NULLS_SMALLEST. The
+   * input arrives in that order, so both null keys come first and the heap fills with them. The next
+   * row sorts worse by the primary key, which ends the scan before the input is drained. This is the
+   * only path where the resolved placement reaches the primary-key cutoff comparison.
+   */
+  @Test
+  public void earlyTerminationStopsOnWorsePrimaryKeyWithNullsSmallest() {
+    GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.setValue(OrderByNullsDefault.NULLS_SMALLEST);
+    try {
+      var ctx = ctx();
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+      var orderBy = orderByPrimaryAndTag();
+      var step =
+          new OrderByStep(orderBy, 2, orderBy.getItems().getFirst(), true, ctx, -1, false);
+      var pulled = new AtomicInteger();
+      step.setPrevious(countingUpstream(ctx, makeTaggedRows(ctx, null, null, 1, 2), pulled));
+
+      var results = collect(step.start(ctx), ctx);
+
+      Assert.assertEquals(2, results.size());
+      Assert.assertNull(results.get(0).getProperty(SORT_FIELD));
+      Assert.assertNull(results.get(1).getProperty(SORT_FIELD));
+      Assert.assertEquals("the scan must stop at the first worse key", 3, pulled.get());
+    } finally {
+      GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.resetToDefault();
+    }
+  }
+
+  /**
+   * The same cutoff under NULLS_LARGEST, where the index-ordered input ends with the null keys. The
+   * cutoff must treat a null primary key as worse than the kept rows and stop, keeping [1, 2]. A
+   * placement that disagreed with the input order would rank the null key first, admit it into the
+   * heap, and evict the row that belongs in the answer.
+   */
+  @Test
+  public void earlyTerminationTreatsNullKeyAsWorseUnderNullsLargest() {
+    GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.setValue(OrderByNullsDefault.NULLS_LARGEST);
+    try {
+      var ctx = ctx();
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+      var orderBy = orderByPrimaryAndTag();
+      var step =
+          new OrderByStep(orderBy, 2, orderBy.getItems().getFirst(), true, ctx, -1, false);
+      var pulled = new AtomicInteger();
+      step.setPrevious(countingUpstream(ctx, makeTaggedRows(ctx, 1, 2, null, null), pulled));
+
+      var results = collect(step.start(ctx), ctx);
+
+      Assert.assertEquals(2, results.size());
+      Assert.assertEquals(1, (int) results.get(0).getProperty(SORT_FIELD));
+      Assert.assertEquals(2, (int) results.get(1).getProperty(SORT_FIELD));
+      Assert.assertEquals("the scan must stop at the first null key", 3, pulled.get());
+    } finally {
+      GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.resetToDefault();
+    }
   }
 }
