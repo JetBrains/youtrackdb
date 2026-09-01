@@ -642,7 +642,7 @@ public class OrderByStepTest extends DbTestBase {
 
   /**
    * Upstream that sets the global null-ordering default to {@code flipTo} right after it has handed
-   * out its first row, simulating a configuration change that lands while a sort is running.
+   * out its first row. That stands for a configuration change landing while a sort runs.
    */
   private AbstractExecutionStep flippingUpstream(
       CommandContext ctx, List<Result> rows, OrderByNullsDefault flipTo) {

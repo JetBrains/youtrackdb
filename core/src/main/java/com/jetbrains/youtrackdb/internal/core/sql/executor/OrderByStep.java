@@ -202,9 +202,9 @@ public class OrderByStep extends AbstractExecutionStep {
                 + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
                 + " to increase this limit");
       }
-      // Null placement is fixed for the whole scan, exactly like the early-termination flag below:
-      // resolving it per comparison would take a storage read lock on every null-involved compare,
-      // and a configuration change mid-sort would break the comparator contract.
+      // Null placement is fixed for the whole scan, exactly like the early-termination flag below.
+      // Resolving per comparison would take a storage read lock on every null-involved compare. A
+      // configuration change mid-sort would also break the comparator contract.
       var nullsDefault = OrderByNullsUtil.resolveDefaultForSort(ctx);
 
       // Reversed comparator: peek() returns the element that sorts LAST (worst in top-N).

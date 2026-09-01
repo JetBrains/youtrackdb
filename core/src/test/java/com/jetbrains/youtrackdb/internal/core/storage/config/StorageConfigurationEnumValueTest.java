@@ -26,9 +26,9 @@ import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
 
 /**
- * Round-trip tests for storage-local settings of enum-typed configuration keys, using
- * {@link GlobalConfiguration#QUERY_ORDER_BY_NULLS_DEFAULT} (the only enum-typed key a user sets per
- * storage).
+ * Round-trip tests for storage-local settings of enum-typed configuration keys. They use {@link
+ * GlobalConfiguration#QUERY_ORDER_BY_NULLS_DEFAULT}, the only enum-typed key a user sets per
+ * storage.
  *
  * <p>The value is written as its constant name when the storage closes and converted back by its
  * declared type when the storage loads. Enum-typed keys need their own conversion on that read path,
@@ -83,9 +83,9 @@ public class StorageConfigurationEnumValueTest {
   }
 
   /**
-   * Regression test for the reopen blocker: storing the enum-typed key on a disk storage used to
-   * make the database unopenable, because the shared type conversion on the load path has no enum
-   * branch. The value must survive close and reopen.
+   * Regression test for the reopen blocker. Storing the enum-typed key on a disk storage used to
+   * make that database unopenable. The shared type conversion on the load path has no enum branch.
+   * The value must survive close and reopen.
    */
   @Test
   public void diskDatabaseReopensAfterEnumValueIsStored() {
@@ -97,9 +97,9 @@ public class StorageConfigurationEnumValueTest {
   }
 
   /**
-   * A value persisted in lower case (a server property carries plain text) still names the constant:
-   * the load path matches constant names case-insensitively, like the global setter does, so the
-   * storage honours NULLS_LARGEST rather than silently falling back.
+   * A value persisted in lower case still names the constant, and a server property carries plain
+   * text. The load path matches constant names while ignoring case, like the global setter does. The
+   * storage therefore honours NULLS_LARGEST rather than falling back without a word.
    */
   @Test
   public void storedLowerCaseValueIsAcceptedAndHonoured() {

@@ -20,10 +20,10 @@ import javax.annotation.Nullable;
  * Otherwise the {@link GlobalConfiguration#QUERY_ORDER_BY_NULLS_DEFAULT} value applies, read from
  * {@code config} when present so per-storage settings override the runtime global.
  *
- * <p>This class owns every read of that configuration key. Reads are deliberately tolerant: the
- * value can arrive as a lower-case string from a server property or a stored storage property, and
- * a query must never fail because of it. A value that names no constant is reported once and
- * replaced by the runtime global default.
+ * <p>This class owns every read of that configuration key. Reads are deliberately tolerant. The
+ * value can arrive as a lower-case string from a server property or from a stored storage property.
+ * A query must never fail because of it. A value that names no constant is reported once, and the
+ * runtime global default takes its place.
  */
 public final class OrderByNullsUtil {
 
@@ -40,9 +40,9 @@ public final class OrderByNullsUtil {
   /**
    * Resolves null placement for one sort key, reading the configuration default.
    *
-   * <p>Callers that compare more than once must resolve the default once with {@link
-   * #resolveDefaultForSort} and use {@link #composeNullsFirst} instead, so a concurrent
-   * configuration change cannot alter placement in the middle of a sort.
+   * <p>A caller that compares more than once must not use this method. It resolves the default once
+   * with {@link #resolveDefaultForSort} and composes with {@link #composeNullsFirst} instead. A
+   * concurrent configuration change then cannot alter placement in the middle of a sort.
    *
    * @param nullOrdering explicit {@link SQLOrderByItem#NULLS_FIRST} / {@link
    *     SQLOrderByItem#NULLS_LAST}, or {@code null} when omitted
@@ -111,8 +111,8 @@ public final class OrderByNullsUtil {
    */
   public static OrderByNullsDefault resolveDefault(@Nullable ContextConfiguration config) {
     if (config != null) {
-      // getValue already falls back to the global value when the context carries no override, so a
-      // separate global read is only needed when the context value itself is unusable.
+      // getValue already falls back to the global value when the context carries no override. A
+      // separate global read is needed only when the context value itself is unusable.
       var parsed = parse(config.getValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT));
       if (parsed != null) {
         return parsed;

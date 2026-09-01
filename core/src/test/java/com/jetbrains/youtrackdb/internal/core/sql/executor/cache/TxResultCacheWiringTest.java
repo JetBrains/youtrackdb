@@ -403,9 +403,9 @@ public class TxResultCacheWiringTest extends DbTestBase {
   /**
    * A populated entry that carries an ORDER BY must already hold its null placement, before any row
    * is compared. The populating query has no in-transaction mutation, so its view never compares a
-   * cached head with an injected head. A placement read at the first comparison instead would leave
-   * this entry unfixed here, and a configuration change before the next query would then rank the
-   * injected rows against a cached prefix ordered the other way.
+   * cached head with an injected head. A placement read at the first comparison would leave this
+   * entry unfixed here. A change before the next query would then rank the injected rows against a
+   * cached prefix ordered the other way.
    */
   @Test
   public void flagOn_populateFixesNullPlacementBeforeAnyComparison() {

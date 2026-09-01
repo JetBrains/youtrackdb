@@ -152,8 +152,8 @@ public class SQLOrderByItem {
    *
    * @param nullsDefault the null-placement default resolved once for the whole sort (see {@link
    *     OrderByNullsUtil#resolveDefaultForSort}). It is a parameter rather than a per-comparison
-   *     read because a configuration change in the middle of a sort would otherwise break the
-   *     comparator contract, and because the read takes a storage lock.
+   *     read for two reasons. A change in the middle of a sort would break the comparator contract,
+   *     and the read takes a storage lock.
    */
   public int compare(Result a, Result b, CommandContext ctx, OrderByNullsDefault nullsDefault) {
     Object aVal = null;

@@ -82,7 +82,7 @@ public final class YTDBOrderNullsStrategy
   }
 
   private static boolean needsNullsOverride(ContextConfiguration config) {
-    // Read through the resolver that owns the key so a lower-case or malformed stored value is
+    // Read through the resolver that owns the key. A lower-case or malformed stored value is then
     // tolerated here exactly as it is on the YQL path.
     return OrderByNullsUtil.resolveDefault(config) == OrderByNullsDefault.NULLS_LARGEST;
   }

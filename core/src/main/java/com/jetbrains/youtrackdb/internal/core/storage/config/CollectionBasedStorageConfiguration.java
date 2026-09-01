@@ -167,8 +167,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
    * release that learns the value keeps its chance to apply it.
    *
    * <p>An entry is dropped the moment somebody sets or clears that key on the effective
-   * configuration. The persisted value must never contradict an explicit operator action, so a
-   * cleared key stays cleared and a new value is the only one written back.
+   * configuration. A persisted value must never contradict an explicit operator action. A cleared
+   * key therefore stays cleared, and a new value is the only one written back.
    *
    * <p>The load and store paths run under the write lock, while the purge runs on the thread of the
    * caller that changed the key. The map is concurrent for that reason.

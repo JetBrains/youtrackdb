@@ -60,8 +60,8 @@ public class OrderByNullsUtilTest {
   }
 
   /**
-   * A value stored or configured as a lower-case string names the constant: a server property or a
-   * storage property carries plain text, and track 02 reads this value on every statement.
+   * A value stored or configured as a lower-case string still names the constant. A server property
+   * and a storage property both carry plain text. Track 02 also reads this value on every statement.
    */
   @Test
   public void lowerCaseStringValueIsAccepted() {
@@ -139,8 +139,8 @@ public class OrderByNullsUtilTest {
   }
 
   /**
-   * An already resolved default composes with the item's clause and direction without reading any
-   * configuration: explicit clauses stay absolute, an omitted clause follows the passed default.
+   * An already resolved default composes with the item's clause and direction, reading no
+   * configuration. An explicit clause stays absolute. An omitted clause follows the passed default.
    */
   @Test
   public void composeUsesPassedDefaultAndIgnoresConfiguration() {

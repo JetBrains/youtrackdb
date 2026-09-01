@@ -52,9 +52,9 @@ public class ContextConfiguration implements Serializable {
 
   /**
    * Notified whenever a key is set or removed through {@link #setValue}. An owner uses it to drop
-   * state it derived from the previous value of that key. Bulk copies made by the constructors and
-   * by {@code merge} do not notify, because they build or extend a configuration rather than record
-   * a decision about one key.
+   * state it derived from the previous value of that key. Bulk copies stay silent, namely the two
+   * copying constructors and {@code merge}. Such a copy builds or extends a configuration. It does
+   * not record a decision about one key.
    */
   public interface KeyChangeObserver {
 
