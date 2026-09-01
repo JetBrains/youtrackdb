@@ -95,9 +95,7 @@ public class SQLOrderByItem {
    * configuration is available.
    */
   public boolean resolveNullsFirst() {
-    // Resolves the global default explicitly rather than passing a null configuration, which would
-    // be ambiguous between the two single-argument overloads.
-    return resolveNullsFirst(OrderByNullsUtil.resolveDefault(null));
+    return resolveNullsFirst((ContextConfiguration) null);
   }
 
   /**
@@ -116,9 +114,12 @@ public class SQLOrderByItem {
    * already resolved for the whole sort. No configuration is read here, so every comparison of one
    * sort sees the same placement.
    *
+   * <p>The name differs from {@link #resolveNullsFirst(ContextConfiguration)} on purpose. Two
+   * single-argument overloads would make a {@code null} literal argument ambiguous for callers.
+   *
    * @param nullsDefault the default resolved once at the start of the sort
    */
-  public boolean resolveNullsFirst(OrderByNullsDefault nullsDefault) {
+  public boolean nullsFirstFor(OrderByNullsDefault nullsDefault) {
     return OrderByNullsUtil.composeNullsFirst(nullOrdering, !DESC.equals(type), nullsDefault);
   }
 
@@ -225,7 +226,7 @@ public class SQLOrderByItem {
       if (aVal == null && bVal == null) {
         return 0;
       }
-      var nullsFirst = resolveNullsFirst(nullsDefault);
+      var nullsFirst = nullsFirstFor(nullsDefault);
       if (aVal == null) {
         return nullsFirst ? -1 : 1;
       }

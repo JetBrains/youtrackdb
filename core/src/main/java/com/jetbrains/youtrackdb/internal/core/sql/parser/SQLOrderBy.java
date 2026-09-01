@@ -73,8 +73,8 @@ public class SQLOrderBy extends SimpleNode {
    * @param nullsDefault the null-placement default resolved once for the whole sort by the caller
    *     (see {@link
    *     com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil#resolveDefaultForSort}). This
-   *     node must not cache it: the statement cache hands one shared node to concurrent sessions,
-   *     whose storages can carry different values.
+   *     node must not cache it, because the value is mutable at runtime and the statement cache
+   *     hands one shared node to every session that runs the statement.
    */
   public int compare(Result a, Result b, CommandContext ctx, OrderByNullsDefault nullsDefault) {
     for (var item : items) {

@@ -5,6 +5,8 @@ import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.Locale;
 import java.util.Set;
@@ -77,15 +79,30 @@ public final class OrderByNullsUtil {
   /**
    * Resolves the default once for a whole sort or merge, from the session behind {@code ctx}.
    *
-   * @param ctx the command context; a missing context, session or configuration falls back to the
-   *     runtime global
+   * @param ctx the command context. A missing context, a context without a session, or a session
+   *     without a configuration all fall back to the runtime global.
    */
   public static OrderByNullsDefault resolveDefaultForSort(@Nullable CommandContext ctx) {
-    if (ctx == null) {
-      return resolveDefault(null);
-    }
-    var session = ctx.getDatabaseSession();
+    var session = sessionOf(ctx);
     return resolveDefault(session == null ? null : session.getConfiguration());
+  }
+
+  /**
+   * Returns the session behind {@code ctx}, or {@code null} when the context carries none.
+   *
+   * <p>{@code getDatabaseSession} throws for a context that was never bound to a session, so the
+   * throw is translated into the documented fallback. A context without a session also carries no
+   * storage override, which makes the runtime global the correct answer.
+   */
+  @Nullable private static DatabaseSessionEmbedded sessionOf(@Nullable CommandContext ctx) {
+    if (ctx == null) {
+      return null;
+    }
+    try {
+      return ctx.getDatabaseSession();
+    } catch (DatabaseException e) {
+      return null;
+    }
   }
 
   /**
@@ -110,7 +127,9 @@ public final class OrderByNullsUtil {
   }
 
   /**
-   * Parses one raw configuration value case-insensitively.
+   * Parses one raw configuration value by constant name, ignoring case. The rule is exactly the one
+   * {@link GlobalConfiguration#setValue} applies, so a value the setter accepts reads back here and
+   * a value the setter rejects is rejected here too. Surrounding whitespace is not tolerated.
    *
    * @return the matching constant, or {@code null} when the value is absent or names no constant
    */
@@ -121,7 +140,7 @@ public final class OrderByNullsUtil {
     if (raw instanceof OrderByNullsDefault value) {
       return value;
     }
-    var presentation = raw.toString().trim();
+    var presentation = raw.toString();
     for (var constant : OrderByNullsDefault.values()) {
       if (constant.name().equalsIgnoreCase(presentation)) {
         return constant;
@@ -133,16 +152,16 @@ public final class OrderByNullsUtil {
 
   private static void reportInvalid(String presentation) {
     if (REPORTED_INVALID_VALUES.add(presentation.toUpperCase(Locale.ENGLISH))) {
-      // The message is concatenated, not formatted: the varargs form of warn would also match the
+      // The message is concatenated, not formatted. The varargs form of warn would also match the
       // (requester, dbName, message, args) overload for two string arguments.
       LogManager.instance()
           .warn(
               OrderByNullsUtil.class,
-              "Ignored invalid value '"
+              "Ignored the unreadable value '"
                   + presentation
-                  + "' of '"
+                  + "' of the configuration key '"
                   + GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT.getKey()
-                  + "'; using the default null ordering instead");
+                  + "'. The default null ordering applies until the value is corrected.");
     }
   }
 }

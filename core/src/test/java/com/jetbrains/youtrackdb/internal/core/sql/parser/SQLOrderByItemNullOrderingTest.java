@@ -16,8 +16,8 @@ import org.junit.experimental.categories.Category;
  * composed with ASC/DESC.
  *
  * <p>Marked {@code @Category(SequentialTest)} because it mutates the process-wide
- * {@code QUERY_ORDER_BY_NULLS_DEFAULT} global; the default surefire execution runs four test classes
- * in parallel in one virtual machine, so the mutation would leak between classes.
+ * {@code QUERY_ORDER_BY_NULLS_DEFAULT} global. The default surefire execution runs four test
+ * classes in parallel in one virtual machine, so the mutation would leak between classes.
  */
 @Category(SequentialTest.class)
 public class SQLOrderByItemNullOrderingTest {
