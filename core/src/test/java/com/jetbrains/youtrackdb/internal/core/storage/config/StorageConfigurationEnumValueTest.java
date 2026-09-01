@@ -165,6 +165,34 @@ public class StorageConfigurationEnumValueTest {
   }
 
   /**
+   * A preserved value must never contradict the operator. Clearing the key is an explicit decision,
+   * so the preserved text is dropped at that moment and the next clean close writes nothing back.
+   * The reopen after that has to be silent, because the value is gone from disk.
+   */
+  @Test
+  public void clearingTheKeyDropsThePreservedValue() {
+    storeOnStorage(NULLS_KEY, "NOT_A_CONSTANT");
+
+    reopenContext();
+    try (var session = youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD)) {
+      var configuration = session.getStorage().getContextConfiguration();
+      // The operator corrects the setting and then decides to drop it altogether.
+      configuration.setValue(NULLS_KEY, OrderByNullsDefault.NULLS_LARGEST);
+      configuration.setValue(NULLS_KEY, null);
+    }
+    youTrackDB.close();
+
+    reopenContext();
+    try (var logs = LogRecordCollector.attachTo(CollectionBasedStorageConfiguration.class)) {
+      loadStorage();
+      assertFalse(
+          "a cleared key must not come back, captured: " + logs.messages(),
+          logs.warnedWithAll(NULLS_KEY.getKey(), "NOT_A_CONSTANT"));
+    }
+    assertFalse(storageConfiguration().getContextKeys().contains(NULLS_KEY.getKey()));
+  }
+
+  /**
    * Surrounding whitespace is not tolerated, because the global setter does not tolerate it either.
    * A padded value is treated as unreadable, so the global default applies and the value is kept for
    * a later corrected reading.

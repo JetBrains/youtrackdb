@@ -51,6 +51,34 @@ public class ContextConfiguration implements Serializable {
   private final Map<String, Object> config = new ConcurrentHashMap<String, Object>();
 
   /**
+   * Notified whenever a key is set or removed through {@link #setValue}. An owner uses it to drop
+   * state it derived from the previous value of that key. Bulk copies made by the constructors and
+   * by {@code merge} do not notify, because they build or extend a configuration rather than record
+   * a decision about one key.
+   */
+  public interface KeyChangeObserver {
+
+    void onKeyChanged(String key);
+  }
+
+  @Nullable private transient volatile KeyChangeObserver keyChangeObserver;
+
+  /**
+   * Installs the single observer of {@link #setValue} calls. The owner of this configuration installs
+   * it, and a later install replaces the previous observer.
+   */
+  public void setKeyChangeObserver(@Nullable final KeyChangeObserver observer) {
+    this.keyChangeObserver = observer;
+  }
+
+  private void notifyKeyChanged(final String key) {
+    final var observer = keyChangeObserver;
+    if (observer != null) {
+      observer.onKeyChanged(key);
+    }
+  }
+
+  /**
    * Empty constructor to create just a proxy for the GlobalConfiguration. No values are setted.
    */
   public ContextConfiguration() {
@@ -72,19 +100,19 @@ public class ContextConfiguration implements Serializable {
   }
 
   public Object setValue(final GlobalConfiguration iConfig, final Object iValue) {
-    if (iValue == null) {
-      return config.remove(iConfig.getKey());
-    }
-
-    return config.put(iConfig.getKey(), iValue);
+    return setValue(iConfig.getKey(), iValue);
   }
 
   public Object setValue(final String iName, final Object iValue) {
+    final Object previous;
     if (iValue == null) {
-      return config.remove(iName);
+      previous = config.remove(iName);
+    } else {
+      previous = config.put(iName, iValue);
     }
 
-    return config.put(iName, iValue);
+    notifyKeyChanged(iName);
+    return previous;
   }
 
   public Object getValue(final GlobalConfiguration iConfig) {
@@ -107,8 +135,7 @@ public class ContextConfiguration implements Serializable {
    *                                  bug can not be converted to instance of passed in enumeration
    *                                  class.
    */
-  @Nullable
-  public <T extends Enum<T>> T getValueAsEnum(
+  @Nullable public <T extends Enum<T>> T getValueAsEnum(
       final GlobalConfiguration config, Class<T> enumType) {
     final Object value;
     if (this.config != null && this.config.containsKey(config.getKey())) {
@@ -158,8 +185,7 @@ public class ContextConfiguration implements Serializable {
     return getValue(iName, iDefaultValue);
   }
 
-  @Nullable
-  public String getValueAsString(final GlobalConfiguration iConfig) {
+  @Nullable public String getValueAsString(final GlobalConfiguration iConfig) {
     final var v = getValue(iConfig);
     if (v == null) {
       return null;

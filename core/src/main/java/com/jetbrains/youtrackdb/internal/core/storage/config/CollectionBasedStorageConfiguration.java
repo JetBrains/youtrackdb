@@ -45,6 +45,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -165,9 +166,14 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
    * holds, so the next clean close would drop the entry and erase the operator's intent. A later
    * release that learns the value keeps its chance to apply it.
    *
-   * <p>Both paths run under the write lock, like every other configuration property.
+   * <p>An entry is dropped the moment somebody sets or clears that key on the effective
+   * configuration. The persisted value must never contradict an explicit operator action, so a
+   * cleared key stays cleared and a new value is the only one written back.
+   *
+   * <p>The load and store paths run under the write lock, while the purge runs on the thread of the
+   * caller that changed the key. The map is concurrent for that reason.
    */
-  private final Map<String, String> unreadableConfigurationValues = new HashMap<>();
+  private final Map<String, String> unreadableConfigurationValues = new ConcurrentHashMap<>();
 
   // Cache resolved TimeZone to avoid lock + property-map + TimeZone.getTimeZone
   // allocation on every date comparison. Hot path: SQL WHERE date predicates
@@ -210,6 +216,14 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     this.storage = storage;
   }
 
+  /**
+   * Watches the effective configuration so an explicit change to a key drops the stored text this
+   * storage preserved for it. Installed for every configuration this storage adopts.
+   */
+  private void observeConfigurationChanges() {
+    configuration.setKeyChangeObserver(unreadableConfigurationValues::remove);
+  }
+
   public void create(
       final AtomicOperation atomicOperation, final ContextConfiguration contextConfiguration) {
     lock.writeLock().lock();
@@ -218,6 +232,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       btree.create(atomicOperation, StringSerializer.INSTANCE, null, 1);
 
       this.configuration = contextConfiguration;
+      observeConfigurationChanges();
 
       init(atomicOperation);
 
@@ -298,6 +313,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     lock.writeLock().lock();
     try {
       this.configuration = configuration;
+      observeConfigurationChanges();
 
       collection.open(atomicOperation);
       btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
