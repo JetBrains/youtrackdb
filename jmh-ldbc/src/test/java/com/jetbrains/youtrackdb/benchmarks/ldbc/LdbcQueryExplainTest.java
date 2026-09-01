@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -18,6 +19,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import org.junit.AfterClass;
+import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -43,11 +45,24 @@ import org.junit.Test;
  *       and RID filter on {@code expand(in('HAS_CREATOR'))}</li>
  *   <li><b>IC3</b>  — index pre-filter ({@code Message.creationDate})
  *       and RID filter on {@code expand(in('HAS_CREATOR'))}</li>
+ *   <li><b>IC10</b> and <b>IC1</b> — direct correlated RID fetch on the
+ *       {@code @rid = $parent.$current.<vertexAlias>} LET subqueries</li>
  * </ul>
+ *
+ * <p>Run this class with {@code -am}. Without it Maven resolves
+ * {@code youtrackdb-core} from the local repository, whose installed snapshot can
+ * predate the working tree, and every plan assertion here then measures the wrong
+ * core.
  */
 public class LdbcQueryExplainTest {
 
   private static final String DB_NAME = "ldbc_explain_test";
+
+  /** Header {@code FetchFromCorrelatedRidStep} prints for the direct correlated RID fetch. */
+  private static final String CORRELATED_RID_STEP = "FETCH FROM CORRELATED RID";
+
+  /** Header the class scan prints when the correlated fetch is not chosen. */
+  private static final String PERSON_SCAN = "FETCH FROM CLASS Person";
 
   private static YouTrackDB db;
   private static YTDBGraphTraversalSource g;
@@ -197,8 +212,6 @@ public class LdbcQueryExplainTest {
    * IC10: The LET subqueries use {@code expand(in('HAS_CREATOR'))} with
    * {@code WHERE @class = 'Post'}, which should produce a class filter
    * push-down in the EXPAND step (skipping Comment records with zero I/O).
-   * The {@code @rid = $parent.$current.fofVertex} should produce a RID
-   * filter push-down.
    */
   @Test
   public void testIC10_classFilterPushDown() {
@@ -209,6 +222,74 @@ public class LdbcQueryExplainTest {
         "IC10 plan should show class filter push-down on EXPAND for "
             + "'Post' filtering. Plan was:\n" + plan,
         plan.contains("class filter"));
+  }
+
+  // ==================== Correlated RID fetch on the benchmark queries ====================
+
+  /**
+   * IC10: the {@code $scores} LET subquery is
+   * {@code SELECT expand(in('HAS_CREATOR')) FROM Person WHERE @rid = $parent.$current.fofVertex}.
+   * The planner must compile that to a direct correlated RID fetch, not a Person scan plus a RID
+   * post-filter, because the fetch is where the reported IC10 throughput gain comes from.
+   *
+   * <p>This pins the real plan, which is what a substring check on the SQL resource cannot do. Two
+   * traced rewrites keep the predicate text intact yet lose the fetch, and both are caught here:
+   * wrapping the predicate in a top-level OR makes
+   * {@code handleClassAsTargetWithRidEquality} bail on the multi-branch flattened WHERE
+   * (SelectExecutionPlanner.java:2337), and nesting the {@code FROM Person} target inside a
+   * subquery makes it bail on the null class target (SelectExecutionPlanner.java:2332). Either
+   * rewrite restores {@code FETCH FROM CLASS Person} plus {@code FILTER ITEMS WHERE} with no change
+   * in returned rows, so only a plan assertion detects it.
+   *
+   * <p>Run this class with {@code -am}. Without it Maven resolves {@code youtrackdb-core} from the
+   * local repository, which can predate this branch, and the assertion then measures a stale core
+   * rather than the working tree.
+   */
+  @Test
+  public void testIC10_correlatedRidFetchOnScoresSubquery() {
+    assumeReactorCore();
+    String plan = explain(LdbcQuerySql.IC10,
+        "personId", 1L, "startMd", "0601", "endMd", "0801",
+        "wrap", false, "limit", 10);
+    assertEquals(
+        "IC10 must compile its one correlated LET subquery to a correlated RID fetch. "
+            + "Plan was:\n" + plan,
+        1,
+        countOccurrences(plan, CORRELATED_RID_STEP));
+    assertTrue(
+        "the correlated fetch must be driven by $parent.$current.fofVertex. Plan was:\n" + plan,
+        plan.contains("$parent.$current.fofVertex"));
+    assertFalse(
+        "the Person scan must be gone once the correlated fetch is chosen. Plan was:\n" + plan,
+        plan.contains(PERSON_SCAN));
+  }
+
+  /**
+   * IC1: both the {@code $universities} and the {@code $companies} LET subqueries read
+   * {@code FROM Person WHERE @rid = $parent.$current.friendVertex}, one for {@code STUDY_AT} and
+   * one for {@code WORK_AT}. The plan text exposes both, so the marker is asserted exactly twice.
+   * A count rather than a containment check is deliberate: losing one of the two subqueries to a
+   * rewrite would halve the benefit while a containment check stayed green.
+   *
+   * <p>The escapes described on {@link #testIC10_correlatedRidFetchOnScoresSubquery} apply here
+   * too, as does the {@code -am} requirement.
+   */
+  @Test
+  public void testIC1_correlatedRidFetchOnBothLetSubqueries() {
+    assumeReactorCore();
+    String plan = explain(LdbcQuerySql.IC1, "personId", 1L, "firstName", "Bob", "limit", 10);
+    assertEquals(
+        "IC1 must compile both correlated LET subqueries (STUDY_AT and WORK_AT) to correlated "
+            + "RID fetches. Plan was:\n" + plan,
+        2,
+        countOccurrences(plan, CORRELATED_RID_STEP));
+    assertTrue(
+        "the correlated fetches must be driven by $parent.$current.friendVertex. Plan was:\n"
+            + plan,
+        plan.contains("$parent.$current.friendVertex"));
+    assertFalse(
+        "the Person scan must be gone once the correlated fetch is chosen. Plan was:\n" + plan,
+        plan.contains(PERSON_SCAN));
   }
 
   /**
@@ -231,6 +312,56 @@ public class LdbcQueryExplainTest {
   }
 
   // ==================== Helpers ====================
+
+  /**
+   * Skips a correlated-fetch plan assertion when the {@code youtrackdb-core} on the classpath
+   * predates the fetch step.
+   *
+   * <p>{@code ./mvnw -pl jmh-ldbc test} resolves {@code youtrackdb-core} from the local
+   * repository, whose installed snapshot belongs to whichever worktree last ran {@code install}.
+   * Against such a core the planner has no {@code FetchFromCorrelatedRidStep} at all, so the
+   * assertion below would report a gate regression that does not exist. A skip states the real
+   * cause instead. Adding {@code -am} builds core in the same reactor and the assertion runs for
+   * real, which is also what the full-reactor CI build does.
+   *
+   * <p>The skip cannot hide a genuine removal of the step: {@code ParentOnlyChainTest} and
+   * {@code SelectExecutionPlannerRidEqualityTest} both run in the core module against the reactor
+   * build and fail outright if the gate or the step disappears.
+   */
+  private static void assumeReactorCore() {
+    Assume.assumeTrue(
+        "youtrackdb-core on the classpath has no FetchFromCorrelatedRidStep, so this plan "
+            + "assertion would measure a stale local-repository core instead of the working "
+            + "tree. Re-run with -am, for example "
+            + "./mvnw -pl jmh-ldbc -am test -Dtest=LdbcQueryExplainTest",
+        correlatedRidStepOnClasspath());
+  }
+
+  /** Whether the fetch step this suite asserts on exists in the core build being tested. */
+  private static boolean correlatedRidStepOnClasspath() {
+    try {
+      Class.forName(
+          "com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromCorrelatedRidStep");
+      return true;
+    } catch (ClassNotFoundException e) {
+      return false;
+    }
+  }
+
+  /** Counts non-overlapping occurrences of {@code needle} in {@code haystack}. */
+  private static int countOccurrences(String haystack, String needle) {
+    var count = 0;
+    var from = 0;
+    while (true) {
+      var idx = haystack.indexOf(needle, from);
+      if (idx < 0) {
+        break;
+      }
+      count++;
+      from = idx + needle.length();
+    }
+    return count;
+  }
 
   /**
    * Runs EXPLAIN on the given query and returns the execution plan string.

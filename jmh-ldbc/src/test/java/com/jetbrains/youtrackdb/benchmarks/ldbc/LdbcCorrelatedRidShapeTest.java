@@ -16,22 +16,27 @@ import org.junit.Test;
  * {@code com.jetbrains.youtrackdb.internal.core.sql.executor.ParentOnlyChain}, and it admits only
  * a chain rooted at {@code $parent}.
  *
- * <p>Two things can silently erase the gain, and each is pinned by one half of a pair:
+ * <p>Three things can silently erase the gain, and each is pinned somewhere:
  *
  * <ul>
  *   <li>The gate stops admitting the shape. Pinned in core by
  *       {@code SelectExecutionPlannerRidEqualityTest} for the plan text, and by
  *       {@code ParentOnlyChainTest.ldbcBenchmarkCorrelatedExpressions_areAccepted} for these two
  *       exact expression strings.
- *   <li>The benchmark query is rewritten into a shape the gate does not admit. That is what this
- *       class pins, by reading the shipped SQL resources.
+ *   <li>The benchmark query loses the predicate outright. That is what this class pins, by reading
+ *       the shipped SQL resources.
+ *   <li>The benchmark query is rewritten so the predicate text survives but the planner stops
+ *       choosing the fetch, for instance a top-level OR or a nested {@code FROM} target. A text
+ *       check cannot see that, so {@link LdbcQueryExplainTest} asserts the real plan of both
+ *       queries instead.
  * </ul>
  *
- * <p>The two halves live in different modules because the gate class is package private in the
+ * <p>The core half lives in a different module because the gate class is package private in the
  * core executor package, so this module cannot call it. Reading the resources through
  * {@link LdbcQuerySql}, the module's own loader, keeps the assertion on the same text the
- * benchmark executes and avoids a hard-coded file path. This test needs no database, no schema and
- * no benchmark run. Rewriting a benchmark query means updating both halves together.
+ * benchmark executes and avoids a hard-coded file path. This class needs no database, no schema
+ * and no benchmark run, which is why it stays alongside the heavier plan assertions rather than
+ * being folded into them. Rewriting a benchmark query means updating every half together.
  */
 public class LdbcCorrelatedRidShapeTest {
 

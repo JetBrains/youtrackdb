@@ -51,30 +51,42 @@ import javax.annotation.Nullable;
  * the same way. So {@code $parent.$current.ref.$current} really does read that slot: a chain is
  * not, on its own, independent of the current-record variable.
  *
- * <p>The chain is nonetheless safe here, for a different reason. {@link LetQueryStep} installs an
- * intermediate context that owns {@code VAR_CURRENT} for the correlated subquery (see
- * {@code LetQueryStep.java:104-107}), so the slot holds the same parent row whichever inner plan
- * runs. The correlated fetch and the class scan plus filter therefore read the same value and
- * return the same rows.
+ * <p>The chain is nonetheless safe here, for a different reason. Both steps that host a correlated
+ * subquery seed {@code VAR_CURRENT} with the parent row on an intermediate context, then attach
+ * that context between the subquery and the outer one: {@link LetQueryStep} at
+ * {@code LetQueryStep.java:104-107} and {@link MaterializedLetGroupStep} at
+ * {@code MaterializedLetGroupStep.java:102-104}.
  *
- * <p>That is an invariant of the surrounding step, not of the chain itself. Any future widening of
- * this gate, and any new caller that evaluates an admitted chain outside a {@link LetQueryStep},
+ * <p>Ownership of the slot is the mechanism that makes the seeding stick.
+ * {@code BasicCommandContext.setSystemVariable} (lines 80 to 91) walks up the parent chain and
+ * writes to the nearest ancestor that already holds the slot, rather than shadowing it locally.
+ * {@code getSystemVariable} resolves upward the same way. Once the intermediate context owns
+ * {@code VAR_CURRENT}, every read and every write from a descendant context lands on that one
+ * value. The slot therefore holds the same parent row whichever inner plan runs, so the correlated
+ * fetch and the class scan plus filter return the same rows.
+ *
+ * <p>That is an invariant of the surrounding steps, not of the chain itself. Any future widening of
+ * this gate, and any new caller that evaluates an admitted chain outside one of those two steps,
  * must re-examine this point before relying on it.
  *
  * <h2>Rejected, with no exception</h2>
  *
  * <ul>
- *   <li><b>Every function call and every method call, anywhere.</b> {@code SQLFunctionCall} (see
- *       {@code SQLFunctionCall.java:119-127}) and {@code SQLMethodCall} fall back to the
- *       current-record system variable when the record argument is {@code null}, so they read the
- *       inner row with no signal in the syntax tree. The asymmetry is what breaks parity: under
- *       the scan plus filter the record argument is the inner row, so no fallback fires, while
- *       under the fetch it is {@code null}, so the call silently changes subject. An admitted
- *       chain link has no such asymmetry, because it reads the same slot under both plans.
- *       Verified counterexample:
+ *   <li><b>Every function call and every method call, anywhere.</b> Both reach the current-record
+ *       system variable, by different routes, and neither route is visible in the syntax tree.
+ *       {@code SQLFunctionCall} falls back to it only when the resolved record is {@code null}
+ *       ({@code SQLFunctionCall.java:119-127}). {@code SQLMethodCall} reads it unconditionally on
+ *       every invocation, at lines 128, 165, 182 and 202, and prefers it over the chain value when
+ *       resolving both its parameters and its graph-function subject.
+ *
+ *       <p>The conditional fallback is what breaks parity in the verified case. Under the scan plus
+ *       filter the record argument is the inner row, so no fallback fires. Under the fetch it is
+ *       {@code null}, so the call silently changes subject. Counterexample:
  *       {@code @rid = ifnull($parent.$current.missing, first(out('GE')))} returns three rows
  *       through scan plus filter and zero rows through the fetch step. Determinism of the function
- *       is irrelevant, because the silent change of subject is the defect.
+ *       is irrelevant, because the silent change of subject is the defect. The unconditional read
+ *       has not been shown to diverge, and it has not been shown to be safe either, so a method
+ *       call is refused on the same closed-whitelist principle.
  *   <li><b>Any subquery</b>, which parses into a parenthesis expression or a collection literal
  *       under the level-zero identifier, and is evaluated against the current record.
  *   <li><b>A bracket modifier carrying a condition, a range, or a right binary condition</b>
