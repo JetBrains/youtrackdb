@@ -21,8 +21,10 @@ package com.jetbrains.youtrackdb.internal.core.config;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import java.io.Serializable;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 
@@ -61,19 +63,70 @@ public class ContextConfiguration implements Serializable {
     void onKeyChanged(String key);
   }
 
-  @Nullable private transient volatile KeyChangeObserver keyChangeObserver;
+  /**
+   * Every registered observer of {@link #setValue} calls.
+   *
+   * <p>One configuration object can have several owners. An embedded instance hands its own
+   * configuration to every storage it opens at startup, and each of those storages keeps state
+   * derived from it. A single observer slot would let the second owner displace the first silently,
+   * and the displaced owner would then never learn about a change.
+   *
+   * <p>The list is copy-on-write, because registration happens rarely while notification happens on
+   * every write. It is transient, so a deserialized configuration starts with no observer and every
+   * read of the field tolerates a {@code null}.
+   */
+  @Nullable private transient volatile List<KeyChangeObserver> keyChangeObservers;
 
   /**
-   * Installs the single observer of {@link #setValue} calls. The owner of this configuration installs
-   * it, and a later install replaces the previous observer.
+   * Registers one observer of {@link #setValue} calls. Registering the same instance twice has no
+   * further effect, so an owner that adopts this configuration again does not receive doubled
+   * notifications.
    */
-  public void setKeyChangeObserver(@Nullable final KeyChangeObserver observer) {
-    this.keyChangeObserver = observer;
+  public synchronized void addKeyChangeObserver(final KeyChangeObserver observer) {
+    var observers = keyChangeObservers;
+    if (observers == null) {
+      observers = new CopyOnWriteArrayList<>();
+      keyChangeObservers = observers;
+    }
+    if (!containsIdentical(observers, observer)) {
+      observers.add(observer);
+    }
+  }
+
+  /**
+   * Removes one observer. An owner calls this when it stops using this configuration, so a closed
+   * owner receives no further notification and leaks nothing.
+   */
+  public synchronized void removeKeyChangeObserver(final KeyChangeObserver observer) {
+    final var observers = keyChangeObservers;
+    if (observers == null) {
+      return;
+    }
+    observers.removeIf(registered -> registered == observer);
+  }
+
+  /** The number of registered observers. A test seam for the registration lifecycle. */
+  public int getKeyChangeObserverCount() {
+    final var observers = keyChangeObservers;
+    return observers == null ? 0 : observers.size();
+  }
+
+  private static boolean containsIdentical(
+      final List<KeyChangeObserver> observers, final KeyChangeObserver observer) {
+    for (final var registered : observers) {
+      if (registered == observer) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void notifyKeyChanged(final String key) {
-    final var observer = keyChangeObserver;
-    if (observer != null) {
+    final var observers = keyChangeObservers;
+    if (observers == null) {
+      return;
+    }
+    for (final var observer : observers) {
       observer.onKeyChanged(key);
     }
   }

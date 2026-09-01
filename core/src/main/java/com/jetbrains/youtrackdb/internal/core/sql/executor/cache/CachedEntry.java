@@ -288,17 +288,20 @@ public final class CachedEntry {
   /**
    * Fixes the null placement of this entry at populate, before any row is compared.
    *
-   * <p>The cache calls this for an entry that carries an ORDER BY. A second call is rejected,
-   * because two comparisons on one entry must never rank rows differently.
+   * <p>The cache calls this for an entry that carries an ORDER BY. A second call keeps the first
+   * placement, because comparisons may already have used it and two placements on one entry would
+   * rank rows differently. Such a call is a construction bug in the cache, so an assertion fails it
+   * in tests. Production keeps the first value instead of throwing, because a throw here would roll
+   * back the user transaction.
    *
    * @param seeded the placement in force when this entry was populated
    */
   public void seedNullsDefault(@Nonnull OrderByNullsDefault seeded) {
-    if (nullsDefault != null) {
-      throw new IllegalStateException(
-          "The null placement of a cached entry is fixed once, at populate");
+    assert nullsDefault == null
+        : "the null placement of a cached entry is fixed once, at populate";
+    if (nullsDefault == null) {
+      nullsDefault = seeded;
     }
-    nullsDefault = seeded;
   }
 
   /**

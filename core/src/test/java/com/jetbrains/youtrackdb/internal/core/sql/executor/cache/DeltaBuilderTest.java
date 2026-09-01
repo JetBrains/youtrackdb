@@ -649,17 +649,26 @@ public class DeltaBuilderTest {
     }
   }
 
-  /** Seeding twice is a bug, because two comparisons of one entry must rank rows alike. */
+  /**
+   * Seeding twice is a construction bug, because two comparisons of one entry must rank rows alike.
+   * The assertion fails it here, where tests run with assertions enabled. Production keeps the first
+   * placement instead of throwing. A throw would roll back a user transaction, and earlier
+   * comparisons on this entry already used that first value.
+   */
   @Test
-  public void secondSeedIsRejected() {
+  public void secondSeedIsRejectedAndTheFirstPlacementSurvives() {
     db.begin();
     var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
     var entry = recordEntry(null, orderBy, List.of());
     entry.seedNullsDefault(OrderByNullsDefault.NULLS_LARGEST);
 
     assertThrows(
-        IllegalStateException.class,
+        AssertionError.class,
         () -> entry.seedNullsDefault(OrderByNullsDefault.NULLS_SMALLEST));
+    assertEquals(
+        "the first placement must survive a rejected second seed",
+        OrderByNullsDefault.NULLS_LARGEST,
+        entry.fixedNullsDefault());
     db.rollback();
   }
 }

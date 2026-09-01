@@ -193,6 +193,30 @@ public class StorageConfigurationEnumValueTest {
   }
 
   /**
+   * A storage observes the configuration it adopted, and it stops when it closes.
+   *
+   * <p>Several storages can share one configuration object, so a dead storage must not stay
+   * registered on it. The count is taken on the very object the storage adopted, before and after
+   * the close.
+   */
+  @Test
+  public void closingTheStorageRemovesItsConfigurationObserver() {
+    ContextConfiguration adopted;
+    try (var session = youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD)) {
+      adopted = session.getStorage().getContextConfiguration();
+      assertEquals(
+          "the open storage observes the configuration it adopted",
+          1,
+          adopted.getKeyChangeObserverCount());
+    }
+    youTrackDB.close();
+
+    assertEquals(
+        "a closed storage must leave no observer behind", 0, adopted.getKeyChangeObserverCount());
+    reopenContext();
+  }
+
+  /**
    * Surrounding whitespace is not tolerated, because the global setter does not tolerate it either.
    * A padded value is treated as unreadable, so the global default applies and the value is kept for
    * a later corrected reading.

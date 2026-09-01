@@ -175,6 +175,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
    */
   private final Map<String, String> unreadableConfigurationValues = new ConcurrentHashMap<>();
 
+  /**
+   * The observer this storage registers on every configuration it adopts. Held as one stable
+   * instance, so the registration can be removed again when this storage configuration closes.
+   */
+  private final ContextConfiguration.KeyChangeObserver configurationChangeObserver =
+      unreadableConfigurationValues::remove;
+
   // Cache resolved TimeZone to avoid lock + property-map + TimeZone.getTimeZone
   // allocation on every date comparison. Hot path: SQL WHERE date predicates
   // hit this once per row via compareFromPageFrameOrdering → DateHelper.
@@ -217,11 +224,24 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   /**
-   * Watches the effective configuration so an explicit change to a key drops the stored text this
-   * storage preserved for it. Installed for every configuration this storage adopts.
+   * Registers {@link #configurationChangeObserver} on the configuration this storage just adopted.
+   *
+   * <p>Several storages can share one configuration object, so the registration adds an observer
+   * rather than replacing one. Each storage keeps its own preserved values, and each has to learn
+   * about a change.
    */
   private void observeConfigurationChanges() {
-    configuration.setKeyChangeObserver(unreadableConfigurationValues::remove);
+    configuration.addKeyChangeObserver(configurationChangeObserver);
+  }
+
+  /**
+   * Stops observing the configuration this storage adopted. Called when this storage configuration
+   * closes or is deleted. A shared configuration object then holds no reference to a dead storage,
+   * and a later change reaches only live storages.
+   */
+  private void stopObservingConfigurationChanges() {
+    configuration.removeKeyChangeObserver(configurationChangeObserver);
+    unreadableConfigurationValues.clear();
   }
 
   public void create(
@@ -279,6 +299,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       btree.delete(atomicOperation);
 
+      // A deleted configuration has nothing left to preserve, so it stops observing as well.
+      stopObservingConfigurationChanges();
       cache.clear();
     } catch (Exception e) {
       cache.clear();
@@ -297,6 +319,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       updateConfigurationProperty(atomicOperation);
       updateMinimumCollections(atomicOperation);
 
+      // Deregistered after the write-back, which is the last reader of the preserved values.
+      stopObservingConfigurationChanges();
       cache.clear();
     } catch (Exception e) {
       cache.clear();
