@@ -156,6 +156,19 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private final HashMap<String, Object> cache = new HashMap<>();
 
+  /**
+   * Stored values of enum-typed keys that named no constant when this storage loaded, by key.
+   *
+   * <p>The load path keeps such a value out of the effective configuration, so the global default
+   * stays in force and no reader ever sees text where a constant belongs. The store path writes the
+   * value back unchanged. Without that write-back the next clean close would drop the entry and
+   * erase what the operator recorded, because the store path only writes keys the effective
+   * configuration holds. A later release that learns the value keeps its chance to apply it.
+   *
+   * <p>Both paths run under the write lock, like every other configuration property.
+   */
+  private final Map<String, String> unreadableConfigurationValues = new HashMap<>();
+
   // Cache resolved TimeZone to avoid lock + property-map + TimeZone.getTimeZone
   // allocation on every date comparison. Hot path: SQL WHERE date predicates
   // hit this once per row via compareFromPageFrameOrdering → DateHelper.
@@ -1023,9 +1036,20 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     totalSize += contextSize.length;
     entries.add(contextSize);
 
-    IntegerSerializer.serializeNative(configuration.getContextSize(), contextSize, 0);
+    final var contextKeys = configuration.getContextKeys();
+    // Values that failed to read are written back too, so an unreadable setting survives the round
+    // trip instead of vanishing at this close. A key the operator has since set properly lives in
+    // the effective configuration, and that fresh value wins.
+    final Map<String, String> preserved = new HashMap<>();
+    for (final var entry : unreadableConfigurationValues.entrySet()) {
+      if (!contextKeys.contains(entry.getKey())) {
+        preserved.put(entry.getKey(), entry.getValue());
+      }
+    }
 
-    for (final var k : configuration.getContextKeys()) {
+    IntegerSerializer.serializeNative(contextKeys.size() + preserved.size(), contextSize, 0);
+
+    for (final var k : contextKeys) {
       final var cfg = GlobalConfiguration.findByKey(k);
       final var key = serializeStringValue(k);
       totalSize += key.length;
@@ -1033,7 +1057,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       if (cfg != null) {
         final var value =
-            serializeStringValue(cfg.isHidden() ? null : configuration.getValueAsString(cfg));
+            serializeStringValue(cfg.isHidden() ? null : storedFormOf(cfg));
         totalSize += value.length;
         entries.add(value);
       } else {
@@ -1046,6 +1070,16 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                 this,
                 "Storing configuration for property:'" + k + "' not existing in current version");
       }
+    }
+
+    for (final var entry : preserved.entrySet()) {
+      final var key = serializeStringValue(entry.getKey());
+      totalSize += key.length;
+      entries.add(key);
+
+      final var value = serializeStringValue(entry.getValue());
+      totalSize += value.length;
+      entries.add(value);
     }
 
     final var property = mergeBinaryEntries(totalSize, entries);
@@ -1081,17 +1115,25 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
             // untouched because a query-level conversion method reaches it too.
             final var constant = parseEnumValue(cfg, value);
             if (constant == null) {
-              // Tolerant only for enums: an unparseable constant name leaves the global default in
+              // Tolerant only for enums. An unreadable constant name leaves the global default in
               // force instead of making the database unopenable. Every other type still fails the
-              // open loudly, below.
+              // open loudly, below. The raw text is remembered so the next clean close writes it
+              // back rather than erasing the operator's recorded intent.
+              unreadableConfigurationValues.put(key, value);
               LogManager.instance()
                   .warn(
                       this,
-                      "Ignored storage configuration with unknown enumeration value: "
+                      "Database '"
+                          + storage.getName()
+                          + "' stores the unreadable value '"
+                          + value
+                          + "' for the configuration key '"
                           + key
-                          + "="
-                          + value);
+                          + "'. The value is kept on disk, and the global default applies until it"
+                          + " is corrected.");
             } else {
+              // A readable value supersedes text remembered by an earlier load of this storage.
+              unreadableConfigurationValues.remove(key);
               configuration.setValue(key, constant);
             }
           } else {
@@ -1106,20 +1148,38 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   /**
-   * Resolves a stored string to a constant of an enum-typed configuration key, matching names
-   * case-insensitively exactly like {@link GlobalConfiguration#setValue}, so a value a user may have
-   * written in lower case reads back.
+   * Resolves a stored string to a constant of an enum-typed configuration key. Names are matched
+   * ignoring case, which is the rule {@link GlobalConfiguration#setValue} applies. Surrounding
+   * whitespace is not tolerated, for the same reason. A value the setter accepts therefore reads
+   * back, and a value the setter rejects is rejected here too.
    *
    * @return the matching constant, or {@code null} when the value names no constant
    */
-  @Nullable private static Object parseEnumValue(final GlobalConfiguration cfg, final String value) {
-    final var presentation = value.trim();
+  @Nullable private static Object parseEnumValue(final GlobalConfiguration cfg,
+      final String value) {
     for (final var constant : cfg.getType().getEnumConstants()) {
-      if (((Enum<?>) constant).name().equalsIgnoreCase(presentation)) {
+      if (((Enum<?>) constant).name().equalsIgnoreCase(value)) {
         return constant;
       }
     }
     return null;
+  }
+
+  /**
+   * Renders the effective value of one configuration key for storage.
+   *
+   * <p>An enum is written by constant name, because the load path matches constant names. A future
+   * constant that renders its text form differently would otherwise be written in a form the load
+   * path cannot match, and the setting would disappear on the second reopen.
+   *
+   * @return the text to persist, or {@code null} when the key holds no value
+   */
+  @Nullable private String storedFormOf(final GlobalConfiguration cfg) {
+    final var value = configuration.getValue(cfg);
+    if (value instanceof Enum<?> constant) {
+      return constant.name();
+    }
+    return value == null ? null : value.toString();
   }
 
   public void setCreationVersion(final AtomicOperation atomicOperation, final String version) {

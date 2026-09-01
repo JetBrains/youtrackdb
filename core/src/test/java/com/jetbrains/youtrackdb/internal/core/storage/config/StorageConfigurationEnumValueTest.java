@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.config;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
@@ -11,9 +12,11 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import org.junit.After;
 import org.junit.Before;
@@ -32,8 +35,8 @@ import org.junit.rules.TestName;
  * and a value that names no constant must not make the database unopenable.
  *
  * <p>Marked {@code @Category(SequentialTest)} because the tests mutate the process-wide
- * {@code QUERY_ORDER_BY_NULLS_DEFAULT} global; the default surefire execution runs four test classes
- * in parallel in one virtual machine, so the mutation would leak between classes.
+ * {@code QUERY_ORDER_BY_NULLS_DEFAULT} global. The default surefire execution runs four test
+ * classes in parallel in one virtual machine, so the mutation would leak between classes.
  */
 @Category(SequentialTest.class)
 public class StorageConfigurationEnumValueTest {
@@ -112,26 +115,77 @@ public class StorageConfigurationEnumValueTest {
   }
 
   /**
-   * A stored value that names no constant is skipped with a warning: the database opens, the key is
-   * absent from the storage configuration, and the runtime global stays in force. The global is set
-   * to NULLS_LARGEST here so a fallback to the declared default would fail the assertion too.
+   * A stored value that names no constant is skipped, and the database opens. The key is absent from
+   * the storage configuration, so the runtime global stays in force. The global is set to
+   * NULLS_LARGEST here, so a fallback to the declared default would fail the assertion too. The
+   * logged warning has to name the database, the key, the value and the consequence, because it is
+   * the operator's only signal.
    */
   @Test
-  public void storedInvalidValueIsSkippedAndGlobalDefaultApplies() {
+  public void storedInvalidValueIsReportedAndGlobalDefaultApplies() {
     NULLS_KEY.setValue(OrderByNullsDefault.NULLS_LARGEST);
     storeOnStorage(NULLS_KEY, "NOT_A_CONSTANT");
 
     reopenContext();
 
-    var configuration = storageConfiguration();
+    ContextConfiguration configuration;
+    try (var logs = LogRecordCollector.attachTo(CollectionBasedStorageConfiguration.class)) {
+      configuration = storageConfiguration();
+      assertTrue(
+          "the skipped value must be reported, captured: " + logs.messages(),
+          logs.warnedWithAll(
+              databaseName, NULLS_KEY.getKey(), "NOT_A_CONSTANT", "global default applies"));
+    }
     assertFalse(configuration.getContextKeys().contains(NULLS_KEY.getKey()));
     assertEquals(OrderByNullsDefault.NULLS_LARGEST, OrderByNullsUtil.resolveDefault(configuration));
   }
 
   /**
-   * The tolerance is bounded to enum-typed keys: a damaged value of a non-enum key still fails the
-   * open loudly instead of being skipped. The concrete exception type is not asserted because the
-   * shared conversion helper is deliberately left untouched by this change.
+   * A skipped value must not be erased. The store path writes back only what the effective
+   * configuration holds, so a skipped key would disappear at the next clean close and the operator's
+   * recorded intent would be lost without a trace. The second reopen has to report the same value
+   * again, which it can only do when the value is still on disk.
+   */
+  @Test
+  public void storedInvalidValueSurvivesACleanClose() {
+    storeOnStorage(NULLS_KEY, "NOT_A_CONSTANT");
+
+    reopenContext();
+    loadStorage();
+    // Clean close: this is the write-back that used to drop the key.
+    youTrackDB.close();
+
+    reopenContext();
+    try (var logs = LogRecordCollector.attachTo(CollectionBasedStorageConfiguration.class)) {
+      loadStorage();
+      assertTrue(
+          "the value must still be on disk after a clean close, captured: " + logs.messages(),
+          logs.warnedWithAll(databaseName, NULLS_KEY.getKey(), "NOT_A_CONSTANT"));
+    }
+  }
+
+  /**
+   * Surrounding whitespace is not tolerated, because the global setter does not tolerate it either.
+   * A padded value is treated as unreadable, so the global default applies and the value is kept for
+   * a later corrected reading.
+   */
+  @Test
+  public void storedPaddedValueIsRejectedLikeTheGlobalSetter() {
+    NULLS_KEY.setValue(OrderByNullsDefault.NULLS_SMALLEST);
+    storeOnStorage(NULLS_KEY, " NULLS_LARGEST ");
+
+    reopenContext();
+
+    var configuration = storageConfiguration();
+    assertFalse(configuration.getContextKeys().contains(NULLS_KEY.getKey()));
+    assertEquals(
+        OrderByNullsDefault.NULLS_SMALLEST, OrderByNullsUtil.resolveDefault(configuration));
+  }
+
+  /**
+   * The tolerance is bounded to enum-typed keys. A damaged value of a non-enum key still fails the
+   * open, and the failure has to come from the configuration load rather than from anything else the
+   * open does. The open reports it as a refusal to open the database, with the load error as a cause.
    */
   @Test
   public void storedInvalidValueOfNonEnumKeyStillFailsTheOpen() {
@@ -139,9 +193,25 @@ public class StorageConfigurationEnumValueTest {
 
     reopenContext();
 
-    assertThrows(
-        Throwable.class,
-        () -> youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD).close());
+    var failure =
+        assertThrows(
+            DatabaseException.class,
+            () -> youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD).close());
+    assertTrue(
+        "the open must be refused, message was: " + failure.getMessage(),
+        failure.getMessage().contains("Cannot open database"));
+    assertTrue(
+        "the configuration load must be the cause, chain was: " + causeMessages(failure),
+        causeMessages(failure).contains("Can not load storage configuration"));
+  }
+
+  /** Joins the messages of a failure and of every cause below it, for one readable assertion. */
+  private static String causeMessages(Throwable failure) {
+    var text = new StringBuilder();
+    for (Throwable current = failure; current != null; current = current.getCause()) {
+      text.append(current.getMessage()).append(" | ");
+    }
+    return text.toString();
   }
 
   /**
@@ -160,6 +230,11 @@ public class StorageConfigurationEnumValueTest {
     try (var session = youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD)) {
       return session.getStorage().getContextConfiguration();
     }
+  }
+
+  /** Opens and closes a session, which makes the current context load the storage. */
+  private void loadStorage() {
+    youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD).close();
   }
 
   private void reopenContext() {
