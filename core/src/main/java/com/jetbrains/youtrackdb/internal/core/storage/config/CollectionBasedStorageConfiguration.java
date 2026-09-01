@@ -1075,13 +1075,51 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final var cfg = GlobalConfiguration.findByKey(key);
       if (cfg != null) {
         if (value != null) {
-          configuration.setValue(key, PropertyTypeInternal.convert(null, value, cfg.getType()));
+          if (cfg.getType().isEnum()) {
+            // Enum-typed keys are parsed here instead of by PropertyTypeInternal.convert, which has
+            // no enum branch and would throw, failing the whole open. The shared helper stays
+            // untouched because a query-level conversion method reaches it too.
+            final var constant = parseEnumValue(cfg, value);
+            if (constant == null) {
+              // Tolerant only for enums: an unparseable constant name leaves the global default in
+              // force instead of making the database unopenable. Every other type still fails the
+              // open loudly, below.
+              LogManager.instance()
+                  .warn(
+                      this,
+                      "Ignored storage configuration with unknown enumeration value: "
+                          + key
+                          + "="
+                          + value);
+            } else {
+              configuration.setValue(key, constant);
+            }
+          } else {
+            configuration.setValue(key, PropertyTypeInternal.convert(null, value, cfg.getType()));
+          }
         }
       } else {
         LogManager.instance()
             .warn(this, "Ignored storage configuration because not supported: %s=%s", key, value);
       }
     }
+  }
+
+  /**
+   * Resolves a stored string to a constant of an enum-typed configuration key, matching names
+   * case-insensitively exactly like {@link GlobalConfiguration#setValue}, so a value a user may have
+   * written in lower case reads back.
+   *
+   * @return the matching constant, or {@code null} when the value names no constant
+   */
+  @Nullable private static Object parseEnumValue(final GlobalConfiguration cfg, final String value) {
+    final var presentation = value.trim();
+    for (final var constant : cfg.getType().getEnumConstants()) {
+      if (((Enum<?>) constant).name().equalsIgnoreCase(presentation)) {
+        return constant;
+      }
+    }
+    return null;
   }
 
   public void setCreationVersion(final AtomicOperation atomicOperation, final String version) {
