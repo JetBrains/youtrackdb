@@ -201,7 +201,9 @@ public final class ByModulatorTranslator {
       return fieldRefToken(tokenTraversal.getToken());
     }
     // The record identifier sort key projects exactly what by(T.id) projects, in one comparable
-    // class, so it resolves to the same record attribute.
+    // class, so it resolves to the same record attribute. Whether the boundary has a record
+    // identifier at all is the caller's question — OrderGlobalStepRecogniser gates this mapping on
+    // the boundary output type and declines a map or scalar boundary before it reaches here.
     if (modulator instanceof RecordIdSortKeyTraversal) {
       return Optional.of(new FieldRef(true, "@rid"));
     }
