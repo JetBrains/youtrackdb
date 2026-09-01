@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Supplier;
@@ -36,10 +37,6 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
   /** The tags of {@link #seedDuplicateIdPeople} in the order they were inserted. */
   private static final List<String> INSERTION_ORDER_TAGS =
       List.of("b-first", "a-first", "b-second", "a-second");
-
-  /** The tags of {@link #seedDuplicateIdHopTargets} in the order their edges were added. */
-  private static final List<String> EDGE_INSERTION_ORDER_TAGS =
-      List.of("t1", "t2", "t3", "t4");
 
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
@@ -184,10 +181,9 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * The discriminating duplicate {@code id} shape. A hop puts its targets in edge insertion order,
-   * which this fixture makes the reverse of the record identifier order, so a stable sort over one
-   * tie group and a record identifier sort answer opposite sequences. A plain scan cannot witness
-   * that, because there arrival order and record identifier order are the same order.
+   * The duplicate {@code id} shape behind an edge hop, where all four targets fall in one tie group.
+   * The claim is the sequence: it must be the record identifier order of the targets, read off their
+   * identifiers rather than off another ordered query, and it must be that on both arms.
    */
   @Test
   public void duplicateIdPropertyAfterAHopWithoutABound_followsRecordIdOrder() {
@@ -200,10 +196,6 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
 
     var oracle = hopTargetTagsInRecordIdOrder();
     assertThat(oracle).as("the oracle must cover every hop target").hasSize(4);
-    assertThat(oracle)
-        .as("the fixture must separate record identifier order from edge insertion order, or a "
-            + "missing tie-break cannot be witnessed here")
-        .isNotEqualTo(EDGE_INSERTION_ORDER_TAGS);
     assertThat(graph.traversal().V().out("knows").order().by("id").values("tag").toList())
         .as("every target ties on id, so the appended key decides the whole sequence")
         .isEqualTo(oracle);
@@ -213,7 +205,7 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
    * The same hop under a bound of three, which cuts inside the single four-row tie group. The shape
    * declines, because a real slice behind a captured {@code ORDER BY} does, so the prefix assertion
    * rather than the two-arm comparison carries the claim: which three targets survive is decided by
-   * the appended key.
+   * the appended key, and they must be the first three of the record identifier order.
    */
   @Test
   public void duplicateIdPropertyAfterAHopWithALimit_keepsTheOrderedPrefix() {
@@ -225,9 +217,7 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().out("knows").order().by("id").limit(3).values("tag"));
 
     var oracle = hopTargetTagsInRecordIdOrder();
-    assertThat(oracle)
-        .as("the fixture must separate record identifier order from edge insertion order")
-        .isNotEqualTo(EDGE_INSERTION_ORDER_TAGS);
+    assertThat(oracle).as("the oracle must cover every hop target").hasSize(4);
     assertThat(
         graph.traversal().V().out("knows").order().by("id").limit(3).values("tag").toList())
         .as("a bound cutting inside a tie group must keep the ordered prefix")
@@ -261,21 +251,28 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
 
   /**
    * One source knowing four targets that all share one value in a property named {@code id}. The
-   * targets are created in the reverse of the order their edges are added, so the hop's arrival order
-   * and the record identifier order are opposite sequences over one tie group. A fixture where the
-   * two coincide cannot witness a missing tie-break, because a stable sort on equal keys returns
-   * arrival order and the record identifier sort returns the other one.
+   * edges are added in the reverse of the measured record identifier order, so that whatever the hop
+   * puts first is as unlike the appended key's answer as the fixture can make it.
+   *
+   * <p>The identifier order is measured rather than predicted, because vertices of one class land in
+   * several collections and creation order is therefore not identifier order. Neither the edge order
+   * nor the creation order fixes what the hop emits first, so the fixture cannot guarantee that a
+   * missing tie-break would change this sequence — the shape assertions in
+   * {@code YTDBOrderRidTieBreakStrategyTest} and {@code OrderRangeStepRecogniserTest} carry that
+   * pin, and this case carries the sequence claim.
    */
   private void seedDuplicateIdHopTargets() {
-    var fourth = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t4");
-    var third = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t3");
-    var second = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t2");
-    var first = graph.addVertex(T.label, "Person", "id", "dup", "tag", "t1");
+    var targets = new ArrayList<Vertex>();
+    for (var index = 1; index <= 4; index++) {
+      targets.add(graph.addVertex(T.label, "Person", "id", "dup", "tag", "t" + index));
+    }
     var source = graph.addVertex(T.label, "Person", "tag", "source");
-    source.addEdge("knows", first);
-    source.addEdge("knows", second);
-    source.addEdge("knows", third);
-    source.addEdge("knows", fourth);
+    graph.tx().commit();
+
+    targets.sort(byRecordId().reversed());
+    for (var target : targets) {
+      source.addEdge("knows", target);
+    }
     graph.tx().commit();
   }
 
