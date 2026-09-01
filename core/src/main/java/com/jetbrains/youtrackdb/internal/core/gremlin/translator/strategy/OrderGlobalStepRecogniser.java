@@ -125,7 +125,9 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    * <p>Contract with {@code YTDBOrderRidTieBreakStrategy}: identity → {@code @rid} is valid only on
    * element boundaries. Map-entry / projected-map order must not reach this branch as a stand-in
    * for a group key — those shapes decline today; when enabled they must map {@code Column.keys}
-   * (or entry identity) to the GROUP BY key, never to {@code @rid}.
+   * (or entry identity) to the GROUP BY key, never to {@code @rid}. That strategy replaces a
+   * trailing identity over elements with its record identifier sort key, which
+   * {@link ByModulatorTranslator} resolves to the same {@code @rid} item.
    */
   private static SQLOrderByItem resolveSortItem(
       RecognitionContext ctx,

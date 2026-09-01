@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import java.util.Map;
 import java.util.Set;
@@ -30,8 +31,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.Edge
  * {@code ProductiveByStrategy}'s productive keys ({@code pb}).
  *
  * <p>Lambda {@code by()} modulators ({@link ValueTraversal}, {@link TokenTraversal}, {@link
- * IdentityTraversal}) have an empty step list; their property key / token lives on the traversal
- * itself. Encoding them here, once, covers {@code order}/{@code group}/{@code project}/{@code
+ * IdentityTraversal}, {@link RecordIdSortKeyTraversal}) have an empty step list; their property key
+ * / token lives on the traversal itself. Encoding them here, once, covers {@code order}/{@code group}/{@code project}/{@code
  * select} without each recogniser re-implementing the split.
  */
 final class GremlinShapeExtractor {
@@ -157,6 +158,12 @@ final class GremlinShapeExtractor {
     }
     if (traversal instanceof IdentityTraversal) {
       encoder.appendToken("idtr", "1");
+      return true;
+    }
+    // The appended record identifier sort key. Carrying its own token keeps a translated order()
+    // shape cacheable; without it the lambda fallback below would mark every one incomplete.
+    if (traversal instanceof RecordIdSortKeyTraversal) {
+      encoder.appendToken("ridsk", "1");
       return true;
     }
     if (traversal.getSteps().isEmpty()) {
