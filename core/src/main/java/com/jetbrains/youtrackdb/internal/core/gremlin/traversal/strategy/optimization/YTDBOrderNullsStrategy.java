@@ -82,10 +82,9 @@ public final class YTDBOrderNullsStrategy
   }
 
   private static boolean needsNullsOverride(ContextConfiguration config) {
-    var def =
-        config.getValueAsEnum(
-            GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.class);
-    return def == OrderByNullsDefault.NULLS_LARGEST;
+    // Read through the resolver that owns the key so a lower-case or malformed stored value is
+    // tolerated here exactly as it is on the YQL path.
+    return OrderByNullsUtil.resolveDefault(config) == OrderByNullsDefault.NULLS_LARGEST;
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
