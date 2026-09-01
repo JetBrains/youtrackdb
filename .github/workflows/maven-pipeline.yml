@@ -195,12 +195,24 @@ jobs:
           distribution: ${{ matrix.distribution }}
           architecture: ${{ matrix.java_arch }}
           overwrite-settings: false
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
       - name: Run Unit Tests
         id: tests
         run: ./mvnw -s .github/workflows/settings.xml clean package -B ${{ matrix.mvn_opts }}
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+      # Maven ignores test failures, so this gate reads reports and restores a failing outcome.
+      - name: Gate Unit Test Results
+        if: success()
+        shell: bash
+        run: >-
+          "${{ steps.python.outputs.python-path }}" .github/scripts/test-failure-gate.py
+          --root '${{ github.workspace }}' --require surefire
       - name: Print VMLens Data Race Report
         if: always()
         run: |
@@ -275,7 +287,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
       - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
         with:
           files: |
@@ -328,6 +340,11 @@ jobs:
           architecture: x64
           cache: 'maven'
           overwrite-settings: false
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
       - name: Run Unit Tests
         id: tests
         shell: bash
@@ -335,6 +352,13 @@ jobs:
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+      # Maven ignores test failures, so this gate reads reports and restores a failing outcome.
+      - name: Gate Unit Test Results
+        if: success()
+        shell: bash
+        run: >-
+          "${{ steps.python.outputs.python-path }}" .github/scripts/test-failure-gate.py
+          --root '${{ github.workspace }}' --require surefire
       # Ordered before Publish Test Results on purpose — see the comment in the Linux job:
       # both steps are always()-gated and share the ~5-minute post-timeout window, and the
       # publish action is the expensive one, so it must not starve the upload.
@@ -358,7 +382,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
       - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        uses: EnricoMi/publish-unit-test-result-action/windows@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
         with:
           files: |
@@ -405,12 +429,24 @@ jobs:
           architecture: aarch64
           cache: 'maven'
           overwrite-settings: false
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
       - name: Run Unit Tests
         id: tests
         run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+      # Maven ignores test failures, so this gate reads reports and restores a failing outcome.
+      - name: Gate Unit Test Results
+        if: success()
+        shell: bash
+        run: >-
+          "${{ steps.python.outputs.python-path }}" .github/scripts/test-failure-gate.py
+          --root '${{ github.workspace }}' --require surefire
       # Ordered before Publish Test Results on purpose — see the comment in the Linux job:
       # both steps are always()-gated and share the ~5-minute post-timeout window, and the
       # publish action is the expensive one, so it must not starve the upload.
@@ -434,7 +470,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
       - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action/macos@v2
+        uses: EnricoMi/publish-unit-test-result-action/macos@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
         with:
           files: |
@@ -487,6 +523,11 @@ jobs:
           distribution: 'temurin'
           architecture: x64
           overwrite-settings: false
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
       - name: Run Small Cache Integration Tests
         # Step-level timeout 15 minutes inside the job's own timeout-minutes: 120, and within
         # GitHub's documented 360-minute maximum for a step timeout. A step timeout is recorded
@@ -508,6 +549,17 @@ jobs:
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+      # Maven ignores test failures, so this gate reads reports and restores a failing outcome.
+      # Core skips unit tests under small-cache-it.
+      # Other modules in the reactor still produce unit test reports.
+      # Use --allow-missing-module when a module produces no integration test report by design.
+      # The option affects integration test reports only, because the gate derives expected modules only for those reports.
+      - name: Gate Small Cache Integration Test Results
+        if: success()
+        shell: bash
+        run: >-
+          "${{ steps.python.outputs.python-path }}" .github/scripts/test-failure-gate.py
+          --root '${{ github.workspace }}' --require surefire,failsafe
       # Ordered before Publish Test Results on purpose, and it matters most here: this is
       # the job with the tightest timeout (120 min) and the longest suite, so a timeout kill
       # is its most likely failure mode. Both steps are always()-gated and share the
@@ -542,7 +594,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
       - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
         with:
           files: 'core/target/failsafe-reports/TEST-*.xml'

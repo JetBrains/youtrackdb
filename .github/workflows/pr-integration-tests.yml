@@ -160,9 +160,11 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
-      # This gate verifies every expected module produced required reports.
-      # It verifies required kinds ran tests and checks every report for failures.
-      # It provides the primary pass or fail signal for every report.
+      # The gate verifies that every expected module produced required reports.
+      # The gate verifies that the required report kinds ran tests.
+      # The gate also checks every report for a failure or an error.
+      # Use --allow-missing-module when a module produces no integration test report by design.
+      # The option affects integration test reports only, because the gate derives expected modules only for those reports.
       - name: Gate Integration Test Results
         if: success()
         run: >-
