@@ -53,20 +53,38 @@ public class LetQueryStep extends AbstractExecutionStep {
    */
   private InternalExecutionPlan previewPlan;
 
+  /** When true, generated {@code $$$SUBQUERY$$_} aliases inherit the correlated fetch gate. */
+  private final boolean letHostedPipeline;
+
   public LetQueryStep(
       SQLIdentifier varName, SQLStatement query, CommandContext ctx, boolean profilingEnabled) {
+    this(varName, query, ctx, profilingEnabled, false);
+  }
+
+  public LetQueryStep(
+      SQLIdentifier varName,
+      SQLStatement query,
+      CommandContext ctx,
+      boolean profilingEnabled,
+      boolean letHostedPipeline) {
     super(ctx, profilingEnabled);
     this.varName = varName;
     this.query = query;
+    this.letHostedPipeline = letHostedPipeline;
   }
 
   private LetQueryStep(
-      SQLIdentifier varName, SQLStatement query,
-      InternalExecutionPlan previewPlan, CommandContext ctx, boolean profilingEnabled) {
+      SQLIdentifier varName,
+      SQLStatement query,
+      InternalExecutionPlan previewPlan,
+      CommandContext ctx,
+      boolean profilingEnabled,
+      boolean letHostedPipeline) {
     super(ctx, profilingEnabled);
     this.varName = varName;
     this.query = query;
     this.previewPlan = previewPlan;
+    this.letHostedPipeline = letHostedPipeline;
   }
 
   /**
@@ -80,7 +98,7 @@ public class LetQueryStep extends AbstractExecutionStep {
       var previewCtx = new BasicCommandContext();
       previewCtx.setDatabaseSession(ctx.getDatabaseSession());
       previewCtx.setParentWithoutOverridingChild(ctx);
-      if (isUserLetVariable(varName)) {
+      if (enablesCorrelatedRidFetch()) {
         previewCtx.setLetHostedCorrelatedRidFetch(true);
       }
       // Positional parameters (?) prevent plan caching: the cached plan may
@@ -114,7 +132,7 @@ public class LetQueryStep extends AbstractExecutionStep {
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(session);
     subCtx.setParentWithoutOverridingChild(currentRowCtx);
-    if (isUserLetVariable(varName)) {
+    if (enablesCorrelatedRidFetch()) {
       subCtx.setLetHostedCorrelatedRidFetch(true);
     }
 
@@ -208,7 +226,12 @@ public class LetQueryStep extends AbstractExecutionStep {
       previewPlanCopy = previewPlan.copy(ctx);
     }
 
-    return new LetQueryStep(varNameCopy, queryCopy, previewPlanCopy, ctx, profilingEnabled);
+    return new LetQueryStep(
+        varNameCopy, queryCopy, previewPlanCopy, ctx, profilingEnabled, letHostedPipeline);
+  }
+
+  private boolean enablesCorrelatedRidFetch() {
+    return isUserLetVariable(varName) || letHostedPipeline;
   }
 
   /**

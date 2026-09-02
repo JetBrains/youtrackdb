@@ -239,6 +239,11 @@ public class SelectExecutionPlanner {
     if (ctx.isSkipExpandPushDown()) {
       cacheKey += "\0skipExpandPushDown";
     }
+    var letHostedForCache =
+        ctx.isLetHostedCorrelatedRidFetch() || statementHasUserPerRecordLet(statement);
+    if (letHostedForCache) {
+      cacheKey += "\0letHostedCorrelatedRidFetch";
+    }
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
       var plan = YqlExecutionPlanCache.get(cacheKey, ctx, session);
       if (plan != null) {
@@ -1814,6 +1819,7 @@ public class SelectExecutionPlanner {
 
     var shared = detectSharedLetBases(items);
     var alreadyGrouped = new HashSet<SQLLetItem>();
+    var letHostedPipeline = statementHasUserPerRecordLet(statement);
 
     for (var item : items) {
       if (alreadyGrouped.contains(item)) {
@@ -1837,10 +1843,11 @@ public class SelectExecutionPlanner {
           alreadyGrouped.add(grouped);
         }
         plan.chain(new MaterializedLetGroupStep(
-            sharedInner, commonFilter, entries, ctx, profilingEnabled));
+            sharedInner, commonFilter, entries, ctx, profilingEnabled, letHostedPipeline));
       } else {
         plan.chain(
-            new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
+            new LetQueryStep(
+                item.getVarName(), item.getQuery(), ctx, profilingEnabled, letHostedPipeline));
       }
     }
   }
@@ -4159,5 +4166,26 @@ public class SelectExecutionPlanner {
     }
 
     return info.target.getItem().getIdentifier() != null;
+  }
+
+  /**
+   * Returns {@code true} when the statement carries at least one user LET alias (not a
+   * {@link SubQueryCollector} synthetic {@code $$$SUBQUERY$$_} alias). Such statements host
+   * per-row parent context and admit correlated fetch in nested subqueries, including
+   * projection subqueries fed from a LET variable source.
+   */
+  private static boolean statementHasUserPerRecordLet(SQLSelectStatement selectStatement) {
+    var letClause = selectStatement.getLetClause();
+    if (letClause == null || letClause.getItems() == null) {
+      return false;
+    }
+    for (var item : letClause.getItems()) {
+      var varName = item.getVarName();
+      if (varName != null
+          && !varName.getStringValue().startsWith(SubQueryCollector.GENERATED_ALIAS_PREFIX)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

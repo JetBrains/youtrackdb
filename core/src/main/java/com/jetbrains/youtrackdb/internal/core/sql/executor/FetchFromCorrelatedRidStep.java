@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -24,6 +25,10 @@ import javax.annotation.Nullable;
 /**
  * Fetches records by evaluating a correlated RID expression once per parent row. Used when a
  * LET-hosted subquery contains {@code SELECT FROM <Class> WHERE @rid = $parent.$current.<field>}.
+ *
+ * <p>When the outer statement uses {@code FROM $variable} (for example {@code FROM $pv LET $pv =
+ * (SELECT …)}), the fetch path resolves {@code $parent.$current} to the LET-hosted parent row.
+ * The scan fallback without this flag may read the inner scan row instead — see parity-spec AD-19.
  *
  * <p>Replaces the {@code FetchFromClassExecutionStep + FilterStep} combination that would otherwise
  * scan every record in the class and post-filter on the RID predicate. Class membership uses the
@@ -60,7 +65,7 @@ public class FetchFromCorrelatedRidStep extends AbstractExecutionStep {
     if (candidates.isEmpty()) {
       return ExecutionStream.empty();
     }
-    return ExecutionStream.loadIterator(candidates.iterator(), true);
+    return ExecutionStream.loadIterator(candidates.iterator(), true).interruptable();
   }
 
   /**
@@ -95,11 +100,15 @@ public class FetchFromCorrelatedRidStep extends AbstractExecutionStep {
     if (value == null) {
       return;
     }
-    if (value instanceof Collection<?> collection && collection.size() == 1) {
+    while (value instanceof Collection<?> collection && collection.size() == 1) {
       value = SelectExecutionPlanner.singleElementOrNull(collection);
       if (value == null) {
         return;
       }
+    }
+    if (value instanceof DBRecord dbRecord) {
+      addRecordId(out, dbRecord.getIdentity());
+      return;
     }
     if (value instanceof Result result) {
       if (result.isIdentifiable() && result.getIdentity().isPersistent()) {
@@ -118,8 +127,6 @@ public class FetchFromCorrelatedRidStep extends AbstractExecutionStep {
         for (var element : MultiValue.getMultiValueIterable(fieldValue)) {
           if (element instanceof Identifiable identifiable) {
             addRecordId(out, identifiable.getIdentity());
-          } else if (element instanceof RecordIdInternal rid) {
-            addRecordId(out, rid);
           }
         }
         return;
