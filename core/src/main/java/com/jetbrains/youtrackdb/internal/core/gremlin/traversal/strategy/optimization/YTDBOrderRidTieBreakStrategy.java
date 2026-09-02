@@ -70,8 +70,9 @@ import org.javatuples.Pair;
  *
  * <ul>
  *   <li>Order over graph elements → {@link RecordIdSortKeyTraversal}, which is the MATCH
- *       {@code @rid} order. A trailing element token or bare identity is <em>replaced</em> by it
- *       rather than followed, because both of those sort mixed identifier classes by class name.
+ *       {@code @rid} order, in the direction of the item it breaks the ties of. A trailing element
+ *       token or bare identity is <em>replaced</em> by it rather than followed, because both of
+ *       those sort mixed identifier classes by class name.
  *   <li>Global order over map entries after {@code group*().unfold()} → {@code by(keys)} for a
  *       scalar group key, the same record identifier key for an element group key, then
  *       {@code by(identity)} because one key can repeat across different maps in the stream.
@@ -179,7 +180,7 @@ public final class YTDBOrderRidTieBreakStrategy
       replaceLastGlobalModulator(step, new RecordIdSortKeyTraversal<>());
       return;
     }
-    step.modulateBy(new RecordIdSortKeyTraversal<>(), Order.asc);
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(comparators));
   }
 
   private static void ensureLocalElementTieBreak(
@@ -192,7 +193,23 @@ public final class YTDBOrderRidTieBreakStrategy
       replaceLastLocalModulator(step, new RecordIdSortKeyTraversal<>());
       return;
     }
-    step.modulateBy(new RecordIdSortKeyTraversal<>(), Order.asc);
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(comparators));
+  }
+
+  /**
+   * The direction the appended record identifier key takes: the direction of the sort item it
+   * breaks the ties of. Both execution arms receive the same appended comparator, so the sequence is
+   * the same either way — what mirroring buys is the index-ordered plan. A descending index scan
+   * hands back its equal keys in descending identifier order, so only a descending appended item
+   * describes what that scan already produces, and only then can the planner stream it instead of
+   * buffering every row.
+   *
+   * <p>A custom comparator takes the ascending default. Such a shape declines translation, so both
+   * arms run the native pipeline and no index-ordered plan is at stake.
+   */
+  private static Order mirroredDirection(
+      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
+    return Order.desc.equals(comparators.getLast().getValue1()) ? Order.desc : Order.asc;
   }
 
   private static void ensureLocalMapEntryTieBreak(

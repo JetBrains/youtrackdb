@@ -46,6 +46,43 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
+   * Scenario: a descending element property sort. Expected: the appended record identifier key is
+   * descending too, mirroring the item whose ties it breaks. Both arms receive the same appended
+   * comparator, so the sequence does not depend on the direction — a descending index scan hands
+   * back its equal keys in descending identifier order, and only a descending appended item lets
+   * the planner stream that scan rather than buffer it.
+   */
+  @Test
+  public void apply_mirrorsDescendingDirectionOntoTheRecordIdKey() {
+    var admin = graph.traversal().V().order().by("name", Order.desc).asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(2);
+    assertThat(comparators.get(0).getValue1()).isEqualTo(Order.desc);
+    assertRecordIdKey(comparators.get(1).getValue0());
+    assertThat(comparators.get(1).getValue1())
+        .as("the appended key must mirror the direction of the item it breaks the ties of")
+        .isEqualTo(Order.desc);
+  }
+
+  /**
+   * Scenario: a descending local order over folded elements. Expected: the appended key mirrors that
+   * direction as well, so the local shape follows the same rule as the global one.
+   */
+  @Test
+  public void apply_mirrorsDescendingDirectionOnLocalOrder() {
+    var admin =
+        graph.traversal().V().fold().order(Scope.local).by("name", Order.desc).asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var localComparators = localComparators(localOrderStep(admin));
+    assertThat(localComparators).hasSize(2);
+    assertRecordIdKey(localComparators.get(1).getValue0());
+    assertThat(localComparators.get(1).getValue1()).isEqualTo(Order.desc);
+  }
+
+  /**
    * Bare {@code order()} over elements stores one synthetic identity slot. Identity over elements is
    * element orderability, which is the record identifier order by class name rather than by number,
    * so the slot is replaced instead of followed.
