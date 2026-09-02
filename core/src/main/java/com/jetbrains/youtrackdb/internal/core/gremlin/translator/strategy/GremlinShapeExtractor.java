@@ -23,6 +23,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.Edge
  * {@code false} from {@link StepRecogniser#contributeShape}, or a lambda modulator the extractor
  * cannot name, marks the extraction incomplete so {@code apply} will not cache a {@code Translate}.
  *
+ * <p>The key opens with the strategy-flag section, which carries every resolved setting that
+ * changes the emitted plan for one and the same step sequence: polymorphism ({@code poly}), edge
+ * label verification ({@code elv}), the productive-order setting ({@code oim}) and upstream
+ * {@code ProductiveByStrategy}'s productive keys ({@code pb}).
+ *
  * <p>Lambda {@code by()} modulators ({@link ValueTraversal}, {@link TokenTraversal}, {@link
  * IdentityTraversal}) have an empty step list; their property key / token lives on the traversal
  * itself. Encoding them here, once, covers {@code order}/{@code group}/{@code project}/{@code
@@ -76,6 +81,14 @@ final class GremlinShapeExtractor {
             .getStrategy(ProductiveByStrategy.class)
             .map(ProductiveByStrategy::getProductiveKeys)
             .orElse(null);
+    // The resolved productive-order setting changes the emitted pattern: under the shipped default
+    // the order-key IS DEFINED conjunct is omitted, under the opt-out it is emitted. The cache is
+    // storage-wide, so without this token a plan built under one setting would be spliced verbatim
+    // into a traversal running under the other, in another session.
+    Boolean orderIncludesMissingKey = YTDBStrategyUtil.orderIncludesMissingKey(traversal);
+    encoder.appendToken(
+        "oim",
+        orderIncludesMissingKey == null ? "n" : (orderIncludesMissingKey ? "1" : "0"));
     if (productiveKeys == null) {
       encoder.appendToken("pb", "-");
     } else {

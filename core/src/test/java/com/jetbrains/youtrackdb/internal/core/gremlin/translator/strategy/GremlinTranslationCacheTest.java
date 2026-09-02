@@ -303,6 +303,73 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
   }
 
   /**
+   * The resolved productive-order setting is part of the shape key. The two values produce
+   * different patterns for the same step list — one carries the order-key {@code IS DEFINED}
+   * conjunct and the other does not — so they must not share an entry.
+   */
+  @Test
+  public void productiveOrderSetting_discriminatesShapeKeys() {
+    final var includingKey = captureOrderShapeKeyWith(true);
+    final var portableKey = captureOrderShapeKeyWith(false);
+    assertThat(includingKey).isNotEqualTo(portableKey);
+  }
+
+  /**
+   * The detecting test for the storage-wide cache: translate a shape under one setting, FLIP the
+   * setting INSIDE ONE CACHE LIFETIME with no invalidation in between, and translate again.
+   *
+   * <p>The second translation must MISS. Without the shape-key token it would hit, and the plan
+   * built under the first setting would be spliced verbatim into a traversal running under the
+   * second — across sessions, because the cache is storage-wide. The rows prove which semantics
+   * each run actually got: three rows under the including default, two under the portable opt-out.
+   */
+  @Test
+  public void flippingProductiveOrderSetting_missesTranslationCacheWithinOneLifetime() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "Nobody");
+    graph.tx().commit();
+
+    var config = graphSession().getConfiguration();
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    var cache = GremlinPlanCache.instance(graphSession());
+    try {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, true);
+      var missesBefore = cache.getTranslationMisses();
+      var hitsBefore = cache.getTranslationHits();
+
+      var including = apply(() -> graph.traversal().V().order().by("age").values("name"));
+      assertThat(including)
+          .as("the including default keeps the record that carries no age")
+          .hasSize(3);
+      assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
+
+      // Same shape, same cache, no invalidation: a warm hit, which proves the entry is live and
+      // that the miss below is caused by the flip rather than by an empty cache.
+      var warm = apply(() -> graph.traversal().V().order().by("age").values("name"));
+      assertThat(warm).hasSize(3);
+      assertThat(cache.getTranslationHits()).isEqualTo(hitsBefore + 1);
+      assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
+
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, false);
+
+      var portable = apply(() -> graph.traversal().V().order().by("age").values("name"));
+      assertThat(cache.getTranslationMisses())
+          .as("the flipped setting must key a different entry, so this translation misses")
+          .isEqualTo(missesBefore + 2);
+      assertThat(cache.getTranslationHits())
+          .as("and it must not be served the plan built under the other setting")
+          .isEqualTo(hitsBefore + 1);
+      assertThat(portable)
+          .as("the portable opt-out drops the record that carries no age")
+          .hasSize(2);
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, previous);
+    }
+  }
+
+  /**
    * Translation-cache shape keys are value-independent only within one runtime class. Different
    * String values share a key, but an Integer and a Long do not.
    */
@@ -424,6 +491,19 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
     return tx.getDatabaseSession();
+  }
+
+  /** The order shape's key as extracted with the productive-order setting forced to {@code value}. */
+  private String captureOrderShapeKeyWith(boolean value) {
+    var config = graphSession().getConfiguration();
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, value);
+    try {
+      return shapeKey(() -> graph.traversal().V().order().by("age").values("name"));
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, previous);
+    }
   }
 
   private String captureShapeKeyWithPolymorphic(boolean value) {

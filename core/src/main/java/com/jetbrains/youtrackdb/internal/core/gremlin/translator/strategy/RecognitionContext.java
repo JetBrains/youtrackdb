@@ -77,6 +77,21 @@ interface RecognitionContext extends ParamSink {
    */
   boolean byModulatorIsProductive(String propertyKey);
 
+  /**
+   * Whether a GLOBAL-scope {@code order().by(key)} keeps a record that does not carry {@code key}.
+   *
+   * <p>Resolved once by {@link GremlinStepWalker} from the per-traversal {@code
+   * orderIncludesMissingKey} option and the session default, through the same resolver the native
+   * {@code YTDBProductiveOrderByStrategy} reads, so the translated arm and the native arm cannot
+   * disagree. {@code true}, the shipped default, makes the translated plan omit the order-key
+   * {@code IS DEFINED} conjunct so the record survives the pattern and sorts as a null key.
+   * {@code false} restores portable TinkerPop filtering and the conjunct is emitted.
+   *
+   * <p>Read through {@link OrderKeyPresencePolicy} rather than directly: the policy is the one
+   * place that turns this flag into an emission decision.
+   */
+  boolean orderIncludesMissingKey();
+
   // --- Boundary read ----------------------------------------------------------------------------
 
   /**

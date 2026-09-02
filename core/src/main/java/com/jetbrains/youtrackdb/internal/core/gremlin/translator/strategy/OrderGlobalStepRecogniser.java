@@ -143,12 +143,12 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
   /**
    * Emits the {@code key IS DEFINED} conjunct one sort comparator implies, if
    * {@link OrderKeyPresencePolicy} says the translator owns that drop. Every order-key presence
-   * emission in the translator passes through this one call, so a track that moves the drop into
-   * the ordered-scan planner changes the policy method rather than hunting call sites.
+   * emission in the translator passes through this one call, so the setting that decides it is
+   * read in one place rather than at each call site.
    */
   private static void requireModulatedPropertyForOrder(
       RecognitionContext ctx, String boundary, Traversal.Admin<?, ?> modulator) {
-    if (!OrderKeyPresencePolicy.emitsPatternPresenceConjunct()) {
+    if (!OrderKeyPresencePolicy.emitsPatternPresenceConjunct(ctx)) {
       return;
     }
     ByModulatorTranslator.orderModulatorPresenceTarget(boundary, modulator, ctx::resolveUserLabel)

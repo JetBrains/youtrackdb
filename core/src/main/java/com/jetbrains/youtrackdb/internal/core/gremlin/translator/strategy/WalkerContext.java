@@ -115,6 +115,10 @@ final class WalkerContext implements RecognitionContext {
    *  See {@link #setProductiveByKeys}. */
   @Nullable private Set<String> productiveByKeys;
 
+  /** Whether a global-scope order() keeps a record missing the ordered key. See
+   *  {@link #setOrderIncludesMissingKey}. */
+  private boolean orderIncludesMissingKey;
+
   /** {@code ORDER BY} clause for {@code order()} terminators. */
   @Nullable SQLOrderBy orderBy;
 
@@ -356,6 +360,23 @@ final class WalkerContext implements RecognitionContext {
    */
   void setProductiveByKeys(@Nullable Set<String> keys) {
     this.productiveByKeys = keys;
+  }
+
+  /**
+   * Records whether a global-scope {@code order().by(key)} keeps a record missing {@code key},
+   * resolved once by the walker from the traversal option and the session default.
+   *
+   * <p>The field starts {@code false}, the PORTABLE answer, so a context built by a unit test that
+   * never calls this setter keeps the pre-existing emission behaviour rather than silently
+   * inheriting the shipped default.
+   */
+  void setOrderIncludesMissingKey(boolean orderIncludesMissingKey) {
+    this.orderIncludesMissingKey = orderIncludesMissingKey;
+  }
+
+  @Override
+  public boolean orderIncludesMissingKey() {
+    return orderIncludesMissingKey;
   }
 
   /**

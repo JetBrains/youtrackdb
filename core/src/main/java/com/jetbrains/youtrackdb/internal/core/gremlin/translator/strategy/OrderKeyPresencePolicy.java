@@ -23,15 +23,28 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
  * decided in one place rather than found.
  *
  * <p>This class is that place. {@link OrderGlobalStepRecogniser} routes its per-comparator emission
- * through {@link #emitsPatternPresenceConjunct()}, which answers {@code true} today, so the
- * translated plan is byte-for-byte what it was before the seam existed. A follow-up track that
- * moves the drop into the ordered-scan planner flips this one method and its documentation, and
- * every call site follows without being visited.
+ * through {@link #emitsPatternPresenceConjunct(RecognitionContext)}, so the decision is made once
+ * and every call site follows without being visited.
  *
- * <p>Deliberately not a configuration setting. A {@code GlobalConfiguration} entry would make the
- * translated row set depend on a runtime flag, which the plan cache keys nothing on, and would ship
- * a way to select the semantics that lose rows. The seam is a compile-time constant so the flip is
- * a code review rather than an operator decision.
+ * <h2>What the answer depends on</h2>
+ *
+ * The answer is the resolved {@code orderIncludesMissingKey} setting, inverted: the per-traversal
+ * option first, the session default second, read through the same resolver the native
+ * {@code YTDBProductiveOrderByStrategy} reads. Under the shipped default the record survives the
+ * pattern and sorts as a null key. Under the portable opt-out the conjunct is emitted exactly as
+ * it was before the setting existed.
+ *
+ * <p>Because the answer is now a runtime value, the translation cache must key on it:
+ * {@code GremlinShapeExtractor.appendStrategyFlags} encodes the resolved value as the {@code oim}
+ * token, beside {@code poly}, {@code elv} and {@code pb}. Without that token a plan cached under
+ * one setting would be spliced verbatim into a traversal running under the other, because the
+ * cache is storage-wide rather than per session.
+ *
+ * <p>One order path deliberately bypasses this policy. {@code values(k).order()} is an IDENTITY
+ * modulator over a property the walk already projects, and its drop belongs to the {@code
+ * values(k)} step rather than to the order key, so it flows through the projected-property
+ * requirement instead. That record is dropped under either setting, which matches native
+ * {@code values(k)}.
  */
 final class OrderKeyPresencePolicy {
 
@@ -42,12 +55,18 @@ final class OrderKeyPresencePolicy {
   /**
    * Whether an {@code order().by(key)} modulator contributes {@code key IS DEFINED} to the pattern.
    *
-   * <p>{@code true} is the shipped behaviour: the drop happens inside the plan, before {@code ORDER
-   * BY} / {@code SKIP} / {@code LIMIT}, which is where Gremlin puts it. A follow-up track flips
-   * this to {@code false} once the ordered-scan planner excludes key-less records on its own, and
-   * at that point this method's Javadoc has to state which component owns the drop instead.
+   * <p>{@code false} under the shipped default, where {@code orderIncludesMissingKey} is on:
+   * nothing drops the record, so it reaches {@code ORDER BY} and sorts as a null key, which is what
+   * YQL does with a missing column and what the native {@code YTDBProductiveOrderByStrategy} does
+   * with a missing modulator value.
+   *
+   * <p>{@code true} under the portable opt-out: the drop happens inside the plan, before
+   * {@code ORDER BY} / {@code SKIP} / {@code LIMIT}, which is where portable Gremlin puts it.
+   *
+   * @param ctx the walk whose resolved {@link RecognitionContext#orderIncludesMissingKey()} answers
+   *     for this traversal
    */
-  static boolean emitsPatternPresenceConjunct() {
-    return true;
+  static boolean emitsPatternPresenceConjunct(RecognitionContext ctx) {
+    return !ctx.orderIncludesMissingKey();
   }
 }

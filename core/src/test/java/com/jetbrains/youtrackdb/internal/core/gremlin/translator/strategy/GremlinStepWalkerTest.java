@@ -1440,6 +1440,51 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
   }
 
+  /**
+   * {@code order().by("name").values("name")} under the PORTABLE OPT-OUT: the order key puts
+   * {@code name IS DEFINED} on the pattern, so the {@code values} drop is redundant — no
+   * {@code dropOnAbsent}; RETURN keeps entity + field so ORDER BY can defer projections.
+   *
+   * <p>The opt-out is explicit because the skip is only valid while the order key emits that
+   * conjunct. Its twin below pins the shipped default, where the conjunct is gone and the drop
+   * must be kept.
+   */
+  @Test
+  public void walk_orderByThenValuesSameKey_underPortableOptOut_skipsDropOnAbsent() {
+    withOrderIncludesMissingKey(false, () -> {
+      var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
+
+      var result = GremlinStepWalker.production().walk(admin);
+
+      assertThat(result).isNotNull();
+      assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+      assertThat(result.shaping().dropOnAbsent()).isFalse();
+      assertThat(result.shaping().presencePropertyKeys()).isEmpty();
+      assertThat(result.inputs().returnItems()).hasSize(2);
+      assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
+    });
+  }
+
+  /**
+   * The same shape under the SHIPPED DEFAULT: the order key no longer emits a presence conjunct,
+   * so nothing else filters the pattern and the {@code values("name")} drop becomes load-bearing
+   * again. Keeping the skip here would return a null row for an element with no {@code name},
+   * which native {@code values("name")} never emits.
+   */
+  @Test
+  public void walk_orderByThenValuesSameKey_underDefault_keepsDropOnAbsent() {
+    withOrderIncludesMissingKey(true, () -> {
+      var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
+
+      var result = GremlinStepWalker.production().walk(admin);
+
+      assertThat(result).isNotNull();
+      assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+      assertThat(result.shaping().dropOnAbsent()).isTrue();
+      assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
+    });
+  }
+
   /** {@code g.V().values("age").mean()} translates end-to-end with {@code SCALAR} + dropNullRows. */
   @Test
   public void walk_valuesMean_pinsScalarDropNullRows() {
@@ -2241,6 +2286,26 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     var sb = new StringBuilder();
     where.getBaseExpression().toGenericStatement(sb);
     return sb.toString();
+  }
+
+  /**
+   * Runs {@code body} with the productive-order setting forced, restoring the previous value. The
+   * order-key presence conjunct follows this setting, and several shaping decisions read whether
+   * that conjunct exists.
+   */
+  private void withOrderIncludesMissingKey(boolean value, Runnable body) {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var config = tx.getDatabaseSession().getConfiguration();
+    Assert.assertNotNull(config);
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, value);
+    try {
+      body.run();
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, previous);
+    }
   }
 
   /**

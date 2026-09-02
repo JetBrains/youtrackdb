@@ -463,6 +463,13 @@ final class GremlinStepWalker {
             .getStrategy(ProductiveByStrategy.class)
             .map(ProductiveByStrategy::getProductiveKeys)
             .orElse(null));
+    // Resolve the productive-order setting once, through the SAME resolver the native
+    // YTDBProductiveOrderByStrategy reads, so the two arms cannot answer differently for one
+    // traversal. A null resolution cannot happen here (the isPolymorphic resolution above already
+    // proved an attached session) and is read as the portable answer, which keeps the order-key
+    // presence conjunct.
+    ctx.setOrderIncludesMissingKey(
+        Boolean.TRUE.equals(YTDBStrategyUtil.orderIncludesMissingKey(traversal)));
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
     // Install the union fork host after the cursor exists: the host reads prefix length from the
     // cursor position after UnionStepRecogniser.take(), and keeps the parent Admin private.
