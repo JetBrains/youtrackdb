@@ -103,8 +103,9 @@ public final class OrderByCollationResolver {
   /**
    * The collation {@code propertyName} carries throughout the hierarchy rooted at {@code
    * schemaClass}, or {@code null} for the default collation. Every class of the hierarchy that has
-   * the property contributes its declaration; a class that has no such property contributes nothing,
-   * because it stores the value schema-less and the default collation governs it either way.
+   * the property contributes its declaration. A class that has no such property contributes its
+   * schema-less values, so those values use the default collation and can disagree with a declared
+   * non-default collation.
    */
   @Nullable
   public static Collate declaredCollation(
