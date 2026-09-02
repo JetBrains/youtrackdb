@@ -106,11 +106,16 @@ public final class YTDBProductiveOrderByStrategy
     if (child instanceof ValueTraversal<?, ?> valueTraversal) {
       // by("age"): the property lookup is a lambda traversal, which cannot hold steps. Upstream's
       // bypass hook is the only way in — the lambda delegates to the bypass when one is set.
-      if (valueTraversal.getBypassTraversal() != null) {
-        // Already redirected, by this strategy on an earlier pass or by another rewrite. Leaving
-        // it alone keeps the rewrite idempotent and never nests two coalesce steps.
+      var existingBypass = valueTraversal.getBypassTraversal();
+      if (existingBypass != null && isCoalesceOverNull(existingBypass)) {
+        // This strategy already wrapped the modulator. Wrapping again would nest one coalesce
+        // inside another and change nothing.
         return;
       }
+      // Any OTHER bypass is a rewrite from a different strategy, and it filters. SubgraphStrategy
+      // installs one for a vertex-property criterion, for instance. The clone below carries that
+      // bypass into the coalesce, exactly as upstream ProductiveByStrategy does, so the foreign
+      // rewrite keeps deciding the value while the missing value becomes null instead of nothing.
       var bypass = new DefaultGraphTraversal<>();
       bypass.addStep(
           new CoalesceStep<>(bypass, child.clone(), new ConstantTraversal<>(null)));

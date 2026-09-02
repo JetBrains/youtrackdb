@@ -13,6 +13,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Scope;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SubgraphStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
 
@@ -269,6 +270,32 @@ public class YTDBProductiveOrderByStrategyTest extends GraphBaseTest {
     assertThat(underOptOut)
         .as("the option on the source reaches the order step inside the union arm")
         .containsExactly("Bob", "Alice");
+  }
+
+  /**
+   * A modulator that already carries a FOREIGN bypass is still made productive. TinkerPop's
+   * subgraph strategy installs such a bypass on every property modulator when a vertex-property
+   * criterion is set, and it filters. Skipping the modulator would leave the ageless record
+   * dropped under the including default.
+   *
+   * <p>The criterion below keeps every property, so only the productive rewrite decides the rows.
+   * The rewrite clones the foreign bypass into the coalesce, exactly as upstream
+   * {@code ProductiveByStrategy} does, so the foreign filter still decides each value.
+   */
+  @Test
+  public void modulatorWithForeignBypass_isStillMadeProductive() {
+    seedAgedAndAgeless();
+
+    var keepEveryProperty = SubgraphStrategy.build()
+        .vertexProperties(__.hasNot("aMetaPropertyNoRecordCarries"))
+        .create();
+
+    var names = nativeNames(() -> graph.traversal().withStrategies(keepEveryProperty)
+        .V().hasLabel("Person").order().by("age").values("name"));
+
+    assertThat(names)
+        .as("a foreign filtering bypass is cloned into the coalesce, so the record survives")
+        .isEqualTo(yqlOrderedNames("age"));
   }
 
   /**
