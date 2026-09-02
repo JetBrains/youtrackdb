@@ -43,6 +43,12 @@ emitting the order-key `IS DEFINED` conjunct through the existing policy seam,
 
 ## Decision Records
 
+**D0: A foreign bypass is cloned into the coalesce.** A modulator can already carry a
+bypass from another strategy, and that bypass filters. Upstream `ProductiveByStrategy`
+clones the modulator with its bypass into the coalesce. This strategy does the same.
+Rejected: skipping such a modulator, which leaves the record dropped under the including
+default.
+
 **D1: Rewrite the projection, not the comparator.** The strategy wraps each by-modulator
 of `OrderGlobalStep` in `coalesce(modulator, constant(null))`. Rejected: wrapping the
 comparator. A comparator never sees a traverser dropped before the sort. The wrapping
@@ -67,6 +73,16 @@ Rejected: reading the setting at each emission site.
 `YTDBStrategyUtil.orderIncludesMissingKey`, which reads the traversal option first and the
 session default second. Rejected: two independent readers, which let one traversal get two
 answers.
+
+**D5a: The option is read off the root traversal.** A child traversal carries no options
+strategy of its own during the strategy pass. A read on the child therefore answers null
+for every option. The resolver walks parent links first. Rejected: reading the child list,
+which makes the documented override miss an order inside any child scope.
+
+**D5b: The setting is resolved once per compilation.** The strategy resolves it and hands
+the same value to the shape key and to the walk. Rejected: one read for each, which lets a
+runtime flip file a plan under the other setting's key in a cache that outlives the
+session.
 
 **D6: Key the translation cache on the resolved setting.** The shape key carries an `oim`
 token beside the polymorphism, edge-label-verification and productive-by tokens. Rejected:
@@ -131,8 +147,18 @@ to the fan-in target. The sorted alias then carries no filter. The planner roots
 index scan on it, and each target is visited once.
 
 The repair belongs to the ordered-index cost track in the same pull request, which owns
-root selection and the ordered-scan guards. A test pins the wrong value on purpose and
-names the inversion that track must perform.
+root selection and the ordered-scan guards. Two tests pin the wrong value on purpose. One
+covers the plain shape and one covers the cut. Both name the inversion that track must
+perform.
+
+### A predicted second loss that execution refutes
+
+A review predicted that the same plan drops every record lacking the ordered key. The
+ground was that an index ignores null values by default and stores no entry for such a
+record. Execution refutes the prediction. On the plan the prediction named, which the
+plan text reports as `INDEX ORDERED MATCH ASC (UNFILTERED_UNBOUND) via Person.id`, the
+key-less record is returned first, as a null key. A test now holds that behavior as a
+contract, so ordered-scan bounding work cannot break it unnoticed.
 
 ## Non-Goals
 

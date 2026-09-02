@@ -15,7 +15,7 @@ sorts a missing `age` as a null key.
 
 YouTrackDB now applies the YQL rule to a global-scope Gremlin order.
 
-Take four people. Alice is 30. Bob is 25. Nobody carries no `age` at all.
+Take three people. Alice is 30. Bob is 25. Nobody has no `age` property.
 
 ```groovy
 g.V().hasLabel("Person").order().by("age").values("name")
@@ -67,8 +67,15 @@ YouTrackDB Gremlin-to-MATCH translator never handles a local-scope order.
 
 ## Restoring the portable behavior
 
-Two switches restore portable Apache TinkerPop filtering. Both accept a boolean value, and
-both default to `true`, which is the including behavior described above.
+Three routes carry the value, and each accepts a boolean. Set any of them to `false` to
+restore portable Apache TinkerPop filtering.
+
+The routes rank in this order, highest first.
+
+1. The per-traversal override, which decides for one traversal source. It has no default.
+   When a traversal passes nothing, the answer comes from a lower route.
+2. The database configuration, which decides for every traversal on that database.
+3. The global setting, whose own default is `true`, the including behavior described above.
 
 ### The deployment-wide setting
 
@@ -108,11 +115,27 @@ behavior by passing `true`.
 The override is read for each traversal, so a running database needs no restart to change
 the answer for a single query.
 
+### The per-database configuration
+
+A database opened with the key in its own configuration keeps that value. Neither the
+global setting nor the system property can change it afterwards. Pass the key when the
+graph is opened.
+
+```java
+var configuration = new BaseConfiguration();
+configuration.setProperty("youtrackdb.query.gremlin.orderIncludesMissingKey", false);
+var graph = GraphFactory.open(configuration);
+```
+
+This route outranks the two above it, so a deployment that sets it must change it in the
+same place. The YouTrackDB test suites use this route to run the Apache TinkerPop
+conformance scenarios on portable semantics.
+
 ## Known limitation
 
-One shape loses rows under the including default. The repair belongs to a later change in
-the same pull request. Read this section before you enable an ordered query on production
-data.
+One shape loses rows under the including default. The limitation stands in the version that
+ships this page. A later version repairs it, and this page states the repair when it lands.
+Read this section before you run an ordered query on production data.
 
 A query loses duplicate rows when all three of the following hold:
 
@@ -131,8 +154,10 @@ then roots an ordered index scan on the target and visits each target once.
 Three workarounds exist today. Order by a property that carries no index. Move the order
 off the fan-in target. Set the per-traversal override to `false` for that query.
 
-Every other shape keeps its rows. A query without a hop is unaffected. A query whose order
-key carries no index is unaffected. A query under the portable opt-out is unaffected.
+Only duplicate rows are lost, and only on the translated path. A record that lacks the
+ordered key survives this plan and sorts as a null key. The index behind the plan stores no
+entry for that record, and the plan returns it anyway. A query without a hop is unaffected. A query whose order key
+carries no index is unaffected. A query under the portable opt-out is unaffected.
 
 ## Conformance suites
 

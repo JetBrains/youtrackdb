@@ -36,9 +36,15 @@ One traversal source can also opt out on its own, through the public constant
 graph.traversal().with(YTDBQueryConfigParam.orderIncludesMissingKey, false);
 ```
 
+A database opened with the same key in its own configuration keeps that value, and it
+outranks both routes above. Check that configuration first when a change appears to have no
+effect.
+
 **Known limitation.** Under the including default, an ordered query can lose duplicate
-rows. Two conditions must hold. The order key carries an index, and the order applies to
-the target of a fan-in hop. A later change in the same pull request repairs it. The
+rows. Three conditions must hold together. Several source records reach one target over a
+hop, the order key carries an index, and the order applies to that target. The loss affects
+the translated path only, and it drops duplicates rather than whole records. The limitation
+stands in this version, and a later version repairs it. The
 [Gremlin order by guide](gremlin-order-by.md) states the conditions and the workarounds.
 
 **No detection tool exists.** Nothing reports which of your queries change their result.
