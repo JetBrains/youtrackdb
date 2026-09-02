@@ -174,7 +174,8 @@ public final class YTDBOrderRidTieBreakStrategy
    * {@code order().by(T.id).by("name")} decides the whole sequence on its first key.
    *
    * <p>Nothing is appended once a record identifier key sits anywhere in the list. Such a key is
-   * total over an element stream by itself, so a further key could only repeat it.
+   * total over an element stream by itself, so a further key could only repeat it. That is also the
+   * idempotence guard: a second application finds the key this one installed.
    */
   @SuppressWarnings("rawtypes")
   private static void ensureGlobalElementSortKey(
@@ -182,13 +183,16 @@ public final class YTDBOrderRidTieBreakStrategy
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
     var substituted = withElementSortKeys(comparators);
     if (substituted != null) {
+      // The substituted list carries the key, so no append follows. The call below may rebuild the
+      // step and swap it into the traversal, which leaves this reference detached — nothing may read
+      // or write it afterwards.
       OrderStepModulators.replaceGlobalModulators((OrderGlobalStep) step, substituted);
-    }
-    var current = step.getComparators();
-    if (carriesRecordIdSortKey(current)) {
       return;
     }
-    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(current));
+    if (carriesRecordIdSortKey(comparators)) {
+      return;
+    }
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(comparators));
   }
 
   /** The {@link #ensureGlobalElementSortKey} sibling for a local {@code order(local)} step. */
@@ -199,12 +203,12 @@ public final class YTDBOrderRidTieBreakStrategy
     var substituted = withElementSortKeys(comparators);
     if (substituted != null) {
       OrderStepModulators.replaceLocalModulators((OrderLocalStep) step, substituted);
-    }
-    var current = step.getComparators();
-    if (carriesRecordIdSortKey(current)) {
       return;
     }
-    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(current));
+    if (carriesRecordIdSortKey(comparators)) {
+      return;
+    }
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(comparators));
   }
 
   /**
