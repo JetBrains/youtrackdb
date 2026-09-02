@@ -46,12 +46,39 @@ public final class OrderByCollationResolver {
    */
   public static void resolveOnTargetClass(
       @Nullable SQLOrderBy orderBy, @Nullable SchemaClass targetClass) {
+    resolveOnTargetClass(orderBy, targetClass, null);
+  }
+
+  /**
+   * Resolves a plain {@code SELECT} clause while treating explicit projection aliases as output
+   * names, not source properties. An order item matching such an alias uses the default collation.
+   */
+  public static void resolveOnTargetClass(
+      @Nullable SQLOrderBy orderBy,
+      @Nullable SchemaClass targetClass,
+      @Nullable SQLProjection projection) {
     if (orderBy == null || orderBy.getItems() == null) {
       return;
     }
     for (var item : orderBy.getItems()) {
-      item.setDeclaredCollate(declaredCollation(targetClass, targetPropertyName(item)));
+      var declaredCollate =
+          projectionAlias(projection, item) ? null : declaredCollation(targetClass, targetPropertyName(item));
+      item.setDeclaredCollate(declaredCollate);
     }
+  }
+
+  private static boolean projectionAlias(
+      @Nullable SQLProjection projection, SQLOrderByItem orderByItem) {
+    if (projection == null || orderByItem.getModifier() != null || orderByItem.getAlias() == null) {
+      return false;
+    }
+    for (var projectionItem : projection.getItems()) {
+      if (projectionItem.getAlias() != null
+          && orderByItem.getAlias().equals(projectionItem.getAlias().getStringValue())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -706,7 +706,7 @@ public class SelectExecutionPlanner {
       return;
     }
     OrderByCollationResolver.resolveOnTargetClass(
-        info.orderBy, info.target.getSchemaClass(session));
+        info.orderBy, info.target.getSchemaClass(session), info.projection);
   }
 
   /**

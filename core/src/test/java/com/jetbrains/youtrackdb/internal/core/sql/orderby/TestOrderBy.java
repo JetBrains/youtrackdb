@@ -66,6 +66,52 @@ public class TestOrderBy extends DbTestBase {
   }
 
   /**
+   * Scenario: a projection alias shadows a case-insensitive schema property with the same name.
+   * Expected: ORDER BY name uses the default collation for the projected surname values.
+   */
+  @Test
+  public void projectionAlias_doesNotInheritTheShadowedPropertyCollation() {
+    var person = session.getMetadata().getSchema().createClass("projectionAliasOrder");
+    person.createProperty("name", PropertyType.STRING).setCollate("ci");
+    person.createProperty("surname", PropertyType.STRING);
+
+    session.begin();
+    var zebra = session.newEntity("projectionAliasOrder");
+    zebra.setProperty("surname", "Zebra");
+    var ada = session.newEntity("projectionAliasOrder");
+    ada.setProperty("surname", "ada");
+    session.commit();
+
+    session.begin();
+    var rows = session.query("select surname as name from projectionAliasOrder order by name")
+        .stream().collect(Collectors.toList());
+    assertThat(rows).extracting(row -> row.getProperty("name")).containsExactly("Zebra", "ada");
+    session.commit();
+  }
+
+  /**
+   * Scenario: a plain projection orders the declared surname property directly while another
+   * property named name declares case-insensitive collation. Expected: surname uses its default.
+   */
+  @Test
+  public void plainProjection_ordersTheNamedPropertyWithItsDeclaration() {
+    var person = session.getMetadata().getSchema().createClass("plainProjectionOrder");
+    person.createProperty("name", PropertyType.STRING).setCollate("ci");
+    person.createProperty("surname", PropertyType.STRING);
+
+    session.begin();
+    session.newEntity("plainProjectionOrder").setProperty("surname", "Zebra");
+    session.newEntity("plainProjectionOrder").setProperty("surname", "ada");
+    session.commit();
+
+    session.begin();
+    var rows = session.query("select surname from plainProjectionOrder order by surname")
+        .stream().collect(Collectors.toList());
+    assertThat(rows).extracting(row -> row.getProperty("surname")).containsExactly("Zebra", "ada");
+    session.commit();
+  }
+
+  /**
    * Scenario: three binary values ordered by a stated {@code COLLATE} clause. Expected: byte-wise
    * ascending order, and its exact reverse descending.
    *
