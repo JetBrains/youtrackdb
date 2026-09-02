@@ -155,6 +155,19 @@ public class AtomicOperationsTableTest {
     assertFalse(snapshot.isEntryVisible(200));
   }
 
+  /** An exhausted identifier space saturates the empty-table boundary without signed wraparound. */
+  @Test
+  public void testSnapshotAtMaximumIdentifierDoesNotWrapVisibilityBoundary() {
+    var table = new AtomicOperationsTable(100, Long.MAX_VALUE);
+
+    var snapshot = table.snapshotAtomicOperationTableState(Long.MAX_VALUE);
+
+    assertEquals(Long.MAX_VALUE, snapshot.minActiveOperationTs());
+    assertEquals(Long.MAX_VALUE, snapshot.maxActiveOperationTs());
+    assertTrue(snapshot.isEntryVisible(1));
+    assertTrue(snapshot.isEntryVisible(Long.MAX_VALUE));
+  }
+
   @Test
   public void testSnapshotWithSingleInProgressOperation() {
     var table = new AtomicOperationsTable(100, 0);
