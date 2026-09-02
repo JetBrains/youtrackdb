@@ -260,9 +260,12 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   }
 
   /**
-   * Promotes the completed dump to the final name with the durable CS40 recipe (file fsync
-   * through a reopened channel, {@code ATOMIC_MOVE}+{@code REPLACE_EXISTING} rename, parent
-   * directory fsync; fail-closed — no copy fallback). A no-op for the streaming variant, whose
+   * Promotes the completed dump to the final name after forcing its content. Unix uses the
+   * standard Java atomic move and then forces the parent directory. Windows calls the operating
+   * system move through the JNA native helper with write-through enabled. If the native helper
+   * cannot load, Windows uses the standard Java atomic move and records one warning. Unlike Unix,
+   * that fallback also tolerates a parent-directory open failure. It does not provide a crash-atomic
+   * guarantee. This method is a no-op for the streaming variant. Its
    * completion marker is the manifest section itself.
    */
   private void promote() throws IOException {

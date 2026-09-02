@@ -126,7 +126,7 @@ public class AtomicOperationsManager {
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {
-    startToApplyOperations(atomicOperation, false, null);
+    startToApplyOperations(atomicOperation, false, null, true);
   }
 
   /**
@@ -139,6 +139,14 @@ public class AtomicOperationsManager {
    */
   public void startToApplyOperations(AtomicOperation atomicOperation, final boolean schemaArmed,
       @Nullable final Supplier<? extends BaseException> schemaGate) {
+    startToApplyOperations(atomicOperation, schemaArmed, schemaGate, false);
+  }
+
+  private void startToApplyOperations(
+      AtomicOperation atomicOperation,
+      final boolean schemaArmed,
+      @Nullable final Supplier<? extends BaseException> schemaGate,
+      final boolean moveToErrorOnFailure) {
     writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
 
     final long activeSegment;
@@ -149,25 +157,61 @@ public class AtomicOperationsManager {
     // could register before a lower-TS one, creating NOT_STARTED gaps that
     // violate Snapshot Isolation's assumption that all TXs below minActiveTs
     // are completed.
-    final long commitTs;
-    segmentLock.exclusiveLock();
+    long commitTs = -1;
+    var operationRegistered = false;
     try {
-      commitTs = idGen.nextId();
-      activeSegment = writeAheadLog.activeSegment();
-      atomicOperationsTable.startOperation(commitTs, activeSegment);
-    } finally {
-      segmentLock.exclusiveUnlock();
-    }
+      segmentLock.exclusiveLock();
+      try {
+        commitTs = idGen.nextId();
+        activeSegment = writeAheadLog.activeSegment();
+        atomicOperationsTable.startOperation(commitTs, activeSegment);
+        operationRegistered = true;
+      } finally {
+        segmentLock.exclusiveUnlock();
+      }
 
-    atomicOperation.startToApplyOperations(commitTs);
+      atomicOperation.startToApplyOperations(commitTs);
+    } catch (RuntimeException | Error startFailure) {
+      // Internal wrappers previously reached endAtomicOperation after start failures. Preserve their
+      // error-state transition. Direct commits previously bypassed that transition for runtime
+      // failures, so their overload performs lifecycle cleanup without broadening storage shutdown.
+      if (moveToErrorOnFailure) {
+        try {
+          storage.moveToErrorStateIfNeeded(startFailure);
+        } catch (RuntimeException | Error cleanupFailure) {
+          if (startFailure != cleanupFailure) {
+            startFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      if (operationRegistered) {
+        try {
+          atomicOperationsTable.rollbackOperation(commitTs);
+        } catch (RuntimeException | Error cleanupFailure) {
+          if (startFailure != cleanupFailure) {
+            startFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      try {
+        writeOperationsFreezer.endOperation();
+      } catch (RuntimeException | Error cleanupFailure) {
+        if (startFailure != cleanupFailure) {
+          startFailure.addSuppressed(cleanupFailure);
+        }
+      }
+      throw startFailure;
+    }
   }
 
   public <T> T calculateInsideAtomicOperation(final TxFunction<T> function)
       throws IOException {
     Throwable error = null;
+    var applyStarted = false;
     final var atomicOperation = startAtomicOperation();
     try {
       startToApplyOperations(atomicOperation);
+      applyStarted = true;
       return function.accept(atomicOperation);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
@@ -185,16 +229,20 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(atomicOperation, error);
+      if (applyStarted) {
+        endAtomicOperation(atomicOperation, error);
+      }
     }
   }
 
   public void executeInsideAtomicOperation(final TxConsumer consumer)
       throws IOException {
     Throwable error = null;
+    var applyStarted = false;
     final var atomicOperation = startAtomicOperation();
     try {
       startToApplyOperations(atomicOperation);
+      applyStarted = true;
       consumer.accept(atomicOperation);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
@@ -212,7 +260,9 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(atomicOperation, error);
+      if (applyStarted) {
+        endAtomicOperation(atomicOperation, error);
+      }
     }
   }
 
