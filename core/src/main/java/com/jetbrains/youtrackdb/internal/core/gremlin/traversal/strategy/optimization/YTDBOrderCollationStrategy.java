@@ -229,13 +229,13 @@ public final class YTDBOrderCollationStrategy
       // The widest set is the safe answer: it can only fall back to the default collation.
       return graphClasses(schema);
     }
-    if (!labels.isEmpty()) {
+    if (labels.size() == 1) {
       List<SchemaClass> classes = new ArrayList<>();
-      for (var label : labels) {
-        addHierarchy(schema, label, classes);
-      }
+      addHierarchy(schema, labels.iterator().next(), classes);
       return classes;
     }
+    // Multi-label hasLabel is translated as a class membership filter on the generic source class.
+    // Keep the native path on that same source hierarchy instead of pretending it has one class.
     return rootHierarchy(schema, producer);
   }
 

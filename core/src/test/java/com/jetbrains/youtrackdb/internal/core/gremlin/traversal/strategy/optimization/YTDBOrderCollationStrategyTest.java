@@ -113,6 +113,24 @@ public class YTDBOrderCollationStrategyTest extends GraphBaseTest {
   }
 
   /**
+   * Scenario: a multi-label traversal includes a case-insensitive class and a default-collate class.
+   * Expected: no replacement, because the translated class-membership filter remains rooted at the
+   * generic source class and the combined stream has no single non-default collation.
+   */
+  @Test
+  public void apply_multiLabelConstraint_usesTheGenericSourceHierarchy() {
+    declareCaseInsensitiveName("Person");
+    var animal = session.createVertexClass("Animal");
+    animal.createProperty("name", PropertyType.STRING);
+
+    var admin = graph.traversal().V().hasLabel("Person", "Animal").order().by("name").asAdmin();
+    YTDBOrderCollationStrategy.instance().apply(admin);
+
+    assertThat(comparators(orderStep(admin)).get(0).getValue0())
+        .isInstanceOf(ValueTraversal.class);
+  }
+
+  /**
    * Scenario: the traversal constrained to the class that declares nothing, while a sibling class
    * declares the collation. Expected: no replacement, because the constrained class governs the
    * column and it declares the default collation.
