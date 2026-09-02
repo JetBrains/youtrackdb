@@ -12,7 +12,8 @@ import org.junit.Test;
 /**
  * Unit tests for {@link YTDBStrategyUtil}'s traversal-to-session resolution and its null-safety
  * contract. They pin the regression that {@link YTDBStrategyUtil#resolveYtdbSession} — and
- * therefore {@link YTDBStrategyUtil#isPolymorphic}, which delegates to it — must DECLINE with a
+ * therefore {@link YTDBStrategyUtil#isPolymorphic} and {@link
+ * YTDBStrategyUtil#orderIncludesMissingKey}, which delegate to it — must DECLINE with a
  * {@code null} on a traversal that is detached or attached to a non-YTDB / non-transactional
  * graph, rather than throwing. The cast-based predecessor threw {@code
  * UnsupportedOperationException} the moment it called {@code tx()} on TinkerPop's {@code
@@ -34,6 +35,9 @@ public class YTDBStrategyUtilTest {
         .isNull();
     assertThat(YTDBStrategyUtil.isPolymorphic(traversal))
         .as("a detached traversal yields a null polymorphism result")
+        .isNull();
+    assertThat(YTDBStrategyUtil.orderIncludesMissingKey(traversal))
+        .as("a detached traversal yields a null productive-order result")
         .isNull();
   }
 
@@ -57,6 +61,9 @@ public class YTDBStrategyUtilTest {
         .isNull();
     assertThat(YTDBStrategyUtil.isPolymorphic(traversal))
         .as("a non-YTDB graph yields null polymorphism, not a thrown exception")
+        .isNull();
+    assertThat(YTDBStrategyUtil.orderIncludesMissingKey(traversal))
+        .as("a non-YTDB graph yields a null productive-order result, not a thrown exception")
         .isNull();
   }
 

@@ -67,4 +67,29 @@ public final class YTDBStrategyUtil {
     return configuration.getValueAsBoolean(
         GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
   }
+
+  /// Check whether a global-scope `order()` step must keep a record that does not carry the
+  /// ordered property. Returns `null` when the traversal has no attached YTDB graph (see
+  /// [#resolveYtdbSession]) or its configuration cannot be resolved; otherwise the explicit
+  /// `orderIncludesMissingKey` option, or the
+  /// `QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY` session default. The option is read first, so one
+  /// traversal opts out of the deviation without touching the deployment-wide value.
+  @Nullable public static Boolean orderIncludesMissingKey(Admin<?, ?> traversal) {
+    final var session = resolveYtdbSession(traversal);
+    if (session == null) {
+      return null;
+    }
+
+    final Boolean value = getConfigValue(YTDBQueryConfigParam.orderIncludesMissingKey, traversal);
+    if (value != null) {
+      return value;
+    }
+
+    final var configuration = session.getConfiguration();
+    if (configuration == null) {
+      return null;
+    }
+    return configuration.getValueAsBoolean(
+        GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+  }
 }

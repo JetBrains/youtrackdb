@@ -972,6 +972,19 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
+  QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY(
+      "youtrackdb.query.gremlin.orderIncludesMissingKey",
+      "Controls whether a global-scope Gremlin order() step keeps a record that does not carry"
+          + " the ordered property. True, the default, orders such a record as a null key exactly"
+          + " as YQL ORDER BY does. False restores portable TinkerPop behaviour, where the"
+          + " by-modulator produces nothing and the record is dropped. Local-scope order and the"
+          + " select, values, group and dedup modulators are unaffected either way. A single"
+          + " traversal overrides the default with"
+          + " GraphTraversalSource#with(YTDBQueryConfigParam.orderIncludesMissingKey, value).",
+      Boolean.class,
+      true,
+      true),
+
   QUERY_TX_RESULT_CACHE_ENABLED(
       "youtrackdb.query.txResultCache.enabled",
       "Enable the per-transaction query result cache. When true, repeated idempotent SELECT/MATCH"
