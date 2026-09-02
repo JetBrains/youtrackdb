@@ -56,6 +56,20 @@ final class GremlinToMatchTranslator {
   }
 
   /**
+   * As {@link #translate(Traversal.Admin)}, but with the productive-order setting already resolved
+   * by the caller. The strategy resolves that setting once per compilation and gives the same
+   * value to the shape key and to this walk.
+   *
+   * @param traversal the traversal to inspect; never {@code null}
+   * @param orderIncludesMissingKey the resolved setting, or {@code null} to resolve it in the walk
+   * @return the whole-traversal translation, or {@code null} to decline
+   */
+  @Nullable static TranslationResult translate(
+      Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey) {
+    return GremlinStepWalker.production().walk(traversal, orderIncludesMissingKey);
+  }
+
+  /**
    * Everything the strategy needs to replace a fully-recognized traversal's step list with a
    * boundary step. Most translations are still single-plan, but union can carry several {@link
    * ChildPlan}s that the strategy builds and splices into one {@code MultiPlanMatchStep}.

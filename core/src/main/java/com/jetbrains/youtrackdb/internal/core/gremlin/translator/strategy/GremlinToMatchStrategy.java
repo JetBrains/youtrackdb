@@ -194,9 +194,27 @@ public final class GremlinToMatchStrategy
   private static final Set<Class<? extends ProviderOptimizationStrategy>> NO_ORDERING =
       Set.of();
 
+  /**
+   * The production translator. Written as a named implementation rather than a method reference so
+   * it can carry the resolved-setting overload, which is what keeps the shape key and the plan on
+   * one reading of the productive-order setting.
+   */
+  private static final TraversalTranslator PRODUCTION_TRANSLATOR = new TraversalTranslator() {
+    @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal) {
+      return GremlinToMatchTranslator.translate(traversal);
+    }
+
+    @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey) {
+      return GremlinToMatchTranslator.translate(traversal, orderIncludesMissingKey);
+    }
+  };
+
   private static final GremlinToMatchStrategy INSTANCE =
       new GremlinToMatchStrategy(
-          GremlinToMatchTranslator::translate, GremlinToMatchStrategy::buildPlan, true);
+          PRODUCTION_TRANSLATOR, GremlinToMatchStrategy::buildPlan, true);
 
   private final TraversalTranslator translator;
 
@@ -308,7 +326,13 @@ public final class GremlinToMatchStrategy
     if (containsBoundaryStep(traversal)) {
       return;
     }
-    var extraction = GremlinStepWalker.extractShape(traversal, session);
+    // Resolve the productive-order setting ONCE for this compilation. The shape key below and the
+    // walk further down both read this value. Two independent reads could straddle a runtime flip
+    // and file a plan built under one setting under the other setting's key, in a cache that is
+    // storage-wide and outlives the session.
+    var orderIncludesMissingKey = YTDBStrategyUtil.orderIncludesMissingKey(traversal);
+    var extraction =
+        GremlinStepWalker.extractShape(traversal, session, orderIncludesMissingKey);
     var metrics = GremlinTranslationMetrics.of(session);
     if (populateTranslationCache && extraction.complete()) {
       var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
@@ -327,7 +351,7 @@ public final class GremlinToMatchStrategy
     // inside translate(), so the concurrent-invalidation guard in buildPlan must time from here to
     // catch a DDL that races the walk (see the class Javadoc "Plan caching").
     var planningStart = System.nanoTime();
-    var translation = translator.translate(traversal);
+    var translation = translator.translate(traversal, orderIncludesMissingKey);
     if (translation == null) {
       if (populateTranslationCache && extraction.complete()) {
         GremlinPlanCache.putTranslation(
@@ -767,6 +791,17 @@ public final class GremlinToMatchStrategy
   @FunctionalInterface
   interface TraversalTranslator {
     @Nullable GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal);
+
+    /**
+     * Translates with the productive-order setting already resolved by the caller. The default
+     * ignores the resolved value, which suits every fixture translator in the tests: a fixture
+     * returns a fixed result and reads no setting. Production overrides it so the walk and the
+     * shape key read one and the same answer.
+     */
+    @Nullable default GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey) {
+      return translate(traversal);
+    }
   }
 
   /**

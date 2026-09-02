@@ -386,8 +386,22 @@ final class GremlinStepWalker {
    */
   static GremlinShapeExtractor.Extraction extractShape(
       Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session) {
+    return extractShape(
+        traversal, session, YTDBStrategyUtil.orderIncludesMissingKey(traversal));
+  }
+
+  /**
+   * As {@link #extractShape(Traversal.Admin, DatabaseSessionEmbedded)}, but with the
+   * productive-order setting already resolved by the caller. The strategy resolves it once per
+   * compilation and passes the same value here and to {@link #walk(Traversal.Admin, Boolean)}, so
+   * a runtime flip between the two reads cannot file a plan under the other setting's key.
+   */
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal,
+      DatabaseSessionEmbedded session,
+      @Nullable Boolean orderIncludesMissingKey) {
     return GremlinShapeExtractor.extract(
-        PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session);
+        PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session, orderIncludesMissingKey);
   }
 
   /**
@@ -396,7 +410,17 @@ final class GremlinStepWalker {
    * null}.
    */
   @Nullable GremlinToMatchTranslator.TranslationResult walk(Traversal.Admin<?, ?> traversal) {
-    return walk(traversal, NO_CHILD_SCOPE);
+    return walk(traversal, NO_CHILD_SCOPE, null);
+  }
+
+  /**
+   * As {@link #walk(Traversal.Admin)}, but with the productive-order setting already resolved by
+   * the caller. A {@code null} value means the walk resolves it itself, which is what the
+   * test-facing overload above does.
+   */
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey) {
+    return walk(traversal, NO_CHILD_SCOPE, orderIncludesMissingKey);
   }
 
   /**
@@ -415,6 +439,17 @@ final class GremlinStepWalker {
    */
   @Nullable GremlinToMatchTranslator.TranslationResult walk(
       Traversal.Admin<?, ?> traversal, int childScopeBoundary) {
+    return walk(traversal, childScopeBoundary, null);
+  }
+
+  /**
+   * The full walk entry point. {@code orderIncludesMissingKey} carries the resolved
+   * productive-order setting, or {@code null} to resolve it here.
+   */
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal,
+      int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -469,7 +504,10 @@ final class GremlinStepWalker {
     // proved an attached session) and is read as the portable answer, which keeps the order-key
     // presence conjunct.
     ctx.setOrderIncludesMissingKey(
-        Boolean.TRUE.equals(YTDBStrategyUtil.orderIncludesMissingKey(traversal)));
+        Boolean.TRUE.equals(
+            orderIncludesMissingKey != null
+                ? orderIncludesMissingKey
+                : YTDBStrategyUtil.orderIncludesMissingKey(traversal)));
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
     // Install the union fork host after the cursor exists: the host reads prefix length from the
     // cursor position after UnionStepRecogniser.take(), and keeps the parent Admin private.
