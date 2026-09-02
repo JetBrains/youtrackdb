@@ -246,6 +246,32 @@ public class YTDBProductiveOrderByStrategyTest extends GraphBaseTest {
   }
 
   /**
+   * The per-traversal override reaches an order step inside a CHILD traversal. A child carries no
+   * options strategy of its own during the strategy pass, so a resolver that reads the child list
+   * answers null and the documented opt-out silently fails to restore portable rows.
+   *
+   * <p>Both directions are pinned on the same nested shape. The default keeps the ageless record
+   * inside the union arm, and the opt-out drops it.
+   */
+  @Test
+  public void perTraversalOptOut_reachesOrderInsideAChildTraversal() {
+    seedAgedAndAgeless();
+
+    var underDefault = nativeNames(() -> graph.traversal().V().hasLabel("Person")
+        .union(__.order().by("age").values("name")));
+    assertThat(underDefault)
+        .as("the default keeps the ageless record inside a union arm")
+        .containsExactlyInAnyOrder("Alice", "Bob", "Nobody");
+
+    var underOptOut = nativeNames(() -> graph.traversal()
+        .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
+        .V().hasLabel("Person").union(__.order().by("age").values("name")));
+    assertThat(underOptOut)
+        .as("the option on the source reaches the order step inside the union arm")
+        .containsExactly("Bob", "Alice");
+  }
+
+  /**
    * LOCAL-scope order is out of scope and still drops the entry missing the key. The divergence is
    * intentional: the two spellings differ by one argument, and no YQL analogue exists for ordering
    * inside a collection, where inclusion would change the size of a row rather than row
