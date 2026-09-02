@@ -218,7 +218,9 @@ public final class ProjectionExpressionFactories {
       String alias, String propertyKey, boolean ascending) {
     requireNonBlank(alias, "alias");
     requireNonBlank(propertyKey, "property key");
-    return orderByItem(alias, propertyModifier(propertyKey), ascending);
+    var item = orderByItem(alias, propertyModifier(propertyKey), ascending);
+    item.setGremlinToMatchTranslatorProduced(true);
+    return item;
   }
 
   /** {@code ORDER BY alias.@rid|@class ASC|DESC}. */
@@ -281,7 +283,6 @@ public final class ProjectionExpressionFactories {
     item.setAlias(alias);
     item.modifier = modifier;
     item.setType(ascending ? SQLOrderByItem.ASC : SQLOrderByItem.DESC);
-    item.setGremlinToMatchTranslatorProduced(true);
     return item;
   }
 
