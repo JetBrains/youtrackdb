@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
@@ -40,6 +41,9 @@ import javax.annotation.Nullable;
  * budget for the planner's hot path.
  */
 final class IndexOrderedPlanner {
+
+  /** The record attribute an appended tie-break item names. */
+  private static final String RECORD_ID_ATTRIBUTE = "@rid";
 
   /**
    * Multi-source execution strategy. Chosen based on two independent dimensions:
@@ -80,7 +84,8 @@ final class IndexOrderedPlanner {
       @Nullable SQLWhereClause targetFilter,
       @Nonnull String targetClassName,
       boolean isEdgeTraversal,
-      int downstreamEdgeCount) {
+      int downstreamEdgeCount,
+      boolean ridTieBreakAccepted) {
   }
 
   // Snapshot of planner state needed for detection. Held as fields rather than
@@ -100,6 +105,7 @@ final class IndexOrderedPlanner {
   @Nullable private final SQLLimit limit;
   @Nullable private final List<SQLExpression> returnItems;
   @Nullable private final List<SQLIdentifier> returnAliases;
+  private final boolean returnDistinct;
   private final boolean returnElements;
   private final boolean returnPaths;
   private final boolean returnPatterns;
@@ -115,6 +121,7 @@ final class IndexOrderedPlanner {
       @Nullable SQLLimit limit,
       @Nullable List<SQLExpression> returnItems,
       @Nullable List<SQLIdentifier> returnAliases,
+      boolean returnDistinct,
       boolean returnElements,
       boolean returnPaths,
       boolean returnPatterns,
@@ -128,6 +135,7 @@ final class IndexOrderedPlanner {
     this.limit = limit;
     this.returnItems = returnItems;
     this.returnAliases = returnAliases;
+    this.returnDistinct = returnDistinct;
     this.returnElements = returnElements;
     this.returnPaths = returnPaths;
     this.returnPatterns = returnPatterns;
@@ -424,11 +432,18 @@ final class IndexOrderedPlanner {
       return null;
     }
 
-    var multiFieldOrderBy = orderBy.getItems().size() > 1;
-
     // Extract target WHERE filter from the edge's path item filter.
     // filter is the SQLMatchFilterItem; filter.getFilter() is the WHERE clause.
     var targetFilter = filter != null ? filter.getFilter() : null;
+
+    // A trailing record identifier item on the ordered alias describes exactly what the scan
+    // already produces, so it does not make the sort a multi-field one — see
+    // acceptsRidTieBreak for the conditions that make that claim true.
+    var ridTieBreakAccepted =
+        acceptsRidTieBreak(
+            orderItem, targetAlias, propertyName, matchedIndex, multiSourceMode, orderAsc,
+            targetFilter);
+    var multiFieldOrderBy = orderBy.getItems().size() > 1 && !ridTieBreakAccepted;
 
     // 11. Reject when target WHERE uses $matched or $currentMatch.
     // IndexOrderedEdgeStep does not maintain these context variables;
@@ -465,7 +480,175 @@ final class IndexOrderedPlanner {
         linkBagFieldName, matchedIndex, orderAsc, queryLimit,
         multiSourceMode, reverseFieldName, sourceClassName,
         multiFieldOrderBy, targetFilter, targetClassName, isEdgeTraversal,
-        downstreamEdgeCount);
+        downstreamEdgeCount, ridTieBreakAccepted);
+  }
+
+  /**
+   * Whether the trailing {@code ORDER BY} item is the record identifier of the ordered alias, in a
+   * shape where the ordered index scan provably produces that exact sequence. The Gremlin
+   * translation appends such an item to every sort it emits, and treating it as a second sort field
+   * makes an unbounded ordered query buffer every row instead of streaming the scan.
+   *
+   * <p>The multi-value index stores each entry under the composite key {@code (property, rid)}, so a
+   * forward scan yields property ascending then identifier ascending, and a backward scan yields
+   * both descending. That is the whole basis of the claim, and every condition below exists to keep
+   * the claim honest:
+   *
+   * <ul>
+   *   <li>Exactly two items, the second being {@code <orderedAlias>.@rid} — a third item, or an
+   *       identifier of another alias, is not what the scan orders by.
+   *   <li>The item direction equals the scan direction, because equal keys come back in scan
+   *       direction and the mirrored appended item is the only one that describes them.
+   *   <li>The primary item is the indexed property itself and compares with the default collation,
+   *       which is what the index key comparison reproduces. A stated {@code COLLATE} clause is
+   *       already refused for the primary item; a declared collation is refused here.
+   *   <li>A descending scan reaches no null key. Null keys live outside the sorted tree and are
+   *       concatenated ascending at whichever end the direction asks for, so an ascending scan
+   *       delivers that group exactly as the sort wants it while a descending scan would hand it
+   *       back in ascending identifier order. Two things rule the group out: an index that ignores
+   *       null keys, and a target filter that requires the ordered property to be defined — which is
+   *       what the Gremlin translation states for every property sort it emits.
+   *   <li>The row projects the ordered alias alone, so the two items are a total order over what
+   *       the caller receives, and no deduplication step follows.
+   *   <li>The mode binds no second alias. A bound mode emits one row per source per target, so
+   *       rows sharing a target tie on both items and the sort is not total.
+   * </ul>
+   *
+   * <p>Two further conditions cannot be decided here and are enforced at run time by
+   * {@link IndexOrderedEdgeStep}: the chosen path must be a real index scan rather than the
+   * load-and-sort fallback, which sorts by the primary property alone, and the transaction must hold
+   * no pending change for the index, because such a change is merged into the scan by key only.
+   * Both are run-time facts, and a plan is cached across executions.
+   */
+  private boolean acceptsRidTieBreak(
+      SQLOrderByItem orderItem,
+      String targetAlias,
+      String propertyName,
+      Index matchedIndex,
+      @Nullable MultiSourceMode multiSourceMode,
+      boolean orderAsc,
+      @Nullable SQLWhereClause targetFilter) {
+    var items = orderBy == null ? null : orderBy.getItems();
+    if (items == null || items.size() != 2) {
+      return false;
+    }
+    if (!isRecordIdItemOf(items.get(1), targetAlias, orderAsc)) {
+      return false;
+    }
+    // The primary item must be the indexed property compared the way the index compares it. The
+    // collation of the item was resolved once per plan build by the planner, so it is read here
+    // rather than resolved a second time.
+    if (!propertyName.equals(indexedPropertyName(matchedIndex))
+        || orderItem.getCollate() != null
+        || orderItem.getDeclaredCollate() != null) {
+      return false;
+    }
+    if (!orderAsc && !nullKeysExcluded(matchedIndex, propertyName, targetFilter)) {
+      return false;
+    }
+    if (returnDistinct || !projectsOnlyAlias(targetAlias)) {
+      return false;
+    }
+    return multiSourceMode == null
+        || multiSourceMode == MultiSourceMode.FILTERED_UNBOUND
+        || multiSourceMode == MultiSourceMode.UNFILTERED_UNBOUND;
+  }
+
+  /**
+   * Whether the scan can hand back a null key at all. The null-key group is stored outside the
+   * sorted tree and is always iterated in ascending identifier order, so a descending scan would
+   * place it correctly (last) but order it wrongly inside. Either an index that stores no null key,
+   * or a target filter that keeps only rows where the ordered property is defined, removes the group
+   * from the answer.
+   */
+  private static boolean nullKeysExcluded(
+      Index index, String propertyName, @Nullable SQLWhereClause targetFilter) {
+    var definition = index.getDefinition();
+    if (definition != null && definition.isNullValuesIgnored()) {
+      return true;
+    }
+    return targetFilter != null
+        && requiresDefined(targetFilter.getBaseExpression(), propertyName);
+  }
+
+  /**
+   * Whether {@code expr} keeps only rows whose {@code propertyName} is defined. Recognises the
+   * {@code <property> IS DEFINED} conjunct the Gremlin translation emits, at the top level or inside
+   * an AND block, and the wrapper nodes the parser leaves around it. Every other shape answers
+   * {@code false}, which only costs the shortcut.
+   */
+  private static boolean requiresDefined(
+      @Nullable SQLBooleanExpression expr, String propertyName) {
+    if (expr instanceof SQLIsDefinedCondition defined) {
+      return propertyName.equals(extractSimpleFieldName(defined.getExpression()));
+    }
+    if (expr instanceof SQLAndBlock andBlock) {
+      for (var sub : andBlock.getSubBlocks()) {
+        if (requiresDefined(sub, propertyName)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (expr instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
+      return requiresDefined(notBlock.getSub(), propertyName);
+    }
+    // A single-branch OR is a parser wrapper rather than a disjunction.
+    if (expr instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
+      return requiresDefined(orBlock.getSubBlocks().getFirst(), propertyName);
+    }
+    return false;
+  }
+
+  /** Whether {@code item} is {@code <alias>.@rid} in the direction the scan runs. */
+  private static boolean isRecordIdItemOf(SQLOrderByItem item, String alias, boolean orderAsc) {
+    if (!alias.equals(item.getAlias())
+        || item.getRecordAttr() != null
+        || item.getRid() != null
+        || item.getCollate() != null) {
+      return false;
+    }
+    var modifier = item.getModifier();
+    if (modifier == null
+        || !RECORD_ID_ATTRIBUTE.equalsIgnoreCase(modifier.getSimpleSuffixRecordAttributeName())) {
+      return false;
+    }
+    return orderAsc == SQLOrderByItem.ASC.equals(item.getType());
+  }
+
+  /** The single property of a one-field index, or {@code null} for any other definition. */
+  @Nullable private static String indexedPropertyName(Index index) {
+    var definition = index.getDefinition();
+    if (definition == null) {
+      return null;
+    }
+    var properties = definition.getProperties();
+    return properties.size() == 1 ? properties.iterator().next() : null;
+  }
+
+  /**
+   * Whether the returned row is the ordered alias and nothing else, so a sort on that alias covers
+   * every column of the row. A built-in return mode, a second projection, or a renamed projection
+   * all fail this: the appended record identifier item would then order rows by a column the caller
+   * never sees, or would not resolve against the projected row at all.
+   */
+  private boolean projectsOnlyAlias(String alias) {
+    if (returnElements || returnPaths || returnPatterns || returnPathElements) {
+      return false;
+    }
+    if (returnItems == null || returnItems.size() != 1) {
+      return false;
+    }
+    var projected = new StringBuilder();
+    returnItems.getFirst().toString(new HashMap<>(), projected);
+    if (!alias.contentEquals(projected)) {
+      return false;
+    }
+    if (returnAliases == null || returnAliases.size() != 1) {
+      return true;
+    }
+    var projectionAlias = returnAliases.getFirst();
+    return projectionAlias == null || alias.equals(projectionAlias.getStringValue());
   }
 
   /**

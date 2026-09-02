@@ -90,8 +90,8 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A descending primary key with an ascending appended key. The appended key is always ascending,
-   * whatever the primary direction, so the two arms have to agree on that too.
+   * A descending primary key, whose appended key mirrors that direction. Both arms receive the same
+   * appended comparator, so they have to agree on the descending tie order too.
    */
   @Test
   public void orderByPropertyDescWithTies_matchesNative() {

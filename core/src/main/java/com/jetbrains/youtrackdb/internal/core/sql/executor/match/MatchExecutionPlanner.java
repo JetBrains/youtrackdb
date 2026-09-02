@@ -5690,6 +5690,7 @@ public class MatchExecutionPlanner {
           candidate.targetClassName(),
           candidate.isEdgeTraversal(),
           candidate.downstreamEdgeCount(),
+          candidate.ridTieBreakAccepted(),
           profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
@@ -6543,7 +6544,7 @@ public class MatchExecutionPlanner {
       Map<String, Long> estimatedRootEntries) {
     return new IndexOrderedPlanner(
         pattern, aliasClasses, aliasFilters, aliasPinnedRids,
-        orderBy, skip, limit, returnItems, returnAliases,
+        orderBy, skip, limit, returnItems, returnAliases, returnDistinct,
         returnElements, returnPaths, returnPatterns, returnPathElements)
         .detect(sortedEdges, context, estimatedRootEntries);
   }
