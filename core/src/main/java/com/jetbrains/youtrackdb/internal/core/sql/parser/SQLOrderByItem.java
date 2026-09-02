@@ -184,7 +184,12 @@ public class SQLOrderByItem {
       result = bVal == null ? 0 : -1;
     } else if (bVal == null) {
       result = 1;
-    } else if (aVal instanceof Comparable && bVal instanceof Comparable) {
+    } else if ((aVal instanceof Comparable && bVal instanceof Comparable)
+        || collateStrategy != null) {
+      // A value that is not Comparable still has an order whenever the query states a COLLATE
+      // clause: the collation routes it through the comparator registry, which knows byte arrays and
+      // the other non-Comparable stored classes. Gating that on Comparable turned every such value
+      // into a tie, which is a stated ordering silently dropped.
       try {
         result = comparison.compareForOrderBy(aVal, bVal);
       } catch (Exception e) {

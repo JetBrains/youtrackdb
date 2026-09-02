@@ -1,11 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.sql.orderby;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
+import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import org.junit.Test;
@@ -20,6 +23,10 @@ import org.junit.Test;
  * longer does. Under German collation rules {@code Ähhhh} sorts next to {@code Ahhhh}; under the
  * default collation it sorts after {@code Zebra}, because {@code Ä} is code point 196 and {@code Z}
  * is 90.
+ *
+ * <p>A stated {@code COLLATE} clause carries one further duty, pinned by the binary case below: it
+ * must order a value whose class is not {@code Comparable} as well, through the comparator registry
+ * that knows such classes.
  */
 public class TestOrderBy extends DbTestBase {
 
@@ -56,6 +63,45 @@ public class TestOrderBy extends DbTestBase {
     assertEquals(last.getIdentity(), queryRes.get(1).getIdentity());
     assertEquals(plain.getIdentity(), queryRes.get(2).getIdentity());
     session.commit();
+  }
+
+  /**
+   * Scenario: three binary values ordered by a stated {@code COLLATE} clause. Expected: byte-wise
+   * ascending order, and its exact reverse descending.
+   *
+   * <p>A byte array is not {@code Comparable}, so only the comparator registry behind the collation
+   * can order it. A comparison that first demanded {@code Comparable} reported every pair equal, and
+   * a stated ordering then answered whatever sequence the scan happened to produce.
+   */
+  @Test
+  public void statedCollateOrdersValuesThatAreNotComparable() {
+    var clazz = session.getMetadata().getSchema().createClass("binaryTest");
+    clazz.createProperty("data", PropertyType.BINARY);
+
+    session.begin();
+    var middle = session.newEntity("binaryTest");
+    middle.setProperty("data", new byte[] {2, 0});
+    var last = session.newEntity("binaryTest");
+    last.setProperty("data", new byte[] {3, 0});
+    var first = session.newEntity("binaryTest");
+    first.setProperty("data", new byte[] {1, 0});
+    session.commit();
+
+    session.begin();
+    assertThat(identitiesOf("select from binaryTest order by data collate default"))
+        .as("a stated collation must order a binary value, not tie it")
+        .containsExactly(first.getIdentity(), middle.getIdentity(), last.getIdentity());
+    assertThat(identitiesOf("select from binaryTest order by data desc collate default"))
+        .as("the descending direction must reverse that same order")
+        .containsExactly(last.getIdentity(), middle.getIdentity(), first.getIdentity());
+    session.commit();
+  }
+
+  /** The identities of every row of {@code query}, in arrival order. */
+  private List<RID> identitiesOf(String query) {
+    try (var result = session.query(query)) {
+      return result.stream().map(row -> row.getIdentity()).collect(Collectors.toList());
+    }
   }
 
   /**
