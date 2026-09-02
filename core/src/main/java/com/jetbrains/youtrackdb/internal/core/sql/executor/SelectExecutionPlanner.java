@@ -10,12 +10,14 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolver;
@@ -2844,12 +2846,18 @@ public class SelectExecutionPlanner {
       if (indexFields.size() < info.orderBy.getItems().size()) {
         continue;
       }
+      if (idx.getDefinition() instanceof IndexDefinitionMultiValue
+          || !IndexOrderedPlanner.isDefaultCollate(idx.getDefinition().getCollate())) {
+        continue;
+      }
       var indexFound = true;
       String orderType = null;
       for (var i = 0; i < info.orderBy.getItems().size(); i++) {
         var orderItem = info.orderBy.getItems().get(i);
-        if (orderItem.getCollate() != null) {
-          return false;
+        if (orderItem.getCollate() != null
+            || !IndexOrderedPlanner.isDefaultCollate(orderItem.getDeclaredCollate())) {
+          indexFound = false;
+          break;
         }
         var indexField = indexFields.get(i);
         if (i == 0) {
@@ -3200,6 +3208,15 @@ public class SelectExecutionPlanner {
   private static boolean fullySorted(SQLOrderBy orderBy, IndexSearchDescriptor desc) {
     if (orderBy.ordersWithCollate() || !orderBy.ordersSameDirection()) {
       return false;
+    }
+    if (desc.getIndex().getDefinition() instanceof IndexDefinitionMultiValue
+        || !IndexOrderedPlanner.isDefaultCollate(desc.getIndex().getDefinition().getCollate())) {
+      return false;
+    }
+    for (var item : orderBy.getItems()) {
+      if (!IndexOrderedPlanner.isDefaultCollate(item.getDeclaredCollate())) {
+        return false;
+      }
     }
     return desc.fullySorted(orderBy.getProperties());
   }

@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeCollate;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
@@ -43,7 +44,7 @@ import javax.annotation.Nullable;
  * benchmarks — moving it out of the planner class restores the JIT inlining
  * budget for the planner's hot path.
  */
-final class IndexOrderedPlanner {
+public final class IndexOrderedPlanner {
 
   /** The record attribute an appended tie-break item names. */
   private static final String RECORD_ID_ATTRIBUTE = "@rid";
@@ -627,8 +628,12 @@ final class IndexOrderedPlanner {
    * Whether {@code collate} is the plain default comparison — which {@code null} also means, because
    * an unresolved sort item and an undeclared property both compare that way.
    */
-  private static boolean isDefaultCollate(@Nullable Collate collate) {
-    return collate == null || DefaultCollate.NAME.equals(collate.getName());
+  public static boolean isDefaultCollate(@Nullable Collate collate) {
+    if (collate == null || DefaultCollate.NAME.equals(collate.getName())) {
+      return true;
+    }
+    return collate instanceof CompositeCollate compositeCollate
+        && compositeCollate.getCollates().stream().allMatch(IndexOrderedPlanner::isDefaultCollate);
   }
 
   /** Whether {@code item} is {@code <alias>.@rid} in the direction the scan runs. */

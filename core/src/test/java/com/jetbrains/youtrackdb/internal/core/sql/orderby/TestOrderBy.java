@@ -97,6 +97,62 @@ public class TestOrderBy extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Scenario: a plain SELECT over a case-insensitive property uses its index, while an explicit
+   * default collation forces the buffered comparison. Expected: both plans return the same first row
+   * after the planner refuses the index whose collation differs from the sort comparison.
+   */
+  @Test
+  public void declaredCollationDoesNotUseMismatchedIndexForSelectOrder() {
+    var clazz = session.getMetadata().getSchema().createClass("collatedSelect");
+    clazz.createProperty("name", PropertyType.STRING)
+        .setCollate("ci")
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+
+    session.begin();
+    var zebra = session.newEntity("collatedSelect");
+    zebra.setProperty("name", "Zebra");
+    var ada = session.newEntity("collatedSelect");
+    ada.setProperty("name", "ada");
+    var first = session.newEntity("collatedSelect");
+    first.setProperty("name", "Ada");
+    session.commit();
+
+    session.begin();
+    assertThat(identitiesOf("select from collatedSelect order by name"))
+        .as("the plain SELECT must agree with its buffered default-collation control")
+        .startsWith(first.getIdentity());
+    assertThat(identitiesOf("select from collatedSelect order by name collate default"))
+        .as("explicit default collation is the buffered reference order")
+        .startsWith(first.getIdentity());
+    session.commit();
+  }
+
+  /**
+   * Scenario: a plain SELECT orders a collection-valued property backed by a multi-value index.
+   * Expected: refusing that index preserves one result row per record, rather than one row per
+   * indexed element.
+   */
+  @Test
+  public void collectionIndexDoesNotSupplySelectOrder() {
+    var clazz = session.getMetadata().getSchema().createClass("collectionSelect");
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+
+    session.begin();
+    var first = session.newEntity("collectionSelect");
+    first.<String>getOrCreateEmbeddedList("tags").addAll(List.of("a", "b"));
+    var second = session.newEntity("collectionSelect");
+    second.<String>getOrCreateEmbeddedList("tags").add("c");
+    session.commit();
+
+    session.begin();
+    assertThat(identitiesOf("select from collectionSelect order by tags"))
+        .as("a multi-value index must not duplicate rows for each indexed element")
+        .containsExactlyInAnyOrder(first.getIdentity(), second.getIdentity());
+    session.commit();
+  }
+
   /** The identities of every row of {@code query}, in arrival order. */
   private List<RID> identitiesOf(String query) {
     try (var result = session.query(query)) {
