@@ -45,7 +45,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -157,31 +156,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private final HashMap<String, Object> cache = new HashMap<>();
 
-  /**
-   * Stored values of enum-typed keys that named no constant when this storage loaded, by key.
-   *
-   * <p>The load path keeps such a value out of the effective configuration. The global default
-   * therefore stays in force, and no reader sees text where a constant belongs. The store path
-   * writes the value back unchanged. It otherwise writes only the keys the effective configuration
-   * holds, so the next clean close would drop the entry and erase the operator's intent. A later
-   * release that learns the value keeps its chance to apply it.
-   *
-   * <p>An entry is dropped the moment somebody sets or clears that key on the effective
-   * configuration. A persisted value must never contradict an explicit operator action. A cleared
-   * key therefore stays cleared, and a new value is the only one written back.
-   *
-   * <p>The load and store paths run under the write lock, while the purge runs on the thread of the
-   * caller that changed the key. The map is concurrent for that reason.
-   */
-  private final Map<String, String> unreadableConfigurationValues = new ConcurrentHashMap<>();
-
-  /**
-   * The observer this storage registers on every configuration it adopts. Held as one stable
-   * instance, so the registration can be removed again when this storage configuration closes.
-   */
-  private final ContextConfiguration.KeyChangeObserver configurationChangeObserver =
-      unreadableConfigurationValues::remove;
-
   // Cache resolved TimeZone to avoid lock + property-map + TimeZone.getTimeZone
   // allocation on every date comparison. Hot path: SQL WHERE date predicates
   // hit this once per row via compareFromPageFrameOrdering → DateHelper.
@@ -223,27 +197,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     this.storage = storage;
   }
 
-  /**
-   * Registers {@link #configurationChangeObserver} on the configuration this storage just adopted.
-   *
-   * <p>Several storages can share one configuration object, so the registration adds an observer
-   * rather than replacing one. Each storage keeps its own preserved values, and each has to learn
-   * about a change.
-   */
-  private void observeConfigurationChanges() {
-    configuration.addKeyChangeObserver(configurationChangeObserver);
-  }
-
-  /**
-   * Stops observing the configuration this storage adopted. Called when this storage configuration
-   * closes or is deleted. A shared configuration object then holds no reference to a dead storage,
-   * and a later change reaches only live storages.
-   */
-  private void stopObservingConfigurationChanges() {
-    configuration.removeKeyChangeObserver(configurationChangeObserver);
-    unreadableConfigurationValues.clear();
-  }
-
   public void create(
       final AtomicOperation atomicOperation, final ContextConfiguration contextConfiguration) {
     lock.writeLock().lock();
@@ -252,7 +205,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       btree.create(atomicOperation, StringSerializer.INSTANCE, null, 1);
 
       this.configuration = contextConfiguration;
-      observeConfigurationChanges();
 
       init(atomicOperation);
 
@@ -299,8 +251,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       btree.delete(atomicOperation);
 
-      // A deleted configuration has nothing left to preserve, so it stops observing as well.
-      stopObservingConfigurationChanges();
       cache.clear();
     } catch (Exception e) {
       cache.clear();
@@ -319,8 +269,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       updateConfigurationProperty(atomicOperation);
       updateMinimumCollections(atomicOperation);
 
-      // Deregistered after the write-back, which is the last reader of the preserved values.
-      stopObservingConfigurationChanges();
       cache.clear();
     } catch (Exception e) {
       cache.clear();
@@ -337,7 +285,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     lock.writeLock().lock();
     try {
       this.configuration = configuration;
-      observeConfigurationChanges();
 
       collection.open(atomicOperation);
       btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
@@ -1076,20 +1023,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     totalSize += contextSize.length;
     entries.add(contextSize);
 
-    final var contextKeys = configuration.getContextKeys();
-    // Values that failed to read are written back too, so an unreadable setting survives the round
-    // trip instead of vanishing at this close. A key the operator has since set properly lives in
-    // the effective configuration, and that fresh value wins.
-    final Map<String, String> preserved = new HashMap<>();
-    for (final var entry : unreadableConfigurationValues.entrySet()) {
-      if (!contextKeys.contains(entry.getKey())) {
-        preserved.put(entry.getKey(), entry.getValue());
-      }
-    }
+    IntegerSerializer.serializeNative(configuration.getContextSize(), contextSize, 0);
 
-    IntegerSerializer.serializeNative(contextKeys.size() + preserved.size(), contextSize, 0);
-
-    for (final var k : contextKeys) {
+    for (final var k : configuration.getContextKeys()) {
       final var cfg = GlobalConfiguration.findByKey(k);
       final var key = serializeStringValue(k);
       totalSize += key.length;
@@ -1110,16 +1046,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                 this,
                 "Storing configuration for property:'" + k + "' not existing in current version");
       }
-    }
-
-    for (final var entry : preserved.entrySet()) {
-      final var key = serializeStringValue(entry.getKey());
-      totalSize += key.length;
-      entries.add(key);
-
-      final var value = serializeStringValue(entry.getValue());
-      totalSize += value.length;
-      entries.add(value);
     }
 
     final var property = mergeBinaryEntries(totalSize, entries);
@@ -1157,9 +1083,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
             if (constant == null) {
               // Tolerant only for enums. An unreadable constant name leaves the global default in
               // force instead of making the database unopenable. Every other type still fails the
-              // open loudly, below. The raw text is remembered so the next clean close writes it
-              // back rather than erasing the operator's recorded intent.
-              unreadableConfigurationValues.put(key, value);
+              // open loudly, below. The value is skipped, so the next clean close writes only the
+              // effective configuration and the stored text is gone from then on.
               LogManager.instance()
                   .warn(
                       this,
@@ -1169,11 +1094,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                           + value
                           + "' for the configuration key '"
                           + key
-                          + "'. The value is kept on disk, and the global default applies until it"
-                          + " is corrected.");
+                          + "'. The global default applies instead. The next clean close of this"
+                          + " database drops the stored value.");
             } else {
-              // A readable value supersedes text remembered by an earlier load of this storage.
-              unreadableConfigurationValues.remove(key);
               configuration.setValue(key, constant);
             }
           } else {

@@ -21,10 +21,8 @@ package com.jetbrains.youtrackdb.internal.core.config;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import java.io.Serializable;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 
@@ -53,85 +51,6 @@ public class ContextConfiguration implements Serializable {
   private final Map<String, Object> config = new ConcurrentHashMap<String, Object>();
 
   /**
-   * Notified whenever a key is set or removed through {@link #setValue}. An owner uses it to drop
-   * state it derived from the previous value of that key. Bulk copies stay silent, namely the two
-   * copying constructors and {@code merge}. Such a copy builds or extends a configuration. It does
-   * not record a decision about one key.
-   */
-  public interface KeyChangeObserver {
-
-    void onKeyChanged(String key);
-  }
-
-  /**
-   * Every registered observer of {@link #setValue} calls.
-   *
-   * <p>One configuration object can have several owners. An embedded instance hands its own
-   * configuration to every storage it opens at startup, and each of those storages keeps state
-   * derived from it. A single observer slot would let the second owner displace the first silently,
-   * and the displaced owner would then never learn about a change.
-   *
-   * <p>The list is copy-on-write, because registration happens rarely while notification happens on
-   * every write. It is transient, so a deserialized configuration starts with no observer and every
-   * read of the field tolerates a {@code null}.
-   */
-  @Nullable private transient volatile List<KeyChangeObserver> keyChangeObservers;
-
-  /**
-   * Registers one observer of {@link #setValue} calls. Registering the same instance twice has no
-   * further effect, so an owner that adopts this configuration again does not receive doubled
-   * notifications.
-   */
-  public synchronized void addKeyChangeObserver(final KeyChangeObserver observer) {
-    var observers = keyChangeObservers;
-    if (observers == null) {
-      observers = new CopyOnWriteArrayList<>();
-      keyChangeObservers = observers;
-    }
-    if (!containsIdentical(observers, observer)) {
-      observers.add(observer);
-    }
-  }
-
-  /**
-   * Removes one observer. An owner calls this when it stops using this configuration, so a closed
-   * owner receives no further notification and leaks nothing.
-   */
-  public synchronized void removeKeyChangeObserver(final KeyChangeObserver observer) {
-    final var observers = keyChangeObservers;
-    if (observers == null) {
-      return;
-    }
-    observers.removeIf(registered -> registered == observer);
-  }
-
-  /** The number of registered observers. A test seam for the registration lifecycle. */
-  public int getKeyChangeObserverCount() {
-    final var observers = keyChangeObservers;
-    return observers == null ? 0 : observers.size();
-  }
-
-  private static boolean containsIdentical(
-      final List<KeyChangeObserver> observers, final KeyChangeObserver observer) {
-    for (final var registered : observers) {
-      if (registered == observer) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private void notifyKeyChanged(final String key) {
-    final var observers = keyChangeObservers;
-    if (observers == null) {
-      return;
-    }
-    for (final var observer : observers) {
-      observer.onKeyChanged(key);
-    }
-  }
-
-  /**
    * Empty constructor to create just a proxy for the GlobalConfiguration. No values are setted.
    */
   public ContextConfiguration() {
@@ -153,19 +72,19 @@ public class ContextConfiguration implements Serializable {
   }
 
   public Object setValue(final GlobalConfiguration iConfig, final Object iValue) {
-    return setValue(iConfig.getKey(), iValue);
+    if (iValue == null) {
+      return config.remove(iConfig.getKey());
+    }
+
+    return config.put(iConfig.getKey(), iValue);
   }
 
   public Object setValue(final String iName, final Object iValue) {
-    final Object previous;
     if (iValue == null) {
-      previous = config.remove(iName);
-    } else {
-      previous = config.put(iName, iValue);
+      return config.remove(iName);
     }
 
-    notifyKeyChanged(iName);
-    return previous;
+    return config.put(iName, iValue);
   }
 
   public Object getValue(final GlobalConfiguration iConfig) {
@@ -188,7 +107,8 @@ public class ContextConfiguration implements Serializable {
    *                                  bug can not be converted to instance of passed in enumeration
    *                                  class.
    */
-  @Nullable public <T extends Enum<T>> T getValueAsEnum(
+  @Nullable
+  public <T extends Enum<T>> T getValueAsEnum(
       final GlobalConfiguration config, Class<T> enumType) {
     final Object value;
     if (this.config != null && this.config.containsKey(config.getKey())) {
@@ -238,7 +158,8 @@ public class ContextConfiguration implements Serializable {
     return getValue(iName, iDefaultValue);
   }
 
-  @Nullable public String getValueAsString(final GlobalConfiguration iConfig) {
+  @Nullable
+  public String getValueAsString(final GlobalConfiguration iConfig) {
     final var v = getValue(iConfig);
     if (v == null) {
       return null;

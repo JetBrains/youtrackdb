@@ -32,7 +32,8 @@ import org.junit.rules.TestName;
  *
  * <p>The value is written as its constant name when the storage closes and converted back by its
  * declared type when the storage loads. Enum-typed keys need their own conversion on that read path,
- * and a value that names no constant must not make the database unopenable.
+ * and a value that names no constant must not make the database unopenable. Such a value is skipped,
+ * and the next clean close drops it from disk.
  *
  * <p>Marked {@code @Category(SequentialTest)} because the tests mutate the process-wide
  * {@code QUERY_ORDER_BY_NULLS_DEFAULT} global. The default surefire execution runs four test
@@ -141,85 +142,32 @@ public class StorageConfigurationEnumValueTest {
   }
 
   /**
-   * A skipped value must not be erased. The store path writes back only what the effective
-   * configuration holds. A skipped key would therefore disappear at the next clean close, and the
-   * recorded intent would be lost. The second reopen has to report the same value again, which it
-   * can only do when the value is still on disk.
+   * A skipped value is forgotten at the next clean close. The store path writes only what the
+   * effective configuration holds, and a skipped key is not part of it. The reopen after that close
+   * is therefore silent, because there is no stored value left to report.
    */
   @Test
-  public void storedInvalidValueSurvivesACleanClose() {
+  public void storedInvalidValueIsForgottenAtTheNextCleanClose() {
     storeOnStorage(NULLS_KEY, "NOT_A_CONSTANT");
 
     reopenContext();
     loadStorage();
-    // Clean close: this is the write-back that used to drop the key.
-    youTrackDB.close();
-
-    reopenContext();
-    try (var logs = LogRecordCollector.attachTo(CollectionBasedStorageConfiguration.class)) {
-      loadStorage();
-      assertTrue(
-          "the value must still be on disk after a clean close, captured: " + logs.messages(),
-          logs.warnedWithAll(databaseName, NULLS_KEY.getKey(), "NOT_A_CONSTANT"));
-    }
-  }
-
-  /**
-   * A preserved value must never contradict the operator. Clearing the key is an explicit decision,
-   * so the preserved text is dropped at that moment and the next clean close writes nothing back.
-   * The reopen after that has to be silent, because the value is gone from disk.
-   */
-  @Test
-  public void clearingTheKeyDropsThePreservedValue() {
-    storeOnStorage(NULLS_KEY, "NOT_A_CONSTANT");
-
-    reopenContext();
-    try (var session = youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD)) {
-      var configuration = session.getStorage().getContextConfiguration();
-      // The operator corrects the setting and then decides to drop it altogether.
-      configuration.setValue(NULLS_KEY, OrderByNullsDefault.NULLS_LARGEST);
-      configuration.setValue(NULLS_KEY, null);
-    }
+    // Clean close: this is the write-back that drops the key.
     youTrackDB.close();
 
     reopenContext();
     try (var logs = LogRecordCollector.attachTo(CollectionBasedStorageConfiguration.class)) {
       loadStorage();
       assertFalse(
-          "a cleared key must not come back, captured: " + logs.messages(),
+          "the skipped value must be gone from disk, captured: " + logs.messages(),
           logs.warnedWithAll(NULLS_KEY.getKey(), "NOT_A_CONSTANT"));
     }
     assertFalse(storageConfiguration().getContextKeys().contains(NULLS_KEY.getKey()));
   }
 
   /**
-   * A storage observes the configuration it adopted, and it stops when it closes.
-   *
-   * <p>Several storages can share one configuration object, so a dead storage must not stay
-   * registered on it. The count is taken on the very object the storage adopted, before and after
-   * the close.
-   */
-  @Test
-  public void closingTheStorageRemovesItsConfigurationObserver() {
-    ContextConfiguration adopted;
-    try (var session = youTrackDB.open(databaseName, "admin", DbTestBase.ADMIN_PASSWORD)) {
-      adopted = session.getStorage().getContextConfiguration();
-      assertEquals(
-          "the open storage observes the configuration it adopted",
-          1,
-          adopted.getKeyChangeObserverCount());
-    }
-    youTrackDB.close();
-
-    assertEquals(
-        "a closed storage must leave no observer behind", 0, adopted.getKeyChangeObserverCount());
-    reopenContext();
-  }
-
-  /**
    * Surrounding whitespace is not tolerated, because the global setter does not tolerate it either.
-   * A padded value is treated as unreadable, so the global default applies and the value is kept for
-   * a later corrected reading.
+   * A padded value is treated as unreadable, so the global default applies.
    */
   @Test
   public void storedPaddedValueIsRejectedLikeTheGlobalSetter() {
