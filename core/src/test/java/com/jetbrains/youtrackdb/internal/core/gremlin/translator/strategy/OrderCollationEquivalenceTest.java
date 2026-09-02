@@ -92,6 +92,28 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Scenario: a schema-less property contains values from several TinkerPop order categories.
+   * Expected: translated MATCH and native Gremlin return Boolean, Number, then String in the same
+   * order, regardless of which execution arm accepts the traversal.
+   */
+  @Test
+  public void schemaLessMixedProperty_ordersByTinkerPopTypePriorityOnBothArms() {
+    for (var value : List.of(true, 2, "10")) {
+      graph.addVertex(T.label, "Probe", "value", value);
+    }
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "schema-less mixed types: g.V().hasLabel(Probe).order().by(value).values(value)",
+        () -> graph.traversal().V().hasLabel("Probe").order().by("value").values("value"));
+
+    assertThat(
+        graph.traversal().V().hasLabel("Probe").order().by("value").values("value").toList())
+        .as("TinkerPop ranks Boolean before Number before String")
+        .containsExactly(true, 2, "10");
+  }
+
+  /**
    * Scenario: the declared case-insensitive property, with an unrelated vertex class declaring the
    * same property name and no collation, and the traversal constrained to the declaring class.
    * Expected: both arms follow the declaration of the constrained class.
