@@ -861,12 +861,19 @@ public class MatchExecutionPlanner {
     if (schema == null) {
       return;
     }
+    var projectionItems = new ArrayList<SQLProjectionItem>();
+    for (var i = 0; i < returnItems.size(); i++) {
+      projectionItems.add(new SQLProjectionItem(returnItems.get(i), returnAliases.get(i),
+          returnNestedProjections.get(i)));
+    }
+    var projection = new SQLProjection(projectionItems, returnDistinct);
     OrderByCollationResolver.resolveOnAliasClasses(
         orderBy,
         alias -> {
           var className = aliasClasses.get(alias);
           return className == null ? null : schema.getClass(className);
-        });
+        },
+        projection);
   }
 
   /**

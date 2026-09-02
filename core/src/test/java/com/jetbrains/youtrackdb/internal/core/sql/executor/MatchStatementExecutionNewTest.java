@@ -2113,6 +2113,34 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * A RETURN alias shadows a schema property with the same name. ORDER BY must use the default
+   * collation for the projected value, not the shadowed property's case-insensitive declaration.
+   * Query: MATCH {class: testMatchProjectionAlias, as:a} RETURN a.surname AS name ORDER BY name.
+   * Observed order: Zebra, then ada.
+   */
+  @Test
+  public void testReturnAliasOrderingUsesDefaultCollation() {
+    var clazz = "testMatchProjectionAlias";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + clazz + ".name STRING").close();
+    session.execute("ALTER PROPERTY " + clazz + ".name COLLATE ci").close();
+    session.execute("CREATE PROPERTY " + clazz + ".surname STRING").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET surname = 'Zebra'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET surname = 'ada'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: " + clazz + ", as:a} RETURN a.surname AS name ORDER BY name").toList();
+    Assert.assertEquals(2, result.size());
+    Assert.assertEquals("Zebra", result.get(0).getProperty("name"));
+    Assert.assertEquals("ada", result.get(1).getProperty("name"));
+    session.commit();
+  }
+
   @Test
   public void testDepthAlias() {
     var clazz = "testDepthAlias";

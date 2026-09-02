@@ -62,12 +62,14 @@ public final class OrderByCollationResolver {
     }
     for (var item : orderBy.getItems()) {
       var declaredCollate =
-          projectionAlias(projection, item) ? null : declaredCollation(targetClass, targetPropertyName(item));
+          hasProjectionAlias(projection, item)
+              ? null
+              : declaredCollation(targetClass, targetPropertyName(item));
       item.setDeclaredCollate(declaredCollate);
     }
   }
 
-  private static boolean projectionAlias(
+  public static boolean hasProjectionAlias(
       @Nullable SQLProjection projection, SQLOrderByItem orderByItem) {
     if (projection == null || orderByItem.getModifier() != null || orderByItem.getAlias() == null) {
       return false;
@@ -88,6 +90,14 @@ public final class OrderByCollationResolver {
    */
   public static void resolveOnAliasClasses(
       @Nullable SQLOrderBy orderBy, Function<String, SchemaClass> aliasClassResolver) {
+    resolveOnAliasClasses(orderBy, aliasClassResolver, null);
+  }
+
+  /** Resolves MATCH ordering while treating explicit RETURN aliases as output names. */
+  public static void resolveOnAliasClasses(
+      @Nullable SQLOrderBy orderBy,
+      Function<String, SchemaClass> aliasClassResolver,
+      @Nullable SQLProjection projection) {
     if (orderBy == null || orderBy.getItems() == null) {
       return;
     }
@@ -96,7 +106,10 @@ public final class OrderByCollationResolver {
       var alias = item.getAlias();
       var aliasClass =
           propertyName == null || alias == null ? null : aliasClassResolver.apply(alias);
-      item.setDeclaredCollate(declaredCollation(aliasClass, propertyName));
+      item.setDeclaredCollate(
+          hasProjectionAlias(projection, item)
+              ? null
+              : declaredCollation(aliasClass, propertyName));
     }
   }
 
