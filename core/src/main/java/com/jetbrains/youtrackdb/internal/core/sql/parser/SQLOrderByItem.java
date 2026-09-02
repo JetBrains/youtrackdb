@@ -10,15 +10,32 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
-import java.text.Collator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
+ * One item of an {@code ORDER BY} clause, together with the comparison it performs.
  *
+ * <h2>Text order follows the declared collation of the property</h2>
+ *
+ * The collation of the ordered property is the single authority for text order. Three sources feed
+ * it, in this precedence: an explicit {@code COLLATE} clause on the item, the collation declared on
+ * the property in the schema, and the default collation. The default collation is plain
+ * case-sensitive comparison, which is also the TinkerPop rule, so a property that declares nothing
+ * orders identically here and on the native Gremlin pipeline.
+ *
+ * <p>The declared collation is set by the planner once per plan build (see
+ * {@link OrderByCollationResolver}), never read per comparison. Reading it per record would let two
+ * records of different subclasses answer two different collations inside one sort, which makes the
+ * comparison non-transitive.
  */
 public class SQLOrderByItem {
+
+  /** Plain case-sensitive comparison — what an item with no declaration compares with. */
+  private static final Collate DEFAULT_COLLATE = Collate.defaultCollate();
 
   public static final String ASC = "ASC";
   public static final String DESC = "DESC";
@@ -31,8 +48,15 @@ public class SQLOrderByItem {
 
   // calculated at run time
   private Collate collateStrategy;
-  private Collator stringCollator;
   private boolean isEdge;
+
+  /**
+   * The collation the ordered property declares in the schema, or {@code null} when the item is not
+   * a plain property, the property declares nothing, or two classes of one polymorphic query declare
+   * different collations for the name. Written once per plan build by the planner.
+   */
+  @Nullable
+  private Collate declaredCollate;
 
   public String getAlias() {
     return alias;
@@ -151,50 +175,55 @@ public class SQLOrderByItem {
       }
     }
 
-    if (collateStrategy != null) {
-      result = collateStrategy.compareForOrderBy(aVal, bVal);
-    } else {
-      if (aVal == null) {
-        if (bVal == null) {
-          result = 0;
-        } else {
-          result = -1;
-        }
-      } else if (bVal == null) {
-        result = 1;
-      } else if (aVal instanceof String && bVal instanceof String) {
-
-        var internal = ctx.getDatabaseSession();
-        if (stringCollator == null) {
-          var language = (String) internal.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE);
-          var country = (String) internal.get(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY);
-          Locale locale;
-          if (language != null) {
-            if (country != null) {
-              locale = new Locale(language, country);
-            } else {
-              locale = new Locale(language);
-            }
-          } else {
-            locale = Locale.getDefault();
-          }
-          stringCollator = Collator.getInstance(locale);
-        }
-        result = stringCollator.compare(aVal, bVal);
-      } else if (aVal instanceof Comparable && bVal instanceof Comparable) {
-
-        try {
-          result = ((Comparable) aVal).compareTo(bVal);
-        } catch (Exception e) {
-          LogManager.instance().error(this, "Error during comparision", e);
-          result = 0;
-        }
+    // One comparison rule for every value class, text included: the collation that governs this
+    // item. Text used to take a session-locale Collator instead, which made an undeclared property
+    // order by locale rules here and by code point on the native Gremlin pipeline and in every
+    // index, so one query answered up to three different sequences.
+    var comparison = comparisonCollate();
+    if (aVal == null) {
+      result = bVal == null ? 0 : -1;
+    } else if (bVal == null) {
+      result = 1;
+    } else if (aVal instanceof Comparable && bVal instanceof Comparable) {
+      try {
+        result = comparison.compareForOrderBy(aVal, bVal);
+      } catch (Exception e) {
+        // Two values of incompatible types reach this, e.g. a String against an Integer in one
+        // schema-less column. Reporting them equal keeps the sort from failing the whole query.
+        LogManager.instance().error(this, "Error during comparision", e);
+        result = 0;
       }
     }
     if (type == DESC) {
       result = -1 * result;
     }
     return result;
+  }
+
+  /**
+   * The collation this item compares with: the explicit {@code COLLATE} clause when the query states
+   * one, the declared collation of the property otherwise, and the default collation when the
+   * property declares none.
+   */
+  @Nonnull
+  private Collate comparisonCollate() {
+    if (collateStrategy != null) {
+      return collateStrategy;
+    }
+    return declaredCollate == null ? DEFAULT_COLLATE : declaredCollate;
+  }
+
+  /**
+   * Records the collation the ordered property declares in the schema. Called by the planner once
+   * per plan build; {@code null} means the item compares with the default collation.
+   */
+  public void setDeclaredCollate(@Nullable Collate declaredCollate) {
+    this.declaredCollate = declaredCollate;
+  }
+
+  @Nullable
+  public Collate getDeclaredCollate() {
+    return declaredCollate;
   }
 
   public SQLOrderByItem copy() {
@@ -206,6 +235,9 @@ public class SQLOrderByItem {
     result.type = type;
     result.collate = this.collate == null ? null : collate.copy();
     result.isEdge = this.isEdge;
+    // Carried like isEdge: the SELECT planner copies the clause after resolution (the synthetic
+    // ORDER BY projections rebuild it), and a lost collation would silently fall back to default.
+    result.declaredCollate = this.declaredCollate;
     return result;
   }
 

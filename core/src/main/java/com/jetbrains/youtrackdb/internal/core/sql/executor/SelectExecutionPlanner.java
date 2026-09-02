@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolver;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
@@ -642,7 +643,8 @@ public class SelectExecutionPlanner {
    *  5. flatten WHERE      -- convert OR/AND tree to a list of AND blocks
    *  6. equalities left    -- reorder each AND block: equalities first (index-friendly)
    *  7. splitProjections   -- split into pre-aggregate / aggregate / post-aggregate
-   *  8. addOrderByProjs    -- add synthetic projections for ORDER BY expressions
+   *  8. resolveCollations  -- pin the declared collation of each ORDER BY property
+   *  9. addOrderByProjs    -- add synthetic projections for ORDER BY expressions
    * </pre>
    *
    * <p>After this method completes, {@code info.flattenedWhereClause} is a
@@ -677,7 +679,32 @@ public class SelectExecutionPlanner {
     }
 
     splitProjectionsForGroupBy(info, ctx);
+    resolveOrderByCollations(info, ctx);
     addOrderByProjections(info);
+  }
+
+  /**
+   * Pins the declared collation of each ORDER BY property onto its item, so the sort comparator uses
+   * one rule per column instead of reading the schema per record.
+   *
+   * <p>Runs before {@link #addOrderByProjections}, which rewrites an item that the SELECT list does
+   * not project into a synthetic alias and drops the property name with it. Resolving afterwards
+   * would therefore see {@code _$$$ORDER_BY_ALIAS$$$_0} and find no property at all.
+   *
+   * <p>A null target leaves every item alone rather than resetting it. That is what lets the MATCH
+   * planner resolve its own items against its alias-to-class map and then delegate the rest of the
+   * projection pipeline here.
+   */
+  private static void resolveOrderByCollations(QueryPlanningInfo info, CommandContext ctx) {
+    if (info.orderBy == null || info.target == null || ctx == null) {
+      return;
+    }
+    var session = ctx.getDatabaseSession();
+    if (session == null) {
+      return;
+    }
+    OrderByCollationResolver.resolveOnTargetClass(
+        info.orderBy, info.target.getSchemaClass(session));
   }
 
   /**

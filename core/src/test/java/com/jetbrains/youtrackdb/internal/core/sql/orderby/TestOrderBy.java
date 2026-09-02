@@ -8,11 +8,26 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.Locale;
 import java.util.stream.Collectors;
-import org.junit.Ignore;
 import org.junit.Test;
 
+/**
+ * {@code ORDER BY} over text compares through the collation the property declares, and a property
+ * that declares nothing takes the default collation, which is plain code-point comparison.
+ *
+ * <p>Both tests below set the session locale to Germany and then assert an order that ignores it.
+ * The locale is kept in the fixture on purpose: it is the input that used to select a
+ * {@code java.text.Collator} for the in-memory sort, and the assertion is what pins that it no
+ * longer does. Under German collation rules {@code Ähhhh} sorts next to {@code Ahhhh}; under the
+ * default collation it sorts after {@code Zebra}, because {@code Ä} is code point 196 and {@code Z}
+ * is 90.
+ */
 public class TestOrderBy extends DbTestBase {
 
+  /**
+   * Scenario: three names, one of them accented, ordered by an unindexed property while the session
+   * declares the German locale. Expected: the in-memory sort answers plain code-point order,
+   * ascending and then descending, rather than German collation order.
+   */
   @Test
   public void testGermanOrderBy() {
     session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
@@ -20,32 +35,40 @@ public class TestOrderBy extends DbTestBase {
     session.getMetadata().getSchema().createClass("test");
 
     session.begin();
-    var res1 = session.newEntity("test");
-    res1.setProperty("name", "Ähhhh");
-    var res2 = session.newEntity("test");
-    res2.setProperty("name", "Ahhhh");
-    var res3 = session.newEntity("test");
-    res3.setProperty("name", "Zebra");
+    var accented = session.newEntity("test");
+    accented.setProperty("name", "Ähhhh");
+    var plain = session.newEntity("test");
+    plain.setProperty("name", "Ahhhh");
+    var last = session.newEntity("test");
+    last.setProperty("name", "Zebra");
     session.commit();
 
     session.begin();
     var queryRes =
         session.query("select from test order by name").stream().collect(Collectors.toList());
-    assertEquals(queryRes.get(0).getIdentity(), res2.getIdentity());
-    assertEquals(queryRes.get(1).getIdentity(), res1.getIdentity());
-    assertEquals(queryRes.get(2).getIdentity(), res3.getIdentity());
+    assertEquals(plain.getIdentity(), queryRes.get(0).getIdentity());
+    assertEquals(last.getIdentity(), queryRes.get(1).getIdentity());
+    assertEquals(accented.getIdentity(), queryRes.get(2).getIdentity());
 
     queryRes =
         session.query("select from test order by name desc ").stream().collect(Collectors.toList());
-    assertEquals(queryRes.get(0).getIdentity(), res3.getIdentity());
-    assertEquals(queryRes.get(1).getIdentity(), res1.getIdentity());
-    assertEquals(queryRes.get(2).getIdentity(), res2.getIdentity());
+    assertEquals(accented.getIdentity(), queryRes.get(0).getIdentity());
+    assertEquals(last.getIdentity(), queryRes.get(1).getIdentity());
+    assertEquals(plain.getIdentity(), queryRes.get(2).getIdentity());
     session.commit();
   }
 
-
+  /**
+   * Scenario: the same three names ordered by an indexed property, so the plan may serve the order
+   * from the index instead of sorting in memory. Expected: the same plain code-point order as the
+   * unindexed case.
+   *
+   * <p>This test was disabled because the two mechanisms disagreed. The index has always ordered
+   * text by the declared collation, while the in-memory sort used a locale collator, so whichever
+   * one the planner picked decided the answer. Both now follow the declaration, so the case is live
+   * again and pins that agreement.
+   */
   @Test
-  @Ignore
   public void testGermanOrderByIndex() {
     session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
     session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
@@ -53,22 +76,28 @@ public class TestOrderBy extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass("test");
     clazz.createProperty("name", PropertyType.STRING)
         .createIndex(INDEX_TYPE.NOTUNIQUE);
-    var res1 = session.newEntity("test");
-    res1.setProperty("name", "Ähhhh");
-    var res2 = session.newEntity("test");
-    res2.setProperty("name", "Ahhhh");
-    var res3 = session.newEntity("test");
-    res3.setProperty("name", "Zebra");
+
+    session.begin();
+    var accented = session.newEntity("test");
+    accented.setProperty("name", "Ähhhh");
+    var plain = session.newEntity("test");
+    plain.setProperty("name", "Ahhhh");
+    var last = session.newEntity("test");
+    last.setProperty("name", "Zebra");
+    session.commit();
+
+    session.begin();
     var queryRes =
         session.query("select from test order by name").stream().collect(Collectors.toList());
-    assertEquals(queryRes.get(0).getIdentity(), res2.getIdentity());
-    assertEquals(queryRes.get(1).getIdentity(), res1.getIdentity());
-    assertEquals(queryRes.get(2).getIdentity(), res3.getIdentity());
+    assertEquals(plain.getIdentity(), queryRes.get(0).getIdentity());
+    assertEquals(last.getIdentity(), queryRes.get(1).getIdentity());
+    assertEquals(accented.getIdentity(), queryRes.get(2).getIdentity());
 
     queryRes =
         session.query("select from test order by name desc ").stream().collect(Collectors.toList());
-    assertEquals(queryRes.get(0), res3);
-    assertEquals(queryRes.get(1), res1);
-    assertEquals(queryRes.get(2), res2);
+    assertEquals(accented.getIdentity(), queryRes.get(0).getIdentity());
+    assertEquals(last.getIdentity(), queryRes.get(1).getIdentity());
+    assertEquals(plain.getIdentity(), queryRes.get(2).getIdentity());
+    session.commit();
   }
 }
