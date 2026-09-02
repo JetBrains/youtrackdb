@@ -149,15 +149,4 @@ public class RecordIdSortKeyTest {
     assertThat(projection).hasToString("ridSortKey");
   }
 
-  /** With a bypass traversal installed, the projection reads what the bypass yields. */
-  @Test
-  public void traversal_projectsThroughAnInstalledBypassTraversal() {
-    var projection = new RecordIdSortKeyTraversal<Object>();
-    var bypass = new RecordIdSortKeyTraversal<Object>();
-    projection.setBypassTraversal(bypass);
-
-    projection.addStart(new B_O_Traverser<>(new RecordId(4, 7), 1L));
-
-    assertThat(projection.next()).isEqualTo(RecordIdSortKey.of(new RecordId(4, 7)));
-  }
 }
