@@ -112,6 +112,27 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertRecordIdKey(comparators.get(0).getValue0());
   }
 
+  /**
+   * A {@code by(T.id)} in a non-final position is replaced on that same slot, and no further key is
+   * appended. The token decides the whole sequence from the first slot, so leaving it there kept the
+   * class-name comparison of two identifier classes exactly where it mattered most. The record
+   * identifier key is total over an element stream by itself, which is why the property slot behind
+   * it needs no tie-break of its own.
+   */
+  @Test
+  public void apply_replacesTokenIdSortInANonFinalSlot() {
+    var admin = graph.traversal().V().order().by(T.id).by("name").asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+
+    var comparators = comparators(orderStep(admin));
+    assertThat(comparators).hasSize(2);
+    assertRecordIdKey(comparators.get(0).getValue0());
+    // The property slot behind the token has to survive the replacement.
+    assertThat(comparators.get(1).getValue0()).isInstanceOf(ValueTraversal.class);
+    assertThat(((ValueTraversal) comparators.get(1).getValue0()).getPropertyKey())
+        .isEqualTo("name");
+  }
+
   /** Replacing a descending {@code by(T.id)} keeps the descending comparator on that slot. */
   @Test
   public void apply_replacingTokenIdSortKeepsItsDirection() {
@@ -144,19 +165,25 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Two identity slots: the earlier one must keep its position while the trailing one becomes the
-   * key. This is the slot that an {@code equals}-matched replacement rewrites by mistake.
+   * Two identity slots over elements: both become the record identifier key, and each keeps the
+   * comparator of the slot it replaced. An identity slot compares elements through TinkerPop
+   * orderability wherever it sits, so leaving the earlier one in place kept the class-name
+   * comparison of two identifier classes as the primary key of the sort.
+   *
+   * <p>The directions are what pin the positional rebuild here: a replacement that rewrote one slot
+   * twice would lose the descending comparator of the first.
    */
   @Test
-  public void apply_replacesOnlyTheTrailingOfTwoIdentitySlots() {
+  public void apply_replacesBothIdentitySlotsAndKeepsTheirDirections() {
     var admin = graph.traversal().V().order().by(Order.desc).by(Order.asc).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
     var comparators = comparators(orderStep(admin));
     assertThat(comparators).hasSize(2);
-    assertThat(comparators.get(0).getValue0()).isInstanceOf(IdentityTraversal.class);
+    assertRecordIdKey(comparators.get(0).getValue0());
     assertThat(comparators.get(0).getValue1()).isEqualTo(Order.desc);
     assertRecordIdKey(comparators.get(1).getValue0());
+    assertThat(comparators.get(1).getValue1()).isEqualTo(Order.asc);
   }
 
   /** A step label on the replaced order step survives the rebuild. */

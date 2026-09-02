@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStr
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
@@ -70,9 +71,9 @@ import org.javatuples.Pair;
  *
  * <ul>
  *   <li>Order over graph elements → {@link RecordIdSortKeyTraversal}, which is the MATCH
- *       {@code @rid} order, in the direction of the item it breaks the ties of. A trailing element
- *       token or bare identity is <em>replaced</em> by it rather than followed, because both of
- *       those sort mixed identifier classes by class name.
+ *       {@code @rid} order, in the direction of the item it breaks the ties of. An element token or
+ *       bare identity is <em>replaced</em> by it rather than followed, in every position and not
+ *       only the last, because both of those sort mixed identifier classes by class name.
  *   <li>Global order over map entries after {@code group*().unfold()} → {@code by(keys)} for a
  *       scalar group key, the same record identifier key for an element group key, then
  *       {@code by(identity)} because one key can repeat across different maps in the stream.
@@ -165,35 +166,65 @@ public final class YTDBOrderRidTieBreakStrategy
   }
 
   /**
-   * A trailing element token or identity is replaced, not followed. Both of them route through
-   * TinkerPop orderability, which compares two sibling record identifier classes by class name and
-   * then by text — so a transaction-local identifier sorts as a block ahead of a committed one, and
-   * the translated arm, which compares numerically, answers a different sequence.
+   * An element token or identity is replaced, not followed, wherever it sits in the comparator list.
+   * Both of them route through TinkerPop orderability, which compares two sibling record identifier
+   * classes by class name and then by text — so a transaction-local identifier sorts as a block ahead
+   * of a committed one, and the translated arm, which compares numerically, answers a different
+   * sequence. A non-final position carries that divergence just as a trailing one does:
+   * {@code order().by(T.id).by("name")} decides the whole sequence on its first key.
+   *
+   * <p>Nothing is appended once a record identifier key sits anywhere in the list. Such a key is
+   * total over an element stream by itself, so a further key could only repeat it.
    */
+  @SuppressWarnings("rawtypes")
   private static void ensureGlobalElementSortKey(
       OrderGlobalStep<?, ?> step,
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (endsWithRecordIdSortKey(comparators)) {
+    var substituted = withElementSortKeys(comparators);
+    if (substituted != null) {
+      OrderStepModulators.replaceGlobalModulators((OrderGlobalStep) step, substituted);
+    }
+    var current = step.getComparators();
+    if (carriesRecordIdSortKey(current)) {
       return;
     }
-    if (endsWithTokenId(comparators) || endsWithIdentity(comparators)) {
-      replaceLastGlobalModulator(step, new RecordIdSortKeyTraversal<>());
-      return;
-    }
-    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(comparators));
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(current));
   }
 
+  /** The {@link #ensureGlobalElementSortKey} sibling for a local {@code order(local)} step. */
+  @SuppressWarnings("rawtypes")
   private static void ensureLocalElementTieBreak(
       OrderLocalStep<?, ?> step,
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (endsWithRecordIdSortKey(comparators)) {
+    var substituted = withElementSortKeys(comparators);
+    if (substituted != null) {
+      OrderStepModulators.replaceLocalModulators((OrderLocalStep) step, substituted);
+    }
+    var current = step.getComparators();
+    if (carriesRecordIdSortKey(current)) {
       return;
     }
-    if (endsWithTokenId(comparators) || endsWithIdentity(comparators)) {
-      replaceLastLocalModulator(step, new RecordIdSortKeyTraversal<>());
-      return;
+    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(current));
+  }
+
+  /**
+   * The modulators of {@code comparators} with every element token and every bare identity replaced
+   * by a record identifier key, or {@code null} when no slot holds one of those and the step needs no
+   * rebuild at all.
+   */
+  @Nullable @SuppressWarnings("rawtypes")
+  private static List<Admin> withElementSortKeys(
+      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
+    var modulators = OrderStepModulators.modulatorsOf(comparators);
+    var substituted = false;
+    for (var index = 0; index < modulators.size(); index++) {
+      var modulator = modulators.get(index);
+      if (isTokenId(modulator) || modulator instanceof IdentityTraversal) {
+        modulators.set(index, new RecordIdSortKeyTraversal<>());
+        substituted = true;
+      }
     }
-    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(comparators));
+    return substituted ? modulators : null;
   }
 
   /**
@@ -233,25 +264,10 @@ public final class YTDBOrderRidTieBreakStrategy
    * why a positional replacement cannot go through {@code replaceLocalChild}.
    */
   @SuppressWarnings("rawtypes")
-  private static void replaceLastGlobalModulator(OrderGlobalStep step, Admin<?, ?> modulator) {
-    OrderStepModulators.replaceGlobalModulators(
-        step, withLastReplaced(step.getComparators(), modulator));
-  }
-
-  @SuppressWarnings("rawtypes")
   private static void replaceLastLocalModulator(OrderLocalStep step, Admin<?, ?> modulator) {
-    OrderStepModulators.replaceLocalModulators(
-        step, withLastReplaced(step.getComparators(), modulator));
-  }
-
-  /** The current modulators of {@code comparators}, with the last one substituted. */
-  @SuppressWarnings("rawtypes")
-  private static List<Admin> withLastReplaced(
-      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators,
-      Admin<?, ?> modulator) {
-    var modulators = OrderStepModulators.modulatorsOf(comparators);
+    var modulators = OrderStepModulators.modulatorsOf(step.getComparators());
     modulators.set(modulators.size() - 1, modulator);
-    return modulators;
+    OrderStepModulators.replaceLocalModulators(step, modulators);
   }
 
   /**
@@ -354,7 +370,7 @@ public final class YTDBOrderRidTieBreakStrategy
     if (lastModulator instanceof RecordIdSortKeyTraversal) {
       return true;
     }
-    if (lastModulator instanceof TokenTraversal token && T.id.equals(token.getToken())) {
+    if (isTokenId(lastModulator)) {
       return true;
     }
     if (lastModulator instanceof IdentityTraversal) {
@@ -368,10 +384,19 @@ public final class YTDBOrderRidTieBreakStrategy
     return comparators.getLast().getValue0() instanceof RecordIdSortKeyTraversal;
   }
 
-  private static boolean endsWithTokenId(
+  /** Whether any slot compares record identifiers, which is already total over an element stream. */
+  private static boolean carriesRecordIdSortKey(
       List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    var last = comparators.getLast().getValue0();
-    return last instanceof TokenTraversal token && T.id.equals(token.getToken());
+    for (var slot : comparators) {
+      if (slot.getValue0() instanceof RecordIdSortKeyTraversal) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isTokenId(Admin<?, ?> modulator) {
+    return modulator instanceof TokenTraversal<?, ?> token && T.id.equals(token.getToken());
   }
 
   private static boolean endsWithIdentity(
