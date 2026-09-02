@@ -5,6 +5,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
@@ -97,6 +98,11 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var admin =
         graph
             .traversal()
+            // The productive-order rewrite is opted out of for the same reason the translator is
+            // switched off below: it wraps a traversal modulator in a coalesce, and this test
+            // reads the modulator by hand. In production the translator runs BEFORE that rewrite,
+            // so a recogniser always sees the raw modulator.
+            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
             .V()
             .outE("knows")
             .as("k")

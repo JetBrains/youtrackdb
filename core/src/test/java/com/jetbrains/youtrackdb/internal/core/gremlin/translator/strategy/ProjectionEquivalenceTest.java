@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
@@ -1193,35 +1194,46 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code order().by("age")} emits only the two vertices that carry {@code age}. Gremlin's
-   * modulator is a traversal, so an element with no {@code age} produces no value and its traverser
-   * is dropped; a plain SQL {@code ORDER BY} would keep all four and sort the missing ones as null.
+   * Under the portable opt-out, {@code order().by("age")} emits only the two vertices that carry
+   * {@code age}. Gremlin's modulator is then a filter, so an element with no {@code age} produces
+   * no value and its traverser is dropped.
+   *
+   * <p>The opt-out is explicit because the SHIPPED DEFAULT no longer drops: a global-scope order
+   * keeps the ageless element and orders it as a null key, the way YQL {@code ORDER BY} does. This
+   * case therefore pins the equivalence of the two arms under portable semantics only. The
+   * absolute rows of the default are pinned by {@code YTDBProductiveOrderByStrategyTest}.
    */
   @Test
-  public void orderByMissingKey_dropsElementLikeNative() {
+  public void orderByMissingKeyUnderPortableOptOut_dropsElementLikeNative() {
     seedAgedAndAgeless();
 
     // Ordered comparison: after the drop only Bob (25) and Alice (30) survive and their ages
     // differ, so the sorted payload is deterministic on both paths and the sort is asserted rather
     // than sorted away.
     assertEquivalentOrdered(
-        "g.V().order().by(age)",
+        "g.V().with(orderIncludesMissingKey, false).order().by(age)",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V().order().by("age"));
+        () -> graph.traversal()
+            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
+            .V().order().by("age"));
   }
 
   /**
-   * The same drop has to reach a following {@code count()}, which reads the filtered pattern rather
-   * than the projected stream: {@code order().by("age").count()} is 2, not 4.
+   * Under the same portable opt-out the drop has to reach a following {@code count()}, which reads
+   * the filtered pattern rather than the projected stream: {@code order().by("age").count()} is 2,
+   * not 4. The shipped default counts all four instead, which
+   * {@code YTDBProductiveOrderByStrategyTest} pins as an absolute value.
    */
   @Test
-  public void countAfterOrderByMissingKey_countsOnlyKeyBearers() {
+  public void countAfterOrderByMissingKeyUnderPortableOptOut_countsOnlyKeyBearers() {
     seedAgedAndAgeless();
 
     assertEquivalent(
-        "g.V().order().by(age).count()",
+        "g.V().with(orderIncludesMissingKey, false).order().by(age).count()",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V().order().by("age").count());
+        () -> graph.traversal()
+            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
+            .V().order().by("age").count());
   }
 
   /** {@code select("a").by("age")} drops the elements without {@code age} the same way. */
