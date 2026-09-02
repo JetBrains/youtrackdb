@@ -12,6 +12,9 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -37,6 +40,12 @@ import org.junit.experimental.categories.Category;
  * null property counting as the smallest value. Rows render as their identifier alone, which
  * identifies each row completely.
  *
+ * <h2>The refusal cases</h2>
+ *
+ * A refusal case carries a control query over {@code score}, whose index is always the plain
+ * single-value default-collate one. Without that control a refusal assertion would also pass for a
+ * fixture the shortcut never reached at all.
+ *
  * <p>The cap is a global setting, so this class runs in the sequential surefire execution. Left in
  * the parallel one it would lower the cap under whatever else was running at the time.
  */
@@ -51,6 +60,9 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
 
   /** The failure a buffering sort raises once the fixture outgrows the lowered cap. */
   private static final String BUFFERING_FAILURE = "in-heap ORDER BY";
+
+  /** The plan text of the index-ordered step, present whenever the shortcut applies at all. */
+  private static final String INDEX_ORDERED_STEP = "INDEX ORDERED MATCH";
 
   /**
    * Scenario: an ascending ordered query over an indexed numeric property, with no limit, whose sort
@@ -67,12 +79,13 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
         .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
     withLoweredHeapCap(() -> assertThat(orderedRowsOf(ascendingByScore()))
         .as("an accepted shape streams the scan and answers the two-item sort")
-        .isEqualTo(expectedOrder(true, false)));
+        .isEqualTo(expectedOrder("score", true, false)));
   }
 
   /**
    * Scenario: the same query over an indexed text property that declares no collation. Expected: it
-   * streams as well, because the index compares text the same way the default collation does.
+   * streams as well, because the index compares text the same way the default collation does, and
+   * the sequence equals the sort the two text items describe.
    */
   @Test
   public void ascendingIndexedTextOrder_streamsWhenNoCollationIsDeclared() {
@@ -84,8 +97,8 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
         .as("an undeclared text property compares as the index does")
         .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
     withLoweredHeapCap(() -> assertThat(orderedRowsOf(query))
-        .as("the text shape must stream every row")
-        .hasSize(SCORED_TARGETS));
+        .as("the text shape must stream and answer the two-item sort")
+        .isEqualTo(expectedOrder("name", true, false)));
   }
 
   /**
@@ -99,7 +112,7 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
 
     withLoweredHeapCap(() -> assertThat(orderedRowsOf(ascendingByScore()))
         .as("null keys sort first, in identifier order, on the scan as in the sort")
-        .isEqualTo(expectedOrder(true, false)));
+        .isEqualTo(expectedOrder("score", true, false)));
   }
 
   /**
@@ -120,21 +133,195 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
   }
 
   /**
-   * Scenario: the descending query narrowed by a filter that keeps only rows where the ordered
-   * property is defined — which is what the Gremlin translation states for every property sort.
-   * Expected: the appended item is accepted again, because no null key can reach the answer.
+   * Scenario: the descending query narrowed by {@code IS DEFINED} on the ordered property — the
+   * conjunct the Gremlin translation states for every property sort it emits — over a fixture that
+   * holds a row whose property is stored as an explicit null. Expected: refusal all the same.
+   *
+   * <p>{@code IS DEFINED} is the entity-layer presence test, so the explicit-null row passes it and
+   * still sits in the index's null-key group. That group is scanned in ascending identifier order
+   * whichever direction the scan runs, so a descending sort over it is not what the scan produces.
+   * The fixture pins the premise: the presence filter counts the explicit-null row.
    */
   @Test
-  public void descendingOrder_streamsWhenTheFilterExcludesNullKeys() {
-    seedTargets(5);
+  public void descendingOrder_refusesWhileTheFilterOnlyStatesPresence() {
+    seedTargets(0);
+    session.begin();
+    session.execute("UPDATE Tgt SET score = null WHERE name = 'n0'").close();
+    session.commit();
 
+    assertThat(countOf("SELECT count(*) AS c FROM Tgt WHERE score IS DEFINED AND score IS NULL"))
+        .as("the presence filter must count the explicit-null rows, or the refusal has no premise")
+        .isPositive();
     var query = "MATCH {class: Src, as: s}.out('LINK')"
         + "{class: Tgt, as: m, where: (score is defined)} RETURN m"
         + " ORDER BY m.score DESC, m.@rid DESC";
+    assertThat(planText(query))
+        .as("a presence filter leaves the null-key group in the answer, so the scan cannot claim it")
+        .doesNotContain(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+    assertBuffers(() -> orderedRowsOf(query));
+  }
+
+  /**
+   * Scenario: the descending query narrowed by {@code IS NOT NULL} on the ordered property.
+   * Expected: the appended item is accepted, because that filter removes the whole null-key group
+   * from the answer — the absent rows and the explicit-null ones alike.
+   */
+  @Test
+  public void descendingOrder_streamsWhenTheFilterExcludesNullValues() {
+    seedTargets(5);
+
+    var query = "MATCH {class: Src, as: s}.out('LINK')"
+        + "{class: Tgt, as: m, where: (score is not null)} RETURN m"
+        + " ORDER BY m.score DESC, m.@rid DESC";
     assertThat(planText(query)).contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
     withLoweredHeapCap(() -> assertThat(orderedRowsOf(query))
-        .as("with null keys filtered out the descending scan is the sort")
-        .isEqualTo(expectedOrder(false, true)));
+        .as("with null values filtered out the descending scan is the sort")
+        .isEqualTo(expectedOrder("score", false, true)));
+  }
+
+  /**
+   * Scenario: the descending query over an index built to ignore null keys, with every row carrying
+   * the property. Expected: acceptance, because such an index stores no null key at all and the
+   * whole sorted tree is what the scan walks.
+   */
+  @Test
+  public void descendingOrder_streamsWhenTheIndexIgnoresNullValues() {
+    seedTargets(0, target -> {
+      target.createProperty("score", PropertyType.INTEGER)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE, Map.of("ignoreNullValues", true));
+      target.createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    });
+
+    assertThat(planText(descendingByScore()))
+        .as("an index that stores no null key has no group outside its sorted tree")
+        .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+    withLoweredHeapCap(() -> assertThat(orderedRowsOf(descendingByScore()))
+        .as("the descending scan of a null-free index is the sort")
+        .isEqualTo(expectedOrder("score", false, false)));
+  }
+
+  /**
+   * Scenario: a sort over a property the schema declares case-insensitive, with and without a limit.
+   * Expected: the shortcut is refused outright — no index-ordered step at all — while the control
+   * sort over the default-collate property still takes it.
+   *
+   * <p>The index stores the folded key alone, so {@code Ada} and {@code ada} share one key and come
+   * back in identifier order, while the comparison separates them by the raw values. No scan of that
+   * index reproduces the comparison, with one sort item or two.
+   */
+  @Test
+  public void declaredCaseInsensitiveProperty_refusesTheShortcut() {
+    seedTargets(0, target -> {
+      target.createProperty("score", PropertyType.INTEGER)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      target.createProperty("name", PropertyType.STRING)
+          .setCollate("ci")
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    });
+
+    assertThat(planText(ascendingByScore()))
+        .as("the control sort must still reach the shortcut, or the refusals below are vacuous")
+        .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+    assertThat(planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
+        + " ORDER BY m.name ASC, m.@rid ASC"))
+        .as("a declared collation refuses the two-item sort")
+        .doesNotContain(INDEX_ORDERED_STEP);
+    assertThat(planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
+        + " ORDER BY m.name ASC LIMIT 5"))
+        .as("a declared collation refuses the single-item sort as well")
+        .doesNotContain(INDEX_ORDERED_STEP);
+  }
+
+  /**
+   * Scenario: an index that states a collation of its own while the property it indexes declares
+   * none. Expected: the shortcut is refused, because the sort item compares with the default
+   * collation and the stored keys are folded, so the scan sequence is not the comparison sequence.
+   */
+  @Test
+  public void indexCollationDifferingFromTheProperty_refusesTheShortcut() {
+    seedTargets(0, target -> {
+      target.createProperty("score", PropertyType.INTEGER)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      target.createProperty("name", PropertyType.STRING);
+      session.execute("CREATE INDEX Tgt.nameCi ON Tgt (name COLLATE ci) NOTUNIQUE").close();
+    });
+
+    assertThat(planText(ascendingByScore()))
+        .as("the control sort must still reach the shortcut, or the refusal below is vacuous")
+        .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+    assertThat(planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
+        + " ORDER BY m.name ASC, m.@rid ASC"))
+        .as("the collation of the matched index decides, not only the property declaration")
+        .doesNotContain(INDEX_ORDERED_STEP);
+  }
+
+  /**
+   * Scenario: a sort over an indexed collection property. Expected: refusal, because such an index
+   * writes one entry per element, so its scan sequence is an element sequence and one row comes back
+   * once per element it holds.
+   */
+  @Test
+  public void collectionValuedIndex_refusesTheShortcut() {
+    seedTargets(0, target -> {
+      target.createProperty("score", PropertyType.INTEGER)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      target.createProperty("name", PropertyType.STRING);
+      target.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    });
+
+    assertThat(planText(ascendingByScore()))
+        .as("the control sort must still reach the shortcut, or the refusal below is vacuous")
+        .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+    assertThat(planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
+        + " ORDER BY m.tags ASC, m.@rid ASC"))
+        .as("a collection index reports one property but writes one entry per element")
+        .doesNotContain(INDEX_ORDERED_STEP);
+  }
+
+  /**
+   * Scenario: a pattern whose later edge reads {@code $matched}, which forces every upstream alias to
+   * stay bound in the emitted row. Expected: the plan reaches a bound multi-source mode and refuses
+   * the appended item there, because a bound mode emits one row per source per target and two rows
+   * sharing a target tie on both sort items.
+   *
+   * <p>The chain shape pins the schedule: the later edge starts at {@code m}, so it cannot be
+   * scheduled before the edge that reaches {@code m}.
+   */
+  @Test
+  public void boundMultiSourceMode_refusesTheAppendedItem() {
+    seedTargets(0);
+    session.createVertexClass("Oth");
+    session.createEdgeClass("OTHER");
+    var target = graph.traversal().V().hasLabel("Tgt").next();
+    target.addEdge("OTHER", graph.addVertex(T.label, "Oth", "tag", "other"));
+    graph.tx().commit();
+
+    var plan = planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m}"
+        + ".out('OTHER'){class: Oth, as: o, where: ($matched.s.@rid is not null)} RETURN m"
+        + " ORDER BY m.score ASC, m.@rid ASC");
+    assertThat(plan)
+        .as("the shape must land in a bound mode, or the refusal below is about something else")
+        .contains(IndexOrderedPlanner.MultiSourceMode.UNFILTERED_BOUND.name());
+    assertThat(plan)
+        .as("a bound mode ties two rows that share a target, so the two items are not a total order")
+        .doesNotContain(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+  }
+
+  /**
+   * Scenario: an appended record identifier item naming the source alias rather than the ordered
+   * one. Expected: refusal, because the scan orders the targets and the identifier of another alias
+   * is not what it produces.
+   */
+  @Test
+  public void appendedItemOfAnotherAlias_refusesTheAppendedItem() {
+    seedTargets(0);
+
+    assertThat(planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
+        + " ORDER BY m.score ASC, s.@rid ASC"))
+        .as("the identifier of an unordered alias must keep the refusal")
+        .doesNotContain(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
   }
 
   /**
@@ -148,22 +335,23 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
 
     withLoweredHeapCap(() -> assertThat(orderedTargets(() -> targets().order().by("score")))
         .as("the translated ascending traversal must stream")
-        .isEqualTo(expectedOrder(true, true)));
+        .isEqualTo(expectedOrder("score", true, true)));
   }
 
   /**
-   * Scenario: the descending sibling of the translated ascending case. Expected: it streams too. The
-   * translation states that the ordered property is defined, so the null-key group is excluded and
-   * the descending scan describes the sort exactly.
+   * Scenario: the descending sibling of the translated ascending case. Expected: it buffers, and it
+   * still answers the two-item sort. The translation states presence of the ordered property, and
+   * presence leaves an explicit-null row inside the null-key group, so a descending scan cannot
+   * claim that group — the sort has to run.
    */
   @Test
-  public void translatedDescendingTraversal_streamsUnderTheLoweredCap() {
+  public void translatedDescendingTraversal_buffersUnderTheLoweredCap() {
     seedTargets(0);
 
-    withLoweredHeapCap(
-        () -> assertThat(orderedTargets(() -> targets().order().by("score", Order.desc)))
-            .as("the translated descending traversal must stream")
-            .isEqualTo(expectedOrder(false, true)));
+    assertBuffers(() -> orderedTargets(() -> targets().order().by("score", Order.desc)));
+    assertThat(orderedTargets(() -> targets().order().by("score", Order.desc)))
+        .as("the buffered sort must answer the two-item order")
+        .isEqualTo(expectedOrder("score", false, true));
   }
 
   /**
@@ -181,7 +369,7 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
     assertBuffers(() -> orderedTargets(() -> targets().order().by("score")));
     assertThat(orderedTargets(() -> targets().order().by("score")))
         .as("the buffered sort must answer the two-item order, the pending row included")
-        .isEqualTo(expectedOrder(true, true));
+        .isEqualTo(expectedOrder("score", true, true));
     graph.tx().rollback();
   }
 
@@ -210,7 +398,7 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
     seedTargets(0);
 
     var query = "MATCH {class: Src, as: s}.out('LINK')"
-        + "{class: Tgt, as: m, where: (score is defined)} RETURN m"
+        + "{class: Tgt, as: m, where: (score is not null)} RETURN m"
         + " ORDER BY m.score DESC, m.@rid ASC";
     assertThat(planText(query))
         .as("an ascending appended item does not describe a descending scan")
@@ -289,6 +477,13 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
     }
   }
 
+  /** The single {@code c} count of an aggregate query. */
+  private long countOf(String query) {
+    try (var result = session.query(query)) {
+      return result.next().<Number>getProperty("c").longValue();
+    }
+  }
+
   /** The identifier of every row's {@code m} column, in arrival order. */
   private List<String> orderedRowsOf(String query) {
     var rows = new ArrayList<String>();
@@ -307,32 +502,44 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
   }
 
   /**
-   * The sequence the two sort items describe, computed here from the stored rows: the property with
-   * a null counting as the smallest value, then the identifier, with {@code ascending} applied to
-   * both. {@code definedOnly} drops the rows without the property, which is what a Gremlin
-   * {@code by(key)} modulator and an {@code IS DEFINED} filter both do.
+   * The sequence the two sort items describe, computed here from the stored rows: {@code
+   * propertyName} with an absent value counting as the smallest, then the identifier, with {@code
+   * ascending} applied to both. {@code definedOnly} drops the rows without the property, which is
+   * what a Gremlin {@code by(key)} modulator and a null-excluding filter both do.
    *
    * <p>Rows are read through the graph rather than through a second session, so an uncommitted row
    * of the running transaction is part of the oracle.
    */
-  private List<String> expectedOrder(boolean ascending, boolean definedOnly) {
+  private List<String> expectedOrder(
+      String propertyName, boolean ascending, boolean definedOnly) {
     var rows = new ArrayList<Object[]>();
     for (var vertex : graph.traversal().V().hasLabel("Tgt").toList()) {
-      var score = vertex.<Integer>property("score").orElse(null);
-      if (definedOnly && score == null) {
+      var value = vertex.property(propertyName).isPresent()
+          ? vertex.<Object>value(propertyName)
+          : null;
+      if (definedOnly && value == null) {
         continue;
       }
-      rows.add(new Object[] {score, vertex.id()});
+      rows.add(new Object[] {value, vertex.id()});
     }
-    Comparator<Object[]> byScore =
-        Comparator.comparing(
-            row -> (Integer) row[0], Comparator.nullsFirst(Comparator.naturalOrder()));
-    @SuppressWarnings("unchecked")
-    Comparator<Object[]> byIdentifier =
-        Comparator.comparing(row -> (Comparable<Object>) row[1]);
-    var comparator = byScore.thenComparing(byIdentifier);
+    Comparator<Object[]> comparator =
+        Comparator.<Object[], Object>comparing(row -> row[0],
+            IndexOrderedRidTieBreakTest::compareNullsFirst)
+            .thenComparing(row -> row[1], IndexOrderedRidTieBreakTest::compareNullsFirst);
     rows.sort(ascending ? comparator : comparator.reversed());
     return rows.stream().map(row -> row[1].toString()).toList();
+  }
+
+  /** Natural order with a null counting as the smallest value, over any stored value class. */
+  @SuppressWarnings("unchecked")
+  private static int compareNullsFirst(@Nullable Object left, @Nullable Object right) {
+    if (left == null) {
+      return right == null ? 0 : -1;
+    }
+    if (right == null) {
+      return 1;
+    }
+    return ((Comparable<Object>) left).compareTo(right);
   }
 
   /**
@@ -341,11 +548,22 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
    * repeat on purpose: an untied sort key would leave the appended item unobservable.
    */
   private void seedTargets(int withoutScore) {
+    seedTargets(withoutScore, target -> {
+      target.createProperty("score", PropertyType.INTEGER)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      target.createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    });
+  }
+
+  /**
+   * The same fixture with {@code declare} deciding what the target class declares and indexes. Every
+   * refusal case declares the plain {@code score} index unchanged, so the control query over it
+   * proves the shape reaches the shortcut at all.
+   */
+  private void seedTargets(int withoutScore, Consumer<SchemaClass> declare) {
     var target = session.createVertexClass("Tgt");
-    target.createProperty("score", PropertyType.INTEGER)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    target.createProperty("name", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    declare.accept(target);
     session.createVertexClass("Src");
     session.createEdgeClass("LINK");
 

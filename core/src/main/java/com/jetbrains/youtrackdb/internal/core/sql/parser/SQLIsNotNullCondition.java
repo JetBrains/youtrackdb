@@ -98,6 +98,15 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
     return Collections.emptyList();
   }
 
+  /**
+   * The operand this condition tests, as {@code SQLIsDefinedCondition} and {@code SQLIsNullCondition}
+   * already expose theirs. Read by the MATCH index-ordered planner, which has to tell a filter that
+   * excludes a null value from one that merely requires the property to be present.
+   */
+  public SQLExpression getExpression() {
+    return expression;
+  }
+
   @Override
   public boolean needsAliases(Set<String> aliases) {
     return expression.needsAliases(aliases);

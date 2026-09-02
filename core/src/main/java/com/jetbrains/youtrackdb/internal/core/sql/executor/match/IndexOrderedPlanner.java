@@ -1,9 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -13,7 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
@@ -163,8 +166,12 @@ final class IndexOrderedPlanner {
    *   <li>The ORDER BY field resolves (through RETURN projection aliases) to
    *       {@code <alias>.<property>} where {@code <alias>} is a pattern alias</li>
    *   <li>The alias is the target of a simple (non-WHILE) edge in the schedule</li>
-   *   <li>An index exists on the target alias's class for that property, and that index does
-   *       not ignore null values</li>
+   *   <li>An index exists on the target alias's class for that property, it carries the default
+   *       collate, its definition holds a single value rather than a collection, and it does not
+   *       ignore null values — so the scan sequence equals the comparison sequence and keeps
+   *       key-less rows</li>
+   *   <li>The ORDER BY item compares with the default collation too, stating none of its own and
+   *       declaring none in the schema</li>
    *   <li>The edge traversal method is directional ({@code in()} or {@code out()},
    *       not {@code both()})</li>
    * </ol>
@@ -177,12 +184,17 @@ final class IndexOrderedPlanner {
       List<EdgeTraversal> sortedEdges,
       CommandContext context,
       Map<String, Long> estimatedRootEntries) {
-    // 1. ORDER BY must have at least one item; first item must have no collate
+    // 1. ORDER BY must have at least one item, and that item must compare the way the index
+    //    compares its keys: with the default collation. A stated COLLATE clause and a collation the
+    //    property declares are both refused, because the index stores the collated key alone. Under
+    //    the case-insensitive collation, for instance, "Ada" and "ada" share one stored key, so the
+    //    scan hands that group back in identifier order while the comparison separates it by the
+    //    raw values — a sequence no scan of that index reproduces.
     if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
       return null;
     }
     var orderItem = orderBy.getItems().getFirst();
-    if (orderItem.getCollate() != null) {
+    if (orderItem.getCollate() != null || !isDefaultCollate(orderItem.getDeclaredCollate())) {
       return null;
     }
 
@@ -330,6 +342,19 @@ final class IndexOrderedPlanner {
     if (matchedIndex == null) {
       return null;
     }
+    // 8a. The index must scan in the sequence the ORDER BY comparison describes.
+    //     Two definitions break that:
+    //     - A collate of its own. CREATE INDEX ... (name COLLATE ci) states one independently of the
+    //       property, so the sort item can resolve to the default collation while the stored keys
+    //       are folded. The scan order is then not the comparison order at all.
+    //     - A multi-value definition (a list, a set, a map, a link bag). It reports one property but
+    //       writes one entry per element, so the scan sequence is an element sequence and not a row
+    //       sequence, and one row comes back once per element.
+    var matchedDefinition = matchedIndex.getDefinition();
+    if (!isDefaultCollate(matchedDefinition.getCollate())
+        || matchedDefinition instanceof IndexDefinitionMultiValue) {
+      return null;
+    }
 
     // 9. Determine multi-source mode (null = single-source).
     // Single-source is safe when the source is guaranteed to produce exactly 1 row:
@@ -441,8 +466,7 @@ final class IndexOrderedPlanner {
     // acceptsRidTieBreak for the conditions that make that claim true.
     var ridTieBreakAccepted =
         acceptsRidTieBreak(
-            orderItem, targetAlias, propertyName, matchedIndex, multiSourceMode, orderAsc,
-            targetFilter);
+            targetAlias, propertyName, matchedIndex, multiSourceMode, orderAsc, targetFilter);
     var multiFieldOrderBy = orderBy.getItems().size() > 1 && !ridTieBreakAccepted;
 
     // 11. Reject when target WHERE uses $matched or $currentMatch.
@@ -499,15 +523,14 @@ final class IndexOrderedPlanner {
    *       identifier of another alias, is not what the scan orders by.
    *   <li>The item direction equals the scan direction, because equal keys come back in scan
    *       direction and the mirrored appended item is the only one that describes them.
-   *   <li>The primary item is the indexed property itself and compares with the default collation,
-   *       which is what the index key comparison reproduces. A stated {@code COLLATE} clause is
-   *       already refused for the primary item; a declared collation is refused here.
+   *   <li>The primary item is the indexed property itself. Its comparison rule and the index key
+   *       comparison are both the default collation, which {@link #detect} has already established
+   *       for the whole candidate.
    *   <li>A descending scan reaches no null key. Null keys live outside the sorted tree and are
    *       concatenated ascending at whichever end the direction asks for, so an ascending scan
    *       delivers that group exactly as the sort wants it while a descending scan would hand it
-   *       back in ascending identifier order. Two things rule the group out: an index that ignores
-   *       null keys, and a target filter that requires the ordered property to be defined — which is
-   *       what the Gremlin translation states for every property sort it emits.
+   *       back in ascending identifier order. Two things rule the group out: an index that stores no
+   *       null key, and a target filter that keeps only rows whose ordered property is not null.
    *   <li>The row projects the ordered alias alone, so the two items are a total order over what
    *       the caller receives, and no deduplication step follows.
    *   <li>The mode binds no second alias. A bound mode emits one row per source per target, so
@@ -521,7 +544,6 @@ final class IndexOrderedPlanner {
    * Both are run-time facts, and a plan is cached across executions.
    */
   private boolean acceptsRidTieBreak(
-      SQLOrderByItem orderItem,
       String targetAlias,
       String propertyName,
       Index matchedIndex,
@@ -535,12 +557,9 @@ final class IndexOrderedPlanner {
     if (!isRecordIdItemOf(items.get(1), targetAlias, orderAsc)) {
       return false;
     }
-    // The primary item must be the indexed property compared the way the index compares it. The
-    // collation of the item was resolved once per plan build by the planner, so it is read here
-    // rather than resolved a second time.
-    if (!propertyName.equals(indexedPropertyName(matchedIndex))
-        || orderItem.getCollate() != null
-        || orderItem.getDeclaredCollate() != null) {
+    // The primary item must be the indexed property itself. Its collation and the index collate are
+    // both pinned to the default one by detect, so no collation is re-checked here.
+    if (!propertyName.equals(indexedPropertyName(matchedIndex))) {
       return false;
     }
     if (!orderAsc && !nullKeysExcluded(matchedIndex, propertyName, targetFilter)) {
@@ -557,9 +576,13 @@ final class IndexOrderedPlanner {
   /**
    * Whether the scan can hand back a null key at all. The null-key group is stored outside the
    * sorted tree and is always iterated in ascending identifier order, so a descending scan would
-   * place it correctly (last) but order it wrongly inside. Either an index that stores no null key,
-   * or a target filter that keeps only rows where the ordered property is defined, removes the group
-   * from the answer.
+   * place it correctly (last) but order it wrongly inside. Two things rule it out: an index that
+   * stores no null key, and a target filter that keeps only rows whose ordered property is not null.
+   *
+   * <p>A presence condition is <em>not</em> one of them. {@code IS DEFINED} is the entity-layer
+   * {@code hasProperty} test, and a property explicitly stored as {@code null} is present, so such a
+   * row passes the filter and still lands in the null-key group. That is why the Gremlin
+   * translation's {@code IS DEFINED} conjunct no longer buys a descending scan.
    */
   private static boolean nullKeysExcluded(
       Index index, String propertyName, @Nullable SQLWhereClause targetFilter) {
@@ -568,36 +591,44 @@ final class IndexOrderedPlanner {
       return true;
     }
     return targetFilter != null
-        && requiresDefined(targetFilter.getBaseExpression(), propertyName);
+        && requiresNotNull(targetFilter.getBaseExpression(), propertyName);
   }
 
   /**
-   * Whether {@code expr} keeps only rows whose {@code propertyName} is defined. Recognises the
-   * {@code <property> IS DEFINED} conjunct the Gremlin translation emits, at the top level or inside
-   * an AND block, and the wrapper nodes the parser leaves around it. Every other shape answers
-   * {@code false}, which only costs the shortcut.
+   * Whether {@code expr} keeps only rows whose {@code propertyName} holds a value other than
+   * {@code null}. Recognises {@code <property> IS NOT NULL} at the top level or inside an AND block,
+   * plus the wrapper nodes the parser leaves around it. Every other shape answers {@code false},
+   * which only costs the shortcut.
    */
-  private static boolean requiresDefined(
+  private static boolean requiresNotNull(
       @Nullable SQLBooleanExpression expr, String propertyName) {
-    if (expr instanceof SQLIsDefinedCondition defined) {
-      return propertyName.equals(extractSimpleFieldName(defined.getExpression()));
+    if (expr instanceof SQLIsNotNullCondition notNull) {
+      return propertyName.equals(extractSimpleFieldName(notNull.getExpression()));
     }
     if (expr instanceof SQLAndBlock andBlock) {
       for (var sub : andBlock.getSubBlocks()) {
-        if (requiresDefined(sub, propertyName)) {
+        if (requiresNotNull(sub, propertyName)) {
           return true;
         }
       }
       return false;
     }
     if (expr instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
-      return requiresDefined(notBlock.getSub(), propertyName);
+      return requiresNotNull(notBlock.getSub(), propertyName);
     }
     // A single-branch OR is a parser wrapper rather than a disjunction.
     if (expr instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
-      return requiresDefined(orBlock.getSubBlocks().getFirst(), propertyName);
+      return requiresNotNull(orBlock.getSubBlocks().getFirst(), propertyName);
     }
     return false;
+  }
+
+  /**
+   * Whether {@code collate} is the plain default comparison — which {@code null} also means, because
+   * an unresolved sort item and an undeclared property both compare that way.
+   */
+  private static boolean isDefaultCollate(@Nullable Collate collate) {
+    return collate == null || DefaultCollate.NAME.equals(collate.getName());
   }
 
   /** Whether {@code item} is {@code <alias>.@rid} in the direction the scan runs. */
