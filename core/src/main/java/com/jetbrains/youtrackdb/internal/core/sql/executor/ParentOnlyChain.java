@@ -6,7 +6,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSuffixIdentifier;
+import java.util.Locale;
 import javax.annotation.Nullable;
 
 /**
@@ -40,13 +42,17 @@ import javax.annotation.Nullable;
  *       {@code .anyProperty}), or
  *   <li>a single-index bracket modifier ({@code [0]}, {@code ['key']}, {@code [:param]}) whose
  *       index is a literal number, a literal string, a bind parameter, or itself a
- *       {@code $parent}-rooted chain.
+ *       {@code $parent}-rooted chain, or
+ *   <li>a terminal record-attribute suffix ({@code .@rid}, {@code .@class}, and the other names
+ *       handled by {@link SQLRecordAttribute#evaluate} on a handed-down target). A further link
+ *       after a record attribute is rejected.
  * </ul>
  *
- * <p>An admitted chain is safe in today's callers, which are all LET-hosted correlated subqueries.
- * Any future widening of this gate, and any new caller, must re-examine that safety rather than
- * assume it. For why a LET-hosted subquery is safe, read {@code LetQueryStep.java:100-104}, which
- * is the authoritative ground truth.
+ * <p>An admitted chain is inner-row-independent: evaluated once with a {@code null} current record,
+ * its value does not depend on which inner row the surrounding query is processing. Known callers
+ * today include LET-hosted correlated subqueries. Any future widening of this gate, and any new
+ * caller, must re-examine that independence rather than assume it. For the LET hosting contract,
+ * read {@code LetQueryStep.java:100-104}.
  *
  * <h2>Rejected, with no exception</h2>
  *
@@ -67,8 +73,8 @@ import javax.annotation.Nullable;
  *       expression evaluated per element and can read anything. A range selector and a right
  *       binary condition are simply not proven safe here.
  *   <li><b>Any identifier not reachable from the {@code $parent} root</b> — a bare property name,
- *       {@code @this}, a record attribute, {@code *}, or a {@code $current} that is not preceded by
- *       {@code $parent}. These read the current record by definition.
+ *       {@code @this}, a non-terminal record attribute, {@code *}, or a {@code $current} that is
+ *       not preceded by {@code $parent}. These read the current record by definition.
  *   <li><b>Arithmetic and boolean composition</b> ({@code $parent.a + 1},
  *       {@code $parent.a || $parent.b}), a {@code CASE} expression, a JSON literal, a RID literal,
  *       and the {@code null} / {@code true} / {@code false} literals: none of them is a chain, so
@@ -91,8 +97,8 @@ final class ParentOnlyChain {
 
   /**
    * Returns whether {@code expression} is a {@code $parent}-rooted chain as defined by this class.
-   * Such an expression may be evaluated once with a {@code null} current record without changing
-   * the rows a scan plus filter would return.
+   * Such an expression may be evaluated once with a {@code null} current record without reading
+   * the inner row's identity.
    *
    * @param expression the right-hand side of the RID equality, possibly {@code null}
    * @return {@code true} when the expression is admitted by the whitelist
@@ -191,8 +197,16 @@ final class ParentOnlyChain {
     }
     var suffix = link.getSuffix();
     if (suffix != null) {
-      // `.name` — a dotted property step, never bracketed.
-      return !ParentChainAstAccess.hasSquareBrackets(link) && isPlainIdentifier(suffix);
+      if (ParentChainAstAccess.hasSquareBrackets(link)) {
+        return false;
+      }
+      if (isPlainIdentifier(suffix)) {
+        return true;
+      }
+      // `.@rid` and the other record-metadata suffixes read the handed-down target only.
+      return link.getNext() == null
+          && isRecordAttributeSuffix(suffix)
+          && isAllowedRecordAttribute(suffix.getRecordAttribute());
     }
     var indexes = ParentChainAstAccess.arraySingleValues(link);
     if (indexes != null) {
@@ -264,5 +278,34 @@ final class ParentOnlyChain {
     return suffix.getIdentifier() != null
         && suffix.getRecordAttribute() == null
         && !suffix.isStar();
+  }
+
+  /**
+   * Returns whether {@code suffix} is a record-attribute step with no plain identifier or wildcard.
+   *
+   * @param suffix the suffix to classify
+   * @return {@code true} for shapes such as {@code .@rid}
+   */
+  private static boolean isRecordAttributeSuffix(SQLSuffixIdentifier suffix) {
+    return suffix.getRecordAttribute() != null
+        && suffix.getIdentifier() == null
+        && !suffix.isStar();
+  }
+
+  /**
+   * Returns whether {@code attribute} names metadata that {@link SQLRecordAttribute#evaluate} reads
+   * from the handed-down target without consulting the inner row.
+   *
+   * @param attribute the record attribute of a terminal chain link
+   * @return {@code true} for the built-in record metadata names
+   */
+  private static boolean isAllowedRecordAttribute(@Nullable SQLRecordAttribute attribute) {
+    if (attribute == null || attribute.getName() == null) {
+      return false;
+    }
+    return switch (attribute.getName().toLowerCase(Locale.ROOT)) {
+      case "@rid", "@class", "@version", "@type", "@size", "@raw" -> true;
+      default -> false;
+    };
   }
 }

@@ -245,14 +245,22 @@ public class ParentOnlyChainTest {
   }
 
   /**
-   * A record attribute used as a chain link is rejected. It is not a plain identifier, and the
-   * whitelist admits only node shapes it has proven safe rather than everything that happens to
-   * look harmless.
+   * A terminal record-attribute suffix is accepted when it reads metadata from the handed-down
+   * target only. A non-terminal record attribute or an unknown attribute name is rejected.
    */
   @Test
-  public void recordAttributeInChain_isRejected() {
-    assertRejected("$parent.$current.@rid");
-    assertRejected("$parent.$current.ref.@class");
+  public void recordAttributeInChain_terminalMetadata_isAccepted() {
+    assertAccepted("$parent.$current.@rid");
+    assertAccepted("$parent.$current.ref.@class");
+  }
+
+  /**
+   * A record-attribute suffix followed by another link is rejected. The follow-on step would read
+   * a property of the attribute value, which this whitelist has not proven safe.
+   */
+  @Test
+  public void recordAttributeInChain_nonTerminal_isRejected() {
+    assertRejected("$parent.$current.@rid.name");
   }
 
   /**
