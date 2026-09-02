@@ -2358,8 +2358,8 @@ public class SelectExecutionPlanner {
     // excludes it so those queries fall through to scan + filter after the LET.
     // Correlated `$parent` equality is the other non-plan-time case: the RID is known per
     // parent row at execution, so FetchFromCorrelatedRidStep evaluates it then instead of
-    // scanning the class. IN-lists that refer to $parent stay on the scan path — the
-    // correlated step loads a single identity, not a list.
+    // scanning the class. The fetch is LET-hosted only ({@code LetQueryStep},
+    // {@code MaterializedLetGroupStep}). IN-lists that refer to $parent stay on the scan path.
     //
     // The gate is ParentOnlyChain.isParentOnlyChain, a closed syntactic whitelist, and NOT
     // SQLExpression.refersToParent(). refersToParent() is existential — it fires when a $parent
@@ -2370,7 +2370,9 @@ public class SelectExecutionPlanner {
     // other callers rely on the existential meaning.
     var ridExpression = extraction.ridExpression();
     if (!ridExpression.isPlanTimeResolvable(ctx)) {
-      if (fromEquality && ParentOnlyChain.isParentOnlyChain(ridExpression)) {
+      if (fromEquality
+          && ctx.isLetHostedCorrelatedRidFetch()
+          && ParentOnlyChain.isParentOnlyChain(ridExpression)) {
         var classCollectionIds =
             resolveClassToCollectionIds(queryTarget.getStringValue(), plan);
         if (classCollectionIds == null) {
@@ -3748,6 +3750,9 @@ public class SelectExecutionPlanner {
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(ctx.getDatabaseSession());
     subCtx.setParent(ctx);
+    if (ctx.isLetHostedCorrelatedRidFetch()) {
+      subCtx.setLetHostedCorrelatedRidFetch(true);
+    }
     var subExecutionPlan =
         subQuery.createExecutionPlan(subCtx, profilingEnabled);
     plan.chain(new SubQueryStep(subExecutionPlan, ctx, subCtx, profilingEnabled));

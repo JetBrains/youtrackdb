@@ -460,13 +460,11 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
   }
 
   /**
-   * A syntactically-valid RID string with an out-of-range collection id ({@code '#-3:0'})
-   * makes {@code RecordIdInternal.fromString} throw a {@code DatabaseException} — a
-   * {@code RuntimeException} that is NOT an {@code IllegalArgumentException}. The fast path
-   * must still return empty, not throw: parity with the scan path, whose
-   * {@code QueryOperatorEquals} swallows every conversion failure. This locks the catch in
-   * {@code toRecordIdCandidate} at {@code RuntimeException} — narrowing it to
-   * {@code IllegalArgumentException} would let this input throw at plan time.
+   * A syntactically valid RID string whose collection id is below {@link Short#MIN_VALUE} makes
+   * {@code RecordIdInternal.fromString} throw a {@code DatabaseException}. The plan-time
+   * {@code toRecordIdCandidate} path catches every {@code RuntimeException} and drops the
+   * candidate, so the fast path chains {@code EmptyStep} and returns empty — parity with scan
+   * plus filter, which also yields no rows.
    */
   @Test
   public void ridEqualsOutOfRangeCollectionString_returnsEmptyNoThrow() {
@@ -476,7 +474,7 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     session.newInstance(className).setProperty("tag", "real");
     session.commit();
 
-    var sql = "select from " + className + " where @rid = '#-3:0'";
+    var sql = "select from " + className + " where @rid = '#-40000:0'";
     var plan = explainPlan(sql);
     Assert.assertFalse(
         "an out-of-range @rid must compile to EmptyStep, not a class scan, plan was: " + plan,
@@ -1661,23 +1659,14 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
   }
 
   /**
-   * Gate whitelist, accept, plan selection only: a bare parent row reference
-   * {@code @rid = $parent.$current} is a chain rooted at {@code $parent} whose single link is a
-   * plain identifier, so the gate must keep the correlated fetch.
-   *
-   * <p>KNOWN GAP, deliberately not asserted. {@code $parent.$current} evaluates to a
-   * {@code Result}, and {@code SelectExecutionPlanner.toRecordIdCandidate} has no {@code Result}
-   * case, so the fast path returns no rows today while the class scan plus filter returns one.
-   * This test therefore asserts plan selection and nothing else. Row parity for a
-   * {@code Result}-valued right side is the acceptance condition of the value-domain track, which
-   * owns the coercion. No assertion here pins the current zero-row outcome, because pinning a
-   * defect would make the fix look like a regression.
+   * {@code @rid = $parent.$current} evaluates to an identifiable {@code Result}; the
+   * identifier-set fetch must return the parent row itself.
    */
   @Test
   public void correlatedRidBareParentRow_selectsCorrelatedRidPlanOnly() {
     var className = createClassInstance().getName();
     session.begin();
-    session.newInstance(className).setProperty("tag", "a");
+    session.newInstance(className).setProperty("tag", "self");
     session.commit();
 
     var sql = "SELECT $self as self FROM " + className
@@ -1689,6 +1678,14 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         "$parent.$current is a parent-rooted chain, so the gate must keep the correlated fetch, "
             + "plan was: " + plan,
         plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "self",
+          singleLetProperty(result.next().getProperty("self"), "tag"));
+      Assert.assertFalse(result.hasNext());
+    }
   }
 
   /**
@@ -1975,6 +1972,92 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
           Set.of("self"),
           letTags(result.next().getProperty("info")));
       Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Correlated fetch is LET-hosted only. A projection subquery is not LET-hosted, so a
+   * parent-only chain must fall through to the class scan even though the whitelist admits the
+   * expression.
+   */
+  @Test
+  public void correlatedRidInProjectionSubquery_withoutLetHost_fallsThroughToScan() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var child = session.newInstance(childClass);
+    child.setProperty("tag", "hit");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", child.getIdentity());
+    session.commit();
+
+    var sql = "SELECT (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.ref) AS info FROM " + parentClass;
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "projection subqueries are not LET-hosted, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertTrue(
+        "projection subqueries must scan the target class, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS " + childClass));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var info = result.next().getProperty("info");
+      Assert.assertTrue(info instanceof List);
+      Assert.assertEquals(1, ((List<?>) info).size());
+      Assert.assertEquals(
+          "hit",
+          ((Result) ((List<?>) info).get(0)).getProperty("tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * Differential parity: append {@code OR tag = 'zzz'} to force the scan oracle while the fast path
+   * keeps the correlated fetch. No row carries tag {@code zzz}, so both paths return the same set.
+   */
+  @Test
+  public void correlatedRidFetch_matchesScanOracleWithTagDisjunct() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var hit = session.newInstance(childClass);
+    hit.setProperty("tag", "hit");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", hit.getIdentity());
+    session.commit();
+
+    var fastSql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.ref)";
+    var oracleSql = "SELECT $info as info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.ref OR tag = 'zzz')";
+
+    var fastPlan = explainPlan(fastSql);
+    Assert.assertTrue(
+        "fast path must use the correlated fetch, plan was: " + fastPlan,
+        fastPlan.contains("FETCH FROM CORRELATED RID"));
+    var oraclePlan = explainPlan(oracleSql);
+    Assert.assertFalse(
+        "oracle must scan and filter, plan was: " + oraclePlan,
+        oraclePlan.contains("FETCH FROM CORRELATED RID"));
+
+    Assert.assertEquals(
+        "correlated fetch must match the scan oracle row set",
+        letTags(runSingleParentRow(oracleSql, "info")),
+        letTags(runSingleParentRow(fastSql, "info")));
+  }
+
+  /** Runs {@code sql} and returns the {@code letProperty} value from the sole parent row. */
+  private Object runSingleParentRow(String sql, String letProperty) {
+    try (var result = session.query(sql)) {
+      Assert.assertTrue("query must return one parent row", result.hasNext());
+      var value = result.next().getProperty(letProperty);
+      Assert.assertFalse("query must return only one parent row", result.hasNext());
+      return value;
     }
   }
 

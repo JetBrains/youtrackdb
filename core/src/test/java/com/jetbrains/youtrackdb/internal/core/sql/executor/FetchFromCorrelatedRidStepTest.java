@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -287,9 +288,9 @@ public class FetchFromCorrelatedRidStepTest extends TestUtilsFixture {
   }
 
   /**
-   * When {@code ridExpression} is null, serialize omits it and {@code copy} keeps a null
-   * expression. Null {@code classCollectionIds} is omitted from serialize only (copy requires a
-   * non-null set via the constructor).
+   * When {@code ridExpression} is null, serialize omits it; {@code copy} keeps a null expression.
+   * Null {@code classCollectionIds} is omitted from serialize only (the constructor still requires
+   * a non-null set for live steps).
    */
   @Test
   public void serializeOmitsNullExpressionAndCollectionIds() throws Exception {
@@ -327,6 +328,47 @@ public class FetchFromCorrelatedRidStepTest extends TestUtilsFixture {
     assertThat(step.prettyPrint(0, 2)).contains("$parent");
     List<Integer> ids = step.serialize(session).getProperty("classCollectionIds");
     assertThat(ids).containsExactly(1);
+  }
+
+  /** Duplicate identifiers in the input collapse to one row, matching scan iteration. */
+  @Test
+  public void equalityMatchSet_duplicateIds_collapsesToOne() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    var rid = (RecordIdInternal) doc.getIdentity();
+    session.commit();
+
+    var wrapper = new ResultInternal(session);
+    wrapper.setProperty("ids", List.of(rid, rid));
+
+    var matchSet = FetchFromCorrelatedRidStep.equalityMatchSet(wrapper, ids(rid.getCollectionId()));
+    assertThat(matchSet).containsExactly(rid);
+  }
+
+  /** Position {@code -1} is dropped so the load path never throws. */
+  @Test
+  public void equalityMatchSet_positionMinusOne_yieldsEmpty() {
+    var invalid = new RecordId(1, -1);
+    var matchSet = FetchFromCorrelatedRidStep.equalityMatchSet(invalid, ids(1));
+    assertThat(matchSet).isEmpty();
+  }
+
+  /** A {@code Result} with two properties never matches — same as {@code QueryOperatorEquals}. */
+  @Test
+  public void equalityMatchSet_twoPropertyResult_yieldsEmpty() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    var rid = (RecordIdInternal) doc.getIdentity();
+    session.commit();
+
+    var wrapper = new ResultInternal(session);
+    wrapper.setProperty("a", rid);
+    wrapper.setProperty("b", rid);
+
+    var matchSet = FetchFromCorrelatedRidStep.equalityMatchSet(wrapper, ids(rid.getCollectionId()));
+    assertThat(matchSet).isEmpty();
   }
 
   private FetchFromCorrelatedRidStep newStep(SQLExpression expression, IntSet collectionIds) {

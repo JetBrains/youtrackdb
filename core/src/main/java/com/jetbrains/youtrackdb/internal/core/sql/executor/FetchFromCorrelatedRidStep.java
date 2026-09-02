@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -15,20 +16,20 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
- * Fetches a single record by evaluating a correlated RID expression at execution time. Used when a
- * LET subquery contains {@code SELECT FROM <Class> WHERE @rid = $parent.$current.<field>}: the RID
- * is not known at plan time but resolves to exactly one record per parent row.
+ * Fetches records by evaluating a correlated RID expression once per parent row. Used when a
+ * LET-hosted subquery contains {@code SELECT FROM <Class> WHERE @rid = $parent.$current.<field>}.
  *
  * <p>Replaces the {@code FetchFromClassExecutionStep + FilterStep} combination that would otherwise
  * scan every record in the class and post-filter on the RID predicate. Class membership uses the
  * same polymorphic collection-id set as the plan-time RID path, {@link ExpandStep}, and MATCH
  * pre-filter ({@link TraversalPreFilterHelper#collectionIdsForClass}): a RID whose collection is
- * not in that set yields an empty stream, matching scan+filter.
+ * not in that set is dropped before load, matching scan+filter.
  */
 public class FetchFromCorrelatedRidStep extends AbstractExecutionStep {
 
@@ -55,30 +56,95 @@ public class FetchFromCorrelatedRidStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
     var value = ridExpression.execute((Result) null, ctx);
-    var rid = coerceEqualityRid(value);
-    if (rid == null || !classCollectionIds.contains(rid.getCollectionId())) {
+    var candidates = equalityMatchSet(value, classCollectionIds);
+    if (candidates.isEmpty()) {
       return ExecutionStream.empty();
     }
-    // skipMissing=true: a dangling in-class RID is skipped (empty stream), matching a class
-    // scan that never visits a deleted position. The default terminate-on-missing would also
-    // be empty for a singleton, but skip-missing is the scan-parity contract of the class-target
-    // RID fetch path.
-    return ExecutionStream.loadIterator(Collections.singleton(rid).iterator(), true);
+    return ExecutionStream.loadIterator(candidates.iterator(), true);
   }
 
   /**
-   * Maps the evaluated RHS of {@code @rid = …} to at most one RID, with the same unwrap rules as
-   * the plan-time equality path: a size-1 {@link Collection} unwraps; any other multi-value (empty,
-   * size 2+, non-Collection) matches nothing.
+   * Coerces the evaluated RHS of {@code @rid = …} to the identifier set the scan filter would
+   * match, mirroring {@code QueryOperatorEquals} value handling. Drops invalid positions and
+   * identifiers outside {@code classCollectionIds}, deduplicates, and sorts ascending.
    */
-  private static RecordIdInternal coerceEqualityRid(Object value) {
-    if (MultiValue.isMultiValue(value)) {
-      if (!(value instanceof Collection<?>)) {
-        return null;
-      }
-      value = SelectExecutionPlanner.singleElementOrNull(MultiValue.getMultiValueIterable(value));
+  static List<RecordIdInternal> equalityMatchSet(Object value, IntSet classCollectionIds) {
+    var collected = new LinkedHashSet<RecordIdInternal>();
+    collectEqualityMatchSet(value, collected);
+    if (collected.isEmpty()) {
+      return List.of();
     }
-    return SelectExecutionPlanner.toRecordIdCandidate(value);
+    var filtered = new ArrayList<RecordIdInternal>(collected.size());
+    for (var rid : collected) {
+      if (classCollectionIds.contains(rid.getCollectionId())) {
+        filtered.add(rid);
+      }
+    }
+    if (filtered.isEmpty()) {
+      return List.of();
+    }
+    filtered.sort(RecordIdInternal::compareTo);
+    return filtered;
+  }
+
+  /**
+   * Adds every identifier {@code QueryOperatorEquals} would accept for {@code @rid = value} into
+   * {@code out}. Position {@code -1} and non-identifier shapes are skipped.
+   */
+  private static void collectEqualityMatchSet(Object value, LinkedHashSet<RecordIdInternal> out) {
+    if (value == null) {
+      return;
+    }
+    if (value instanceof Collection<?> collection && collection.size() == 1) {
+      value = SelectExecutionPlanner.singleElementOrNull(collection);
+      if (value == null) {
+        return;
+      }
+    }
+    if (value instanceof Result result) {
+      if (result.isIdentifiable() && result.getIdentity().isPersistent()) {
+        addRecordId(out, result.getIdentity());
+        return;
+      }
+      var propertyNames = result.getPropertyNames();
+      if (propertyNames.size() != 1) {
+        return;
+      }
+      var fieldValue = result.getProperty(propertyNames.iterator().next());
+      if (fieldValue == null) {
+        return;
+      }
+      if (MultiValue.isMultiValue(fieldValue)) {
+        for (var element : MultiValue.getMultiValueIterable(fieldValue)) {
+          if (element instanceof Identifiable identifiable) {
+            addRecordId(out, identifiable.getIdentity());
+          } else if (element instanceof RecordIdInternal rid) {
+            addRecordId(out, rid);
+          }
+        }
+        return;
+      }
+      if (fieldValue instanceof Identifiable identifiable) {
+        addRecordId(out, identifiable.getIdentity());
+      }
+      return;
+    }
+    if (value instanceof Identifiable identifiable) {
+      addRecordId(out, identifiable.getIdentity());
+      return;
+    }
+    if (value instanceof String) {
+      var rid = SelectExecutionPlanner.toRecordIdCandidate(value);
+      if (rid != null) {
+        addRecordId(out, rid);
+      }
+    }
+  }
+
+  private static void addRecordId(LinkedHashSet<RecordIdInternal> out, @Nullable Object identity) {
+    if (identity instanceof RecordIdInternal rid && rid.isValidPosition()) {
+      out.add(rid);
+    }
   }
 
   @Override

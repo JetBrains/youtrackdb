@@ -106,6 +106,7 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(session);
     subCtx.setParentWithoutOverridingChild(currentRowCtx);
+    subCtx.setLetHostedCorrelatedRidFetch(true);
 
     // Build materialization query with common filter. Push-down is NOT
     // skipped here — we want the planner to push the common filter into

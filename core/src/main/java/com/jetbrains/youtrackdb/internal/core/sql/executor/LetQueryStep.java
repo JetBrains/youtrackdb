@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SubQueryCollector;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -79,6 +80,9 @@ public class LetQueryStep extends AbstractExecutionStep {
       var previewCtx = new BasicCommandContext();
       previewCtx.setDatabaseSession(ctx.getDatabaseSession());
       previewCtx.setParentWithoutOverridingChild(ctx);
+      if (isUserLetVariable(varName)) {
+        previewCtx.setLetHostedCorrelatedRidFetch(true);
+      }
       // Positional parameters (?) prevent plan caching: the cached plan may
       // bind a different ordinal than the one needed in this preview context.
       if (query.containsPositionalParameters()) {
@@ -110,6 +114,9 @@ public class LetQueryStep extends AbstractExecutionStep {
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(session);
     subCtx.setParentWithoutOverridingChild(currentRowCtx);
+    if (isUserLetVariable(varName)) {
+      subCtx.setLetHostedCorrelatedRidFetch(true);
+    }
 
     InternalExecutionPlan subExecutionPlan;
     if (query.containsPositionalParameters()) {
@@ -179,7 +186,7 @@ public class LetQueryStep extends AbstractExecutionStep {
     return result.toString();
   }
 
-  /** Cacheable: subquery AST is deep-copied per execution via {@link #copy}. */
+  /** Cacheable at the step level: the subquery AST is deep-copied per execution via {@link #copy}. */
   @Override
   public boolean canBeCached() {
     return true;
@@ -202,5 +209,15 @@ public class LetQueryStep extends AbstractExecutionStep {
     }
 
     return new LetQueryStep(varNameCopy, queryCopy, previewPlanCopy, ctx, profilingEnabled);
+  }
+
+  /**
+   * Inline subqueries extracted by {@link SubQueryCollector} reuse {@link LetQueryStep} with a
+   * synthetic {@code $$$SUBQUERY$$_} alias. They are not user LET clauses and must not enable the
+   * correlated RID fetch, whose scan parity depends on the LET hosting contract.
+   */
+  private static boolean isUserLetVariable(SQLIdentifier varName) {
+    return varName != null
+        && !varName.getStringValue().startsWith(SubQueryCollector.GENERATED_ALIAS_PREFIX);
   }
 }

@@ -132,6 +132,15 @@ public interface CommandContext {
 
   void setSkipExpandPushDown(boolean skip);
 
+  /**
+   * Returns {@code true} when the statement being planned runs as a per-record LET subquery with
+   * the {@link com.jetbrains.youtrackdb.internal.core.sql.executor.LetQueryStep} hosting contract.
+   * The correlated RID fetch fast path is allowed only in that host.
+   */
+  boolean isLetHostedCorrelatedRidFetch();
+
+  void setLetHostedCorrelatedRidFetch(boolean value);
+
   void startProfiling(ExecutionStep step);
 
   void endProfiling(ExecutionStep step);
