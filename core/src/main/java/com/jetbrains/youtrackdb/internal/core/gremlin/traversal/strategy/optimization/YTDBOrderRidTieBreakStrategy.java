@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStr
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
-import java.util.function.BiConsumer;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
@@ -213,70 +212,29 @@ public final class YTDBOrderRidTieBreakStrategy
 
   /**
    * Replaces the modulator of the <em>last</em> comparator slot, keeping every other slot and every
-   * comparator.
-   *
-   * <p>{@code replaceLocalChild} cannot express that. It matches a slot by {@code equals}, and every
-   * {@code IdentityTraversal} equals every other one, so it rewrites the first identity slot instead
-   * of the requested one — leaving the trailing identity in place and the sort key wrong. There is no
-   * positional setter on {@code ComparatorHolder}, so the step is rebuilt with the slot list the
-   * strategy wants and swapped in at the same index. The index is found by reference, not by
-   * {@code TraversalHelper.stepIndex}, which matches on {@code hashCode} and would find an earlier
-   * equal-looking order step.
-   *
-   * <p>A bare {@code order()} keeps its fast path: its comparator field is empty and
-   * {@code getComparators} synthesises the identity slot, so {@code modulateBy} installs the real
-   * modulator with nothing to replace.
+   * comparator. The rebuild-and-swap mechanics live in {@link OrderStepModulators}, which records
+   * why a positional replacement cannot go through {@code replaceLocalChild}.
    */
-  @SuppressWarnings({"unchecked", "rawtypes"})
-  private static void replaceLastGlobalModulator(OrderGlobalStep step, Admin<?, ?> modulator) {
-    if (step.getLocalChildren().isEmpty()) {
-      step.modulateBy(modulator, Order.asc);
-      return;
-    }
-    var comparators = (List<Pair<Admin, Comparator>>) step.getComparators();
-    var replacement = new OrderGlobalStep(step.getTraversal());
-    // Carried explicitly: a preceding range fold already pushed its bound onto the old step.
-    replacement.setLimit(step.getLimit());
-    fillComparators(comparators, modulator, replacement::addComparator);
-    swapStep(step, replacement);
-  }
-
-  @SuppressWarnings({"unchecked", "rawtypes"})
-  private static void replaceLastLocalModulator(OrderLocalStep step, Admin<?, ?> modulator) {
-    if (step.getLocalChildren().isEmpty()) {
-      step.modulateBy(modulator, Order.asc);
-      return;
-    }
-    var comparators = (List<Pair<Admin, Comparator>>) step.getComparators();
-    var replacement = new OrderLocalStep(step.getTraversal());
-    fillComparators(comparators, modulator, replacement::addComparator);
-    swapStep(step, replacement);
-  }
-
-  /** Copies every slot into {@code sink}, substituting {@code modulator} for the last one. */
   @SuppressWarnings("rawtypes")
-  private static void fillComparators(
-      List<Pair<Admin, Comparator>> comparators,
-      Admin<?, ?> modulator,
-      BiConsumer<Admin, Comparator> sink) {
-    var last = comparators.size() - 1;
-    for (var i = 0; i < comparators.size(); i++) {
-      var slot = comparators.get(i);
-      sink.accept(i == last ? modulator : slot.getValue0(), slot.getValue1());
-    }
+  private static void replaceLastGlobalModulator(OrderGlobalStep step, Admin<?, ?> modulator) {
+    OrderStepModulators.replaceGlobalModulators(
+        step, withLastReplaced(step.getComparators(), modulator));
   }
 
-  /** Swaps {@code replacement} in at the exact index {@code step} occupies, labels included. */
-  private static void swapStep(Step<?, ?> step, Step<?, ?> replacement) {
-    var traversal = step.getTraversal();
-    var steps = traversal.getSteps();
-    var index = 0;
-    while (index < steps.size() && steps.get(index) != step) {
-      index++;
-    }
-    TraversalHelper.copyLabels(step, replacement, false);
-    traversal.removeStep(index);
-    traversal.addStep(index, replacement);
+  @SuppressWarnings("rawtypes")
+  private static void replaceLastLocalModulator(OrderLocalStep step, Admin<?, ?> modulator) {
+    OrderStepModulators.replaceLocalModulators(
+        step, withLastReplaced(step.getComparators(), modulator));
+  }
+
+  /** The current modulators of {@code comparators}, with the last one substituted. */
+  @SuppressWarnings("rawtypes")
+  private static List<Admin> withLastReplaced(
+      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators,
+      Admin<?, ?> modulator) {
+    var modulators = OrderStepModulators.modulatorsOf(comparators);
+    modulators.set(modulators.size() - 1, modulator);
+    return modulators;
   }
 
   /**
