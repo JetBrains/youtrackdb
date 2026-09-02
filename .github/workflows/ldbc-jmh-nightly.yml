@@ -70,6 +70,84 @@ jobs:
             fi
           fi
 
+      # The runner is reused. Remove only the workflow alias from its persistent configuration.
+      - name: Remove stale object storage alias
+        run: |
+          home=${HOME:-}
+          if [ -z "$home" ] || [ ! -d "$home" ]; then
+            echo '::warning::The home directory is unavailable. Home configuration cleanup was skipped.'
+          elif [ -L "$home/.mc" ]; then
+            echo '::warning::The home configuration directory is a symbolic link. Home configuration cleanup was skipped.'
+          else
+            config="$home/.mc/config.json"
+            backup="$home/.mc/config.json.old"
+            if [ -d "$home/.mc" ]; then
+              if ! find "$home/.mc" -maxdepth 1 -type f \( -name 'config.json.tmp.*' -o -name '$tmpfile.*' \) -delete; then
+                echo '::warning::Could not remove temporary home configuration files.'
+              fi
+            fi
+            if [ -L "$config" ]; then
+              echo '::warning::The home configuration file is a symbolic link. Alias removal was skipped.'
+            elif [ ! -f "$config" ]; then
+              echo 'No home object storage configuration exists.'
+            elif temp=$(mktemp "$home/.mc/config.json.tmp.XXXXXX"); then
+              if [ -z "$temp" ]; then
+                echo '::warning::Could not create a temporary home configuration file.'
+              elif jq 'del(.aliases.hetzner)' "$config" > "$temp"; then
+                if chmod 600 "$temp"; then
+                  if mv -f "$temp" "$config"; then
+                    echo 'Removed the stale object storage alias.'
+                  else
+                    if ! rm -f "$temp"; then
+                      echo '::warning::Could not remove the temporary home configuration after the move failed.'
+                    fi
+                    echo '::warning::Could not move the replacement home configuration into place.'
+                  fi
+                else
+                  if ! rm -f "$temp"; then
+                    echo '::warning::Could not remove the temporary home configuration after mode setting failed.'
+                  fi
+                  echo '::warning::Could not set mode 600 on the replacement home configuration.'
+                fi
+              else
+                if ! rm -f "$temp"; then
+                  echo '::warning::Could not remove the temporary home configuration after filtering failed.'
+                fi
+                echo '::warning::Could not filter the home object storage configuration.'
+              fi
+            else
+              echo '::warning::Could not create a temporary home configuration file.'
+            fi
+            if [ -L "$backup" ]; then
+              echo '::warning::The home configuration backup is a symbolic link. Backup removal was skipped.'
+            elif [ -f "$backup" ]; then
+              if rm -f "$backup"; then
+                echo 'Removed the stale object storage configuration backup.'
+              else
+                echo '::warning::Could not remove the stale object storage configuration backup.'
+              fi
+            fi
+          fi
+          exit 0
+
+      # The runner clears this private location before and after each job.
+      - name: Create object storage configuration directory
+        run: |
+          config_dir=$(mktemp -d "$RUNNER_TEMP/mc-config.XXXXXX")
+          if [ ! -d "$config_dir" ] || [ -L "$config_dir" ]; then
+            echo '::error::The object storage configuration path is not a real directory.'
+            exit 1
+          fi
+          if ! chmod 700 "$config_dir"; then
+            rm -rf -- "$config_dir"
+            echo '::error::Could not secure the object storage configuration directory.'
+            exit 1
+          fi
+          echo "MC_CONFIG_DIR=$config_dir" >> "$GITHUB_ENV"
+
+      # The runner is reused. Keep credentials in the private temporary directory.
+      - name: Configure object storage alias
+        run: |
           mc alias set hetzner "${{ secrets.HETZNER_S3_ENDPOINT }}" \
             "${{ secrets.HETZNER_S3_ACCESS_KEY }}" "${{ secrets.HETZNER_S3_SECRET_KEY }}"
           mc ls hetzner/bench-cache/ldbc/ || echo "Warning: could not list S3 bucket"
@@ -249,6 +327,51 @@ jobs:
             /tmp/jmh-warm-${{ github.run_id }}.txt
             /tmp/jmh-load-${{ github.run_id }}.txt
           retention-days: 90
+
+      # Remove credentials after every job outcome.
+      # A machine crash skips this cleanup step. The project accepts this limitation.
+      - name: Clean up object storage configuration
+        if: always()
+        run: |
+          home=${HOME:-}
+          if [ -z "$home" ] || [ ! -d "$home" ]; then
+            echo '::warning::The home directory is unavailable. Home configuration cleanup was skipped.'
+          elif [ -L "$home/.mc" ]; then
+            echo '::warning::The home configuration directory is a symbolic link. Home configuration cleanup was skipped.'
+          elif [ -d "$home/.mc" ]; then
+            if ! find "$home/.mc" -maxdepth 1 -type f \( -name 'config.json.tmp.*' -o -name '$tmpfile.*' \) -delete; then
+              echo '::warning::Could not remove temporary home configuration files.'
+            fi
+          fi
+          if [ -z "${MC_CONFIG_DIR:-}" ]; then
+            echo 'No object storage configuration path was published.'
+          elif [ -z "${RUNNER_TEMP:-}" ]; then
+            echo '::warning::The runner temporary directory is empty. Cleanup was skipped.'
+          elif runner_temp=$(realpath -m -- "$RUNNER_TEMP"); then
+            if config_dir=$(realpath -m -- "$MC_CONFIG_DIR"); then
+              case "$config_dir" in
+                "$runner_temp"/*)
+                  if [ -L "$MC_CONFIG_DIR" ]; then
+                    echo '::warning::The configuration path became a symbolic link. Cleanup was skipped.'
+                  elif [ -e "$MC_CONFIG_DIR" ] && [ ! -d "$MC_CONFIG_DIR" ]; then
+                    echo '::warning::The configuration path is not a directory. Cleanup was skipped.'
+                  elif rm -rf -- "$MC_CONFIG_DIR"; then
+                    echo 'Removed the object storage configuration.'
+                  else
+                    echo '::warning::Could not fully remove the object storage configuration directory.'
+                  fi
+                  ;;
+                *)
+                  echo '::warning::The configuration path is outside the runner temporary directory.'
+                  ;;
+              esac
+            else
+              echo '::warning::Could not resolve the object storage configuration path. Cleanup was skipped.'
+            fi
+          else
+            echo '::warning::Could not resolve the runner temporary directory. Cleanup was skipped.'
+          fi
+          exit 0
 
       - name: Clean up temp files
         if: always()
