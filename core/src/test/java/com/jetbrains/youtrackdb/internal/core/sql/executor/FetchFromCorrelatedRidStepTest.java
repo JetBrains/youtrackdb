@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.InterruptResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
@@ -352,6 +353,49 @@ public class FetchFromCorrelatedRidStepTest extends TestUtilsFixture {
     var invalid = new RecordId(1, -1);
     var matchSet = FetchFromCorrelatedRidStep.equalityMatchSet(invalid, ids(1));
     assertThat(matchSet).isEmpty();
+  }
+
+  /** Nested size-one collections unwrap to the inner identifier — BG-3 parity with the operator. */
+  @Test
+  public void equalityMatchSet_nestedSizeOneCollection_unwrapsToInnerId() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    var rid = (RecordIdInternal) doc.getIdentity();
+    session.commit();
+
+    var matchSet =
+        FetchFromCorrelatedRidStep.equalityMatchSet(
+            List.of(List.of(rid)), ids(rid.getCollectionId()));
+    assertThat(matchSet).containsExactly(rid);
+  }
+
+  /** {@code internalStart} returns an interruptable stream so upstream cancellation works — BG-7. */
+  @Test
+  public void internalStartReturnsInterruptableStream() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    var rid = (RecordIdInternal) doc.getIdentity();
+    session.commit();
+
+    var step = newStep(parseExpression("SELECT '" + rid + "' AS x"), ids(rid.getCollectionId()));
+    var stream = step.start(newContext());
+    assertThat(stream).isInstanceOf(InterruptResultSet.class);
+    stream.close(newContext());
+  }
+
+  /** {@code DBRecord} values are coerced before the {@code Result} branch — BG-4 parity. */
+  @Test
+  public void equalityMatchSet_dbRecordBeforeResult_usesEntityIdentity() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    var rid = (RecordIdInternal) doc.getIdentity();
+    session.commit();
+
+    var matchSet = FetchFromCorrelatedRidStep.equalityMatchSet(doc, ids(rid.getCollectionId()));
+    assertThat(matchSet).containsExactly(rid);
   }
 
   /** A {@code Result} with two properties never matches — same as {@code QueryOperatorEquals}. */

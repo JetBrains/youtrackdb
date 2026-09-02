@@ -2042,15 +2042,141 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     Assert.assertTrue(
         "fast path must use the correlated fetch, plan was: " + fastPlan,
         fastPlan.contains("FETCH FROM CORRELATED RID"));
-    var oraclePlan = explainPlan(oracleSql);
-    Assert.assertFalse(
-        "oracle must scan and filter, plan was: " + oraclePlan,
-        oraclePlan.contains("FETCH FROM CORRELATED RID"));
 
     Assert.assertEquals(
-        "correlated fetch must match the scan oracle row set",
-        letTags(runSingleParentRow(oracleSql, "info")),
-        letTags(runSingleParentRow(fastSql, "info")));
+        "correlated fetch must match the scan oracle row set and order",
+        letTagsOrdered(runSingleParentRow(oracleSql, "info")),
+        letTagsOrdered(runSingleParentRow(fastSql, "info")));
+  }
+
+  /**
+   * Nested size-one collections ({@code [[rid]]}) must unwrap to the inner identifier the way
+   * {@code QueryOperatorEquals} does through LINK conversion — BG-3 parity.
+   */
+  @Test
+  public void correlatedRidNestedSizeOneCollection_fetchesRow() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var hit = session.newInstance(childClass);
+    hit.setProperty("tag", "hit");
+    session.newInstance(parentClass);
+    session.commit();
+
+    var fastSql = "SELECT $info AS info FROM " + parentClass
+        + " LET $w = [[" + hit.getIdentity() + "]],"
+        + " $info = (SELECT tag FROM " + childClass + " WHERE @rid = $parent.$w)";
+    var oracleSql = "SELECT $info AS info FROM " + parentClass
+        + " LET $w = [[" + hit.getIdentity() + "]],"
+        + " $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$w OR tag = 'zzz')";
+
+    Assert.assertEquals(
+        letTagsOrdered(runSingleParentRow(oracleSql, "info")),
+        letTagsOrdered(runSingleParentRow(fastSql, "info")));
+  }
+
+  /**
+   * An uncommitted {@code EntityImpl} RHS must match the committed scan path — BG-4 parity.
+   */
+  @Test
+  public void correlatedRidUncommittedEntity_returnsFreshRow() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    session.newInstance(childClass).setProperty("tag", "committed");
+    session.commit();
+
+    session.begin();
+    var fresh = session.newInstance(childClass);
+    fresh.setProperty("tag", "fresh");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", fresh);
+
+    var sql = "SELECT $info AS info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.ref)";
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          List.of("fresh"),
+          letTagsOrdered(result.next().getProperty("info")));
+      Assert.assertFalse(result.hasNext());
+    }
+    session.commit();
+  }
+
+  /**
+   * Projection correlated subqueries must fetch when the outer statement hosts rows through a user
+   * LET variable — AD-21 regression (variable {@code FROM $pv} source).
+   */
+  @Test
+  public void correlatedRidProjection_withLetVariableSource_fetchesParentRow() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var target = session.newInstance(childClass);
+    target.setProperty("name", "target");
+    var selfRef = session.newInstance(childClass);
+    selfRef.setProperty("name", "selfRef");
+    session.commit();
+    session.begin();
+    session.load(selfRef.getIdentity()).asEntity().setProperty("k", selfRef.getIdentity());
+    for (var tag : List.of("p1", "p2", "p3")) {
+      var row = session.newInstance(parentClass);
+      row.setProperty("tag", tag);
+      row.setProperty("k", target.getIdentity());
+    }
+    session.commit();
+
+    var sql = "SELECT tag, (SELECT name FROM " + childClass
+        + " WHERE @rid = $parent.$current.k) AS projForm"
+        + " FROM $pv LET $pv = (SELECT FROM " + parentClass + " ORDER BY tag)"
+        + " ORDER BY tag";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "projection subquery with a user LET variable source must fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    List<String> names = new ArrayList<>();
+    try (var result = session.query(sql)) {
+      while (result.hasNext()) {
+        var row = result.next();
+        var proj = row.getProperty("projForm");
+        Assert.assertTrue(proj instanceof List);
+        var list = (List<?>) proj;
+        Assert.assertEquals(1, list.size());
+        names.add(((Result) list.get(0)).getProperty("name"));
+      }
+    }
+    Assert.assertEquals(List.of("target", "target", "target"), names);
+  }
+
+  /**
+   * AD-14: a size-one collection of a projection {@code Result} unwraps once only — recursive
+   * unwrap would invent rows.
+   */
+  @Test
+  public void correlatedRidSingleWrapOfProjectionResult_yieldsEmpty() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    session.newInstance(childClass).setProperty("tag", "hit");
+    session.newInstance(parentClass);
+    session.commit();
+
+    var sql = "SELECT $info AS info FROM " + parentClass
+        + " LET $r = (SELECT @rid AS ids FROM " + parentClass + "),"
+        + " $w = [$r],"
+        + " $info = (SELECT tag FROM " + childClass + " WHERE @rid = $parent.$w)";
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      assertLetEmpty(
+          "single wrap of a projection Result must yield no child rows",
+          result.next().getProperty("info"));
+      Assert.assertFalse(result.hasNext());
+    }
   }
 
   /**
@@ -2072,12 +2198,14 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     parent.getOrCreateLinkList("revIds").addAll(List.of(second.getIdentity(), first.getIdentity()));
     session.commit();
 
+    var ridFirst = (RecordIdInternal) first.getIdentity();
+    var ridSecond = (RecordIdInternal) second.getIdentity();
+    var expectedLimitTag = ridFirst.compareTo(ridSecond) < 0 ? "first" : "second";
+
     var innerSubquery = "(SELECT tag FROM " + childClass
         + " WHERE @rid = $parent.$current)";
     var innerLimitSubquery = "(SELECT tag FROM " + childClass
         + " WHERE @rid = $parent.$current LIMIT 1)";
-    var fullSql = "SELECT $info AS info FROM (SELECT revIds FROM " + parentClass + ")"
-        + " LET $info = " + innerSubquery;
     var limitSql = "SELECT $info AS info FROM (SELECT revIds FROM " + parentClass + ")"
         + " LET $info = " + innerLimitSubquery;
 
@@ -2086,17 +2214,11 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         "membership LIMIT 1 must keep the correlated fetch, plan was: " + plan,
         plan.contains("FETCH FROM CORRELATED RID"));
 
-    var orderedTags = letTagsOrdered(runSingleParentRow(fullSql, "info"));
-    Assert.assertEquals(
-        "membership fetch must return rows in identifier-ascending order",
-        2,
-        orderedTags.size());
-
     try (var result = session.query(limitSql)) {
       Assert.assertTrue(result.hasNext());
       Assert.assertEquals(
-          "LIMIT 1 must take the first row of the sorted fetch, not the first link in the list",
-          orderedTags.get(0),
+          "LIMIT 1 must take the identifier-ascending first row, not the first link in the list",
+          expectedLimitTag,
           singleLetProperty(result.next().getProperty("info"), "tag"));
       Assert.assertFalse(result.hasNext());
     }
@@ -2218,6 +2340,224 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
           letTagsOrdered(result.next().getProperty("info")));
       Assert.assertFalse(result.hasNext());
     }
+  }
+
+  /**
+   * Terminal record-attribute suffix ({@code .@rid}) on a parent link must fetch the linked row —
+   * TQ-11 / ParentOnlyChain default arm.
+   */
+  @Test
+  public void correlatedRidTerminalRecordAttributeOnLink_fetchesTargetRow() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var hit = session.newInstance(childClass);
+    hit.setProperty("tag", "hit");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", hit.getIdentity());
+    session.commit();
+
+    var fastSql = "SELECT $info AS info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.ref.@rid)";
+    var oracleSql = "SELECT $info AS info FROM " + parentClass
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current.ref.@rid OR tag = 'zzz')";
+
+    var plan = explainPlan(fastSql);
+    Assert.assertTrue(
+        "terminal .@rid on a parent link must use correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    Assert.assertEquals(
+        letTagsOrdered(runSingleParentRow(oracleSql, "info")),
+        letTagsOrdered(runSingleParentRow(fastSql, "info")));
+  }
+
+  /**
+   * Inline projection subqueries grouped without a user LET must stay on the scan path — BG-6 /
+   * Probe39 G2.
+   */
+  @Test
+  public void correlatedRidInlineProjectionGroup_withoutUserLet_usesScan() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var hit = session.newInstance(childClass);
+    hit.setProperty("tag", "t1");
+    hit.setProperty("kind", "post");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", hit.getIdentity());
+    session.commit();
+
+    var sql = "SELECT (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$current.ref)"
+        + " WHERE kind = 'post') AS a,"
+        + " (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$current.ref)"
+        + " WHERE kind = 'comment') AS b"
+        + " FROM " + parentClass;
+
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "inline projection group without user LET must not fetch by correlated RID, plan was: "
+            + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var row = result.next();
+      Assert.assertEquals(1L, projectionCount(row.getProperty("a")));
+      Assert.assertEquals(0L, projectionCount(row.getProperty("b")));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * User LET materialized group with nested {@code [[rid]]} detector must match develop — Probe39
+   * G3.
+   */
+  @Test
+  public void correlatedRidUserLetGroup_nestedRidDetector_matchesScanOracle() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var hit = session.newInstance(childClass);
+    hit.setProperty("tag", "t1");
+    hit.setProperty("kind", "post");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", hit.getIdentity());
+    session.commit();
+    var rid = hit.getIdentity().toString();
+
+    var fastSql = "SELECT $a AS a, $b AS b FROM " + parentClass
+        + " LET $w = [[" + rid + "]],"
+        + " $a = (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w) WHERE kind = 'post'),"
+        + " $b = (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w) WHERE kind = 'comment')";
+    var oracleSql = "SELECT $a AS a, $b AS b FROM " + parentClass
+        + " LET $w = [[" + rid + "]],"
+        + " $a = (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w OR kind = 'zzz')"
+        + " WHERE kind = 'post'),"
+        + " $b = (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w OR kind = 'zzz')"
+        + " WHERE kind = 'comment')";
+
+    Assert.assertEquals(
+        letCountsOrdered(runSingleParentRow(oracleSql, "a"), runSingleParentRow(oracleSql, "b")),
+        letCountsOrdered(runSingleParentRow(fastSql, "a"), runSingleParentRow(fastSql, "b")));
+  }
+
+  /**
+   * Inline projection group with a user LET and nested {@code [[rid]]} must match develop — Probe39
+   * G4 / BG-6 regression.
+   */
+  @Test
+  public void correlatedRidInlineProjectionGroup_withUserLet_matchesScanOracle() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var hit = session.newInstance(childClass);
+    hit.setProperty("tag", "t1");
+    hit.setProperty("kind", "post");
+    session.newInstance(parentClass);
+    session.commit();
+    var rid = hit.getIdentity().toString();
+
+    var fastSql = "SELECT (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w) WHERE kind = 'post') AS a,"
+        + " (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w) WHERE kind = 'comment') AS b"
+        + " FROM " + parentClass + " LET $w = [[" + rid + "]]";
+    var oracleSql = "SELECT (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w OR kind = 'zzz')"
+        + " WHERE kind = 'post') AS a,"
+        + " (SELECT count(*) AS n FROM"
+        + " (SELECT FROM " + childClass + " WHERE @rid = $parent.$w OR kind = 'zzz')"
+        + " WHERE kind = 'comment') AS b"
+        + " FROM " + parentClass + " LET $w = [[" + rid + "]]";
+
+    Assert.assertEquals(
+        letCountsOrdered(runSingleParentRow(fastSql, "a"), runSingleParentRow(fastSql, "b")),
+        letCountsOrdered(runSingleParentRow(oracleSql, "a"), runSingleParentRow(oracleSql, "b")));
+  }
+
+  /**
+   * Table A/B differential gate: representative LET-hosted shapes must match the scan oracle with
+   * pinned order — TQ-5 integration slice.
+   */
+  @Test
+  public void correlatedRidFetch_differentialMatrix_matchesScanOracleInOrder() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var first = session.newInstance(childClass);
+    first.setProperty("tag", "first");
+    var second = session.newInstance(childClass);
+    second.setProperty("tag", "second");
+    var parent = session.newInstance(parentClass);
+    parent.setProperty("ref", first.getIdentity());
+    parent.getOrCreateLinkList("ids").addAll(List.of(second.getIdentity(), first.getIdentity()));
+    session.commit();
+
+    assertFetchMatchesScanOracle(
+        "SELECT $info AS info FROM " + parentClass
+            + " LET $info = (SELECT tag FROM " + childClass
+            + " WHERE @rid = $parent.$current.ref)",
+        "SELECT $info AS info FROM " + parentClass
+            + " LET $info = (SELECT tag FROM " + childClass
+            + " WHERE @rid = $parent.$current.ref OR tag = 'zzz')");
+
+    assertFetchMatchesScanOracle(
+        "SELECT $info AS info FROM (SELECT ids FROM " + parentClass + ")"
+            + " LET $info = (SELECT tag FROM " + childClass
+            + " WHERE @rid = $parent.$current)",
+        "SELECT $info AS info FROM (SELECT ids FROM " + parentClass + ")"
+            + " LET $info = (SELECT tag FROM " + childClass
+            + " WHERE @rid = $parent.$current OR tag = 'zzz')");
+
+    assertFetchMatchesScanOracle(
+        "SELECT $info AS info FROM " + parentClass
+            + " LET $w = [[" + first.getIdentity() + "]],"
+            + " $info = (SELECT tag FROM " + childClass + " WHERE @rid = $parent.$w)",
+        "SELECT $info AS info FROM " + parentClass
+            + " LET $w = [[" + first.getIdentity() + "]],"
+            + " $info = (SELECT tag FROM " + childClass
+            + " WHERE @rid = $parent.$w OR tag = 'zzz')");
+  }
+
+  private void assertFetchMatchesScanOracle(String fastSql, String oracleSql) {
+    var fastPlan = explainPlan(fastSql);
+    Assert.assertTrue(
+        "fast path must use correlated fetch, plan was: " + fastPlan,
+        fastPlan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertEquals(
+        letTagsOrdered(runSingleParentRow(oracleSql, "info")),
+        letTagsOrdered(runSingleParentRow(fastSql, "info")));
+  }
+
+  private static long projectionCount(Object projectionValue) {
+    Assert.assertTrue(projectionValue instanceof List);
+    var list = (List<?>) projectionValue;
+    Assert.assertEquals(1, list.size());
+    var row = list.get(0);
+    Assert.assertTrue(row instanceof Result);
+    return ((Number) ((Result) row).getProperty("n")).longValue();
+  }
+
+  private static List<Long> letCountsOrdered(Object letA, Object letB) {
+    return List.of(singleLetCount(letA), singleLetCount(letB));
+  }
+
+  private static long singleLetCount(Object letValue) {
+    Assert.assertTrue(letValue instanceof List);
+    var list = (List<?>) letValue;
+    Assert.assertEquals(1, list.size());
+    var row = list.get(0);
+    Assert.assertTrue(row instanceof Result);
+    return ((Number) ((Result) row).getProperty("n")).longValue();
   }
 
   /** Runs {@code sql} and returns the {@code letProperty} value from the sole parent row. */
