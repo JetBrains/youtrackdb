@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
+import com.jetbrains.youtrackdb.internal.common.comparator.GremlinOrderComparator;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -49,6 +50,9 @@ public class SQLOrderByItem {
   // calculated at run time
   private Collate collateStrategy;
   private boolean isEdge;
+
+  /** True only for sort items constructed by the Gremlin-to-MATCH translator. */
+  private boolean gremlinToMatchTranslatorProduced;
 
   /**
    * The collation the ordered property declares in the schema, or {@code null} when the item is not
@@ -184,6 +188,9 @@ public class SQLOrderByItem {
       result = bVal == null ? 0 : -1;
     } else if (bVal == null) {
       result = 1;
+    } else if (gremlinToMatchTranslatorProduced && collateStrategy == null
+        && declaredCollate == null) {
+      result = GremlinOrderComparator.INSTANCE.compare(aVal, bVal);
     } else if ((aVal instanceof Comparable && bVal instanceof Comparable)
         || collateStrategy != null) {
       // A value that is not Comparable still has an order whenever the query states a COLLATE
@@ -226,6 +233,14 @@ public class SQLOrderByItem {
     this.declaredCollate = declaredCollate;
   }
 
+  public void setGremlinToMatchTranslatorProduced(boolean produced) {
+    gremlinToMatchTranslatorProduced = produced;
+  }
+
+  public boolean isGremlinToMatchTranslatorProduced() {
+    return gremlinToMatchTranslatorProduced;
+  }
+
   @Nullable
   public Collate getDeclaredCollate() {
     return declaredCollate;
@@ -240,6 +255,7 @@ public class SQLOrderByItem {
     result.type = type;
     result.collate = this.collate == null ? null : collate.copy();
     result.isEdge = this.isEdge;
+    result.gremlinToMatchTranslatorProduced = this.gremlinToMatchTranslatorProduced;
     // Carried like isEdge: the SELECT planner copies the clause after resolution (the synthetic
     // ORDER BY projections rebuild it), and a lost collation would silently fall back to default.
     result.declaredCollate = this.declaredCollate;

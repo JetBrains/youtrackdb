@@ -21,6 +21,21 @@ public class OrderByCollationResolverTest extends DbTestBase {
    * Scenario: a SELECT item naming a property declared case-insensitive on the target class.
    * Expected: the item carries that declaration, so the sort comparator follows it.
    */
+  /**
+   * Scenario: translator-generated ordering passes through every AST copy used by planning.
+   * Expected: the provenance marker remains present on the copied item.
+   */
+  @Test
+  public void translatorMarker_survivesOrderByCopy() {
+    var item = ProjectionExpressionFactories.orderByProperty("v", "value", true);
+    var orderBy = ProjectionExpressionFactories.orderBy(List.of(item));
+
+    assertThat(item.isGremlinToMatchTranslatorProduced()).isTrue();
+    assertThat(orderBy.copy().getItems().getFirst().isGremlinToMatchTranslatorProduced()).isTrue();
+    assertThat(orderBy.copy().getItems().getFirst().copy().isGremlinToMatchTranslatorProduced())
+        .isTrue();
+  }
+
   @Test
   public void resolveOnTargetClass_declaredCaseInsensitiveProperty_pinsThatCollation() {
     var doc = session.getMetadata().getSchema().createClass("Doc");

@@ -281,6 +281,7 @@ public final class ProjectionExpressionFactories {
     item.setAlias(alias);
     item.modifier = modifier;
     item.setType(ascending ? SQLOrderByItem.ASC : SQLOrderByItem.DESC);
+    item.setGremlinToMatchTranslatorProduced(true);
     return item;
   }
 
