@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -2051,6 +2053,173 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         letTags(runSingleParentRow(fastSql, "info")));
   }
 
+  /**
+   * Membership set of two (one-property projection {@code Result} from {@code SELECT ids FROM P}):
+   * {@code LIMIT 1} must return the identifier-ascending first row, not the first link in value
+   * order — Probe20 HR2 parity.
+   */
+  @Test
+  public void correlatedRidMembershipSet_limitOne_returnsIdentifierAscendingFirst() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var first = session.newInstance(childClass);
+    first.setProperty("tag", "first");
+    var second = session.newInstance(childClass);
+    second.setProperty("tag", "second");
+    var parent = session.newInstance(parentClass);
+    // Value order is reversed relative to identifier ascending order.
+    parent.getOrCreateLinkList("revIds").addAll(List.of(second.getIdentity(), first.getIdentity()));
+    session.commit();
+
+    var innerSubquery = "(SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current)";
+    var innerLimitSubquery = "(SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current LIMIT 1)";
+    var fullSql = "SELECT $info AS info FROM (SELECT revIds FROM " + parentClass + ")"
+        + " LET $info = " + innerSubquery;
+    var limitSql = "SELECT $info AS info FROM (SELECT revIds FROM " + parentClass + ")"
+        + " LET $info = " + innerLimitSubquery;
+
+    var plan = explainPlan(limitSql);
+    Assert.assertTrue(
+        "membership LIMIT 1 must keep the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    var orderedTags = letTagsOrdered(runSingleParentRow(fullSql, "info"));
+    Assert.assertEquals(
+        "membership fetch must return rows in identifier-ascending order",
+        2,
+        orderedTags.size());
+
+    try (var result = session.query(limitSql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          "LIMIT 1 must take the first row of the sorted fetch, not the first link in the list",
+          orderedTags.get(0),
+          singleLetProperty(result.next().getProperty("info"), "tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * A two-element membership set with a foreign-class identifier and a deleted sibling must return
+   * only the live in-class row — Probe20 H7 parity.
+   */
+  @Test
+  public void correlatedRidMembershipSet_foreignAndDeleted_keepsLiveInClass() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    var foreignClass = createClassInstance().getName();
+    session.begin();
+    var live = session.newInstance(childClass);
+    live.setProperty("tag", "live");
+    var doomed = session.newInstance(childClass);
+    doomed.setProperty("tag", "doomed");
+    var foreign = session.newInstance(foreignClass);
+    foreign.setProperty("tag", "foreign");
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("mixIds").addAll(List.of(
+        live.getIdentity(), foreign.getIdentity(), doomed.getIdentity()));
+    session.commit();
+    session.begin();
+    session.execute("DELETE FROM " + childClass + " WHERE @rid = " + doomed.getIdentity()).close();
+    session.commit();
+
+    var sql = "SELECT $info AS info FROM (SELECT mixIds FROM " + parentClass + ")"
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "mixed membership set must use the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(Set.of("live"), letTags(result.next().getProperty("info")));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * With a two-element membership set, a remainder predicate ({@code AND tag <> 'second'}) must
+   * filter after the fetch and drop only the excluded row — Probe20 H2 parity.
+   */
+  @Test
+  public void correlatedRidMembershipSet_remainderFilter_appliesAfterFetch() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var first = session.newInstance(childClass);
+    first.setProperty("tag", "first");
+    var second = session.newInstance(childClass);
+    second.setProperty("tag", "second");
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("ids").addAll(List.of(first.getIdentity(), second.getIdentity()));
+    session.commit();
+
+    var sql = "SELECT $info AS info FROM (SELECT ids FROM " + parentClass + ")"
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current AND tag <> 'second')";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "membership fetch plus remainder must compile to FetchFromCorrelatedRidStep, plan was: "
+            + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+    Assert.assertEquals(
+        "the remainder must become exactly one FilterStep, plan was: " + plan,
+        1,
+        countOccurrences(plan, "FILTER ITEMS WHERE"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(Set.of("first"), letTags(result.next().getProperty("info")));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * A plain two-element membership set must return both matching rows in identifier-ascending
+   * order — Probe20 H1 parity (projection-wrapped link list, not a direct size-2 collection).
+   */
+  @Test
+  public void correlatedRidMembershipSet_returnsBothRowsInIdentifierOrder() {
+    var parentClass = createClassInstance().getName();
+    var childClass = createClassInstance().getName();
+    session.begin();
+    var first = session.newInstance(childClass);
+    first.setProperty("tag", "first");
+    var second = session.newInstance(childClass);
+    second.setProperty("tag", "second");
+    var parent = session.newInstance(parentClass);
+    parent.getOrCreateLinkList("ids").addAll(List.of(first.getIdentity(), second.getIdentity()));
+    session.commit();
+
+    var ridFirst = (RecordIdInternal) first.getIdentity();
+    var ridSecond = (RecordIdInternal) second.getIdentity();
+    var expectedFirstTag = ridFirst.compareTo(ridSecond) < 0 ? "first" : "second";
+    var expectedSecondTag = ridFirst.compareTo(ridSecond) < 0 ? "second" : "first";
+
+    var sql = "SELECT $info AS info FROM (SELECT ids FROM " + parentClass + ")"
+        + " LET $info = (SELECT tag FROM " + childClass
+        + " WHERE @rid = $parent.$current)";
+
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "two-element membership must use the correlated fetch, plan was: " + plan,
+        plan.contains("FETCH FROM CORRELATED RID"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals(
+          List.of(expectedFirstTag, expectedSecondTag),
+          letTagsOrdered(result.next().getProperty("info")));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
   /** Runs {@code sql} and returns the {@code letProperty} value from the sole parent row. */
   private Object runSingleParentRow(String sql, String letProperty) {
     try (var result = session.query(sql)) {
@@ -2071,6 +2240,26 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         "LET result must be a List, got: " + letValue.getClass().getName(),
         letValue instanceof List);
     Set<String> tags = new HashSet<>();
+    for (var row : (List<?>) letValue) {
+      Assert.assertTrue(
+          "LET subquery row must be a Result, got: "
+              + (row == null ? "null" : row.getClass().getName()),
+          row instanceof Result);
+      tags.add(((Result) row).getProperty("tag"));
+    }
+    return tags;
+  }
+
+  /**
+   * Collects {@code tag} values from a LET subquery list in fetch order. Used when row order is
+   * part of the parity contract (identifier-ascending set fetch before LIMIT or SKIP).
+   */
+  private static List<String> letTagsOrdered(Object letValue) {
+    Assert.assertNotNull("LET result must not be null when rows are expected", letValue);
+    Assert.assertTrue(
+        "LET result must be a List, got: " + letValue.getClass().getName(),
+        letValue instanceof List);
+    List<String> tags = new ArrayList<>();
     for (var row : (List<?>) letValue) {
       Assert.assertTrue(
           "LET subquery row must be a Result, got: "
