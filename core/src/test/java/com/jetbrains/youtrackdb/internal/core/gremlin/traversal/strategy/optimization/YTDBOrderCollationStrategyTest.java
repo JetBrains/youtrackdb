@@ -91,6 +91,64 @@ public class YTDBOrderCollationStrategyTest extends GraphBaseTest {
   }
 
   /**
+   * Scenario: the same two disagreeing classes, with the traversal constrained to the one that
+   * declares the collation. Expected: the modulator is replaced, because the sort can only see rows
+   * of that class and the other declaration governs nothing here.
+   *
+   * <p>This is the rule the MATCH planner already follows: the translator re-types the pattern node
+   * to the label, and the planner reads the declaration off that class alone. Resolving over every
+   * vertex and edge class instead made the two arms answer two different orders for one query.
+   */
+  @Test
+  public void apply_labelConstrainedStream_readsTheDeclarationOfThatLabelAlone() {
+    declareCaseInsensitiveName("Person");
+    var animal = session.createVertexClass("Animal");
+    animal.createProperty("name", PropertyType.STRING);
+
+    var admin = graph.traversal().V().hasLabel("Person").order().by("name").asAdmin();
+    YTDBOrderCollationStrategy.instance().apply(admin);
+
+    assertThat(comparators(orderStep(admin)).get(0).getValue0())
+        .isInstanceOf(CollatedSortKeyTraversal.class);
+  }
+
+  /**
+   * Scenario: the traversal constrained to the class that declares nothing, while a sibling class
+   * declares the collation. Expected: no replacement, because the constrained class governs the
+   * column and it declares the default collation.
+   */
+  @Test
+  public void apply_labelConstrainedStream_ignoresASiblingDeclaration() {
+    declareCaseInsensitiveName("Person");
+    var animal = session.createVertexClass("Animal");
+    animal.createProperty("name", PropertyType.STRING);
+
+    var admin = graph.traversal().V().hasLabel("Animal").order().by("name").asAdmin();
+    YTDBOrderCollationStrategy.instance().apply(admin);
+
+    assertThat(comparators(orderStep(admin)).get(0).getValue0())
+        .isInstanceOf(ValueTraversal.class);
+  }
+
+  /**
+   * Scenario: an edge class declares the sorted property name with the default collation while a
+   * vertex class declares it case-insensitive, and the traversal sorts vertices. Expected: the
+   * vertex declaration is followed, because an edge class is not in the stream at all.
+   */
+  @Test
+  public void apply_edgeClassDeclarationDoesNotGovernAVertexSort() {
+    declareCaseInsensitiveName("Person");
+    var knows = session.createEdgeClass("Knows");
+    knows.createProperty("name", PropertyType.STRING);
+
+    var admin = graph.traversal().V().order().by("name").asAdmin();
+    YTDBOrderCollationStrategy.instance().apply(admin);
+
+    assertThat(comparators(orderStep(admin)).get(0).getValue0())
+        .isInstanceOf(CollatedSortKeyTraversal.class);
+  }
+
+  /**
    * Scenario: the strategy applied twice to one traversal. Expected: the second application changes
    * nothing, because it replaces a plain property modulator only and the first application left a
    * collated key in that slot.

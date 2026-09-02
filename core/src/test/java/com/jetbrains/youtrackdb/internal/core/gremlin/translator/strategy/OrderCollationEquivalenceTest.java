@@ -92,6 +92,37 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Scenario: the declared case-insensitive property, with an unrelated vertex class declaring the
+   * same property name and no collation, and the traversal constrained to the declaring class.
+   * Expected: both arms follow the declaration of the constrained class.
+   *
+   * <p>The MATCH planner reads the declaration off the class the alias is bound to, so a sibling
+   * declaration cannot reach it. The native strategy used to read it across every vertex and edge
+   * class, saw the disagreement, and fell back to the default collation — one query, two sequences,
+   * depending on which arm ran it.
+   */
+  @Test
+  public void labelConstrainedSort_followsThatClassDeclarationOnBothArms() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING).setCollate("ci");
+    var animal = session.createVertexClass("Animal");
+    animal.createProperty("name", PropertyType.STRING);
+    seedNames("Person");
+    graph.addVertex(T.label, "Animal", "name", "Sibling");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "declared ci beside a disagreeing sibling class:"
+            + " g.V().hasLabel(Person).order().by(name).values(name)",
+        () -> graph.traversal().V().hasLabel("Person").order().by("name").values("name"));
+
+    assertThat(
+        graph.traversal().V().hasLabel("Person").order().by("name").values("name").toList())
+        .as("the declaration of the sorted class governs, whatever a sibling class declares")
+        .containsExactly("Ada", "ada", "Bob", "Cara", "Zebra", "\u00c4hhhh");
+  }
+
+  /**
    * Six names under {@code className}, inserted in an order that matches neither of the two
    * sequences under test, so an unsorted answer cannot pass either case.
    */
