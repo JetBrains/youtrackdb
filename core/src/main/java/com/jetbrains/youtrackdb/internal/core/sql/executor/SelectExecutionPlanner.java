@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
@@ -2846,7 +2845,7 @@ public class SelectExecutionPlanner {
       if (indexFields.size() < info.orderBy.getItems().size()) {
         continue;
       }
-      if (idx.getDefinition() instanceof IndexDefinitionMultiValue
+      if (IndexOrderedPlanner.isMultiValueDefinition(idx.getDefinition())
           || !IndexOrderedPlanner.isDefaultCollate(idx.getDefinition().getCollate())) {
         continue;
       }
@@ -3209,7 +3208,7 @@ public class SelectExecutionPlanner {
     if (orderBy.ordersWithCollate() || !orderBy.ordersSameDirection()) {
       return false;
     }
-    if (desc.getIndex().getDefinition() instanceof IndexDefinitionMultiValue
+    if (IndexOrderedPlanner.isMultiValueDefinition(desc.getIndex().getDefinition())
         || !IndexOrderedPlanner.isDefaultCollate(desc.getIndex().getDefinition().getCollate())) {
       return false;
     }

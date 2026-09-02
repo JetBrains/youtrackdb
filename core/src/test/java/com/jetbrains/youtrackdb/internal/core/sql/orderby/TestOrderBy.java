@@ -199,6 +199,34 @@ public class TestOrderBy extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Scenario: a composite index starts with a collection property. Expected: the index cannot
+   * supply ORDER BY because its entries represent collection elements, not result rows.
+   */
+  @Test
+  public void compositeCollectionIndexDoesNotSupplySelectOrder() {
+    var clazz = session.getMetadata().getSchema().createClass("compositeCollectionSelect");
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createIndex(
+        "compositeCollectionSelect.tags_name", INDEX_TYPE.NOTUNIQUE, "tags", "name");
+
+    session.begin();
+    var first = session.newEntity("compositeCollectionSelect");
+    first.setProperty("name", "first");
+    first.<String>getOrCreateEmbeddedList("tags").addAll(List.of("a", "b"));
+    var second = session.newEntity("compositeCollectionSelect");
+    second.setProperty("name", "second");
+    second.<String>getOrCreateEmbeddedList("tags").add("c");
+    session.commit();
+
+    session.begin();
+    assertThat(identitiesOf("select from compositeCollectionSelect order by tags, name"))
+        .as("a composite multi-value index must not emit one row per collection element")
+        .containsExactlyInAnyOrder(first.getIdentity(), second.getIdentity());
+    session.commit();
+  }
+
   /** The identities of every row of {@code query}, in arrival order. */
   private List<RID> identitiesOf(String query) {
     try (var result = session.query(query)) {

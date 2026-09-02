@@ -5,7 +5,9 @@ import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeCollate;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -353,7 +355,7 @@ public final class IndexOrderedPlanner {
     //       sequence, and one row comes back once per element.
     var matchedDefinition = matchedIndex.getDefinition();
     if (!isDefaultCollate(matchedDefinition.getCollate())
-        || matchedDefinition instanceof IndexDefinitionMultiValue) {
+        || isMultiValueDefinition(matchedDefinition)) {
       return null;
     }
 
@@ -628,6 +630,12 @@ public final class IndexOrderedPlanner {
    * Whether {@code collate} is the plain default comparison — which {@code null} also means, because
    * an unresolved sort item and an undeclared property both compare that way.
    */
+  public static boolean isMultiValueDefinition(IndexDefinition definition) {
+    return definition instanceof IndexDefinitionMultiValue
+        || (definition instanceof CompositeIndexDefinition composite
+            && composite.hasMultiValueProperties());
+  }
+
   public static boolean isDefaultCollate(@Nullable Collate collate) {
     if (collate == null || DefaultCollate.NAME.equals(collate.getName())) {
       return true;
