@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
@@ -41,9 +43,14 @@ public class YTDBProductiveOrderOptOutProcessTest extends YTDBAbstractGremlinTes
   @Test
   @LoadGraphWith(GraphData.MODERN)
   public void suiteConfiguration_dropsRecordMissingTheOrderKey() {
-    assertThat(resolvedSetting())
-        .as("the suite base configuration must carry the portable opt-out")
-        .isFalse();
+    // RemoteGraph has no local session; the create-time opt-out on the server DB is what
+    // the order assertion below verifies for remote suites.
+    var setting = resolvedLocalSetting();
+    if (setting != null) {
+      assertThat(setting)
+          .as("the suite base configuration must carry the portable opt-out")
+          .isFalse();
+    }
 
     var ordered = g().V().order().by("age").values("name").toList();
 
@@ -92,9 +99,19 @@ public class YTDBProductiveOrderOptOutProcessTest extends YTDBAbstractGremlinTes
         .containsExactly("vadas", "marko", "josh", "peter");
   }
 
-  /** The resolved value of the productive-order setting on the graph under test. */
-  private boolean resolvedSetting() {
-    var tx = (YTDBTransaction) graph().tx();
+  /**
+   * The productive-order setting on an embedded graph, or {@code null} when the suite runs against
+   * a remote graph that cannot expose the server session from the client.
+   *
+   * <p>Reads the inherited {@code graph} field, not {@link #graph()}. The helper casts to
+   * {@link YTDBGraph} and throws {@link ClassCastException} on {@code RemoteGraph} before any
+   * {@code instanceof} check can run.
+   */
+  @Nullable private Boolean resolvedLocalSetting() {
+    if (!(graph instanceof YTDBGraph ytdbGraph)) {
+      return null;
+    }
+    var tx = (YTDBTransaction) ytdbGraph.tx();
     tx.readWrite();
     return tx.getDatabaseSession().getConfiguration()
         .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
