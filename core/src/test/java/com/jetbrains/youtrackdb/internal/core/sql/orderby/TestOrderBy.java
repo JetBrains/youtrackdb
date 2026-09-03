@@ -114,24 +114,25 @@ public class TestOrderBy extends DbTestBase {
   }
 
   /**
-   * Scenario: a plain projection orders the declared surname property directly while another
-   * property named name declares case-insensitive collation. Expected: surname uses its default.
+   * Scenario: a plain projection orders its case-insensitive property without an explicit alias.
+   * Expected: the implicit output name does not shadow the source property's declaration.
    */
   @Test
   public void plainProjection_ordersTheNamedPropertyWithItsDeclaration() {
     var person = session.getMetadata().getSchema().createClass("plainProjectionOrder");
-    person.createProperty("name", PropertyType.STRING).setCollate("ci");
-    person.createProperty("surname", PropertyType.STRING);
+    person.createProperty("surname", PropertyType.STRING).setCollate("ci");
 
     session.begin();
     session.newEntity("plainProjectionOrder").setProperty("surname", "Zebra");
     session.newEntity("plainProjectionOrder").setProperty("surname", "ada");
+    session.newEntity("plainProjectionOrder").setProperty("surname", "Ada");
     session.commit();
 
     session.begin();
     var rows = session.query("select surname from plainProjectionOrder order by surname")
         .stream().collect(Collectors.toList());
-    assertThat(rows).extracting(row -> row.getProperty("surname")).containsExactly("Zebra", "ada");
+    assertThat(rows).extracting(row -> row.getProperty("surname"))
+        .containsExactly("Ada", "ada", "Zebra");
     session.commit();
   }
 
