@@ -98,7 +98,7 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
    */
   @Test
   public void schemaLessMixedProperty_ordersByTinkerPopTypePriorityOnBothArms() {
-    for (var value : List.of(true, 2, "10")) {
+    for (var value : List.of("10", true, 2)) {
       graph.addVertex(T.label, "Probe", "value", value);
     }
     graph.tx().commit();
