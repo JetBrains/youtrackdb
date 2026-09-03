@@ -2141,6 +2141,33 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * A RETURN alias repeats its case-insensitive source property name. ORDER BY must retain that
+   * declaration because the alias does not shadow another expression.
+   */
+  @Test
+  public void testSameNameReturnAliasKeepsPropertyCollation() {
+    var clazz = "testMatchSameNameProjectionAlias";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + clazz + ".name STRING").close();
+    session.execute("ALTER PROPERTY " + clazz + ".name COLLATE ci").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'Zebra'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'ada'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'Ada'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: " + clazz + ", as:a} RETURN a.name AS name ORDER BY name").toList();
+    Assert.assertEquals(3, result.size());
+    Assert.assertEquals("Ada", result.get(0).getProperty("name"));
+    Assert.assertEquals("ada", result.get(1).getProperty("name"));
+    Assert.assertEquals("Zebra", result.get(2).getProperty("name"));
+    session.commit();
+  }
+
   @Test
   public void testDepthAlias() {
     var clazz = "testDepthAlias";

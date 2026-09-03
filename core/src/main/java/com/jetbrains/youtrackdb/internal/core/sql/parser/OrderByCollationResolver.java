@@ -130,13 +130,40 @@ public final class OrderByCollationResolver {
     for (var item : orderBy.getItems()) {
       var propertyName = aliasPropertyName(item);
       var alias = item.getAlias();
+      if (propertyName == null) {
+        var projectionSource = projectionAliasSource(projection, item);
+        if (projectionSource != null) {
+          alias = projectionSource.alias();
+          propertyName = projectionSource.propertyName();
+        }
+      }
       var aliasClass =
           propertyName == null || alias == null ? null : aliasClassResolver.apply(alias);
-      item.setDeclaredCollate(
-          projectionItemForAlias(projection, item) != null
-              ? null
-              : declaredCollation(aliasClass, propertyName));
+      item.setDeclaredCollate(declaredCollation(aliasClass, propertyName));
     }
+  }
+
+  @Nullable
+  private static ProjectionSource projectionAliasSource(
+      @Nullable SQLProjection projection, SQLOrderByItem orderByItem) {
+    var projectionItem = projectionItemForAlias(projection, orderByItem);
+    if (projectionItem == null
+        || projectionItem.getExpression() == null
+        || !(projectionItem.getExpression().mathExpression instanceof SQLBaseExpression base)
+        || base.getIdentifier() == null
+        || base.getIdentifier().getSuffix() == null
+        || base.getIdentifier().getSuffix().getIdentifier() == null) {
+      return null;
+    }
+    var propertyName = plainPropertySegment(base.getModifier());
+    if (propertyName == null) {
+      return null;
+    }
+    return new ProjectionSource(
+        base.getIdentifier().getSuffix().getIdentifier().getStringValue(), propertyName);
+  }
+
+  private record ProjectionSource(String alias, String propertyName) {
   }
 
   /**
