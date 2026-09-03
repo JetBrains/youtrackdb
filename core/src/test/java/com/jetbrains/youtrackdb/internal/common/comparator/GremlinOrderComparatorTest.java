@@ -1,7 +1,10 @@
 package com.jetbrains.youtrackdb.internal.common.comparator;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.lang.reflect.Proxy;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -44,6 +47,27 @@ public class GremlinOrderComparatorTest {
       assertTrue("priority at " + i,
           GremlinOrderComparator.INSTANCE.compare(values[i], values[i + 1]) < 0);
     }
+  }
+
+  /**
+   * Translator provenance enables TinkerPop type priority only for translated items. Unmarked SQL
+   * ordering retains its legacy incompatible-type tie.
+   */
+  @Test
+  public void translatorMarkerEnablesTypePriorityForOrderItem() {
+    var text = new ResultInternal(null);
+    text.setProperty("value", "10");
+    var bool = new ResultInternal(null);
+    bool.setProperty("value", true);
+
+    var marked = new SQLOrderByItem();
+    marked.setAlias("value");
+    marked.setGremlinToMatchTranslatorProduced(true);
+    var unmarked = new SQLOrderByItem();
+    unmarked.setAlias("value");
+
+    assertTrue(marked.compare(text, bool, null) > 0);
+    assertEquals(0, unmarked.compare(text, bool, null));
   }
 
   @Test
