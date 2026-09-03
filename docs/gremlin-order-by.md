@@ -155,9 +155,17 @@ Three workarounds exist today. Order by a property that carries no index. Move t
 off the fan-in target. Set the per-traversal override to `false` for that query.
 
 Only duplicate rows are lost, and only on the translated path. A record that lacks the
-ordered key survives this plan and sorts as a null key. The index behind the plan stores no
-entry for that record, and the plan returns it anyway. A query without a hop is unaffected. A query whose order key
-carries no index is unaffected. A query under the portable opt-out is unaffected.
+ordered key survives and sorts as a null key. A query without a hop is unaffected. A query
+whose order key carries no index is unaffected. A query under the portable opt-out is
+unaffected.
+
+## Indexes that ignore null values
+
+The including default is a lie if an ordered scan walks an index that stores no null
+bucket. `CREATE INDEX … METADATA {ignoreNullValues: true}` builds that kind of index. The
+planner then refuses the ordered scan and falls back to an in-memory sort, so the key-less
+record still appears. The project default for a new index keeps the null bucket
+(`youtrackdb.index.ignoreNullValuesDefault` is `false`).
 
 ## Conformance suites
 

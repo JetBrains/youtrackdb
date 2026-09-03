@@ -135,30 +135,27 @@ placement configurable and touches the same registration point, the same configu
 class and the same documentation. The second change to land reconciles the two settings.
 Accepted as a coordination duty.
 
-**R6: A public behavioral change ships beside several blocker fixes.** The diff grows and
-the review takes longer. Accepted on the user decision to deliver complete order-by
-behavior in one change.
+**R6: Fan-in duplicate loss stays on the ordered-slice branch.** The including default
+lets the MATCH planner root an ordered index scan on an unfiltered hop target. That scan
+visits each target once, so a fan-in hop under an indexed order key loses duplicate rows.
+Repairing that scan belongs to the ordered-slice / IndexOrdered-cost change, not this
+one. Accepted, and named in the user documentation.
 
 ## Known Defect
 
 Under the including default, a translated query loses duplicate rows when three conditions
 hold together. The conditions are a fan-in hop, an indexed order key, and the order applied
 to the fan-in target. The sorted alias then carries no filter. The planner roots an ordered
-index scan on it, and each target is visited once.
+index scan on it, and each target is visited once. This record does not repair that plan.
 
-The repair belongs to the ordered-index cost track in the same pull request, which owns
-root selection and the ordered-scan guards. Two tests pin the wrong value on purpose. One
-covers the plain shape and one covers the cut. Both name the inversion that track must
-perform.
+### Indexes that ignore null values
 
-### A predicted second loss that execution refutes
-
-A review predicted that the same plan drops every record lacking the ordered key. The
-ground was that an index ignores null values by default and stores no entry for such a
-record. Execution refutes the prediction. On the plan the prediction named, which the
-plan text reports as `INDEX ORDERED MATCH ASC (UNFILTERED_UNBOUND) via Person.id`, the
-key-less record is returned first, as a null key. A test now holds that behavior as a
-contract, so ordered-scan bounding work cannot break it unnoticed.
+An index created with `ignoreNullValues: true` holds no entry for a record that lacks the
+key. Walking that index to satisfy ORDER BY would drop the record and contradict the
+including default. `SelectExecutionPlanner.handleClassWithIndexForSortOnly` and
+`IndexOrderedPlanner.detect` skip such an index, so the query falls back to an in-memory
+sort. The project default (`INDEX_IGNORE_NULL_VALUES_DEFAULT` is `false`) keeps the null
+bucket, so a default index stays eligible.
 
 ## Non-Goals
 

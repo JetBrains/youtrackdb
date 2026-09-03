@@ -9,6 +9,8 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -170,6 +172,33 @@ public class TranslatedProductiveOrderTest extends GraphBaseTest {
     assertThat(names)
         .as("the option is read before the session default on the translated path too")
         .containsExactly("Bob", "Alice");
+  }
+
+  /**
+   * A hop whose order key carries a default (null-keeping) unique index still emits the target
+   * that lacks the key, sorted as a null key. The translator no longer plants {@code id IS
+   * DEFINED}, so the planner may root an index-ordered scan; that scan must not drop the record.
+   */
+  @Test
+  public void translatedOrderByIndexedHopTarget_underDefault_keepsTheRecordLackingTheKey() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.STRING)
+        .createIndex(INDEX_TYPE.UNIQUE);
+    var ann = graph.addVertex(T.label, "Person", "id", "a", "name", "Ann");
+    var bea = graph.addVertex(T.label, "Person", "id", "b", "name", "Bea");
+    var nemo = graph.addVertex(T.label, "Person", "name", "Nemo");
+    ann.addEdge("knows", bea);
+    ann.addEdge("knows", nemo);
+    graph.tx().commit();
+
+    var names = withOrderIncludesMissingKey(true, () -> namesFromArm(true,
+        () -> graph.traversal().V().hasLabel("Person").as("src").out("knows").as("dst")
+            .hasLabel("Person").order().by("id").values("name")));
+
+    assertThat(names)
+        .as("the index-ordered scan still emits the key-less target, sorted as a null key")
+        .startsWith("Nemo")
+        .contains("Bea");
   }
 
   /**

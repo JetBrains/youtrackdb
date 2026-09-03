@@ -2785,6 +2785,12 @@ public class SelectExecutionPlanner {
    *      (no OrderByStep needed -- data is already sorted)
    * </pre>
    *
+   * <p>An index that IGNORES NULL VALUES is never eligible here. Such an index holds no entry
+   * for a record that lacks the property, so walking it in order would drop that record from the
+   * result entirely rather than merely misplace it. The default configuration keeps null entries
+   * (see {@code INDEX_IGNORE_NULL_VALUES_DEFAULT}), so only an explicitly configured index pays
+   * the fallback to an in-memory sort.
+   *
    * @return {@code true} if an index was used for sorting (plan is updated);
    *         {@code false} if no suitable index was found (caller should fall back)
    */
@@ -2803,6 +2809,9 @@ public class SelectExecutionPlanner {
 
     for (var idx : clazz.getIndexesInternal().stream()
         .filter(i -> i.getDefinition() != null)
+        // An index that ignores null values does not cover the records that lack the
+        // property, so it cannot order the class without losing them.
+        .filter(i -> !i.getDefinition().isNullValuesIgnored())
         .toList()) {
       var indexFields = idx.getDefinition().getProperties();
       if (indexFields.size() < info.orderBy.getItems().size()) {
