@@ -200,16 +200,17 @@ public class TestOrderBy extends DbTestBase {
   }
 
   /**
-   * Scenario: a WHERE range uses a case-insensitive index before ordering that declared property.
-   * Expected: the fully-sorted shortcut is refused and the declared comparison determines output.
+   * Scenario: a WHERE range uses a case-insensitive index before default-collation ordering.
+   * Expected: the fully-sorted shortcut is refused because the index and ORDER BY comparisons
+   * disagree.
    */
   @Test
-  public void declaredCollationWithWhereDoesNotClaimIndexOrder() {
+  public void mismatchedIndexCollationWithWhereDoesNotClaimIndexOrder() {
     var clazz = session.getMetadata().getSchema().createClass("collatedWhereSelect");
-    clazz.createProperty("name", PropertyType.STRING).setCollate("ci");
+    clazz.createProperty("name", PropertyType.STRING);
     session.execute(
-        "create index collatedWhereSelect.nameDefault on collatedWhereSelect"
-            + " (name collate default) NOTUNIQUE")
+        "create index collatedWhereSelect.nameCi on collatedWhereSelect"
+            + " (name collate ci) NOTUNIQUE")
         .close();
 
     session.begin();
@@ -219,10 +220,10 @@ public class TestOrderBy extends DbTestBase {
     session.commit();
 
     session.begin();
-    var rows = session.query(
-        "select from collatedWhereSelect where name > 'A' order by name").toList();
+    var query = "select from collatedWhereSelect where name > 'A' order by name";
+    var rows = session.query(query).toList();
     assertThat(rows).extracting(row -> row.<String>getProperty("name"))
-        .containsExactly("Ada", "ada", "Zebra");
+        .containsExactly("Ada", "Zebra", "ada");
     session.commit();
   }
 
