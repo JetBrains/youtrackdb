@@ -2168,6 +2168,36 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Duplicate RETURN aliases are overwritten from left to right. ORDER BY must therefore use the
+   * later surname expression and its default collation, not the earlier case-insensitive name.
+   */
+  @Test
+  public void testDuplicateReturnAliasUsesLastExpressionCollation() {
+    var clazz = "testMatchDuplicateProjectionAlias";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + clazz + ".name STRING").close();
+    session.execute("ALTER PROPERTY " + clazz + ".name COLLATE ci").close();
+    session.execute("CREATE PROPERTY " + clazz + ".surname STRING").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'first', surname = 'Zebra'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'second', surname = 'ada'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'third', surname = 'Ada'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: " + clazz
+            + ", as:a} RETURN a.name AS x, a.surname AS x ORDER BY x")
+        .toList();
+    Assert.assertEquals(3, result.size());
+    Assert.assertEquals("Ada", result.get(0).getProperty("x"));
+    Assert.assertEquals("Zebra", result.get(1).getProperty("x"));
+    Assert.assertEquals("ada", result.get(2).getProperty("x"));
+    session.commit();
+  }
+
   @Test
   public void testDepthAlias() {
     var clazz = "testDepthAlias";

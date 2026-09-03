@@ -85,13 +85,16 @@ public final class OrderByCollationResolver {
     if (projection == null || orderByItem.getModifier() != null || orderByItem.getAlias() == null) {
       return null;
     }
+    SQLProjectionItem result = null;
     for (var projectionItem : projection.getItems()) {
       if (projectionItem.getAlias() != null
           && orderByItem.getAlias().equals(projectionItem.getAlias().getStringValue())) {
-        return projectionItem;
+        // Projection execution overwrites duplicate output names from left to right. Resolve the
+        // same final item so ORDER BY compares the value that the projection actually returns.
+        result = projectionItem;
       }
     }
-    return null;
+    return result;
   }
 
   private static boolean isBarePropertyExpression(

@@ -114,6 +114,37 @@ public class TestOrderBy extends DbTestBase {
   }
 
   /**
+   * Scenario: two SELECT items use the same alias, and the later default-collation expression
+   * overwrites the earlier case-insensitive property. Expected: ORDER BY follows the returned value.
+   */
+  @Test
+  public void duplicateProjectionAliasUsesLastExpressionCollation() {
+    var person = session.getMetadata().getSchema().createClass("duplicateProjectionAliasOrder");
+    person.createProperty("name", PropertyType.STRING).setCollate("ci");
+    person.createProperty("surname", PropertyType.STRING);
+
+    session.begin();
+    var first = session.newEntity("duplicateProjectionAliasOrder");
+    first.setProperty("name", "first");
+    first.setProperty("surname", "Zebra");
+    var second = session.newEntity("duplicateProjectionAliasOrder");
+    second.setProperty("name", "second");
+    second.setProperty("surname", "ada");
+    var third = session.newEntity("duplicateProjectionAliasOrder");
+    third.setProperty("name", "third");
+    third.setProperty("surname", "Ada");
+    session.commit();
+
+    session.begin();
+    var rows = session.query(
+        "select name as name, surname as name from duplicateProjectionAliasOrder order by name")
+        .toList();
+    assertThat(rows).extracting(row -> row.<String>getProperty("name"))
+        .containsExactly("Ada", "Zebra", "ada");
+    session.commit();
+  }
+
+  /**
    * Scenario: a plain projection orders its case-insensitive property without an explicit alias.
    * Expected: the implicit output name does not shadow the source property's declaration.
    */
