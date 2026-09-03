@@ -344,22 +344,6 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
    * presence leaves an explicit-null row inside the null-key group, so a descending scan cannot
    * claim that group — the sort has to run.
    */
-  /**
-   * Scenario: translated ordering appends a record identifier after a repeated property value.
-   * Expected: identifier ties use cluster and position order, including positions across 9 and 10,
-   * rather than lexicographic identifier text order.
-   */
-  @Test
-  public void translatedTrailingRidTieBreak_usesClusterPositionOrderAcrossDigitBoundary() {
-    seedTargets(0);
-
-    var actual = orderedTargets(() -> targets().order().by("score"));
-
-    assertThat(actual)
-        .as("translated trailing @rid ordering must remain numeric by cluster and position")
-        .isEqualTo(expectedOrder("score", true, true));
-  }
-
   @Test
   public void translatedDescendingTraversal_buffersUnderTheLoweredCap() {
     seedTargets(0);

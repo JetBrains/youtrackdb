@@ -18,10 +18,6 @@ import org.junit.Test;
 public class OrderByCollationResolverTest extends DbTestBase {
 
   /**
-   * Scenario: a SELECT item naming a property declared case-insensitive on the target class.
-   * Expected: the item carries that declaration, so the sort comparator follows it.
-   */
-  /**
    * Scenario: translator-generated ordering passes through every AST copy used by planning.
    * Expected: the provenance marker remains present on the copied item.
    */
@@ -36,6 +32,23 @@ public class OrderByCollationResolverTest extends DbTestBase {
         .isTrue();
   }
 
+  /**
+   * Scenario: only translated property items need TinkerPop type ordering. Expected: the appended
+   * record identifier remains unmarked, while the translated property item carries provenance.
+   */
+  @Test
+  public void translatorMarker_marksPropertiesButNotRecordAttributes() {
+    var property = ProjectionExpressionFactories.orderByProperty("v", "value", true);
+    var recordId = ProjectionExpressionFactories.orderByRecordAttribute("v", "@rid", true);
+
+    assertThat(property.isGremlinToMatchTranslatorProduced()).isTrue();
+    assertThat(recordId.isGremlinToMatchTranslatorProduced()).isFalse();
+  }
+
+  /**
+   * Scenario: a SELECT item naming a property declared case-insensitive on the target class.
+   * Expected: the item carries that declaration, so the sort comparator follows it.
+   */
   @Test
   public void resolveOnTargetClass_declaredCaseInsensitiveProperty_pinsThatCollation() {
     var doc = session.getMetadata().getSchema().createClass("Doc");
