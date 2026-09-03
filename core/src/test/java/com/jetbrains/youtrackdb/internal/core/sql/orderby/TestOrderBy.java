@@ -199,6 +199,33 @@ public class TestOrderBy extends DbTestBase {
   }
 
   /**
+   * Scenario: a WHERE range uses a case-insensitive index before ordering that declared property.
+   * Expected: the fully-sorted shortcut is refused and the declared comparison determines output.
+   */
+  @Test
+  public void declaredCollationWithWhereDoesNotClaimIndexOrder() {
+    var clazz = session.getMetadata().getSchema().createClass("collatedWhereSelect");
+    clazz.createProperty("name", PropertyType.STRING).setCollate("ci");
+    session.execute(
+        "create index collatedWhereSelect.nameDefault on collatedWhereSelect"
+            + " (name collate default) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.newEntity("collatedWhereSelect").setProperty("name", "Zebra");
+    session.newEntity("collatedWhereSelect").setProperty("name", "ada");
+    session.newEntity("collatedWhereSelect").setProperty("name", "Ada");
+    session.commit();
+
+    session.begin();
+    var rows = session.query(
+        "select from collatedWhereSelect where name > 'A' order by name").toList();
+    assertThat(rows).extracting(row -> row.<String>getProperty("name"))
+        .containsExactly("Ada", "ada", "Zebra");
+    session.commit();
+  }
+
+  /**
    * Scenario: a plain SELECT orders a collection-valued property backed by a multi-value index.
    * Expected: refusing that index preserves one result row per record, rather than one row per
    * indexed element.
