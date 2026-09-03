@@ -61,26 +61,52 @@ public final class OrderByCollationResolver {
       return;
     }
     for (var item : orderBy.getItems()) {
+      var propertyName = targetPropertyName(item);
       var declaredCollate =
-          hasProjectionAlias(projection, item)
+          projectionAliasShadowsProperty(projection, item, propertyName)
               ? null
-              : declaredCollation(targetClass, targetPropertyName(item));
+              : declaredCollation(targetClass, propertyName);
       item.setDeclaredCollate(declaredCollate);
     }
   }
 
-  public static boolean hasProjectionAlias(
+  private static boolean projectionAliasShadowsProperty(
+      @Nullable SQLProjection projection,
+      SQLOrderByItem orderByItem,
+      @Nullable String propertyName) {
+    var projectionItem = projectionItemForAlias(projection, orderByItem);
+    return projectionItem != null
+        && !isBarePropertyExpression(projectionItem.getExpression(), propertyName);
+  }
+
+  @Nullable
+  private static SQLProjectionItem projectionItemForAlias(
       @Nullable SQLProjection projection, SQLOrderByItem orderByItem) {
     if (projection == null || orderByItem.getModifier() != null || orderByItem.getAlias() == null) {
-      return false;
+      return null;
     }
     for (var projectionItem : projection.getItems()) {
       if (projectionItem.getAlias() != null
           && orderByItem.getAlias().equals(projectionItem.getAlias().getStringValue())) {
-        return true;
+        return projectionItem;
       }
     }
-    return false;
+    return null;
+  }
+
+  private static boolean isBarePropertyExpression(
+      @Nullable SQLExpression expression, @Nullable String propertyName) {
+    if (propertyName == null
+        || expression == null
+        || !(expression.mathExpression instanceof SQLBaseExpression base)
+        || base.getModifier() != null
+        || base.getIdentifier() == null
+        || base.getIdentifier().getSuffix() == null
+        || base.getIdentifier().getSuffix().getIdentifier() == null) {
+      return false;
+    }
+    return propertyName.equals(
+        base.getIdentifier().getSuffix().getIdentifier().getStringValue());
   }
 
   /**
@@ -107,7 +133,7 @@ public final class OrderByCollationResolver {
       var aliasClass =
           propertyName == null || alias == null ? null : aliasClassResolver.apply(alias);
       item.setDeclaredCollate(
-          hasProjectionAlias(projection, item)
+          projectionItemForAlias(projection, item) != null
               ? null
               : declaredCollation(aliasClass, propertyName));
     }

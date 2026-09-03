@@ -90,6 +90,30 @@ public class TestOrderBy extends DbTestBase {
   }
 
   /**
+   * Scenario: an alias repeats the name of its case-insensitive source property. Expected: the
+   * alias does not shadow a different expression, so the property's declaration still governs.
+   */
+  @Test
+  public void sameNameProjectionAliasKeepsPropertyCollation() {
+    var person = session.getMetadata().getSchema().createClass("sameNameProjectionAliasOrder");
+    person.createProperty("name", PropertyType.STRING).setCollate("ci");
+
+    session.begin();
+    session.newEntity("sameNameProjectionAliasOrder").setProperty("name", "Zebra");
+    session.newEntity("sameNameProjectionAliasOrder").setProperty("name", "ada");
+    session.newEntity("sameNameProjectionAliasOrder").setProperty("name", "Ada");
+    session.commit();
+
+    session.begin();
+    var rows = session.query(
+        "select name as name from sameNameProjectionAliasOrder order by name")
+        .stream().collect(Collectors.toList());
+    assertThat(rows).extracting(row -> row.getProperty("name"))
+        .containsExactly("Ada", "ada", "Zebra");
+    session.commit();
+  }
+
+  /**
    * Scenario: a plain projection orders the declared surname property directly while another
    * property named name declares case-insensitive collation. Expected: surname uses its default.
    */
