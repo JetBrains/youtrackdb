@@ -215,14 +215,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.valueOf(ridOrderHolds));
   }
 
-  /**
-   * Signals pre-sorted output for a path that sorted the loaded targets by the ORDER BY property
-   * alone. That claim is true for a single-item sort and false for an accepted trailing record
-   * identifier item, whose tie order the local sort does not produce.
-   */
-  private void signalPrimaryKeyOrderedOutput(CommandContext ctx) {
-    ctx.setSystemVariable(
-        CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.valueOf(!ridTieBreakAccepted));
+  /** Signals pre-sorted output after the local sort has produced the complete accepted order. */
+  private void signalLoadSortedOutput(CommandContext ctx) {
+    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
   }
 
   /**
@@ -304,7 +299,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // (REPLY_OF chain, HAS_CREATOR, etc.) instead of all N.
       // Sort cost O(N log N) is trivial for typical LinkBag sizes (~50-500).
       chosenRuntimePath = RuntimePath.LOAD_SORT;
-      signalPrimaryKeyOrderedOutput(ctx);
+      signalLoadSortedOutput(ctx);
       return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
     } else {
       // No downstream edges or no LIMIT: stream unsorted to OrderByStep.
@@ -442,9 +437,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   // =====================================================================
 
   /**
-   * Sorts records by the ORDER BY property (from the index definition).
-   * Used by loadSortFromLinkBag to produce pre-sorted output that enables
-   * LIMIT-based early termination through downstream MATCH edges.
+   * Sorts records by the ORDER BY property from the index definition. When the planner accepted a
+   * trailing record identifier item, equal property values are also ordered by identifier. This
+   * reproduces a forward index scan's {@code (property ASC, rid ASC)} order and reverses both keys
+   * for a backward scan. A one-item ORDER BY keeps its existing unspecified tie order.
+   *
+   * <p>Used by loadSortFromLinkBag to produce pre-sorted output that enables LIMIT-based early
+   * termination through downstream MATCH edges.
    *
    * <p>Null placement matches {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem}:
    * null is the smallest value — nulls first for ASC, nulls last for DESC.
@@ -463,6 +462,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         cmp = 1;
       } else {
         cmp = va.compareTo(vb);
+      }
+      if (cmp == 0 && ridTieBreakAccepted) {
+        cmp = a.getIdentity().compareTo(b.getIdentity());
       }
       return orderAsc ? cmp : -cmp;
     });
