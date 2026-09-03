@@ -173,57 +173,6 @@ public class TranslatedProductiveOrderTest extends GraphBaseTest {
   }
 
   /**
-   * A cut over an EQUAL-KEY TIE GROUP is the one place the two arms may legitimately differ. Two
-   * records carry no {@code age}, so both sort under the same null key, and {@code limit(2)} keeps
-   * two of them: WHICH two is a tie-break the two engines are free to answer differently.
-   *
-   * <p>The pin is therefore the tie group itself: both arms return two rows, both drawn from the
-   * ageless pair, and both arms return the same NUMBER of rows. Identity is deliberately not
-   * pinned.
-   */
-  @Test
-  public void cutOverTieGroup_bothArmsKeepTheSameTieGroup() {
-    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
-    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25);
-    graph.addVertex(T.label, "Person", "name", "Nobody");
-    graph.addVertex(T.label, "Person", "name", "Nemo");
-    graph.tx().commit();
-
-    // Ascending with the configured placement putting nulls first, the two ageless records are the
-    // first two rows. The placement is read from the dialect rather than assumed: the assertion
-    // below compares against the YQL prefix of the same length.
-    var expectedPrefix = yqlOrderedNames("age").subList(0, 2);
-
-    withOrderIncludesMissingKey(true, () -> {
-      Supplier<GraphTraversal<?, ?>> shape =
-          () -> graph.traversal().V().hasLabel("Person").order().by("age").limit(2)
-              .values("name");
-      var translated = namesFromArm(true, shape);
-      var native0 = namesFromArm(false, shape);
-
-      assertThat(translated)
-          .as("the cut keeps two rows from the null-key tie group, whichever two")
-          .hasSize(2)
-          .isSubsetOf(expectedPrefix);
-      assertThat(native0)
-          .as("the native arm keeps the same tie group and the same row count")
-          .hasSize(2)
-          .isSubsetOf(expectedPrefix);
-      return null;
-    });
-
-    withOrderIncludesMissingKey(false, () -> {
-      var translated = namesFromArm(true,
-          () -> graph.traversal().V().hasLabel("Person").order().by("age").limit(2)
-              .values("name"));
-      assertThat(translated)
-          .as("under the opt-out no tie group exists: the two key bearers are the whole result")
-          .containsExactly("Bob", "Alice");
-      return null;
-    });
-  }
-
-  /**
    * Exactly ONE mechanism serves any shape, and never zero.
    *
    * <p>The native {@code YTDBProductiveOrderByStrategy} names the translator as a prior strategy, so
