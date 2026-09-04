@@ -652,7 +652,7 @@ def _write_stub(bindir, name, body):
 
 @contextlib.contextmanager
 def gather(case, run_url=None, break_ledger_build=False, pr_list_size=0,
-           gh_timeout=None):
+           gh_timeout=None, stale_files=None, drop_ledger_row=None):
     """Execute the gather block under `bash -e` with the stub gh for `case`.
 
     A context manager so the temp dir is removed even when a check fails and
@@ -663,6 +663,18 @@ def gather(case, run_url=None, break_ledger_build=False, pr_list_size=0,
         bindir = os.path.join(workdir, "bin")
         os.makedirs(bindir)
         _write_stub(bindir, "gh", _GH_STUB)
+        if drop_ledger_row:
+            # A jq wrapper that strips one key's row out of the status TSV on
+            # its way into the ledger builder, modelling a code path that
+            # forgot to `record`. It rewrites jq's file argument in place and
+            # then delegates, so it needs no knowledge of the filter itself.
+            _write_stub(bindir, "jq", "#!/bin/bash\n"
+                        'if [ "$1" = "-Rn" ]; then\n'
+                        '  for arg in "$@"; do :; done\n'
+                        '  grep -v "^%s\t" "$arg" > "$arg.keep" || true\n'
+                        '  mv "$arg.keep" "$arg"\n'
+                        'fi\n'
+                        'exec %s "$@"\n' % (drop_ledger_row, shutil.which("jq")))
         if break_ledger_build:
             # Fail ONLY the `-Rn` call that builds the ledger, delegating every
             # other jq invocation to the real binary, so the test isolates the
@@ -673,6 +685,13 @@ def gather(case, run_url=None, break_ledger_build=False, pr_list_size=0,
 
         runner_temp = os.path.join(workdir, "runner-temp")
         os.makedirs(runner_temp)
+        if stale_files:
+            # Model a persistent self-hosted runner where an earlier dispatch
+            # left files in the context dir.
+            ctx_dir = pathlib.Path(runner_temp) / "ci-fix-context"
+            ctx_dir.mkdir(parents=True)
+            for name, body in stale_files.items():
+                (ctx_dir / name).write_text(body, encoding="utf-8")
         github_env = os.path.join(workdir, "github_env")
         open(github_env, "w", encoding="utf-8").close()
 
@@ -729,12 +748,13 @@ def gather(case, run_url=None, break_ledger_build=False, pr_list_size=0,
 
 
 @contextlib.contextmanager
-def prereq(present_tools):
+def prereq(present_tools, apt_rc=0):
     """Execute the prerequisite block with only `present_tools` on PATH.
 
-    `sudo` and `apt-get` are stubbed as no-ops, so the block cannot install
-    anything: whatever is absent at entry stays absent, which is what makes the
-    verification loop's behavior observable.
+    `sudo` and `apt-get` are stubbed, so the block cannot install anything:
+    whatever is absent at entry stays absent, which is what makes the
+    verification loop's behavior observable. `apt_rc` is the stub apt's exit
+    status -- non-zero models a held dpkg lock or a mirror 503.
     """
     workdir = tempfile.mkdtemp(prefix="ci-fix-prereq-")
     try:
@@ -742,8 +762,9 @@ def prereq(present_tools):
         os.makedirs(bindir)
         for tool in present_tools:
             _write_stub(bindir, tool, "#!/bin/bash\necho '%s 1.0'\n" % tool)
-        for tool in ("sudo", "apt-get"):
-            _write_stub(bindir, tool, "#!/bin/bash\nexit 0\n")
+        _write_stub(bindir, "sudo", '#!/bin/bash\nexec "$@"\n')
+        _write_stub(bindir, "apt-get",
+                    "#!/bin/bash\necho 'E: Could not get lock' >&2\nexit %d\n" % apt_rc)
         # Symlink in only the coreutils the block itself calls. PATH is then
         # bindir ALONE, so a tool is absent exactly when this test says it is;
         # putting /usr/bin on PATH would let a real jq or gh installed on the
@@ -1702,6 +1723,69 @@ def test_a_huge_error_body_is_truncated():
         check("long error: run is still marked failed", r.status("run") == "failed")
         check("long error: the ledger is still parseable",
               sorted(r.ledger.get("data", {})) == sorted(_DATA_KEYS))
+
+
+def test_an_apt_failure_still_names_the_missing_tool():
+    """A failing apt must not abort the step with only apt's own output.
+
+    Under `bash -e` an unguarded `sudo apt-get install` exits the step at apt's
+    own status with a dpkg-lock message and no statement of what is missing or
+    why it matters. Both apt calls carry `|| true` so control reaches the
+    verification loop, which is what fails the job with the tool named. The
+    comment on those two `|| true`s calls them load-bearing; this is the test
+    that makes that true.
+    """
+    with prereq(["jq"], apt_rc=100) as p:
+        check("apt failure: the step fails with apt's own status suppressed",
+              p.returncode == 1)
+        check("apt failure: the ::error:: names gh, not apt",
+              any(ln.startswith("::error::") and "gh" in ln
+                  for ln in p.stdout.splitlines()))
+    with prereq(["jq", "gh"], apt_rc=100) as p:
+        check("apt failure with both tools already present: still exits 0",
+              p.returncode == 0)
+
+
+def test_a_previous_dispatch_leaves_nothing_readable_behind():
+    """$RUNNER_TEMP persists across jobs on the self-hosted pool.
+
+    The step purges the context directory rather than only creating it,
+    because a file an earlier version of this step left there -- the scratch
+    .ndjson files used to live in the context dir -- is indistinguishable to
+    the agent from this run's input. The canonical names are always rewritten,
+    so a leftover under any other name is exactly what the purge is for.
+    """
+    with gather("allok", stale_files={
+            "ci-fix-annotations.ndjson": '[{"message":"LAST RUN"}]',
+            "annotations.json": '[{"message":"LAST RUN"}]'}) as r:
+        check("stale scratch file is gone",
+              "ci-fix-annotations.ndjson" not in r.files)
+        check("no context file holds the previous run's data",
+              not any("LAST RUN" in body for body in r.files.values()))
+        check("this run's own data is published",
+              json.loads(r.files.get("annotations.json", "null"))
+              == [{"path": "Foo.java", "message": "boom"}])
+
+
+def test_an_unrecorded_datum_is_named_as_a_defect_in_this_step():
+    """A key the step forgot to record must be reported, not merely absent.
+
+    A missing entry reads to the agent as a degraded datum and quietly
+    discards a healthy one, so the ledger validates itself against the
+    expected key list and names the gap. The error says this is a defect in
+    the step rather than a GitHub failure, because no GitHub failure can
+    produce it -- every fetch path records something.
+    """
+    with gather("allok", drop_ledger_row="logs") as r:
+        check("unrecorded: the key is listed in missing_from_ledger",
+              r.ledger.get("missing_from_ledger") == ["logs"])
+        check("unrecorded: an ::error:: names it",
+              any("logs" in e and "never recorded" in e for e in r.errors()))
+        check("unrecorded: the datum counts as degraded",
+              "logs" in r.ledger.get("degraded", [])
+              and r.ledger.get("complete") is False)
+        check("unrecorded: the other six are unaffected",
+              all(r.status(k) == "ok" for k in _DATA_KEYS if k != "logs"))
 
 
 def test_paginated_pages_are_all_merged():
