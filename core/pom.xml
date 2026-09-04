@@ -182,6 +182,18 @@
               </includes>
             </configuration>
             <executions>
+              <!-- The parent POM declares an inherited maven-failsafe-plugin execution.
+                   This profile declares its own execution, named small-cache-integration-test.
+                   The inherited execution is disabled here, so exactly one execution runs.
+                   Without that disabling, both executions would carry the same configuration.
+                   The maven-failsafe-plugin would then run only the first execution.
+                   A future configuration difference would make both executions run.
+                   Both executions write the same report file names.
+                   One report would then overwrite the other. -->
+              <execution>
+                <id>default</id>
+                <phase>none</phase>
+              </execution>
               <execution>
                 <id>small-cache-integration-test</id>
                 <goals>

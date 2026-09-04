@@ -145,6 +145,11 @@ jobs:
           architecture: x64
           overwrite-settings: false
 
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
       - name: Run Maven Test
         id: tests
         run: >-
@@ -155,14 +160,16 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
-      - name: Verify Integration Test Reports
+      # The gate verifies that every expected module produced required reports.
+      # The gate verifies that the required report kinds ran tests.
+      # The gate also checks every report for a failure or an error.
+      # Use --allow-missing-module when a module produces no integration test report by design.
+      # The option affects integration test reports only, because the gate derives expected modules only for those reports.
+      - name: Gate Integration Test Results
         if: success()
-        run: |
-          if ! find . -path '*/target/failsafe-reports/TEST-*.xml' -type f -print -quit \
-              | grep -q .; then
-            echo "::error::No Failsafe integration test report was produced."
-            exit 1
-          fi
+        run: >-
+          python3 .github/scripts/test-failure-gate.py
+          --root '${{ github.workspace }}' --require failsafe
 
       - name: Print VMLens Data Race Report
         if: always()
@@ -209,8 +216,11 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # The publisher remains a second layer. It can also fail the job.
+      # Keep job_summary enabled. Setting it false makes fork runs exit zero despite failing tests.
+      # Upstream issue 789 documents this fork behavior.
       - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
         with:
           files: |

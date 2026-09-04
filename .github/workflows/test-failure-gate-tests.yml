@@ -1,0 +1,36 @@
+name: Test failure gate unit tests
+
+# Run when the gate or its tests change.
+# This workflow catches report parsing regressions before integration jobs use the gate.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/scripts/test-failure-gate.py'
+      - '.github/scripts/test-failure-gate-test.py'
+      - '.github/workflows/test-failure-gate-tests.yml'
+  pull_request:
+    paths:
+      - '.github/scripts/test-failure-gate.py'
+      - '.github/scripts/test-failure-gate-test.py'
+      - '.github/workflows/test-failure-gate-tests.yml'
+  # Allow manual runs after a transient GitHub Actions outage.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Run unit tests
+        run: python3 .github/scripts/test-failure-gate-test.py
