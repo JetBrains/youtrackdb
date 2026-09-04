@@ -45,6 +45,7 @@ _WORKFLOW = (pathlib.Path(__file__).parents[1]
 _GATHER_STEP = "Gather CI failure context"
 _PREREQ_STEP = "Install CLI prerequisites (jq, gh)"
 _RESULT_STEP = "Read fix result"
+_PUBLISH_STEP = "Publish fix"
 
 # The seven data files the pre-fetch promises the agent, named by their ledger
 # key. The ledger keys are the file names without extension, which is a place
@@ -408,6 +409,82 @@ case "$STUB_CASE" in
       esac
     fi
     [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  mixed_pages_array_then_object)
+    # gh exits 0; page one is an array, page two is an error object.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":111,"conclusion":"failure"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$(api_path "$@")" in
+        *annotations)
+          echo '[{"message":"page one"}]'
+          echo '{"message":"upstream error"}'
+          exit 0 ;;
+        *pulls) echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  mixed_pages_object_then_array)
+    # The reverse order: the LAST page is well-formed, which is what the old
+    # unslurped `jq -e` graded.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":111,"conclusion":"failure"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$(api_path "$@")" in
+        *annotations)
+          echo '"gateway timeout"'
+          echo '[{"message":"page two"}]'
+          exit 0 ;;
+        *pulls) echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  lone_error_object)
+    # gh exits 0 and returns a single error object - WH2's semantics on the
+    # exit-0 path.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":111,"conclusion":"failure"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$(api_path "$@")" in
+        *annotations) echo '{"message":"Not Found"}'; exit 0 ;;
+        *pulls)       echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  truncated_pr_list)
+    # The open-PR list comes back at exactly the --limit, so it is truncated.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$(api_path "$@")" in *pulls) echo '[]'; exit 0 ;; esac
+    fi
+    if [ "$1" = pr ]; then
+      python3 -c 'import json;print(json.dumps([{"number":i,"headRefName":"ci-fix/%d"%i} for i in range(50)]))'
+      exit 0
+    fi
     exit 0 ;;
   tab_in_error)
     # A TAB in the error text would add a field to the status ledger's TSV, and
@@ -1034,10 +1111,10 @@ def test_unparseable_payload_is_reported_as_failed():
         check("malformed: annotations not usable", r.usable("annotations") is False)
         check("malformed: annotations file left as a valid empty list",
               r.files.get("annotations.json", "").strip() == "[]")
-        check("malformed: the unparseable body is reported",
-              any("unparseable body" in w for w in r.warnings()))
-        check("malformed: the reason says the body was not JSON",
-              "not a JSON" in (r.reason("annotations") or ""))
+        check("malformed: the bad body is reported",
+              any("not a JSON array" in w for w in r.warnings()))
+        check("malformed: the reason says the body was not a JSON array",
+              "not a JSON array" in (r.reason("annotations") or ""))
         check("malformed: the ledger is still valid JSON with all keys",
               sorted(r.ledger.get("data", {})) == sorted(_DATA_KEYS))
 
@@ -1183,7 +1260,7 @@ def test_every_fetch_targets_the_dispatched_run_and_repo():
 
 
 def test_fetched_payloads_land_verbatim_in_their_files():
-    """Each file must hold exactly what GitHub returned, not merely contain it.
+    """Each file must hold exactly what GitHub returned, byte for byte.
 
     The stub payloads are deterministic, so exact equality costs nothing and
     catches what a substring check cannot: a dropped field, an extra element
@@ -1380,6 +1457,55 @@ def test_error_text_cannot_inject_ledger_fields_or_rows():
               r.usable("run") is False)
 
 
+def test_a_wrong_type_page_is_never_graded_complete():
+    """Every page of a paged response must be an array, not just the last one.
+
+    `jq -e` takes its exit status from its LAST output and emits one output per
+    input, so an unslurped check over a `--paginate` body graded only the final
+    page. A well-formed page of the wrong type then passed the check and was
+    silently discarded by the merge's `map(select(type == "array"))`, publishing
+    `complete: true` over data that was dropped -- the false-completeness claim
+    the ledger exists to close, one level down from the original bug.
+
+    All three shapes need `gh` to exit 0, which is why they are not covered by
+    the error-body scenarios: a proxy error page, a truncated upstream
+    response, and a bare error object.
+    """
+    for case, label in (("mixed_pages_array_then_object", "good page first"),
+                        ("mixed_pages_object_then_array", "bad page first"),
+                        ("lone_error_object", "single error object")):
+        with gather(case) as r:
+            check(f"{label}: annotations marked failed", r.status("annotations") == "failed")
+            check(f"{label}: annotations not usable", r.usable("annotations") is False)
+            check(f"{label}: annotations not complete",
+                  r.complete("annotations") is False)
+            check(f"{label}: the file is the empty placeholder",
+                  r.files.get("annotations.json", "").strip() == "[]")
+            check(f"{label}: a warning names the bad body",
+                  any("not a JSON array" in w for w in r.warnings()))
+
+
+def test_a_truncated_open_pr_list_is_not_complete():
+    """A PR list returned at exactly the --limit must not be graded complete.
+
+    `gh pr list --limit 50` gives no signal that more exist. Graded
+    `complete: true`, the agent would read "no matching fix PR" from a list it
+    simply never saw the end of, and open a second fix PR over an existing one.
+    """
+    with gather("truncated_pr_list") as r:
+        check("truncated PR list: marked partial",
+              r.status("existing-fix-prs") == "partial")
+        check("truncated PR list: still usable", r.usable("existing-fix-prs") is True)
+        check("truncated PR list: not complete",
+              r.complete("existing-fix-prs") is False)
+        check("truncated PR list: the reason names the limit",
+              "truncated" in (r.reason("existing-fix-prs") or ""))
+        check("truncated PR list: the 50 PRs are still available",
+              len(json.loads(r.files.get("existing-fix-prs.json", "[]"))) == 50)
+        check("truncated PR list: a warning is emitted",
+              any("50-item limit" in w for w in r.warnings()))
+
+
 def test_paginated_pages_are_all_merged():
     """Every page of a paged response must reach the merged file.
 
@@ -1402,18 +1528,102 @@ def test_every_non_fatal_scenario_exits_zero():
 
     Under `bash -e` a missing `|| true` anywhere in the block kills the step
     part-way through, leaving a half-written context and no summary. Asserting
-    the exit status in every scenario is the cheapest guard against that whole
-    class -- it is the bug the `DEGRADED` assignment already had once.
+    the exit status in every scenario catches that whole class in one line --
+    it is the bug the `DEGRADED` assignment already had once.
     """
     for case in ("allok", "absent", "no_jobs", "no_run", "run_without_head_sha",
                  "partial_annotations", "all_annotations_fail", "no_failed_jobs",
                  "partial_pr_comments", "malformed_json", "unenumerable_jobs",
                  "realistic_api_404", "prs_fetch_fails", "multiline_run_error",
-                 "paginated_annotations", "tab_in_error"):
+                 "paginated_annotations", "tab_in_error",
+                 "mixed_pages_array_then_object", "mixed_pages_object_then_array",
+                 "lone_error_object", "truncated_pr_list"):
         with gather(case) as r:
             check(f"{case}: step exits 0", r.returncode == 0)
             check(f"{case}: publishes a ledger with all seven keys",
                   sorted(r.ledger.get("data", {})) == sorted(_DATA_KEYS))
+
+
+def test_selectable_review_agents_exist():
+    """Every agent the mandatory review gate names must exist on disk.
+
+    Step 6 is a blocking gate that tells the agent to launch a specific set of
+    sub-agents by name. A name with no file behind it cannot be launched, so
+    the dimension is silently skipped and the gate passes having reviewed less
+    than it claims. Three names in this table were wrong before this test
+    existed: `review-bugs-concurrency`, `review-test-behavior` and
+    `review-test-completeness`.
+    """
+    agents_dir = _WORKFLOW.parents[2] / ".claude" / "agents"
+    if not agents_dir.is_dir():
+        check("agents directory exists (skipping name check)", True)
+        return
+    available = {p.stem for p in agents_dir.glob("review-*.md")}
+    named = set(re.findall(r"review-[a-z-]+", _prompt_text()))
+    missing = sorted(named - available)
+    check(f"every named review agent exists (missing: {missing})", not missing)
+    check("the check found agents to compare against",
+          bool(named) and bool(available))
+
+
+def test_extracted_shell_passes_shellcheck():
+    """The step's shell must be shellcheck-clean.
+
+    Roughly 350 lines of shell live inside YAML, where shellcheck cannot reach
+    them, so that whole finding class is otherwise invisible to CI. Run at
+    `info` severity, which is strict enough to catch unquoted expansions; the
+    one deliberate word split carries an inline `disable=SC2086` with its
+    reason. Skips when shellcheck is absent so a local run stays green;
+    `ubuntu-latest` ships it, which is where this matters.
+    """
+    if shutil.which("shellcheck") is None:
+        check("shellcheck not installed (skipped)", True)
+        return
+    for step in (_GATHER_STEP, _PREREQ_STEP, _RESULT_STEP, _PUBLISH_STEP):
+        script = _resolve_expressions(_extract_run_block(step), step)
+        with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write("#!/usr/bin/env bash\n" + script)
+            path = fh.name
+        try:
+            proc = subprocess.run(
+                ["shellcheck", "-s", "bash", "-S", "info", path],
+                capture_output=True, text=True, timeout=60)
+            check(f"shellcheck clean: {step}"
+                  + ("" if proc.returncode == 0 else "\n" + proc.stdout[:2000]),
+                  proc.returncode == 0)
+        finally:
+            os.unlink(path)
+
+
+def test_the_tmp_cleanup_step_runs_last_and_covers_every_writer():
+    """Nothing may be left in /tmp: this job runs on a persistent runner.
+
+    $RUNNER_TEMP is cleaned per job, but /tmp is host-scoped and shared with
+    every job the runner ever executes, so an unremoved file accumulates one
+    copy per dispatch forever. Two properties have to hold: the cleanup step is
+    last, because a step that writes to /tmp after it would not be covered, and
+    it names every producer. The step was originally placed before the two
+    Zulip steps, which write their own files.
+    """
+    names = _step_names_in_order()
+    check("a /tmp cleanup step exists", "Clean up /tmp scratch files" in names)
+    check("the cleanup step is the last step in the job",
+          names and names[-1] == "Clean up /tmp scratch files")
+
+    text = _workflow_text()
+    cleanup = text.split("- name: Clean up /tmp scratch files", 1)
+    if len(cleanup) != 2:
+        return
+    block = cleanup[1]
+    # Every step output that names a /tmp path must be removed there.
+    for producer in ("prompt_file", "json_log", "zulip_message_file"):
+        check(f"the cleanup step covers {producer}", producer in block)
+    check("the cleanup step covers the Zulip fallback file",
+          "zulip-fallback" in block)
+    check("the cleanup step cannot fail the job", "|| true" in block)
+    check("the cleanup step runs even after a failure",
+          "if: always()" in block.split("run:", 1)[0])
 
 
 def main():
