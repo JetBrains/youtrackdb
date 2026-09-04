@@ -180,12 +180,13 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
   }
 
   /**
-   * Scenario: the descending query over an index built to ignore null keys, with every row carrying
-   * the property. Expected: acceptance, because such an index stores no null key at all and the
-   * whole sorted tree is what the scan walks.
+   * Scenario: descending {@code ORDER BY} over an index built with {@code ignoreNullValues}.
+   * Expected: the whole index-ordered shortcut is refused — such an index holds no entry for a
+   * target that lacks the ordered property, so a scan would drop that row instead of sorting it as
+   * null. A control sort over a default-keeping index still streams.
    */
   @Test
-  public void descendingOrder_streamsWhenTheIndexIgnoresNullValues() {
+  public void descendingOrder_refusesWhenTheIndexIgnoresNullValues() {
     seedTargets(0, target -> {
       target.createProperty("score", PropertyType.INTEGER)
           .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE, Map.of("ignoreNullValues", true));
@@ -193,12 +194,15 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
           .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
     });
 
-    assertThat(planText(descendingByScore()))
-        .as("an index that stores no null key has no group outside its sorted tree")
+    assertThat(planText(
+        "MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
+            + " ORDER BY m.name ASC, m.@rid ASC"))
+        .as("the control sort must still reach the shortcut, or the refusal below is vacuous")
         .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
-    withLoweredHeapCap(() -> assertThat(orderedRowsOf(descendingByScore()))
-        .as("the descending scan of a null-free index is the sort")
-        .isEqualTo(expectedOrder("score", false, false)));
+    assertThat(planText(descendingByScore()))
+        .as("an ignore-null index cannot claim the full ordered row set")
+        .doesNotContain(INDEX_ORDERED_STEP);
+    assertBuffers(() -> orderedRowsOf(descendingByScore()));
   }
 
   /**
