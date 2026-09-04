@@ -2840,10 +2840,20 @@ public class SelectExecutionPlanner {
         }
       }
       if (indexFound && orderType != null) {
+        var orderAsc = orderType.equals(SQLOrderByItem.ASC);
+        // Null-key stream placement follows the first ORDER BY item (explicit NULLS FIRST/LAST or
+        // the global NULLS_SMALLEST/NULLS_LARGEST default). The index can always honor that by
+        // concatenating the null bucket before or after the B-tree scan.
+        var nullsFirst =
+            info.orderBy
+                .getItems()
+                .getFirst()
+                .resolveNullsFirst(ctx.getDatabaseSession().getConfiguration());
         plan.chain(
             new FetchFromIndexValuesStep(
                 new IndexSearchDescriptor(idx),
-                orderType.equals(SQLOrderByItem.ASC),
+                orderAsc,
+                nullsFirst,
                 ctx,
                 profilingEnabled));
         IntArrayList filterCollectionIds;
@@ -3111,8 +3121,19 @@ public class SelectExecutionPlanner {
       var desc = optimumIndexSearchDescriptors.getFirst();
       result = new ArrayList<>();
       var orderAsc = getOrderDirection(info);
+      var ascending = !Boolean.FALSE.equals(orderAsc);
+      // When ORDER BY is present, place the null-key stream per the first item's resolved null
+      // ordering so a fullySorted index plan matches in-memory null placement. Without ORDER BY,
+      // keep the legacy NULLS_SMALLEST default (nullsFirst == ascending).
+      var nullsFirst =
+          (info.orderBy != null && !info.orderBy.getItems().isEmpty())
+              ? info.orderBy
+                  .getItems()
+                  .getFirst()
+                  .resolveNullsFirst(ctx.getDatabaseSession().getConfiguration())
+              : ascending;
       result.add(
-          new FetchFromIndexStep(desc, !Boolean.FALSE.equals(orderAsc), ctx, profilingEnabled));
+          new FetchFromIndexStep(desc, ascending, nullsFirst, ctx, profilingEnabled));
       IntArrayList filterCollectionIds;
       if (filterCollections != null) {
         filterCollectionIds = classCollectionsFiltered(ctx.getDatabaseSession(), clazz,

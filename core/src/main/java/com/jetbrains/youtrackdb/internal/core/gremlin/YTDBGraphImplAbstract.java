@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderNullsStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBProductiveOrderByStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -78,6 +79,9 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
                 // sorts by each strategy's applyPrior()/applyPost(). The translator declares empty
                 // ordering constraints; the three half-measure strategies name it in their own
                 // applyPrior(), so the resolver runs it first and they become the decline fallback.
+                // YTDBOrderNullsStrategy waits on the translator and on
+                // YTDBProductiveOrderByStrategy (applyPrior), so comparator wrapping hits only
+                // native-decline order() steps and sees missing keys as nulls.
                 // RepeatDeclineStrategy is the one entry that is not a provider optimization: it is
                 // a decoration strategy, and the resolver's category ordering is what puts it ahead
                 // of TinkerPop's RepeatUnrollStrategy, which is where its whole value lies.
@@ -91,6 +95,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
                 // whole process, so a registration gated on configuration would freeze the
                 // decision at first class load. The strategy reads the setting in its own apply().
                 YTDBProductiveOrderByStrategy.instance(),
+                YTDBOrderNullsStrategy.instance(),
                 YTDBQueryMetricsStrategy.instance()));
   }
 

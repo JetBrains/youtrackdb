@@ -9,7 +9,7 @@ For more information, see [operators](YQL-Where.md#operators) and [functions](YQ
 SELECT [ <Projections> ] [ FROM <Target> [ LET <Assignment>* ] ]
     [ WHERE <Condition>* ]
     [ GROUP BY <Property>* ]
-    [ ORDER BY <Properties>* [ ASC|DESC ] * ]
+    [ ORDER BY <Properties>* [ ASC|DESC ] [ NULLS FIRST|NULLS LAST ] * ]
     [ UNWIND <Property>* ]
     [ SKIP <SkipRecords> ]
     [ LIMIT <MaxRecords> ]
@@ -26,7 +26,11 @@ set of Record IDs.
 - **[`LET`](YQL-Query.md#let-block)** Binds context variables to use in projections, conditions or sub-queries.
 - **`GROUP BY`** Designates property on which to group the result-set.
 - **`ORDER BY`** Designates the property with which to order the result-set.  Use the optional `ASC` and `DESC` operators to define the direction of the order.  
-The default is ascending.  Additionally, if you are using a [projection](YQL-Query.md#projections), 
+The default is ascending.  Optionally add `NULLS FIRST` or `NULLS LAST` after the direction to control where null values appear (absolute placement, independent of `ASC`/`DESC`). When the clause is omitted, null placement follows `youtrackdb.query.orderBy.nullsDefault` (`NULLS_SMALLEST` or `NULLS_LARGEST`). The same setting applies to Gremlin `order()`; per-storage configuration overrides the runtime global:  
+  - `NULLS_SMALLEST` (default): nulls first for `ASC`, nulls last for `DESC` (legacy behavior).  
+  - `NULLS_LARGEST`: nulls last for `ASC`, nulls first for `DESC`.  
+An explicit `NULLS FIRST` / `NULLS LAST` on an item overrides the default.  
+Additionally, if you are using a [projection](YQL-Query.md#projections), 
 you need to include the `ORDER BY` field in the projection. Note that ORDER BY works only on projection properties (properties that are returned in the result set), not on LET variables.
 - **[`UNWIND`](YQL-Query.md#unwinding)** Designates the property on which to unwind the collection. 
 - **`SKIP`** Defines the number of records you want to skip from the start of the result-set.
@@ -66,6 +70,17 @@ you need to include the `ORDER BY` field in the projection. Note that ORDER BY w
 - Return all results on class `Profile`, ordered by the field `name` in descending order:
 ```sql
     SELECT FROM Profile ORDER BY name DESC
+```
+
+- Return results with null `name` values first, regardless of sort direction:
+```sql
+    SELECT FROM Profile ORDER BY name ASC NULLS FIRST
+    SELECT FROM Profile ORDER BY name DESC NULLS FIRST
+```
+
+- Return results with null `name` values last:
+```sql
+    SELECT FROM Profile ORDER BY name ASC NULLS LAST
 ```
   
 - Return the number of records in the class `Account` per city:

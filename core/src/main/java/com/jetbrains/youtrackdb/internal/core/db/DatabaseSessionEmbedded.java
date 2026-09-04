@@ -123,6 +123,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregateProjectionCalculationStep;
@@ -1160,6 +1161,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         plan,
         ctx,
         populateMutationVersion);
+    fixNullPlacement(entry);
     if (matchOrigin != null && statement instanceof SQLMatchStatement match) {
       assert shape == CacheableShape.RECORD : "Pojector installed on a non-RECORD entry";
       entry.setReturnProjector(buildMatchReturnProjector(match, matchOrigin, args));
@@ -1291,6 +1293,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         null,
         null,
         populateMutationVersion);
+    fixNullPlacement(entry);
     entry.setAggregateState(state);
     // put is a no-op if the cap already routed the key non-cacheable during the drive; otherwise it
     // stores the entry. Either way the view below is built directly over this entry's seeded state.
@@ -1386,6 +1389,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         null,
         null,
         populateMutationVersion);
+    fixNullPlacement(entry);
     entry.setAggregateState(state);
     cache.put(resolvedKey, entry);
 
@@ -1521,6 +1525,19 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         ? DeltaBuilder.buildForRecord(entry, tx, ctx)
         : null;
     return new CachedResultSetView(entry, delta, this, tx, entry.getPlan(), ctx);
+  }
+
+  /**
+   * Fixes the null placement of a freshly populated cache entry.
+   *
+   * <p>Called at populate, so every later comparison on the entry ranks rows the way the frozen rows
+   * are already ranked. A configuration change after this point cannot reach the entry. An entry
+   * with no ORDER BY never compares rows, so it never reads the storage configuration.
+   */
+  private void fixNullPlacement(@Nonnull CachedEntry entry) {
+    if (entry.getOrderBy() != null) {
+      entry.seedNullsDefault(OrderByNullsUtil.resolveDefault(getConfiguration()));
+    }
   }
 
   /** A command context carrying the query's parameter bindings, mirroring the executor's setup. */

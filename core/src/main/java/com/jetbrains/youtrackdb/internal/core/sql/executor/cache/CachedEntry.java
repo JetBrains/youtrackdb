@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
+import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IdempotentExecutionStream;
@@ -125,6 +127,24 @@ public final class CachedEntry {
   @Nullable private List<Result> cachedInjectList;
 
   private long cachedDeltaVersion = -1;
+
+  /**
+   * Null placement for every ORDER BY comparison this entry drives.
+   *
+   * <p>The cache fixes it at populate through {@link #seedNullsDefault}, and it never changes after
+   * that. One value per entry is required for correctness, not for speed. The delta builder sorts
+   * the inject list, and the view merges that list against the cached rows. Two reads could straddle
+   * a configuration change, and the merged result would then come out unsorted.
+   *
+   * <p>Populate is the right moment because the rows the populating execution froze are already
+   * ordered under the value in force then. A later reading would rank the injected rows against a
+   * cached prefix ordered the other way.
+   *
+   * <p>Stays {@code null} for an entry with no ORDER BY, which never compares rows. An entry built
+   * outside the cache, as a test does, may also reach a comparison unseeded. The first comparison
+   * then fixes the value, so the one-value rule holds either way.
+   */
+  @Nullable private OrderByNullsDefault nullsDefault;
 
   // Per-entry record-cap guard. The cache installs the cap and the overflow callback at put time; the
   // view's row append checks the cap so an entry whose populate crosses it removes itself from the
@@ -263,6 +283,50 @@ public final class CachedEntry {
 
   @Nullable public SQLOrderBy getOrderBy() {
     return orderBy;
+  }
+
+  /**
+   * Fixes the null placement of this entry at populate, before any row is compared.
+   *
+   * <p>The cache calls this for an entry that carries an ORDER BY. A second call keeps the first
+   * placement, because comparisons may already have used it and two placements on one entry would
+   * rank rows differently. Such a call is a construction bug in the cache, so an assertion fails it
+   * in tests. Production keeps the first value instead of throwing, because a throw here would roll
+   * back the user transaction.
+   *
+   * @param seeded the placement in force when this entry was populated
+   */
+  public void seedNullsDefault(@Nonnull OrderByNullsDefault seeded) {
+    assert nullsDefault == null
+        : "the null placement of a cached entry is fixed once, at populate";
+    if (nullsDefault == null) {
+      nullsDefault = seeded;
+    }
+  }
+
+  /**
+   * The null placement every comparison on this entry uses.
+   *
+   * <p>Returns the seed the cache installed at populate. An entry built outside the cache has no
+   * seed, and then this call fixes the value from {@code ctx}. Call it only where a comparison
+   * follows, because an unseeded first call reads the storage configuration under its lock.
+   *
+   * @param ctx the context of the query that drives the comparison
+   */
+  @Nonnull
+  public OrderByNullsDefault nullsDefault(@Nonnull CommandContext ctx) {
+    if (nullsDefault == null) {
+      nullsDefault = OrderByNullsUtil.resolveDefaultForSort(ctx);
+    }
+    return nullsDefault;
+  }
+
+  /**
+   * The placement already fixed for this entry, or {@code null} when none is. Exposed so a test can
+   * prove that populate seeds it, and that an entry with no ORDER BY never reads the configuration.
+   */
+  @Nullable OrderByNullsDefault fixedNullsDefault() {
+    return nullsDefault;
   }
 
   /**

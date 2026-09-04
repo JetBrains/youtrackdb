@@ -7,6 +7,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -19,6 +20,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
@@ -391,6 +394,60 @@ public class TxResultCacheWiringTest extends DbTestBase {
     }
 
     session.rollback();
+  }
+
+  // ===========================================================================
+  // Null placement is fixed at populate
+  // ===========================================================================
+
+  /**
+   * A populated entry that carries an ORDER BY must already hold its null placement, before any row
+   * is compared. The populating query has no in-transaction mutation, so its view never compares a
+   * cached head with an injected head. A placement read at the first comparison would leave this
+   * entry unfixed here. A change before the next query would then rank the injected rows against a
+   * cached prefix ordered the other way.
+   */
+  @Test
+  public void flagOn_populateFixesNullPlacementBeforeAnyComparison() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    var storageConfig = session.getStorage().getContextConfiguration();
+    storageConfig.setValue(
+        GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_LARGEST);
+    try {
+      seed(2);
+      session.begin();
+      var sql = "SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC";
+
+      assertEquals("the populating query returns the seeded rows", 2, countQuery(sql));
+
+      var cache = tx().getQueryResultCache();
+      assertNotNull("cache must exist with the flag on", cache);
+      var entry = CacheTestSupport.onlyEntry(cache);
+      assertEquals(
+          "populate must fix the placement in force at that moment",
+          OrderByNullsDefault.NULLS_LARGEST,
+          entry.fixedNullsDefault());
+
+      // A change after populate must not reach this entry, because the cached rows keep the order
+      // the populating execution gave them.
+      storageConfig.setValue(
+          GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_SMALLEST);
+      var withoutSortKey = session.newEntity(CLASS_NAME);
+      assertNull("the injected row must carry a null sort key", withoutSortKey.getProperty(FIELD));
+
+      List<Object> values;
+      try (var rs = session.query(sql)) {
+        values = rs.stream().map(r -> r.<Object>getProperty(FIELD)).toList();
+      }
+
+      assertEquals(
+          "the merged rows follow the placement fixed at populate",
+          Arrays.asList(0, 1, null),
+          values);
+      session.rollback();
+    } finally {
+      storageConfig.setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, null);
+    }
   }
 
   /** Reflectively invokes the private {@code serveThroughCache(SQLStatement, Object)} gate. */
