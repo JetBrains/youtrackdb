@@ -77,6 +77,8 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
+      # This step's NAME is load-bearing: see the note on "Gather CI failure
+      # context" below.
       - name: Install CLI prerequisites (jq, gh)
         run: |
           # This job runs on a self-hosted Hetzner image that ships neither jq
@@ -88,7 +90,7 @@ jobs:
           # Only jq used to be installed here. Every gh call therefore exited 127
           # and did so invisibly, because each fetch sent stderr to /dev/null and
           # fell back to a placeholder file - handing the agent an empty context
-          # it had no way to recognise as empty.
+          # it had no way to recognize as empty.
           MISSING=()
           for TOOL in jq gh; do
             command -v "$TOOL" >/dev/null 2>&1 || MISSING+=("$TOOL")
@@ -156,7 +158,15 @@ jobs:
           pull requests. What could be fetched about the failure is in the files
           under `$CI_FIX_CONTEXT_DIR` — read those instead of querying GitHub
           live, and read `fetch-status.json` there to see which of them actually
-          arrived. You record your outcome in the sentinel
+          arrived.
+
+          The prohibition covers the `gh` CLI and any network operation. Local
+          `git` commands are allowed and expected: the checkout used
+          `fetch-depth: 0`, so every branch and every commit is already on
+          disk. An `origin/...` ref is a local copy, and reading one touches no
+          network.
+
+          You record your outcome in the sentinel
           `$CI_FIX_RESULT_FILE` — which lives in the result directory
           `$CI_FIX_RESULT_DIR`, the same directory where you write the PR body
           file `$CI_FIX_RESULT_DIR/pr-body.md` (Step 7). A later workflow step
@@ -173,26 +183,64 @@ jobs:
             integration tests take ~60-90 min. Prefer running only the
             specific failing test first, then the full module suite only if
             needed.
-          - At the end, write your final summary to `/tmp/fix-agent-summary.md`.
+          - At the end, write your final summary to `$CI_FIX_SUMMARY_FILE`.
           - If you cannot fix the issue, still write a summary documenting your
             investigation findings.
           - NEVER run multiple test processes simultaneously in the same
             directory.
 
-          ## Step 0: Read the pre-fetched failure context and pick a branch
+          ## Step 0: Read the failure context and pick a branch
 
-          ### 0a: Read the pre-fetched failure context
+          ### 0a: Read the fetch ledger
 
-          The GitHub data has already been fetched into `$CI_FIX_CONTEXT_DIR`.
-          Do NOT query GitHub — just read these files:
+          Do this before opening any other file in `$CI_FIX_CONTEXT_DIR`:
 
-          - `fetch-status.json` — **read this first.** Per-datum fetch outcome
-            for every file below. Values: `ok` (GitHub answered, the file holds
-            the real result), `failed` (the fetch errored, the file is a
-            placeholder), `unavailable` (the fetch was skipped because a datum
-            it depends on was missing, the file is a placeholder), `partial`
-            (an aggregate whose per-item fetches did not all succeed, so the
-            file is incomplete).
+          ```bash
+          jq -r '"complete=\(.complete)  degraded=\(.degraded|join(","))"' \
+            "$CI_FIX_CONTEXT_DIR/fetch-status.json"
+          jq -r '.data | to_entries[] | "\(.key)\tusable=\(.value.usable)\tcomplete=\(.value.complete)\t\(.value.reason // "")"' \
+            "$CI_FIX_CONTEXT_DIR/fetch-status.json"
+          ```
+
+          The pre-fetch wrote one file per datum. Some of them may be placeholders, and
+          this ledger is the only thing that tells you which. It has one entry per datum,
+          keyed by the data file's name **without its extension** — `logs` for
+          `logs.txt`, `run` for `run.json`, and so on. The seven keys are `run`, `jobs`,
+          `logs`, `annotations`, `associated-prs`, `pr-comments` and
+          `existing-fix-prs`.
+
+          Each entry carries a `status` (`ok`, `partial`, `failed` or `unavailable`) and
+          two flags derived from it. Branch on the flags, not on the status:
+
+          - **`usable: true`** — the file holds real data. Read it.
+          - **`usable: false`** — the file is a placeholder. Never read it.
+          - **`complete: true`** — absence in that file is meaningful. An empty list
+            means GitHub has nothing.
+          - **`complete: false`** — absence proves nothing. Something you do not see may
+            simply not have been fetched.
+
+          So there are three actions, one per datum:
+
+          | Flags | What it means | What to do |
+          |---|---|---|
+          | `usable: true, complete: true` | GitHub answered in full | Use it, including an empty result |
+          | `usable: true, complete: false` | an aggregate arrived in part | Use what is there; never infer absence from it |
+          | `usable: false` | the file is a placeholder | Treat the datum as absent; write "unknown" where it would have gone |
+
+          **A placeholder is byte-identical to a real answer, so nothing in a file's
+          content can tell you which you are holding.** The placeholders are `{}`, `[]`,
+          and the sentence `No failed-job logs available.` — note that the last one is
+          not empty and reads as a statement of fact. Only the ledger distinguishes
+          them.
+
+          Treat the datum as absent, too, when the ledger itself cannot be trusted: a
+          key missing from `.data`, or a `fetch-status.json` that is absent, empty, `{}`,
+          or unparseable. In the last case treat **every** datum as absent. A non-empty
+          `.missing_from_ledger` array names keys the pre-fetch expected and did not
+          record.
+
+          The data files:
+
           - `run.json` — the failed run's metadata: `conclusion`, `event`,
             `headBranch`, `headSha`, workflow name, and URL.
           - `jobs.json` — the run's jobs, each with its `conclusion` and step
@@ -200,32 +248,61 @@ jobs:
           - `annotations.json` — check-run annotations for the failed jobs:
             exact test names, error messages, and file/line locations.
           - `logs.txt` — the logs of the failed jobs only.
-          - `associated-prs.json` — pull requests associated with the failing
-            commit. An empty array means the failure was a direct `develop`
-            push **only if this datum's status is `ok`**.
+          - `associated-prs.json` — pull requests associated with the failing commit.
+            If `associated-prs` is usable and complete, an empty array means the failure
+            was a direct `develop` push. If it is not, the array tells you nothing.
           - `pr-comments.json` — comments on those associated PRs (e.g. CI gate
             comments carrying test-count / coverage data).
           - `existing-fix-prs.json` — currently OPEN PRs targeting `develop`,
             used for duplicate detection in Step 0c.
 
-          Read them (e.g. with `cat` / `jq`) and note the failing test class
+          Read the usable ones (e.g. with `cat` / `jq`) and note the failing test class
           name(s), error message(s), and module.
 
-          **An empty file whose status is not `ok` carries no information.**
-          Never read such a file as a fact about the repository — a placeholder
-          and a genuinely empty result are byte-identical, and only
-          `fetch-status.json` tells them apart. Treat the datum as absent.
+          A usable datum can still be uninformative, and that is not the same as a
+          missing one. `logs.txt` can be `ok` and empty because GitHub expired the
+          archive; `jobs.json` can be `ok` with no job whose `conclusion` is `failure`,
+          because the run failed above the job level. Treat those as a degraded context
+          too, and say so — do not report them as "no failure found".
 
-          If `run.json`, `jobs.json`, `annotations.json` and `logs.txt` are all
-          non-`ok`, you have no failure identity at all. Do not guess one. Say
-          so, then investigate with what you do have: `git log`, the diff of
-          `$TRIGGER_SHA`, the workflow definitions under `.github/workflows/`,
-          and a local reproduction run of the failing scope. Report which data
-          were missing in your Step 8 summary and in the PR body, so the next
-          reader knows the diagnosis rested on inference rather than on the
-          failure's own logs.
+          **If none of `run`, `jobs`, `annotations` and `logs` is usable, you do not
+          know which test or job failed.** Do not guess, and do not treat this as an
+          infrastructure failure — a fetch that did not happen is evidence about the
+          fetch, not about the build. Investigate from what you do have:
 
-          ### 0b: (nothing to do — the failure context is already pre-fetched)
+          1. `git show --stat "$TRIGGER_SHA"` for the change under suspicion, and
+             `git log --oneline -20 origin/develop` for what landed around it. First
+             check `git cat-file -e "$TRIGGER_SHA^{commit}"` — the checkout fetched
+             `refs/heads/*` and tags only, so a pull-request merge SHA is not in this
+             clone and you have no token to fetch it. If the object is absent, fall back
+             to `run.json`'s `headSha` / `headBranch` when that datum is usable, and say
+             in your summary that you could not inspect the triggering commit.
+          2. `.github/workflows/` to work out which legs of the failing workflow run
+             what, and which of them no pull request ever exercises. `$FAILED_WORKFLOW_NAME`
+             names the workflow.
+          3. A local reproduction: `__FULL_TEST_CMD__`. This is the whole scope, because
+             you have no test name to narrow it to, and it supersedes the
+             "run only the specific failing test first" guidance above. Budget most of
+             __TIME_BUDGET__ for it.
+
+          Then take the outcome:
+
+          - **The reproduction fails.** You now have a failure identity. Continue at
+            Step 1 with it.
+          - **The reproduction passes.** Stop. Do not commit a speculative fix. Record
+            `status: "no-fix"` in Step 7 and write Step 8 with
+            `## Status: INVESTIGATION_ONLY`, naming the degraded data and saying what
+            you covered and what you could not.
+
+          Name the degraded data in your Step 8 summary and, if you open a PR, in its
+          `## Context` section, so the next reader knows whether the diagnosis rested on
+          the failure's own logs or on inference.
+
+          ### 0b: Note what arrived
+
+          Write the per-datum table from 0a into your notes now, before Step 0c. Every
+          later step that reads a context file consults it first. Do not proceed without
+          it.
 
           ### 0c: Pick your fix branch (fresh, or an existing fix PR's branch)
 
@@ -233,17 +310,6 @@ jobs:
           THIS failure — one whose title or body mentions the failing test
           class (from Step 0a), the keywords "ci-fix" / "fix ci" / "flaky", or
           whose `headRefName` starts with `ci-fix/`.
-
-          If `fetch-status.json` does not report `existing-fix-prs` as `ok`,
-          this list is a placeholder and duplicate detection is blind. Fall back
-          to the local remote-tracking refs, which the `fetch-depth: 0` checkout
-          already has: `git branch -r --list 'origin/ci-fix/*'` names every fix
-          branch ever pushed, and `git log --oneline origin/develop..<ref>`
-          shows what each one carries. A branch that is ahead of `develop` and
-          addresses this same failure means an open fix PR probably exists — say
-          so in your summary and PR body rather than silently opening a rival
-          PR. You cannot recover the PR *number* this way, so keep
-          `existing_pr` as `null` and let a human reconcile the two.
 
           - **If a matching open fix PR exists**, add your commits to ITS head
             branch. The checkout used `fetch-depth: 0`, so every remote branch
@@ -267,6 +333,31 @@ jobs:
             You will record `existing_pr` as `null` and this branch name as
             `branch`.
 
+          **If `existing-fix-prs` is not usable, duplicate detection is blind.** You
+          cannot recover a PR number without GitHub, so do not try to substitute for it:
+          **take the fresh-branch path**, and record `existing_pr` as `null`. Committing
+          onto a branch that already has an open PR while reporting `existing_pr: null`
+          makes the publish step push your commits and then fail trying to open a second
+          PR for that head — a fix that shipped, reported as a failed publish.
+
+          What you can still do is warn the reader. The `fetch-depth: 0` checkout has
+          every remote-tracking ref on disk:
+
+          ```bash
+          git branch -r --list 'origin/ci-fix/*'
+          git log --oneline origin/develop..<ref>
+          git log -1 --format=%cr <ref>
+          ```
+
+          That lists the fix branches still present on the remote whose names follow the
+          `ci-fix/` convention — narrower than the primary path, which also matches on PR
+          title and body, so a fix PR on a differently-named branch will not appear. A
+          branch whose commits address this same failure and whose tip is recent probably
+          has an open PR; one that is weeks old is more likely a closed PR nobody
+          deleted. Name any suspected duplicate in your Step 8 summary and in the PR
+          body so a human can reconcile them, and set the summary's `## Status` to
+          `FIX_READY_POSSIBLE_DUPLICATE`.
+
           Make your fix as LOCAL commits on this branch. Do NOT push and do NOT
           open a pull request — a later workflow step publishes your work.
 
@@ -286,20 +377,31 @@ jobs:
             Step 8 to write the summary.
           - **Infrastructure failure**: Timeout, runner issue, flaky network
             — go to Step 7 and record a `no-fix` result explaining the infra
-            issue, then Step 8 to write a summary.
+            issue, then Step 8 to write a summary. **This requires positive
+            evidence from the failure itself** — a timeout in `logs.txt`, a
+            runner error in `jobs.json`, an exit 137. A degraded fetch context
+            is not that evidence: it says the pre-fetch failed, which is
+            nothing at all about the build. Classifying a blank context as an
+            infrastructure failure is the cheapest wrong answer available
+            here, and it is prohibited. Use the category below instead.
+          - **Unknown failure (degraded context)**: the data that would
+            identify the failure are not usable. Follow Step 0a's investigation
+            path, and enter Step 2 only once a local reproduction names a test.
 
           ### Step 1a: Diagnose CI gate failures
 
           1. Check whether the failed run is associated with a PR by reading
              `associated-prs.json` (and `run.json` for `headBranch`/`event`) in
-             `$CI_FIX_CONTEXT_DIR`. If it is, read the gate's PR comment in
-             `pr-comments.json` — it has specific data (test counts, coverage
-             percentages). If it ran on `develop` directly (empty
-             `associated-prs.json` **with status `ok`**), extract gate details
-             from `logs.txt` instead. When `associated-prs` is not `ok` you
-             cannot tell the two cases apart: fall back to `run.json`'s
-             `event`/`headBranch`, or to `git log -1 $TRIGGER_SHA` whose squashed
-             subject carries the `(#<pr>)` suffix on a merged PR.
+             `$CI_FIX_CONTEXT_DIR`. If `associated-prs` is usable and complete,
+             an empty array means the failure was a direct `develop` push, so
+             extract gate details from `logs.txt`; a non-empty array names the
+             PR, whose gate comment in `pr-comments.json` carries the specific
+             numbers (test counts, coverage percentages). If `associated-prs` is
+             not usable you cannot tell those two cases apart: fall back to
+             `run.json`'s `event` / `headBranch` when that datum is usable, or
+             to `git log -1 "$TRIGGER_SHA"`, whose squashed subject carries the
+             `(#<pr>)` suffix on a merged PR — after confirming the object is
+             present with `git cat-file -e "$TRIGGER_SHA^{commit}"`.
           2. Check CLAUDE.md and gate scripts for exact rules.
           3. **Test Count Gate**: Compare baseline vs current per module. A
              big drop usually means tests were excluded by build config
@@ -318,7 +420,14 @@ jobs:
 
           ## Step 2: Locate and understand the failing test
 
-          1. Find the test file: `Glob **/{TestClassName}.java`
+          1. Find the test file: `Glob **/{TestClassName}.java`. If you have no
+             class name, or the name does not resolve (a nested class, a
+             parameterized display name, a name that only appears in an
+             aggregate marked `complete: false`), search your reproduction
+             output and `**/target/surefire-reports/` /
+             `**/target/failsafe-reports/` for the first failure. With neither
+             a name nor a reproduction, go back to Step 0a's investigation
+             path — do not improvise a target.
           2. Read the full test file — understand the failing assertion.
           3. Identify the failure type:
              - Timing/flakiness: race conditions, thread scheduling
@@ -602,6 +711,12 @@ jobs:
              ## Summary
              - <what was fixed and why>
 
+             ## Context
+             <"Complete failure context." when every datum was usable and
+             complete; otherwise name the degraded data and what you inferred
+             in their place. This tells a reviewer whether the root cause below
+             rests on the failure's own logs or on inference.>
+
              ## Root Cause
              <detailed technical explanation of why the failure happened>
 
@@ -617,6 +732,11 @@ jobs:
              - [x] Dimensional code review completed
              EOF
              ```
+             Unmark any box you did not actually satisfy and say why on the
+             same line. Steps 6.8 and 6.9 both allow proceeding after three
+             failed iterations, and on the degraded path there may be no
+             identified failing test to pass — an unmarked box with a reason is
+             information, a marked box that is untrue is not.
           3. Write the result sentinel to `$CI_FIX_RESULT_FILE`. Build it with
              `jq -n` so the JSON is always well-formed:
              ```bash
@@ -643,28 +763,26 @@ jobs:
              `no-fix` result only `status` is required — `branch` may be an
              empty string, `existing_pr` `null`, and `pr_title` / `pr_body_file`
              may be omitted or set to `null` (no PR body file is needed). The
-             publish step then pushes nothing and opens no pull request.
+             publish step then pushes nothing and opens no pull request. There
+             is no PR body on this path, so the degraded-data note lives only
+             in your Step 8 summary — do not omit it there.
 
              (For a `fix-ready` result, by contrast, `branch`, `pr_title`, and
              `pr_body_file` are all required — see the field list above.)
 
           ## Step 8: Write summary report
 
-          Write your final summary to `/tmp/fix-agent-summary.md`:
+          Write your final summary to `$CI_FIX_SUMMARY_FILE`:
 
           ```markdown
           ## Status
-          <!-- One of: FIX_READY, EXISTING_PR_UPDATED, INVESTIGATION_ONLY -->
+          <!-- One of: FIX_READY, EXISTING_PR_UPDATED,
+               FIX_READY_POSSIBLE_DUPLICATE, INVESTIGATION_ONLY -->
           <status>
 
-          ## Context
-          <"Complete" when every datum in fetch-status.json is `ok`; otherwise
-          name the degraded data and say what you inferred in their place.
-          This line tells the reader whether the diagnosis below rests on the
-          failure's own logs or on inference.>
-
           ## Problem
-          <exact failure: test name, error message, CI link>
+          <exact failure: test name, error message, CI link. "Unknown" is a
+          valid answer on the degraded path — say so rather than guessing.>
 
           ## Root Cause
           <why it failed — detailed technical explanation>
@@ -674,8 +792,23 @@ jobs:
 
           ## PR
           <"Fix ready — will be published by the workflow", "Added commits to
-          existing PR #<n>", or "No PR (no fix)" with reason>
+          existing PR #<n>", "Fix ready on existing branch <name>; an open PR
+          for it probably exists but its number could not be fetched —
+          reconcile manually", or "No PR (no fix)" with reason>
+
+          ## Context
+          <"Complete failure context." when every datum was usable and
+          complete; otherwise name the degraded data and what you inferred in
+          their place. Tells the reader whether the diagnosis above rests on
+          the failure's own logs or on inference.>
           ```
+
+          Keep the whole file under 2500 bytes, and `## Context` to one or two
+          sentences. The Zulip notification is built from the first 3000 bytes
+          of this file, so anything past that reaches nobody.
+
+          `## Context` is deliberately LAST: the runs with the most to say
+          there are the runs whose `## PR` line most needs to survive the cut.
 
           ## Important Rules
 
@@ -686,8 +819,9 @@ jobs:
             reporting any datum that did not arrive; publishing is performed by
             a later workflow step from the sentinel `$CI_FIX_RESULT_FILE` you
             write.
-          - **Never read a placeholder as data.** A datum whose
-            `fetch-status.json` entry is not `ok` is absent, not empty.
+          - **Never read a placeholder as data.** Treat a datum whose
+            `fetch-status.json` entry has `usable: false` as unknown; the file
+            holds a placeholder that looks exactly like a real answer.
           - Read before editing — always read full test and production code.
           - **Fix root cause, not symptoms** — never apply a patch that
             makes the failure less visible without fixing the underlying
@@ -742,29 +876,39 @@ jobs:
 
           echo "prompt_file=/tmp/fix-agent-prompt-$$.md" >> "$GITHUB_OUTPUT"
 
+      # This step's NAME is load-bearing: .github/scripts/ci-fix-context-test.py
+      # extracts the shell below by exact name and executes it against a stub
+      # gh. Rename it there too, or those tests abort instead of running.
       - name: Gather CI failure context
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Bracketed GitHub access (read-only): pre-fetch everything the Claude
           # step needs into fixed-name files so the long agent run holds no
-          # token. Shared contract with the prompt (Part 3b) and the later
+          # token. Shared contract with the prompt's Step 0a and the later
           # gate/publish steps:
           #   CI_FIX_CONTEXT_DIR = $RUNNER_TEMP/ci-fix-context     (input files)
           #   CI_FIX_RESULT_DIR  = $RUNNER_TEMP/ci-fix             (agent output)
           #   CI_FIX_RESULT_FILE = $RUNNER_TEMP/ci-fix/result.json (sentinel)
           #
-          # One fetch failure must not fail the job - a partial context is still
-          # worth investigating - but it must never masquerade as a successful
-          # empty result either. Every datum therefore records its own outcome in
-          # fetch-status.json, and the agent reads that alongside the data. An
-          # empty associated-prs.json means "this commit has no PR" only when its
-          # status is `ok`; otherwise it means "nobody asked GitHub".
+          # One fetch failure must not fail the job - a partial context is still worth
+          # investigating - but a placeholder must never be reported as a successful
+          # empty result. Every datum therefore records its own outcome in
+          # fetch-status.json, and the agent reads that alongside the data. An empty
+          # associated-prs.json means "this commit has no PR" only when that datum is
+          # usable and complete; otherwise it means nobody asked GitHub.
+          # Purge rather than only create. $RUNNER_TEMP is job-scoped on a
+          # GitHub-hosted runner, but this job runs on a persistent self-hosted
+          # one, and a file left behind by an earlier version of this step (the
+          # scratch .ndjson files used to live in here) must never be readable
+          # as this run's input.
+          rm -rf "$RUNNER_TEMP/ci-fix-context" "$RUNNER_TEMP/ci-fix"
           mkdir -p "$RUNNER_TEMP/ci-fix-context" "$RUNNER_TEMP/ci-fix"
           {
             echo "CI_FIX_CONTEXT_DIR=$RUNNER_TEMP/ci-fix-context"
             echo "CI_FIX_RESULT_DIR=$RUNNER_TEMP/ci-fix"
             echo "CI_FIX_RESULT_FILE=$RUNNER_TEMP/ci-fix/result.json"
+            echo "CI_FIX_SUMMARY_FILE=$RUNNER_TEMP/ci-fix/summary.md"
           } >> "$GITHUB_ENV"
 
           CTX="$RUNNER_TEMP/ci-fix-context"
@@ -774,26 +918,70 @@ jobs:
           # input directly into the shell (avoids script injection).
           RUN_ID="${FAILED_RUN_URL##*/}"
 
-          # Status ledger, accumulated as TSV and converted to JSON at the end.
-          # Four states, documented for the agent in the prompt's Step 0a:
-          #   ok          GitHub answered; the file holds the real result, which
-          #               may legitimately be an empty list.
-          #   failed      the fetch ran and errored; the file is a placeholder.
+          # Constrain the shape as well as the quoting. A run id is numeric, and every
+          # production dispatcher builds the URL from github.run_id, so anything else is
+          # a malformed manual dispatch. Rejecting it here beats a 404 six lines later,
+          # and it keeps non-digits - notably a bare CR - out of the run id that gh
+          # echoes back inside its error text.
+          case "$RUN_ID" in
+            ''|*[!0-9]*)
+              echo "::error::failed_run_url must end in a numeric run id; got '$RUN_ID'."
+              exit 1
+              ;;
+          esac
+
+          # ---------------------------------------------------------------------------
+          # Status ledger
+          # ---------------------------------------------------------------------------
+          # Written as TSV (key, status, reason) and converted to JSON at the end. The
+          # four statuses describe what happened; the booleans the agent actually
+          # branches on are derived from them, so the agent never classifies an enum:
+          #
+          #   ok          GitHub answered. usable, complete. An empty list here is a
+          #               real answer.
+          #   partial     an aggregate whose per-item fetches did not all succeed.
+          #               usable for what it holds, NOT complete - absence proves
+          #               nothing.
+          #   failed      the fetch ran and errored. Not usable; the file is a
+          #               placeholder.
           #   unavailable the fetch was skipped because a datum it depends on was
-          #               missing; the file is a placeholder.
-          #   partial     an aggregate whose per-item fetches did not all succeed;
-          #               the file holds what did come back and is incomplete.
+          #               missing. Not usable; the file is a placeholder.
           STATUS_TSV="$RUNNER_TEMP/ci-fix-fetch-status.tsv"
           : > "$STATUS_TSV"
-          record() { printf '%s\t%s\n' "$1" "$2" >> "$STATUS_TSV"; }
+
+          # Every datum the agent is promised. The ledger is validated against this list
+          # before publication, so a key can never be silently absent - a missing entry
+          # would read to the agent as a degraded datum and quietly discard a healthy
+          # one.
+          DATA_KEYS="run jobs logs annotations associated-prs pr-comments existing-fix-prs"
+
+          # record <key> <status> [reason]
+          record() { printf '%s\t%s\t%s\n' "$1" "$2" "${3-}" >> "$STATUS_TSV"; }
+
+          # Collapse captured stderr to one safe, single-line fragment.
+          #
+          # Two reasons this is not cosmetic. A newline or a bare CR inside a workflow
+          # command ends the line, so text after it beginning with "::" is parsed by the
+          # runner as a fresh workflow command sourced from remote error text -
+          # "::stop-commands::" would silence the very warnings this step exists to emit.
+          # And a query string can carry a signed blob URL: `gh run view --log-failed`
+          # follows a redirect to storage, and a failure at that hop prints the signed
+          # URL, which is not a registered secret and so is not masked. So: drop query
+          # strings, squeeze every non-printable (which also removes ANSI escapes), then
+          # truncate.
+          scrub() {
+            sed 's/?[^ ]*//g' "$1" | tr -c '[:print:]' ' ' | head -c 300
+          }
+
+          FETCH_ERR="$RUNNER_TEMP/ci-fix-fetch-err.txt"
+          : > "$FETCH_ERR"
 
           # fetch <key> <outfile> <placeholder> <command...>
           #
           # Stderr is captured rather than discarded: "gh: command not found",
-          # "HTTP 403: rate limit" and "could not find any workflow run" are the
-          # three explanations worth having, and sending them to /dev/null is
-          # what made the previous failure mode invisible.
-          FETCH_ERR="$RUNNER_TEMP/ci-fix-fetch-err.txt"
+          # "HTTP 403: rate limit" and "could not find any workflow run" are the three
+          # explanations worth having, and sending them to /dev/null is what made the
+          # previous failure mode invisible.
           fetch() {
             local key="$1" out="$2" placeholder="$3"
             shift 3
@@ -801,10 +989,121 @@ jobs:
               record "$key" ok
               return 0
             fi
+            local reason
+            reason="$(scrub "$FETCH_ERR")"
             printf '%s\n' "$placeholder" > "$out"
-            record "$key" failed
-            echo "::warning::Fetch '$key' failed: $(tr '\n' ' ' < "$FETCH_ERR" | head -c 300)"
+            record "$key" failed "$reason"
+            echo "::warning::Fetch '$key' failed: $reason"
             return 1
+          }
+
+          # fetch_aggregate <key> <outfile> <id-source-json> <jq-id-filter> <url-fmt> <label>
+          #
+          # The two aggregates (per-failed-job annotations, per-PR comments) share one
+          # protocol: enumerate ids from an already-fetched file, fetch each, merge the
+          # responses, and grade the result. They are one function so the grading rule
+          # has a single implementation and cannot drift between the two.
+          #
+          # `url-fmt` is a printf template taking the id once.
+          fetch_aggregate() {
+            local key="$1" out="$2" src="$3" filter="$4" url_fmt="$5" label="$6"
+            local ndjson="$RUNNER_TEMP/ci-fix-$key.ndjson"
+            : > "$ndjson"
+            echo '[]' > "$out"
+
+            # Enumerate with an explicit status check. Swallowing a jq parse error here
+            # would run the loop zero times and grade the empty result `ok` - asserting
+            # something this step never checked, which is the exact defect class the
+            # ledger exists to close.
+            local ids
+            if ! ids="$(jq -r "$filter" "$src" 2> "$FETCH_ERR")"; then
+              record "$key" failed "could not enumerate ids from $(basename "$src"): $(scrub "$FETCH_ERR")"
+              echo "::warning::Enumerating $label ids failed: $(scrub "$FETCH_ERR")"
+              rm -f "$ndjson"
+              return 0
+            fi
+
+            local tried=0 failed=0 id status reason=""
+            while IFS= read -r id; do
+              [ -n "$id" ] || continue
+              # The ids come from GitHub's own responses, so this is belt-and-braces:
+              # a non-numeric value would become a path segment and could redirect the
+              # read to a different endpoint whose response would land in the agent's
+              # context.
+              case "$id" in
+                *[!0-9]*)
+                  echo "::warning::Skipping non-numeric $label id '$id'."
+                  continue
+                  ;;
+              esac
+              tried=$((tried + 1))
+              # Buffer each response instead of appending straight to the merge
+              # input. `gh api` writes the HTTP error BODY to stdout and its
+              # message to stderr, so a 404 appended in place would push
+              # {"message":"Not Found",...} into the merge - and `jq -s add`
+              # cannot add an object to an array, so ONE failed item would fail
+              # the merge and discard every item that DID arrive. That is the
+              # opposite of what `partial` promises. The parse check also covers
+              # a call that exits 0 with a body that is not JSON.
+              local item="$RUNNER_TEMP/ci-fix-$key-item.json"
+              # --paginate: without it gh returns only the first 30 items, so a
+              # build with 40 failing tests would be graded `complete: true`
+              # over a truncated page - a false completeness claim, which is
+              # the defect class this ledger exists to remove. gh emits one
+              # JSON array per page and the merge below concatenates arrays,
+              # so paging needs nothing else.
+              # shellcheck disable=SC2059  # url_fmt is a trusted local template
+              if ! gh api --paginate "$(printf "$url_fmt" "$id")" \
+                  > "$item" 2> "$FETCH_ERR"; then
+                failed=$((failed + 1))
+                reason="$(scrub "$FETCH_ERR")"
+                echo "::warning::$label for id $id failed: $reason"
+              elif ! jq -e 'type == "array" or type == "object"' "$item" \
+                  > /dev/null 2>&1; then
+                # Exit 0 with a body jq cannot use: a proxy error page, a
+                # truncated response. Graded as a failure, with its own reason
+                # so the ledger does not just say "failed" with nothing after it.
+                failed=$((failed + 1))
+                reason="response for id $id was not a JSON array or object"
+                echo "::warning::$label for id $id returned an unparseable body."
+              else
+                cat "$item" >> "$ndjson"
+              fi
+              rm -f "$item"
+            done <<< "$ids"
+
+            # `partial` has to mean "some of it arrived". If every call failed nothing
+            # arrived, and grading that `partial` would tell the agent to trust an empty
+            # file. Zero failures over zero attempts is a real empty answer, so it stays
+            # `ok`: a run with no failed jobs genuinely has no annotations.
+            if [ "$failed" -eq 0 ]; then
+              status=ok
+              reason=""
+            elif [ "$failed" -eq "$tried" ]; then
+              status=failed
+              reason="all $tried $label fetches failed: $reason"
+            else
+              status=partial
+              reason="$failed of $tried $label fetches failed: $reason"
+            fi
+
+            # `map(select(type == "array"))` is belt-and-braces on top of the
+            # per-item parse check: one stray object among the pages must not
+            # fail the merge and discard every array that did arrive.
+            if [ -s "$ndjson" ] \
+                && ! jq -s 'map(select(type == "array")) | add // []' "$ndjson" \
+                     > "$out" 2> "$FETCH_ERR"; then
+              echo '[]' > "$out"
+              status=failed
+              reason="merging $label responses failed: $(scrub "$FETCH_ERR")"
+              echo "::warning::Merging $label responses failed: $(scrub "$FETCH_ERR")"
+            fi
+            record "$key" "$status" "$reason"
+            rm -f "$ndjson"
+            # Explicit: `bash -e` stays armed through this function's body, and
+            # its exit status would otherwise be whatever the last command
+            # happened to return.
+            return 0
           }
 
           # Run details (conclusion, event, headBranch, headSha, ...)
@@ -822,99 +1121,39 @@ jobs:
           fetch logs "$CTX/logs.txt" 'No failed-job logs available.' \
             gh run view "$RUN_ID" --repo "$REPO" --log-failed || true
 
-          # Check-run annotations (exact test names + error messages) per failed
-          # job. Derived from jobs.json, so its status starts from that datum:
-          # with no job list there is nothing to enumerate and `ok` would be a
-          # lie about an empty file.
-          echo '[]' > "$CTX/annotations.json"
+          # Check-run annotations (exact test names + error messages) per failed job.
+          # Derived from jobs.json, so with no job list there is nothing to enumerate
+          # and `ok` would be a lie about an empty file.
           if [ "$JOBS_OK" != true ]; then
-            record annotations unavailable
+            echo '[]' > "$CTX/annotations.json"
+            record annotations unavailable "jobs could not be fetched, so no job ids to enumerate"
           else
-            ANN_NDJSON="$RUNNER_TEMP/ci-fix-annotations.ndjson"
-            : > "$ANN_NDJSON"
-            ANN_TRIED=0
-            ANN_FAILED=0
-            for JOB_ID in $(jq -r '.jobs[]? | select(.conclusion == "failure") | .databaseId' \
-                "$CTX/jobs.json" 2>/dev/null); do
-              ANN_TRIED=$((ANN_TRIED + 1))
-              if ! gh api "repos/$REPO/check-runs/$JOB_ID/annotations" \
-                  >> "$ANN_NDJSON" 2> "$FETCH_ERR"; then
-                ANN_FAILED=$((ANN_FAILED + 1))
-                echo "::warning::Annotations for job $JOB_ID failed:" \
-                  "$(tr '\n' ' ' < "$FETCH_ERR" | head -c 300)"
-              fi
-            done
-            # `partial` has to mean "some of it arrived". If every call failed
-            # nothing arrived, and calling that `partial` would overstate what
-            # the file holds; zero failures over zero failed jobs is a real
-            # empty answer, so it stays `ok`.
-            if [ "$ANN_FAILED" -eq 0 ]; then
-              ANN_STATUS=ok
-            elif [ "$ANN_FAILED" -eq "$ANN_TRIED" ]; then
-              ANN_STATUS=failed
-            else
-              ANN_STATUS=partial
-            fi
-            if [ -s "$ANN_NDJSON" ] \
-                && ! jq -s 'add' "$ANN_NDJSON" > "$CTX/annotations.json" 2> "$FETCH_ERR"; then
-              echo '[]' > "$CTX/annotations.json"
-              ANN_STATUS=failed
-              echo "::warning::Merging annotations failed:" \
-                "$(tr '\n' ' ' < "$FETCH_ERR" | head -c 300)"
-            fi
-            record annotations "$ANN_STATUS"
-            rm -f "$ANN_NDJSON"
+            fetch_aggregate annotations "$CTX/annotations.json" "$CTX/jobs.json" \
+              '.jobs[]? | select(.conclusion == "failure") | .databaseId' \
+              "repos/$REPO/check-runs/%s/annotations" "annotations"
           fi
 
-          # PRs associated with the failing commit. headSha comes from run.json,
-          # so a failed run fetch makes this unavailable rather than empty.
+          # PRs associated with the failing commit. headSha comes from run.json, so a
+          # missing headSha - whether the fetch failed or the payload simply lacks the
+          # field - makes this unavailable rather than empty.
           HEAD_SHA="$(jq -r '.headSha // empty' "$CTX/run.json" 2>/dev/null || true)"
-          PRS_OK=true
+          PRS_USABLE=true
           if [ -z "$HEAD_SHA" ]; then
             echo '[]' > "$CTX/associated-prs.json"
-            record associated-prs unavailable
-            PRS_OK=false
+            record associated-prs unavailable "run.json carries no headSha, so the commit is unknown"
+            PRS_USABLE=false
           else
             fetch associated-prs "$CTX/associated-prs.json" '[]' \
-              gh api "repos/$REPO/commits/$HEAD_SHA/pulls" || PRS_OK=false
+              gh api "repos/$REPO/commits/$HEAD_SHA/pulls" || PRS_USABLE=false
           fi
 
           # Comments on those associated PRs
-          echo '[]' > "$CTX/pr-comments.json"
-          if [ "$PRS_OK" != true ]; then
-            record pr-comments unavailable
+          if [ "$PRS_USABLE" != true ]; then
+            echo '[]' > "$CTX/pr-comments.json"
+            record pr-comments unavailable "associated PRs could not be fetched, so no PR numbers to enumerate"
           else
-            PRC_NDJSON="$RUNNER_TEMP/ci-fix-pr-comments.ndjson"
-            : > "$PRC_NDJSON"
-            PRC_TRIED=0
-            PRC_FAILED=0
-            for PR in $(jq -r '.[]?.number' "$CTX/associated-prs.json" 2>/dev/null); do
-              PRC_TRIED=$((PRC_TRIED + 1))
-              if ! gh api "repos/$REPO/issues/$PR/comments" \
-                  >> "$PRC_NDJSON" 2> "$FETCH_ERR"; then
-                PRC_FAILED=$((PRC_FAILED + 1))
-                echo "::warning::Comments for PR #$PR failed:" \
-                  "$(tr '\n' ' ' < "$FETCH_ERR" | head -c 300)"
-              fi
-            done
-            # Same three-way rule as annotations above: all-failed is `failed`,
-            # not `partial`.
-            if [ "$PRC_FAILED" -eq 0 ]; then
-              PRC_STATUS=ok
-            elif [ "$PRC_FAILED" -eq "$PRC_TRIED" ]; then
-              PRC_STATUS=failed
-            else
-              PRC_STATUS=partial
-            fi
-            if [ -s "$PRC_NDJSON" ] \
-                && ! jq -s 'add' "$PRC_NDJSON" > "$CTX/pr-comments.json" 2> "$FETCH_ERR"; then
-              echo '[]' > "$CTX/pr-comments.json"
-              PRC_STATUS=failed
-              echo "::warning::Merging PR comments failed:" \
-                "$(tr '\n' ' ' < "$FETCH_ERR" | head -c 300)"
-            fi
-            record pr-comments "$PRC_STATUS"
-            rm -f "$PRC_NDJSON"
+            fetch_aggregate pr-comments "$CTX/pr-comments.json" "$CTX/associated-prs.json" \
+              '.[]?.number' "repos/$REPO/issues/%s/comments" "PR comments"
           fi
 
           # Existing OPEN fix PRs targeting develop (duplicate detection)
@@ -922,30 +1161,73 @@ jobs:
             gh pr list --repo "$REPO" --base develop --state open \
             --json number,title,headRefName,body,labels --limit 50 || true
 
-          # Publish the ledger next to the data it describes.
-          jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' "$STATUS_TSV" \
-            > "$CTX/fetch-status.json" 2>/dev/null \
-            || echo '{}' > "$CTX/fetch-status.json"
+          # ---------------------------------------------------------------------------
+          # Publish the ledger next to the data it describes
+          # ---------------------------------------------------------------------------
+          # Derive the booleans the agent branches on, so it never has to map an enum to
+          # an action: `usable` is "the file holds real data", `complete` is "absence in
+          # this file is meaningful".
+          LEDGER_OK=true
+          jq -Rn --arg keys "$DATA_KEYS" '
+              [inputs | split("\t") | {
+                 key: .[0],
+                 value: {
+                   status: .[1],
+                   usable: (.[1] == "ok" or .[1] == "partial"),
+                   complete: (.[1] == "ok"),
+                   reason: (if (.[2] // "") == "" then null else .[2] end)
+                 }
+               }] | from_entries as $data
+            | ($keys | split(" ")) as $expected
+            | {
+                complete: ($expected | all($data[.].complete // false)),
+                degraded: [$expected[] | select(($data[.].complete // false) | not)],
+                missing_from_ledger: [$expected[] | select($data[.] == null)],
+                data: $data
+              }
+            ' "$STATUS_TSV" > "$CTX/fetch-status.json" 2> "$FETCH_ERR" || LEDGER_OK=false
+
+          # The ledger is the single point of trust for everything above it, so its own
+          # failure cannot be quiet. Without this the fallback `{}` would make the
+          # degraded check below find nothing to report, and a human would see a clean
+          # run while the agent saw an absent context.
+          if [ "$LEDGER_OK" != true ]; then
+            printf '{"complete":false,"degraded":[%s],"missing_from_ledger":[%s],"data":{}}\n' \
+              "$(printf '"%s",' $DATA_KEYS | sed 's/,$//')" \
+              "$(printf '"%s",' $DATA_KEYS | sed 's/,$//')" \
+              > "$CTX/fetch-status.json"
+            echo "::error::Could not build fetch-status.json ($(scrub "$FETCH_ERR")). Every" \
+              "datum is now marked degraded; the agent is told to treat the whole context" \
+              "as absent."
+          fi
+
           rm -f "$STATUS_TSV" "$FETCH_ERR"
 
           echo "Gathered CI failure context into $CTX:"
           ls -l "$CTX" || true
-          echo "Fetch status: $(jq -c . "$CTX/fetch-status.json" || echo '<unreadable>')"
+          echo "Fetch status: $(jq -c '.data | map_values(.status)' "$CTX/fetch-status.json" \
+            || echo '<unreadable>')"
 
-          # Surface a degraded context in the run's own annotations, so a human
-          # skimming the job sees it without reading the agent's transcript.
+          # Surface a degraded context in the run's own annotations, so a human skimming
+          # the job sees it without reading the agent's transcript.
           #
-          # `|| true` is load-bearing: this runs under `bash -e`, where an
-          # assignment from a failing command substitution aborts the step. A jq
-          # failure here would therefore kill the step just before it reports
-          # that something went wrong - the same silence this whole change
-          # exists to remove.
-          DEGRADED="$(jq -r 'to_entries | map(select(.value != "ok") | .key) | join(", ")' \
+          # `|| true` is load-bearing: this runs under `bash -e`, where an assignment
+          # from a failing command substitution aborts the step. A jq failure here would
+          # otherwise kill the step just before it reports that something went wrong -
+          # the same silence this whole design removes.
+          MISSING="$(jq -r '.missing_from_ledger | join(", ")' \
             "$CTX/fetch-status.json" || true)"
+          if [ -n "$MISSING" ]; then
+            echo "::error::These data were never recorded in the ledger: $MISSING." \
+              "That is a defect in this step rather than a GitHub failure; the" \
+              "agent is told to treat an unrecorded datum as absent."
+          fi
+
+          DEGRADED="$(jq -r '.degraded | join(", ")' "$CTX/fetch-status.json" || true)"
           if [ -n "$DEGRADED" ]; then
-            echo "::warning::CI failure context is INCOMPLETE." \
-              "Degraded data: $DEGRADED. The agent is told to treat these as" \
-              "absent rather than empty; see fetch-status.json."
+            echo "::warning::CI failure context is INCOMPLETE. Degraded data: $DEGRADED." \
+              "The agent is told to treat a non-usable datum as absent rather than empty;" \
+              "see fetch-status.json."
           fi
 
       - name: Run Fix Agent
@@ -1013,7 +1295,7 @@ jobs:
           # Bridge the JSON sentinel to step outputs: an `if:` expression cannot
           # parse JSON, so extract the fields the publish gate needs. A missing
           # sentinel (agent produced nothing / crashed) is treated as no-fix.
-          # Sentinel schema ($CI_FIX_RESULT_FILE), written by the Claude step in 3b:
+          # Sentinel schema ($CI_FIX_RESULT_FILE), written by the agent in Step 7:
           #   { "status": "fix-ready" | "no-fix",
           #     "branch": "<local branch with commits>",
           #     "pr_title": "...",
@@ -1051,6 +1333,19 @@ jobs:
             case "$BRANCH" in
               ''|*[!A-Za-z0-9._/-]*)
                 echo "::warning::fix-ready sentinel has an invalid branch name; forcing no-fix."
+                STATUS="no-fix"
+                ;;
+            esac
+            # The charset check above accepts `develop` and `main`, and the
+            # publish step pushes $BRANCH with an App token carrying
+            # contents: write. Much of the agent's context is text any GitHub
+            # user can write - PR titles, PR bodies, issue comments - so a
+            # sentinel naming a default branch must not be able to turn a fix
+            # into a direct push that bypasses review and every CI gate.
+            case "$BRANCH" in
+              develop|main)
+                echo "::warning::fix-ready sentinel targets protected branch" \
+                  "'$BRANCH'; forcing no-fix."
                 STATUS="no-fix"
                 ;;
             esac
@@ -1167,12 +1462,29 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+      # The prompt and the agent's JSON log live in /tmp because they are
+      # written before $RUNNER_TEMP's contract is established and after the
+      # artifact upload reads them respectively. /tmp is host-scoped and this
+      # runner is persistent, so without this they accumulate one 24 KB prompt
+      # and one multi-megabyte log per dispatch, forever. Ordered after
+      # "Upload agent JSON log" so the artifact is captured first.
+      - name: Clean up /tmp scratch files
+        if: always()
+        run: |
+          rm -f "${{ steps.prompt.outputs.prompt_file }}" \
+                "${{ steps.run-agent.outputs.json_log }}" || true
+
       - name: Prepare Zulip summary
         id: summary
         if: always()
         run: |
-          if [ -f /tmp/fix-agent-summary.md ]; then
-            SUMMARY=$(head -c 3000 /tmp/fix-agent-summary.md)
+          # Job-scoped path, not a bare /tmp name: this job runs on a
+          # persistent self-hosted runner, so a bare name would let an agent
+          # that crashed before writing leave the PREVIOUS run's summary in
+          # place, and it would be reported here as this run's outcome.
+          SUMMARY_FILE="${CI_FIX_SUMMARY_FILE:-$RUNNER_TEMP/ci-fix/summary.md}"
+          if [ -f "$SUMMARY_FILE" ]; then
+            SUMMARY=$(head -c 3000 "$SUMMARY_FILE")
           else
             SUMMARY="Agent completed without writing a structured summary. Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
           fi
