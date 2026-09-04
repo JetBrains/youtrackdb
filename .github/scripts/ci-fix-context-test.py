@@ -409,6 +409,18 @@ case "$STUB_CASE" in
     fi
     [ "$1" = pr ] && { echo '[]'; exit 0; }
     exit 0 ;;
+  tab_in_error)
+    # A TAB in the error text would add a field to the status ledger's TSV, and
+    # a NEWLINE would add a row. Both must be neutralised before `record`.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        jobs) echo '{"jobs":[]}'; exit 0 ;;
+        logs) echo "log line"; exit 0 ;;
+        run)  printf 'HTTP 500\tinjected\tstatus\tok\nrun\tok\n' >&2; exit 1 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
   paginated_annotations)
     # `gh api --paginate` emits ONE JSON ARRAY PER PAGE, concatenated on
     # stdout. Both pages must survive the per-item parse check and the merge.
@@ -1342,6 +1354,32 @@ def test_the_generic_fetch_path_also_flattens_its_errors():
               "RUNSECRET" not in r.stdout and "RUNSECRET" not in json.dumps(r.ledger))
 
 
+def test_error_text_cannot_inject_ledger_fields_or_rows():
+    """Control characters in an error must not restructure the status ledger.
+
+    The ledger is accumulated as tab-separated `key<TAB>status<TAB>reason`
+    rows, so a TAB in remote error text would add a field and a NEWLINE would
+    add a row -- letting a GitHub error message forge a `run<TAB>ok` entry and
+    relabel a failed fetch as a healthy one. `scrub`'s
+    `tr -c '[:print:]' ' '` maps both (TAB is not in `[:print:]`), which is why
+    it runs before the reason reaches `record`.
+    """
+    with gather("tab_in_error") as r:
+        check("tab injection: step exits 0", r.returncode == 0)
+        check("tab injection: run is still marked failed",
+              r.status("run") == "failed")
+        check("tab injection: the ledger has exactly the seven keys",
+              sorted(r.ledger.get("data", {})) == sorted(_DATA_KEYS))
+        check("tab injection: no forged key appears",
+              "injected" not in json.dumps(r.ledger.get("data", {}).keys().__str__()))
+        check("tab injection: the reason holds the flattened text",
+              "injected" in (r.reason("run") or ""))
+        check("tab injection: no tab survives in the reason",
+              "\t" not in (r.reason("run") or ""))
+        check("tab injection: run did not get relabelled ok",
+              r.usable("run") is False)
+
+
 def test_paginated_pages_are_all_merged():
     """Every page of a paged response must reach the merged file.
 
@@ -1371,7 +1409,7 @@ def test_every_non_fatal_scenario_exits_zero():
                  "partial_annotations", "all_annotations_fail", "no_failed_jobs",
                  "partial_pr_comments", "malformed_json", "unenumerable_jobs",
                  "realistic_api_404", "prs_fetch_fails", "multiline_run_error",
-                 "paginated_annotations"):
+                 "paginated_annotations", "tab_in_error"):
         with gather(case) as r:
             check(f"{case}: step exits 0", r.returncode == 0)
             check(f"{case}: publishes a ledger with all seven keys",
