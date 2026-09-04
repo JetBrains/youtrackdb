@@ -1442,15 +1442,12 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   /**
    * {@code order().by("name").values("name")} under the PORTABLE OPT-OUT: the order key puts
-   * {@code name IS DEFINED} on the pattern, so the {@code values} drop is redundant — no
-   * {@code dropOnAbsent}; RETURN keeps entity + field so ORDER BY can defer projections.
-   *
-   * <p>The opt-out is explicit because the skip is only valid while the order key emits that
-   * conjunct. Its twin below pins the shipped default, where the conjunct is gone and the drop
-   * must be kept.
+   * {@code name IS DEFINED} on the pattern. The terminal {@code values("name")} still sets
+   * {@code dropOnAbsent} — that shaping skip lives with ORDER BY projection deferral on the
+   * ordered-limit branch, not with this setting alone — so the filter and the drop both fire.
    */
   @Test
-  public void walk_orderByThenValuesSameKey_underPortableOptOut_skipsDropOnAbsent() {
+  public void walk_orderByThenValuesSameKey_underPortableOptOut_emitsOrderKeyPresence() {
     withOrderIncludesMissingKey(false, () -> {
       var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
 
@@ -1458,18 +1455,21 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
       assertThat(result).isNotNull();
       assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
-      assertThat(result.shaping().dropOnAbsent()).isFalse();
-      assertThat(result.shaping().presencePropertyKeys()).isEmpty();
+      assertThat(result.inputs().aliasFilters()).containsKey(BOUNDARY_ALIAS);
+      assertThat(result.inputs().aliasFilters().get(BOUNDARY_ALIAS).toString())
+          .containsIgnoringCase("DEFINED");
+      assertThat(result.shaping().dropOnAbsent()).isTrue();
+      assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
       assertThat(result.inputs().returnItems()).hasSize(2);
       assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
     });
   }
 
   /**
-   * The same shape under the SHIPPED DEFAULT: the order key no longer emits a presence conjunct,
-   * so nothing else filters the pattern and the {@code values("name")} drop becomes load-bearing
-   * again. Keeping the skip here would return a null row for an element with no {@code name},
-   * which native {@code values("name")} never emits.
+   * The same shape under the SHIPPED DEFAULT: the order key does not emit a presence conjunct, so
+   * only the terminal {@code values("name")} drop filters missing keys. That drop must stay —
+   * without it a null row would leak for an element with no {@code name}, which native
+   * {@code values("name")} never emits.
    */
   @Test
   public void walk_orderByThenValuesSameKey_underDefault_keepsDropOnAbsent() {
@@ -1480,6 +1480,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
       assertThat(result).isNotNull();
       assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+      assertThat(result.inputs().aliasFilters())
+          .as("default order does not put IS DEFINED on the pattern")
+          .doesNotContainKey(BOUNDARY_ALIAS);
       assertThat(result.shaping().dropOnAbsent()).isTrue();
       assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
     });
@@ -2290,8 +2293,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   /**
    * Runs {@code body} with the productive-order setting forced, restoring the previous value. The
-   * order-key presence conjunct follows this setting, and several shaping decisions read whether
-   * that conjunct exists.
+   * order-key presence conjunct follows this setting.
    */
   private void withOrderIncludesMissingKey(boolean value, Runnable body) {
     var tx = (YTDBTransaction) graph.tx();
