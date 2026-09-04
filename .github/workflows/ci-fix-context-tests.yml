@@ -1,0 +1,46 @@
+name: CI fix agent context tests
+
+# Run on every change that could affect the fix agent's failure-context
+# pre-fetch. That pre-fetch runs once per agent dispatch, on a self-hosted
+# runner, and is the agent's only source of truth about the failure it was sent
+# to fix — so a regression in it does not announce itself, it just produces a
+# report written from no evidence. This job exercises the shell block against a
+# stub gh on the PR, before that can happen.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/workflows/ci-failure-fix-agent.yml'
+      - '.github/scripts/ci-fix-context-test.py'
+      - '.github/workflows/ci-fix-context-tests.yml'
+  pull_request:
+    paths:
+      - '.github/workflows/ci-failure-fix-agent.yml'
+      - '.github/scripts/ci-fix-context-test.py'
+      - '.github/workflows/ci-fix-context-tests.yml'
+  # Allow manual re-runs (e.g. after a transient GitHub Actions outage)
+  # without having to push an empty commit.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The tests read the workflow file out of the working tree and execute
+      # the shell block they find there, so a normal (shallow) checkout is
+      # enough; nothing consults history.
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Run unit tests
+        # The tests put a stub `gh` first on PATH, so the real GitHub CLI that
+        # ubuntu-latest ships is never called and no token is needed.
+        run: python3 .github/scripts/ci-fix-context-test.py
