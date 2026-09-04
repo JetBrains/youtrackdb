@@ -202,6 +202,80 @@ case "$STUB_CASE" in
     fi
     [ "$1" = pr ] && { echo '[]'; exit 0; }
     exit 0 ;;
+  all_annotations_fail)
+    # Two failed jobs, BOTH annotation calls fail: nothing arrived, so the
+    # aggregate is `failed`, not `partial`.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":111,"conclusion":"failure"},
+                             {"databaseId":333,"conclusion":"failure"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$2" in
+        *annotations) echo "HTTP 403: rate limit exceeded" >&2; exit 1 ;;
+        *pulls)       echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  no_failed_jobs)
+    # The run has jobs but none failed, so the annotations loop body never
+    # runs. Zero failures over zero attempts is a real empty answer: `ok`.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":222,"conclusion":"success"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$2" in
+        *annotations) echo "should never be called" >&2; exit 1 ;;
+        *pulls)       echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  partial_pr_comments)
+    # Two associated PRs, one comments call fails: the pr-comments aggregate
+    # takes the same three-way rule as annotations.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$2" in
+        *pulls)                 echo '[{"number":11},{"number":22}]'; exit 0 ;;
+        *issues/11/comments)    echo '[{"body":"coverage 91%"}]'; exit 0 ;;
+        *issues/22/comments)    echo "HTTP 404: Not Found" >&2; exit 1 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  malformed_json)
+    # Every call "succeeds" but the annotations payload is not JSON, so the
+    # jq merge fails. The aggregate must report `failed`, not `ok`.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":111,"conclusion":"failure"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$2" in
+        *annotations) echo 'this is not json at all {{{'; exit 0 ;;
+        *pulls)       echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
 esac
 exit 0
 """
@@ -425,6 +499,70 @@ def test_partial_aggregate_keeps_what_arrived():
           any("333" in w for w in r.warnings()))
     check("partial: degraded warning is emitted",
           r.degraded_warning() is not None)
+    shutil.rmtree(r.workdir, ignore_errors=True)
+
+
+def test_aggregate_status_distinguishes_all_failed_from_some_failed():
+    """`partial` must mean "some of it arrived", so all-failed reports `failed`.
+
+    An agent that reads `partial` will use the file and note the gap. An agent
+    that reads `failed` will not use the file at all. Reporting `partial` over
+    an aggregate where every call failed therefore points the agent at an empty
+    file it has been told is usable -- the same confusion between absent and
+    empty that this whole change exists to remove.
+    """
+    r = run_gather("all_annotations_fail")
+    check("all-failed: annotations marked failed, not partial",
+          r.status.get("annotations") == "failed")
+    check("all-failed: the file is the empty placeholder",
+          r.files.get("annotations.json", "").strip() == "[]")
+    check("all-failed: both jobs are named in warnings",
+          any("111" in w for w in r.warnings())
+          and any("333" in w for w in r.warnings()))
+    shutil.rmtree(r.workdir, ignore_errors=True)
+
+    r = run_gather("partial_pr_comments")
+    check("partial pr-comments: marked partial",
+          r.status.get("pr-comments") == "partial")
+    check("partial pr-comments: the successful PR's comments are retained",
+          "coverage 91%" in r.files.get("pr-comments.json", ""))
+    check("partial pr-comments: the failing PR is named in a warning",
+          any("#22" in w for w in r.warnings()))
+    shutil.rmtree(r.workdir, ignore_errors=True)
+
+
+def test_zero_failed_jobs_is_a_real_empty_answer():
+    """A run with no failed jobs reports annotations `ok` over an empty list.
+
+    The annotations loop body never executes, so zero calls failed out of zero
+    attempted. That is genuinely "GitHub has no annotations for this run", not
+    a fetch that did not happen, and marking it `failed` or `unavailable` would
+    send the agent hunting for data that does not exist.
+    """
+    r = run_gather("no_failed_jobs")
+    check("no failed jobs: annotations marked ok", r.status.get("annotations") == "ok")
+    check("no failed jobs: annotations file is an empty list",
+          r.files.get("annotations.json", "").strip() == "[]")
+    check("no failed jobs: no degraded warning", r.degraded_warning() is None)
+    shutil.rmtree(r.workdir, ignore_errors=True)
+
+
+def test_unparseable_payload_is_reported_as_failed():
+    """A fetch that succeeds but returns non-JSON must not be reported `ok`.
+
+    `gh` exiting 0 is not proof the body is usable: a proxy error page or a
+    truncated response still exits 0. The jq merge is what discovers this, and
+    its failure has to reach the ledger, otherwise the agent is handed `[]`
+    under an `ok` label.
+    """
+    r = run_gather("malformed_json")
+    check("malformed: annotations marked failed", r.status.get("annotations") == "failed")
+    check("malformed: annotations file left as a valid empty list",
+          r.files.get("annotations.json", "").strip() == "[]")
+    check("malformed: the merge failure is reported",
+          any("Merging annotations failed" in w for w in r.warnings()))
+    check("malformed: fetch-status.json is still valid JSON",
+          isinstance(r.status, dict) and r.status != {})
     shutil.rmtree(r.workdir, ignore_errors=True)
 
 

@@ -832,16 +832,29 @@ jobs:
           else
             ANN_NDJSON="$RUNNER_TEMP/ci-fix-annotations.ndjson"
             : > "$ANN_NDJSON"
-            ANN_STATUS=ok
+            ANN_TRIED=0
+            ANN_FAILED=0
             for JOB_ID in $(jq -r '.jobs[]? | select(.conclusion == "failure") | .databaseId' \
                 "$CTX/jobs.json" 2>/dev/null); do
+              ANN_TRIED=$((ANN_TRIED + 1))
               if ! gh api "repos/$REPO/check-runs/$JOB_ID/annotations" \
                   >> "$ANN_NDJSON" 2> "$FETCH_ERR"; then
-                ANN_STATUS=partial
+                ANN_FAILED=$((ANN_FAILED + 1))
                 echo "::warning::Annotations for job $JOB_ID failed:" \
                   "$(tr '\n' ' ' < "$FETCH_ERR" | head -c 300)"
               fi
             done
+            # `partial` has to mean "some of it arrived". If every call failed
+            # nothing arrived, and calling that `partial` would overstate what
+            # the file holds; zero failures over zero failed jobs is a real
+            # empty answer, so it stays `ok`.
+            if [ "$ANN_FAILED" -eq 0 ]; then
+              ANN_STATUS=ok
+            elif [ "$ANN_FAILED" -eq "$ANN_TRIED" ]; then
+              ANN_STATUS=failed
+            else
+              ANN_STATUS=partial
+            fi
             if [ -s "$ANN_NDJSON" ] \
                 && ! jq -s 'add' "$ANN_NDJSON" > "$CTX/annotations.json" 2> "$FETCH_ERR"; then
               echo '[]' > "$CTX/annotations.json"
@@ -873,15 +886,26 @@ jobs:
           else
             PRC_NDJSON="$RUNNER_TEMP/ci-fix-pr-comments.ndjson"
             : > "$PRC_NDJSON"
-            PRC_STATUS=ok
+            PRC_TRIED=0
+            PRC_FAILED=0
             for PR in $(jq -r '.[]?.number' "$CTX/associated-prs.json" 2>/dev/null); do
+              PRC_TRIED=$((PRC_TRIED + 1))
               if ! gh api "repos/$REPO/issues/$PR/comments" \
                   >> "$PRC_NDJSON" 2> "$FETCH_ERR"; then
-                PRC_STATUS=partial
+                PRC_FAILED=$((PRC_FAILED + 1))
                 echo "::warning::Comments for PR #$PR failed:" \
                   "$(tr '\n' ' ' < "$FETCH_ERR" | head -c 300)"
               fi
             done
+            # Same three-way rule as annotations above: all-failed is `failed`,
+            # not `partial`.
+            if [ "$PRC_FAILED" -eq 0 ]; then
+              PRC_STATUS=ok
+            elif [ "$PRC_FAILED" -eq "$PRC_TRIED" ]; then
+              PRC_STATUS=failed
+            else
+              PRC_STATUS=partial
+            fi
             if [ -s "$PRC_NDJSON" ] \
                 && ! jq -s 'add' "$PRC_NDJSON" > "$CTX/pr-comments.json" 2> "$FETCH_ERR"; then
               echo '[]' > "$CTX/pr-comments.json"
