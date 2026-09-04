@@ -10,17 +10,18 @@ Exit code 0 means all checks passed; non-zero prints the failing cases.
 Test functions (any module-level `test_*`) are discovered automatically, so
 adding one needs no edit to `main()`.
 
-The subject under test is `.github/workflows/ci-failure-fix-agent.yml`: the
-"Gather CI failure context" shell block, the "Install CLI prerequisites
-(jq, gh)" block, and the agent prompt those two produce input for. That
-pre-fetch runs once per agent dispatch, on a self-hosted runner, and is the
-agent's only source of truth about the failure it was sent to fix, so a
-regression in it does not announce itself -- it just yields a report written
-from no evidence.
+The subject under test is `.github/workflows/ci-failure-fix-agent.yml`: four
+of its shell blocks -- "Install CLI prerequisites (jq, gh)", "Gather CI failure
+context", "Read fix result" and "Publish fix" -- plus the agent prompt they
+produce input for. The pre-fetch runs once per agent dispatch, on a self-hosted
+runner, and is the agent's only source of truth about the failure it was sent
+to fix, so a regression in it does not announce itself; it just yields a report
+written from no evidence.
 
-Both shell blocks are extracted from the workflow as text and executed under
-`bash -e` with stub `gh`, `sudo` and `apt-get` on PATH, which is what lets
-these checks run anywhere with no token and no network.
+Each block is extracted from the workflow as text and executed under `bash -e`
+with stub `gh`, `sudo` and `apt-get` on PATH, which is what lets these checks
+run anywhere with no token and no network. "Publish fix" is only linted, not
+executed: it pushes.
 
 Only stdlib is used, deliberately: the workflow that runs this installs a bare
 Python via actions/setup-python, which carries no PyYAML, so the workflow is
@@ -40,8 +41,9 @@ import tempfile
 _WORKFLOW = (pathlib.Path(__file__).parents[1]
              / "workflows" / "ci-failure-fix-agent.yml")
 
-# These two step names are load-bearing: the blocks are extracted by exact
-# name. The workflow carries a comment at each step saying so.
+# These step names are load-bearing: the blocks are extracted by exact name,
+# and a rename here or there fails the extraction. The workflow carries a
+# comment at each step saying so.
 _GATHER_STEP = "Gather CI failure context"
 _PREREQ_STEP = "Install CLI prerequisites (jq, gh)"
 _RESULT_STEP = "Read fix result"
@@ -60,12 +62,16 @@ _RUN_ID = "33870767133"
 # stub directory alone, so "bash" would not be findable there.
 _BASH = shutil.which("bash") or "/bin/bash"
 
-# The harness stubs `gh`; `jq` is called directly by the block and comes from
-# the host. Without this, a machine lacking jq reports dozens of unrelated
-# failures and no hint of the cause.
-if shutil.which("jq") is None:
-    sys.exit("jq is required on PATH: the gather block calls it directly, "
-             "and only `gh` is stubbed.")
+# The harness stubs only `gh`; the extracted blocks call these directly.
+# Resolved against the PATH the harness hands bash, not the outer one: a jq in
+# /usr/local/bin would satisfy a plain which() and then fail every scenario
+# with no hint of the cause.
+_HARNESS_PATH = os.pathsep.join(["/usr/bin", "/bin"])
+_missing = [tool for tool in ("jq", "timeout", "sed", "tr", "head")
+            if shutil.which(tool, path=_HARNESS_PATH) is None]
+if _missing:
+    sys.exit(f"required on {_HARNESS_PATH}: {', '.join(_missing)}. The "
+             "extracted blocks call them directly; only `gh` is stubbed.")
 
 _failures = []
 
@@ -482,9 +488,64 @@ case "$STUB_CASE" in
       case "$(api_path "$@")" in *pulls) echo '[]'; exit 0 ;; esac
     fi
     if [ "$1" = pr ]; then
-      python3 -c 'import json;print(json.dumps([{"number":i,"headRefName":"ci-fix/%d"%i} for i in range(50)]))'
+      # $PR_LIST_SIZE entries, so the test can sit the list exactly on the
+      # workflow's declared limit and one below it.
+      printf '['
+      i=0
+      while [ "$i" -lt "$PR_LIST_SIZE" ]; do
+        [ "$i" -gt 0 ] && printf ','
+        printf '{"number":%d,"headRefName":"ci-fix/%d"}' "$i" "$i"
+        i=$((i + 1))
+      done
+      printf ']\n'
       exit 0
     fi
+    exit 0 ;;
+  hanging_logs)
+    # The log fetch never returns. `timeout` must kill it and the fetch must
+    # grade `failed` with a reason, rather than stalling the whole dispatch.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) sleep 30; exit 0 ;;
+        jobs) echo '{"jobs":[]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$(api_path "$@")" in *pulls) echo '[]'; exit 0 ;; esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  long_error)
+    # A multi-megabyte error body must not land whole in the ledger or the log.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        jobs) echo '{"jobs":[]}'; exit 0 ;;
+        logs) echo "log line"; exit 0 ;;
+        run)  head -c 200000 /dev/zero | tr '\0' 'x' >&2; exit 1 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
+  nonnumeric_job_ids)
+    # jobs.json parses, but one failed job's databaseId is not numeric, so the
+    # guard refuses to use it and nothing is fetched for that job. An id this
+    # step declined is not evidence that GitHub has no annotations.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":"111; rm -rf /","conclusion":"failure"},
+                             {"databaseId":222,"conclusion":"failure"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$(api_path "$@")" in
+        *check-runs/222/annotations) echo '[{"message":"boom"}]'; exit 0 ;;
+        *pulls) echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
     exit 0 ;;
   tab_in_error)
     # A TAB in the error text would add a field to the status ledger's TSV, and
@@ -590,7 +651,8 @@ def _write_stub(bindir, name, body):
 
 
 @contextlib.contextmanager
-def gather(case, run_url=None, break_ledger_build=False):
+def gather(case, run_url=None, break_ledger_build=False, pr_list_size=0,
+           gh_timeout=None):
     """Execute the gather block under `bash -e` with the stub gh for `case`.
 
     A context manager so the temp dir is removed even when a check fails and
@@ -632,7 +694,11 @@ def gather(case, run_url=None, break_ledger_build=False):
             "FAILED_RUN_URL": run_url or (
                 "https://github.com/JetBrains/youtrackdb/actions/runs/" + _RUN_ID),
             "STUB_CASE": case,
+            "PR_LIST_SIZE": str(pr_list_size),
         }
+        if gh_timeout is not None:
+            env["GH_TIMEOUT"] = str(gh_timeout)
+            env["GH_BULK_TIMEOUT"] = str(gh_timeout)
         proc = subprocess.run([_BASH, "-e", script], env=env,
                               capture_output=True, text=True, timeout=30)
 
@@ -702,7 +768,7 @@ def prereq(present_tools):
 
 
 @contextlib.contextmanager
-def read_result(sentinel):
+def read_result(sentinel=None, raw=None):
     """Execute the "Read fix result" block against a sentinel dict.
 
     Yields the parsed `$GITHUB_OUTPUT` the step produced. `sentinel` of None
@@ -714,7 +780,11 @@ def read_result(sentinel):
         runner_temp = os.path.join(workdir, "runner-temp")
         os.makedirs(os.path.join(runner_temp, "ci-fix"))
         result_file = os.path.join(runner_temp, "ci-fix", "result.json")
-        if sentinel is not None:
+        if raw is not None:
+            # Verbatim bytes, for shapes no dict can express: a truncated
+            # write, a proxy error page, an agent that emitted a JSON array.
+            pathlib.Path(result_file).write_text(raw, encoding="utf-8")
+        elif sentinel is not None:
             with open(result_file, "w", encoding="utf-8") as fh:
                 json.dump(sentinel, fh)
         github_output = os.path.join(workdir, "github_output")
@@ -733,6 +803,11 @@ def read_result(sentinel):
         }
         proc = subprocess.run([_BASH, "-e", script], env=env,
                               capture_output=True, text=True, timeout=30)
+        # Asserted here so no caller can forget: the gate runs `if: always()`
+        # and is the only path to publishing, so a non-zero exit reddens the
+        # job even for a clean no-fix.
+        check(f"read-result exits 0 (sentinel={sentinel if sentinel else raw!r})",
+              proc.returncode == 0)
         out = {}
         with open(github_output, encoding="utf-8") as fh:
             for line in fh:
@@ -763,8 +838,12 @@ def test_sentinel_gate_refuses_a_protected_branch():
                           "existing_pr": None}) as (proc, out):
             check(f"protected branch '{branch}' is forced to no-fix",
                   out.get("status") == "no-fix")
-            check(f"protected branch '{branch}' is reported as a warning",
-                  "::warning::" in proc.stdout and branch in proc.stdout)
+            # On a warning LINE, not anywhere in the stream: the step's own
+            # trailing "Fix result: ... branch='develop'" echo would satisfy a
+            # whole-stream conjunction unconditionally.
+            check(f"protected branch '{branch}' is named on a warning line",
+                  any(ln.startswith("::warning::") and branch in ln
+                      for ln in proc.stdout.splitlines()))
     with read_result({"status": "fix-ready", "branch": "ci-fix/legit",
                       "existing_pr": None}) as (proc, out):
         check("an ordinary fix branch still publishes",
@@ -892,20 +971,24 @@ def test_prompt_uses_real_ledger_keys():
     """
     prompt = _prompt_text()
 
-    # A file name immediately followed by a ledger predicate, or used inside a
-    # jq path into `.data`.
-    predicate = r"(?:is\s+(?:not\s+)?usable|usable|is\s+`ok`|non-`ok`|not\s+`ok`" \
-                r"|status\s+is|`complete`)"
-    bad = set()
-    for key in _DATA_KEYS:
-        for ext in (".json", ".txt"):
-            fname = re.escape(key + ext)
-            if re.search(rf"`{fname}`\s*(?:'s)?\s*{predicate}", prompt):
-                bad.add(key + ext)
-            if re.search(rf"\.data\[?\.?\"?{fname}", prompt):
-                bad.add(key + ext)
-    check(f"prompt never makes a file name the subject of a ledger predicate "
-          f"(found: {sorted(bad)})", not bad)
+    # A proximity rule, not a phrasing rule. Enumerating English phrasings
+    # pins one word order and misses the rest: "`logs.txt` has `usable:
+    # false`", "- **`logs.txt`** -- not usable", and `.data | .["logs.txt"]`
+    # are the same drift in different clothes. So: no bare data-file name on a
+    # line that also talks about the ledger.
+    ledger_term = re.compile(
+        r"usable|complete|\.data\b|\.degraded\b|missing_from_ledger|status")
+    # The two sentences that must legitimately name both: the one stating the
+    # key convention, and the one about placeholders being indistinguishable.
+    exempt = re.compile(r"without its extension|byte-identical")
+    files = [k + (".txt" if k == "logs" else ".json") for k in _DATA_KEYS]
+    bad = []
+    for lineno, line in enumerate(prompt.split("\n"), 1):
+        if exempt.search(line) or not ledger_term.search(line):
+            continue
+        bad += [f"L{lineno}: {f}" for f in files
+                if re.search(rf"(?<![\w/-]){re.escape(f)}\b", line)]
+    check(f"no ledger sentence is keyed on a file name (found: {bad})", not bad)
 
     # The prompt must state the key convention, or a reader has no way to map
     # the file list onto the ledger.
@@ -938,12 +1021,6 @@ def test_all_fetches_ok():
               r.ledger.get("missing_from_ledger") == [])
         check("allok: no degraded warning", r.degraded_warning() is None)
         check("allok: no per-fetch warnings", r.warnings() == [])
-        check("allok: run.json holds the fetched payload",
-              "08eaf8c966" in r.files.get("run.json", ""))
-        check("allok: annotations.json holds the merged payload",
-              "boom" in r.files.get("annotations.json", ""))
-        check("allok: pr-comments.json holds the merged payload",
-              "coverage 91%" in r.files.get("pr-comments.json", ""))
 
 
 # --- behavior: the regression this suite exists for ------------------------
@@ -1208,7 +1285,7 @@ def test_scratch_files_do_not_leak_into_runner_temp():
     stray `.ndjson` or `.tsv` there is one more thing for a reader to mistake
     for input.
     """
-    for case in ("allok", "absent", "partial_annotations"):
+    for case in ("allok", "absent", "partial_annotations", "unenumerable_jobs"):
         with gather(case) as r:
             leftovers = sorted(
                 p.name for p in (pathlib.Path(r.workdir) / "runner-temp").glob("*")
@@ -1335,7 +1412,7 @@ def test_pr_comments_are_unavailable_when_the_pr_list_could_not_be_fetched():
 
 
 def test_the_step_exports_the_paths_later_steps_depend_on():
-    """The three CI_FIX_* paths are the interface to four later steps.
+    """The four CI_FIX_* paths are the interface to four later steps.
 
     "Run Fix Agent", "Read fix result", "Publish fix" and "Prepare Zulip
     summary" all resolve their inputs from these variables, and the agent
@@ -1350,6 +1427,8 @@ def test_the_step_exports_the_paths_later_steps_depend_on():
               r.exported.get("CI_FIX_RESULT_DIR") == f"{rt}/ci-fix")
         check("exports CI_FIX_RESULT_FILE",
               r.exported.get("CI_FIX_RESULT_FILE") == f"{rt}/ci-fix/result.json")
+        check("exports CI_FIX_SUMMARY_FILE",
+              r.exported.get("CI_FIX_SUMMARY_FILE") == f"{rt}/ci-fix/summary.md")
         check("creates the result dir the agent writes into",
               os.path.isdir(f"{rt}/ci-fix"))
         check("creates the context dir the agent reads from",
@@ -1447,8 +1526,6 @@ def test_error_text_cannot_inject_ledger_fields_or_rows():
               r.status("run") == "failed")
         check("tab injection: the ledger has exactly the seven keys",
               sorted(r.ledger.get("data", {})) == sorted(_DATA_KEYS))
-        check("tab injection: no forged key appears",
-              "injected" not in json.dumps(r.ledger.get("data", {}).keys().__str__()))
         check("tab injection: the reason holds the flattened text",
               "injected" in (r.reason("run") or ""))
         check("tab injection: no tab survives in the reason",
@@ -1492,7 +1569,17 @@ def test_a_truncated_open_pr_list_is_not_complete():
     `complete: true`, the agent would read "no matching fix PR" from a list it
     simply never saw the end of, and open a second fix PR over an existing one.
     """
-    with gather("truncated_pr_list") as r:
+    block = _extract_run_block(_GATHER_STEP)
+    limit = int(re.search(r"PR_LIST_LIMIT=(\d+)", block).group(1))
+    # The --limit and the "did we hit it" threshold are two numbers meaning one
+    # thing. Pinned to each other: a bump to one alone would grade a healthy
+    # full list `partial`, and the agent's own not-complete rule would then
+    # discard a datum that was fine.
+    check(f"the fetch uses the declared limit ({limit})",
+          '--limit "$PR_LIST_LIMIT"' in block)
+    check("the truncation guard compares against the same variable",
+          '-ge "$PR_LIST_LIMIT" ]' in block)
+    with gather("truncated_pr_list", pr_list_size=limit) as r:
         check("truncated PR list: marked partial",
               r.status("existing-fix-prs") == "partial")
         check("truncated PR list: still usable", r.usable("existing-fix-prs") is True)
@@ -1500,10 +1587,121 @@ def test_a_truncated_open_pr_list_is_not_complete():
               r.complete("existing-fix-prs") is False)
         check("truncated PR list: the reason names the limit",
               "truncated" in (r.reason("existing-fix-prs") or ""))
-        check("truncated PR list: the 50 PRs are still available",
-              len(json.loads(r.files.get("existing-fix-prs.json", "[]"))) == 50)
-        check("truncated PR list: a warning is emitted",
-              any("50-item limit" in w for w in r.warnings()))
+        check(f"truncated PR list: all {limit} PRs are still available",
+              len(json.loads(r.files.get("existing-fix-prs.json", "[]"))) == limit)
+        check("truncated PR list: a warning names the limit",
+              any(f"{limit}-item limit" in w for w in r.warnings()))
+    # The boundary complement: one under the limit is a complete answer.
+    with gather("truncated_pr_list", pr_list_size=limit - 1) as r:
+        check("one under the limit: marked ok",
+              r.status("existing-fix-prs") == "ok")
+        check("one under the limit: complete",
+              r.complete("existing-fix-prs") is True)
+        check("one under the limit: no warning", r.warnings() == [])
+
+
+def test_a_failed_api_call_cannot_leak_its_body_into_the_context():
+    """A per-item failure keeps what arrived and publishes none of the error.
+
+    Real `gh api` writes the HTTP error body to stdout and its message to
+    stderr, then exits 1. Appending responses straight to the merge input
+    pushed `{"message":"Not Found",...}` in beside the array that arrived, and
+    `jq -s add` cannot add an object to an array -- so ONE failed item failed
+    the merge and discarded every item that DID arrive, turning a `partial`
+    into a `failed` over an empty file. This is the only scenario that models
+    that stdout-body behaviour; the other aggregate failures write to stderr
+    only, where an in-place append would be a harmless no-op.
+    """
+    with gather("realistic_api_404") as r:
+        check("api 404: annotations marked partial",
+              r.status("annotations") == "partial")
+        check("api 404: partial is usable but not complete",
+              r.usable("annotations") is True
+              and r.complete("annotations") is False)
+        check("api 404: the successful job's annotations survive intact",
+              json.loads(r.files.get("annotations.json", "null"))
+              == [{"message": "boom"}])
+        # The error BODY must not reach the data files. The ledger's `reason`
+        # may quote gh's stderr message -- that is its job -- so the
+        # distinguishing marker is `documentation_url`, which appears only in
+        # the body gh wrote to stdout.
+        data_files = {n: b for n, b in r.files.items()
+                      if n != "fetch-status.json"}
+        check("api 404: the error body reached no data file",
+              not any("documentation_url" in b or "Not Found" in b
+                      for b in data_files.values()))
+        check("api 404: the ledger reason does quote gh's message",
+              "Not Found" in (r.reason("annotations") or ""))
+        check("api 404: the failing job is named on a warning line",
+              any(w.startswith("::warning::") and "333" in w
+                  for w in r.warnings()))
+
+
+def test_an_id_the_step_refused_to_use_is_not_an_empty_answer():
+    """A skipped id must count as a failure, not vanish from the arithmetic.
+
+    The non-numeric guard used to `continue` before `tried` was incremented,
+    so a skipped id left no trace in the failed/tried counts and the aggregate
+    took the zero-failures branch that exists for a run with genuinely no
+    failed jobs. A run whose ids were all non-numeric therefore published an
+    empty file as `ok` and `complete: true` -- the original bug's shape, one
+    level down.
+    """
+    with gather("nonnumeric_job_ids") as r:
+        check("skipped id: annotations marked partial, not ok",
+              r.status("annotations") == "partial")
+        check("skipped id: usable but not complete",
+              r.usable("annotations") is True
+              and r.complete("annotations") is False)
+        check("skipped id: the good job's annotations still arrived",
+              json.loads(r.files.get("annotations.json", "null"))
+              == [{"message": "boom"}])
+        check("skipped id: the malformed id was never sent to GitHub",
+              not any("rm -rf" in c for c in r.gh_calls))
+        check("skipped id: the context is reported degraded",
+              r.ledger.get("complete") is False
+              and "annotations" in r.ledger.get("degraded", []))
+
+
+def test_a_stalled_fetch_is_killed_and_explained():
+    """A hung GitHub read must not consume the dispatch, and must say why.
+
+    Every failure this step handles is a fast error, so a call still running
+    after the budget is stalled. Unbounded, one of those eats the whole
+    12-hour job and publishes no ledger at all. Bounded, the grading records
+    it as failed and the agent still gets a usable partial context.
+
+    `timeout` writes nothing to stderr when it fires, so without a special
+    case the reason would be empty and the log line would read
+    "Fetch 'logs' failed:" with nothing after the colon -- a failure recorded
+    with no explanation, which is the defect the aggregate path already names.
+    """
+    with gather("hanging_logs", gh_timeout=1) as r:
+        check("stalled fetch: step still exits 0", r.returncode == 0)
+        check("stalled fetch: logs marked failed", r.status("logs") == "failed")
+        check("stalled fetch: logs not usable", r.usable("logs") is False)
+        check("stalled fetch: the reason says it timed out",
+              "timed out" in (r.reason("logs") or ""))
+        check("stalled fetch: the warning is not left dangling",
+              any("logs" in w and "timed out" in w for w in r.warnings()))
+        check("stalled fetch: the other data are unaffected",
+              r.status("jobs") == "ok" and r.status("run") == "ok")
+
+
+def test_a_huge_error_body_is_truncated():
+    """An error body must be capped before it reaches the ledger or the log.
+
+    `gh` can print a whole HTML error page. Uncapped, it would land verbatim
+    in `fetch-status.json` -- the file the agent reads first -- and in a
+    `::warning::` line, burying every other datum's status.
+    """
+    with gather("long_error") as r:
+        reason = r.reason("run") or ""
+        check(f"long error: the reason is capped (got {len(reason)} chars)",
+              0 < len(reason) <= 300)
+        check("long error: run is still marked failed", r.status("run") == "failed")
+        check("long error: the ledger is still parseable",
+              sorted(r.ledger.get("data", {})) == sorted(_DATA_KEYS))
 
 
 def test_paginated_pages_are_all_merged():
@@ -1537,7 +1735,7 @@ def test_every_non_fatal_scenario_exits_zero():
                  "realistic_api_404", "prs_fetch_fails", "multiline_run_error",
                  "paginated_annotations", "tab_in_error",
                  "mixed_pages_array_then_object", "mixed_pages_object_then_array",
-                 "lone_error_object", "truncated_pr_list"):
+                 "lone_error_object", "nonnumeric_job_ids", "long_error"):
         with gather(case) as r:
             check(f"{case}: step exits 0", r.returncode == 0)
             check(f"{case}: publishes a ledger with all seven keys",

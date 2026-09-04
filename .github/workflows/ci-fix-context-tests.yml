@@ -32,10 +32,11 @@ jobs:
     # from a workflow file in the PR's own tree, so it must stay on an
     # ephemeral GitHub-hosted runner and never move to the self-hosted pool.
     runs-on: ubuntu-latest
-    # The suite runs in ~5s. The headroom is for its own per-subprocess
-    # timeouts (25 executions x 30s): a hang should be reported by the script,
+    # The suite runs in well under a minute. The headroom is for its own
+    # per-subprocess timeouts: roughly 70 shell executions at 30s each is a
+    # ~35-minute worst case, and a hang should be reported by the script,
     # naming the scenario, rather than killed opaquely by the job.
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       # The tests read the workflow file out of the working tree and execute
       # the shell block they find there, so a normal (shallow) checkout is

@@ -136,11 +136,18 @@ jobs:
             FINAL_TEST_CMD="./mvnw clean verify -P ci-integration-tests,coverage -Dyoutrackdb.test.env=ci"
             TEST_SCOPE="unit + integration"
             TIME_BUDGET="12 hours"
+            # 30 minutes short of the job's 720, so a reproduction that
+            # overruns still leaves the agent time to write its sentinel and
+            # summary. The agent cannot measure its own elapsed budget, so the
+            # reserve has to be enforced here rather than asked for.
+            REPRO_TIMEOUT="690m"
           else
             FULL_TEST_CMD="./mvnw clean package -Dyoutrackdb.test.env=ci"
             FINAL_TEST_CMD="./mvnw clean package -P coverage -Dyoutrackdb.test.env=ci"
             TEST_SCOPE="unit only"
             TIME_BUDGET="6 hours"
+            # 30 minutes short of the job's 360; see the note above.
+            REPRO_TIMEOUT="330m"
           fi
 
           cat > /tmp/fix-agent-prompt-$$.md << 'AGENT_PROMPT_EOF'
@@ -191,7 +198,9 @@ jobs:
 
           ## Step 0: Read the failure context and pick a branch
 
-          ### 0a: Read the fetch ledger
+          ### 0a: Read the failure context
+
+          #### The fetch ledger
 
           `fetch-status.json` says which context files hold real data and which are
           placeholders. Read it before you open anything else in `$CI_FIX_CONTEXT_DIR`:
@@ -209,8 +218,8 @@ jobs:
           `run` for `run.json`. The seven keys are `run`, `jobs`, `logs`, `annotations`,
           `associated-prs`, `pr-comments` and `existing-fix-prs`.
 
-          Each entry carries a `status` and two flags derived from it: `ok` is usable and
-          complete, `partial` is usable but not complete, and `failed` and `unavailable`
+          Each entry carries a `status` plus two flags derived from it. `ok` is usable
+          and complete; `partial` is usable but incomplete; `failed` and `unavailable`
           are neither. Branch on the flags:
 
           | Flags | What it means | What to do |
@@ -220,21 +229,18 @@ jobs:
           | `usable: false` | the file is a placeholder | Treat the datum as absent; write "unknown" where it would have gone |
 
           **A placeholder is byte-identical to a real answer**, so a file's contents
-          cannot tell you which you are holding. The placeholders are `{}`, `[]`, and the
-          sentence `No failed-job logs available.` — the last is a full sentence and
-          reads as a statement of fact. Only the ledger distinguishes them.
+          cannot tell you which you hold — only the ledger can. The placeholders are
+          `{}`, `[]`, and the sentence `No failed-job logs available.`
 
-          The two top-level fields summarise the same data. `complete: true` means every
-          datum is usable and complete; write `Complete failure context.` in your Step 7
-          and Step 8 `## Context` sections when it is true. `degraded` lists every datum
-          that is not complete, **including the usable `partial` ones** — check a datum's
-          own flags before you discard it.
+          `complete` and `degraded` are roll-ups of the per-datum flags.
+          `complete: true` means every datum is usable and complete. `degraded` lists
+          every datum that is not complete, **including the usable `partial` ones** —
+          check a datum's own flags before you discard it.
 
-          Treat a datum as absent, too, when the ledger cannot be trusted: a key missing
-          from `.data`, or a `fetch-status.json` that is absent, empty, `{}`, or
-          unparseable. In the last case treat every datum as absent. A non-empty
-          `.missing_from_ledger` array names keys the fetch step expected and did not
-          record.
+          Treat a single datum as absent when its key is missing from `.data`, and treat
+          *every* datum as absent when `fetch-status.json` is itself absent, empty, `{}`,
+          or unparseable. A non-empty `.missing_from_ledger` array names keys the fetch
+          step expected and did not record.
 
           #### The data files
 
@@ -246,8 +252,6 @@ jobs:
             exact test names, error messages, and file/line locations.
           - `logs.txt` — the logs of the failed jobs only.
           - `associated-prs.json` — pull requests associated with the failing commit.
-            If both flags are true, an empty array means the failure was a direct
-            `develop` push. If either flag is false, an empty array tells you nothing.
           - `pr-comments.json` — comments on those associated PRs (e.g. CI gate
             comments carrying test-count / coverage data).
           - `existing-fix-prs.json` — currently OPEN PRs targeting `develop`,
@@ -256,18 +260,19 @@ jobs:
           Read the usable ones and note the failing test class name(s), error
           message(s), and module.
 
-          A usable datum can still be uninformative. `logs.txt` can be `ok` and empty
-          because GitHub expired the archive, and `jobs.json` can be `ok` with no job
-          whose `conclusion` is `failure`, because the run failed above the job level.
+          A usable datum can still be uninformative. `logs` can be `ok` over an empty
+          file, because GitHub expired the archive; the `jobs` datum can be `ok` with no
+          job whose `conclusion` is `failure`, because the run failed above the job
+          level.
           Report both cases in `## Context` even though the ledger does not list them
           under `.degraded` — and never as "no failure found".
 
           #### If no datum names the failure
 
-          **When nothing usable tells you which test or job failed** — whether because
-          the datum is a placeholder or because what arrived is uninformative — you do
-          not know what broke. Do not guess, and do not classify it as an infrastructure
-          failure; Step 1 says why. Investigate from what you do have:
+          When nothing usable tells you which test or job failed — the datum is a
+          placeholder, or what arrived is uninformative — do not guess, and do not
+          classify it as an infrastructure failure; Step 1 says why. Investigate from
+          what you do have:
 
           1. `git show --stat "$TRIGGER_SHA"` for the suspect change (`$TRIGGER_SHA` is
              in your environment: the commit that triggered the failed run), and
@@ -281,30 +286,47 @@ jobs:
           2. `.github/workflows/` to see which jobs the failing workflow runs, and which
              of those no pull request ever exercises. `$FAILED_WORKFLOW_NAME` names the
              workflow.
-          3. One local reproduction: `__FULL_TEST_CMD__`. Run the whole scope, because
-             you have no test name to narrow it to; this overrides the "run only the
-             specific failing test first" rule in **Key constraints**.
+          3. One local reproduction, run under a timeout:
 
-          Before you start the reproduction, write a provisional `no-fix` sentinel
-          (Step 7) and an `INVESTIGATION_ONLY` summary (Step 8) naming the degraded
-          data, then overwrite both with the real outcome. The reproduction is sized to
-          the whole time budget and the job is killed at the same limit, so a run that
-          overshoots would otherwise reach nobody. Stop it with at least 30 minutes of
-          __TIME_BUDGET__ left.
+             ```bash
+             timeout __REPRO_TIMEOUT__ __FULL_TEST_CMD__
+             ```
+
+             Run the whole scope, because you have no test name to narrow it to;
+             this overrides the "run only the specific failing test first" rule in
+             **Key constraints**. The timeout leaves 30 minutes of __TIME_BUDGET__
+             for Steps 7 and 8, which the job's own limit would not.
+
+          Before you start it, write a provisional `no-fix` sentinel (Step 7) and an
+          `INVESTIGATION_ONLY` summary (Step 8) naming the degraded data. Head the
+          provisional summary's `## Status` with `Provisional: written before the
+          reproduction finished. If you are reading this, the run was cut off.` Then
+          overwrite both with the real outcome — Step 7's and Step 8's writes truncate,
+          so the provisional text does not survive a real result.
 
           Then branch on the result:
 
-          - **It fails and names a test.** Continue at Step 1 with that failure.
-          - **It fails and names no test** — a compile or dependency error, an OOM-killed
-            fork, a suite-level abort. Classify from the evidence you have: a build
-            failure if the error is a compile or dependency error, otherwise record
-            `no-fix` with `INVESTIGATION_ONLY`. Do not run the suite again.
+          - **It fails and names a test.** Continue at 0b, then 0c to pick your fix
+            branch, then Step 1 with that failure. Do not skip 0c: it is the only step
+            that produces the sentinel's `branch` field, and without it you would commit
+            onto `develop`.
+          - **It fails and names no test** — a compile or dependency error, an
+            OOM-killed fork, a suite-level abort. A compile or dependency error is a
+            build failure: continue at 0b and 0c, then Step 1. The full scope has just
+            consumed most of the budget, so verify that fix with
+            `./mvnw -pl {module} clean compile` plus the affected module's tests only,
+            skip Step 5 item 4 and step 6.8, and say in `## Context` that the full scope
+            was not re-run. Anything else: record `no-fix` with `INVESTIGATION_ONLY`.
+            Either way, do not run the full suite again.
+          - **It did not finish** — `timeout` returns 124. Record `no-fix` with
+            `INVESTIGATION_ONLY`, say the reproduction was cut off at the reserve, and
+            name the last module it reached. Do not run it again.
           - **It passes.** Stop. Do not commit a speculative fix. Record `no-fix` in
             Step 7 and write Step 8 with `## Status: INVESTIGATION_ONLY`, naming the
             degraded data and saying what you covered and what you could not.
 
-          Name the degraded data in your Step 8 `## Context` section and, if you write a
-          PR body (Step 7 item 2), in the PR body's.
+          Name the degraded data in your Step 8 `## Context` section, and in the PR
+          body's `## Context` section too when you write one (Step 7 item 2).
 
           ### 0b: Note what arrived
 
@@ -315,12 +337,20 @@ jobs:
 
           ### 0c: Pick your fix branch (fresh, or an existing fix PR's branch)
 
-          First check the ledger entry for `existing-fix-prs`. If it is not usable, skip
-          to **Duplicate detection is blind** below. Otherwise read
-          `existing-fix-prs.json` and look for a PR that already addresses THIS
-          failure — one whose title or body mentions the failing test class (from Step
-          0a), the keywords "ci-fix" / "fix ci" / "flaky", or whose `headRefName` starts
-          with `ci-fix/`.
+          First check the ledger entry for `existing-fix-prs`, which has three states,
+          not two:
+
+          - **Not usable.** Skip to *When duplicate detection is blind* below.
+          - **Usable but not complete** — the open-PR list was truncated at its
+            50-item limit. Read the file, and also run the branch-name scan under
+            *Duplicate detection is blind*: a negative result from a list you were told
+            is incomplete is exactly the absence 0a's flag table tells you never to
+            infer. The scan is under *When duplicate detection is blind*.
+          - **Usable and complete.** Read the file; a negative result is trustworthy.
+
+          Reading it, look for a PR that already addresses THIS failure — one whose
+          title or body mentions the failing test class (from Step 0a), the keywords
+          "ci-fix" / "fix ci" / "flaky", or whose `headRefName` starts with `ci-fix/`.
 
           - **If a matching open fix PR exists**, add your commits to ITS head
             branch. The checkout used `fetch-depth: 0`, so every remote branch
@@ -332,7 +362,7 @@ jobs:
              git checkout -B <headRefName> "origin/<headRefName>"
              ```
             `-B` rather than `-b`: an earlier dispatch may have left a local branch of
-            that name, and `-B` resets it to the remote tip, which is what you want.
+            that name, and `-B` resets it to the remote tip.
             Remember that PR's number and `<headRefName>`: you will record them
             as `existing_pr` and `branch` in the sentinel (Step 7). If either command
             fails — the ref is not present locally, for example a branch that lives on a
@@ -345,14 +375,16 @@ jobs:
             You will record `existing_pr` as `null` and this branch name as
             `branch`.
 
-          **Duplicate detection is blind.** You cannot recover a PR number without
+          #### When duplicate detection is blind
+
+          You cannot recover a PR number without
           GitHub, so do not try to substitute for it: take the fresh-branch path and
           record `existing_pr` as `null`. Committing onto a branch that already has an
           open PR while you report `existing_pr: null` breaks the publish step. It
           pushes your commits, then fails trying to open a second PR for that head. The
           fix ships and the run reports a failed publish.
 
-          Warn the reader instead. The `fetch-depth: 0` checkout has every
+          Warn the reviewer instead. The `fetch-depth: 0` checkout has every
           remote-tracking ref on disk:
 
           ```bash
@@ -361,19 +393,29 @@ jobs:
           git log -1 --format=%cr <ref>
           ```
 
-          That lists the fix branches still on the remote whose names follow the
-          `ci-fix/` convention. It is narrower than the primary path, which also matches
-          on PR title and body, so a fix PR on a differently-named branch will not
-          appear. Judge each hit by its tip date: a branch whose commits address this
+          The scan is narrower than the primary path, which also matches on PR title
+          and body, so a fix PR on a differently-named branch will not appear. Judge each hit by its tip date: a branch whose commits address this
           same failure and whose tip is under a week old probably has an open PR, and
           one older than a month is more likely a closed PR nobody deleted. Name any
           suspected duplicate in your Step 8 summary and in the PR body so a reviewer
           can reconcile them.
 
-          Then set the summary's `## Status`: `FIX_READY_POSSIBLE_DUPLICATE` if you
-          produce a fix and the scan named a candidate, `FIX_READY` if you produce a fix
-          and found none (saying duplicate detection was blind), and
-          `INVESTIGATION_ONLY` if you produce no fix.
+          #### Which `## Status` to write
+
+          The choice depends only on two things you know by the end of this step:
+          whether you produce a fix, and what duplicate detection told you. Step 8's
+          template lists the matching `## PR` wording.
+
+          | Outcome | `## Status` |
+          |---|---|
+          | Fix, committed onto a matching open PR's branch | `EXISTING_PR_UPDATED` |
+          | Fix, fresh branch, a suspected duplicate found by the branch scan | `FIX_READY_POSSIBLE_DUPLICATE` |
+          | Fix, fresh branch, no duplicate suspected | `FIX_READY` |
+          | No fix | `INVESTIGATION_ONLY` |
+
+          Say in the summary that duplicate detection was blind whenever the ledger's
+          `existing-fix-prs` entry was not usable and complete, whichever row you land
+          on.
 
           Make your fix as LOCAL commits on this branch. Do NOT push and do NOT
           open a pull request — a later workflow step publishes your work.
@@ -397,10 +439,9 @@ jobs:
             issue, then Step 8 to write a summary. **This requires positive
             evidence from the failure itself** — a timeout in `logs.txt`, a
             runner error in `jobs.json`, an exit 137. A degraded fetch context
-            is not that evidence: it says the pre-fetch failed, which is
-            nothing at all about the build. Classifying a blank context as an
-            infrastructure failure is the cheapest wrong answer available
-            here, and it is prohibited. Use the category below instead.
+            is not that evidence: it says the fetch step failed, which tells
+            you nothing about the build. Never classify a blank context as an
+            infrastructure failure. Use the category below instead.
           - **Unknown failure (degraded context)**: the data that would
             identify the failure are not usable. Follow Step 0a's investigation
             path, and enter Step 2 only once a local reproduction names a test.
@@ -415,7 +456,7 @@ jobs:
              PR, whose gate comment in `pr-comments.json` carries the specific
              numbers (test counts, coverage percentages). If `associated-prs` is
              not usable you cannot tell those two cases apart: fall back to
-             `run.json`'s `event` / `headBranch` when that datum is usable, or
+             the `run` datum's `event` / `headBranch` when it is usable, or
              to `git log -1 "$TRIGGER_SHA"`, whose squashed subject carries the
              `(#<pr>)` suffix on a merged PR — after confirming the object is
              present with `git cat-file -e "$TRIGGER_SHA^{commit}"`.
@@ -741,7 +782,7 @@ jobs:
              ## Context
              <"Complete failure context." when every datum was usable and
              complete; otherwise name the degraded data and what you inferred
-             in their place. This tells a reviewer whether the root cause below
+             in its place. This tells the reviewer whether the root cause below
              rests on the failure's own logs or on inference.>
 
              ## Root Cause
@@ -826,10 +867,8 @@ jobs:
           when its PR number is unknown; Step 0c says why.>
 
           ## Context
-          <"Complete failure context." when every datum was usable and
-          complete; otherwise name the degraded data and what you inferred in
-          their place. Tells the reader whether the diagnosis above rests on
-          the failure's own logs or on inference.>
+          <Same rule as the PR body's `## Context` (Step 7 item 2), in one or
+          two sentences.>
           ```
 
           Keep the whole file under 2500 bytes, and `## Context` to one or two
@@ -901,6 +940,7 @@ jobs:
           sed -i "s|__FINAL_TEST_CMD__|${FINAL_TEST_CMD}|g" /tmp/fix-agent-prompt-$$.md
           sed -i "s|__TEST_SCOPE__|${TEST_SCOPE}|g" /tmp/fix-agent-prompt-$$.md
           sed -i "s|__TIME_BUDGET__|${TIME_BUDGET}|g" /tmp/fix-agent-prompt-$$.md
+          sed -i "s|__REPRO_TIMEOUT__|${REPRO_TIMEOUT}|g" /tmp/fix-agent-prompt-$$.md
           # Coverage already collected by FINAL_TEST_CMD — remove the placeholder line
           sed -i "/__COVERAGE_TEST_CMD__/d" /tmp/fix-agent-prompt-$$.md
 
@@ -967,7 +1007,17 @@ jobs:
           # the whole job budget and publishes no ledger; bounded, the grading
           # below records it as `failed` with a reason and the agent still gets a
           # usable partial context.
-          GH_TIMEOUT=120
+          # Overridable so the test harness can drive the expiry path; CI never
+          # sets it.
+          GH_TIMEOUT="${GH_TIMEOUT:-120}"
+          # The JSON reads are sub-second, but two operations are bulk:
+          # `--log-failed` generates and downloads the whole run's log archive,
+          # and a `--paginate` budget has to cover the entire page sequence
+          # rather than one request. `logs` is the agent's most valuable datum,
+          # so timing it out at 120s would turn a call that would have
+          # succeeded into a placeholder. `-k 10` because a gh that ignores
+          # SIGTERM should still die.
+          GH_BULK_TIMEOUT="${GH_BULK_TIMEOUT:-600}"
 
           # ---------------------------------------------------------------------------
           # Status ledger
@@ -1010,7 +1060,7 @@ jobs:
           # and TAB, which would otherwise split the TSV row this reason is
           # written into), then truncate.
           scrub() {
-            sed 's/?[^ ]*//g' "$1" | tr -c '[:print:]' ' ' | head -c 300
+            sed 's/?[^ ]*/?<redacted>/g' "$1" | tr -c '[:print:]' ' ' | head -c 300
           }
 
           FETCH_ERR="$RUNNER_TEMP/ci-fix-fetch-err.txt"
@@ -1025,12 +1075,20 @@ jobs:
           fetch() {
             local key="$1" out="$2" placeholder="$3"
             shift 3
-            if "$@" > "$out" 2> "$FETCH_ERR"; then
+            local rc=0
+            "$@" > "$out" 2> "$FETCH_ERR" || rc=$?
+            if [ "$rc" -eq 0 ]; then
               record "$key" ok
               return 0
             fi
             local reason
-            reason="$(scrub "$FETCH_ERR")"
+            # `timeout` writes nothing to stderr when it fires, so scrubbing an
+            # empty file would record a failure with no explanation.
+            if [ "$rc" -eq 124 ]; then
+              reason="timed out"
+            else
+              reason="$(scrub "$FETCH_ERR")"
+            fi
             printf '%s\n' "$placeholder" > "$out"
             record "$key" failed "$reason"
             echo "::warning::Fetch '$key' failed: $reason"
@@ -1071,6 +1129,13 @@ jobs:
               # context.
               case "$id" in
                 *[!0-9]*)
+                  # Counted, not just skipped. Falling straight to `continue`
+                  # kept the id out of the arithmetic entirely, so a run whose
+                  # ids were all non-numeric took the zero-failures branch and
+                  # published an empty file as `ok`. An id this step refused to
+                  # use is not evidence that GitHub has nothing.
+                  tried=$((tried + 1))
+                  failed=$((failed + 1))
                   echo "::warning::Skipping non-numeric $label id '$id'."
                   continue
                   ;;
@@ -1091,7 +1156,8 @@ jobs:
               # and the merge below concatenates arrays, so paging needs
               # nothing else.
               # shellcheck disable=SC2059  # url_fmt is a trusted local template
-              if ! timeout "$GH_TIMEOUT" gh api --paginate "$(printf "$url_fmt" "$id")" \
+              if ! timeout -k 10 "$GH_BULK_TIMEOUT" \
+                  gh api --paginate "$(printf "$url_fmt" "$id")" \
                   > "$item" 2> "$FETCH_ERR"; then
                 failed=$((failed + 1))
                 reason="$(scrub "$FETCH_ERR")"
@@ -1165,7 +1231,7 @@ jobs:
 
           # Logs of the failed jobs only
           fetch logs "$CTX/logs.txt" 'No failed-job logs available.' \
-            timeout "$GH_TIMEOUT" gh run view "$RUN_ID" --repo "$REPO" \
+            timeout -k 10 "$GH_BULK_TIMEOUT" gh run view "$RUN_ID" --repo "$REPO" \
             --log-failed || true
 
           # Check-run annotations (exact test names + error messages) per failed job.
@@ -1205,19 +1271,26 @@ jobs:
           fi
 
           # Existing OPEN fix PRs targeting develop (duplicate detection)
+          # 200 rather than 50: gh paginates internally above 100, so the
+          # ceiling costs at most one extra request, and a truncated list is the
+          # one shape that makes duplicate detection assert a negative it cannot
+          # support. The `partial` grading below stays as the tripwire for the
+          # day even 200 is not enough. Declared once so raising it cannot leave
+          # the guard comparing against the old value.
+          PR_LIST_LIMIT=200
           fetch existing-fix-prs "$CTX/existing-fix-prs.json" '[]' \
             timeout "$GH_TIMEOUT" gh pr list --repo "$REPO" --base develop --state open \
-            --json number,title,headRefName,body,labels --limit 50 || true
+            --json number,title,headRefName,body,labels --limit "$PR_LIST_LIMIT" || true
           # A list that came back at exactly the limit is truncated, and a
           # truncated list graded `complete` would let the agent open a second
           # fix PR over one it simply never saw. `record` again rather than
           # editing: the ledger's from_entries takes the last write per key.
           if [ "$(jq 'length' "$CTX/existing-fix-prs.json" 2>/dev/null || echo 0)" \
-              -ge 50 ]; then
+              -ge "$PR_LIST_LIMIT" ]; then
             record existing-fix-prs partial \
-              "open-PR list truncated at the 50-item --limit"
-            echo "::warning::The open-PR list hit its 50-item limit, so" \
-              "duplicate detection may not have seen every candidate."
+              "open-PR list truncated at the ${PR_LIST_LIMIT}-item --limit"
+            echo "::warning::The open-PR list hit its ${PR_LIST_LIMIT}-item limit," \
+              "so duplicate detection may not have seen every candidate."
           fi
 
           # ---------------------------------------------------------------------------
@@ -1354,6 +1427,8 @@ jobs:
           fi
           exit "$CLAUDE_EXIT"
 
+      # This step's NAME is load-bearing: see the note on "Gather CI failure
+      # context" above.
       - name: Read fix result
         id: fix-result
         if: always()
@@ -1441,6 +1516,8 @@ jobs:
           permission-pull-requests: write
           permission-workflows: write
 
+      # This step's NAME is load-bearing: see the note on "Gather CI failure
+      # context" above.
       - name: Publish fix
         id: publish
         # WH2: see the Mint step - publish a completed fix unless the job was cancelled.
@@ -1606,7 +1683,11 @@ jobs:
             echo "**CI Fix Agent Report** :robot: — agent produced no summary. Check [logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." > "$MESSAGE_FILE"
           fi
 
-          curl -s -X POST "https://youtrackdb.zulipchat.com/api/v1/messages" \
+          # -sS and bounded: this step sits above the /tmp cleanup step, so a
+          # stalled POST would block cleanup until the job timeout cancels it.
+          # -S also surfaces an error that -s alone would swallow.
+          curl -sS --connect-timeout 10 --max-time 60 --retry 2 \
+            -X POST "https://youtrackdb.zulipchat.com/api/v1/messages" \
             -u "ci-status-bot@youtrackdb.zulipchat.com:${ZULIP_API_KEY}" \
             --data-urlencode type=stream \
             --data-urlencode to=ytdb \
