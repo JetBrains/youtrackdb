@@ -408,6 +408,27 @@ case "$STUB_CASE" in
     fi
     [ "$1" = pr ] && { echo '[]'; exit 0; }
     exit 0 ;;
+  paginated_annotations)
+    # `gh api --paginate` emits ONE JSON ARRAY PER PAGE, concatenated on
+    # stdout. Both pages must survive the per-item parse check and the merge.
+    if [ "$1" = run ]; then
+      case "$(run_kind "$@")" in
+        logs) echo "log line"; exit 0 ;;
+        jobs) echo '{"jobs":[{"databaseId":111,"conclusion":"failure"}]}'; exit 0 ;;
+        run)  echo '{"headSha":"08eaf8c966"}'; exit 0 ;;
+      esac
+    fi
+    if [ "$1" = api ]; then
+      case "$(api_path "$@")" in
+        *annotations)
+          echo '[{"message":"page one"}]'
+          echo '[{"message":"page two"}]'
+          exit 0 ;;
+        *pulls) echo '[]'; exit 0 ;;
+      esac
+    fi
+    [ "$1" = pr ] && { echo '[]'; exit 0; }
+    exit 0 ;;
   unenumerable_jobs)
     # The jobs fetch exits 0 with a truncated body, so the id enumeration
     # fails. The annotations aggregate must not grade the empty result `ok`.
@@ -1218,6 +1239,23 @@ def test_the_generic_fetch_path_also_flattens_its_errors():
               "RUNSECRET" not in r.stdout and "RUNSECRET" not in json.dumps(r.ledger))
 
 
+def test_paginated_pages_are_all_merged():
+    """Every page of a paged response must reach the merged file.
+
+    `gh api --paginate` writes one JSON array per page, concatenated on stdout,
+    so an item's buffered body can hold several top-level arrays. The per-item
+    parse check has to accept that shape and the merge has to concatenate all
+    of them -- otherwise paging, added to stop truncation being graded
+    `complete`, would itself silently drop pages.
+    """
+    with gather("paginated_annotations") as r:
+        check("paginated: annotations marked ok", r.status("annotations") == "ok")
+        check("paginated: both pages are present",
+              json.loads(r.files.get("annotations.json", "null"))
+              == [{"message": "page one"}, {"message": "page two"}])
+        check("paginated: no warning is emitted", r.warnings() == [])
+
+
 def test_every_non_fatal_scenario_exits_zero():
     """A degraded fetch must never abort the step.
 
@@ -1229,7 +1267,8 @@ def test_every_non_fatal_scenario_exits_zero():
     for case in ("allok", "absent", "no_jobs", "no_run", "run_without_head_sha",
                  "partial_annotations", "all_annotations_fail", "no_failed_jobs",
                  "partial_pr_comments", "malformed_json", "unenumerable_jobs",
-                 "realistic_api_404", "prs_fetch_fails", "multiline_run_error"):
+                 "realistic_api_404", "prs_fetch_fails", "multiline_run_error",
+                 "paginated_annotations"):
         with gather(case) as r:
             check(f"{case}: step exits 0", r.returncode == 0)
             check(f"{case}: publishes a ledger with all seven keys",
