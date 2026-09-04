@@ -115,11 +115,10 @@ public final class YTDBOrderCollationStrategy
     }
     var globalSteps =
         TraversalHelper.getStepsOfAssignableClassRecursively(OrderGlobalStep.class, traversal);
-    var localSteps =
-        TraversalHelper.getStepsOfAssignableClassRecursively(OrderLocalStep.class, traversal);
     // The hierarchy walk below is wasted work on a traversal that sorts by anything other than a
     // plain property, which is the common case, so the sort keys are inspected first.
-    if (!carriesPlainPropertyModulator(globalSteps) && !carriesPlainPropertyModulator(localSteps)) {
+    // Scope.local is out of scope for this strategy (not translated; leave TinkerPop semantics).
+    if (!carriesPlainPropertyModulator(globalSteps)) {
       return;
     }
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
@@ -129,9 +128,6 @@ public final class YTDBOrderCollationStrategy
     for (var step : globalSteps) {
       collateGlobal((OrderGlobalStep<?, ?>) step, orderedClasses(schema, step));
     }
-    for (var step : localSteps) {
-      collateLocal((OrderLocalStep<?, ?>) step, orderedClasses(schema, step));
-    }
   }
 
   /** Replaces every plain property slot of {@code step} whose property declares a collation. */
@@ -140,15 +136,6 @@ public final class YTDBOrderCollationStrategy
     var modulators = OrderStepModulators.modulatorsOf(step.getComparators());
     if (substituteCollatedModulators(modulators, graphClasses)) {
       OrderStepModulators.replaceGlobalModulators((OrderGlobalStep) step, modulators);
-    }
-  }
-
-  /** The {@link #collateGlobal} sibling for a local {@code order(local)} step. */
-  @SuppressWarnings({"rawtypes", "unchecked"})
-  private static void collateLocal(OrderLocalStep<?, ?> step, List<SchemaClass> graphClasses) {
-    var modulators = OrderStepModulators.modulatorsOf(step.getComparators());
-    if (substituteCollatedModulators(modulators, graphClasses)) {
-      OrderStepModulators.replaceLocalModulators((OrderLocalStep) step, modulators);
     }
   }
 

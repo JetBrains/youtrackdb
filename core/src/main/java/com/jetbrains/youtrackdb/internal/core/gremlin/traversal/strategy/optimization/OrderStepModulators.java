@@ -6,7 +6,6 @@ import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderLocalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.javatuples.Pair;
 
@@ -66,21 +65,6 @@ final class OrderStepModulators {
     var replacement = new OrderGlobalStep(step.getTraversal());
     // Carried explicitly: a preceding range fold already pushed its bound onto the old step.
     replacement.setLimit(step.getLimit());
-    for (var index = 0; index < comparators.size(); index++) {
-      replacement.addComparator(modulators.get(index), comparators.get(index).getValue1());
-    }
-    swapStep(step, replacement);
-  }
-
-  /** The {@link #replaceGlobalModulators} sibling for a local {@code order(local)} step. */
-  @SuppressWarnings({"unchecked", "rawtypes"})
-  static void replaceLocalModulators(OrderLocalStep step, List<Admin> modulators) {
-    var comparators = (List<Pair<Admin, Comparator>>) step.getComparators();
-    if (step.getLocalChildren().isEmpty()) {
-      step.modulateBy(modulators.getFirst(), comparators.getFirst().getValue1());
-      return;
-    }
-    var replacement = new OrderLocalStep(step.getTraversal());
     for (var index = 0; index < comparators.size(); index++) {
       replacement.addComparator(modulators.get(index), comparators.get(index).getValue1());
     }

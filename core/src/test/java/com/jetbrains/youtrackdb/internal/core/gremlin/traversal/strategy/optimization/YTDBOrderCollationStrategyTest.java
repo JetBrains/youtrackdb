@@ -12,12 +12,10 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import java.util.Comparator;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
-import org.apache.tinkerpop.gremlin.process.traversal.Scope;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderLocalStep;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.javatuples.Pair;
 import org.junit.Test;
@@ -206,22 +204,6 @@ public class YTDBOrderCollationStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Scenario: a local sort of folded elements by a property declared case-insensitive. Expected: the
-   * local slot is collated too, because {@code order(local)} compares the same projected values.
-   */
-  @Test
-  public void apply_localOrderOverFoldedElements_replacesThePropertyModulator() {
-    declareCaseInsensitiveName("Person");
-
-    var admin = graph.traversal().V().fold().order(Scope.local).by("name").asAdmin();
-    YTDBOrderCollationStrategy.instance().apply(admin);
-
-    var comparators = localComparators(localOrderStep(admin));
-    assertThat(comparators).hasSize(1);
-    assertThat(comparators.get(0).getValue0()).isInstanceOf(CollatedSortKeyTraversal.class);
-  }
-
-  /**
    * Scenario: a sort key that is a traversal rather than a plain property projection. Expected: no
    * replacement, because the declaration governs one property of one record and such a traversal may
    * not be reading one.
@@ -312,22 +294,8 @@ public class YTDBOrderCollationStrategyTest extends GraphBaseTest {
         .orElseThrow();
   }
 
-  private static OrderLocalStep<?, ?> localOrderStep(Traversal.Admin<?, ?> admin) {
-    return admin.getSteps().stream()
-        .filter(OrderLocalStep.class::isInstance)
-        .map(step -> (OrderLocalStep<?, ?>) step)
-        .findFirst()
-        .orElseThrow();
-  }
-
   @SuppressWarnings({"unchecked", "rawtypes"})
   private static List<Pair<Traversal.Admin, Comparator>> comparators(OrderGlobalStep step) {
     return step.getComparators();
-  }
-
-  @SuppressWarnings({"unchecked", "rawtypes"})
-  private static List<Pair<Traversal.Admin, Comparator>> localComparators(
-      OrderLocalStep<?, ?> step) {
-    return (List) step.getComparators();
   }
 }

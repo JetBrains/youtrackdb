@@ -67,19 +67,22 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * Scenario: a descending local order over folded elements. Expected: the appended key mirrors that
-   * direction as well, so the local shape follows the same rule as the global one.
+   * Scope.local is out of scope for this strategy (not translated to MATCH). Expected: modulators
+   * of {@code order(Scope.local)} are left exactly as written.
    */
   @Test
-  public void apply_mirrorsDescendingDirectionOnLocalOrder() {
+  public void apply_leavesOrderLocalStepsUntouched() {
     var admin =
         graph.traversal().V().fold().order(Scope.local).by("name", Order.desc).asAdmin();
+    var before = localComparators(localOrderStep(admin));
+    assertThat(before).hasSize(1);
+
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
 
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertRecordIdKey(localComparators.get(1).getValue0());
-    assertThat(localComparators.get(1).getValue1()).isEqualTo(Order.desc);
+    var after = localComparators(localOrderStep(admin));
+    assertThat(after).hasSize(1);
+    assertThat(after.get(0).getValue0()).isNotInstanceOf(RecordIdSortKeyTraversal.class);
+    assertThat(after.get(0).getValue1()).isEqualTo(Order.desc);
   }
 
   /**
@@ -335,76 +338,6 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(comparators.get(1).getValue0()).isInstanceOf(IdentityTraversal.class);
   }
 
-  /** Local {@code order(local)} over folded vertices gains the record identifier key. */
-  @Test
-  public void apply_appendsRecordIdKeyToOrderLocalOnFoldedElements() {
-    var admin = graph.traversal().V().fold().order(Scope.local).by("name").asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertRecordIdKey(localComparators.get(1).getValue0());
-  }
-
-  /** Local {@code order(local)} over a {@code group()} map gains {@code Column.keys}. */
-  @Test
-  public void apply_appendsKeysToOrderLocalOnGroupMap() {
-    var admin = graph.traversal().V()
-        .group().by("name").by(__.outE().values("weight").sum())
-        .order(Scope.local)
-        .by(Column.values)
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-    assertThat(((ColumnTraversal) localComparators.get(1).getValue0()).getColumn())
-        .isEqualTo(Column.keys);
-  }
-
-  /**
-   * Default {@code group()} keys are elements — local order gains the record identifier key, not
-   * raw keys, because a vertex is not {@code Comparable}.
-   */
-  @Test
-  public void apply_appendsRecordIdKeyToOrderLocalOnDefaultGroup() {
-    var admin = graph.traversal().V()
-        .group().by().by(__.count())
-        .order(Scope.local)
-        .by(Column.values)
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertRecordIdKey(localComparators.get(1).getValue0());
-  }
-
-  /** Bare local {@code order(local)} over folded elements becomes the key, replacing identity. */
-  @Test
-  public void apply_replacesBareOrderLocalIdentityWithRecordIdKeyOnFoldedElements() {
-    var admin = graph.traversal().V().fold().order(Scope.local).asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(1);
-    assertRecordIdKey(localComparators.get(0).getValue0());
-  }
-
-  /**
-   * Explicit {@code by(Order.asc)} on folded elements stores {@code IdentityTraversal} — replace
-   * in place with the record identifier key.
-   */
-  @Test
-  public void apply_replacesExplicitIdentityOrderLocalWithRecordIdKeyOnFoldedElements() {
-    var admin = graph.traversal().V().fold().order(Scope.local).by(Order.asc).asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(1);
-    assertRecordIdKey(localComparators.get(0).getValue0());
-  }
-
   /** {@code select} is not assumed to be an element stream — identity, not {@code T.id}. */
   @Test
   public void apply_appendsIdentityAfterSelectOrder() {
@@ -422,20 +355,6 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     var admin = graph.traversal().V().order().by(Order.shuffle).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     assertThat(comparators(orderStep(admin))).hasSize(1);
-  }
-
-  /** Bare local {@code order(local)} over folded scalars already has identity — leave untouched. */
-  @Test
-  public void apply_leavesBareOrderLocalOnFoldedScalarsUntouched() {
-    var admin = graph.traversal().V().values("name").fold().order(Scope.local).asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-
-    var local = admin.getSteps().stream()
-        .filter(OrderLocalStep.class::isInstance)
-        .map(OrderLocalStep.class::cast)
-        .findFirst()
-        .orElseThrow();
-    assertThat(local.getComparators()).hasSize(1);
   }
 
   /**
@@ -633,152 +552,6 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(second).isEqualTo(first);
   }
 
-  /**
-   * Local order with no fold or map producer upstream cannot prove its member type, so it gains no
-   * modulator at all. Appending one would meet the {@code Comparable} cast with an unknown member.
-   */
-  @Test
-  public void apply_appendsNothingToOrderLocalWithUnprovenMembers() {
-    var admin = graph.traversal().V().order(Scope.local).by("name").asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(localComparators(localOrderStep(admin))).hasSize(1);
-  }
-
-  /**
-   * Local element order ending on {@code T.id} becomes the record identifier key on that same slot,
-   * for the same reason the global case does.
-   */
-  @Test
-  public void apply_replacesExplicitTokenIdOrderLocalOnFoldedElements() {
-    var admin = graph.traversal().V().fold().order(Scope.local).by(T.id).asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(1);
-    assertRecordIdKey(localComparators.get(0).getValue0());
-  }
-
-  /**
-   * Local element order whose last key is a property named {@code id} gains the record identifier
-   * key too, because a folded element list ties on duplicate values exactly as a global stream does.
-   */
-  @Test
-  public void apply_appendsRecordIdKeyAfterPropertyIdOrderLocalOnFoldedElements() {
-    var admin = graph.traversal().V().fold().order(Scope.local).by("id").asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertRecordIdKey(localComparators.get(1).getValue0());
-  }
-
-  /**
-   * Bare local order over a group map replaces synthetic identity with {@code Column.keys}.
-   */
-  @Test
-  public void apply_replacesBareOrderLocalIdentityWithKeysOnGroupMap() {
-    var admin = graph.traversal().V().group().by("name").order(Scope.local).asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(1);
-    assertThat(localComparators.get(0).getValue0()).isInstanceOf(ColumnTraversal.class);
-    assertThat(((ColumnTraversal) localComparators.get(0).getValue0()).getColumn())
-        .isEqualTo(Column.keys);
-  }
-
-  /**
-   * Explicit {@code by(Order.asc)} stores {@code IdentityTraversal} as a local child — replace in
-   * place with {@code Column.keys} ({@code replaceLocalChild} path).
-   */
-  @Test
-  public void apply_replacesExplicitIdentityOrderLocalWithKeysOnGroupMap() {
-    var admin = graph.traversal().V()
-        .group().by("name")
-        .order(Scope.local)
-        .by(Order.asc)
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(1);
-    assertThat(localComparators.get(0).getValue0()).isInstanceOf(ColumnTraversal.class);
-  }
-
-  /** Local order over {@code project()} maps gains {@code Column.keys}, not element id. */
-  @Test
-  public void apply_appendsKeysToOrderLocalOnProjectMap() {
-    var admin = graph.traversal().V()
-        .project("n")
-        .by("name")
-        .order(Scope.local)
-        .by(__.select("n"))
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-  }
-
-  /** Local order over {@code valueMap()} gains {@code Column.keys}. */
-  @Test
-  public void apply_appendsKeysToOrderLocalOnValueMap() {
-    var admin = graph.traversal().V()
-        .valueMap()
-        .order(Scope.local)
-        .by(Column.values)
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-  }
-
-  /** Local order over {@code elementMap()} gains {@code Column.keys}. */
-  @Test
-  public void apply_appendsKeysToOrderLocalOnElementMap() {
-    var admin = graph.traversal().V()
-        .elementMap()
-        .order(Scope.local)
-        .by(Column.values)
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-  }
-
-  /** Transparent steps between group and local order still see map entries. */
-  @Test
-  public void apply_appendsKeysToOrderLocalAfterTransparentStepsOnGroupMap() {
-    var admin = graph.traversal().V()
-        .group().by("name")
-        .identity()
-        .order(Scope.local)
-        .by(Column.values)
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-  }
-
-  /**
-   * Folding unfolded group entries then ordering locally still classifies as map-entry members —
-   * key modulator falls back to {@code Column.keys} when the immediate predecessor is Fold.
-   */
-  @Test
-  public void apply_appendsKeysToOrderLocalOnFoldedUnfoldedGroupEntries() {
-    var admin = graph.traversal().V()
-        .group().by("name")
-        .unfold()
-        .fold()
-        .order(Scope.local)
-        .by(__.select(Column.values))
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-  }
-
   /** Transparent steps between unfold and global order still append keys + identity. */
   @Test
   public void apply_appendsKeysAfterUnfoldedGroupWithTransparentSteps() {
@@ -864,14 +637,6 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertThat(comparators.get(1).getValue0()).isInstanceOf(IdentityTraversal.class);
   }
 
-  /** Local shuffle must not gain a tie-break modulator. */
-  @Test
-  public void apply_leavesLocalShuffleUntouched() {
-    var admin = graph.traversal().V().fold().order(Scope.local).by(Order.shuffle).asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(localComparators(localOrderStep(admin))).hasSize(1);
-  }
-
   /**
    * Explicit {@code by(select(keys).id())} already ties on the entry key — leave untouched.
    */
@@ -885,26 +650,6 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
         .asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     assertThat(comparators(orderStep(admin))).hasSize(1);
-  }
-
-  /**
-   * Local map order whose last key is a property named {@code id} gains the entry key modulator, for
-   * the same reason: the group key is what separates two entries carrying one duplicate value.
-   */
-  @Test
-  public void apply_appendsKeysAfterPropertyIdOrderLocalOnGroupMap() {
-    var admin = graph.traversal().V()
-        .group().by("name")
-        .order(Scope.local)
-        .by("id")
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-    assertThat(((ColumnTraversal) localComparators.get(1).getValue0()).getColumn())
-        .isEqualTo(Column.keys);
   }
 
   /**
@@ -1018,31 +763,6 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
     assertThat(comparators(orderStep(admin)).get(1).getValue0())
         .isInstanceOf(IdentityTraversal.class);
-  }
-
-  /** Local order over {@code groupCount()} map gains {@code Column.keys}. */
-  @Test
-  public void apply_appendsKeysToOrderLocalOnGroupCountMap() {
-    var admin = graph.traversal().V()
-        .groupCount().by("name")
-        .order(Scope.local)
-        .by(Column.values)
-        .asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    var localComparators = localComparators(localOrderStep(admin));
-    assertThat(localComparators).hasSize(2);
-    assertThat(localComparators.get(1).getValue0()).isInstanceOf(ColumnTraversal.class);
-  }
-
-  /**
-   * Bare local order on a non-fold/non-map stream already ends with identity — OTHER path leaves
-   * it untouched.
-   */
-  @Test
-  public void apply_leavesBareOrderLocalOnElementStreamUntouched() {
-    var admin = graph.traversal().V().order(Scope.local).asAdmin();
-    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(localComparators(localOrderStep(admin))).hasSize(1);
   }
 
   /** Three people, marko knowing both of the others, so {@code out()} yields two vertices. */

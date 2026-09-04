@@ -63,7 +63,7 @@ import org.apache.tinkerpop.gremlin.structure.T;
 import org.javatuples.Pair;
 
 /**
- * Gives every global and local {@code order()} step a stream-typed secondary sort key, before
+ * Gives every global {@code order()} step a stream-typed secondary sort key, before
  * {@link GremlinToMatchStrategy} runs. Tie groups then carry one total order whether the translator
  * accepts the shape or declines it to the native Gremlin pipeline. The key is appended
  * unconditionally on an accepted shape — it is not conditioned on the primary key repeating, because
@@ -79,12 +79,10 @@ import org.javatuples.Pair;
  *       {@code by(identity)} because one key can repeat across different maps in the stream.
  *   <li>Global order over anything else → {@code by(identity)}, which TinkerPop orderability makes
  *       total over the payloads it can compare.
- *   <li>Local {@code order(local)}: folded elements → the record identifier key; a map from
- *       {@code group*} / {@code project} / {@code *Map} → {@code keys} or the record identifier key
- *       for an element key; an unproven member type → nothing at all, because
- *       {@code OrderLocalStep} casts every projection to {@code Comparable} and an unproven member
- *       is what makes that cast fail.
  * </ul>
+ *
+ * <p>{@code order(Scope.local)} is left alone: it is not translated to MATCH, and changing its
+ * semantics is outside this strategy's scope.
  *
  * <p>Skips when the last comparator is {@code Order.shuffle}, the record identifier key,
  * {@code Column.keys} (or {@code select(keys)}), or identity where that is already a valid total
@@ -120,8 +118,6 @@ public final class YTDBOrderRidTieBreakStrategy
     }
     TraversalHelper.getStepsOfAssignableClassRecursively(OrderGlobalStep.class, traversal)
         .forEach(YTDBOrderRidTieBreakStrategy::appendGlobalTieBreak);
-    TraversalHelper.getStepsOfAssignableClassRecursively(OrderLocalStep.class, traversal)
-        .forEach(YTDBOrderRidTieBreakStrategy::appendLocalTieBreak);
   }
 
   private static void appendGlobalTieBreak(OrderGlobalStep<?, ?> step) {
@@ -142,25 +138,6 @@ public final class YTDBOrderRidTieBreakStrategy
         if (!hasExplicitTieBreak(comparators)) {
           step.modulateBy(new IdentityTraversal<>().asAdmin(), Order.asc);
         }
-      }
-    }
-  }
-
-  /**
-   * Local order sorts collection or map members. {@code OrderLocalStep} casts each modulator
-   * projection to {@code Comparable}, so a bare identity over elements or map entries must be
-   * replaced rather than followed, and an unproven member type must gain no modulator at all.
-   */
-  private static void appendLocalTieBreak(OrderLocalStep<?, ?> step) {
-    var comparators = step.getComparators();
-    if (isShuffle(comparators)) {
-      return;
-    }
-    switch (classifyLocalMembers(step)) {
-      case ELEMENT -> ensureLocalElementTieBreak(step, comparators);
-      case MAP_ENTRY -> ensureLocalMapEntryTieBreak(step, comparators);
-      case OTHER -> {
-        // Nothing: an unproven member is exactly the case where the Comparable cast throws.
       }
     }
   }
@@ -187,22 +164,6 @@ public final class YTDBOrderRidTieBreakStrategy
       // step and swap it into the traversal, which leaves this reference detached — nothing may read
       // or write it afterwards.
       OrderStepModulators.replaceGlobalModulators((OrderGlobalStep) step, substituted);
-      return;
-    }
-    if (carriesRecordIdSortKey(comparators)) {
-      return;
-    }
-    step.modulateBy(new RecordIdSortKeyTraversal<>(), mirroredDirection(comparators));
-  }
-
-  /** The {@link #ensureGlobalElementSortKey} sibling for a local {@code order(local)} step. */
-  @SuppressWarnings("rawtypes")
-  private static void ensureLocalElementTieBreak(
-      OrderLocalStep<?, ?> step,
-      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    var substituted = withElementSortKeys(comparators);
-    if (substituted != null) {
-      OrderStepModulators.replaceLocalModulators((OrderLocalStep) step, substituted);
       return;
     }
     if (carriesRecordIdSortKey(comparators)) {
@@ -247,54 +208,9 @@ public final class YTDBOrderRidTieBreakStrategy
     return Order.desc.equals(comparators.getLast().getValue1()) ? Order.desc : Order.asc;
   }
 
-  private static void ensureLocalMapEntryTieBreak(
-      OrderLocalStep<?, ?> step,
-      List<? extends Pair<? extends Admin<?, ?>, ? extends Comparator<?>>> comparators) {
-    if (selectsEntryKeyTieBreak(comparators.getLast().getValue0())
-        || endsWithRecordIdSortKey(comparators)) {
-      return;
-    }
-    var keyModulator = entryKeyTieBreakModulator(step);
-    if (endsWithIdentity(comparators)) {
-      replaceLastLocalModulator(step, keyModulator);
-      return;
-    }
-    step.modulateBy(keyModulator, Order.asc);
-  }
-
-  /**
-   * Replaces the modulator of the <em>last</em> comparator slot, keeping every other slot and every
-   * comparator. The rebuild-and-swap mechanics live in {@link OrderStepModulators}, which records
-   * why a positional replacement cannot go through {@code replaceLocalChild}.
-   */
-  @SuppressWarnings("rawtypes")
-  private static void replaceLastLocalModulator(OrderLocalStep step, Admin<?, ?> modulator) {
-    var modulators = OrderStepModulators.modulatorsOf(step.getComparators());
-    modulators.set(modulators.size() - 1, modulator);
-    OrderStepModulators.replaceLocalModulators(step, modulators);
-  }
-
-  /**
-   * Members of a local order: the pre-fold stream when a {@code fold()} produced the collection, or
-   * map entries when a {@code group*} / {@code project} / {@code *Map} result is ordered in place.
-   */
-  private static StreamKind classifyLocalMembers(OrderLocalStep<?, ?> step) {
-    var source = upstreamSource(step.getPreviousStep());
-    if (source instanceof FoldStep) {
-      return classifyFrom(source.getPreviousStep());
-    }
-    return emitsMap(source) ? StreamKind.MAP_ENTRY : StreamKind.OTHER;
-  }
-
-  /** Global {@code group*().unfold().order()} — same key modulator policy as local map order. */
+  /** Global {@code group*().unfold().order()} entry-stream key modulator. */
   private static Admin<?, ?> globalMapEntryTieBreakModulator(OrderGlobalStep<?, ?> orderStep) {
     return mapEntryKeyTieBreakModulator(unfoldedGroupStep(orderStep));
-  }
-
-  /** Key modulator for local map order: an element group key needs the record identifier key. */
-  private static Admin<?, ?> entryKeyTieBreakModulator(OrderLocalStep<?, ?> orderStep) {
-    var source = upstreamSource(orderStep.getPreviousStep());
-    return emitsMap(source) ? mapEntryKeyTieBreakModulator(source) : entryKeysModulator();
   }
 
   /**
@@ -543,7 +459,7 @@ public final class YTDBOrderRidTieBreakStrategy
         || step instanceof ElementStep;
   }
 
-  /** The steps whose output is a map, so a following local order sorts entries. */
+  /** The steps whose output is a map (entry streams after {@code group*().unfold()}). */
   private static boolean emitsMap(Step<?, ?> step) {
     return step instanceof GroupStep
         || step instanceof GroupCountStep
