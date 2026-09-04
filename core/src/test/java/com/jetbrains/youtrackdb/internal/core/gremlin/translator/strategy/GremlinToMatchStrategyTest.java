@@ -238,6 +238,55 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         .isZero();
   }
 
+  /**
+   * The productive-order setting is resolved ONCE per compilation, and the same resolved value
+   * reaches the shape key and the walk.
+   *
+   * <p>Two independent reads can straddle a runtime flip. The key would then describe one setting
+   * while the plan filed under it was built for the other, in a cache that is storage-wide and
+   * outlives the session. The fixture below flips the setting from inside the translator, which is
+   * the exact window between the two former reads, and asserts the translator was handed the value
+   * that was live before the flip.
+   *
+   * <p>The single-argument overload throws, so a return to the two-read shape fails here rather
+   * than passing quietly.
+   */
+  @Test
+  public void apply_resolvesTheProductiveOrderSettingOncePerCompilation() {
+    var config = session().getConfiguration();
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, true);
+    try {
+      var handedToTranslator = new java.util.concurrent.atomic.AtomicReference<Boolean>();
+      var flippingTranslator = new GremlinToMatchStrategy.TraversalTranslator() {
+        @Override
+        public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> t) {
+          throw new AssertionError(
+              "the strategy must hand the resolved setting to the translator");
+        }
+
+        @Override
+        public GremlinToMatchTranslator.TranslationResult translate(
+            Traversal.Admin<?, ?> t, Boolean orderIncludesMissingKey) {
+          handedToTranslator.set(orderIncludesMissingKey);
+          // The runtime flip lands between the former two reads.
+          config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, false);
+          return null;
+        }
+      };
+
+      new GremlinToMatchStrategy(flippingTranslator)
+          .apply(graph.traversal().V().order().by("age").asAdmin());
+
+      assertThat(handedToTranslator.get())
+          .as("the walk reads the value the shape key was built from, not a later one")
+          .isTrue();
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, previous);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Kill-switch (runtime opt-out) — off means decline even for a shape that would
   // otherwise translate.

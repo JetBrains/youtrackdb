@@ -3,8 +3,10 @@ package com.jetbrains.youtrackdb.internal.server.gremlin;
 import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREMLIN_REMOTE;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
@@ -12,9 +14,9 @@ import com.jetbrains.youtrackdb.internal.driver.YTDBDriverRemoteConnection;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -267,8 +269,7 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
 
-    graphLoadingLoop:
-    for (var graphToLoad : graphsToLoad) {
+    graphLoadingLoop : for (var graphToLoad : graphsToLoad) {
       var featuresRequired = graphToLoad.featuresRequired();
       for (var feature : featuresRequired) {
         if (!YTDBFeatures.INSTANCE.supports(feature.featureClass(), feature.feature())) {
@@ -296,7 +297,10 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
           graphGetterSessionPools.put(graphName, cachedPool);
         }
       } else {
-        serverContext.create(graphName, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
+        // Same portable-order opt-out as YTDBGraphInitUtil for embedded suites: remote
+        // Process/Feature graphs execute on the server, so the flag must be on the DB at create.
+        serverContext.create(graphName, dbType, portableOrderSuiteConfig(),
+            ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
         cachedPool = serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD);
 
         graphGetterSessionPools.put(graphName, cachedPool);
@@ -310,9 +314,7 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
     if (serverContext.exists(DEFAULT_DB_NAME)) {
       var cachedPool = graphGetterSessionPools.get(DEFAULT_DB_NAME);
       if (cachedPool != null) {
-        cachedPool.asGraph().traversal().autoExecuteInTx(g ->
-            g.V().drop()
-        );
+        cachedPool.asGraph().traversal().autoExecuteInTx(g -> g.V().drop());
       } else {
         graphGetterSessionPools.put(DEFAULT_DB_NAME,
             serverContext.cachedPool(DEFAULT_DB_NAME, ADMIN_USER_NAME, ADMIN_USER_PASSWORD));
@@ -320,10 +322,24 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
       return;
     }
 
-    serverContext.create(DEFAULT_DB_NAME, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
+    serverContext.create(DEFAULT_DB_NAME, dbType, portableOrderSuiteConfig(),
+        ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
     graphGetterSessionPools.put(DEFAULT_DB_NAME,
         serverContext.cachedPool(DEFAULT_DB_NAME, ADMIN_USER_NAME,
             ADMIN_USER_PASSWORD));
+  }
+
+  /**
+   * Suite databases must drop records that lack the ordered key so upstream TinkerPop Order /
+   * Cucumber scenarios match portable semantics. Product code and project-owned tests keep the
+   * shipped default ({@code true}); a traversal can still opt back in with
+   * {@code with(orderIncludesMissingKey, true)}.
+   */
+  private static YouTrackDBConfig portableOrderSuiteConfig() {
+    return YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, Boolean.FALSE)
+        .build();
   }
 
   @Override
@@ -342,7 +358,8 @@ public class YTDBGraphBinaryRemoteGraphProvider extends AbstractGraphProvider im
 
   private static DatabaseType calculateDbType() {
     final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
+        System.getProperty("youtrackdb.test.env",
+            DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
       return DatabaseType.DISK;

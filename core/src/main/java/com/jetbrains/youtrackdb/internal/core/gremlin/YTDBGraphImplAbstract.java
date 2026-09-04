@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBProductiveOrderByStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
@@ -86,6 +87,10 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
                 YTDBGraphCountStrategy.instance(),
                 YTDBGraphMatchStepStrategy.instance(),
                 YTDBGraphIoStepStrategy.instance(),
+                // Registered unconditionally: this list is built once per graph class for the
+                // whole process, so a registration gated on configuration would freeze the
+                // decision at first class load. The strategy reads the setting in its own apply().
+                YTDBProductiveOrderByStrategy.instance(),
                 YTDBQueryMetricsStrategy.instance()));
   }
 
@@ -355,7 +360,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     }
   }
 
-  /// Uncached SQL parse — used only when no database session is available (e.g., BEGIN
+  /// Uncached YQL parse — used only when no database session is available (e.g., BEGIN
   /// before a transaction is open). All other paths use [SQLEngine#parse] which goes
   /// through [YqlStatementCache] and sets [SQLStatement#originalStatement] for
   /// [YqlExecutionPlanCache].

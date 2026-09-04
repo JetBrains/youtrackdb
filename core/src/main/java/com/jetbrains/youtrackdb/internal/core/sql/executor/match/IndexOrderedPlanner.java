@@ -155,7 +155,8 @@ final class IndexOrderedPlanner {
    *   <li>The ORDER BY field resolves (through RETURN projection aliases) to
    *       {@code <alias>.<property>} where {@code <alias>} is a pattern alias</li>
    *   <li>The alias is the target of a simple (non-WHILE) edge in the schedule</li>
-   *   <li>An index exists on the target alias's class for that property</li>
+   *   <li>An index exists on the target alias's class for that property, and that index does
+   *       not ignore null values</li>
    *   <li>The edge traversal method is directional ({@code in()} or {@code out()},
    *       not {@code both()})</li>
    * </ol>
@@ -301,6 +302,14 @@ final class IndexOrderedPlanner {
     Index matchedIndex = null;
     for (var idx : clazz.getIndexesInternal()) {
       if (idx.getDefinition() == null) {
+        continue;
+      }
+      // An index that ignores null values holds no entry for a target that lacks the
+      // ordered property, so an index-ordered scan would drop that target from the result
+      // instead of sorting it first. Refuse the candidate and let the ordinary MATCH plan
+      // plus an in-memory sort serve the query. The default configuration keeps null
+      // entries, so only an explicitly configured index pays that fallback.
+      if (idx.getDefinition().isNullValuesIgnored()) {
         continue;
       }
       var props = idx.getDefinition().getProperties();

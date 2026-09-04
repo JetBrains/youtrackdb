@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.docker.StdOutConsumer;
 import io.cucumber.java.AfterAll;
 import io.cucumber.java.BeforeAll;
@@ -12,6 +13,8 @@ import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ResourceList;
 import java.util.List;
 import java.util.Locale;
+import org.apache.commons.configuration2.BaseConfiguration;
+import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.structure.io.graphml.GraphMLResourceAccess;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONResourceAccess;
@@ -88,7 +91,6 @@ public class YTDBDockerGraphFeatureTestHooks {
     });
   }
 
-
   @AfterAll
   public static void tearDownSuite() throws Exception {
     youTrackDB.close();
@@ -98,18 +100,21 @@ public class YTDBDockerGraphFeatureTestHooks {
   private static void reloadAllTestGraphs() {
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
+    // Same portable-order opt-out as YTDBGraphInitUtil / remote GraphProvider: Cucumber Order
+    // scenarios assert the TinkerPop drop for missing keys. Without the flag at create, the
+    // container ships the product default and keeps software vertices that have no age.
+    var suiteConfig = portableOrderSuiteConfig();
+    var admin = new LocalUserCredential(
+        ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedLocalRole.ADMIN);
 
-    youTrackDB.createIfNotExists(DEFAULT_DB_NAME, dbType,
-        new LocalUserCredential(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedLocalRole.ADMIN));
+    youTrackDB.createIfNotExists(DEFAULT_DB_NAME, dbType, suiteConfig, admin);
 
     for (var graphToLoad : graphsToLoad) {
       var graphName = getServerGraphName(graphToLoad);
       var location = graphToLoad.location();
       var fileName = location.substring(location.lastIndexOf('/') + 1);
 
-      youTrackDB.createIfNotExists(graphName, dbType,
-          new LocalUserCredential(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, PredefinedLocalRole.ADMIN)
-      );
+      youTrackDB.createIfNotExists(graphName, dbType, suiteConfig, admin);
 
       try (var traversal = youTrackDB.openTraversal(graphName)) {
         traversal.autoExecuteInTx(g -> g.V().drop());
@@ -119,9 +124,21 @@ public class YTDBDockerGraphFeatureTestHooks {
     }
   }
 
+  /**
+   * Suite databases must drop records that lack the ordered key so upstream Cucumber order
+   * scenarios match portable semantics. Product images keep the shipped default ({@code true}).
+   */
+  private static Configuration portableOrderSuiteConfig() {
+    var config = new BaseConfiguration();
+    config.setProperty(
+        GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY.getKey(), Boolean.FALSE);
+    return config;
+  }
+
   private static DatabaseType calculateDbType() {
     final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
+        System.getProperty("youtrackdb.test.env",
+            DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
       return DatabaseType.DISK;
     }

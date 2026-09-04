@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
@@ -22,6 +23,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.Edge
  * encoded by class name and labels only (the walker declines it). A recogniser that returns
  * {@code false} from {@link StepRecogniser#contributeShape}, or a lambda modulator the extractor
  * cannot name, marks the extraction incomplete so {@code apply} will not cache a {@code Translate}.
+ *
+ * <p>The key opens with the strategy-flag section, which carries every resolved setting that
+ * changes the emitted plan for one and the same step sequence: polymorphism ({@code poly}), edge
+ * label verification ({@code elv}), the productive-order setting ({@code oim}) and upstream
+ * {@code ProductiveByStrategy}'s productive keys ({@code pb}).
  *
  * <p>Lambda {@code by()} modulators ({@link ValueTraversal}, {@link TokenTraversal}, {@link
  * IdentityTraversal}) have an empty step list; their property key / token lives on the traversal
@@ -45,15 +51,23 @@ final class GremlinShapeExtractor {
     this.encoder = encoder;
   }
 
+  /**
+   * @param orderIncludesMissingKey the productive-order setting ALREADY RESOLVED for this
+   *     compilation, or {@code null} when the caller has none. The value is passed in rather than
+   *     resolved here so the key and the plan built beside it read one and the same answer. A
+   *     second read could see a runtime flip and file the plan under the other setting's key, in
+   *     a cache that is storage-wide and outlives the session.
+   */
   static Extraction extract(
       @Nonnull Map<Class<?>, StepRecogniser> recognisers,
       @Nonnull Set<Class<?>> transparentSteps,
       @Nonnull Traversal.Admin<?, ?> traversal,
-      @Nonnull DatabaseSessionEmbedded session) {
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nullable Boolean orderIncludesMissingKey) {
     var extractor =
         new GremlinShapeExtractor(
             recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
-    extractor.appendStrategyFlags(traversal);
+    extractor.appendStrategyFlags(traversal, orderIncludesMissingKey);
     extractor.visit(traversal);
     return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
         extractor.encoder.complete());
@@ -62,7 +76,8 @@ final class GremlinShapeExtractor {
   record Extraction(@Nonnull String key, @Nonnull Map<Object, Object> bindings, boolean complete) {
   }
 
-  private void appendStrategyFlags(Traversal.Admin<?, ?> traversal) {
+  private void appendStrategyFlags(
+      Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey) {
     Boolean polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
     encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
     encoder.appendToken(
@@ -76,6 +91,13 @@ final class GremlinShapeExtractor {
             .getStrategy(ProductiveByStrategy.class)
             .map(ProductiveByStrategy::getProductiveKeys)
             .orElse(null);
+    // The resolved productive-order setting changes the emitted pattern: under the shipped default
+    // the order-key IS DEFINED conjunct is omitted, under the opt-out it is emitted. The cache is
+    // storage-wide, so without this token a plan built under one setting would be spliced verbatim
+    // into a traversal running under the other, in another session.
+    encoder.appendToken(
+        "oim",
+        orderIncludesMissingKey == null ? "n" : (orderIncludesMissingKey ? "1" : "0"));
     if (productiveKeys == null) {
       encoder.appendToken("pb", "-");
     } else {

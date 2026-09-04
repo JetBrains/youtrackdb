@@ -130,7 +130,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    */
   @Test
   public void walk_singleId_buildsRidInFilter() {
-    // #25:3 is an arbitrary well-formed RID literal: the walker only renders it into MATCH SQL and
+    // #25:3 is an arbitrary well-formed RID literal: the walker only renders it into MATCH YQL and
     // never dereferences it against storage, so no record with this RID need exist.
     var admin = graph.traversal().V("#25:3").out("knows").asAdmin();
 
@@ -1440,6 +1440,54 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
   }
 
+  /**
+   * {@code order().by("name").values("name")} under the PORTABLE OPT-OUT: the order key puts
+   * {@code name IS DEFINED} on the pattern. The terminal {@code values("name")} still sets
+   * {@code dropOnAbsent} — that shaping skip lives with ORDER BY projection deferral on the
+   * ordered-limit branch, not with this setting alone — so the filter and the drop both fire.
+   */
+  @Test
+  public void walk_orderByThenValuesSameKey_underPortableOptOut_emitsOrderKeyPresence() {
+    withOrderIncludesMissingKey(false, () -> {
+      var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
+
+      var result = GremlinStepWalker.production().walk(admin);
+
+      assertThat(result).isNotNull();
+      assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+      assertThat(result.inputs().aliasFilters()).containsKey(BOUNDARY_ALIAS);
+      assertThat(result.inputs().aliasFilters().get(BOUNDARY_ALIAS).toString())
+          .containsIgnoringCase("DEFINED");
+      assertThat(result.shaping().dropOnAbsent()).isTrue();
+      assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
+      assertThat(result.inputs().returnItems()).hasSize(2);
+      assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
+    });
+  }
+
+  /**
+   * The same shape under the SHIPPED DEFAULT: the order key does not emit a presence conjunct, so
+   * only the terminal {@code values("name")} drop filters missing keys. That drop must stay —
+   * without it a null row would leak for an element with no {@code name}, which native
+   * {@code values("name")} never emits.
+   */
+  @Test
+  public void walk_orderByThenValuesSameKey_underDefault_keepsDropOnAbsent() {
+    withOrderIncludesMissingKey(true, () -> {
+      var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
+
+      var result = GremlinStepWalker.production().walk(admin);
+
+      assertThat(result).isNotNull();
+      assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
+      assertThat(result.inputs().aliasFilters())
+          .as("default order does not put IS DEFINED on the pattern")
+          .doesNotContainKey(BOUNDARY_ALIAS);
+      assertThat(result.shaping().dropOnAbsent()).isTrue();
+      assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
+    });
+  }
+
   /** {@code g.V().values("age").mean()} translates end-to-end with {@code SCALAR} + dropNullRows. */
   @Test
   public void walk_valuesMean_pinsScalarDropNullRows() {
@@ -2241,6 +2289,25 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     var sb = new StringBuilder();
     where.getBaseExpression().toGenericStatement(sb);
     return sb.toString();
+  }
+
+  /**
+   * Runs {@code body} with the productive-order setting forced, restoring the previous value. The
+   * order-key presence conjunct follows this setting.
+   */
+  private void withOrderIncludesMissingKey(boolean value, Runnable body) {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var config = tx.getDatabaseSession().getConfiguration();
+    Assert.assertNotNull(config);
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, value);
+    try {
+      body.run();
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, previous);
+    }
   }
 
   /**

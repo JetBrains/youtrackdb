@@ -220,6 +220,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return parent.edgeLabelVerificationEnabled();
   }
 
+  @Override
+  public boolean orderIncludesMissingKey() {
+    return parent.orderIncludesMissingKey();
+  }
+
   @Nullable @Override
   public String boundaryAlias() {
     return effectiveBoundaryAlias != null ? effectiveBoundaryAlias : parent.boundaryAlias();

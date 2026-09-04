@@ -10,6 +10,15 @@ public enum YTDBQueryConfigParam {
   /// classes' names.
   polymorphicQuery(Boolean.class),
 
+  /// Controls whether a global-scope `order()` step keeps a record that does not carry the
+  /// ordered property. `true` orders such a record as a null key, the way YQL `ORDER BY` does.
+  /// `false` restores portable TinkerPop behaviour, where the by-modulator produces nothing and
+  /// the record is dropped. Overrides
+  /// [[com.jetbrains.youtrackdb.api.config.GlobalConfiguration#QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY]]
+  /// for one traversal. Local-scope order and the `select`, `values`, `group` and `dedup`
+  /// modulators keep their filtering behaviour under either value.
+  orderIncludesMissingKey(Boolean.class),
+
   /// Client-provided query summary for query monitoring purposes.
   querySummary(String.class);
 

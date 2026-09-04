@@ -120,7 +120,7 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    * is already projecting — the property behind a preceding {@code values(key)} if there is one,
    * the element RID otherwise. {@code g.V().values("name").order()} sorts names, not RIDs, and
    * before this distinction existed it emitted the six names in RID order and called it sorted.
-   * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no SQL-text round-trip.
+   * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no YQL-text round-trip.
    */
   private static SQLOrderByItem resolveSortItem(
       RecognitionContext ctx,
@@ -140,8 +140,17 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
         .orElse(null);
   }
 
+  /**
+   * Emits the {@code key IS DEFINED} conjunct one sort comparator implies, if
+   * {@link OrderKeyPresencePolicy} says the translator owns that drop. Every order-key presence
+   * emission in the translator passes through this one call, so the setting that decides it is
+   * read in one place rather than at each call site.
+   */
   private static void requireModulatedPropertyForOrder(
       RecognitionContext ctx, String boundary, Traversal.Admin<?, ?> modulator) {
+    if (!OrderKeyPresencePolicy.emitsPatternPresenceConjunct(ctx)) {
+      return;
+    }
     ByModulatorTranslator.orderModulatorPresenceTarget(boundary, modulator, ctx::resolveUserLabel)
         .ifPresent(
             target -> ByModulatorPresence.requireModulatedProperty(
