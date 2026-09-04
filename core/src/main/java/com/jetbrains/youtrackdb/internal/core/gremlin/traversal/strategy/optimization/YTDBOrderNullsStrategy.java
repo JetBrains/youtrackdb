@@ -2,18 +2,18 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsDefault;
-import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
-import java.lang.reflect.Field;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderLocalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.javatuples.Pair;
@@ -22,30 +22,23 @@ import org.javatuples.Pair;
  * Applies {@link GlobalConfiguration#QUERY_ORDER_BY_NULLS_DEFAULT} to native Gremlin {@code
  * order()} steps. TinkerPop's default comparator already matches {@link
  * OrderByNullsDefault#NULLS_SMALLEST}, so this strategy is a no-op in that case. When the effective
- * default is {@link OrderByNullsDefault#NULLS_LARGEST}, it wraps {@link OrderGlobalStep}
- * comparators so null placement follows the same rule as YQL {@code ORDER BY}. Runs after {@link
- * GremlinToMatchStrategy}: a recognized shape loses its {@code OrderGlobalStep} to the boundary
- * splice, so wrapping applies only to the native-decline fallback.
+ * default is {@link OrderByNullsDefault#NULLS_LARGEST}, it rebuilds each {@link OrderGlobalStep} /
+ * {@link OrderLocalStep} with wrapped framework {@link Order#asc} / {@link Order#desc}
+ * comparators so null placement matches YQL {@code ORDER BY}.
+ *
+ * <p>Runs after {@link GremlinToMatchStrategy} and {@link YTDBProductiveOrderByStrategy}: a
+ * recognized shape loses its order step to the MATCH splice, and productive rewrite must land
+ * before comparator wrapping so missing keys reach the sort as nulls.
+ *
+ * <p>Only the two framework order constants are wrapped. {@link Order#shuffle} and caller-supplied
+ * comparators keep their own null handling. The strategy does not walk nested traversals: the
+ * framework already visits each child once.
  */
 public final class YTDBOrderNullsStrategy
     extends AbstractTraversalStrategy<ProviderOptimizationStrategy>
     implements ProviderOptimizationStrategy {
 
   private static final YTDBOrderNullsStrategy INSTANCE = new YTDBOrderNullsStrategy();
-
-  private static final Field COMPARATORS_FIELD;
-  private static final Field MULTI_COMPARATOR_FIELD;
-
-  static {
-    try {
-      COMPARATORS_FIELD = OrderGlobalStep.class.getDeclaredField("comparators");
-      COMPARATORS_FIELD.setAccessible(true);
-      MULTI_COMPARATOR_FIELD = OrderGlobalStep.class.getDeclaredField("multiComparator");
-      MULTI_COMPARATOR_FIELD.setAccessible(true);
-    } catch (NoSuchFieldException e) {
-      throw new ExceptionInInitializerError(e);
-    }
-  }
 
   private YTDBOrderNullsStrategy() {
   }
@@ -54,14 +47,9 @@ public final class YTDBOrderNullsStrategy
     return INSTANCE;
   }
 
-  /**
-   * Declares that the Gremlin-to-MATCH translator must run first. On a recognized shape the
-   * translator replaces the whole step list, so {@code OrderGlobalStep} instances disappear before
-   * this strategy runs; on a decline they remain for native comparator wrapping.
-   */
   @Override
   public Set<Class<? extends ProviderOptimizationStrategy>> applyPrior() {
-    return Set.of(GremlinToMatchStrategy.class);
+    return Set.of(GremlinToMatchStrategy.class, YTDBProductiveOrderByStrategy.class);
   }
 
   @Override
@@ -74,37 +62,79 @@ public final class YTDBOrderNullsStrategy
     if (config == null) {
       return;
     }
-    if (!needsNullsOverride(config)) {
+    // One read for the whole apply. Every wrap below reuses this value.
+    var nullsDefault = OrderByNullsUtil.resolveDefault(config);
+    if (nullsDefault != OrderByNullsDefault.NULLS_LARGEST) {
       return;
     }
-    TraversalHelper.getStepsOfAssignableClassRecursively(OrderGlobalStep.class, traversal)
-        .forEach(step -> wrapComparators(step, config));
+
+    for (OrderGlobalStep<?, ?> step : TraversalHelper.getStepsOfAssignableClass(
+        OrderGlobalStep.class, traversal)) {
+      rebuildGlobal(step, traversal, nullsDefault);
+    }
+    for (OrderLocalStep<?, ?> step : TraversalHelper.getStepsOfAssignableClass(
+        OrderLocalStep.class, traversal)) {
+      rebuildLocal(step, traversal, nullsDefault);
+    }
   }
 
-  private static boolean needsNullsOverride(ContextConfiguration config) {
-    // Read through the resolver that owns the key. A lower-case or malformed stored value is then
-    // tolerated here exactly as it is on the YQL path.
-    return OrderByNullsUtil.resolveDefault(config) == OrderByNullsDefault.NULLS_LARGEST;
+  /**
+   * Rebuilds a global order step when it holds a framework {@code asc}/{@code desc} comparator.
+   * {@code getComparators()} is unmodifiable (and synthesizes identity+asc for a bare {@code
+   * order()}), so the pairs are copied onto a fresh step and the original is replaced.
+   */
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static void rebuildGlobal(
+      OrderGlobalStep<?, ?> step, Admin<?, ?> traversal, OrderByNullsDefault nullsDefault) {
+    var pairs = (List<Pair<Admin, Comparator>>) (List<?>) step.getComparators();
+    if (!needsWrap(pairs)) {
+      return;
+    }
+    var replacement = new OrderGlobalStep<>(traversal);
+    replacement.setLimit(step.getLimit());
+    step.getLabels().forEach(replacement::addLabel);
+    for (var pair : pairs) {
+      replacement.addComparator(pair.getValue0(), maybeWrap(pair.getValue1(), nullsDefault));
+    }
+    TraversalHelper.replaceStep((Step) step, replacement, traversal);
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private static void wrapComparators(OrderGlobalStep<?, ?> step, ContextConfiguration config) {
-    try {
-      var comparators = (List<Pair<Admin, Comparator>>) COMPARATORS_FIELD.get(step);
-      for (var i = 0; i < comparators.size(); i++) {
-        var pair = comparators.get(i);
-        var comparator = pair.getValue1();
-        if (comparator == Order.shuffle) {
-          continue;
-        }
-        var ascending = comparator != Order.desc;
-        var nullsFirst = OrderByNullsUtil.resolveNullsFirst(null, ascending, config);
-        comparators.set(i, pair.setAt1(wrap(comparator, nullsFirst)));
-      }
-      MULTI_COMPARATOR_FIELD.set(step, null);
-    } catch (IllegalAccessException e) {
-      throw new IllegalStateException("Failed to adjust OrderGlobalStep null ordering", e);
+  private static void rebuildLocal(
+      OrderLocalStep<?, ?> step, Admin<?, ?> traversal, OrderByNullsDefault nullsDefault) {
+    var pairs = (List<Pair<Admin, Comparator>>) (List<?>) step.getComparators();
+    if (!needsWrap(pairs)) {
+      return;
     }
+    var replacement = new OrderLocalStep<>(traversal);
+    step.getLabels().forEach(replacement::addLabel);
+    for (var pair : pairs) {
+      replacement.addComparator(pair.getValue0(), maybeWrap(pair.getValue1(), nullsDefault));
+    }
+    TraversalHelper.replaceStep((Step) step, replacement, traversal);
+  }
+
+  @SuppressWarnings("rawtypes")
+  private static boolean needsWrap(List<Pair<Admin, Comparator>> pairs) {
+    for (var pair : pairs) {
+      var comparator = pair.getValue1();
+      if (comparator == Order.asc || comparator == Order.desc) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private static Comparator maybeWrap(Comparator comparator, OrderByNullsDefault nullsDefault) {
+    if (comparator == Order.asc) {
+      return wrap(comparator, OrderByNullsUtil.composeNullsFirst(null, true, nullsDefault));
+    }
+    if (comparator == Order.desc) {
+      return wrap(comparator, OrderByNullsUtil.composeNullsFirst(null, false, nullsDefault));
+    }
+    // shuffle and caller-supplied comparators keep their own null handling.
+    return comparator;
   }
 
   @SuppressWarnings({"rawtypes", "unchecked"})

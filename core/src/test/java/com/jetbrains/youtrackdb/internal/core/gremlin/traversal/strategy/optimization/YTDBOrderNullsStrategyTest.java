@@ -8,12 +8,13 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
-import java.lang.reflect.Field;
 import java.util.Comparator;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.Scope;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderLocalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.javatuples.Pair;
@@ -34,22 +35,15 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
 
-  private static final Field COMPARATORS_FIELD;
-
-  static {
-    try {
-      COMPARATORS_FIELD = OrderGlobalStep.class.getDeclaredField("comparators");
-      COMPARATORS_FIELD.setAccessible(true);
-    } catch (NoSuchFieldException e) {
-      throw new ExceptionInInitializerError(e);
-    }
-  }
-
-  /** Runs after the translator so wrapping targets only native-decline {@code order()} steps. */
+  /**
+   * Runs after the translator and after productive-order rewrite so wrapping sees missing keys as
+   * nulls on the native path.
+   */
   @Test
-  public void applyPrior_waitsForGremlinToMatchStrategy() {
+  public void applyPrior_waitsForTranslatorAndProductiveOrder() {
     assertThat(YTDBOrderNullsStrategy.instance().applyPrior())
-        .containsExactly(GremlinToMatchStrategy.class);
+        .containsExactlyInAnyOrder(
+            GremlinToMatchStrategy.class, YTDBProductiveOrderByStrategy.class);
   }
 
   @After
@@ -64,8 +58,7 @@ public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
 
   /**
    * Storage-local {@code NULLS_LARGEST} puts null sort keys last for ascending native {@code
-   * order().by(age)}. {@code ProductiveByStrategy} keeps vertices without {@code age} in the sort
-   * stream so null placement is observable.
+   * order().by(age)}. Productive rewrite keeps vertices without {@code age} in the sort stream.
    */
   @Test
   public void storageNullsLargestAscPutsNullAgeVerticesLast() {
@@ -75,22 +68,9 @@ public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Nemo");
     graph.tx().commit();
 
-    var tx = (YTDBTransaction) graph.tx();
-    tx.readWrite();
-    tx.getDatabaseSession()
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT,
-            OrderByNullsDefault.NULLS_LARGEST);
+    setStorageNullsLargest();
 
-    var names =
-        graph
-            .traversal()
-            .withStrategies(ProductiveByStrategy.instance())
-            .V()
-            .order()
-            .by("age")
-            .values("name")
-            .toList();
+    var names = graph.traversal().V().order().by("age").values("name").toList();
 
     assertThat(names.subList(0, 2)).containsExactly("Bob", "Alice");
     assertThat(names.subList(2, 4)).containsExactlyInAnyOrder("Nobody", "Nemo");
@@ -108,22 +88,9 @@ public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Nemo");
     graph.tx().commit();
 
-    var tx = (YTDBTransaction) graph.tx();
-    tx.readWrite();
-    tx.getDatabaseSession()
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT,
-            OrderByNullsDefault.NULLS_LARGEST);
+    setStorageNullsLargest();
 
-    var names =
-        graph
-            .traversal()
-            .withStrategies(ProductiveByStrategy.instance())
-            .V()
-            .order()
-            .by("age", Order.desc)
-            .values("name")
-            .toList();
+    var names = graph.traversal().V().order().by("age", Order.desc).values("name").toList();
 
     assertThat(names.subList(0, 2)).containsExactlyInAnyOrder("Nobody", "Nemo");
     assertThat(names.subList(2, 4)).containsExactly("Alice", "Bob");
@@ -131,10 +98,10 @@ public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
 
   /**
    * With the default {@code NULLS_SMALLEST}, {@link YTDBOrderNullsStrategy#apply} returns before
-   * touching {@code OrderGlobalStep} comparators.
+   * rebuilding any order step.
    */
   @Test
-  public void applyIsNoOpWhenNullsSmallestDefault() throws Exception {
+  public void applyIsNoOpWhenNullsSmallestDefault() {
     graph.addVertex(T.label, "Person", "age", 1);
     graph.tx().commit();
 
@@ -142,57 +109,186 @@ public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
     tx.readWrite();
 
     var admin = graph.traversal().V().order().by("age").asAdmin();
-    var comparatorBefore = firstOrderComparator(admin);
+    var orderBefore =
+        TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst();
 
     YTDBOrderNullsStrategy.instance().apply(admin);
 
-    assertThat(firstOrderComparator(admin)).isSameAs(comparatorBefore);
+    var orderAfter =
+        TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst();
+    assertThat(orderAfter).isSameAs(orderBefore);
+    assertThat(comparatorAt(orderAfter, 0)).isSameAs(Order.asc);
   }
 
   /**
-   * Direct {@code apply} on a native {@code order()} traversal wraps comparators when storage uses
-   * {@code NULLS_LARGEST}. End-to-end tests often translate {@code order().by(...)} to MATCH, so
-   * this pins the strategy body itself.
+   * Direct {@code apply} on a native {@code order()} traversal rebuilds framework comparators when
+   * storage uses {@code NULLS_LARGEST}. End-to-end runs often translate {@code order().by(...)} to
+   * MATCH, so this pins the strategy body itself.
    */
   @Test
-  public void applyWrapsNativeOrderGlobalStepWhenNullsLargest() throws Exception {
+  public void applyWrapsNativeOrderGlobalStepWhenNullsLargest() {
     graph.addVertex(T.label, "Person", "age", 1);
     graph.tx().commit();
 
-    var tx = (YTDBTransaction) graph.tx();
-    tx.readWrite();
-    tx.getDatabaseSession()
-        .getConfiguration()
-        .setValue(GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT,
-            OrderByNullsDefault.NULLS_LARGEST);
+    setStorageNullsLargest();
 
     var admin = graph.traversal().V().order().by("age").by("name", Order.desc).asAdmin();
     YTDBOrderNullsStrategy.instance().apply(admin);
 
-    var ascWrapped = firstOrderComparator(admin);
+    var orderStep =
+        TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst();
+    var ascWrapped = comparatorAt(orderStep, 0);
     assertThat(ascWrapped).isNotSameAs(Order.asc);
     assertThat(ascWrapped.compare(null, 1)).isPositive();
     assertThat(ascWrapped.compare(null, null)).isZero();
     assertThat(ascWrapped.compare(1, 2)).isNegative();
 
-    var orderStep =
-        TraversalHelper.getStepsOfAssignableClassRecursively(OrderGlobalStep.class, admin)
-            .getFirst();
-    @SuppressWarnings("unchecked")
-    var comparators = (List<Pair<?, Comparator>>) COMPARATORS_FIELD.get(orderStep);
-    var descWrapped = comparators.get(1).getValue1();
+    var descWrapped = comparatorAt(orderStep, 1);
+    assertThat(descWrapped).isNotSameAs(Order.desc);
     assertThat(descWrapped.compare(null, "a")).isNegative();
-    assertThat(descWrapped).isNotSameAs(Order.shuffle);
   }
 
-  @SuppressWarnings("unchecked")
-  private static Comparator<Object> firstOrderComparator(
-      org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> admin)
-      throws Exception {
+  /**
+   * Bare {@code order()} synthesizes identity+asc. Under {@code NULLS_LARGEST} that asc comparator
+   * is wrapped the same way as an explicit {@code by(..., asc)}.
+   */
+  @Test
+  public void applyWrapsBareOrderUnderNullsLargest() {
+    graph.addVertex(T.label, "Person", "age", 1);
+    graph.tx().commit();
+
+    setStorageNullsLargest();
+
+    var admin = graph.traversal().V().order().asAdmin();
+    YTDBOrderNullsStrategy.instance().apply(admin);
+
     var orderStep =
+        TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst();
+    var wrapped = comparatorAt(orderStep, 0);
+    assertThat(wrapped).isNotSameAs(Order.asc);
+    assertThat(wrapped.compare(null, 1)).isPositive();
+  }
+
+  /**
+   * {@code order(Scope.local)} uses {@link OrderLocalStep}. Under {@code NULLS_LARGEST} its
+   * framework comparators are rebuilt the same way as the global step.
+   */
+  @Test
+  public void applyWrapsOrderLocalStepUnderNullsLargest() {
+    graph.addVertex(T.label, "Person", "age", 1);
+    graph.tx().commit();
+
+    setStorageNullsLargest();
+
+    var admin = graph.traversal().V().fold().order(Scope.local).by("age").asAdmin();
+    YTDBOrderNullsStrategy.instance().apply(admin);
+
+    var orderStep =
+        TraversalHelper.getStepsOfAssignableClass(OrderLocalStep.class, admin).getFirst();
+    var wrapped = comparatorAt(orderStep, 0);
+    assertThat(wrapped).isNotSameAs(Order.asc);
+    assertThat(wrapped.compare(null, 1)).isPositive();
+  }
+
+  /**
+   * The strategy does not walk nested traversals. Applying it to the parent leaves a child {@code
+   * order()} untouched; the framework visits that child on its own pass.
+   */
+  @Test
+  public void applyDoesNotRecurseIntoNestedOrder() {
+    graph.addVertex(T.label, "Person", "age", 1);
+    graph.tx().commit();
+
+    setStorageNullsLargest();
+
+    var admin = graph.traversal().V().map(__.order().by("age")).asAdmin();
+    YTDBOrderNullsStrategy.instance().apply(admin);
+
+    var nestedOrder =
         TraversalHelper.getStepsOfAssignableClassRecursively(OrderGlobalStep.class, admin)
             .getFirst();
-    var comparators = (List<Pair<?, Comparator>>) COMPARATORS_FIELD.get(orderStep);
-    return comparators.getFirst().getValue1();
+    assertThat(comparatorAt(nestedOrder, 0)).isSameAs(Order.asc);
+  }
+
+  /**
+   * {@link Order#shuffle} is left alone. A step that mixes shuffle with asc wraps only the asc
+   * comparator.
+   */
+  @Test
+  public void applySkipsShuffleComparator() {
+    graph.addVertex(T.label, "Person", "age", 1);
+    graph.tx().commit();
+
+    setStorageNullsLargest();
+
+    var admin = graph.traversal().V().order().by(Order.shuffle).by("age").asAdmin();
+    YTDBOrderNullsStrategy.instance().apply(admin);
+
+    var orderStep =
+        TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst();
+    assertThat(comparatorAt(orderStep, 0)).isSameAs(Order.shuffle);
+    assertThat(comparatorAt(orderStep, 1)).isNotSameAs(Order.asc);
+  }
+
+  /**
+   * A second {@code apply} does not wrap an already-wrapped comparator again. Only framework {@code
+   * asc}/{@code desc} constants are replaced.
+   */
+  @Test
+  public void applyIsIdempotentUnderNullsLargest() {
+    graph.addVertex(T.label, "Person", "age", 1);
+    graph.tx().commit();
+
+    setStorageNullsLargest();
+
+    var admin = graph.traversal().V().order().by("age").asAdmin();
+    YTDBOrderNullsStrategy.instance().apply(admin);
+    var firstWrap =
+        comparatorAt(
+            TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst(), 0);
+
+    YTDBOrderNullsStrategy.instance().apply(admin);
+    var second =
+        comparatorAt(
+            TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst(), 0);
+    assertThat(second).isSameAs(firstWrap);
+  }
+
+  /** Caller-supplied comparators keep their own null handling and are not replaced. */
+  @Test
+  public void applyLeavesCallerComparatorAlone() {
+    graph.addVertex(T.label, "Person", "age", 1);
+    graph.tx().commit();
+
+    setStorageNullsLargest();
+
+    Comparator<Integer> caller = Integer::compareTo;
+    var admin = graph.traversal().V().order().by("age", caller).asAdmin();
+    YTDBOrderNullsStrategy.instance().apply(admin);
+
+    var orderStep =
+        TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, admin).getFirst();
+    assertThat(comparatorAt(orderStep, 0)).isSameAs(caller);
+  }
+
+  private void setStorageNullsLargest() {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    tx.getDatabaseSession()
+        .getConfiguration()
+        .setValue(
+            GlobalConfiguration.QUERY_ORDER_BY_NULLS_DEFAULT, OrderByNullsDefault.NULLS_LARGEST);
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static Comparator comparatorAt(OrderGlobalStep<?, ?> step, int index) {
+    List<Pair> pairs = (List) step.getComparators();
+    return (Comparator) pairs.get(index).getValue1();
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static Comparator comparatorAt(OrderLocalStep<?, ?> step, int index) {
+    List<Pair> pairs = (List) step.getComparators();
+    return (Comparator) pairs.get(index).getValue1();
   }
 }
