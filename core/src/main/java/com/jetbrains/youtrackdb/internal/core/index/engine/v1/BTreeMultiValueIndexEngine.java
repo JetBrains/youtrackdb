@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
@@ -53,6 +54,7 @@ public final class BTreeMultiValueIndexEngine
 
   private final String name;
   private final int id;
+  private final IndexEngineReference engineReference;
   private final String nullTreeName;
   private final AbstractStorage storage;
 
@@ -93,6 +95,7 @@ public final class BTreeMultiValueIndexEngine
     this.fileBaseId = fileBaseId;
     this.name = name;
     this.storage = storage;
+    this.engineReference = storage.allocateIndexEngineReference(id, API_VERSION);
     // Both components (and therefore their files) are keyed by the stable file base id, not the
     // index name — the single name domain for engine storage components.
     final var stem = AbstractStorage.indexEngineFileStem(fileBaseId);
@@ -125,6 +128,11 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public int getId() {
     return id;
+  }
+
+  @Override
+  public IndexEngineReference getEngineReference() {
+    return engineReference;
   }
 
   @Override

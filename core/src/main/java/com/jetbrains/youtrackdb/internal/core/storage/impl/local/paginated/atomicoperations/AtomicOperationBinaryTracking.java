@@ -62,12 +62,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -87,8 +85,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   private boolean rollback;
 
-  private final Set<String> lockedObjects = new HashSet<>();
+  private final Map<String, ComponentLockMode> lockedObjects = new HashMap<>();
   private final ArrayList<StorageComponent> lockedComponents = new ArrayList<>();
+  @Nullable private Long2ObjectOpenHashMap<LongOpenHashSet> touchedPages;
+  private int touchedPagesCount;
+  private int recordWriteCollectionId = -1;
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
@@ -263,6 +264,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     assert pageCount > 0;
     fileId = checkFileIdCompatibility(fileId, storageId);
+    registerPageTouch(fileId, pageIndex);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -309,6 +311,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     checkIfActive();
 
     fileId = checkFileIdCompatibility(fileId, storageId);
+    registerPageTouch(fileId, pageIndex);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -485,6 +488,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     assert pageIndex >= 0 : "pageIndex out of range: " + pageIndex;
 
     fileId = checkFileIdCompatibility(fileId, storageId);
+    registerPageTouch(fileId, pageIndex);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -1484,18 +1488,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public void addLockedObject(final String lockedObject) {
-    lockedObjects.add(lockedObject);
+  public void addLockedObject(
+      final String lockedObject, final ComponentLockMode mode) {
+    lockedObjects.put(lockedObject, mode);
   }
 
-  @Override
-  public boolean containsInLockedObjects(final String objectToLock) {
-    return lockedObjects.contains(objectToLock);
+  @Nullable @Override
+  public ComponentLockMode lockedObjectMode(final String objectToLock) {
+    return lockedObjects.get(objectToLock);
   }
 
   @Override
   public Iterable<String> lockedObjects() {
-    return lockedObjects;
+    return lockedObjects.keySet();
   }
 
   @Override
@@ -1506,6 +1511,43 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public Iterable<StorageComponent> lockedComponents() {
     return lockedComponents;
+  }
+
+  @Override
+  public void enablePageTracking() {
+    if (touchedPages == null) {
+      touchedPages = new Long2ObjectOpenHashMap<>();
+    }
+  }
+
+  @Override
+  public int touchedPagesCount() {
+    return touchedPagesCount;
+  }
+
+  @Override
+  public void validateRecordCollectionLockOrder(final int collectionId) {
+    if (recordWriteCollectionId < 0) {
+      recordWriteCollectionId = collectionId;
+    } else if (recordWriteCollectionId != collectionId) {
+      throw new IllegalStateException(
+          "Caller-owned record writes currently support one collection per atomic operation;"
+              + " attempted collections " + recordWriteCollectionId + " and " + collectionId
+              + ". Future multi-collection callers must lock collections in ascending identifier"
+              + " order before mutation");
+    }
+  }
+
+  private void registerPageTouch(final long fileId, final long pageIndex) {
+    final var pages = touchedPages;
+    if (pages == null) {
+      return;
+    }
+
+    final var filePages = pages.computeIfAbsent(fileId, ignored -> new LongOpenHashSet());
+    if (filePages.add(pageIndex)) {
+      touchedPagesCount++;
+    }
   }
 
   // --- Snapshot / Visibility index proxy methods ---

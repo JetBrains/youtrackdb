@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -246,9 +245,8 @@ public class BTreeSingleValueIndexEngineClearRollbackTest {
       DatabaseSessionEmbedded session, String indexName) {
     try {
       var idx = session.getSharedContext().getIndexManager().getIndex(indexName);
-      var indexIdField = IndexAbstract.class.getDeclaredField("indexId");
-      indexIdField.setAccessible(true);
-      int indexId = indexIdField.getInt(idx);
+      int indexId = com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport
+          .externalIdentifier(idx);
       var storage = (AbstractStorage) session.getStorage();
       var getEngineMethod = AbstractStorage.class.getMethod("getIndexEngine", int.class);
       return (BTreeIndexEngine) getEngineMethod.invoke(storage, indexId);

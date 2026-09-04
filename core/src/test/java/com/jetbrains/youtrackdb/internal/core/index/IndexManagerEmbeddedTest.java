@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -15,14 +16,19 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.junit.Before;
@@ -46,6 +52,87 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     cls.createProperty("val", PropertyType.INTEGER);
     cls.createProperty("name", PropertyType.STRING);
     cls.createIndex(IDX, SchemaClass.INDEX_TYPE.UNIQUE, "val");
+  }
+
+  /** A foreign index implementation is rejected before any registry or entity mutation. */
+  @Test
+  public void addIndexInternalNoLockRejectsForeignHandleBeforePublication() {
+    var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var foreignIndex = mock(Index.class);
+    var foreignName = "foreign-index-handle";
+    var definition = mock(IndexDefinition.class);
+    when(foreignIndex.getName()).thenReturn(foreignName);
+    when(foreignIndex.getIdentity()).thenReturn(mock(RID.class));
+    when(foreignIndex.getDefinition()).thenReturn(definition);
+    when(definition.getClassName()).thenReturn(CLS);
+    when(definition.getProperties()).thenReturn(List.of("val"));
+    when(definition.getParamCount()).thenReturn(1);
+
+    session.begin();
+    try {
+      var transaction = session.getActiveTransaction();
+      var managerEntity = transaction.loadEntity(manager.indexManagerIdentity);
+      var linksBefore = new HashSet<>(managerEntity.getLinkSet(manager.CONFIG_INDEXES));
+      var propertyIndexesBefore = new HashMap<>(manager.classPropertyIndex);
+
+      var exception = assertThrows(IllegalStateException.class,
+          () -> manager.addIndexInternalNoLock(foreignIndex, transaction, true));
+
+      assertTrue("the invariant failure must name the index",
+          exception.getMessage().contains(foreignName));
+      assertTrue("the invariant failure must name the unexpected type",
+          exception.getMessage().contains(foreignIndex.getClass().getName()));
+      assertFalse("the rejected handle must not enter the committed registry",
+          manager.indexes.containsKey(foreignName));
+      assertEquals("the rejected handle must not update the manager entity", linksBefore,
+          managerEntity.getLinkSet(manager.CONFIG_INDEXES));
+      assertEquals("the rejected handle must not update class property indexes",
+          propertyIndexesBefore, manager.classPropertyIndex);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Existing descriptors start usable, and a destructive manager reload attaches the replacement
+   * handle to the same storage-scoped lifecycle cell instead of resetting handle-local state.
+   */
+  @Test
+  public void reloadPreservesStorageScopedLifecycleCell() {
+    var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) manager.getIndex(IDX);
+    var cell = original.getLifecycleCell();
+
+    assertNotNull("an existing descriptor must have a lifecycle cell", cell);
+    assertEquals("existing indexes default to usable", IndexLifecycle.USABLE, cell.get());
+    assertEquals("the engine must bind to the loaded descriptor", original.getIdentity(),
+        original.getEngineReference().ownerDescriptorIdentity());
+    cell.set(IndexLifecycle.INVALID);
+
+    manager.reload(session);
+
+    var replacement = (IndexAbstract) manager.getIndex(IDX);
+    assertTrue("reload must replace the Java handle", original != replacement);
+    assertSame("reload must retain the storage-scoped cell", cell, replacement.getLifecycleCell());
+    assertEquals("reload must not reset the lifecycle value", IndexLifecycle.INVALID,
+        replacement.getLifecycleCell().get());
+  }
+
+  /** A successful drop removes the registry entry and releases the handle's lifecycle cell. */
+  @Test
+  public void dropRemovesLifecycleRegistryEntry() {
+    var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var index = (IndexAbstract) manager.getIndex(IDX);
+    var descriptorIdentity = index.getIdentity();
+    var cell = index.getLifecycleCell();
+
+    manager.dropIndex(session, IDX);
+
+    var storage = (AbstractStorage) session.getStorage();
+    assertNull("the dropped descriptor must leave the storage registry",
+        storage.getIndexLifecycle(descriptorIdentity));
+    assertNull("the detached handle must release lifecycle ownership", index.getLifecycleCell());
+    assertNotNull("a previously retained cell remains a valid standalone object", cell);
   }
 
   // -----------------------------------------------------------------------

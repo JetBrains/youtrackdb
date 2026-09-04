@@ -20,6 +20,10 @@
 package com.jetbrains.youtrackdb.internal.common.io;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.sun.jna.Native;
+import com.sun.jna.WString;
+import com.sun.jna.win32.StdCallLibrary;
+import com.sun.jna.win32.W32APIOptions;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -30,13 +34,16 @@ import java.nio.file.CopyOption;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayDeque;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
 
 public class FileUtils {
@@ -47,6 +54,9 @@ public class FileUtils {
   public static final long TERABYTE = 1099511627776L;
 
   private static final boolean useOldFileAPI;
+  static final String MISSING_NATIVE_HELPER_WARNING =
+      "The Java Native Access native helper is unavailable. The crash-atomic guarantee is not"
+          + " available on this host. Using the portable move";
 
   static {
     var oldAPI = false;
@@ -321,56 +331,289 @@ public class FileUtils {
   }
 
   /**
-   * Durably promotes {@code source} to {@code target} (the CS40 promote recipe of Track 8's
-   * export hardening): (1) the source file's content is fsynced through a freshly opened
-   * channel — the writing stream is already closed, so the sync needs its own channel; (2) the
-   * file is renamed with {@code ATOMIC_MOVE} + {@code REPLACE_EXISTING}, so a pre-existing
-   * target is replaced only by this whole, durable file and a crash can never leave a torn
-   * target; (3) the target's parent directory is fsynced (POSIX rename durability — without it
-   * a crash after the rename can lose the directory entry itself).
+   * Durably promotes {@code source} to {@code target}. The source content is forced before an
+   * atomic replacement. Unix systems then force the target directory. Windows uses a write-through
+   * native replacement because the standard Java move does not provide that durability barrier.
+   * If its native helper cannot load, Windows records one warning and uses the portable atomic move
+   * with the pre-existing parent-directory barrier.
    *
-   * <p>Deliberately FAIL-CLOSED: unlike {@link #atomicMoveWithFallback} there is NO regular-move
-   * fallback — a filesystem that cannot perform the atomic replace fails the promote rather
-   * than silently degrading to a copy that can tear the target. The parent-directory fsync
-   * carve-out is NARROW: only the directory-channel OPEN failure is tolerated (platforms like
-   * Windows cannot open directory channels, and the POSIX directory-entry hazard does not
-   * apply there in the same form); an I/O failure from {@code force(true)} on a successfully
-   * opened directory channel is a GENUINE fsync failure and propagates — reporting success
-   * over it would let a crash revert the rename after the caller already reported the promote
-   * durable.
-   *
-   * <p>Contract note: only the TARGET's parent directory is fsynced. The current callers move
-   * within a single directory (the export temp file sits next to its final name); a future
-   * CROSS-directory caller would additionally need the SOURCE's parent fsynced, or the
-   * source-entry removal may not be durable.
+   * <p>The operation fails closed when an atomic replacement or required durability barrier fails.
+   * The Windows native-load fallback cannot promise crash atomicity. Current callers move within
+   * one directory. A cross-directory caller must also force the source directory.
    */
   public static void durableAtomicMove(Path source, Path target, Object requester)
       throws IOException {
-    try (var channel = FileChannel.open(source, StandardOpenOption.WRITE)) {
+    durableAtomicMove(source, target, requester, IOUtils.isOsWindows(), FileUtils::forceDirectory);
+  }
+
+  static void durableAtomicMove(
+      final Path source,
+      final Path target,
+      final boolean windows,
+      final DirectoryForce directoryForce)
+      throws IOException {
+    durableAtomicMove(source, target, FileUtils.class, windows, directoryForce);
+  }
+
+  private static void durableAtomicMove(
+      final Path source,
+      final Path target,
+      final Object requester,
+      final boolean windows,
+      final DirectoryForce directoryForce)
+      throws IOException {
+    if (windows) {
+      durableAtomicMove(
+          source,
+          target,
+          requester,
+          true,
+          directoryForce,
+          WindowsDurableMove.BINDING,
+          FileUtils::portableWindowsMove,
+          FileUtils::warnAboutMissingNativeHelper,
+          WindowsDurableMove.FALLBACK_WARNING_RECORDED);
+    } else {
+      durableAtomicMove(
+          source, target, requester, false, directoryForce, null, null, null, null);
+    }
+  }
+
+  static void durableAtomicMove(
+      final Path source,
+      final Path target,
+      final Object requester,
+      final boolean windows,
+      final DirectoryForce directoryForce,
+      final WindowsMoveBinding windowsBinding,
+      final PortableMove portableMove,
+      final NativeHelperWarning warning,
+      final AtomicBoolean warningRecorded)
+      throws IOException {
+    final var sourceAttributes =
+        Files.readAttributes(source, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+    if (!sourceAttributes.isRegularFile()) {
+      throw new IOException("Durable atomic move source is not a regular file: " + source);
+    }
+    try (var channel =
+        FileChannel.open(source, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
       channel.force(true);
     }
+
+    if (windows) {
+      final var nativeMove = windowsBinding.nativeMove();
+      if (nativeMove != null) {
+        nativeMove.move(source, target);
+        return;
+      }
+
+      final var loadFailure = windowsBinding.loadFailure();
+      if (warningRecorded.compareAndSet(false, true)) {
+        warning.warn(requester, MISSING_NATIVE_HELPER_WARNING, loadFailure);
+      }
+      try {
+        portableMove.move(source, target, requester);
+      } catch (IOException portableFailure) {
+        final var failure =
+            new IOException(
+                "Portable move failed after the Windows native helper failed to load: native"
+                    + " helper cause: "
+                    + loadFailure
+                    + "; portable move cause: "
+                    + portableFailure,
+                portableFailure);
+        failure.addSuppressed(loadFailure);
+        throw failure;
+      }
+      return;
+    }
+
     Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     final var parent = target.toAbsolutePath().getParent();
     if (parent != null) {
-      FileChannel directoryChannel = null;
-      try {
-        directoryChannel = FileChannel.open(parent, StandardOpenOption.READ);
-      } catch (IOException e) {
-        // The documented platform carve-out: the directory cannot be opened as a channel
-        // (e.g. Windows). Only the OPEN failure is tolerated — see the javadoc.
-        LogManager.instance()
-            .warn(requester,
-                "Cannot open the parent directory of '%s' for fsync after the atomic move;"
-                    + " continuing (the platform does not support directory channels)",
-                e, target);
-      }
-      if (directoryChannel != null) {
-        // A failure from force(true) here is a genuine fsync failure and MUST propagate
-        // (fail-closed): the rename's durability cannot be vouched for.
-        try (var openedDirectoryChannel = directoryChannel) {
-          openedDirectoryChannel.force(true);
-        }
+      directoryForce.force(parent);
+    }
+  }
+
+  private static void forceDirectory(final Path directory) throws IOException {
+    try (var channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+      channel.force(true);
+    }
+  }
+
+  static void portableWindowsMove(
+      final Path source, final Path target, final Object requester) throws IOException {
+    Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    final var parent = target.toAbsolutePath().getParent();
+    if (parent == null) {
+      return;
+    }
+
+    FileChannel directoryChannel = null;
+    try {
+      directoryChannel = FileChannel.open(parent, StandardOpenOption.READ);
+    } catch (IOException e) {
+      LogManager.instance()
+          .warn(
+              requester,
+              "Cannot open the parent directory of '%s' for fsync after the atomic move;"
+                  + " continuing (the platform does not support directory channels)",
+              e,
+              target);
+    }
+    if (directoryChannel != null) {
+      try (var openedDirectoryChannel = directoryChannel) {
+        openedDirectoryChannel.force(true);
       }
     }
+  }
+
+  private static void warnAboutMissingNativeHelper(
+      final Object requester, final String message, final Throwable loadFailure) {
+    LogManager.instance().warn(requester, message, loadFailure);
+  }
+
+  @FunctionalInterface
+  interface DirectoryForce {
+
+    void force(Path directory) throws IOException;
+  }
+
+  @FunctionalInterface
+  interface NativeMove {
+
+    void move(Path source, Path target) throws IOException;
+  }
+
+  @FunctionalInterface
+  interface WindowsBindingLoader {
+
+    WindowsMoveBinding load();
+  }
+
+  @FunctionalInterface
+  interface PortableMove {
+
+    void move(Path source, Path target, Object requester) throws IOException;
+  }
+
+  @FunctionalInterface
+  interface NativeHelperWarning {
+
+    void warn(Object requester, String message, Throwable loadFailure);
+  }
+
+  record WindowsMoveBinding(NativeMove nativeMove, Throwable loadFailure) {
+
+    static WindowsMoveBinding unavailable(final Throwable loadFailure) {
+      return new WindowsMoveBinding(null, loadFailure);
+    }
+  }
+
+  private static final class WindowsDurableMove {
+
+    private static final int MOVE_FILE_REPLACE_EXISTING = 0x1;
+    private static final int MOVE_FILE_WRITE_THROUGH = 0x8;
+    private static final AtomicBoolean FALLBACK_WARNING_RECORDED = new AtomicBoolean();
+    private static final WindowsMoveBinding BINDING = loadBinding();
+
+    private WindowsDurableMove() {
+    }
+
+    private static WindowsMoveBinding loadBinding() {
+      return loadWindowsMoveBinding(() -> {
+        final var kernel32 =
+            (Kernel32) Native.loadLibrary(
+                "kernel32", Kernel32.class, W32APIOptions.UNICODE_OPTIONS);
+        return new WindowsMoveBinding(
+            (source, target) -> move(kernel32, source, target), null);
+      });
+    }
+
+    private static void move(
+        final Kernel32 kernel32, final Path source, final Path target) throws IOException {
+      final var moved =
+          kernel32.MoveFileEx(
+              new WString(toWindowsNativePath(source.toAbsolutePath().toString())),
+              new WString(toWindowsNativePath(target.toAbsolutePath().toString())),
+              MOVE_FILE_REPLACE_EXISTING | MOVE_FILE_WRITE_THROUGH);
+      if (!moved) {
+        throw new IOException(
+            "Windows durable atomic move failed with error " + Native.getLastError());
+      }
+    }
+  }
+
+  static WindowsMoveBinding loadWindowsMoveBinding(final WindowsBindingLoader loader) {
+    try {
+      return loader.load();
+    } catch (Throwable loadFailure) {
+      // D192 requires every native-helper load failure to become a memorized fallback result.
+      return WindowsMoveBinding.unavailable(loadFailure);
+    }
+  }
+
+  /**
+   * Adds the extended Windows namespace prefix to absolute drive and UNC paths. Ordinary absolute
+   * paths are normalized first because the extended namespace does not interpret dot segments.
+   * Relative paths and paths that already select a Windows device namespace remain unchanged.
+   */
+  static String toWindowsNativePath(final String path) {
+    if (path.startsWith("\\\\?\\") || path.startsWith("\\\\.\\")) {
+      return path;
+    }
+    if (path.startsWith("\\\\")) {
+      final var serverEnd = path.indexOf('\\', 2);
+      final var shareEnd = serverEnd < 0 ? -1 : path.indexOf('\\', serverEnd + 1);
+      final var normalized =
+          shareEnd < 0 ? path : normalizeWindowsAbsolutePath(path, shareEnd + 1);
+      return "\\\\?\\UNC\\" + normalized.substring(2);
+    }
+    if (path.length() >= 3
+        && Character.isLetter(path.charAt(0))
+        && path.charAt(1) == ':'
+        && path.charAt(2) == '\\') {
+      return "\\\\?\\" + normalizeWindowsAbsolutePath(path, 3);
+    }
+    return path;
+  }
+
+  /**
+   * Removes dot segments without accessing the file system. Windows applies the same lexical rule
+   * before an ordinary path enters the extended namespace, including when a segment is a link.
+   */
+  private static String normalizeWindowsAbsolutePath(
+      final String path, final int componentStart) {
+    final var components = new ArrayDeque<String>();
+    var start = componentStart;
+    while (start <= path.length()) {
+      var end = path.indexOf('\\', start);
+      if (end < 0) {
+        end = path.length();
+      }
+      final var component = path.substring(start, end);
+      if (component.equals("..")) {
+        if (!components.isEmpty()) {
+          components.removeLast();
+        }
+      } else if (!component.isEmpty() && !component.equals(".")) {
+        components.addLast(component);
+      }
+      start = end + 1;
+    }
+
+    final var normalized = new StringBuilder(path.substring(0, componentStart));
+    for (var component : components) {
+      if (normalized.charAt(normalized.length() - 1) != '\\') {
+        normalized.append('\\');
+      }
+      normalized.append(component);
+    }
+    return normalized.toString();
+  }
+
+  private interface Kernel32 extends StdCallLibrary {
+
+    boolean MoveFileEx(WString source, WString target, int flags);
   }
 }

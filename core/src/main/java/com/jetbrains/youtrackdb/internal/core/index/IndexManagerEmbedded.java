@@ -981,6 +981,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
       return (IndexAbstract) index;
     });
+    // The descriptor RID becomes persistent only when computeInTxInternal returns. The manager map
+    // can therefore expose this handle briefly without an attachment, despite the pre-publication
+    // attempt in addIndexInternalNoLock. That window is harmless today because attachment accessors
+    // explicitly return empty and no production path consumes them. Attach before fill returns the
+    // handle to its creator. Later consumers must preserve the defined empty-result handling.
+    idx.attachDescriptorIdentity();
 
     if (progressListener == null)
     // ASSIGN DEFAULT PROGRESS LISTENER
@@ -1187,20 +1193,27 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return;
     }
 
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        Index idx;
-        idx = indexes.get(iIndexName);
-        if (idx != null) {
-          removeClassPropertyIndexInternal(idx);
-          idx.delete(transaction);
-          indexes.remove(iIndexName);
+    final IndexAbstract[] droppedIndex = new IndexAbstract[1];
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          final var idx = indexes.get(iIndexName);
+          if (idx != null) {
+            droppedIndex[0] = (IndexAbstract) idx;
+            removeClassPropertyIndexInternal(idx);
+            idx.delete(transaction);
+            indexes.remove(iIndexName);
+          }
+        } finally {
+          releaseExclusiveLock(session, true);
         }
-      } finally {
-        releaseExclusiveLock(session, true);
+      });
+    } finally {
+      if (droppedIndex[0] != null) {
+        droppedIndex[0].removeLifecycleRegistrationIfDetached();
       }
-    });
+    }
   }
 
   /**
@@ -1512,11 +1525,20 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // deltas net to a replace (the name stays in both the tx-dropped and tx-created sets), so
       // building the new engine first would collide with the still-registered old one.
       for (final var droppedIndex : plan.dropped()) {
-        final var engineId = droppedIndex.getIndexId();
-        if (engineId >= 0) {
-          final var droppedEngine =
-              ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(engineId,
-                  atomicOperation);
+        final var handle = (IndexAbstract) droppedIndex;
+        var snapshot = handle.engineSnapshot();
+        if (snapshot.engineIdentifier() >= 0) {
+          AbstractStorage.DroppedIndexEngine droppedEngine;
+          try {
+            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
+          } catch (InvalidIndexEngineIdException exception) {
+            // A failed earlier commit can restore the same owner with a fresh engine generation.
+            // Refresh under the commit-window state lock, then retry the validated deletion once.
+            final var resolved = handle.resolveOwnedEngineWithStateLock();
+            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);
+          }
           // Capture the dropped engine so the failure path can reconstruct it: the delete tore the
           // engine out of the in-memory registry synchronously, and a failed commit must put it back.
           plan.droppedEngines().add(droppedEngine);
@@ -1646,6 +1668,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     for (final var droppedIndex : plan.dropped()) {
       removeClassPropertyIndexInternal(droppedIndex);
       indexes.remove(droppedIndex.getName());
+      ((IndexAbstract) droppedIndex).removeLifecycleRegistration();
     }
     // The rename re-association's in-memory half: install the replacement metadata wholesale (a
     // single reference swap — lock-free readers see either the old or the new fully-built

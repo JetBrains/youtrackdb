@@ -151,9 +151,9 @@ public class AtomicOperationsTable {
   /// - Otherwise → **Visible** (committed between min and max)
   ///
   /// @param minActiveOperationTs the minimum timestamp among all in-progress operations,
-  ///                             or `currentTimestamp + 1` if no operations are active
+  ///                             or the saturated value after `currentTimestamp` if none are active
   /// @param maxActiveOperationTs the maximum timestamp among all in-progress operations,
-  ///                             or `currentTimestamp + 1` if no operations are active
+  ///                             or the saturated value after `currentTimestamp` if none are active
   /// @param inProgressTxs        set of timestamps for all currently in-progress transactions
   /// @param snapshotTs            the timestamp at which this snapshot was taken (the last
   ///                             registered operation ID); any record with a timestamp above
@@ -299,12 +299,13 @@ public class AtomicOperationsTable {
 
       final boolean hasActiveOps = (maxOp != Long.MIN_VALUE);
 
-      // No active operations: everything at or below currentTimestamp is visible,
-      // everything above is not. We always check if an entry version equals
-      // currentTimestamp so a thread can read its own writes.
+      // No active operations: everything at or below currentTimestamp is visible. Saturate the
+      // fast-path boundary because Long.MAX_VALUE has no signed successor.
       if (!hasActiveOps) {
-        maxOp = currentTimestamp + 1;
-        minOp = currentTimestamp + 1;
+        final var visibilityBoundary =
+            currentTimestamp == Long.MAX_VALUE ? Long.MAX_VALUE : currentTimestamp + 1;
+        maxOp = visibilityBoundary;
+        minOp = visibilityBoundary;
       }
 
       assert !hasActiveOps || minOp <= maxOp : "min must be <= max";

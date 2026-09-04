@@ -5,15 +5,26 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -32,6 +43,100 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
   // Inline class names per test keep each fixture independent. Constants would only be useful
   // if multiple tests shared the same class — which they don't here.
   private static final String CLASS_NAME = "AbsCorePathsTest";
+
+  /** Reattachment rejects an unbound same-slot replacement from an older carrier. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void attachmentRejectsUnboundSameSlotReplacementGeneration() throws Exception {
+    var cls = session.createClass("SameSlotRefresh");
+    cls.createProperty("value", PropertyType.INTEGER);
+    var indexName = "SameSlotRefresh.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(indexName);
+    var oldReference = index.getEngineReference();
+    var oldCell = index.getLifecycleCell();
+    var storage = (AbstractStorage) session.getStorage();
+    var enginesField = AbstractStorage.class.getDeclaredField("indexEngines");
+    enginesField.setAccessible(true);
+    var engines = (List<BaseIndexEngine>) enginesField.get(storage);
+    var oldEngine = (BTreeSingleValueIndexEngine) engines.get(oldReference.slot());
+    var replacement = new BTreeSingleValueIndexEngine(
+        oldReference.slot(), oldEngine.getFileBaseId(), oldEngine.getName(), storage, 4);
+
+    engines.set(oldReference.slot(), replacement);
+    try {
+      assertThrows(IllegalStateException.class, index::attachDescriptorIdentity);
+
+      assertSame("rejected attachment must retain the old reference",
+          oldReference, index.getEngineReference());
+      assertNull("rejected attachment must not claim the replacement",
+          replacement.getEngineReference().ownerDescriptorIdentity());
+      assertSame("rejected attachment must retain the descriptor lifecycle cell", oldCell,
+          index.getLifecycleCell());
+    } finally {
+      engines.set(oldReference.slot(), oldEngine);
+    }
+  }
+
+  /** A lock-free identifier reader cannot attach a replacement engine to the old rebuild RID. */
+  @Test
+  public void identifierAccessorRacingRebuildCannotBindStaleDescriptor() throws Exception {
+    var cls = session.createClass("AccessorRebuildRace");
+    cls.createProperty("value", PropertyType.INTEGER);
+    var indexName = "AccessorRebuildRace.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    session.executeInTx(tx -> {
+      for (var i = 0; i < 500; i++) {
+        tx.newEntity("AccessorRebuildRace").setProperty("value", i);
+      }
+    });
+
+    var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(indexName);
+    var oldDescriptorIdentity = index.getIdentity();
+    var oldIndexId = index.getIndexId();
+    var started = new CountDownLatch(1);
+    var observedReplacement = new CountDownLatch(1);
+    var stop = new AtomicBoolean();
+    var readerFailure = new AtomicReference<Throwable>();
+    var reader = new Thread(() -> {
+      started.countDown();
+      var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+      try {
+        while (!stop.get() && System.nanoTime() < deadline) {
+          if (index.getIndexId() != oldIndexId) {
+            observedReplacement.countDown();
+            return;
+          }
+        }
+      } catch (Throwable failure) {
+        readerFailure.set(failure);
+      }
+    }, "index-id-reader");
+
+    reader.start();
+    assertTrue("the identifier reader must start within ten seconds",
+        started.await(10, TimeUnit.SECONDS));
+    boolean replacementObserved;
+    try {
+      index.rebuild(session);
+      replacementObserved = observedReplacement.await(10, TimeUnit.SECONDS);
+    } finally {
+      stop.set(true);
+      reader.join(TimeUnit.SECONDS.toMillis(10));
+    }
+
+    assertFalse("the identifier reader must stop by its deadline", reader.isAlive());
+    assertNull("the pure identifier accessor must not fail during rebuild", readerFailure.get());
+    assertTrue("the reader must observe the replacement engine within ten seconds",
+        replacementObserved);
+    assertFalse("rebuild must allocate a fresh descriptor identity",
+        oldDescriptorIdentity.equals(index.getIdentity()));
+    assertEquals("the replacement engine must bind to the replacement descriptor",
+        index.getIdentity(), index.getEngineReference().ownerDescriptorIdentity());
+    assertNull("the replaced descriptor must leave the lifecycle registry",
+        ((AbstractStorage) session.getStorage()).getIndexLifecycle(oldDescriptorIdentity));
+  }
 
   // -----------------------------------------------------------------------
   //  Key normalization: enhanceToCompositeKeyBetweenAsc / Desc
@@ -499,8 +604,144 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
   }
 
   // -----------------------------------------------------------------------
+  //  engine creation failure transitions
+  // -----------------------------------------------------------------------
+
+  /** A failed initial engine construction leaves the new handle in the never-built shape. */
+  @Test
+  public void createEngineFailureLeavesNeverBuiltCarrier() {
+    var clsName = CLASS_NAME + "CreateEngineFailure";
+    var cls = session.createClass(clsName);
+    cls.createProperty("prop", PropertyType.STRING);
+    var sourceName = clsName + ".source";
+    cls.createIndex(sourceName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+    var source = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(sourceName);
+    var failedName = clsName + ".failed";
+    var metadata = new IndexMetadata(
+        failedName, source.getDefinition(), source.getCollections(), source.getType(),
+        source.getAlgorithm(), source.getVersion(), source.getMetadata());
+    var failed = new IndexNotUnique(session.getStorage());
+    var storage = (AbstractStorage) session.getStorage();
+
+    storage.setIndexEngineCreationTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected initial engine construction failure");
+        });
+    session.begin();
+    try {
+      assertThrows(
+          IndexException.class,
+          () -> failed.create(session.getTransactionInternal(), metadata));
+    } finally {
+      storage.setIndexEngineCreationTestHook(null);
+      session.rollback();
+    }
+
+    assertFalse("failed creation must not publish an engine", failed.state().hasEngine());
+    assertNull("failed creation must not allocate descriptor identity",
+        failed.state().descriptorIdentity());
+    assertNull("failed creation must not retain lifecycle ownership",
+        failed.state().lifecycleCell());
+    assertEquals("failed creation must leave no registered engine", -1,
+        storage.loadIndexEngine(failedName));
+  }
+
+  /** A failed rebuild replacement remains durably identified and fails closed on later reads. */
+  @Test
+  public void rebuildEngineFailureLeavesDetachedFailClosedCarrier() {
+    var clsName = CLASS_NAME + "RebuildEngineFailure";
+    var cls = session.createClass(clsName);
+    cls.createProperty("prop", PropertyType.STRING);
+    var indexName = clsName + ".prop";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+    var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(indexName);
+    var descriptorIdentity = index.getIdentity();
+    var storage = (AbstractStorage) session.getStorage();
+
+    storage.setIndexEngineCreationTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected rebuild replacement construction failure");
+        });
+    try {
+      assertThrows(IndexException.class, () -> index.rebuild(session));
+    } finally {
+      storage.setIndexEngineCreationTestHook(null);
+    }
+
+    assertFalse("failed rebuild must leave the old engine detached", index.state().hasEngine());
+    assertEquals("failed rebuild must retain the deleted descriptor identity",
+        descriptorIdentity, index.state().descriptorIdentity());
+    assertNull("failed rebuild must release lifecycle ownership", index.state().lifecycleCell());
+    assertEquals("failed replacement must leave no registered engine", -1,
+        storage.loadIndexEngine(indexName));
+    assertThrows(
+        StaleIndexEngineException.class,
+        () -> session.computeInTx(tx -> index.getRids(session, "missing").toList()));
+    assertEquals("failed rebuild reads must not poison storage", "OPEN",
+        session.getStorage().getStatus().name());
+  }
+
+  // -----------------------------------------------------------------------
   //  clear / drop lifecycle — observable via stream
   // -----------------------------------------------------------------------
+
+  /**
+   * A handle retained across a same-name drop and recreate must not recover to the replacement
+   * engine. Reads and deletes through that stale handle fail closed, while the new index remains
+   * registered and readable.
+   */
+  @Test
+  public void staleHandleCannotReadOrDeleteSameNameReplacement() {
+    var clsName = CLASS_NAME + "StaleReplacement";
+    var cls = session.createClass(clsName);
+    cls.createProperty("prop", PropertyType.STRING);
+    var indexName = clsName + ".prop";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var staleIndex = (IndexAbstract) indexManager.getIndex(indexName);
+    indexManager.dropIndex(session, indexName);
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop");
+    session.executeInTx(
+        tx -> tx.newEntity(clsName).setProperty("prop", "replacement-value"));
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    assertTrue("the recreated index must use a different descriptor",
+        !staleIndex.getIdentity().equals(replacement.getIdentity()));
+    assertThrows(
+        StaleIndexEngineException.class,
+        () -> session.computeInTx(
+            tx -> staleIndex.getRids(session, "replacement-value").toList()));
+    session.begin();
+    try {
+      assertThrows(
+          StaleIndexEngineException.class,
+          () -> staleIndex.doPut(
+              session, (AbstractStorage) session.getStorage(), "foreign-write",
+              new RecordId(7, 42)));
+      assertEquals("a stale write must not poison storage", "OPEN",
+          session.getStorage().getStatus().name());
+      assertThrows(
+          StaleIndexEngineException.class,
+          () -> staleIndex.acquireAtomicExclusiveLock(
+              session.getActiveTransaction().getAtomicOperation()));
+      assertEquals("detached lock acquisition must not poison storage", "OPEN",
+          session.getStorage().getStatus().name());
+      assertThrows(
+          StaleIndexEngineException.class,
+          () -> staleIndex.delete(session.getTransactionInternal()));
+    } finally {
+      session.rollback();
+    }
+
+    assertSame("the stale delete must leave the replacement published", replacement,
+        indexManager.getIndex(indexName));
+    var replacementRids = session.computeInTx(
+        tx -> replacement.getRids(session, "replacement-value").toList());
+    assertEquals("the stale handle must not damage replacement data", 1, replacementRids.size());
+  }
 
   /**
    * After inserting records and then deleting the index via {@code SchemaClass.dropIndex},

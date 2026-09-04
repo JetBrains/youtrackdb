@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -10,158 +11,112 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
-/**
- * Unit tests for {@link AtomicOperationIdGen}. Pins the three observable behaviours of the
- * monotonic id generator: {@link AtomicOperationIdGen#nextId()} returns strictly increasing
- * values, {@link AtomicOperationIdGen#setStartId(long)} resets the underlying counter so the
- * next {@code nextId()} returns {@code id + 1}, and {@link AtomicOperationIdGen#getLastId()}
- * exposes the last generated id without advancing it. Also exercises monotonic uniqueness
- * under concurrent load, since the class is the source of WAL operation ids and a missed
- * increment would corrupt the WAL ordering.
- */
+/** Tests monotonic generation, recovery-floor installation, concurrency, and exhaustion. */
 public class AtomicOperationIdGenTest {
 
-  /**
-   * A fresh generator starts at 0; the first {@code nextId()} returns 1 and advances the
-   * internal counter. This pins the post-incrementAndGet contract.
-   */
+  /** A fresh generator issues one first and exposes the issued value without advancing it. */
   @Test
-  public void testNextIdStartsAtOne() {
-    var gen = new AtomicOperationIdGen();
+  public void testNextIdStartsAtOneAndLastIdIsPureRead() {
+    final var gen = new AtomicOperationIdGen();
     assertThat(gen.getLastId()).isZero();
-    assertThat(gen.nextId()).isEqualTo(1L);
-    assertThat(gen.getLastId()).isEqualTo(1L);
+    assertThat(gen.nextId()).isEqualTo(1);
+    assertThat(gen.getLastId()).isEqualTo(1);
+    assertThat(gen.getLastId()).isEqualTo(1);
   }
 
-  /**
-   * Repeated {@code nextId()} calls return strictly increasing values (1, 2, 3, ...).
-   */
+  /** Installing a highest-issued floor makes the next identifier strictly greater. */
   @Test
-  public void testNextIdIsStrictlyIncreasing() {
-    var gen = new AtomicOperationIdGen();
-    for (long expected = 1; expected <= 100; expected++) {
-      assertThat(gen.nextId()).isEqualTo(expected);
-    }
-    assertThat(gen.getLastId()).isEqualTo(100L);
+  public void testAdvanceInstallsHighestIssuedFloor() {
+    final var gen = new AtomicOperationIdGen();
+    gen.advanceToAtLeast(42);
+
+    assertThat(gen.getLastId()).isEqualTo(42);
+    assertThat(gen.nextId()).isEqualTo(43);
   }
 
-  /**
-   * After {@code setStartId(N)}, the very next {@code nextId()} returns {@code N + 1} (because
-   * {@code nextId()} is incrementAndGet). Verifies the counter is reset, not adjusted.
-   */
+  /** Reinstalling the current floor is idempotent. */
   @Test
-  public void testSetStartIdResetsCounter() {
-    var gen = new AtomicOperationIdGen();
-    gen.nextId();
-    gen.nextId();
-    gen.nextId();
-    assertThat(gen.getLastId()).isEqualTo(3L);
+  public void testAdvanceToCurrentFloorIsIdempotent() {
+    final var gen = new AtomicOperationIdGen();
+    gen.advanceToAtLeast(7);
+    gen.advanceToAtLeast(7);
 
-    gen.setStartId(42L);
-    assertThat(gen.getLastId()).isEqualTo(42L);
-    assertThat(gen.nextId()).isEqualTo(43L);
-    assertThat(gen.getLastId()).isEqualTo(43L);
+    assertThat(gen.getLastId()).isEqualTo(7);
   }
 
-  /**
-   * {@code setStartId} accepts the same value as the current last id (idempotent reset).
-   */
+  /** A lower or negative recovery floor is rejected and cannot alter the current value. */
   @Test
-  public void testSetStartIdToCurrent() {
-    var gen = new AtomicOperationIdGen();
-    gen.nextId();
-    gen.nextId();
-    long current = gen.getLastId();
+  public void testAdvanceRejectsRewindAndNegativeFloor() {
+    final var gen = new AtomicOperationIdGen();
+    gen.advanceToAtLeast(10);
 
-    gen.setStartId(current);
-    assertThat(gen.getLastId()).isEqualTo(current);
-    assertThat(gen.nextId()).isEqualTo(current + 1);
+    assertThatThrownBy(() -> gen.advanceToAtLeast(9))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("rewind");
+    assertThatThrownBy(() -> gen.advanceToAtLeast(-1))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(gen.getLastId()).isEqualTo(10);
   }
 
-  /**
-   * {@code setStartId} accepts arbitrary values, including a value lower than the current id
-   * (e.g., during WAL restore the id is re-seeded to the last persisted operation id).
-   */
+  /** Exhausting the signed range fails closed instead of wrapping into negative identifiers. */
   @Test
-  public void testSetStartIdCanRewindForWalRestore() {
-    var gen = new AtomicOperationIdGen();
-    for (int i = 0; i < 1000; i++) {
-      gen.nextId();
-    }
-    assertThat(gen.getLastId()).isEqualTo(1000L);
+  public void testNextIdRejectsOverflow() {
+    final var gen = new AtomicOperationIdGen();
+    gen.advanceToAtLeast(Long.MAX_VALUE);
 
-    // Simulate WAL restore: seed the gen to a smaller value.
-    gen.setStartId(7L);
-    assertThat(gen.getLastId()).isEqualTo(7L);
-    assertThat(gen.nextId()).isEqualTo(8L);
+    assertThatThrownBy(gen::nextId)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("exhausted");
+    assertThat(gen.getLastId()).isEqualTo(Long.MAX_VALUE);
   }
 
-  /**
-   * {@code getLastId} must be a pure read — it must not advance the counter.
-   */
-  @Test
-  public void testGetLastIdDoesNotAdvance() {
-    var gen = new AtomicOperationIdGen();
-    gen.nextId();
-    long before = gen.getLastId();
-    long secondRead = gen.getLastId();
-    assertThat(secondRead).isEqualTo(before);
-    assertThat(gen.nextId()).isEqualTo(before + 1);
-  }
-
-  /**
-   * Concurrent {@code nextId()} calls from multiple threads must produce strictly unique ids
-   * because the WAL ordering depends on it. Total expected ids: {@code threads * iterations}.
-   */
+  /** Concurrent callers receive one unique, gap-free range of logical identifiers. */
   @Test
   public void testNextIdIsUniqueUnderConcurrency() throws Exception {
-    int threads = 8;
-    int iterations = 5_000;
-    var gen = new AtomicOperationIdGen();
-    var barrier = new CyclicBarrier(threads);
-    var done = new CountDownLatch(threads);
-    var error = new AtomicReference<Throwable>();
-    var allIds = new ArrayList<long[]>(threads);
+    final int threads = 8;
+    final int iterations = 5_000;
+    final var gen = new AtomicOperationIdGen();
+    final var barrier = new CyclicBarrier(threads);
+    final var done = new CountDownLatch(threads);
+    final var error = new AtomicReference<Throwable>();
+    final var allIds = new ArrayList<long[]>(threads);
     for (int i = 0; i < threads; i++) {
       allIds.add(new long[iterations]);
     }
 
-    var workers = new ArrayList<Thread>(threads);
-    for (int t = 0; t < threads; t++) {
-      int idx = t;
-      var thread = new Thread(() -> {
-        try {
-          var local = allIds.get(idx);
-          barrier.await();
-          for (int i = 0; i < iterations; i++) {
-            local[i] = gen.nextId();
-          }
-        } catch (Throwable th) {
-          error.compareAndSet(null, th);
-        } finally {
-          done.countDown();
-        }
-      });
+    for (int threadIndex = 0; threadIndex < threads; threadIndex++) {
+      final int index = threadIndex;
+      final var thread =
+          new Thread(
+              () -> {
+                try {
+                  final var local = allIds.get(index);
+                  barrier.await();
+                  for (int i = 0; i < iterations; i++) {
+                    local[i] = gen.nextId();
+                  }
+                } catch (Throwable failure) {
+                  error.compareAndSet(null, failure);
+                } finally {
+                  done.countDown();
+                }
+              });
       thread.setDaemon(true);
-      workers.add(thread);
+      thread.start();
     }
-    workers.forEach(Thread::start);
-    assertThat(done.await(30, TimeUnit.SECONDS))
-        .as("all generator threads finish within 30s")
-        .isTrue();
+
+    assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
     if (error.get() != null) {
       throw new AssertionError(error.get());
     }
 
-    // Collect into a set; total unique ids must equal threads * iterations.
-    var seen = new HashSet<Long>(threads * iterations);
-    for (var arr : allIds) {
-      for (long id : arr) {
-        seen.add(id);
+    final var seen = new HashSet<Long>(threads * iterations);
+    for (var identifiers : allIds) {
+      for (long identifier : identifiers) {
+        seen.add(identifier);
       }
     }
     assertThat(seen).hasSize(threads * iterations);
-    // Final getLastId must match the highest id observed.
     assertThat(gen.getLastId()).isEqualTo(threads * iterations);
   }
 }

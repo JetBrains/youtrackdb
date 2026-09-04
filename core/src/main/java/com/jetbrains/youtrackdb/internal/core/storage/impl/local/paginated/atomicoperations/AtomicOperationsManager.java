@@ -126,7 +126,7 @@ public class AtomicOperationsManager {
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {
-    startToApplyOperations(atomicOperation, false, null);
+    startToApplyOperations(atomicOperation, false, null, true);
   }
 
   /**
@@ -139,6 +139,14 @@ public class AtomicOperationsManager {
    */
   public void startToApplyOperations(AtomicOperation atomicOperation, final boolean schemaArmed,
       @Nullable final Supplier<? extends BaseException> schemaGate) {
+    startToApplyOperations(atomicOperation, schemaArmed, schemaGate, false);
+  }
+
+  private void startToApplyOperations(
+      AtomicOperation atomicOperation,
+      final boolean schemaArmed,
+      @Nullable final Supplier<? extends BaseException> schemaGate,
+      final boolean moveToErrorOnFailure) {
     writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
 
     final long activeSegment;
@@ -149,25 +157,61 @@ public class AtomicOperationsManager {
     // could register before a lower-TS one, creating NOT_STARTED gaps that
     // violate Snapshot Isolation's assumption that all TXs below minActiveTs
     // are completed.
-    final long commitTs;
-    segmentLock.exclusiveLock();
+    long commitTs = -1;
+    var operationRegistered = false;
     try {
-      commitTs = idGen.nextId();
-      activeSegment = writeAheadLog.activeSegment();
-      atomicOperationsTable.startOperation(commitTs, activeSegment);
-    } finally {
-      segmentLock.exclusiveUnlock();
-    }
+      segmentLock.exclusiveLock();
+      try {
+        commitTs = idGen.nextId();
+        activeSegment = writeAheadLog.activeSegment();
+        atomicOperationsTable.startOperation(commitTs, activeSegment);
+        operationRegistered = true;
+      } finally {
+        segmentLock.exclusiveUnlock();
+      }
 
-    atomicOperation.startToApplyOperations(commitTs);
+      atomicOperation.startToApplyOperations(commitTs);
+    } catch (RuntimeException | Error startFailure) {
+      // Internal wrappers previously reached endAtomicOperation after start failures. Preserve their
+      // error-state transition. Direct commits previously bypassed that transition for runtime
+      // failures, so their overload performs lifecycle cleanup without broadening storage shutdown.
+      if (moveToErrorOnFailure) {
+        try {
+          storage.moveToErrorStateIfNeeded(startFailure);
+        } catch (RuntimeException | Error cleanupFailure) {
+          if (startFailure != cleanupFailure) {
+            startFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      if (operationRegistered) {
+        try {
+          atomicOperationsTable.rollbackOperation(commitTs);
+        } catch (RuntimeException | Error cleanupFailure) {
+          if (startFailure != cleanupFailure) {
+            startFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      try {
+        writeOperationsFreezer.endOperation();
+      } catch (RuntimeException | Error cleanupFailure) {
+        if (startFailure != cleanupFailure) {
+          startFailure.addSuppressed(cleanupFailure);
+        }
+      }
+      throw startFailure;
+    }
   }
 
   public <T> T calculateInsideAtomicOperation(final TxFunction<T> function)
       throws IOException {
     Throwable error = null;
+    var applyStarted = false;
     final var atomicOperation = startAtomicOperation();
     try {
       startToApplyOperations(atomicOperation);
+      applyStarted = true;
       return function.accept(atomicOperation);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
@@ -185,16 +229,20 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(atomicOperation, error);
+      if (applyStarted) {
+        endAtomicOperation(atomicOperation, error);
+      }
     }
   }
 
   public void executeInsideAtomicOperation(final TxConsumer consumer)
       throws IOException {
     Throwable error = null;
+    var applyStarted = false;
     final var atomicOperation = startAtomicOperation();
     try {
       startToApplyOperations(atomicOperation);
+      applyStarted = true;
       consumer.accept(atomicOperation);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
@@ -212,7 +260,9 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(atomicOperation, error);
+      if (applyStarted) {
+        endAtomicOperation(atomicOperation, error);
+      }
     }
   }
 
@@ -522,45 +572,85 @@ public class AtomicOperationsManager {
   }
 
   private void releaseLocks(AtomicOperation operation) {
-    // Release StorageComponent locks (the common case).
-    // Check isExclusiveOwner() to make this method idempotent — it may be called
-    // twice (once by endAtomicOperation, once by ensureThatComponentsUnlocked
-    // in the finally block of AbstractStorage.commit).
+    Throwable releaseFailure = null;
+    // Drain every component even when one release fails, so one broken lock cannot leak the rest.
     var compIter = operation.lockedComponents().iterator();
     while (compIter.hasNext()) {
       var component = compIter.next();
-      if (component.isExclusiveOwner()) {
-        component.unlockExclusive();
+      try {
+        final var mode = operation.lockedObjectMode(component.getLockName());
+        if (mode == AtomicOperation.ComponentLockMode.SHARED) {
+          if (component.isSharedOwner()) {
+            component.unlockShared();
+          }
+        } else if (component.isExclusiveOwner()) {
+          // A null mode is treated as exclusive for compatibility with test doubles.
+          component.unlockExclusive();
+        }
+      } catch (RuntimeException | Error failure) {
+        if (releaseFailure == null) {
+          releaseFailure = failure;
+        } else if (releaseFailure != failure) {
+          releaseFailure.addSuppressed(failure);
+        }
+      } finally {
+        compIter.remove();
       }
-      compIter.remove();
     }
 
-    // Clear the combined dedup set
+    // The mode map is the dedup structure. Draining its key view clears names and modes together.
     var nameIter = operation.lockedObjects().iterator();
     while (nameIter.hasNext()) {
       nameIter.next();
       nameIter.remove();
     }
+
+    if (releaseFailure instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (releaseFailure instanceof Error error) {
+      throw error;
+    }
+  }
+
+  /** Acquires a shared component lock for the lifetime of the atomic operation. */
+  public void acquireSharedLockTillOperationComplete(
+      @Nonnull AtomicOperation operation, @Nonnull StorageComponent component) {
+    storage.checkErrorState();
+
+    final var lockName = component.getLockName();
+    final var heldMode = operation.lockedObjectMode(lockName);
+    if (heldMode != null) {
+      // Exclusive mode is stronger, while a repeated shared acquisition is idempotent.
+      return;
+    }
+
+    component.lockShared();
+    operation.addLockedComponent(component);
+    operation.addLockedObject(lockName, AtomicOperation.ComponentLockMode.SHARED);
   }
 
   /**
-   * Acquires exclusive lock on the given {@link StorageComponent} for the lifetime of the
-   * atomic operation. Uses the component's own
-   * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
-   * ReentrantReadWriteLock} directly — no external map lookup needed. The lock is natively
-   * reentrant.
+   * Acquires an exclusive component lock for the lifetime of the atomic operation.
+   * Shared-to-exclusive upgrades fail before entering the non-upgradable component lock.
    */
   public void acquireExclusiveLockTillOperationComplete(
       @Nonnull AtomicOperation operation, @Nonnull StorageComponent component) {
     storage.checkErrorState();
 
-    if (operation.containsInLockedObjects(component.getLockName())) {
+    final var lockName = component.getLockName();
+    final var heldMode = operation.lockedObjectMode(lockName);
+    if (heldMode == AtomicOperation.ComponentLockMode.SHARED) {
+      throw new IllegalStateException(
+          "Cannot upgrade component '" + lockName + "' from SHARED to EXCLUSIVE mode");
+    }
+    if (heldMode == AtomicOperation.ComponentLockMode.EXCLUSIVE) {
       return;
     }
 
     component.lockExclusive();
     operation.addLockedComponent(component);
-    operation.addLockedObject(component.getLockName());
+    operation.addLockedObject(lockName, AtomicOperation.ComponentLockMode.EXCLUSIVE);
   }
 
 }

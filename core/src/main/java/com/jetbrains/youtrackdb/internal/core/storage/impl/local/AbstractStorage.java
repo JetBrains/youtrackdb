@@ -59,11 +59,13 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommitSerializationExcep
 import com.jetbrains.youtrackdb.internal.core.exception.ConcurrentCreateException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.IndexEngineReplacedException;
 import com.jetbrains.youtrackdb.internal.core.exception.InternalErrorException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidDatabaseNameException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageExistsException;
@@ -72,6 +74,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
@@ -81,6 +84,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -90,6 +94,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleRegistry;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -324,6 +330,8 @@ public abstract class AbstractStorage
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
+  private final IndexLifecycleRegistry indexLifecycleRegistry = new IndexLifecycleRegistry();
+  private long indexEngineGeneration;
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
   /**
@@ -2031,7 +2039,8 @@ public abstract class AbstractStorage
    * collection's approximate record count without taking {@code stateLock}, because the schema-carry
    * commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant read lock
    * would busy-spin. The commit-time index build uses it to enforce the v1 empty-source-collection
-   * bound. Mirrors the lock-free {@link #doGetIndexEngine} precondition: the caller MUST hold
+   * bound. Mirrors the lock-free {@link #getIndexEngineWithStateLock(int)} precondition: the caller
+   * MUST hold
    * {@code stateLock.writeLock()} with the commit window open, which supplies the exclusion and the
    * happens-before edge for the plain-list read.
    *
@@ -2058,7 +2067,8 @@ public abstract class AbstractStorage
    * count before it relies on the v1 empty-source-collection bound, closing the under-report hole
    * where a stale approximate zero would let the build skip committed rows. Exact but cheap on the
    * empty collection the caller has already pre-checked as approximately empty. Mirrors the lock-free
-   * {@link #doGetIndexEngine} precondition: the caller MUST hold {@code stateLock.writeLock()} with
+   * {@link #getIndexEngineWithStateLock(int)} precondition: the caller MUST hold
+   * {@code stateLock.writeLock()} with
    * the commit window open, which supplies the exclusion and the happens-before edge.
    *
    * @param collectionId    a real (>= 0) collection id.
@@ -3789,6 +3799,7 @@ public abstract class AbstractStorage
     final var generatedId = nextFreeIndexEngineId();
     assert generatedId >= indexEngines.size() || indexEngines.get(generatedId) == null
         : "commit-local index-engine allocator returned an occupied slot " + generatedId;
+    discardIndexDeltas(atomicOperation, generatedId);
     // Unlike the reusable slot id above, the file base id is never reused: allocated from the
     // monotonic high-water mark inside this commit's atomic operation (the floor write reverts
     // with a failed commit; the mark itself burns the value).
@@ -3820,7 +3831,10 @@ public abstract class AbstractStorage
    * path (the delete's own {@code IndexHistogramManager} teardown makes the live engine object
    * unusable, so the failure path never re-publishes the torn object).
    */
-  public record DroppedIndexEngine(int internalId, IndexEngineData data) {
+  public record DroppedIndexEngine(
+      int internalId,
+      IndexEngineData data,
+      @Nullable RID ownerDescriptorIdentity) {
 
   }
 
@@ -3847,6 +3861,19 @@ public abstract class AbstractStorage
    * @return the captured dropped engine (slot + durable data) for the failure-path reconstruction.
    */
   public DroppedIndexEngine deleteIndexEngineInCommitWindow(
+      final int externalIndexId, @Nullable IndexEngineReference expectedReference,
+      final AtomicOperation atomicOperation)
+      throws IOException, InvalidIndexEngineIdException {
+    assert isCommitWindowActive()
+        : "commit-window primitive called outside the commit window";
+    final var internalIndexId = extractInternalId(externalIndexId);
+    checkOpennessAndMigration();
+    makeStorageDirty();
+    return deleteIndexEngineInCommitWindow(
+        internalIndexId, engineForDereference(internalIndexId, expectedReference), atomicOperation);
+  }
+
+  public DroppedIndexEngine deleteIndexEngineInCommitWindow(
       final int externalIndexId, final AtomicOperation atomicOperation)
       throws IOException, InvalidIndexEngineIdException {
     assert isCommitWindowActive()
@@ -3854,21 +3881,35 @@ public abstract class AbstractStorage
             + " held)";
     final var internalIndexId = extractInternalId(externalIndexId);
     checkOpennessAndMigration();
-    checkIndexId(internalIndexId);
     makeStorageDirty();
+    return deleteIndexEngineInCommitWindow(
+        internalIndexId, engineByIdentifier(internalIndexId), atomicOperation);
+  }
 
-    final var engine = indexEngines.get(internalIndexId);
+  private DroppedIndexEngine deleteIndexEngineInCommitWindow(
+      final int internalIndexId, final BaseIndexEngine engine,
+      final AtomicOperation atomicOperation) throws IOException {
     assert internalIndexId == engine.getId();
 
     // Capture the durable engine data before the delete removes the config entry it reads. The
-    // captured data (not the torn live engine) drives the failure-path reconstruction.
+    // captured data (not the torn live engine) drives the failure-path reconstruction. Copy the
+    // owner because commit apply can mutate its ChangeableRecordId in place after this capture.
+    final var ownerDescriptorIdentity = engine.getEngineReference() == null
+        ? null
+        : engine.getEngineReference().ownerDescriptorIdentity();
+    final var copiedOwnerDescriptorIdentity = ownerDescriptorIdentity == null
+        ? null
+        : new RecordId(ownerDescriptorIdentity.getCollectionId(),
+            ownerDescriptorIdentity.getCollectionPosition());
     final var capturedData =
         configuration.getIndexEngine(engine.getName(), internalIndexId, atomicOperation);
 
+    discardIndexDeltas(atomicOperation, internalIndexId);
     doDeleteIndexEngine(atomicOperation, engine);
+    detachHistogramManager(engine);
     indexEngines.set(internalIndexId, null);
     indexEngineNameMap.remove(engine.getName());
-    return new DroppedIndexEngine(internalIndexId, capturedData);
+    return new DroppedIndexEngine(internalIndexId, capturedData, copiedOwnerDescriptorIdentity);
   }
 
   /**
@@ -3898,10 +3939,30 @@ public abstract class AbstractStorage
       if (engine == null) {
         continue;
       }
+      detachHistogramManager(engine);
       indexEngines.set(internalId, null);
       indexEngineNameMap.remove(engine.getName());
       revertCreatedIndexEngineStructure(engine);
     }
+  }
+
+  void bindOwnerAndPublishRestoredIndexEngine(
+      int indexId, BaseIndexEngine engine, @Nullable RID ownerDescriptorIdentity) {
+    if (ownerDescriptorIdentity != null) {
+      final var engineReference = engine.getEngineReference();
+      if (engineReference != null) {
+        engineReference.bindOwner(ownerDescriptorIdentity);
+      } else {
+        // Publish reference-less engines because preserving the surviving committed index is safer
+        // than turning optional process-local ownership metadata into a restore failure.
+        LogManager.instance().warn(
+            this,
+            "Restored index engine '" + engine.getName()
+                + "' exposes no process-local reference. Owner " + ownerDescriptorIdentity
+                + " was not bound");
+      }
+    }
+    publishIndexEngine(indexId, engine);
   }
 
   /**
@@ -3965,7 +4026,8 @@ public abstract class AbstractStorage
               if (engine instanceof BTreeIndexEngine btreeEngine) {
                 wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
               }
-              publishIndexEngine(engineData.getIndexId(), engine);
+              bindOwnerAndPublishRestoredIndexEngine(
+                  engineData.getIndexId(), engine, dropped.ownerDescriptorIdentity());
             });
       } catch (final IOException | RuntimeException | AssertionError e) {
         // Loud failure containment: the reconstruction runs while the primary commit exception is
@@ -4237,7 +4299,19 @@ public abstract class AbstractStorage
       var index = changes.getIndex();
       try {
         if (changes.cleared) {
-          doClearIndex(atomicOperation, index.getIndexId());
+          if (index instanceof IndexAbstract handle) {
+            final var snapshot = handle.engineSnapshot();
+            if (snapshot.engineIdentifier() < 0) {
+              throw new StaleIndexEngineException(
+                  name, "Index engine became unavailable before index clear");
+            }
+            final var internalIndexId = extractInternalId(snapshot.engineIdentifier());
+            doClearIndex(
+                atomicOperation, internalIndexId,
+                engineForDereference(internalIndexId, snapshot.engineReference()));
+          } else {
+            doClearIndex(atomicOperation, extractInternalId(index.getIndexId()));
+          }
         }
 
         for (final var changesPerKey : changes.changesPerKey.values()) {
@@ -4245,9 +4319,16 @@ public abstract class AbstractStorage
         }
 
         applyTxChanges(db, changes.nullKeyChanges, index);
-      } catch (final InvalidIndexEngineIdException e) {
-        throw BaseException.wrapException(new StorageException(name, "Error during index commit"),
-            e, name);
+      } catch (final IndexEngineReplacedException exception) {
+        final var stale = new StaleIndexEngineException(
+            name, "Index engine changed during index commit");
+        stale.initCause(exception);
+        throw stale;
+      } catch (final InvalidIndexEngineIdException exception) {
+        final var stale = new StaleIndexEngineException(
+            name, "Index engine became unavailable during index commit");
+        stale.initCause(exception);
+        throw stale;
       }
     }
   }
@@ -4338,12 +4419,9 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
-      // Engine may have been dropped concurrently — the commit is already
-      // durable, so the delta for a removed engine is stale and safe to skip.
-      // Safety: indexEngines is a plain ArrayList; concurrent structural
-      // modification is prevented by the stateLock read lock held on the
-      // commit path and the atomic operation serialization for index
-      // creation/deletion.
+      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
+      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
+      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4366,9 +4444,27 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Applies histogram deltas accumulated during the transaction to the
-   * in-memory CHM cache. Called after {@code endTxCommit()} succeeds so
-   * that the cache always reflects committed state only.
+   * Removes transaction-local work keyed by a slot whose engine lifetime has ended. Commit-window
+   * drops run after ordinary index writes, while creates run before replacement population. Thus,
+   * the removed work can only belong to the old owner. Work for the replacement accumulates later.
+   * Holders attached to sibling atomic operations remain untouched.
+   */
+  private static void discardIndexDeltas(
+      final AtomicOperation atomicOperation, final int engineId) {
+    final var countDeltas = atomicOperation.getIndexCountDeltas();
+    if (countDeltas != null) {
+      countDeltas.discard(engineId);
+    }
+
+    final var histogramDeltas = atomicOperation.getHistogramDeltas();
+    if (histogramDeltas != null) {
+      histogramDeltas.discard(engineId);
+    }
+  }
+
+  /**
+   * Applies histogram deltas accumulated during the transaction to the in-memory CHM cache. Called
+   * after {@code endTxCommit()} succeeds so that the cache always reflects committed state only.
    */
   public void applyHistogramDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getHistogramDeltas();
@@ -4394,12 +4490,9 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
-      // Engine may have been dropped concurrently — the commit is already
-      // durable, so the delta for a removed engine is stale and safe to skip.
-      // Safety: indexEngines is a plain ArrayList; concurrent structural
-      // modification is prevented by the stateLock read lock held on the
-      // commit path and the atomic operation serialization for index
-      // creation/deletion.
+      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
+      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
+      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4412,20 +4505,194 @@ public abstract class AbstractStorage
     }
   }
 
-  public int loadIndexEngine(final String name) {
+  /** Allocates process-local identity when a local engine object is constructed. */
+  public synchronized IndexEngineReference allocateIndexEngineReference(int slot, int apiVersion) {
+    if (indexEngineGeneration == Long.MAX_VALUE) {
+      throw new StorageException(name, "Index engine generation space is exhausted");
+    }
+
+    return new IndexEngineReference(slot, apiVersion, ++indexEngineGeneration);
+  }
+
+  /** Returns the stable lifecycle carrier for a durable index descriptor. */
+  public IndexLifecycleCell getOrCreateIndexLifecycle(RID descriptorIdentity) {
+    return indexLifecycleRegistry.getOrCreate(descriptorIdentity);
+  }
+
+  public IndexLifecycleCell getIndexLifecycle(RID descriptorIdentity) {
+    return indexLifecycleRegistry.get(descriptorIdentity);
+  }
+
+  public void removeIndexLifecycle(RID descriptorIdentity) {
+    indexLifecycleRegistry.remove(descriptorIdentity);
+  }
+
+  @Nullable public IndexEngineReference getIndexEngineReference(int externalIndexId) {
+    if (isCommitWindowActive()) {
+      return getIndexEngineReferenceWithStateLock(externalIndexId);
+    }
+
+    stateLock.readLock().lock();
     try {
+      return getIndexEngineReferenceWithStateLock(externalIndexId);
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  @Nullable private IndexEngineReference getIndexEngineReferenceWithStateLock(int externalIndexId) {
+    final var internalIndexId = extractInternalId(externalIndexId);
+    try {
+      checkIndexId(internalIndexId);
+    } catch (InvalidIndexEngineIdException e) {
+      throw new IllegalStateException("Cannot resolve an unregistered index engine", e);
+    }
+
+    return indexEngines.get(internalIndexId).getEngineReference();
+  }
+
+  /**
+   * Binds a local engine to its durable descriptor after that descriptor obtains or loads its RID.
+   * A differing reference is accepted only for a newer engine already bound to the same owner.
+   */
+  @Nullable public IndexEngineReference attachIndexEngineOwner(
+      int externalIndexId, RID descriptorIdentity,
+      @Nullable IndexEngineReference carrierReference) {
+    if (isCommitWindowActive()) {
+      return attachIndexEngineOwnerWithStateLock(
+          externalIndexId, descriptorIdentity, carrierReference);
+    }
+
+    stateLock.readLock().lock();
+    try {
+      return attachIndexEngineOwnerWithStateLock(
+          externalIndexId, descriptorIdentity, carrierReference);
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  @Nullable private IndexEngineReference attachIndexEngineOwnerWithStateLock(
+      int externalIndexId, RID descriptorIdentity,
+      @Nullable IndexEngineReference carrierReference) {
+    final var liveReference = getIndexEngineReferenceWithStateLock(externalIndexId);
+    if (liveReference == null) {
+      if (carrierReference != null) {
+        throw new IllegalStateException("Index engine lost its process-local reference");
+      }
+      return null;
+    }
+    if (carrierReference == null) {
+      throw new IllegalStateException("Index engine unexpectedly gained a process-local reference");
+    }
+    if (liveReference != carrierReference) {
+      final var liveOwner = liveReference.ownerDescriptorIdentity();
+      final var isOwnedMonotonicReplacement =
+          liveReference.slot() == carrierReference.slot()
+              && liveReference.generation() > carrierReference.generation()
+              && descriptorIdentity.equals(liveOwner);
+      if (!isOwnedMonotonicReplacement) {
+        throw new IllegalStateException(
+            "Index engine reference changed from generation " + carrierReference.generation()
+                + " to " + liveReference.generation() + " for slot " + liveReference.slot());
+      }
+    }
+
+    liveReference.bindOwner(descriptorIdentity);
+    return liveReference;
+  }
+
+  /**
+   * Resolves the packed identifier of the engine owned by a durable index descriptor.
+   *
+   * <p>The commit-window branch avoids reacquiring the non-reentrant storage state lock.
+   */
+  public ResolvedIndexEngine resolveIndexEngineByOwner(final RID descriptorIdentity) {
+    try {
+      if (isCommitWindowActive() || stateLock.isReadLockedByCurrentThread()) {
+        return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+      }
+
       stateLock.readLock().lock();
       try {
+        return resolveIndexEngineByOwnerWithStateLock(descriptorIdentity);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
 
-        checkOpennessAndMigration();
+  /**
+   * Resolves an engine by descriptor owner while the caller retains the storage state lock.
+   *
+   * @throws StaleIndexEngineException when no registered engine has the requested owner
+   * @throws StorageException when registry ownership is ambiguous
+   */
+  public ResolvedIndexEngine resolveIndexEngineByOwnerWithStateLock(
+      final RID descriptorIdentity) {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine owner resolution requires the storage state lock or an active commit"
+              + " window");
+    }
 
-        final var engine = indexEngineNameMap.get(name);
-        if (engine == null) {
-          return -1;
+    checkOpennessAndMigration();
+    int resolvedIdentifier = -1;
+    for (var slot = 0; slot < indexEngines.size(); slot++) {
+      final var engine = indexEngines.get(slot);
+      if (engine == null) {
+        continue;
+      }
+
+      final var reference = engine.getEngineReference();
+      if (reference == null) {
+        // An engine without a reference cannot be owned by any descriptor. Skipping it cannot hide
+        // a possible owner-resolution target.
+        continue;
+      }
+
+      if (descriptorIdentity.equals(reference.ownerDescriptorIdentity())) {
+        if (resolvedIdentifier >= 0) {
+          throw new StorageException(
+              name,
+              "Multiple registered index engines are owned by descriptor "
+                  + descriptorIdentity);
         }
-        final var indexId = indexEngines.indexOf(engine);
-        assert indexId == engine.getId();
-        return generateIndexId(indexId, engine);
+        resolvedIdentifier = generateIndexId(slot, engine);
+      }
+    }
+
+    if (resolvedIdentifier < 0) {
+      throw new StaleIndexEngineException(
+          name,
+          "Cannot resolve index engine for descriptor " + descriptorIdentity
+              + ": no registered engine has that owner");
+    }
+    final var internalIdentifier = extractInternalId(resolvedIdentifier);
+    return new ResolvedIndexEngine(
+        resolvedIdentifier, indexEngines.get(internalIdentifier).getEngineReference());
+  }
+
+  /** One coherent result from an owner scan. */
+  public record ResolvedIndexEngine(
+      int engineIdentifier, @Nullable IndexEngineReference engineReference) {
+  }
+
+  public int loadIndexEngine(final String name) {
+    try {
+      if (isCommitWindowActive()) {
+        return loadIndexEngineWithStateLock(name);
+      }
+
+      stateLock.readLock().lock();
+      try {
+        return loadIndexEngineWithStateLock(name);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -4436,6 +4703,23 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /** Resolves an engine identifier by name while the caller retains the storage state lock. */
+  public int loadIndexEngineWithStateLock(final String name) {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine reload requires the storage state lock or an active commit window");
+    }
+
+    checkOpennessAndMigration();
+    final var engine = indexEngineNameMap.get(name);
+    if (engine == null) {
+      return -1;
+    }
+    final var indexId = indexEngines.indexOf(engine);
+    assert indexId == engine.getId();
+    return generateIndexId(indexId, engine);
   }
 
   public int loadExternalIndexEngine(
@@ -4454,6 +4738,14 @@ public abstract class AbstractStorage
             + " if this database was created by a previous version of YouTrackDB, export it with"
             + " that version and reimport it using the current one; otherwise drop and recreate"
             + " the index.");
+  }
+
+  /** Test-only failure seam fired immediately before non-commit-window engine construction. */
+  private volatile Runnable indexEngineCreationTestHook;
+
+  /** Installs a test-only failure seam for public engine creation and rebuild replacement. */
+  public void setIndexEngineCreationTestHook(final Runnable hook) {
+    indexEngineCreationTestHook = hook;
   }
 
   public int addIndexEngine(
@@ -4492,6 +4784,7 @@ public abstract class AbstractStorage
                         indexMetadata.getName());
                 final var engine = indexEngineNameMap.remove(indexMetadata.getName());
                 if (engine != null) {
+                  detachHistogramManager(engine);
                   indexEngines.set(engine.getId(), null);
 
                   engine.delete(atomicOperation);
@@ -4525,6 +4818,10 @@ public abstract class AbstractStorage
                       cfgEncryptionKey,
                       engineProperties);
 
+              final var creationHook = indexEngineCreationTestHook;
+              if (creationHook != null) {
+                creationHook.run();
+              }
               final var engine = doAddIndexEngine(atomicOperation, engineData);
 
               publishIndexEngine(engineData.getIndexId(), engine);
@@ -4605,6 +4902,19 @@ public abstract class AbstractStorage
   private void publishIndexEngine(final int internalId, final BaseIndexEngine engine) {
     indexEngineNameMap.put(engine.getName(), engine);
     setIndexEngine(internalId, engine);
+  }
+
+  /**
+   * Detaches histogram publication from an engine that is leaving the registry. This must run
+   * before its slot is released, so removal linearizes before a replacement publishes there.
+   */
+  private static void detachHistogramManager(final BaseIndexEngine engine) {
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      final var manager = btreeEngine.getHistogramManager();
+      if (manager != null) {
+        manager.detach();
+      }
+    }
   }
 
   /**
@@ -4824,6 +5134,38 @@ public abstract class AbstractStorage
     return keySerializer;
   }
 
+  public void deleteIndexEngine(
+      int indexId, @Nullable IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.writeLock().lock();
+      try {
+        checkOpennessAndMigration();
+        final var engine = engineForDereference(internalIndexId, expectedReference);
+        makeStorageDirty();
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> doDeleteIndexEngine(atomicOperation, engine));
+        detachHistogramManager(engine);
+        indexEngines.set(internalIndexId, null);
+        indexEngineNameMap.remove(engine.getName());
+      } catch (final IOException exception) {
+        throw BaseException.wrapException(
+            new StorageException(name, "Error on index deletion"), exception, name);
+      } finally {
+        stateLock.writeLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable);
+    }
+  }
+
   public void deleteIndexEngine(int indexId)
       throws InvalidIndexEngineIdException {
     final var internalIndexId = extractInternalId(indexId);
@@ -4846,6 +5188,7 @@ public abstract class AbstractStorage
         // successfully. If the atomic operation rolls back, the maps remain
         // consistent so that addIndexEngine()'s "OLD INDEX FILE" recovery
         // branch can find and clean up the stale engine.
+        detachHistogramManager(engine);
         indexEngines.set(internalIndexId, null);
         indexEngineNameMap.remove(engine.getName());
 
@@ -4892,6 +5235,24 @@ public abstract class AbstractStorage
     }
   }
 
+  public boolean removeKeyFromIndex(
+      final int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    try {
+      return removeKeyFromIndexInternal(
+          atomicOperation, extractInternalId(indexId), expectedReference, key);
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable);
+    }
+  }
+
   public boolean removeKeyFromIndex(final int indexId, final Object key,
       @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
@@ -4912,10 +5273,21 @@ public abstract class AbstractStorage
   private boolean removeKeyFromIndexInternal(
       final AtomicOperation atomicOperation, final int indexId, final Object key)
       throws InvalidIndexEngineIdException {
-    try {
-      checkIndexId(indexId);
+    return removeKeyFromIndexInternal(
+        atomicOperation, engineByIdentifier(indexId), key);
+  }
 
-      final var engine = indexEngines.get(indexId);
+  private boolean removeKeyFromIndexInternal(
+      final AtomicOperation atomicOperation, final int indexId,
+      @Nullable IndexEngineReference expectedReference, final Object key)
+      throws InvalidIndexEngineIdException {
+    return removeKeyFromIndexInternal(
+        atomicOperation, engineForDereference(indexId, expectedReference), key);
+  }
+
+  private boolean removeKeyFromIndexInternal(
+      final AtomicOperation atomicOperation, final BaseIndexEngine engine, final Object key) {
+    try {
       if (engine.getEngineAPIVersion() == IndexEngine.VERSION) {
         return ((IndexEngine) engine).remove(this, atomicOperation, key);
       } else {
@@ -4933,6 +5305,34 @@ public abstract class AbstractStorage
           new StorageException(name,
               "Error during removal of entry with key " + key + " from index "),
           e, name);
+    }
+  }
+
+  public void clearIndex(
+      final int indexId, @Nullable IndexEngineReference expectedReference) {
+    try {
+      final var internalIndexId = extractInternalId(indexId);
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        makeStorageDirty();
+        final var engine = engineForDereference(internalIndexId, expectedReference);
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> doClearIndex(atomicOperation, internalIndexId, engine));
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      final var stale = new StaleIndexEngineException(
+          name, "Index engine changed before clear");
+      stale.initCause(exception);
+      throw stale;
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable);
     }
   }
 
@@ -4963,12 +5363,13 @@ public abstract class AbstractStorage
   private void doClearIndex(final AtomicOperation atomicOperation,
       final int indexId)
       throws InvalidIndexEngineIdException {
+    doClearIndex(atomicOperation, indexId, engineByIdentifier(indexId));
+  }
+
+  private void doClearIndex(
+      final AtomicOperation atomicOperation, final int indexId, final BaseIndexEngine engine) {
     try {
-      checkIndexId(indexId);
-
-      final var engine = indexEngines.get(indexId);
       assert indexId == engine.getId();
-
       engine.clear(this, atomicOperation);
     } catch (final IOException e) {
       throw BaseException.wrapException(
@@ -4977,7 +5378,38 @@ public abstract class AbstractStorage
     }
   }
 
-  public Stream<RID> getIndexValues(int indexId, final Object key, AtomicOperation atomicOperation)
+  public Stream<RID> getIndexValues(
+      int indexId, final Object key, AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var engineAPIVersion = extractEngineAPIVersion(indexId);
+    if (engineAPIVersion != 1) {
+      throw new IllegalStateException(
+          "Unsupported version of index engine API. Required 1 but found " + engineAPIVersion);
+    }
+
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        return ((V1IndexEngine) engineByIdentifier(internalIndexId)).get(key, atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
+
+  public Stream<RID> getIndexValues(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     if (engineAPIVersion != 1) {
@@ -4992,7 +5424,7 @@ public abstract class AbstractStorage
       try {
         checkOpennessAndMigration();
 
-        return doGetIndexValues(indexId, key, atomicOperation);
+        return doGetIndexValues(indexId, expectedReference, key, atomicOperation);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -5007,40 +5439,53 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RID> doGetIndexValues(final int indexId, final Object key,
-      AtomicOperation atomicOperation)
+  private Stream<RID> doGetIndexValues(
+      final int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
-    checkIndexId(indexId);
-
-    final var engine = indexEngines.get(indexId);
+    final var engine = engineForDereference(indexId, expectedReference);
     assert indexId == engine.getId();
 
     return ((V1IndexEngine) engine).get(key, atomicOperation);
   }
 
-  public BaseIndexEngine getIndexEngine(int indexId) throws InvalidIndexEngineIdException {
-    indexId = extractInternalId(indexId);
-
+  public BaseIndexEngine getIndexEngine(final int indexId)
+      throws InvalidIndexEngineIdException {
     try {
-      checkIndexId(indexId);
-
-      // A schema-carrying commit reaches this resolver through the index-apply path
-      // (lockIndexes -> IndexAbstract.acquireAtomicExclusiveLock) while already holding
-      // stateLock.writeLock(). Re-acquiring the read lock there would busy-spin forever on the
-      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free body, the
-      // same seam getPhysicalCollectionNameById and readRecordInternal use. The held write lock
-      // supplies the exclusion and the happens-before edge; the pure-read fast path keeps the lock.
       if (isCommitWindowActive()) {
-        checkOpennessAndMigration();
-        return doGetIndexEngine(indexId);
+        return getIndexEngineWithStateLock(indexId);
       }
 
       stateLock.readLock().lock();
       try {
+        return getIndexEngineWithStateLock(indexId);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
 
-        checkOpennessAndMigration();
+  public BaseIndexEngine getIndexEngine(
+      final int indexId, @Nullable final IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
+    try {
+      // A schema-carrying commit already holds stateLock.writeLock(). The active commit window
+      // proves that ownership and avoids a non-reentrant read-lock acquisition.
+      if (isCommitWindowActive()) {
+        return getIndexEngineWithStateLock(indexId, expectedReference);
+      }
 
-        return doGetIndexEngine(indexId);
+      stateLock.readLock().lock();
+      try {
+        return getIndexEngineWithStateLock(indexId, expectedReference);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -5056,31 +5501,49 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Lock-free engine resolver for the commit window. Reads {@code indexEngines.get(id)}
-   * without taking {@code stateLock}, mirroring the lock-free {@link
-   * #doGetAndCheckCollection(int)} for collections. The schema-carrying commit already
-   * holds {@code stateLock.writeLock()} (the write-lock branch chosen at commit entry),
-   * so re-acquiring {@code stateLock.readLock()} through the public {@link
-   * #getIndexEngine(int)} would busy-spin forever on the non-reentrant {@code
-   * ScalableRWLock}. The commit-time index-apply path reaches this resolver instead.
-   *
-   * <p><b>Precondition the caller MUST satisfy:</b> this method does no in-method
-   * synchronization and reads the plain (non-{@code volatile}, non-concurrent) {@code
-   * indexEngines} list directly, so the caller MUST hold {@code stateLock} across the call:
-   * {@code writeLock()} for the commit window, {@code readLock()} for the public wrapper.
-   * That held lock is the only thing that excludes a concurrent registrar and
-   * supplies the happens-before edge making the registry read visibility-safe; off-lock
-   * use (or use under only the metadata write locks, not {@code stateLock}) is a data race
-   * on a plain {@code ArrayList} and is unsupported.
-   *
-   * @param internalId the already-extracted internal index id (not the external,
-   *                   API-version-tagged id).
+   * Resolves an engine without acquiring {@code stateLock}. The caller must already hold the
+   * state read lock, or run inside the commit window while holding the state write lock.
    */
-  private BaseIndexEngine doGetIndexEngine(final int internalId)
+  public BaseIndexEngine getIndexEngineWithStateLock(final int indexId)
+      throws InvalidIndexEngineIdException {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine resolution requires the storage state lock or an active commit window");
+    }
+
+    checkOpennessAndMigration();
+    return engineByIdentifier(extractInternalId(indexId));
+  }
+
+  public BaseIndexEngine getIndexEngineWithStateLock(
+      final int indexId, @Nullable final IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Index engine resolution requires the storage state lock or an active commit window");
+    }
+
+    checkOpennessAndMigration();
+    final var internalId = extractInternalId(indexId);
+    return engineForDereference(internalId, expectedReference);
+  }
+
+  private BaseIndexEngine engineByIdentifier(final int internalId)
       throws InvalidIndexEngineIdException {
     checkIndexId(internalId);
-
     final var engine = indexEngines.get(internalId);
+    assert internalId == engine.getId();
+    return engine;
+  }
+
+  private BaseIndexEngine engineForDereference(
+      final int internalId, @Nullable final IndexEngineReference expectedReference)
+      throws InvalidIndexEngineIdException {
+    final var engine = engineByIdentifier(internalId);
+    if (engine.getEngineReference() != expectedReference) {
+      throw new IndexEngineReplacedException(
+          "Engine at slot " + internalId + " no longer matches the index handle");
+    }
     assert internalId == engine.getId();
     return engine;
   }
@@ -5154,6 +5617,42 @@ public abstract class AbstractStorage
   }
 
   public <T> void callIndexEngine(
+      final boolean readOperation, int indexId,
+      @Nullable IndexEngineReference expectedReference, final IndexEngineCallback<T> callback)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      if (isCommitWindowActive()) {
+        checkOpennessAndMigration();
+        if (readOperation) {
+          makeStorageDirty();
+        }
+        callback.callEngine(engineForDereference(internalIndexId, expectedReference));
+        return;
+      }
+
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        if (readOperation) {
+          makeStorageDirty();
+        }
+        callback.callEngine(engineForDereference(internalIndexId, expectedReference));
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
+
+  public <T> void callIndexEngine(
       final boolean readOperation, int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
@@ -5205,6 +5704,31 @@ public abstract class AbstractStorage
     callback.callEngine(engine);
   }
 
+  public void putRidIndexEntry(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, final RID value, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var engineAPIVersion = extractEngineAPIVersion(indexId);
+    final var internalIndexId = extractInternalId(indexId);
+    if (engineAPIVersion != 1) {
+      throw new IllegalStateException(
+          "Unsupported version of index engine API. Required 1 but found " + engineAPIVersion);
+    }
+
+    try {
+      final var engine = engineForDereference(internalIndexId, expectedReference);
+      ((V1IndexEngine) engine).put(atomicOperation, key, value);
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable);
+    }
+  }
+
   public void putRidIndexEntry(int indexId, final Object key, final RID value,
       @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
@@ -5239,6 +5763,31 @@ public abstract class AbstractStorage
     assert engine.getId() == indexId;
 
     ((V1IndexEngine) engine).put(atomicOperation, key, value);
+  }
+
+  public boolean removeRidIndexEntry(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, final RID value, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var engineAPIVersion = extractEngineAPIVersion(indexId);
+    final var internalIndexId = extractInternalId(indexId);
+    if (engineAPIVersion != 1) {
+      throw new IllegalStateException(
+          "Unsupported version of index engine API. Required 1 but found " + engineAPIVersion);
+    }
+
+    try {
+      final var engine = engineForDereference(internalIndexId, expectedReference);
+      return ((MultiValueIndexEngine) engine).remove(atomicOperation, key, value);
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable);
+    }
   }
 
   public boolean removeRidIndexEntry(int indexId, final Object key, final RID value,
@@ -5292,6 +5841,31 @@ public abstract class AbstractStorage
   @SuppressWarnings("UnusedReturnValue")
   public boolean validatedPutIndexValue(
       final int indexId,
+      @Nullable IndexEngineReference expectedReference,
+      final Object key,
+      final RID value,
+      final IndexEngineValidator<Object, RID> validator,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      return doValidatedPutIndexValue(
+          atomicOperation, internalIndexId,
+          engineForDereference(internalIndexId, expectedReference), key, value, validator);
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable);
+    }
+  }
+
+  @SuppressWarnings("UnusedReturnValue")
+  public boolean validatedPutIndexValue(
+      final int indexId,
       final Object key,
       final RID value,
       final IndexEngineValidator<Object, RID> validator, @Nonnull AtomicOperation atomicOperation)
@@ -5318,10 +5892,18 @@ public abstract class AbstractStorage
       final RID value,
       final IndexEngineValidator<Object, RID> validator)
       throws InvalidIndexEngineIdException {
-    try {
-      checkIndexId(indexId);
+    return doValidatedPutIndexValue(
+        atomicOperation, indexId, engineByIdentifier(indexId), key, value, validator);
+  }
 
-      final var engine = indexEngines.get(indexId);
+  private boolean doValidatedPutIndexValue(
+      AtomicOperation atomicOperation,
+      final int indexId,
+      final BaseIndexEngine engine,
+      final Object key,
+      final RID value,
+      final IndexEngineValidator<Object, RID> validator) {
+    try {
       assert indexId == engine.getId();
 
       if (engine instanceof IndexEngine indexEngine) {
@@ -5340,6 +5922,35 @@ public abstract class AbstractStorage
           new StorageException(name,
               "Cannot put key " + key + " value " + value + " entry to the index"),
           e, name);
+    }
+  }
+
+  public Stream<RawPair<Object, RID>> iterateIndexEntriesBetween(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object rangeFrom, final boolean fromInclusive,
+      final Object rangeTo, final boolean toInclusive, final boolean ascSortOrder,
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        final var engine = engineForDereference(internalIndexId, expectedReference);
+        return engine.iterateEntriesBetween(
+            rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer,
+            atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
     }
   }
 
@@ -5395,6 +6006,33 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesMajor(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object fromKey, final boolean isInclusive, final boolean ascSortOrder,
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        return engineForDereference(internalIndexId, expectedReference)
+            .iterateEntriesMajor(
+                fromKey, isInclusive, ascSortOrder, transformer, atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
+
+  public Stream<RawPair<Object, RID>> iterateIndexEntriesMajor(
       int indexId,
       final Object fromKey,
       final boolean isInclusive,
@@ -5439,6 +6077,33 @@ public abstract class AbstractStorage
 
     return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, transformer,
         atomicOperation);
+  }
+
+  public Stream<RawPair<Object, RID>> iterateIndexEntriesMinor(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object toKey, final boolean isInclusive, final boolean ascSortOrder,
+      final IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        return engineForDereference(internalIndexId, expectedReference)
+            .iterateEntriesMinor(
+                toKey, isInclusive, ascSortOrder, transformer, atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesMinor(
@@ -5488,6 +6153,31 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> getIndexStream(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final IndexEngineValuesTransformer valuesTransformer,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        return engineForDereference(internalIndexId, expectedReference)
+            .stream(valuesTransformer, atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
+
+  public Stream<RawPair<Object, RID>> getIndexStream(
       int indexId, final IndexEngineValuesTransformer valuesTransformer,
       @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
@@ -5521,6 +6211,32 @@ public abstract class AbstractStorage
     assert indexId == engine.getId();
 
     return engine.stream(valuesTransformer, atomicOperation);
+  }
+
+  public Stream<RawPair<Object, RID>> getIndexDescStream(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final IndexEngineValuesTransformer valuesTransformer,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        return engineForDereference(internalIndexId, expectedReference)
+            .descStream(valuesTransformer, atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
   }
 
   public Stream<RawPair<Object, RID>> getIndexDescStream(
@@ -5561,6 +6277,30 @@ public abstract class AbstractStorage
     return engine.descStream(valuesTransformer, atomicOperation);
   }
 
+  public Stream<Object> getIndexKeyStream(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        return engineForDereference(internalIndexId, expectedReference).keyStream(atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
+  }
+
   public Stream<Object> getIndexKeyStream(int indexId, @Nonnull AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
@@ -5593,6 +6333,31 @@ public abstract class AbstractStorage
     assert indexId == engine.getId();
 
     return engine.keyStream(atomicOperation);
+  }
+
+  public long getIndexSize(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation)
+      throws InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(indexId);
+    try {
+      stateLock.readLock().lock();
+      try {
+        checkOpennessAndMigration();
+        return engineForDereference(internalIndexId, expectedReference)
+            .size(this, transformer, atomicOperation);
+      } finally {
+        stateLock.readLock().unlock();
+      }
+    } catch (final InvalidIndexEngineIdException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final RuntimeException exception) {
+      throw logAndPrepareForRethrow(exception);
+    } catch (final Error error) {
+      throw logAndPrepareForRethrow(error, false);
+    } catch (final Throwable throwable) {
+      throw logAndPrepareForRethrow(throwable, false);
+    }
   }
 
   public long getIndexSize(int indexId, final IndexEngineValuesTransformer transformer,
@@ -6819,6 +7584,75 @@ public abstract class AbstractStorage
       }
 
       LogManager.instance().info(this, "Storage data recover was completed");
+    }
+  }
+
+  /**
+   * Creates a record inside a caller-owned atomic operation. One operation may use these record
+   * primitives for one collection only. Future multi-collection support must lock collections in
+   * ascending identifier order before mutation.
+   *
+   * @return the initial durable record version
+   */
+  public long createRecordInsideAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      @Nonnull final byte[] content,
+      final byte recordType) throws IOException {
+    checkCallerOwnsStateLock();
+    checkOpennessAndMigration();
+    if (!rid.isNew() || !(rid instanceof ChangeableRecordId)) {
+      throw new IllegalArgumentException(
+          "Record creation requires a new changeable record identifier: " + rid);
+    }
+
+    atomicOperation.validateRecordCollectionLockOrder(rid.getCollectionId());
+    makeStorageDirty();
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    collection.acquireAtomicExclusiveLock(atomicOperation);
+    final var position =
+        doCreateRecord(
+            atomicOperation,
+            rid,
+            content,
+            atomicOperation.getCommitTs(),
+            recordType,
+            collection,
+            null);
+    return position.recordVersion;
+  }
+
+  /**
+   * Updates a record inside a caller-owned atomic operation and checks its durable version. One
+   * operation may use these record primitives for one collection only. Future multi-collection
+   * support must lock collections in ascending identifier order before mutation.
+   *
+   * @return the new durable record version
+   */
+  public long updateRecordInsideAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      @Nonnull final byte[] content,
+      final long expectedVersion,
+      final byte recordType) throws IOException {
+    checkCallerOwnsStateLock();
+    checkOpennessAndMigration();
+    if (!rid.isPersistent()) {
+      throw new IllegalArgumentException("Record update requires a persistent identifier: " + rid);
+    }
+
+    atomicOperation.validateRecordCollectionLockOrder(rid.getCollectionId());
+    makeStorageDirty();
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    collection.acquireAtomicExclusiveLock(atomicOperation);
+    return doUpdateRecord(
+        atomicOperation, rid, true, content, expectedVersion, recordType, collection);
+  }
+
+  private void checkCallerOwnsStateLock() {
+    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
+      throw new IllegalStateException(
+          "Caller-owned record writes require the storage state lock or an active commit window");
     }
   }
 
@@ -8120,8 +8954,14 @@ public abstract class AbstractStorage
     final var iAdditionalArgs =
         new Object[] {System.identityHashCode(exception), getURL(),
             YouTrackDBConstants.getVersion()};
-    LogManager.instance()
-        .error(this, "Exception `%08X` in storage `%s` : %s", exception, iAdditionalArgs);
+    if (exception instanceof IndexEngineReplacedException) {
+      LogManager.instance()
+          .debug(this, "Index engine replacement `%08X` in storage `%s`: %s", logger, exception,
+              iAdditionalArgs);
+    } else {
+      LogManager.instance()
+          .error(this, "Exception `%08X` in storage `%s` : %s", exception, iAdditionalArgs);
+    }
     return exception;
   }
 

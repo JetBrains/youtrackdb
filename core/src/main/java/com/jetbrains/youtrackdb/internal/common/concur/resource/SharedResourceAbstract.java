@@ -54,6 +54,11 @@ public abstract class SharedResourceAbstract {
     rwLock.readLock().unlock();
   }
 
+  /** Returns {@code true} if the current thread holds the shared lock on this resource. */
+  public boolean isSharedOwner() {
+    return rwLock.getReadHoldCount() > 0;
+  }
+
   /**
    * Returns {@code true} if the current thread holds the exclusive lock on this resource.
    */

@@ -235,9 +235,8 @@ public class AnalyzeIndexStatementExecutionTest extends DbTestBase {
     // Get the histogram manager via reflection to simulate a background
     // rebalance in progress
     var idx = session.getSharedContext().getIndexManager().getIndex(indexName);
-    var indexIdField = IndexAbstract.class.getDeclaredField("indexId");
-    indexIdField.setAccessible(true);
-    int indexId = indexIdField.getInt(idx);
+    int indexId =
+        com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport.externalIdentifier(idx);
     var storageField = IndexAbstract.class.getDeclaredField("storage");
     storageField.setAccessible(true);
     var storage = storageField.get(idx);

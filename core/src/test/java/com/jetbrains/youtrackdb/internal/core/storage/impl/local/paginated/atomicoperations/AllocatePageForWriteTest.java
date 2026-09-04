@@ -995,6 +995,52 @@ public class AllocatePageForWriteTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Exact distinct-page accounting
+  // ---------------------------------------------------------------------------
+
+  /** Page accounting is disabled by default and retains no count for ordinary operations. */
+  @Test
+  public void touchedPagesAreNotRecordedByDefault() throws Exception {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+
+    op.loadPageForRead(fileId, 1);
+    op.loadPageForWrite(fileId, 1, 1, true);
+
+    assertThat(op.touchedPagesCount()).isZero();
+  }
+
+  /** Repeated read and write access to one physical page contributes exactly one touch. */
+  @Test
+  public void touchedPagesDeduplicatesAcrossReadAndWritePaths() throws Exception {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    op.enablePageTracking();
+    op.enablePageTracking(); // Idempotent enabling must retain the same distinct-page set.
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(2L);
+
+    op.loadPageForRead(fileId, 1);
+    op.loadPageForRead(fileId, 1);
+    op.loadPageForWrite(fileId, 1, 1, true);
+
+    assertThat(op.touchedPagesCount()).isEqualTo(1);
+  }
+
+  /** Equal page indexes in different files and a newly allocated page are distinct touches. */
+  @Test
+  public void touchedPagesDistinguishesFilesAndCountsAllocation() throws Exception {
+    long firstFile = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long secondFile = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    long allocationFile = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(allocationFile)).thenReturn(0L);
+    op.enablePageTracking();
+
+    op.loadPageForRead(firstFile, 7);
+    op.loadPageForRead(secondFile, 7);
+    op.allocatePageForWrite(allocationFile, 0);
+
+    assertThat(op.touchedPagesCount()).isEqualTo(3);
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
