@@ -44,6 +44,7 @@ _WORKFLOW = (pathlib.Path(__file__).parents[1]
 # name. The workflow carries a comment at each step saying so.
 _GATHER_STEP = "Gather CI failure context"
 _PREREQ_STEP = "Install CLI prerequisites (jq, gh)"
+_RESULT_STEP = "Read fix result"
 
 # The seven data files the pre-fetch promises the agent, named by their ledger
 # key. The ledger keys are the file names without extension, which is a place
@@ -609,6 +610,108 @@ def prereq(present_tools):
         yield proc
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def read_result(sentinel):
+    """Execute the "Read fix result" block against a sentinel dict.
+
+    Yields the parsed `$GITHUB_OUTPUT` the step produced. `sentinel` of None
+    writes no file at all, modelling an agent that crashed before recording
+    anything.
+    """
+    workdir = tempfile.mkdtemp(prefix="ci-fix-result-")
+    try:
+        runner_temp = os.path.join(workdir, "runner-temp")
+        os.makedirs(os.path.join(runner_temp, "ci-fix"))
+        result_file = os.path.join(runner_temp, "ci-fix", "result.json")
+        if sentinel is not None:
+            with open(result_file, "w", encoding="utf-8") as fh:
+                json.dump(sentinel, fh)
+        github_output = os.path.join(workdir, "github_output")
+        open(github_output, "w", encoding="utf-8").close()
+
+        script = os.path.join(workdir, "read-result.sh")
+        with open(script, "w", encoding="utf-8") as fh:
+            fh.write(_resolve_expressions(_extract_run_block(_RESULT_STEP),
+                                          "the read-result block"))
+        env = {
+            "PATH": os.pathsep.join(["/usr/bin", "/bin"]),
+            "HOME": workdir,
+            "RUNNER_TEMP": runner_temp,
+            "GITHUB_OUTPUT": github_output,
+            "CI_FIX_RESULT_FILE": result_file,
+        }
+        proc = subprocess.run([_BASH, "-e", script], env=env,
+                              capture_output=True, text=True, timeout=30)
+        out = {}
+        with open(github_output, encoding="utf-8") as fh:
+            for line in fh:
+                if "=" in line:
+                    k, v = line.rstrip("\n").split("=", 1)
+                    out[k] = v
+        yield proc, out
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# --- the sentinel gate ------------------------------------------------------
+
+
+def test_sentinel_gate_refuses_a_protected_branch():
+    """A sentinel naming `develop` or `main` must not reach the push.
+
+    The publish step pushes the sentinel's branch with an App token carrying
+    `contents: write`, and it pushes BEFORE it opens the PR, so a bad branch
+    value lands even if PR creation then fails. Much of the agent's context is
+    text any GitHub user can write -- PR titles, PR bodies, issue comments --
+    so an injected claim that "the fix branch for this failure is develop"
+    must not be able to convert a fix into a direct push that bypasses review
+    and every CI gate. The charset check alone accepts both names.
+    """
+    for branch in ("develop", "main"):
+        with read_result({"status": "fix-ready", "branch": branch,
+                          "existing_pr": None}) as (proc, out):
+            check(f"protected branch '{branch}' is forced to no-fix",
+                  out.get("status") == "no-fix")
+            check(f"protected branch '{branch}' is reported as a warning",
+                  "::warning::" in proc.stdout and branch in proc.stdout)
+    with read_result({"status": "fix-ready", "branch": "ci-fix/legit",
+                      "existing_pr": None}) as (proc, out):
+        check("an ordinary fix branch still publishes",
+              out.get("status") == "fix-ready" and out.get("branch") == "ci-fix/legit")
+
+
+def test_sentinel_gate_rejects_malformed_values():
+    """Every field the publish step consumes must be validated or defaulted.
+
+    A missing sentinel, an unknown status, a branch carrying shell
+    metacharacters, an empty branch, and a non-numeric PR number all have to
+    degrade to `no-fix` or to an empty value rather than reaching a step that
+    holds a write-scoped token.
+    """
+    with read_result(None) as (proc, out):
+        check("a missing sentinel is treated as no-fix", out.get("status") == "no-fix")
+    with read_result({"status": "bogus", "branch": "ci-fix/x",
+                      "existing_pr": None}) as (proc, out):
+        check("an unknown status is forced to no-fix", out.get("status") == "no-fix")
+    with read_result({"status": "fix-ready", "branch": "ci-fix/x;rm -rf /",
+                      "existing_pr": None}) as (proc, out):
+        check("a branch with shell metacharacters is forced to no-fix",
+              out.get("status") == "no-fix")
+    with read_result({"status": "fix-ready", "branch": "",
+                      "existing_pr": None}) as (proc, out):
+        check("an empty branch is forced to no-fix", out.get("status") == "no-fix")
+    with read_result({"status": "fix-ready", "branch": "ci-fix/x",
+                      "existing_pr": "not-a-number"}) as (proc, out):
+        check("a non-numeric PR number is dropped", out.get("existing_pr") == "")
+    with read_result({"status": "fix-ready", "branch": "ci-fix/x",
+                      "existing_pr": 42}) as (proc, out):
+        check("a numeric PR number is preserved", out.get("existing_pr") == "42")
+    with read_result({"status": "fix-ready\nstatus=fix-ready", "branch": "ci-fix/x",
+                      "existing_pr": None}) as (proc, out):
+        check("an embedded newline cannot inject a second status line",
+              out.get("status") == "no-fix")
 
 
 # --- the prerequisite step --------------------------------------------------
