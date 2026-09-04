@@ -906,12 +906,18 @@ jobs:
 
           echo "Gathered CI failure context into $CTX:"
           ls -l "$CTX" || true
-          echo "Fetch status: $(jq -c . "$CTX/fetch-status.json")"
+          echo "Fetch status: $(jq -c . "$CTX/fetch-status.json" || echo '<unreadable>')"
 
           # Surface a degraded context in the run's own annotations, so a human
           # skimming the job sees it without reading the agent's transcript.
+          #
+          # `|| true` is load-bearing: this runs under `bash -e`, where an
+          # assignment from a failing command substitution aborts the step. A jq
+          # failure here would therefore kill the step just before it reports
+          # that something went wrong - the same silence this whole change
+          # exists to remove.
           DEGRADED="$(jq -r 'to_entries | map(select(.value != "ok") | .key) | join(", ")' \
-            "$CTX/fetch-status.json")"
+            "$CTX/fetch-status.json" || true)"
           if [ -n "$DEGRADED" ]; then
             echo "::warning::CI failure context is INCOMPLETE." \
               "Degraded data: $DEGRADED. The agent is told to treat these as" \
