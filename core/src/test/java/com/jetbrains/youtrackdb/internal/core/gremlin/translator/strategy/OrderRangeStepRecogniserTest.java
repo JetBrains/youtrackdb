@@ -11,6 +11,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -54,9 +56,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void bareOrder_sortsByRidAsc() {
     var admin = graph.traversal().V().order().asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy).isNotNull();
@@ -69,13 +70,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void orderByProperty_desc() {
     var admin = graph.traversal().V().order().by("name", Order.desc).asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.toString()).contains("name");
     assertThat(ctx.orderBy.toString()).containsIgnoringCase("DESC");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
+    assertThat(ctx.orderBy.getItems()).hasSize(2);
   }
 
   /** Multi-key {@code order().by(...).by(...)} emits multiple ORDER BY items. */
@@ -84,12 +86,165 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var admin =
         graph.traversal().V().order().by("age", Order.asc).by("name", Order.desc).asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.getItems()).hasSize(3);
+  }
+
+  /**
+   * A multi-key sort whose last key is a property named {@code id} receives the record identifier
+   * item like any other element sort. {@link YTDBOrderRidTieBreakStrategy} used to skip this shape,
+   * on the assumption that such a property is unique per class. Nothing in the engine declares that,
+   * so duplicate values in it tie, and a tie no key breaks is what let the two arms answer different
+   * sequences.
+   */
+  @Test
+  public void orderByDateThenId_stillGainsRidTieBreak() {
+    var admin = graph.traversal().V().order()
+        .by("creationDate", Order.desc).by("id", Order.asc).asAdmin();
+    var ctx = seededContext();
+
+    var outcome = recognizeOrder(admin, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.getItems()).hasSize(3);
+    assertThat(ctx.orderBy.toString()).contains("creationDate");
+    assertThat(ctx.orderBy.toString()).contains(".id");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
+  }
+
+  /** A sole {@code order().by("id")} gains the same trailing {@code @rid} item, for one reason. */
+  @Test
+  public void orderByIdOnly_stillGainsRidTieBreak() {
+    var admin = graph.traversal().V().order().by("id", Order.asc).asAdmin();
+    var ctx = seededContext();
+
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.getItems()).hasSize(2);
+    assertThat(ctx.orderBy.toString()).contains(".id");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
+  }
+
+  // ---------------------------------------------------------------------------
+  // The boundary output type gates the two record identifier mappings.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A trailing identity modulator over a map boundary must not become {@code alias.@rid}. The row a
+   * map boundary hands back is built from the RETURN projection and carries no identifier of its
+   * own, so {@code @rid} would sort by the entity behind the row rather than by the row itself. The
+   * gate refuses the mapping and the whole shape declines, which is safe because both arms then run
+   * the native pipeline. {@code valueMap(name)} is what pins the map boundary in production, and the
+   * bare {@code order()} behind it arrives with one synthetic identity slot.
+   */
+  @Test
+  public void bareOrderOverMapBoundary_declinesWithNoRidItem() {
+    var admin = graph.traversal().V().valueMap("name").order().asAdmin();
+    var ctx = seededContext(BoundaryOutputType.MAP);
+
+    var outcome = recognizeOrder(admin, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.orderBy).as("a map boundary must produce no record identifier sort item")
+        .isNull();
+  }
+
+  /**
+   * The scalar half of the same gate. A {@code count()} boundary emits one aggregate value, so there
+   * is no record behind the row to identify, and the identity modulator of the following bare
+   * {@code order()} must not claim one.
+   */
+  @Test
+  public void bareOrderOverScalarBoundary_declinesWithNoRidItem() {
+    var admin = graph.traversal().V().count().order().asAdmin();
+    var ctx = seededContext(BoundaryOutputType.SCALAR);
+
+    var outcome = recognizeOrder(admin, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.orderBy)
+        .as("a scalar boundary must produce no record identifier sort item")
+        .isNull();
+  }
+
+  /**
+   * The same gate on the appended sort key rather than on a bare identity. The strategy installs its
+   * record identifier key on the trailing slot of {@code order().by(name)}, which is asserted here as
+   * a precondition so the decline below cannot pass on a shape that never carried the key. Over a map
+   * boundary that key must not resolve to {@code @rid} either, so the shape declines.
+   */
+  @Test
+  public void appendedRidSortKeyOverMapBoundary_declinesWithNoRidItem() {
+    var admin = graph.traversal().V().order().by("name").asAdmin();
+    applyOrderTieBreak(admin);
+    assertThat(trailingOrderModulator(admin))
+        .as("the strategy must have installed the record identifier key, or the gate is untested")
+        .isInstanceOf(RecordIdSortKeyTraversal.class);
+    var ctx = seededContext(BoundaryOutputType.MAP);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, OrderGlobalStep.class), ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.orderBy).isNull();
+  }
+
+  /** The scalar half of the appended-key gate, with the same precondition on the trailing slot. */
+  @Test
+  public void appendedRidSortKeyOverScalarBoundary_declinesWithNoRidItem() {
+    var admin = graph.traversal().V().order().by("name").asAdmin();
+    applyOrderTieBreak(admin);
+    assertThat(trailingOrderModulator(admin)).isInstanceOf(RecordIdSortKeyTraversal.class);
+    var ctx = seededContext(BoundaryOutputType.SCALAR);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, OrderGlobalStep.class), ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.orderBy).isNull();
+  }
+
+  /**
+   * The control that makes the four declines above attributable to the boundary output type and to
+   * nothing else: the identical shape over an element boundary is accepted and does emit the record
+   * identifier item. Without it a gate that declined every order step would satisfy all four.
+   */
+  @Test
+  public void appendedRidSortKeyOverElementBoundary_isAcceptedWithARidItem() {
+    var admin = graph.traversal().V().order().by("name").asAdmin();
+    var ctx = seededContext(BoundaryOutputType.ELEMENT);
+
+    var outcome = recognizeOrder(admin, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.getItems()).hasSize(2);
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
+  }
+
+  /**
+   * The gate does not swallow the single-value boundary, which is the one non-element payload that
+   * does resolve a sort key: {@code values(name).order()} sorts the projected names, so the recorded
+   * property projection answers the identity modulator and no {@code @rid} item is emitted. This is
+   * the "different sort item" outcome beside the four declines.
+   */
+  @Test
+  public void bareOrderOverSingleValueBoundary_sortsByTheProjectedProperty() {
+    var admin = graph.traversal().V().values("name").order().asAdmin();
+    var ctx = seededContext(BoundaryOutputType.SINGLE_VALUE);
+    ctx.setLastPropertyProjection(
+        new RecognitionContext.PropertyProjection(
+            BOUNDARY_ALIAS, "name", ByModulatorTranslator.aliasProperty(BOUNDARY_ALIAS, "name")));
+
+    var outcome = recognizeOrder(admin, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.getItems()).hasSize(1);
+    assertThat(ctx.orderBy.toString()).contains("name");
+    assertThat(ctx.orderBy.toString()).doesNotContain("@rid");
   }
 
   /** {@code order().by(select('k').by(key))} resolves through {@link ByModulatorTranslator}. */
@@ -117,9 +272,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var ctx = seededContext();
     ctx.userLabelToAlias.put("k", "$g2m_edge_0");
     ctx.patternBuilder.registerUserLabel("$g2m_edge_0", "k");
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
-    assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
-        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
   }
 
   /** {@code Order.shuffle} has no MATCH equivalent and declines. */
@@ -242,10 +395,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   public void sliceAfterCapturedOrderBy_declines() {
     var admin = graph.traversal().V().order().by("name").limit(2).asAdmin();
     var ctx = seededContext();
-    assertThat(
-        OrderGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, OrderGlobalStep.class),
-            ctx))
-        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy).isNotNull();
 
     var outcome =
@@ -295,6 +445,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     while (cursor.peek() != null && !(cursor.peek() instanceof OrderGlobalStep)) {
       cursor.take();
     }
+    applyOrderTieBreak(admin);
     assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
         .isEqualTo(Outcome.ACCEPTED);
     while (cursor.peek() != null && !(cursor.peek() instanceof OrderGlobalStep)) {
@@ -318,6 +469,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     var ctx = seededContext();
     var cursor = cursorAt(admin, OrderGlobalStep.class);
 
+    applyOrderTieBreak(admin);
     var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
@@ -335,9 +487,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .by(org.apache.tinkerpop.gremlin.structure.T.id)
             .asAdmin();
     var ctx = seededContext();
-    var cursor = cursorAt(admin, OrderGlobalStep.class);
 
-    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+    var outcome = recognizeOrder(admin, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy.toString()).containsIgnoringCase("@rid");
@@ -680,7 +831,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * is closed on both sides.
    *
    * <p><b>Why the boundary count is the whole point here.</b> These spellings were once reported as
-   * a translator-on / translator-off divergence, measured over an indexed LDBC-shaped fixture, and
+   * a translator-on / translator-off divergence over an indexed fixture with tied sort keys, and
    * the report was retired on the ground that both arms came back with the same rows. A declined
    * shape runs the native pipeline on both arms, so its rows agree whatever a translation would have
    * done: over a shape that declines, a row comparison holds by construction and settles nothing.
@@ -1252,11 +1403,36 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   private static WalkerContext seededContext() {
+    return seededContext(BoundaryOutputType.ELEMENT);
+  }
+
+  /**
+   * The same seeded context with the boundary pinned to {@code outputType}, so a test can name the
+   * payload shape the boundary hands back rather than the element default.
+   */
+  private static WalkerContext seededContext(BoundaryOutputType outputType) {
     var ctx = new WalkerContext(true, false);
     ctx.addNode(BOUNDARY_ALIAS, "V");
-    ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    ctx.pinBoundary(BOUNDARY_ALIAS, outputType, Vertex.class);
     ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
     return ctx;
+  }
+
+  /** The modulator on the last comparator slot of the traversal's first {@code order()} step. */
+  private static Object trailingOrderModulator(Traversal.Admin<?, ?> admin) {
+    var orderStep = (OrderGlobalStep<?, ?>) stepOf(admin, OrderGlobalStep.class);
+    return orderStep.getComparators().getLast().getValue0();
+  }
+
+  private static Outcome recognizeOrder(Traversal.Admin<?, ?> admin, WalkerContext ctx) {
+    applyOrderTieBreak(admin);
+    return OrderGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, OrderGlobalStep.class), ctx);
+  }
+
+  /** Mirrors production: tie-break runs before {@link GremlinToMatchStrategy}. */
+  private static void applyOrderTieBreak(Traversal.Admin<?, ?> admin) {
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
   }
 
   private static StepStreamCursor cursorAt(Traversal.Admin<?, ?> admin, Class<?> stepType) {

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
@@ -74,7 +75,8 @@ public final class ByModulatorTranslator {
   /**
    * Resolves a key-side {@code by(...)} modulator to {@code alias.property}, {@code alias.@rid}, or
    * {@code alias.@class}. Declines lambdas, edge traversals, nested aggregates, and {@code
-   * Order.shuffle}.
+   * Order.shuffle}. {@code by(T.id)} and the record identifier sort key both resolve to
+   * {@code alias.@rid}.
    */
   public static Optional<SQLExpression> translateKeyModulator(
       String alias, Traversal.Admin<?, ?> modulator) {
@@ -197,6 +199,13 @@ public final class ByModulatorTranslator {
     }
     if (modulator instanceof TokenTraversal<?, ?> tokenTraversal) {
       return fieldRefToken(tokenTraversal.getToken());
+    }
+    // The record identifier sort key projects exactly what by(T.id) projects, in one comparable
+    // class, so it resolves to the same record attribute. Whether the boundary has a record
+    // identifier at all is the caller's question — OrderGlobalStepRecogniser gates this mapping on
+    // the boundary output type and declines a map or scalar boundary before it reaches here.
+    if (modulator instanceof RecordIdSortKeyTraversal) {
+      return Optional.of(new FieldRef(true, "@rid"));
     }
     var steps = modulator.getSteps();
     if (steps.size() == 1) {

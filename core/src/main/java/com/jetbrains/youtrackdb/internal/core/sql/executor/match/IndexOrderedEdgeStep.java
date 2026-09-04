@@ -108,6 +108,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private final int downstreamEdgeCount;
 
   /**
+   * When true, the plan's ORDER BY carries a trailing record identifier item on the target alias and
+   * the planner accepted it as already produced by this scan (see
+   * {@code IndexOrderedPlanner.acceptsRidTieBreak}). The pre-sorted signal then holds only where
+   * equal keys really come back in scan-direction identifier order, which is the index scan itself
+   * and only while the transaction holds no pending change for the index.
+   */
+  private final boolean ridTieBreakAccepted;
+
+  /**
    * Runtime strategy chosen on the last {@link #internalStart} of this step.
    * Null until the step runs — EXPLAIN before execution will not show it;
    * PROFILE / post-query {@link #prettyPrint} will.
@@ -167,6 +176,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Nonnull String targetClassName,
       boolean edgeTraversal,
       int downstreamEdgeCount,
+      boolean ridTieBreakAccepted,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.sourceAlias = sourceAlias;
@@ -184,6 +194,45 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     this.targetClassName = targetClassName;
     this.edgeTraversal = edgeTraversal;
     this.downstreamEdgeCount = downstreamEdgeCount;
+    this.ridTieBreakAccepted = ridTieBreakAccepted;
+  }
+
+  /**
+   * Signals that this step's output is already in the plan's ORDER BY sequence, so the downstream
+   * {@code OrderByStep} can stream it. Called from the paths that hand rows straight out of an
+   * ordered index scan: the scan walks the composite {@code (property, rid)} key, so equal property
+   * values come back in scan-direction identifier order, which is what an accepted trailing record
+   * identifier item asks for.
+   *
+   * <p>A pending index change inside the running transaction withdraws the signal when such an item
+   * was accepted. The transaction-local entries are merged into the scan by key alone, so two
+   * entries of one key can arrive in either identifier order. This is checked per execution rather
+   * than per plan, because the plan outlives the transaction in the plan cache.
+   */
+  private void signalIndexOrderedOutput(CommandContext ctx) {
+    var ridOrderHolds = !ridTieBreakAccepted || !hasPendingIndexChanges(ctx);
+    ctx.setSystemVariable(
+        CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.valueOf(ridOrderHolds));
+  }
+
+  /** Signals pre-sorted output after the local sort has produced the complete accepted order. */
+  private void signalLoadSortedOutput(CommandContext ctx) {
+    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+  }
+
+  /**
+   * Whether the running transaction holds an uncommitted record change, which is what can put the
+   * scan out of identifier order.
+   *
+   * <p>The test is any record change rather than a change to this index, because the index entry of
+   * an uncommitted record is written under a provisional identifier. The scan then hands that entry
+   * back at the position of the provisional identifier while the row carries the identifier the
+   * record has by then, so the entry can arrive anywhere inside its key group. The per-index change
+   * map of the transaction does not see this at all: it stays empty, since the embedded engine
+   * writes index entries into the transaction's atomic operation instead.
+   */
+  private boolean hasPendingIndexChanges(CommandContext ctx) {
+    return ctx.getDatabaseSession().getTransactionInternal().getEntryCount() > 0;
   }
 
   @Override
@@ -241,7 +290,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // index-value scan. The fallback paths below iterate the LinkBag
       // directly, so they skip the RidSet allocation.
       chosenRuntimePath = RuntimePath.INDEX_SCAN;
-      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+      signalIndexOrderedOutput(ctx);
       return indexScanFiltered(ridSetFromLinkBag(linkBag), ctx, upstreamRow);
     } else if (downstreamEdgeCount > 0 && limit > 0) {
       // Low density but downstream edges + LIMIT: load all, sort locally,
@@ -250,7 +299,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // (REPLY_OF chain, HAS_CREATOR, etc.) instead of all N.
       // Sort cost O(N log N) is trivial for typical LinkBag sizes (~50-500).
       chosenRuntimePath = RuntimePath.LOAD_SORT;
-      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+      signalLoadSortedOutput(ctx);
       return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
     } else {
       // No downstream edges or no LIMIT: stream unsorted to OrderByStep.
@@ -388,9 +437,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   // =====================================================================
 
   /**
-   * Sorts records by the ORDER BY property (from the index definition).
-   * Used by loadSortFromLinkBag to produce pre-sorted output that enables
-   * LIMIT-based early termination through downstream MATCH edges.
+   * Sorts records by the ORDER BY property from the index definition. When the planner accepted a
+   * trailing record identifier item, equal property values are also ordered by identifier. This
+   * reproduces a forward index scan's {@code (property ASC, rid ASC)} order and reverses both keys
+   * for a backward scan. A one-item ORDER BY keeps its existing unspecified tie order.
+   *
+   * <p>Used by loadSortFromLinkBag to produce pre-sorted output that enables LIMIT-based early
+   * termination through downstream MATCH edges.
    *
    * <p>Null placement matches {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem}:
    * null is the smallest value — nulls first for ASC, nulls last for DESC.
@@ -410,6 +463,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       } else {
         cmp = va.compareTo(vb);
       }
+      if (cmp == 0 && ridTieBreakAccepted) {
+        cmp = a.getIdentity().compareTo(b.getIdentity());
+      }
       return orderAsc ? cmp : -cmp;
     });
   }
@@ -426,12 +482,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       case UNFILTERED_BOUND -> {
         // Full index scan + reverse-edge class check; no RidSet filter.
         chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
-        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        signalIndexOrderedOutput(ctx);
         yield unfilteredBound(ctx);
       }
       case UNFILTERED_UNBOUND -> {
         chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
-        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        signalIndexOrderedOutput(ctx);
         yield unfilteredUnbound(ctx);
       }
       case null -> throw new IllegalStateException("multiSourceMode is null");
@@ -483,12 +539,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return switch (strategy) {
       case UNION_RIDSET_SCAN -> {
         chosenRuntimePath = RuntimePath.UNION_SCAN;
-        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        signalIndexOrderedOutput(ctx);
         yield indexScanWithUnion(sourceMap, ctx);
       }
       case GLOBAL_SCAN -> {
         chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
-        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        signalIndexOrderedOutput(ctx);
         yield indexScanGlobal(sourceMap, ctx);
       }
       case LOAD_ALL_SORT -> {
@@ -567,7 +623,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     chosenRuntimePath = RuntimePath.UNION_SCAN;
-    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+    signalIndexOrderedOutput(ctx);
     var indexDesc = new IndexSearchDescriptor(index);
     var filteredStep = new RidFilteredIndexValuesStep(
         indexDesc, orderAsc, ctx, profilingEnabled, unionRidSet);
@@ -1182,6 +1238,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return false;
   }
 
+  /** Plan-text marker for an accepted trailing record identifier sort item. */
+  public static final String RID_TIE_BREAK_MARKER = "+@rid";
+
   @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
@@ -1189,7 +1248,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var mode = multiSourceMode != null ? " (" + multiSourceMode + ")" : "";
     var edgeSuffix = edgeTraversal ? "E" : "";
     var path = chosenRuntimePath != null ? " [" + chosenRuntimePath.label() + "]" : "";
-    return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + path + "\n"
+    // The marker is the only plan-visible sign that the trailing record identifier item was
+    // accepted, so a test can tell an accepted shape from a refused one without inferring it from
+    // whether the query buffered.
+    var tieBreak = ridTieBreakAccepted ? " " + RID_TIE_BREAK_MARKER : "";
+    return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + path
+        + tieBreak + "\n"
         + spaces + "  {" + sourceAlias + "}." + edgeClassName
         + "{" + targetAlias + "} via " + index.getName();
   }
@@ -1200,6 +1264,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         ctx, sourceAlias, targetAlias, edgeClassName, linkBagFieldName,
         index, orderAsc, edge.copy(), limit, multiSourceMode,
         reverseFieldName, sourceClassName, targetFilter, targetClassName,
-        edgeTraversal, downstreamEdgeCount, profilingEnabled);
+        edgeTraversal, downstreamEdgeCount, ridTieBreakAccepted, profilingEnabled);
   }
 }

@@ -18,6 +18,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBProductiveOrderByStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -75,14 +77,18 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
             .clone()
             .addStrategies(
                 // Position in this list is informational — the strategy resolver topologically
-                // sorts by each strategy's applyPrior()/applyPost(). The translator declares empty
-                // ordering constraints; the three half-measure strategies name it in their own
-                // applyPrior(), so the resolver runs it first and they become the decline fallback.
-                // RepeatDeclineStrategy is the one entry that is not a provider optimization: it is
-                // a decoration strategy, and the resolver's category ordering is what puts it ahead
-                // of TinkerPop's RepeatUnrollStrategy, which is where its whole value lies.
+                // sorts by each strategy's applyPrior()/applyPost(). Tie-break names the translator
+                // in applyPost(), so ORDER BY steps gain by(T.id) before translation; the four
+                // strategies below the translator name it in applyPrior() and become the decline
+                // fallback. Collation is one of those four: a translated shape has no order() step
+                // left to modulate, and the engine comparison applies the declared collation
+                // instead. RepeatDeclineStrategy is the one entry that is not a provider
+                // optimization: it is a decoration strategy, and the resolver's category ordering
+                // is what puts it ahead of TinkerPop's RepeatUnrollStrategy.
                 RepeatDeclineStrategy.instance(),
+                YTDBOrderRidTieBreakStrategy.instance(),
                 GremlinToMatchStrategy.instance(),
+                YTDBOrderCollationStrategy.instance(),
                 YTDBGraphStepStrategy.instance(),
                 YTDBGraphCountStrategy.instance(),
                 YTDBGraphMatchStepStrategy.instance(),

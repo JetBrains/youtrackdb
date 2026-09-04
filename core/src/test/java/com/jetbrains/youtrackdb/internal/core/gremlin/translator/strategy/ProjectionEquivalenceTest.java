@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
@@ -899,7 +900,10 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().valueMap("name").dedup());
   }
 
-  /** {@code order().by("name")} matches native order for a deterministic seed. */
+  /**
+   * {@code order().by("name")} — sequence equality on=off, and the sorted names themselves (seed is
+   * deliberately not insertion-ordered).
+   */
   @Test
   public void orderByName_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Carol");
@@ -911,6 +915,180 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().order().by(name).values(name)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().order().by("name").values("name"));
+    assertThat(graph.traversal().V().order().by("name").values("name").toList())
+        .as("sorted names must be Alice,Bob,Carol — not insertion order Carol,Alice,Bob")
+        .containsExactly("Alice", "Bob", "Carol");
+  }
+
+  /**
+   * Vertices that tie on the sort key must return the same tag sequence on both Gremlin arms once
+   * YQL execution and native {@code order()} both tie-break on RID. The sequence itself is pinned
+   * against the record identifier order, so two arms tied in the same wrong way would fail.
+   */
+  @Test
+  public void orderByTiedName_matchesNativeAndTranslatedOrder() {
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t3");
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t1");
+    graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t2");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(name).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("name").values("tag"));
+    assertThat(graph.traversal().V().order().by("name").values("tag").toList())
+        .as("one tied key leaves the record identifier order deciding the whole sequence")
+        .isEqualTo(tagsInIdentifierOrder());
+  }
+
+  /**
+   * Bare {@code order()} (identity → {@code @rid} / strategy leaves identity) — same tag sequence
+   * on both arms, and that sequence is the record identifier order.
+   */
+  @Test
+  public void bareOrder_matchesNativeRidOrder() {
+    graph.addVertex(T.label, "Person", "tag", "c");
+    graph.addVertex(T.label, "Person", "tag", "a");
+    graph.addVertex(T.label, "Person", "tag", "b");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().values("tag"));
+    assertThat(graph.traversal().V().order().values("tag").toList())
+        .as("a bare sort over elements is the record identifier order")
+        .isEqualTo(tagsInIdentifierOrder());
+  }
+
+  /** Explicit {@code by(T.id)} — same RID total order as bare {@code order()} on elements. */
+  @Test
+  public void orderByTokenId_matchesNative() {
+    graph.addVertex(T.label, "Person", "tag", "c");
+    graph.addVertex(T.label, "Person", "tag", "a");
+    graph.addVertex(T.label, "Person", "tag", "b");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(T.id).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by(T.id).values("tag"));
+    assertThat(graph.traversal().V().order().by(T.id).values("tag").toList())
+        .as("the element token sorts by the record identifier, numerically")
+        .isEqualTo(tagsInIdentifierOrder());
+  }
+
+  /**
+   * All ages tied — primary key does not separate rows; trailing RID from the strategy must make
+   * on and off agree on the tag sequence, which is the record identifier order.
+   */
+  @Test
+  public void orderByTiedAge_matchesNativeRidTieBreak() {
+    graph.addVertex(T.label, "Person", "age", 30, "tag", "c");
+    graph.addVertex(T.label, "Person", "age", 30, "tag", "a");
+    graph.addVertex(T.label, "Person", "age", 30, "tag", "b");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(age).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("age").values("tag"));
+    assertThat(graph.traversal().V().order().by("age").values("tag").toList())
+        .as("every row ties on the age, so the appended key decides the sequence")
+        .isEqualTo(tagsInIdentifierOrder());
+  }
+
+  /**
+   * The {@code tag} of every stored vertex in ascending record identifier order. An oracle for a
+   * sort whose stated keys all tie: it is computed from the stored rows, so it holds whatever either
+   * arm returns, and it does not assume that insertion order and identifier order agree.
+   */
+  private List<String> tagsInIdentifierOrder() {
+    var vertices = new ArrayList<>(graph.traversal().V().toList());
+    vertices.sort(Comparator.comparing(vertex -> (Identifiable) vertex.id()));
+    return vertices.stream().map(vertex -> vertex.<String>value("tag")).toList();
+  }
+
+  /**
+   * Descending property sort — sequence pin plus on=off. Seed is neither insertion- nor
+   * ascending-ordered.
+   */
+  @Test
+  public void orderByNameDesc_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Mallory");
+    graph.addVertex(T.label, "Person", "name", "Zoe");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(name, desc).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("name", Order.desc).values("name"));
+    assertThat(graph.traversal().V().order().by("name", Order.desc).values("name").toList())
+        .containsExactly("Zoe", "Mallory", "Alice");
+  }
+
+  /**
+   * Multi-key with a tie on the first key: ages 20/30/20 → names Ann, Cy before Ben. Projects names
+   * so the expected sequence is visible (not only RID strings).
+   */
+  @Test
+  public void orderByAgeThenName_tiedAge_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Ben", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Cy", "age", 20);
+    graph.addVertex(T.label, "Person", "name", "Ann", "age", 20);
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(age).by(name).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .order().by("age", Order.asc).by("name", Order.asc)
+            .values("name"));
+    assertThat(
+        graph.traversal().V()
+            .order().by("age", Order.asc).by("name", Order.asc)
+            .values("name").toList())
+        .containsExactly("Ann", "Cy", "Ben");
+  }
+
+  /** {@code hasLabel} then {@code order().by(name)} — filter + sort, sequence on=off. */
+  @Test
+  public void hasLabel_orderByName_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Zoe");
+    graph.addVertex(T.label, "Software", "name", "Ignore");
+    graph.addVertex(T.label, "Person", "name", "Ada");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().hasLabel(Person).order().by(name).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").order().by("name").values("name"));
+    assertThat(
+        graph.traversal().V().hasLabel("Person").order().by("name").values("name").toList())
+        .containsExactly("Ada", "Zoe");
+  }
+
+  /**
+   * Property {@code id}, unique in this fixture, so the appended record identifier key separates
+   * nothing and the {@code id} order alone decides the answer. The strategy no longer skips a
+   * property named {@code id}, so this case pins that the appended key leaves a genuinely unique
+   * primary key alone. The duplicate-value counterpart lives in
+   * {@code OrderRidTieBreakEquivalenceTest}.
+   */
+  @Test
+  public void orderByPropertyId_matchesNativeWithAppendedRid() {
+    graph.addVertex(T.label, "Person", "id", "p3", "name", "Carol");
+    graph.addVertex(T.label, "Person", "id", "p1", "name", "Alice");
+    graph.addVertex(T.label, "Person", "id", "p2", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().order().by(id).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("id").values("name"));
+    assertThat(graph.traversal().V().order().by("id").values("name").toList())
+        .containsExactly("Alice", "Bob", "Carol");
   }
 
   /**

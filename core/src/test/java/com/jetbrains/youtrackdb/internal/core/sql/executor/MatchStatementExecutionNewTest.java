@@ -2,8 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -14,6 +16,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.junit.Assert;
 import org.junit.Test;
@@ -2110,6 +2114,91 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
 
     result.close();
+    session.commit();
+  }
+
+  /**
+   * A RETURN alias shadows a schema property with the same name. ORDER BY must use the default
+   * collation for the projected value, not the shadowed property's case-insensitive declaration.
+   * Query: MATCH {class: testMatchProjectionAlias, as:a} RETURN a.surname AS name ORDER BY name.
+   * Observed order: Zebra, then ada.
+   */
+  @Test
+  public void testReturnAliasOrderingUsesDefaultCollation() {
+    var clazz = "testMatchProjectionAlias";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + clazz + ".name STRING").close();
+    session.execute("ALTER PROPERTY " + clazz + ".name COLLATE ci").close();
+    session.execute("CREATE PROPERTY " + clazz + ".surname STRING").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET surname = 'Zebra'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET surname = 'ada'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: " + clazz + ", as:a} RETURN a.surname AS name ORDER BY name").toList();
+    Assert.assertEquals(2, result.size());
+    Assert.assertEquals("Zebra", result.get(0).getProperty("name"));
+    Assert.assertEquals("ada", result.get(1).getProperty("name"));
+    session.commit();
+  }
+
+  /**
+   * A RETURN alias repeats its case-insensitive source property name. ORDER BY must retain that
+   * declaration because the alias does not shadow another expression.
+   */
+  @Test
+  public void testSameNameReturnAliasKeepsPropertyCollation() {
+    var clazz = "testMatchSameNameProjectionAlias";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + clazz + ".name STRING").close();
+    session.execute("ALTER PROPERTY " + clazz + ".name COLLATE ci").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'Zebra'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'ada'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'Ada'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: " + clazz + ", as:a} RETURN a.name AS name ORDER BY name").toList();
+    Assert.assertEquals(3, result.size());
+    Assert.assertEquals("Ada", result.get(0).getProperty("name"));
+    Assert.assertEquals("ada", result.get(1).getProperty("name"));
+    Assert.assertEquals("Zebra", result.get(2).getProperty("name"));
+    session.commit();
+  }
+
+  /**
+   * Duplicate RETURN aliases are overwritten from left to right. ORDER BY must therefore use the
+   * later surname expression and its default collation, not the earlier case-insensitive name.
+   */
+  @Test
+  public void testDuplicateReturnAliasUsesLastExpressionCollation() {
+    var clazz = "testMatchDuplicateProjectionAlias";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + clazz + ".name STRING").close();
+    session.execute("ALTER PROPERTY " + clazz + ".name COLLATE ci").close();
+    session.execute("CREATE PROPERTY " + clazz + ".surname STRING").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'first', surname = 'Zebra'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'second', surname = 'ada'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'third', surname = 'Ada'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: " + clazz
+            + ", as:a} RETURN a.name AS x, a.surname AS x ORDER BY x")
+        .toList();
+    Assert.assertEquals(3, result.size());
+    Assert.assertEquals("Ada", result.get(0).getProperty("x"));
+    Assert.assertEquals("Zebra", result.get(1).getProperty("x"));
+    Assert.assertEquals("ada", result.get(2).getProperty("x"));
     session.commit();
   }
 
@@ -8291,6 +8380,154 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         }
         session.commit();
       } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
+  /**
+   * An accepted ascending RID tie-break must be produced by the local sort itself. After the fixed
+   * planning reads, the LIMIT reads only three replies and keeps the first three target RIDs.
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortRidTieBreakLimit() throws Exception {
+    assertLoadSortTieBreak(0, 3, true, false);
+  }
+
+  /**
+   * SKIP increases upstream demand to SKIP plus LIMIT. After planning, the local RID order reads
+   * five replies and returns the three target RIDs after the skipped prefix.
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortRidTieBreakSkip() throws Exception {
+    assertLoadSortTieBreak(2, 3, true, false);
+  }
+
+  /**
+   * A descending accepted tie-break reverses both the property and RID components. After planning,
+   * the LIMIT reads three replies and returns the three greatest target RIDs.
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortRidTieBreakDescending() throws Exception {
+    assertLoadSortTieBreak(0, 3, false, false);
+  }
+
+  /**
+   * Null primary keys still form one tie group. After planning, an ascending local sort reads only
+   * three replies and returns the first three target RIDs.
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortRidTieBreakNullKey() throws Exception {
+    assertLoadSortTieBreak(0, 3, true, true);
+  }
+
+  /** Creates eight tied targets with one downstream reply each for LOAD_SORT tie-break tests. */
+  private void initLoadSortTieBreakData(boolean nullScores) {
+    session.execute("CREATE CLASS LoadSortPerson EXTENDS V").close();
+    session.execute("CREATE PROPERTY LoadSortPerson.name STRING").close();
+    session.execute(
+        "CREATE INDEX LoadSortPerson.name ON LoadSortPerson(name) UNIQUE").close();
+
+    session.execute("CREATE CLASS LoadSortMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY LoadSortMessage.score INTEGER").close();
+    session.execute(
+        "CREATE INDEX LoadSortMessage.score ON LoadSortMessage(score) NOTUNIQUE").close();
+    session.execute("CREATE CLASS LOAD_SORT_CREATOR EXTENDS E").close();
+
+    session.execute("CREATE CLASS LoadSortReply EXTENDS V").close();
+    session.execute("CREATE CLASS LOAD_SORT_REPLY_OF EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LoadSortPerson SET name = 'source'").close();
+    for (var i = 0; i < 8; i++) {
+      var score = nullScores ? "null" : "7";
+      session.execute(
+          "CREATE VERTEX LoadSortMessage SET score = " + score + ", ordinal = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE LOAD_SORT_CREATOR FROM"
+              + " (SELECT FROM LoadSortMessage WHERE ordinal = " + i + ")"
+              + " TO (SELECT FROM LoadSortPerson WHERE name = 'source')")
+          .close();
+      session.execute("CREATE VERTEX LoadSortReply SET ordinal = " + i).close();
+      session.execute(
+          "CREATE EDGE LOAD_SORT_REPLY_OF FROM"
+              + " (SELECT FROM LoadSortReply WHERE ordinal = " + i + ")"
+              + " TO (SELECT FROM LoadSortMessage WHERE ordinal = " + i + ")")
+          .close();
+    }
+    session.commit();
+  }
+
+  /**
+   * Runs one accepted tie-break through LOAD_SORT and counts physical reads of downstream replies.
+   * Planning reads all eight replies once. Execution adds SKIP plus LIMIT reads before the range
+   * closes the stream.
+   */
+  private void assertLoadSortTieBreak(
+      int skip, int limit, boolean ascending, boolean nullScores) throws Exception {
+    initLoadSortTieBreakData(nullScores);
+    var direction = ascending ? "ASC" : "DESC";
+    var expected = new java.util.ArrayList<String>();
+    try (var result = session.query(
+        "SELECT @rid AS rid FROM LoadSortMessage ORDER BY @rid " + direction)) {
+      while (result.hasNext()) {
+        expected.add(result.next().getProperty("rid").toString());
+      }
+    }
+    expected = new java.util.ArrayList<>(expected.subList(skip, skip + limit));
+
+    var replyReads = new AtomicInteger();
+    RecordHook hook = new RecordHook() {
+      @Override
+      public void onUnregister() {
+      }
+
+      @Override
+      public void onTrigger(@Nonnull TYPE type, @Nonnull DBRecord record) {
+        if (type == TYPE.READ
+            && record instanceof EntityImpl entity
+            && "LoadSortReply".equals(entity.getSchemaClassName())) {
+          replyReads.incrementAndGet();
+        }
+      }
+    };
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      session.getLocalCache().clear();
+      session.registerHook(hook);
+      try {
+        session.begin();
+        var where = ascending ? "" : ", where: (score is not null)";
+        var range = (skip == 0 ? "" : " SKIP " + skip) + " LIMIT " + limit;
+        var query =
+            "MATCH {class: LoadSortPerson, as: p, where: (name = 'source')}"
+                + ".in('LOAD_SORT_CREATOR'){class: LoadSortMessage, as: m" + where + "}"
+                + ".in('LOAD_SORT_REPLY_OF'){class: LoadSortReply, as: r} "
+                + "RETURN m ORDER BY m.score " + direction + ", m.@rid " + direction
+                + range;
+        var actual = new java.util.ArrayList<String>();
+        try (var result = session.query(query)) {
+          var plan = getPlan(result);
+          Assert.assertTrue(
+              "Plan should accept the RID tie-break, but was:\n" + plan,
+              plan.contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER));
+          while (result.hasNext()) {
+            var row = result.next();
+            actual.add(((Identifiable) row.getProperty("m")).getIdentity().toString());
+          }
+          assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
+        }
+        session.commit();
+        Assert.assertEquals("Local sort should produce the complete ORDER BY", expected, actual);
+        Assert.assertEquals(
+            "Execution should add only SKIP plus LIMIT reply reads after eight planning reads",
+            8 + skip + limit,
+            replyReads.get());
+      } finally {
+        session.unregisterHook(hook);
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
       }
     }

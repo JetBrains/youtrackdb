@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
@@ -13,8 +15,19 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 
 /**
  * Recogniser for {@link OrderGlobalStep}: {@code order()} / {@code order().by(...)} → {@link
- * SQLOrderBy}. Bare {@code order()} and identity modulators sort by {@code @rid}; {@code
- * Order.shuffle} declines.
+ * SQLOrderBy}. Bare {@code order()} and identity modulators sort by {@code @rid} on an element
+ * boundary only; {@code Order.shuffle} declines.
+ *
+ * <h2>The record identifier mappings are gated by boundary output type</h2>
+ *
+ * Two modulators claim a record identifier that the boundary may not have: a trailing identity, and
+ * the {@link RecordIdSortKeyTraversal} that {@code YTDBOrderRidTieBreakStrategy} appends. A boundary
+ * whose payload is a map or a scalar aggregate has no record identifier of its own, so
+ * {@code alias.@rid} would sort by the entity behind the row rather than by the row the caller
+ * receives — which is not what the native comparator does with that payload. Both mappings therefore
+ * refuse a {@link BoundaryOutputType#MAP} and a {@link BoundaryOutputType#SCALAR} boundary, and the
+ * refusal declines the whole shape. A decline is safe: both arms then run the native pipeline and
+ * agree by construction.
  *
  * <h2>An {@code order()} after a grouping terminator</h2>
  *
@@ -121,6 +134,14 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    * the element RID otherwise. {@code g.V().values("name").order()} sorts names, not RIDs, and
    * before this distinction existed it emitted the six names in RID order and called it sorted.
    * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no YQL-text round-trip.
+   *
+   * <p>Contract with {@code YTDBOrderRidTieBreakStrategy}: identity → {@code @rid} is valid only on
+   * element boundaries, which {@link #boundaryCarriesRecordId} enforces. Map-entry / projected-map
+   * order must not reach this branch as a stand-in for a group key — those shapes decline today;
+   * when enabled they must map {@code Column.keys} (or entry identity) to the GROUP BY key, never to
+   * {@code @rid}. That strategy replaces a trailing identity over elements with its record
+   * identifier sort key, which {@link ByModulatorTranslator} resolves to the same {@code @rid} item
+   * under the same gate.
    */
   private static SQLOrderByItem resolveSortItem(
       RecognitionContext ctx,
@@ -134,10 +155,31 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
         return ProjectionExpressionFactories.orderByProperty(
             projection.alias(), projection.propertyKey(), ascending);
       }
+      if (!boundaryCarriesRecordId(ctx)) {
+        return null;
+      }
       return ProjectionExpressionFactories.orderByRecordAttribute(alias, "@rid", ascending);
+    }
+    // The appended sort key means "the record identifier of this row", so it needs the same gate.
+    // Falling back to the last property projection is wrong here: the strategy installs this key
+    // only over an element stream, and a property key would be a different sort than native runs.
+    if (modulator instanceof RecordIdSortKeyTraversal && !boundaryCarriesRecordId(ctx)) {
+      return null;
     }
     return ByModulatorTranslator.translateOrderModulator(alias, modulator, ascending, labelResolver)
         .orElse(null);
+  }
+
+  /**
+   * Whether the row the boundary hands back is one record, so {@code alias.@rid} identifies it. A
+   * map payload and a scalar aggregate payload are built from the projection instead, and neither
+   * has an identifier of its own — see the class Javadoc. A {@code null} output type means no step
+   * has pinned a boundary yet, which the caller already refused, so it is treated as permissive
+   * rather than as a fourth case.
+   */
+  private static boolean boundaryCarriesRecordId(RecognitionContext ctx) {
+    var outputType = ctx.boundaryOutputType();
+    return outputType != BoundaryOutputType.MAP && outputType != BoundaryOutputType.SCALAR;
   }
 
   /**

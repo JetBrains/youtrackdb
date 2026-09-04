@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanne
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolver;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -601,6 +602,11 @@ public class MatchExecutionPlanner {
 
     // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
+    // Phase 1b: Pin the declared collation of each ordered property, now that buildPatterns has
+    // filled the alias-to-class map. Done here, once, because both ORDER BY paths below need it:
+    // the built-in RETURN modes chain their own OrderByStep, and a custom RETURN delegates to the
+    // SELECT planner, which resolves nothing for a MATCH because a MATCH carries no single target.
+    resolveOrderByCollations(context);
     // Phase 2: Identify disconnected sub-graphs that must be joined via Cartesian product
     splitDisjointPatterns();
 
@@ -833,6 +839,41 @@ public class MatchExecutionPlanner {
     }
 
     return result;
+  }
+
+  /**
+   * Pins the declared collation of each ordered property onto its ORDER BY item, reading the class
+   * of the item's alias out of the alias-to-class map that {@code buildPatterns} just filled.
+   *
+   * <p>A MATCH item names its property as {@code <alias>.<property>}, so the alias decides which
+   * class the declaration comes from. An alias with no class constraint, or an item that is not one
+   * plain property, takes the default collation.
+   */
+  private void resolveOrderByCollations(CommandContext context) {
+    if (orderBy == null || aliasClasses == null || aliasClasses.isEmpty()) {
+      return;
+    }
+    var session = context.getDatabaseSession();
+    if (session == null) {
+      return;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return;
+    }
+    var projectionItems = new ArrayList<SQLProjectionItem>();
+    for (var i = 0; i < returnItems.size(); i++) {
+      projectionItems.add(new SQLProjectionItem(returnItems.get(i), returnAliases.get(i),
+          returnNestedProjections.get(i)));
+    }
+    var projection = new SQLProjection(projectionItems, returnDistinct);
+    OrderByCollationResolver.resolveOnAliasClasses(
+        orderBy,
+        alias -> {
+          var className = aliasClasses.get(alias);
+          return className == null ? null : schema.getClass(className);
+        },
+        projection);
   }
 
   /**
@@ -5656,6 +5697,7 @@ public class MatchExecutionPlanner {
           candidate.targetClassName(),
           candidate.isEdgeTraversal(),
           candidate.downstreamEdgeCount(),
+          candidate.ridTieBreakAccepted(),
           profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
@@ -6509,7 +6551,7 @@ public class MatchExecutionPlanner {
       Map<String, Long> estimatedRootEntries) {
     return new IndexOrderedPlanner(
         pattern, aliasClasses, aliasFilters, aliasPinnedRids,
-        orderBy, skip, limit, returnItems, returnAliases,
+        orderBy, skip, limit, returnItems, returnAliases, returnDistinct,
         returnElements, returnPaths, returnPatterns, returnPathElements)
         .detect(sortedEdges, context, estimatedRootEntries);
   }

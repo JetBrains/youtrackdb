@@ -231,6 +231,21 @@ public class SQLModifier extends SimpleNode {
     return null;
   }
 
+  /**
+   * The sibling of {@link #getSimpleSuffixPropertyName} for a record attribute: if this modifier is
+   * a simple attribute suffix ({@code .@rid}, {@code .@class}) with no further chaining, brackets or
+   * method calls, returns the attribute name including its leading {@code @}. Otherwise returns
+   * {@code null}.
+   */
+  @Nullable
+  public String getSimpleSuffixRecordAttributeName() {
+    if (suffix != null && next == null && !squareBrackets
+        && methodCall == null && suffix.getRecordAttribute() != null) {
+      return suffix.getRecordAttribute().getName();
+    }
+    return null;
+  }
+
   @Override
   public SQLModifier copy() {
     var result = new SQLModifier(-1);
