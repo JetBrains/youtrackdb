@@ -715,7 +715,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.tx().commit();
 
-    // Zero matched vertices → SQL aggregate null cell → dropNullRows drops the row. Empty by design,
+    // Zero matched vertices → YQL aggregate null cell → dropNullRows drops the row. Empty by design,
     // so it opts out of the non-empty guard.
     assertEquivalent(
         "g.V().has(name, nobody).values(age).sum()",
@@ -1267,7 +1267,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   /**
    * {@code group().by("age")} and {@code groupCount().by("age")} carry no {@code null} bucket. This
-   * is the one shape where the drop cannot be done after the fact — SQL forms the bucket during
+   * is the one shape where the drop cannot be done after the fact — YQL forms the bucket during
    * aggregation, so the conjunct has to filter the rows that feed it.
    */
   @Test
@@ -1669,7 +1669,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   /**
    * {@code values("age").mean()} divides in floating point: 30 and 25 average to 27.5, not 27. The
-   * ages are chosen not to divide evenly, because an evenly-dividing fixture cannot tell the SQL
+   * ages are chosen not to divide evenly, because an evenly-dividing fixture cannot tell the YQL
    * {@code mean} aggregate apart from {@code avg}, whose integer division is why {@code mean}
    * exists.
    */
@@ -1684,7 +1684,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * The group value side reaches the same {@code mean} SQL function through a different builder
+   * The group value side reaches the same {@code mean} YQL function through a different builder
    * call than {@code values(k).mean()} does: a grouped RETURN column rather than a single-plan
    * property aggregate. It resolves only because that function is registered — before the
    * registration the shape translated and then failed at execution — so it needs its own case. The

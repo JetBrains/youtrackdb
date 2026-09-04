@@ -8,7 +8,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
  *
  * A Gremlin {@code by(...)} modulator is a traversal, not a field reference. {@code
  * order().by("age")} maps each element through {@code values("age")}, and an element with no
- * {@code age} produces nothing, so its traverser is dropped before the comparator ever runs. SQL
+ * {@code age} produces nothing, so its traverser is dropped before the comparator ever runs. YQL
  * {@code ORDER BY} keeps every row and sorts the missing keys as {@code null}. The conjunct is what
  * makes the translated row set the same multiset as the native one, and {@link ByModulatorPresence}
  * carries the full argument.

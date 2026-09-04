@@ -68,7 +68,7 @@ interface RecognitionContext extends ParamSink {
    * <p>The strategy inverts the rule {@link ByModulatorPresence} encodes: a productive
    * {@code by(key)} yields {@code null} for an element without the property instead of dropping
    * the traverser, so {@code g.withStrategies(ProductiveByStrategy).V().groupCount().by("age")}
-   * keeps the {@code null} bucket SQL produces anyway and the presence conjunct must not be added.
+   * keeps the {@code null} bucket YQL produces anyway and the presence conjunct must not be added.
    * The translator has to answer this itself rather than let the strategy rewrite the modulator:
    * it runs first and folds the {@code by(...)} into the MATCH plan, so by the time
    * {@code ProductiveByStrategy} looks for {@link
@@ -139,8 +139,8 @@ interface RecognitionContext extends ParamSink {
    *
    * <p>The distinction is load-bearing because a folded {@code has(key, range)} and an unfolded one
    * are evaluated by different comparators once the translator declines. Folded, the native arm runs
-   * {@code YTDBGraphStep}'s SQL-backed comparison, which orders values of different runtime types
-   * (it ranks a String above an Integer) — the same answer the translated SQL gives. Unfolded, the
+   * {@code YTDBGraphStep}'s YQL-backed comparison, which orders values of different runtime types
+   * (it ranks a String above an Integer) — the same answer the translated YQL gives. Unfolded, the
    * native arm runs TinkerPop's {@code GremlinValueComparator}, whose rule is that operands of
    * different comparability blocks never compare, so a range comparison across types matches
    * nothing. A translation that reproduces one of those two answers contradicts the other, so the

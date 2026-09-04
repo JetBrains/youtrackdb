@@ -613,7 +613,7 @@ public final class GremlinToMatchStrategy
     try {
       for (var child : translation.childPlans()) {
         var childInputs = child.inputs();
-        // Lone post-union count(): push RETURN count(*) into each child so SQL count /
+        // Lone post-union count(): push RETURN count(*) into each child so YQL count /
         // CountFromClass / per-child GremlinPlanCache stay available; MultiPlanMatchStep sums.
         if (PostConcatSupport.isPushDownCountOnly(translation.postConcatOps())) {
           childInputs = PostConcatSupport.rewriteToCountStar(childInputs);

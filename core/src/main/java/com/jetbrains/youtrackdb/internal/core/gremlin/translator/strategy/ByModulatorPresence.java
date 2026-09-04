@@ -11,7 +11,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
  * <p>A Gremlin {@code by(...)} modulator is a traversal, not a field reference: {@code
  * order().by("age")} maps each element through {@code values("age")}, and an element with no
  * {@code age} produces nothing, so its traverser is dropped. {@code g.V().order().by("age")} on the
- * modern graph therefore emits four vertices, not six. SQL has no such rule — {@code ORDER BY
+ * modern graph therefore emits four vertices, not six. YQL has no such rule — {@code ORDER BY
  * v.age} keeps every row and sorts the missing ones as {@code null}, {@code GROUP BY v.age}
  * collects them into a {@code null} bucket, and a following {@code count()} counts them. Every one
  * of those is a silently larger multiset than Gremlin's, so each recogniser that consumes a

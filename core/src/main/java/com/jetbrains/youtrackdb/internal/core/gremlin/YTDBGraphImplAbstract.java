@@ -360,7 +360,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     }
   }
 
-  /// Uncached SQL parse — used only when no database session is available (e.g., BEGIN
+  /// Uncached YQL parse — used only when no database session is available (e.g., BEGIN
   /// before a transaction is open). All other paths use [SQLEngine#parse] which goes
   /// through [YqlStatementCache] and sets [SQLStatement#originalStatement] for
   /// [YqlExecutionPlanCache].

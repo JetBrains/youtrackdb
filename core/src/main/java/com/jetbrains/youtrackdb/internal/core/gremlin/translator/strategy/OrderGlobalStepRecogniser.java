@@ -120,7 +120,7 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    * is already projecting — the property behind a preceding {@code values(key)} if there is one,
    * the element RID otherwise. {@code g.V().values("name").order()} sorts names, not RIDs, and
    * before this distinction existed it emitted the six names in RID order and called it sorted.
-   * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no SQL-text round-trip.
+   * Other shapes go through {@link ByModulatorTranslator}. Built as AST — no YQL-text round-trip.
    */
   private static SQLOrderByItem resolveSortItem(
       RecognitionContext ctx,

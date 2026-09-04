@@ -385,7 +385,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   /**
    * A post-union range whose {@code count()} follows immediately is accepted as a {@link
-   * PostConcatOp.Range} rather than as SQL {@code SKIP}/{@code LIMIT} clauses: a union's slice
+   * PostConcatOp.Range} rather than as YQL {@code SKIP}/{@code LIMIT} clauses: a union's slice
    * applies to the concatenation, so pushing it into each child would slice every arm separately.
    * {@code range(1, 3)} normalises to skip 1, limit {@code high - low}.
    */
@@ -399,8 +399,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
         .isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.postConcatOps()).containsExactly(new PostConcatOp.Range(1L, 2L));
-    assertThat(ctx.skip).as("a union slice must not become a per-child SQL SKIP").isNull();
-    assertThat(ctx.limit).as("a union slice must not become a per-child SQL LIMIT").isNull();
+    assertThat(ctx.skip).as("a union slice must not become a per-child YQL SKIP").isNull();
+    assertThat(ctx.limit).as("a union slice must not become a per-child YQL LIMIT").isNull();
   }
 
   /**
@@ -779,7 +779,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   // G2 semantics. An unordered slice is non-deterministic by the Gremlin spec:
   // limit(n) keeps "the first n" in whatever order the source enumerates, and
   // nothing pins that order. Measured on this engine both arms enumerate in the
-  // same storage (RID/cluster) order and so the translated SQL LIMIT and native
+  // same storage (RID/cluster) order and so the translated YQL LIMIT and native
   // Gremlin limit keep the identical prefix — but that agreement rests on a shared
   // implementation detail, not on a contract, so asserting exact multiset equality
   // over a real slice would pin engine internals and could turn flaky against a
@@ -793,7 +793,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * A bare {@code limit} whose bound is at or above the scan total is an identity slice, so it keeps
    * every row on both arms and the multiset equality holds without resting on the two pipelines
    * agreeing about order. This is the strict-equality half of the bare-slice coverage: five seeded
-   * vertices, {@code limit(10)}, so the slice removes nothing and the translated SQL {@code LIMIT}
+   * vertices, {@code limit(10)}, so the slice removes nothing and the translated YQL {@code LIMIT}
    * and native {@code limit} must return the same five elements.
    */
   @Test
@@ -851,7 +851,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   /**
    * The range spelling: {@code range(1, 4)} keeps three of the five vertices on both arms, all
    * members of the full set. Rounds out the bare-slice family across the three DSL entry points that
-   * all normalise to SQL {@code SKIP}/{@code LIMIT}.
+   * all normalise to YQL {@code SKIP}/{@code LIMIT}.
    */
   @Test
   public void bareRangeBelowTotal_matchesSizeAndSubset() {
