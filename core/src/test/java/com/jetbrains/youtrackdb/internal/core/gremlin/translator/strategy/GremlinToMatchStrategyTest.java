@@ -1342,7 +1342,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "friends→messages Gremlin shape must translate; steps after applyStrategies: " + steps));
+                "friends→messages Gremlin shape must translate; steps after applyStrategies: "
+                    + steps));
         var gremlinPlan = boundary.getPlan().prettyPrint(0, 2);
         assertThat(gremlinPlan)
             .as("Gremlin friends→messages must use INDEX ORDERED MATCH FILTERED_BOUND; plan was:\n"
@@ -1396,7 +1397,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "friends→messages deferred-projection shape must translate; steps after applyStrategies: " + steps));
+                "friends→messages deferred-projection shape must translate; steps after applyStrategies: "
+                    + steps));
         assertPlanDefersProjectionsUntilAfterLimit(boundary.getPlan().prettyPrint(0, 2));
       });
     }
@@ -1445,7 +1447,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "recent-replies deferred-projection shape must translate; steps after applyStrategies: " + steps));
+                "recent-replies deferred-projection shape must translate; steps after applyStrategies: "
+                    + steps));
         var plan = boundary.getPlan().prettyPrint(0, 2);
         assertThat(plan)
             .as("recent-replies shape must use INDEX ORDERED MATCH; plan was:\n" + plan)
@@ -1596,7 +1599,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "recent-replies Gremlin shape must translate; steps after applyStrategies: " + steps));
+                "recent-replies Gremlin shape must translate; steps after applyStrategies: "
+                    + steps));
         var gremlinPlan = boundary.getPlan().prettyPrint(0, 2);
         assertThat(gremlinPlan)
             .as("Gremlin recent-replies must use INDEX ORDERED MATCH; plan was:\n" + gremlinPlan)
