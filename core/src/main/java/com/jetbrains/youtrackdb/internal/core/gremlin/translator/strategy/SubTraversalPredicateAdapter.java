@@ -298,6 +298,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public List<String> expandPolymorphicClassClosure(List<String> rootLabels) {
+    return parent.expandPolymorphicClassClosure(rootLabels);
+  }
+
+  @Override
+  public List<String> boundaryDeclaredPropertyKeys() {
+    return parent.boundaryDeclaredPropertyKeys();
+  }
+
+  @Override
   public String nextAnonVertexAlias() {
     return parent.nextAnonVertexAlias();
   }
@@ -325,8 +335,8 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
       String fromAlias,
       String toAlias,
       MatchPatternBuilder.Direction dir,
-      @Nullable String edgeLabel) {
-    capturedPattern.addEdge(fromAlias, toAlias, dir, edgeLabel, null, null, null);
+      @Nullable String[] edgeLabels) {
+    capturedPattern.addEdge(fromAlias, toAlias, dir, edgeLabels, null, null, null);
     hasEdges = true;
   }
 
@@ -336,11 +346,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
       String edgeAlias,
       String toAlias,
       MatchPatternBuilder.Direction edgeDir,
-      @Nullable String edgeLabel,
+      @Nullable String[] edgeLabels,
       MatchPatternBuilder.Direction closingVertexDir,
       @Nullable SQLWhereClause edgeFilter) {
     capturedPattern.addEdgeAsNode(
-        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter);
+        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabels, closingVertexDir, edgeFilter);
     hasEdges = true;
   }
 
@@ -427,6 +437,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public void markEdgeAlias(String internalAlias) {
+    parent.markEdgeAlias(internalAlias);
+  }
+
+  @Override
+  public boolean isEdgeAlias(String internalAlias) {
+    return parent.isEdgeAlias(internalAlias);
+  }
+
+  @Override
   public void clearReturnProjection() {
     // Swallowed — sub-walk children do not shape the parent's RETURN clause.
   }
@@ -450,6 +470,18 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void setReturnDistinct(boolean distinct) {
     // Swallowed: sub-walk filter children do not shape the parent's RETURN clause.
+  }
+
+  @Nullable @Override
+  public String rowDedupAlias() {
+    // Delegated like returnDistinct: a child must see a parent cardinality capture so it does
+    // not claim a step on the wrong side of the parent's prior-label filter.
+    return parent.rowDedupAlias();
+  }
+
+  @Override
+  public void setRowDedupAlias(@Nullable String alias) {
+    // Swallowed — see setReturnDistinct.
   }
 
   @Override
@@ -499,6 +531,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   public void setResultShaping(@Nonnull ResultShaping shaping) {
     // Swallowed — boundary row-projection shaping is pinned by terminal recognisers on the outer
     // context only; a combinator filter sub-walk never shapes the parent's rows.
+  }
+
+  @Override
+  public boolean emitGroupEntries() {
+    return false;
+  }
+
+  @Override
+  public void enableGroupEntryEmit() {
+    // Swallowed — see setResultShaping.
   }
 
   @Override

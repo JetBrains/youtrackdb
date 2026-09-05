@@ -56,9 +56,13 @@ final class WalkerContext implements RecognitionContext {
    *  entries on the same alias. */
   final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
 
-  /** Per-edge-alias WHERE clauses for non-adjacent edge filtering (the {@code outE(L).has(...).inV()}
-   *  shape). Populated by {@link #putEdgeFilter} for observability; the same clause also travels on
-   *  the edge path item via {@link #addEdgeAsNode}, so it is not re-read at result-build time. */
+  /**
+   * Per-edge-alias WHERE clauses for non-adjacent edge filtering (the {@code outE(L).has(...).inV()}
+   * shape). The same clause travels on the edge path item via {@link #addEdgeAsNode} for forward
+   * walks. {@link GremlinStepWalker#buildResult} also merges these entries into
+   * {@code MatchPlanInputs.aliasFilters} after {@code bindPathItemConstraints}, so a reverse-rooted
+   * schedule can apply them as {@code leftFilter} on the edge alias.
+   */
   final Map<String, SQLWhereClause> edgeFilters = new LinkedHashMap<>();
 
   /** Detached NOT pattern chains produced by edge-bearing {@code NotStep} recognisers. Wired into
@@ -323,6 +327,9 @@ final class WalkerContext implements RecognitionContext {
    *  {@link #nextEdgeAlias()}; see {@link #anonVertexAliases}. */
   private final AliasSequence edgeAliases = new AliasSequence(EDGE_ALIAS_PREFIX);
 
+  /** Internal pattern aliases that bind an edge-as-node hop (for edge {@code select} projection). */
+  private final Set<String> edgeBoundAliases = new HashSet<>();
+
   /** Convenience constructor with no schema snapshot — used by unit tests that exercise recogniser
    *  logic without a live session. Every property resolves as "not a declared String", so a
    *  {@code startingWith} routes to the strict full-scan form. Carries no registry, so it cannot drive
@@ -512,6 +519,47 @@ final class WalkerContext implements RecognitionContext {
     return clazz != null && clazz.isVertexType();
   }
 
+  @Override
+  public List<String> expandPolymorphicClassClosure(List<String> rootLabels) {
+    if (schema == null || rootLabels.isEmpty()) {
+      return List.copyOf(rootLabels);
+    }
+    var expanded = new java.util.LinkedHashSet<String>();
+    for (var root : rootLabels) {
+      if (root == null || root.isBlank()) {
+        continue;
+      }
+      expanded.add(root);
+      var clazz = schema.getClass(root);
+      if (clazz == null) {
+        continue;
+      }
+      for (var sub : clazz.getAllSubclasses()) {
+        if (sub.isVertexType()) {
+          expanded.add(sub.getName());
+        }
+      }
+    }
+    return List.copyOf(expanded);
+  }
+
+  @Override
+  public List<String> boundaryDeclaredPropertyKeys() {
+    var className = boundaryClassName();
+    if (schema == null || className == null || VERTEX_ROOT_CLASS.equals(className)) {
+      return List.of();
+    }
+    var clazz = schema.getClass(className);
+    if (clazz == null) {
+      return List.of();
+    }
+    return clazz.getProperties().stream()
+        .map(p -> p.getName())
+        .filter(name -> !isReservedHasKey(name))
+        .sorted()
+        .toList();
+  }
+
   // --- RecognitionContext: alias minting --------------------------------------------------------
 
   /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). Each call
@@ -541,8 +589,8 @@ final class WalkerContext implements RecognitionContext {
       String fromAlias,
       String toAlias,
       MatchPatternBuilder.Direction dir,
-      @Nullable String edgeLabel) {
-    patternBuilder.addEdge(fromAlias, toAlias, dir, edgeLabel, null, null, null);
+      @Nullable String[] edgeLabels) {
+    patternBuilder.addEdge(fromAlias, toAlias, dir, edgeLabels, null, null, null);
   }
 
   @Override
@@ -551,11 +599,11 @@ final class WalkerContext implements RecognitionContext {
       String edgeAlias,
       String toAlias,
       MatchPatternBuilder.Direction edgeDir,
-      @Nullable String edgeLabel,
+      @Nullable String[] edgeLabels,
       MatchPatternBuilder.Direction closingVertexDir,
       @Nullable SQLWhereClause edgeFilter) {
     patternBuilder.addEdgeAsNode(
-        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter);
+        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabels, closingVertexDir, edgeFilter);
   }
 
   @Override
@@ -660,6 +708,16 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
+  public void markEdgeAlias(String internalAlias) {
+    edgeBoundAliases.add(internalAlias);
+  }
+
+  @Override
+  public boolean isEdgeAlias(String internalAlias) {
+    return edgeBoundAliases.contains(internalAlias);
+  }
+
+  @Override
   public void clearReturnProjection() {
     returnItems.clear();
     returnAliases.clear();
@@ -681,6 +739,16 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void setReturnDistinct(boolean distinct) {
     this.returnDistinct = distinct;
+  }
+
+  @Nullable @Override
+  public String rowDedupAlias() {
+    return shaping.rowDedupAlias();
+  }
+
+  @Override
+  public void setRowDedupAlias(@Nullable String alias) {
+    this.shaping = shaping.withRowDedupAlias(alias);
   }
 
   @Override
@@ -741,6 +809,16 @@ final class WalkerContext implements RecognitionContext {
     // turns dropOnAbsent back on has to re-declare it; UnionStepRecogniser's agreed-shaping path
     // does not, so a post-union slice cannot promote and stays declined.
     this.presenceDropAlias = null;
+  }
+
+  @Override
+  public boolean emitGroupEntries() {
+    return shaping.emitGroupEntries();
+  }
+
+  @Override
+  public void enableGroupEntryEmit() {
+    this.shaping = shaping.withEmitGroupEntries(true);
   }
 
   @Override

@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLMatchPathItem extends SimpleNode {
 
@@ -31,16 +32,31 @@ public class SQLMatchPathItem extends SimpleNode {
 
   private void graphPath(SQLIdentifier edgeName, String direction) {
     if (edgeName == null) {
-      edgeName = new SQLIdentifier(-1);
-      edgeName.value = "E";
+      graphPath(direction, (String[]) null);
+      return;
     }
+    graphPath(direction, new String[] {edgeName.getStringValue()});
+  }
+
+  /**
+   * Builds {@code <direction>('L1', 'L2', …)} for one or more edge labels, or {@code
+   * <direction>('E')} when {@code edgeLabels} is null/empty (all edge types).
+   */
+  private void graphPath(String direction, @Nullable String[] edgeLabels) {
     this.method = new SQLMethodCall(-1);
     this.method.methodName = new SQLIdentifier(-1);
     this.method.methodName.value = direction;
-    var exp = new SQLExpression(-1);
-    var sub = new SQLBaseExpression(edgeName.getStringValue());
-    exp.mathExpression = sub;
-    this.method.addParam(exp);
+    if (edgeLabels == null || edgeLabels.length == 0) {
+      var exp = new SQLExpression(-1);
+      exp.mathExpression = new SQLBaseExpression("E");
+      this.method.addParam(exp);
+      return;
+    }
+    for (var label : edgeLabels) {
+      var exp = new SQLExpression(-1);
+      exp.mathExpression = new SQLBaseExpression(label);
+      this.method.addParam(exp);
+    }
   }
 
   public void inPath(SQLIdentifier edgeName) {
@@ -53,6 +69,24 @@ public class SQLMatchPathItem extends SimpleNode {
 
   public void outPath(SQLIdentifier edgeName) {
     graphPath(edgeName, "out");
+  }
+
+  /**
+   * Multi-label / label-less form of {@link #outPath(SQLIdentifier)}. Named separately so a
+   * {@code null} labels array is not ambiguous with {@code outPath((SQLIdentifier) null)}.
+   */
+  public void outPathWithLabels(@Nullable String[] edgeLabels) {
+    graphPath("out", edgeLabels);
+  }
+
+  /** Multi-label / label-less form of {@link #inPath(SQLIdentifier)}. */
+  public void inPathWithLabels(@Nullable String[] edgeLabels) {
+    graphPath("in", edgeLabels);
+  }
+
+  /** Multi-label / label-less form of {@link #bothPath(SQLIdentifier)}. */
+  public void bothPathWithLabels(@Nullable String[] edgeLabels) {
+    graphPath("both", edgeLabels);
   }
 
   public boolean isBidirectional() {

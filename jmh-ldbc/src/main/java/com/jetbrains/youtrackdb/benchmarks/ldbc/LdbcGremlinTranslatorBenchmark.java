@@ -518,7 +518,7 @@ public class LdbcGremlinTranslatorBenchmark {
    * {@code [ic4StartDate, ic4StartDate + 30 days)}.
    */
   @Benchmark
-  public Map<Object, Long> gremlin_ic4_friendPostTags(
+  public List<Map.Entry<Object, Long>> gremlin_ic4_friendPostTags(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     var start = state.ic4StartDate(i);
@@ -526,7 +526,7 @@ public class LdbcGremlinTranslatorBenchmark {
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes
             .ic4FriendPostTags(t, state.ic4PersonId(i), start, end)
-            .next());
+            .toList());
   }
 
   /** LDBC: IC5 reduced — see {@link GremlinTraversalShapes#ic5FriendPostForums}. */
@@ -540,11 +540,11 @@ public class LdbcGremlinTranslatorBenchmark {
 
   /** LDBC: IC6 reduced — see {@link GremlinTraversalShapes#ic6FriendPostTagCounts}. */
   @Benchmark
-  public Map<Object, Long> gremlin_ic6_friendPostTagCounts(
+  public List<Map.Entry<Object, Long>> gremlin_ic6_friendPostTagCounts(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
-        t -> GremlinTraversalShapes.ic6FriendPostTagCounts(t, state.ic6PersonId(i)).next());
+        t -> GremlinTraversalShapes.ic6FriendPostTagCounts(t, state.ic6PersonId(i)).toList());
   }
 
   /**

@@ -232,6 +232,18 @@ public final class ProjectionExpressionFactories {
   }
 
   /**
+   * {@code ORDER BY <projectionAlias> ASC|DESC} — a RETURN column name with no property modifier
+   * (e.g. group {@code key} / {@code value} after {@code groupCount().unfold()}).
+   */
+  public static SQLOrderByItem orderByProjectionAlias(String projectionAlias, boolean ascending) {
+    requireNonBlank(projectionAlias, "projectionAlias");
+    var item = new SQLOrderByItem();
+    item.setAlias(projectionAlias);
+    item.setType(ascending ? SQLOrderByItem.ASC : SQLOrderByItem.DESC);
+    return item;
+  }
+
+  /**
    * {@code ORDER BY item1, item2, …} — the clause container around items built by
    * {@link #orderByProperty} / {@link #orderByRecordAttribute}. The list is copied into a fresh
    * mutable list, because {@link SQLOrderBy#setItems} stores the reference and {@link

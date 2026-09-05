@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,6 +33,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalSte
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
+import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -327,6 +329,82 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
     assertThat(ctx.orderBy).isNull();
+  }
+
+  /**
+   * With {@code emitGroupEntries}, {@code order().by(Column.values/keys)} maps to ORDER BY
+   * {@code value}/{@code key} even though a GROUP BY is captured.
+   */
+  @Test
+  public void orderByColumnOverGroupEntries_ordersByValueThenKey() {
+    var admin = graph.traversal().V()
+        .order().by(Column.values, Order.desc).by(Column.keys, Order.asc)
+        .asAdmin();
+    var ctx = seededGroupEntryContext();
+    var cursor = cursorAt(admin, OrderGlobalStep.class);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("value");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("DESC");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("key");
+    assertThat(ctx.orderBy.toString()).containsIgnoringCase("ASC");
+    assertThat(ctx.orderAllowsSliceOnCurrentBoundary()).isTrue();
+  }
+
+  /** Property {@code by("age")} over group entries declines — wrong semantics for Map.Entry rows. */
+  @Test
+  public void orderByPropertyOverGroupEntries_declines() {
+    var admin = graph.traversal().V().order().by("age").asAdmin();
+    var ctx = seededGroupEntryContext();
+    var cursor = cursorAt(admin, OrderGlobalStep.class);
+
+    var outcome = OrderGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.orderBy).isNull();
+  }
+
+  /** Without emitGroupEntries, order after GROUP BY still declines. */
+  @Test
+  public void orderAfterGroupByWithoutEntries_declines() {
+    var admin = graph.traversal().V().order().by("name").asAdmin();
+    var ctx = seededContext();
+    ctx.setGroupBy(new SQLGroupBy(-1));
+
+    var outcome = recognizeOrder(admin, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.orderBy).isNull();
+  }
+
+  /** With emitGroupEntries, {@code limit(n)} attaches LIMIT to GROUP BY / entry rows. */
+  @Test
+  public void limitOverGroupEntries_setsLimit() {
+    var admin = graph.traversal().V().limit(2).asAdmin();
+    var ctx = seededGroupEntryContext();
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    var outcome = RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.limit).isNotNull();
+    assertThat(ctx.limit.toString()).contains("2");
+  }
+
+  /** Without emitGroupEntries, limit after GROUP BY declines. */
+  @Test
+  public void limitAfterGroupByWithoutEntries_declines() {
+    var admin = graph.traversal().V().limit(2).asAdmin();
+    var ctx = seededContext();
+    ctx.setGroupBy(new SQLGroupBy(-1));
+    var cursor = cursorAt(admin, RangeGlobalStep.class);
+
+    var outcome = RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.limit).isNull();
   }
 
   /** {@code limit(5)} is {@code RangeGlobalStep(0, 5)} → {@code LIMIT 5} only. */
@@ -2001,6 +2079,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   private static Object trailingOrderModulator(Traversal.Admin<?, ?> admin) {
     var orderStep = (OrderGlobalStep<?, ?>) stepOf(admin, OrderGlobalStep.class);
     return orderStep.getComparators().getLast().getValue0();
+  }
+
+  /** GROUP BY captured and entry emit enabled — as after {@code groupCount().unfold()}. */
+  private static WalkerContext seededGroupEntryContext() {
+    var ctx = seededContext();
+    ctx.setGroupBy(new SQLGroupBy(-1));
+    ctx.enableGroupEntryEmit();
+    return ctx;
   }
 
   private static Outcome recognizeOrder(Traversal.Admin<?, ?> admin, WalkerContext ctx) {

@@ -342,6 +342,7 @@ final class GremlinStepWalker {
           CountGlobalStepRecogniser.INSTANCE,
           RangeGlobalStepRecogniser.INSTANCE,
           DedupGlobalStepRecogniser.INSTANCE,
+          OrderGlobalStepRecogniser.INSTANCE,
           UnfoldStepRecogniser.INSTANCE,
           ReverseStepRecogniser.INSTANCE,
           TailGlobalStepRecogniser.INSTANCE);
@@ -769,7 +770,10 @@ final class GremlinStepWalker {
    * story and promotes the drop into a pattern conjunct when a slice arrives.
    */
   private static boolean capturedCardinalityClause(RecognitionContext ctx) {
-    return ctx.skip() != null || ctx.limit() != null || ctx.returnDistinct();
+    return ctx.skip() != null
+        || ctx.limit() != null
+        || ctx.returnDistinct()
+        || ctx.rowDedupAlias() != null;
   }
 
   /**
@@ -1163,8 +1167,7 @@ final class GremlinStepWalker {
    * Otherwise locks the pattern, merges alias filters, and packages a single-plan
    * {@link MatchPlanInputs}.
    *
-   * <p>Returns {@code null} to decline a bare RID point-lookup (single node, zero edges) — see the
-   * inline note; declining leaves the traversal on the native pipeline unchanged.
+   * <p>Returns {@code null} when the walk produced nothing translatable.
    */
   @Nullable private static GremlinToMatchTranslator.TranslationResult buildResult(WalkerContext ctx) {
     if (ctx.hasUnionCarrier()) {
@@ -1180,18 +1183,6 @@ final class GremlinStepWalker {
 
     var ir = ctx.patternBuilder.build();
 
-    // Bare RID point-lookup (g.V(id) / g.V(ids) with no subsequent hop): a single pinned node and
-    // zero edges. Native resolves the RIDs directly with no query at all, whereas the translator
-    // would compile an UNCACHED MATCH plan every call (a RID-bearing walk sets cacheEligible=false,
-    // so it bypasses GremlinPlanCache) — a net regression with no join to optimise. Decline so native
-    // handles it; a decline is trivially on==off (both run the native pipeline). A RID start FOLLOWED
-    // by hops has at least one edge and still translates, since the join is where MATCH can win.
-    if (ctx.ridBearing()
-        && ir.pattern().getNumOfEdges() == 0
-        && ir.pattern().aliasToNode.size() == 1) {
-      return null;
-    }
-
     Map<String, SQLWhereClause> finalAliasFilters = new LinkedHashMap<>(ir.aliasFilters());
     // AND-compose recogniser-contributed filters with any builder-supplied filter on the same alias
     // rather than overwriting: a hasLabel(L) @class narrowing and a has(...) predicate can both land
@@ -1205,6 +1196,15 @@ final class GremlinStepWalker {
     // point where both halves exist — the pattern is assembled and the recogniser-contributed
     // filters are merged — so the pass runs here.
     bindPathItemConstraints(ir.pattern(), finalAliasFilters, ir.aliasClasses());
+
+    // Edge-as-node WHERE also lives on the path item (forward MatchEdgeTraverser reads it there).
+    // Reverse schedules root at a selective target and walk back through the edge alias via
+    // MatchReverseEdgeTraverser, which only sees leftFilter from aliasFilters — so merge edge
+    // filters here, after bindPathItemConstraints, to avoid AND-ing the same clause onto the path
+    // item a second time.
+    for (var entry : ctx.edgeFilters.entrySet()) {
+      finalAliasFilters.merge(entry.getKey(), entry.getValue(), GremlinStepWalker::andWhere);
+    }
 
     // Only the fields a single-node g.V() translation actually carries are set; the rest keep their
     // null/false defaults (matchExpressions/notMatchExpressions normalise to empty lists in the

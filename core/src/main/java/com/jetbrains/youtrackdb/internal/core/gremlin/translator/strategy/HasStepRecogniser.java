@@ -67,8 +67,8 @@ import org.apache.tinkerpop.gremlin.structure.T;
  * <h2>Translate-all-then-contribute</h2>
  *
  * The recogniser validates and translates <em>every</em> container before it mutates the context: an
- * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id, a
- * size-1 collection equality) declines with zero {@code WalkerContext} mutation. The label bind opens
+ * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id)
+ * declines with zero {@code WalkerContext} mutation. The label bind opens
  * the contribution block for the same reason — a colliding label declines before the re-type and the
  * filter land, and {@code bindStepLabels} itself checks every label before it writes any of them.
  * The accumulated filters go in through one {@link RecognitionContext#putAliasFilter} on the boundary
@@ -130,14 +130,6 @@ final class HasStepRecogniser implements StepRecogniser {
       } else if (labelConstraint.conflictsWith(parsed)) {
         return Outcome.DECLINE;
       }
-    }
-
-    // A multi-label hasLabel(L1, L2) is expressed as @class IN [L1, L2, …], which is leaf-exact and
-    // therefore drops polymorphic subclasses of L1/L2. In polymorphic mode that under-matches native
-    // hierarchy-aware hasLabel, so decline to native (there is no cheap subclass expansion here). The
-    // non-polymorphic @class IN path stays — it mirrors native non-polymorphic hasLabel exactly.
-    if (labelConstraint instanceof ParsedLabelConstraint.Multi && ctx.polymorphic()) {
-      return Outcome.DECLINE;
     }
 
     // A hasLabel on a class that does not exist in the schema at translation time declines to
@@ -218,7 +210,11 @@ final class HasStepRecogniser implements StepRecogniser {
         whereExprs.add(WHERE.classEquals(name));
       }
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
-      whereExprs.add(WHERE.classIn(multi.names()));
+      var classNames =
+          ctx.polymorphic()
+              ? ctx.expandPolymorphicClassClosure(multi.names())
+              : multi.names();
+      whereExprs.add(WHERE.classIn(classNames));
     }
     if (!whereExprs.isEmpty()) {
       var merged = WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0]));

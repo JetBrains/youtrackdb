@@ -6,11 +6,14 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ValuesFlatMapListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
 
 /**
@@ -76,16 +79,20 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
         .isNull();
   }
 
-  /** Multi-key {@code values("a","b")} declines — flatMap has no boundary equivalent yet. */
+  /** Multi-key {@code values("a","b")} pins ELEMENT projection + {@link ValuesFlatMapListShapingOp}. */
   @Test
-  public void valuesMultiKey_declines() {
+  public void valuesMultiKey_pinsFlatMapShaping() {
     var admin = graph.traversal().V().values("a", "b").asAdmin();
     var ctx = contextAfterStart(admin);
     var cursor = cursorAt(admin, PropertiesStep.class);
 
     var outcome = PropertiesStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.ELEMENT);
+    assertThat(ctx.shaping().listShapingOps()).hasSize(1);
+    assertThat(ctx.shaping().listShapingOps().getFirst())
+        .isInstanceOf(ValuesFlatMapListShapingOp.class);
   }
 
   /** {@code select("v")} after {@code as("v")} surfaces the label in RETURN as {@code MAP}. */
@@ -138,12 +145,32 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnItems.getFirst().toString()).doesNotContain(".name");
   }
 
-  /** Bare {@code valueMap()} declines — all-property enumeration is deferred. */
+  /** Bare {@code valueMap()} on the generic {@code V} root declines. */
   @Test
   public void bareValueMap_declines() {
     var admin = graph.traversal().V().valueMap().asAdmin();
     var ctx = contextAfterStart(admin);
     var cursor = cursorAt(admin, PropertyMapStep.class);
+
+    var outcome = PropertyMapStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** Keyless {@code valueMap()} on {@code hasLabel(Person)} still declines (schemaless gap). */
+  @Test
+  public void valueMap_keyless_onHasLabelPerson_declines() {
+    session.getSchema().createClass("Person", session.getSchema().getClass("V"));
+    session.getSchema().getClass("Person").createProperty("name", PropertyType.STRING);
+    session.getSchema().getClass("Person").createProperty("age", PropertyType.INTEGER);
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    var admin = graph.traversal().V().hasLabel("Person").valueMap().asAdmin();
+    var ctx = new WalkerContext(true, false, session.getSchema());
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    assertThat(StartStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
 
     var outcome = PropertyMapStepRecogniser.INSTANCE.recognize(cursor, ctx);
 

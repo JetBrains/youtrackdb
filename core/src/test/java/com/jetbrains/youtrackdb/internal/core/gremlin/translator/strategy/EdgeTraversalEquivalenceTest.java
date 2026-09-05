@@ -615,16 +615,15 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Decline case — a multi-label hop falls back to native.
+  // Multi-label hop — MATCH out('a','b') carries both labels.
   // ---------------------------------------------------------------------------
 
   /**
-   * A multi-label hop {@code g.V().out("knows", "likes")} declines — multi-label edge traversal is
-   * out of scope for Phase 1. Seeded with both a {@code knows} and a {@code likes} edge so the native
-   * fallback returns a non-trivial two-label result the equivalence check pins.
+   * A multi-label hop {@code g.V().out("knows", "likes")} translates. Seeded with both a {@code
+   * knows} and a {@code likes} edge so the multiset covers both labels.
    */
   @Test
-  public void multiLabelHop_declinesToNative() {
+  public void multiLabelHop_returnsSameMultisetAsNative() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
@@ -634,8 +633,87 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().out(knows, likes) (multi-label)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("knows", "likes"));
+  }
+
+  /**
+   * Multi-label edge filter chain {@code outE("knows","likes").has("since", lt).inV()} translates
+   * and matches native — both labels on the edge method, edge property filter retained.
+   */
+  @Test
+  public void multiLabelOutEHasInV_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("likes", carol, "since", 2011);
+    alice.addEdge("knows", dave, "since", 2020); // filtered out by since < 2015
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V(alice).outE(knows, likes).has(since, lt 2015).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(alice.id()).outE("knows", "likes").has("since", P.lt(2015))
+            .inV());
+  }
+
+  /**
+   * A multi-label hop {@code g.V().in("knows", "likes")} translates — same {@code String[]} plumbing
+   * as {@code out(a,b)}.
+   */
+  @Test
+  public void multiLabelInHop_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("likes", carol);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().in(knows, likes) (multi-label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().in("knows", "likes"));
+  }
+
+  /**
+   * A multi-label hop {@code g.V().both("knows", "likes")} translates.
+   */
+  @Test
+  public void multiLabelBothHop_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("likes", carol);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().both(knows, likes) (multi-label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().both("knows", "likes"));
+  }
+
+  /**
+   * Multi-label {@code inE("knows","likes").has("since", lt).outV()} translates.
+   */
+  @Test
+  public void multiLabelInEHasOutV_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("likes", carol, "since", 2011);
+    alice.addEdge("knows", dave, "since", 2020);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V(bob).inE(knows, likes).has(since, lt 2015).outV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(bob.id()).inE("knows", "likes").has("since", P.lt(2015)).outV());
   }
 
   // ---------------------------------------------------------------------------
@@ -996,6 +1074,24 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         "g.V(marko, josh).outE().has(weight, 1.0).inV().has(lang, java)",
         Recognition.RECOGNIZED,
         traversal);
+  }
+
+  /**
+   * Unpinned {@code g.V().outE(knows).has(weight,gte 1.0).inV().hasLabel(Person)} lets the planner
+   * root at the labelled Person target and reverse-walk the edge-as-node chain. Edge weight must
+   * still apply (via aliasFilters on the edge alias) so only josh survives — same multiset as native.
+   */
+  @Test
+  public void unpinnedOutEHasInVHasLabel_returnsSameMultisetAsNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().outE(knows).has(weight,gte 1.0).inV().hasLabel(Person)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .outE("knows")
+            .has("weight", P.gte(1.0d))
+            .inV()
+            .hasLabel("Person"));
   }
 
   // ---------------------------------------------------------------------------
