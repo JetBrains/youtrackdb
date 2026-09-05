@@ -61,46 +61,33 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  *
  * <h2>A slice behind a captured {@code ORDER BY}</h2>
  *
- * A slice selects rows by position, and a captured {@code ORDER BY} fixes positions only as far as
- * the sort key separates the rows. MATCH's {@code ORDER BY a.name} is a partial order: rows sharing
- * a name form one tie group whose internal order the statement does not constrain, so a bound that
- * cuts inside a tie group keeps an arbitrary member of it. Gremlin's {@code order()} is a stable
- * sort and keeps traverser arrival order among ties, so its cut is reproducible. When the cut falls
- * inside a tie group the two arms keep different rows, which puts the divergence in the row set and
- * not only in its order.
+ * A slice selects rows by position. MATCH {@code ORDER BY} leaves equal-key ties
+ * implementation-defined (heap / scan order) — the same contract YQL {@code ORDER BY} +
+ * {@code LIMIT} already ships. Gremlin {@code order()} is stable relative to traverser arrival,
+ * which the language does not pin for graph steps, so portable Gremlin also leaves which tied
+ * entity survives a cut unspecified. This recogniser therefore accepts a real slice behind
+ * {@code order()} when:
  *
- * <p>Measured on six vertices — two hubs with two {@code knows} targets each, inserted so that
- * insertion order and sorted order disagree. {@code g.V().order().by(name).out(knows).values(name)}
- * agrees on both arms; adding {@code .limit(3)} returns {@code [AbeTarget1, AbeTarget2, ZedTarget1]}
- * translated against {@code [AbeTarget1, AbeTarget2, ZedTarget2]} native, the bound cutting the
- * {@code Zed} tie group with each arm keeping a different member. Without a hop the divergence is a
- * reordering: on four vertices three of which share a name,
- * {@code g.V().order().by(name).limit(2).values(tag)} returns {@code [t1, t2]} against
- * {@code [t2, t1]}. Both unsliced spellings agree, so the slice is what moves the rows.
+ * <ol>
+ *   <li>The boundary at slice time is still the alias the {@code ORDER BY} was captured on. A hop
+ *       between {@code order()} and the slice fans one sorted row into several results whose cut is
+ *       not the statement's {@code LIMIT} over the sorted source (measured:
+ *       {@code order().by(name).out(knows).limit(3)} disagreed on membership, not only remis
+ *       order).
+ * </ol>
  *
- * <p>So a real slice declines once an {@code ORDER BY} has been captured. The rule is blunt on
- * purpose, and no sort this recogniser can see is provably total. A unique index on the sort key
- * would settle the key itself, but it does not settle the rows: the measured divergence above has a
- * hop after the sort, and the tie group there comes from the join fanning one sorted root row out to
- * several result rows, which a unique key does nothing about. A bare {@code order()} is not the
- * exception it once was either — {@code OrderGlobalStepRecogniser.resolveSortItem} keys a bare
- * {@code order()} on the preceding {@code values(k)} projection when there is one, so only the
- * unprojected spelling still keys on {@code @rid}. A carve-out therefore needs a unique-index lookup
- * the recogniser cannot reach today <em>and</em> a no-fan-out condition on everything after the sort,
- * which is a new gate rather than a relaxed clause on this one.
+ * <p>Foreign-alias sort keys (e.g. {@code order().by(select("reply").by("creationDate"))}) and
+ * multi-alias {@code select} after the slice are accepted. Equal-key ties — including rows that
+ * differ only on a non-sort-key alias — follow MATCH {@code OrderByStep} (implementation-defined,
+ * as in YQL {@code ORDER BY} + {@code LIMIT} and as non-unique single-alias ordered slices).
  *
- * <p>The bill is top-N, and it is paid in resident memory as well as in CPU.
- * {@code g.V().order().by(k).limit(n)} gives up its plan and runs on the native traverser pipeline,
- * the same bill the post-union slice below pays. Translated, the sort is bounded: both planners derive
- * {@code maxResults = skip + limit} and hand it to {@code OrderByStep}, which keeps a min-heap of that
- * size rather than every row. Natively it is not: TinkerPop's {@code OrderGlobalStep} is a
- * {@code CollectingBarrierStep} that drains its whole input into a {@code TraverserSet} before
- * emitting anything, and {@code OrderLimitStrategy} — the one pass that would push the following
- * limit into it — returns immediately off a {@code GraphComputer}, so an embedded traversal leaves the
- * step's limit unset. A {@code limit(10)} over a million-vertex class therefore holds a million live
- * traversers where the plan held ten. The exit is a translated order that reproduces native's — a RID
- * tie-break makes the cut deterministic without making it native's, so it closes the arbitrariness and
- * leaves the divergence.
+ * <p>UNIQUE indexes are not required. Accepting non-unique keys matches YQL and unlocks LDBC-style
+ * {@code order().by(firstName).range(...)} as a MATCH top-N plan. Translator-on and translator-off
+ * may keep different members of a tie group; that is accepted, as it is for SQL.
+ *
+ * <p>The bill recovered is resident memory and CPU: translated, {@code OrderByStep} keeps a
+ * min-heap of {@code skip + limit}; natively {@code OrderGlobalStep} drains the whole input because
+ * {@code OrderLimitStrategy} does not run on embedded traversals.
  *
  * <h2>A slice behind a grouping terminator</h2>
  *
@@ -198,13 +185,11 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (normalized.noop()) {
       return Outcome.ACCEPTED;
     }
-    // A real slice behind a captured ORDER BY cuts into a tie group the sort does not resolve, and
-    // the two pipelines resolve it differently — see the class Javadoc's "A slice behind a captured
-    // ORDER BY". Same placement rationale as the no-op test: a slice that selects no position
-    // cannot cut into anything. The decline is not free on memory either: it trades the plan's
-    // bounded top-N heap for the native barrier step's full materialisation, which the same Javadoc
-    // section prices along with what a narrower rule would need.
-    if (ctx.orderBy() != null) {
+    // A real slice behind a captured ORDER BY is accepted when the boundary at slice time is still
+    // the alias the ORDER BY was captured on — see the class Javadoc. Equal-key ties are
+    // implementation-defined (YQL-equivalent). Hop-then-slice declines via
+    // orderAllowsSliceOnCurrentBoundary(); foreign-alias sort keys and multi-alias RETURN do not.
+    if (ctx.orderBy() != null && !ctx.orderAllowsSliceOnCurrentBoundary()) {
       return Outcome.DECLINE;
     }
     // A real slice behind a grouping terminator would slice the GROUP BY rows instead of the single
@@ -215,9 +200,12 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     }
     // Promotion mutates the context (writes alias filters), so it sits after every remaining
     // decline. A no-op slice never reaches here. See the class Javadoc's "A slice behind a
-    // drop-on-absent projection".
-    if (ctx.dropsRowsOnAbsentProperty() && !ctx.promotePresenceDropToPatternFilter()) {
-      return Outcome.DECLINE;
+    // drop-on-absent projection". Order between values(k) and the slice forbids promotion — only
+    // the direct values(k).limit(n) spelling is promoted.
+    if (ctx.dropsRowsOnAbsentProperty()) {
+      if (ctx.orderBy() != null || !ctx.promotePresenceDropToPatternFilter()) {
+        return Outcome.DECLINE;
+      }
     }
     if (normalized.skip() > 0) {
       ctx.setSkip(ProjectionExpressionFactories.skip(normalized.skip()));

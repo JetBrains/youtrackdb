@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -24,6 +25,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -114,6 +116,48 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
               .as("native drops the four ageless rows first, so limit(1) keeps the one age")
               .containsExactly(44);
           assertThat(graph.traversal().V().values("age").skip(1).toList())
+              .as("native has nothing left to skip past")
+              .isEmpty();
+        });
+  }
+
+  /**
+   * THE PRE-CUT SELECT RESTORE, recorded as finding PF6.
+   *
+   * <p>A {@code select(...).by(key)} presence rides post-plan as an {@code AliasPropertyPresence}
+   * and is deliberately NOT contributed as a pattern conjunct, because {@code IS DEFINED} has no
+   * estimator in MATCH root selection and would move the root. A slice behind such a projection
+   * is the case where post-plan is too late: {@code LIMIT} would count rows the drop has not
+   * removed yet, where Gremlin counts survivors. The slice recogniser therefore promotes the
+   * presence into {@code key IS DEFINED} before the cut.
+   *
+   * <p>Only the last-scanned vertex carries {@code age=44}, which is what makes the promotion
+   * observable: {@code limit(1)} keeps that one value, and {@code skip(1)} has nothing left to
+   * skip past. Without the promotion the cut lands on the four ageless rows first and
+   * {@code limit(1)} returns empty against a native {@code [44]}. The twin above covers the same
+   * promotion for {@code values(key)}; this one covers the {@code select} presence list, which is
+   * a separate branch of the promotion.
+   */
+  @Test
+  public void selectByThenSlice_translatesAndCountsSurvivors() {
+    seedAgeOnLastScannedVertex();
+
+    assertEquivalent(
+        "g.V().as(p).select(p).by(age).limit(1)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().as("p").select("p").by("age").limit(1));
+    assertEquivalent(
+        "g.V().as(p).select(p).by(age).skip(1)",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().as("p").select("p").by("age").skip(1));
+
+    withTranslatorOff(
+        () -> {
+          assertThat(graph.traversal().V().as("p").select("p").by("age").limit(1).toList())
+              .as("native drops the four ageless rows first, so limit(1) keeps the one age")
+              .containsExactly(44);
+          assertThat(graph.traversal().V().as("p").select("p").by("age").skip(1).toList())
               .as("native has nothing left to skip past")
               .isEmpty();
         });
@@ -716,7 +760,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.tx().commit();
 
-    // Zero matched vertices → YQL aggregate null cell → dropNullRows drops the row. Empty by design,
+    // Zero matched vertices → SQL aggregate null cell → dropNullRows drops the row. Empty by design,
     // so it opts out of the non-empty guard.
     assertEquivalent(
         "g.V().has(name, nobody).values(age).sum()",
@@ -1092,28 +1136,38 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A real slice behind {@code order().by(k)} declines, because MATCH's {@code ORDER BY} on a
-   * repeated key is a partial order and a bound cutting inside a tie group keeps an arbitrary
-   * member of it. Three of the four vertices here share the name {@code Tie}, so {@code LIMIT 2}
-   * cuts inside that group: before the decline the translated arm returned {@code [t1, t2]} where
-   * native's stable sort returned {@code [t2, t1]}.
+   * A real slice behind {@code order().by(k)} on the same boundary translates. MATCH's
+   * {@code ORDER BY} on a repeated key is a partial order, so a bound cutting inside a tie group
+   * keeps some member of that group. Three of the four vertices here share the name {@code Tie},
+   * so {@code LIMIT 2} cuts inside that group.
    *
-   * <p>The comparison is the ordered one because {@code order()} makes the sequence the answer.
-   * Where the same cut falls behind a hop it costs a row outright rather than a position — that
-   * case lives beside the other cardinality-clause equivalences in
-   * {@code OrderRangeStepRecogniserTest}.
+   * <p>Asserted: the translator engages one boundary step, the cut returns exactly the limit, and
+   * every returned row belongs to the tied group. Deliberately not asserted: which two members
+   * survive, and their relative order. Tie-member choice under a cut is implementation-defined
+   * here, and ordering inside an equal-key group is a separate contract.
+   *
+   * <p>This test previously required a decline, and the measured divergence it cited was
+   * {@code [t1, t2]} against native's {@code [t2, t1]}. That expectation came from the pre-rebase
+   * unconditional decline in {@code RangeGlobalStepRecogniser}, which the ordered-slice work
+   * replaced with a conditional accept through
+   * {@code WalkerContext.orderAllowsSliceOnCurrentBoundary}. The contract below is the one the
+   * shipped code commits to. Where the same cut falls behind a hop it still declines, and that
+   * case lives in {@code OrderRangeStepRecogniserTest}.
    */
   @Test
-  public void orderThenLimit_declinesOnTiedSortKey() {
+  public void orderThenLimit_translatesAndKeepsLimitManyFromTiedGroup() {
+    // Zzz is inserted first on purpose. It sorts last, so a plan that ignored the sort and kept
+    // the first two rows it saw would return z and fail the membership assertion. Inserting it
+    // last would let an unordered plan pass.
+    graph.addVertex(T.label, "Person", "name", "Zzz", "tag", "z");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t3");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t1");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t2");
-    graph.addVertex(T.label, "Person", "name", "Zzz", "tag", "z");
     graph.tx().commit();
 
     // Fixture precondition: the bound is load-bearing only if the sort key ties across it. If
     // positions 1 and 2 of native's ordered answer carried different names, ORDER BY alone would
-    // determine which rows LIMIT 2 keeps and the decline would be guarding nothing.
+    // decide which rows LIMIT 2 keeps and the membership assertion would guard nothing.
     var nativeKeys = nativeOrderedNames();
     assertThat(nativeKeys)
         .as("the fixture must supply at least three rows for the LIMIT 2 boundary to sit inside")
@@ -1122,10 +1176,21 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         .as("the fixture must tie the sort key across the LIMIT 2 boundary")
         .isEqualTo(nativeKeys.get(2));
 
-    assertEquivalentOrdered(
-        "g.V().order().by(name).limit(2).values(tag)",
-        Recognition.DECLINED,
-        () -> graph.traversal().V().order().by("name").limit(2).values("tag"));
+    var tiedGroupTags = List.of("t1", "t2", "t3");
+    withTranslatorOn(
+        () -> {
+          var admin = graph.traversal().V().order().by("name").limit(2).values("tag").asAdmin();
+          admin.applyStrategies();
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin.getSteps()))
+              .as("g.V().order().by(name).limit(2).values(tag) must translate — "
+                  + "exactly one boundary step")
+              .isEqualTo(1);
+          var rows = admin.toList().stream().map(String::valueOf).toList();
+          assertThat(rows)
+              .as("the cut must keep exactly the limit, and only rows of the tied group")
+              .hasSize(2)
+              .isSubsetOf(tiedGroupTags);
+        });
   }
 
   /** Native's ordered name sequence, read translator-off so the sort is Gremlin's own stable one. */
@@ -1445,7 +1510,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   /**
    * {@code group().by("age")} and {@code groupCount().by("age")} carry no {@code null} bucket. This
-   * is the one shape where the drop cannot be done after the fact — YQL forms the bucket during
+   * is the one shape where the drop cannot be done after the fact — SQL forms the bucket during
    * aggregation, so the conjunct has to filter the rows that feed it.
    */
   @Test
@@ -1847,7 +1912,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   /**
    * {@code values("age").mean()} divides in floating point: 30 and 25 average to 27.5, not 27. The
-   * ages are chosen not to divide evenly, because an evenly-dividing fixture cannot tell the YQL
+   * ages are chosen not to divide evenly, because an evenly-dividing fixture cannot tell the SQL
    * {@code mean} aggregate apart from {@code avg}, whose integer division is why {@code mean}
    * exists.
    */
@@ -1862,7 +1927,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * The group value side reaches the same {@code mean} YQL function through a different builder
+   * The group value side reaches the same {@code mean} SQL function through a different builder
    * call than {@code values(k).mean()} does: a grouped RETURN column rather than a single-plan
    * property aggregate. It resolves only because that function is registered — before the
    * registration the shape translated and then failed at execution — so it needs its own case. The
@@ -1880,6 +1945,438 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().group().by(city).by(values(age).mean())",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().group().by("city").by(__.values("age").mean()));
+  }
+
+  // ---------------------------------------------------------------------------
+  // select behind a captured RETURN DISTINCT. dedup() compiles to DISTINCT over
+  // whatever RETURN holds when the plan is assembled, and it keys on the boundary
+  // element. A select is therefore sound only while every projected label
+  // resolves to that boundary alias; a label naming any other alias has no
+  // correct RETURN in this dialect, because MATCH has no DISTINCT ON.
+  //
+  // Every case runs on the one fixture below, where the dedup removes exactly one
+  // of two hop rows. That makes both directions countable and independent of scan
+  // order: a sound shape returns one row, and the unsound RETURN a translation
+  // would have shipped returns two. Row counts rather than row content, because
+  // which of two tied duplicates dedup() keeps depends on the scan order and this
+  // engine does not pin it.
+  //
+  // Each declined case also carries the same shape without the dedup() as a
+  // control. A decline puts both arms on the native pipeline, so the row equality
+  // inside the harness cannot fail and the boundary count is the only live
+  // assertion -- the control is what attributes that zero to this gate rather
+  // than to some other decline upstream.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * S1 — {@code dedup().select(boundary)} translates. The projected label is the deduped boundary
+   * alias, so {@code RETURN DISTINCT} keys on exactly what {@code dedup()} keys on.
+   *
+   * <p>The dedup-less control returns both hop rows, which is what separates "the DISTINCT arrived
+   * and removed the duplicate" from "the DISTINCT was a no-op on this fixture".
+   */
+  @Test
+  public void selectAfterDedup_boundaryLabel_translates() {
+    seedTwoSourcesSharingOneTarget();
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).as(t).dedup().select(t)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+            .dedup().select("t"));
+
+    assertThat(graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+        .dedup().select("t").toList())
+        .as("both hop rows reach the same target, so the dedup leaves one")
+        .hasSize(1);
+    assertThat(graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+        .select("t").toList())
+        .as("fixture premise: without the dedup the same shape returns two rows, so the case above "
+            + "witnesses a DISTINCT that actually removed one")
+        .hasSize(2);
+  }
+
+  /**
+   * S3 — {@code dedup().select(boundary).by(key)} translates. RETURN carries the boundary entity
+   * column and the value is read from that entity after the plan runs, so the {@code DISTINCT} key
+   * is still the boundary element.
+   */
+  @Test
+  public void selectAfterDedupWithBy_boundaryLabel_translates() {
+    seedTwoSourcesSharingOneTarget();
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).as(t).dedup().select(t).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+            .dedup().select("t").by("name"));
+
+    assertThat(graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+        .dedup().select("t").by("name").toList())
+        .as("one name per distinct target")
+        .containsExactly("Bob");
+  }
+
+  /**
+   * S5, admitted half — a multi-label select after {@code dedup()} translates when every label
+   * resolves to the boundary. {@code as("t", "u")} labels the hop target twice, so both RETURN
+   * columns read the deduped alias and the projected tuple still separates boundary elements.
+   */
+  @Test
+  public void selectAfterDedup_multiLabelAllResolvingToBoundary_translates() {
+    seedTwoSourcesSharingOneTarget();
+
+    assertEquivalent(
+        "g.V().out(knows).as(t, u).dedup().select(t, u)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").out("knows").as("t", "u")
+            .dedup().select("t", "u"));
+
+    assertThat(graph.traversal().V().hasLabel("Person").out("knows").as("t", "u")
+        .dedup().select("t", "u").toList())
+        .as("both labels name the deduped target, so the two-entry map is emitted once")
+        .hasSize(1);
+  }
+
+  /**
+   * S2 — {@code dedup().select(foreignLabel)} declines. Native dedups on the hop target and then
+   * projects the source, so one row survives. {@code RETURN DISTINCT p} would key on the source
+   * instead, and the two sources are distinct, so it would return both rows.
+   *
+   * <p>The two translated-arm counts are pinned before the decline (translator enabled by default),
+   * so a regression that reopens the shape reports the doubled row set rather than only a boundary
+   * count.
+   */
+  @Test
+  public void selectAfterDedup_foreignLabel_declines() {
+    seedTwoSourcesSharingOneTarget();
+
+    assertThat(
+        graph.traversal().V().hasLabel("Person").as("p").out("knows")
+            .dedup().select("p").toList())
+        .as("dedup keys on the hop target, so only one of the two sources survives")
+        .hasSize(1);
+    assertThat(
+        graph.traversal().V().hasLabel("Person").as("p").out("knows").select("p").toList())
+        .as("a DISTINCT on the source could not have removed either of these two rows, which is "
+            + "why no RETURN over the source expresses this shape")
+        .hasSize(2);
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).dedup().select(p)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows")
+            .dedup().select("p"));
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).select(p) (control: no dedup)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").select("p"));
+  }
+
+  /** S4 — the {@code by(key)} spelling of S2 declines through the same gate. */
+  @Test
+  public void selectAfterDedupWithBy_foreignLabel_declines() {
+    seedTwoSourcesSharingOneTarget();
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).dedup().select(p).by(name)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows")
+            .dedup().select("p").by("name"));
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).select(p).by(name) (control: no dedup)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows")
+            .select("p").by("name"));
+  }
+
+  /**
+   * S5, declined half — a multi-label select after {@code dedup()} declines as soon as one label
+   * names an alias other than the boundary. Keeping the boundary column beside the foreign one
+   * over-produces: the pair {@code (p, t)} is distinct on both hop rows, so the {@code DISTINCT}
+   * removes nothing and the second row survives where native dropped it.
+   */
+  @Test
+  public void selectAfterDedup_multiLabelReachingForeignAlias_declines() {
+    seedTwoSourcesSharingOneTarget();
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).as(t).dedup().select(p, t)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+            .dedup().select("p", "t"));
+
+    assertEquivalent(
+        "g.V().as(p).out(knows).as(t).select(p, t) (control: no dedup)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+            .select("p", "t"));
+  }
+
+  /**
+   * A {@code dedup} whose scope key names a label written on the dedup step itself declines. Native
+   * cannot resolve it: a label reaches the traverser path only after the step carrying it emits, so
+   * {@code Scoping.getSafeScopeValue} throws. The translator used to bind the dedup's own labels
+   * before reading its scope keys, resolve the key to the boundary, and answer with rows.
+   *
+   * <p>The native throw is asserted rather than compared, because the equivalence harness drains
+   * both arms and cannot express "native raises". The reference arm is the same key written on the
+   * hop, which must still translate — that is what makes the decline a statement about label
+   * placement.
+   */
+  @Test
+  public void dedupNamingItsOwnLabel_declinesWhereNativeRaises() {
+    seedTwoSourcesSharingOneTarget();
+
+    withTranslatorOff(
+        () -> assertThatThrownBy(
+            () -> graph.traversal().V().hasLabel("Person").out("knows").dedup("x").as("x")
+                .toList())
+            .as("native cannot resolve a label the dedup step carries itself")
+            .isInstanceOf(IllegalArgumentException.class));
+
+    withTranslatorOn(
+        () -> assertThatThrownBy(
+            () -> graph.traversal().V().hasLabel("Person").out("knows").dedup("x").as("x")
+                .toList())
+            .as("the translated arm must decline and so raise the same error")
+            .isInstanceOf(IllegalArgumentException.class));
+
+    assertEquivalent(
+        "g.V().out(knows).as(x).dedup(x) (control: the key written on the hop)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").out("knows").as("x").dedup("x"));
+  }
+
+  /**
+   * A token modulator behind a captured {@code dedup()} keys the {@code DISTINCT} on boundary
+   * identity, not on the projected class name. Every seeded vertex is a {@code Person}, so
+   * {@code RETURN DISTINCT alias.@class} collapsed three rows into one where native returns three.
+   *
+   * <p>{@code by(T.id)} is the control that separates "a token column was made safe" from "token
+   * columns were declined": a record identifier is already one-to-one with the boundary element, so
+   * that arm needs no identity column and must translate too.
+   */
+  @Test
+  public void selectAfterDedupWithTokenModulator_keysOnBoundaryIdentity() {
+    seedTwoSourcesSharingOneTarget();
+
+    assertEquivalent(
+        "g.V().as(t).dedup().select(t).by(T.label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("t").dedup().select("t").by(T.label));
+
+    assertThat(
+        graph.traversal().V().hasLabel("Person").as("t").dedup().select("t").by(T.label).toList())
+        .as("three distinct Person vertices survive the dedup and each emits its class name")
+        .containsExactly("Person", "Person", "Person");
+
+    assertEquivalent(
+        "g.V().as(t).dedup().select(t).by(T.id)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("t").dedup().select("t").by(T.id));
+  }
+
+  /**
+   * A productive {@code by(key)} behind a captured {@code dedup()} keys the {@code DISTINCT} on
+   * boundary identity, not on the projected value. Under {@code ProductiveByStrategy} the modulator
+   * stops dropping absent keys, so the recogniser projects the value column instead of the presence
+   * entity column, and {@code RETURN DISTINCT alias.name} merged the two vertices named
+   * {@code Bob}.
+   *
+   * <p>The fixture carries a duplicate name on purpose. With distinct names the value column is
+   * itself one-to-one with the element and the case would pass without the identity column.
+   */
+  @Test
+  public void selectAfterDedupWithProductiveModulator_keysOnBoundaryIdentity() {
+    seedTwoSourcesSharingOneTarget();
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy).V().as(q).dedup().select(q).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().withStrategies(ProductiveByStrategy.instance())
+            .V().hasLabel("Person").as("q").dedup().select("q").by("name"));
+
+    assertThat(
+        graph.traversal().withStrategies(ProductiveByStrategy.instance())
+            .V().hasLabel("Person").as("q").dedup().select("q").by("name").toList())
+        .as("four distinct vertices survive the dedup even though two share the name Bob")
+        .containsExactlyInAnyOrder("Alice", "Bob", "Bob", "Dave");
+  }
+
+  /**
+   * {@code select(label).by(T.id)} emits the record identifier, not a vertex built from it. Native
+   * {@code by(T.id)} evaluates {@code Element.id()}, which on this engine returns a {@code RID},
+   * and the translated column is {@code alias.@rid} — a bare RID cell that the map projection used
+   * to reinterpret as an element, putting a vertex in the map where portable Gremlin puts an id.
+   *
+   * <p>The payload type is asserted directly rather than left to the two-arm comparison, because a
+   * renderer that stringifies both sides can make a vertex and its own id look alike.
+   */
+  @Test
+  public void selectByRecordIdToken_emitsTheIdAndNotAVertex() {
+    seedTwoSourcesSharingOneTarget();
+
+    withTranslatorOn(
+        () -> {
+          var translated =
+              graph.traversal().V().hasLabel("Person").as("a").select("a").by(T.id).toList();
+          assertThat(translated).as("every seeded Person is projected").hasSize(3);
+          assertThat(translated)
+              .as("by(T.id) yields the element id, so no cell may be a Vertex")
+              .noneMatch(Vertex.class::isInstance);
+        });
+
+    assertEquivalent(
+        "g.V().as(a).select(a).by(T.id)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("a").select("a").by(T.id));
+  }
+
+  /**
+   * A link-typed {@code by(key)} emits the graph element, not the internal record behind it. Native
+   * wraps whatever a property holds, so {@code select("a").by(edgeLink)} hands back a TinkerPop
+   * {@code Edge}; the translated arm returned the loaded entity, putting an internal record across
+   * the API boundary.
+   *
+   * <p>Both link kinds are covered because they took different branches. A vertex link already
+   * agreed, which is why the divergence went unnoticed, so that arm is the control that keeps this
+   * case a statement about the edge branch alone. The payload type is asserted directly, since both
+   * renderings of an edge carry the same record identifier and would compare equal as text.
+   */
+  @Test
+  public void selectByLinkTypedKey_emitsGraphElementsForBothLinkKinds() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("buddy",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.LINK);
+    person.createProperty("tie",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.LINK);
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var knows = alice.addEdge("knows", bob);
+    graph.tx().commit();
+    alice.property("buddy", bob.id());
+    alice.property("tie", knows.id());
+    graph.tx().commit();
+
+    withTranslatorOn(
+        () -> {
+          assertThat(selectLinkValue("tie"))
+              .as("an edge link must reach the caller as a TinkerPop Edge")
+              .isInstanceOf(Edge.class);
+          assertThat(selectLinkValue("buddy"))
+              .as("control: a vertex link already reached the caller as a Vertex")
+              .isInstanceOf(Vertex.class);
+        });
+    withTranslatorOff(
+        () -> {
+          assertThat(selectLinkValue("tie"))
+              .as("native reference for the edge link")
+              .isInstanceOf(Edge.class);
+          assertThat(selectLinkValue("buddy"))
+              .as("native reference for the vertex link")
+              .isInstanceOf(Vertex.class);
+        });
+  }
+
+  /** The single {@code select("a").by(linkKey)} payload for {@code Alice} on the current arm. */
+  private Object selectLinkValue(String linkKey) {
+    return graph.traversal().V().hasLabel("Person").has("name", "Alice").as("a")
+        .select("a").by(linkKey).next();
+  }
+
+  /**
+   * A {@code select} after {@code values(key)} keeps the row drop that {@code values(key)}
+   * performs. Only one seeded vertex carries {@code foo}, so native returns that one vertex and
+   * nothing else.
+   *
+   * <p>The path labels survive a {@code values(key)}, so {@code select("a")} re-reads the labelled
+   * element and the shape translates. What did not survive was the drop: it rode {@code
+   * dropOnAbsent} on the shaping, the select replaced the whole shaping record, and the translated
+   * arm returned both vertices. The drop now moves into the pattern as a presence condition before
+   * the select overwrites anything.
+   *
+   * <p>Both spellings are covered, because the by-modulator path and the bare path replace the
+   * shaping through different code. The absolute row count is asserted beside the two-arm
+   * comparison, since a fix that lost the drop on both arms would keep them equal.
+   */
+  @Test
+  public void selectAfterValues_keepsTheAbsenceDrop() {
+    graph.addVertex(T.label, "Person", "name", "HasFoo", "foo", 1);
+    graph.addVertex(T.label, "Person", "name", "NoFoo");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().as(a).values(foo).select(a)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("a").values("foo").select("a"));
+    assertEquivalent(
+        "g.V().as(a).values(foo).select(a).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("a").values("foo").select("a")
+            .by("name"));
+
+    assertThat(
+        graph.traversal().V().hasLabel("Person").as("a").values("foo").select("a").by("name")
+            .toList())
+        .as("values(foo) drops the vertex without foo, so one name survives the select")
+        .containsExactly("HasFoo");
+  }
+
+  /**
+   * A select mixing a property {@code by(key)} with a token {@code by(T.label)} returns the same
+   * maps as native, both without a cut and behind one.
+   *
+   * <p>The behind-a-cut arm is the one that regressed. The property label rode a post-plan presence
+   * check that resolved its entity from a row binding, and the token label appended a real RETURN
+   * column; a non-empty RETURN stops being a pass-through, the row it built no longer carried the
+   * binding, and the presence check dropped every row. Rows are asserted rather than plan shape,
+   * because the defect was an empty result from a plan that looked correct.
+   */
+  @Test
+  public void selectMixingPropertyAndTokenModulators_returnsRowsBeforeAndAfterACut() {
+    seedTwoSourcesSharingOneTarget();
+
+    withTranslatorOn(
+        () -> assertThat(
+            graph.traversal().V().hasLabel("Person").as("a").out("knows").as("b")
+                .order().by("name").limit(20)
+                .select("a", "b").by("name").by(T.label).toList())
+            .as("a mixed property / token select behind a cut must return both hop rows")
+            .hasSize(2));
+
+    assertEquivalent(
+        "g.V().as(a).out(knows).as(b).select(a, b).by(name).by(T.label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("a").out("knows").as("b")
+            .select("a", "b").by("name").by(T.label));
+
+    assertEquivalent(
+        "g.V().as(a).out(knows).as(b).order().by(name).limit(20).select(a, b).by(name).by(T.label)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("a").out("knows").as("b")
+            .order().by("name").limit(20)
+            .select("a", "b").by("name").by(T.label));
+  }
+
+  /**
+   * Two sources sharing one target: {@code Alice} knows {@code Bob} and {@code Dave} knows
+   * {@code Bob}. {@code out("knows")} therefore yields two rows over one distinct target, so a
+   * {@code dedup()} on the boundary removes exactly one row while a {@code DISTINCT} on the source
+   * or on the source-target pair removes none. That gap is countable in both directions and does
+   * not depend on which of the two tied rows the dedup happens to keep.
+   */
+  private void seedTwoSourcesSharingOneTarget() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    alice.addEdge("knows", bob);
+    dave.addEdge("knows", bob);
+    graph.tx().commit();
   }
 
   /** Seeds {@code count} Person vertices with distinct names and ages for the B1 cardinality cases. */

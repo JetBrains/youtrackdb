@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWh
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
@@ -165,12 +166,13 @@ final class HasStepRecogniser implements StepRecogniser {
     String typeClass =
         labelConstraint instanceof ParsedLabelConstraint.Single single ? single.name() : null;
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        key -> ctx.isDeclaredStringProperty(typeClass, key);
+        GremlinPredicateAdapter.schemaGate(ctx, typeClass);
     ParamSink paramSink = ctx::bindParam;
     // A range comparison needs the per-record type guard exactly when this HasStep will NOT be
     // folded into YTDBGraphStep — folded, the native fallback runs the same SQL-style comparison the
     // translation emits; unfolded, it runs TinkerPop's comparability rule instead. See
-    // RecognitionContext.atTraversalStart().
+    // RecognitionContext.atTraversalStart(). The adapter still drops the guard when the schema
+    // declares the property in the literal's comparability block (schemaGate).
     var rangeTypeGuard = !ctx.atTraversalStart();
 
     // Second pass: translate every id / property container into a WHERE expression BEFORE any
@@ -329,7 +331,17 @@ final class HasStepRecogniser implements StepRecogniser {
     }
     final var labelClass = typeClass;
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        key -> isDeclaredString(encoder.schema(), labelClass, key);
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return declaredStringOn(encoder.schema(), labelClass, key);
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, List<String> typeNames) {
+            return declaredTypeOn(encoder.schema(), labelClass, key, typeNames);
+          }
+        };
     for (HasContainer container : containers) {
       var key = container.getKey();
       if (LABEL_KEY.equals(key)) {
@@ -356,7 +368,7 @@ final class HasStepRecogniser implements StepRecogniser {
     return value == null ? 0 : 1;
   }
 
-  private static boolean isDeclaredString(
+  private static boolean declaredStringOn(
       @Nullable Schema schema, @Nullable String className, String propertyKey) {
     if (schema == null || className == null || propertyKey == null) {
       return false;
@@ -367,5 +379,24 @@ final class HasStepRecogniser implements StepRecogniser {
     }
     var property = clazz.getProperty(propertyKey);
     return property != null && property.getType() == PropertyType.STRING;
+  }
+
+  private static boolean declaredTypeOn(
+      @Nullable Schema schema,
+      @Nullable String className,
+      String propertyKey,
+      Collection<String> typeNames) {
+    if (schema == null || className == null || propertyKey == null || typeNames == null
+        || typeNames.isEmpty()) {
+      return false;
+    }
+    var clazz = schema.getClass(className);
+    if (clazz == null) {
+      return false;
+    }
+    var property = clazz.getProperty(propertyKey);
+    return property != null
+        && property.getType() != null
+        && typeNames.contains(property.getType().name());
   }
 }

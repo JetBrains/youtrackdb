@@ -28,4 +28,20 @@ final class GremlinStepLabels {
     }
     return labels;
   }
+
+  /**
+   * Whether {@code step} carries at least one non-null user label, WITHOUT BUILDING THE SET.
+   *
+   * <p>Same predicate as {@code !userLabels(step).isEmpty()}, and the reason it exists is that
+   * every caller of that spelling paid a {@code LinkedHashSet} allocation for a yes-or-no answer.
+   * Kept beside {@link #userLabels} so the null-label rule is stated once.
+   */
+  static boolean hasUserLabel(Step<?, ?> step) {
+    for (String label : step.getLabels()) {
+      if (label != null) {
+        return true;
+      }
+    }
+    return false;
+  }
 }

@@ -1,5 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.TailListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
@@ -43,11 +47,27 @@ final class GremlinPlanFingerprint {
   }
 
   /**
-   * Builds the cache key for {@code inputs}. Callers must pass the pre-plan {@link MatchPlanInputs}
-   * snapshot while {@code aliasFilters} is still insertion-ordered.
+   * Initial buffer size for one key. The pre-size stayed at 256 characters while the boundary
+   * shaping sections were added, and a six-column {@code select().by()} key measures well past
+   * that, so every build grew the array two or three times. The key is built twice on a
+   * translation-cache miss and not at all on a hit.
+   *
+   * <p>The value covers the widest key measured, which
+   * {@code GremlinPlanFingerprintTest.sixColumnSelectFingerprintFitsThePreSizedBuffer} pins, with
+   * room for a wider pattern above it. It is visible for that test to assert against, so the
+   * bound is checked rather than assumed.
    */
-  static String fingerprint(@Nonnull MatchPlanInputs inputs) {
-    var sb = new StringBuilder(256);
+  static final int INITIAL_KEY_CAPACITY = 1024;
+
+  /**
+   * Builds the cache key from {@code inputs} and the boundary {@link ResultShaping} the plan step
+   * applies. Callers must pass the pre-plan {@link MatchPlanInputs} snapshot while
+   * {@code aliasFilters} is still insertion-ordered. {@link MatchPlanInputs} alone omits post-plan
+   * projection flags and property keys ({@code values(k)} reads the key from shaping, not RETURN),
+   * so two walks with identical MATCH clauses but different shaping must not collide.
+   */
+  static String fingerprint(@Nonnull MatchPlanInputs inputs, @Nonnull ResultShaping shaping) {
+    var sb = new StringBuilder(INITIAL_KEY_CAPACITY);
     appendPattern(sb, inputs);
     appendAliasFilters(sb, inputs.aliasFilters());
     appendMatchExpressions(sb, inputs.matchExpressions());
@@ -55,6 +75,7 @@ final class GremlinPlanFingerprint {
     appendReturnProjection(sb, inputs);
     appendResultShaping(sb, inputs);
     appendReturnModes(sb, inputs);
+    appendBoundaryShaping(sb, shaping);
     return sb.toString();
   }
 
@@ -241,5 +262,49 @@ final class GremlinPlanFingerprint {
         .append(inputs.returnPaths() ? '1' : '0')
         .append(inputs.returnPatterns() ? '1' : '0')
         .append(inputs.returnPathElements() ? '1' : '0');
+  }
+
+  /**
+   * Boundary row-projection shaping read by {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep}. Omitted
+   * from {@link MatchPlanInputs} but planner-visible: {@code values("x")} and {@code values("x]")}
+   * share the same RETURN entity column yet differ in {@code presencePropertyKeys}.
+   */
+  private static void appendBoundaryShaping(StringBuilder sb, ResultShaping shaping) {
+    sb.append(";BS:")
+        .append(shaping.dropNullRows() ? '1' : '0')
+        .append(shaping.dropOnAbsent() ? '1' : '0')
+        .append(shaping.wrapMapValuesInLists() ? '1' : '0')
+        .append(shaping.accumulateMap() ? '1' : '0')
+        .append(shaping.unwrapSingletonMap() ? '1' : '0')
+        .append(shaping.elementMapTokens() ? '1' : '0');
+    sb.append(";PK:");
+    for (var key : shaping.presencePropertyKeys()) {
+      appendToken(sb, key);
+    }
+    sb.append(";AP:");
+    for (AliasPropertyPresence presence : shaping.aliasPropertyPresences()) {
+      appendToken(sb, presence.entityColumnAlias());
+      appendToken(sb, presence.propertyKey());
+      appendToken(sb, presence.mapKey());
+    }
+    sb.append(";MO:");
+    for (var column : shaping.mapEmitColumnOrder()) {
+      appendToken(sb, column);
+    }
+    sb.append(";RI:");
+    for (var key : shaping.recordIdMapKeys()) {
+      appendToken(sb, key);
+    }
+    sb.append(";LS:");
+    for (ListShapingOp op : shaping.listShapingOps()) {
+      // Class name alone collides tail(2) with tail(5). ListShapingOp has no fingerprint hook, so
+      // parameterised ops contribute here by instanceof until one is added.
+      if (op instanceof TailListShapingOp tail) {
+        appendToken(sb, op.getClass().getName() + ":" + tail.limit());
+      } else {
+        appendToken(sb, op.getClass().getName());
+      }
+    }
   }
 }
