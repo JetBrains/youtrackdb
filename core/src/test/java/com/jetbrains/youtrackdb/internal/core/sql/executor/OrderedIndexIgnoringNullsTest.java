@@ -245,15 +245,15 @@ public class OrderedIndexIgnoringNullsTest extends DbTestBase {
   }
 
   /**
-   * BG503 — an empty indexed collection produces no index entry. {@code ClassIndexManager}
-   * iterates collection keys from {@code PropertyListIndexDefinition}, and an empty list yields
-   * nothing to store, so a record whose indexed list is empty is invisible to every index lookup,
-   * including an ORDER BY that walks that index.
+   * BG503 — an empty indexed collection produces no index entry ({@code ClassIndexManager}
+   * iterates list keys and stores nothing for {@code []}). A filtering lookup on that index
+   * therefore omits the empty-list record.
    *
-   * <p>This pins the current behaviour; it does not claim the omission is desirable.
+   * <p>ORDER BY must not walk a multi-value index for the sort (YTDB-1289): that shortcut is
+   * not total over the class, so the planner sorts in memory and keeps {@code Empty}.
    */
   @Test
-  public void emptyIndexedCollectionIsInvisibleToOrderByIndexScan() {
+  public void emptyIndexedCollectionIsInvisibleToFilteringIndexLookup() {
     var person = session.createVertexClass("Person");
     person.createProperty("name", PropertyType.STRING);
     person.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
@@ -265,13 +265,21 @@ public class OrderedIndexIgnoringNullsTest extends DbTestBase {
     session.execute("CREATE VERTEX Person SET name = 'Bea', tags = ['b']").close();
     session.commit();
 
-    var query = "SELECT name FROM Person ORDER BY tags";
-    assertThat(plan(query))
-        .as("ORDER BY on the list property must reach the list index")
+    var orderQuery = "SELECT name FROM Person ORDER BY tags";
+    assertThat(plan(orderQuery))
+        .as("a multi-value index must not satisfy ORDER BY (YTDB-1289)")
+        .doesNotContain("FETCH FROM INDEX");
+    assertThat(names(orderQuery, "name"))
+        .as("in-memory ORDER BY sees every class record, including the empty list")
+        .contains("Ann", "Bea", "Empty");
+
+    var filterQuery = "SELECT name FROM Person WHERE tags CONTAINS 'a'";
+    assertThat(plan(filterQuery))
+        .as("a filtering lookup may still use the list index")
         .contains("FETCH FROM INDEX");
-    assertThat(names(query, "name"))
-        .as("the empty-list record has no index entry, so the ordered index scan omits it")
-        .containsExactly("Ann", "Bea")
+    assertThat(names(filterQuery, "name"))
+        .as("the empty-list record has no index entry, so a key lookup omits it")
+        .containsExactly("Ann")
         .doesNotContain("Empty");
   }
 
