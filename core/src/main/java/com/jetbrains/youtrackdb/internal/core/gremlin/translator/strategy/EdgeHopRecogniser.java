@@ -170,7 +170,7 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // full-scan form. A label-less edge (null label) has no known class, so all its keys route
     // to strict.
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        key -> ctx.isDeclaredStringProperty(edgeLabel, key);
+        GremlinPredicateAdapter.schemaGate(ctx, edgeLabel);
     ParamSink paramSink = ctx::bindParam;
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
     for (HasStep<?> has : hasSteps) {

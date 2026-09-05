@@ -17,6 +17,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * schema, plus engagement checks ({@link #requireTranslated}, {@link #requireNotTranslated}) that
  * pin whether a shape compiles through the translator.
  *
+ * <p>TODO(Track 07 / PF7): add unchanged-body JMH baseline shapes (translator off / native twin)
+ * so head-vs-base comparisons stay like-for-like when a translating shape's body changes. This
+ * file only owns the shapes the harness already measures.
+ *
  * <p>The shapes are named methods rather than inline {@code @Benchmark} expressions so the harness
  * and {@link LdbcGremlinShapeTranslationTest} assert over byte-identical traversals.
  *
@@ -54,25 +58,25 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  *
  * <p><b>Throughput is not comparable across SQL and Gremlin rows</b> — different entry points.
  * Every builder's Javadoc starts with {@code LDBC:}: {@code complete} for a full IC/IS twin,
- * {@code <query> reduced} plus the clauses the reduction drops, or {@code none} for a translator
- * primitive that does not echo a workload query.
+ * {@code <query> reduced}, or {@code none} for a translator primitive that does not echo a
+ * workload query.
+ *
+ * <p>Reduced shapes include every SQL column and clause the translator accepts today — the same
+ * rule as {@link #is5MessageCreator}. One {@code select} label still takes one property
+ * {@code by(...)} modulator; several columns from one vertex use several {@code as(...)} labels on
+ * that step (see {@link #is1PersonCityProfile}). Gap lists name only what still declines:
+ * <ul>
+ *   <li>{@code [not-yet-translatable]} — MATCH plan blocked until a recogniser exists (name the
+ *       gap): typically {@code repeat}/{@code while}, {@code optional}, {@code coalesce}, or
+ *       edge-{@code as} property projection
+ *   <li>{@code [depends-on-above]} — blocked until another listed gap lands first
+ * </ul>
  *
  * <p>Three of the twenty-one queries in {@code ldbc-queries/} use {@code LET}; most of the rest are
- * plain MATCH patterns. What blocks them is the recogniser set rather than Gremlin's expressiveness,
- * and the reduced-projection shapes below name the specific gate they hit. The label gate the
- * harness was first written against has since closed: a user {@code as(...)} label parked on a
- * filter step now binds, so IS1's full projection translates ({@link #is1FullProfile}) and the
- * narrower {@link #is1PersonCityProfile} stays beside it as the shorter projection rather than as
- * its translating half. IS3's edge-alias projection ({@link #is3FriendsWithDates}) instead
- * <em>declines</em>: an {@code as(k)} label on {@code outE(L)} would bind to the edge-as-node
- * vertex alias, so {@code select("k")} would return the target vertex rather than the edge, so the
- * shape falls back to native on both arms.
- *
- * <p>{@link #personByRid} is a bare {@code g.V(rid)} point-lookup and now <em>declines</em>: a
- * RID-bearing single-node walk with no hop sets {@code cacheEligible=false} in the translator, so
- * translator-on would compile an uncached MATCH plan every call where translator-off ran no query
- * at all — a net loss with no join to optimise. The translator declines it so both arms run
- * natively; a RID start FOLLOWED by a hop still translates, since the join is where MATCH can win.
+ * plain MATCH. The declining twins ({@link #is3FriendsWithDates}, {@link #repeatKnowsToThreeHops},
+ * {@link #coalesceMessageContent}, {@link #optionalFriendOfCreator}) are tripwires for those
+ * {@code [not-yet-translatable]} gaps. {@link #is1PersonCityProfile}, {@link #is5MessageCreator},
+ * and {@link #is4MessageContent} are complete / near-complete twins (IS4 drops only coalesce).
  */
 public final class GremlinTraversalShapes {
 
@@ -120,6 +124,21 @@ public final class GremlinTraversalShapes {
 
   /** Edge label from a {@code Person} to an {@code Organisation} they work at. */
   public static final String WORK_AT_LABEL = "WORK_AT";
+
+  /** Vertex class of a {@code Post} (Message subclass). */
+  public static final String POST_LABEL = "Post";
+
+  /** Vertex class of an LDBC tag. */
+  public static final String TAG_LABEL = "Tag";
+
+  /** Edge label from a {@code Message}/{@code Forum} to a {@code Tag}. */
+  public static final String HAS_TAG_LABEL = "HAS_TAG";
+
+  /**
+   * How many rows {@code .limit(...)} keeps after {@code ORDER BY}. Same value as the {@code :limit}
+   * parameter in the SQL IC/IS JMH queries ({@code 20}), so Gremlin and SQL top-N sizes match.
+   */
+  public static final int RESULT_LIMIT = 20;
 
   private GremlinTraversalShapes() {
   }
@@ -182,38 +201,86 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IS1 reduced. City-side columns of the person–city join; drops the other seven person
-   * fields SQL returns.
+   * LDBC: IS1 complete — every SQL RETURN column via multi-{@code as} on the person step plus
+   * {@code cityId} on the city.
    *
-   * <p>IS1 is {@code MATCH {class: Person, as: p, where: (id = :personId)}.out('IS_LOCATED_IN'){as:
-   * city} RETURN p.firstName, p.lastName, p.birthday, p.locationIP, p.browserUsed, city.id,
-   * p.gender, p.creationDate}. This shape keeps the two-class join and the city column, reached
-   * through {@code valueMap} on the boundary alias with no {@code select} and no user label.
-   * {@link #is1FullProfile} adds the person-side columns through {@code select("p", "city")}, so
-   * the pair prices a narrow projection against a wide one over the same join. Both translate.
+   * <p>SQL IS1: person profile fields + {@code city.id}. One {@code by} per {@code select} label;
+   * several person columns are several labels on the same hop.
    */
-  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> is1PersonCityProfile(
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> is1PersonCityProfile(
       YTDBGraphTraversalSource g, long personId) {
     return g.V()
         .hasLabel(PERSON_LABEL)
         .has("id", personId)
-        .out(IS_LOCATED_IN_LABEL)
-        .valueMap("id", "name");
+        .as(
+            "firstName",
+            "lastName",
+            "birthday",
+            "locationIP",
+            "browserUsed",
+            "gender",
+            "creationDate")
+        .out(IS_LOCATED_IN_LABEL).as("cityId")
+        .select(
+            "firstName",
+            "lastName",
+            "birthday",
+            "locationIP",
+            "browserUsed",
+            "gender",
+            "creationDate",
+            "cityId")
+        .by("firstName")
+        .by("lastName")
+        .by("birthday")
+        .by("locationIP")
+        .by("browserUsed")
+        .by("gender")
+        .by("creationDate")
+        .by("id");
   }
 
   /**
-   * LDBC: IS3 reduced. Friend columns plus one {@code ORDER BY}; drops {@code k.creationDate} and
-   * the second sort key.
+   * LDBC: IS2 reduced — person's messages, SQL {@code ORDER BY creationDate DESC}, top
+   * {@link #RESULT_LIMIT}.
    *
-   * <p>IS3 is {@code MATCH {class: Person, as: p, where: (id = :personId)}.outE('KNOWS'){as: k}
-   * .inV(){as: friend} RETURN friend.id, friend.firstName, friend.lastName, k.creationDate ORDER BY
-   * friendshipCreationDate DESC, personId ASC}. Kept here: the {@code outE(KNOWS).inV()} hop, the
-   * three friend columns and an {@code ORDER BY}. Dropped: {@code k.creationDate}, because naming
-   * the edge with {@code as("k")} declines the folded hop, and the second sort key, because every
-   * {@code order().by(...)} modulator resolves against the boundary alias only.
+   * <p>Kept: {@code in(HAS_CREATOR)}; message {@code valueMap(id, content, creationDate)}; same
+   * sort + limit as SQL (date only).
    *
-   * <p>The single sort key is {@code firstName} rather than IS3's {@code creationDate} for the same
-   * reason — the sort key has to live on the friend, and only the edge carries a date.
+   * <p>Gaps vs SQL IS2:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code REPLY_OF} climb to original post / author — {@code while}/{@code repeat}
+   *       ({@code RepeatDeclineStrategy})
+   *   <li>[not-yet-translatable] {@code coalesce(imageFile, content)} — {@code CoalesceStep}; shape uses plain
+   *       {@code content} ({@link #coalesceMessageContent})
+   *   <li>[depends-on-above] original-post / original-author RETURN columns — need the climb above
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> is2PersonMessages(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .in(HAS_CREATOR_LABEL)
+        .hasLabel(MESSAGE_LABEL)
+        .order().by("creationDate", Order.desc)
+        .limit(RESULT_LIMIT)
+        .valueMap("id", "content", "creationDate");
+  }
+
+  /**
+   * LDBC: IS3 reduced — friends, {@code ORDER BY firstName}, three friend columns.
+   *
+   * <p>Kept: {@code outE(KNOWS).inV()}; friend {@code valueMap(id, firstName, lastName)}; sort on
+   * friend {@code firstName} (not SQL's friendship date).
+   *
+   * <p>Gaps vs SQL IS3:
+   * <ul>
+   *   <li>[not-yet-translatable] friendship {@code creationDate} — edge-{@code as} property
+   *       projection; declining twin {@link #is3FriendsWithDates}
+   *   <li>[depends-on-above] SQL sort (friendship date, {@code personId}) — needs the edge date;
+   *       foreign-alias {@code order().by(select(...))} already translates once that column exists
+   * </ul>
    */
   public static YTDBGraphTraversal<Vertex, Map<Object, Object>> is3FriendsWithNames(
       YTDBGraphTraversalSource g, long personId) {
@@ -224,6 +291,22 @@ public final class GremlinTraversalShapes {
         .inV()
         .order().by("firstName")
         .valueMap("id", "firstName", "lastName");
+  }
+
+  /**
+   * LDBC: IS4 reduced — message {@code content} + {@code creationDate} (plain content, no coalesce).
+   *
+   * <p>Gaps vs SQL IS4:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code coalesce(imageFile, content)} — {@link #coalesceMessageContent}
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> is4MessageContent(
+      YTDBGraphTraversalSource g, long messageId) {
+    return g.V()
+        .hasLabel(MESSAGE_LABEL)
+        .has("id", messageId)
+        .valueMap("content", "creationDate");
   }
 
   /**
@@ -244,98 +327,283 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IS2 reduced. Person {@code in(HAS_CREATOR)} messages, newest first.
+   * LDBC: IS6 reduced — forum + moderator from a Post (not from an arbitrary Message).
    *
-   * <p>IS2 is {@code MATCH {class: Person, as: p, where: (id = :personId)}.in('HAS_CREATOR'){as:
-   * message}.out('REPLY_OF'){while: Comment, where: Post, as: originalPost}.out('HAS_CREATOR'){as:
-   * author} RETURN message.*, originalPost.id, author.* ORDER BY date DESC LIMIT n}. Kept: the
-   * inbound creator hop, {@code ORDER BY creationDate DESC}, and three message columns. Dropped:
-   * the {@code REPLY_OF} climb ({@code RepeatDeclineStrategy}), {@code coalesce(imageFile,
-   * content)}, original-post and original-author columns, and {@code LIMIT}.
-   */
-  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> is2PersonMessages(
-      YTDBGraphTraversalSource g, long personId) {
-    return g.V()
-        .hasLabel(PERSON_LABEL)
-        .has("id", personId)
-        .in(HAS_CREATOR_LABEL)
-        .hasLabel(MESSAGE_LABEL)
-        .order().by("creationDate", Order.desc)
-        .valueMap("id", "content", "creationDate");
-  }
-
-  /**
-   * LDBC: IS6 reduced. Post {@code in(CONTAINER_OF)} Forum plus its moderator.
+   * <p>Kept: {@code in(CONTAINER_OF)} → forum; {@code out(HAS_MODERATOR)}; every SQL RETURN column
+   * via multi-{@code as} ({@code forumId}/{@code forumTitle}, moderator id/name fields).
    *
-   * <p>IS6 is {@code MATCH {class: Message}.out('REPLY_OF'){while: Comment, where: Post}
-   * .in('CONTAINER_OF'){as: forum}.out('HAS_MODERATOR'){as: moderator} RETURN forum.id/title,
-   * moderator.id/firstName/lastName}. Kept: the Forum hop and the moderator hop, projected through
-   * {@code select("forum", "moderator")}. Dropped: the {@code REPLY_OF} climb, so the shape starts
-   * at a {@code Post} rather than an arbitrary Message. {@code CONTAINER_OF} is Forum→Message; the
-   * Gremlin hop is {@code in}, matching SQL {@code .in('CONTAINER_OF')}. Labels bind on valued
-   * {@code has("id", P.neq(-1L))} like IS1's {@code has("id", personId)}; a bare {@code has(key)}
-   * rewrites to {@code TraversalFilterStep} and the walker declines.
+   * <p>Gaps vs SQL IS6:
+   * <ul>
+   *   <li>[not-yet-translatable] start at Message + {@code REPLY_OF} climb to Post — {@code while}/
+   *       {@code repeat} ({@code RepeatDeclineStrategy}); shape starts at Post id instead
+   * </ul>
    */
   public static YTDBGraphTraversal<Vertex, Map<String, Object>> is6ForumOfPost(
       YTDBGraphTraversalSource g, long messageId) {
     return g.V()
         .hasLabel("Post")
         .has("id", messageId)
-        .in(CONTAINER_OF_LABEL)
-        .hasLabel(FORUM_LABEL)
-        .has("id", P.neq(-1L)).as("forum")
-        .out(HAS_MODERATOR_LABEL)
-        .has("id", P.neq(-1L)).as("moderator")
-        .select("forum", "moderator").by("title").by("firstName");
+        .in(CONTAINER_OF_LABEL).as("forumId", "forumTitle")
+        .out(HAS_MODERATOR_LABEL).as("moderatorId", "moderatorFirstName", "moderatorLastName")
+        .select(
+            "forumId",
+            "forumTitle",
+            "moderatorId",
+            "moderatorFirstName",
+            "moderatorLastName")
+        .by("id")
+        .by("title")
+        .by("id")
+        .by("firstName")
+        .by("lastName");
   }
 
   /**
-   * LDBC: IS7 reduced. Direct replies of a message and their authors.
+   * LDBC: IS7 reduced — direct replies + authors, SQL
+   * {@code ORDER BY commentCreationDate DESC, replyAuthorId ASC} (no {@code LIMIT} in SQL IS7).
    *
-   * <p>IS7 is {@code MATCH {class: Message, as: msg}.out('HAS_CREATOR'){as: author}, {as: msg}
-   * .in('REPLY_OF'){as: reply}.out('HAS_CREATOR'){as: replyAuthor}
-   * .out('KNOWS'){as: knowsCheck, optional: true} RETURN reply.*, replyAuthor.*, ifnull(knowsCheck)}.
-   * Kept: {@code in(REPLY_OF).out(HAS_CREATOR)} and three author columns. Dropped: {@code optional()}
-   * KNOWS check, {@code coalesce} on the reply, {@code ORDER BY} + {@code LIMIT}.
+   * <p>Kept: {@code in(REPLY_OF)} → {@code out(HAS_CREATOR)}; every non-coalesce / non-optional
+   * RETURN column via multi-{@code as}; sort on reply date then author id.
+   *
+   * <p>Gaps vs SQL IS7:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code coalesce} on reply content — {@link #coalesceMessageContent};
+   *       shape returns plain {@code content}
+   *   <li>[not-yet-translatable] optional knows-author flag — {@link #optionalFriendOfCreator}
+   * </ul>
    */
-  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> is7RepliesWithAuthors(
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> is7RepliesWithAuthors(
       YTDBGraphTraversalSource g, long messageId) {
     return g.V()
         .hasLabel(MESSAGE_LABEL)
         .has("id", messageId)
-        .in(REPLY_OF_LABEL)
-        .out(HAS_CREATOR_LABEL)
-        .valueMap("id", "firstName", "lastName");
+        .in(REPLY_OF_LABEL).as("commentId", "commentContent", "commentCreationDate")
+        .out(HAS_CREATOR_LABEL).as("replyAuthorId", "replyAuthorFirstName", "replyAuthorLastName")
+        .order()
+        .by(__.select("commentCreationDate").by("creationDate"), Order.desc)
+        .by("id", Order.asc)
+        .select(
+            "commentId",
+            "commentContent",
+            "commentCreationDate",
+            "replyAuthorId",
+            "replyAuthorFirstName",
+            "replyAuthorLastName")
+        .by("id")
+        .by("content")
+        .by("creationDate")
+        .by("id")
+        .by("firstName")
+        .by("lastName");
   }
 
   /**
-   * LDBC: IC2 reduced. Friends' messages before {@code maxDate}, newest first.
+   * LDBC: IC1 reduced — direct friends with a given {@code firstName} plus city name (one
+   * {@code KNOWS} hop).
    *
-   * <p>IC2 is {@code MATCH {class: Person}.out('KNOWS'){as: friend}.in('HAS_CREATOR'){as: msg,
-   * where: (creationDate < :maxDate)} RETURN friend.*, msg.* ORDER BY date DESC, id ASC LIMIT n}.
-   * Kept: the two hops, the date predicate, {@code ORDER BY creationDate DESC}, and three message
-   * columns. Dropped: friend columns, {@code coalesce}, the second sort key, and {@code LIMIT}.
+   * <p>Gaps vs SQL IC1:
+   * <ul>
+   *   <li>[not-yet-translatable] transitive depth &lt; 3 / distance — {@code while}/{@code repeat}
+   *       ({@link #repeatKnowsToThreeHops})
+   *   <li>[not-yet-translatable] {@code LET} universities / companies — nested edge projections
+   *   <li>[depends-on-above] {@code ORDER BY distance} — needs depth alias from the climb
+   * </ul>
    */
-  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> ic2FriendsMessagesOrdered(
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic1FriendsWithName(
+      YTDBGraphTraversalSource g, long personId, String firstName) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL)
+        .has("firstName", firstName)
+        .as("personId", "lastName", "birthday", "creationDate", "gender", "browserUsed",
+            "locationIP")
+        .out(IS_LOCATED_IN_LABEL).as("cityName")
+        .order().by(__.select("lastName").by("lastName"), Order.asc)
+        .by(__.select("personId").by("id"), Order.asc)
+        .limit(RESULT_LIMIT)
+        .select(
+            "personId",
+            "lastName",
+            "birthday",
+            "creationDate",
+            "gender",
+            "browserUsed",
+            "locationIP",
+            "cityName")
+        .by("id")
+        .by("lastName")
+        .by("birthday")
+        .by("creationDate")
+        .by("gender")
+        .by("browserUsed")
+        .by("locationIP")
+        .by("name");
+  }
+
+  /**
+   * LDBC: IC2 reduced — friends' messages before {@code maxDate}, SQL
+   * {@code ORDER BY creationDate DESC, id ASC}, top {@link #RESULT_LIMIT}.
+   *
+   * <p>Kept: {@code out(KNOWS).in(HAS_CREATOR)}; date filter; {@code order}+{@code limit}; every
+   * non-coalesce RETURN column via multi-{@code as} after the slice (post-cardinality presence).
+   *
+   * <p>Gaps vs SQL IC2:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code coalesce(imageFile, content)} — {@link #coalesceMessageContent};
+   *       shape returns plain {@code content}
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic2FriendsMessagesOrdered(
       YTDBGraphTraversalSource g, long personId, Date maxDate) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL).as("personId", "firstName", "lastName")
+        .in(HAS_CREATOR_LABEL)
+        .hasLabel(MESSAGE_LABEL).as("messageId", "messageContent", "messageCreationDate")
+        .has("creationDate", P.lt(maxDate))
+        .order().by("creationDate", Order.desc).by("id", Order.asc)
+        .limit(RESULT_LIMIT)
+        .select(
+            "personId",
+            "firstName",
+            "lastName",
+            "messageId",
+            "messageContent",
+            "messageCreationDate")
+        .by("id")
+        .by("firstName")
+        .by("lastName")
+        .by("id")
+        .by("content")
+        .by("creationDate");
+  }
+
+  /**
+   * LDBC: IC3 reduced — direct friends' messages in a date window located in {@code countryX}.
+   *
+   * <p>Gaps vs SQL IC3:
+   * <ul>
+   *   <li>[not-yet-translatable] FoF {@code while} depth &lt; 2
+   *   <li>[not-yet-translatable] dual-country counts / {@code GROUP BY} + both-country filter
+   *   <li>[not-yet-translatable] person home-country exclusion via {@code IS_PART_OF}
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic3FriendsMessagesInCountry(
+      YTDBGraphTraversalSource g,
+      long personId,
+      String countryX,
+      Date startDate,
+      Date endDate) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL).as("personId", "firstName", "lastName")
+        .in(HAS_CREATOR_LABEL)
+        .hasLabel(MESSAGE_LABEL)
+        .has("creationDate", P.gte(startDate))
+        .has("creationDate", P.lt(endDate))
+        .out(IS_LOCATED_IN_LABEL)
+        .has("name", countryX).as("msgCountry")
+        .select("personId", "firstName", "lastName", "msgCountry")
+        .by("id")
+        .by("firstName")
+        .by("lastName")
+        .by("name");
+  }
+
+  /**
+   * LDBC: IC4 reduced — tags on direct friends' posts in a date window, {@code groupCount} by name.
+   *
+   * <p>Gaps vs SQL IC4:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code NOT} anti-join for tags used on older posts (shape counts
+   *       every in-window tag)
+   *   <li>[not-yet-translatable] {@code ORDER BY}/{@code LIMIT} after {@code groupCount} — plain
+   *       {@code order}+{@code limit} translate on this branch; the post-aggregate slice still declines
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<Object, Long>> ic4FriendPostTags(
+      YTDBGraphTraversalSource g, long personId, Date startDate, Date endDate) {
     return g.V()
         .hasLabel(PERSON_LABEL)
         .has("id", personId)
         .out(KNOWS_LABEL)
         .in(HAS_CREATOR_LABEL)
-        .hasLabel(MESSAGE_LABEL)
-        .has("creationDate", P.lt(maxDate))
-        .order().by("creationDate", Order.desc)
-        .valueMap("id", "content", "creationDate");
+        .hasLabel(POST_LABEL)
+        .has("creationDate", P.gte(startDate))
+        .has("creationDate", P.lt(endDate))
+        .out(HAS_TAG_LABEL)
+        .groupCount().by("name");
   }
 
   /**
-   * LDBC: IC7 reduced. First names of people who liked a person's messages.
+   * LDBC: IC5 reduced — forums containing direct friends' posts.
    *
-   * <p>IC7 walks {@code in('HAS_CREATOR').inE('LIKES')} then optional KNOWS, groups by liker, and
-   * takes {@code first()} of the like date. Kept: {@code in(HAS_CREATOR).in(LIKES).values(firstName)}.
-   * Dropped: like-edge {@code creationDate}, {@code optional()} KNOWS / {@code isNew}, {@code GROUP
-   * BY} + {@code first()}, {@code coalesce}, and {@code LIMIT}.
+   * <p>Gaps vs SQL IC5:
+   * <ul>
+   *   <li>[not-yet-translatable] FoF {@code while} depth &lt; 2
+   *   <li>[not-yet-translatable] {@code HAS_MEMBER} joinDate filter (edge-{@code as})
+   *   <li>[not-yet-translatable] per-forum post {@code count} ({@code GROUP BY} forum)
+   *   <li>[depends-on-above] {@code ORDER BY postCount}/{@code LIMIT} — {@code order}+{@code limit}
+   *       already translate; omitted until the count column exists
+   *   <li>[not-yet-translatable] {@code dedup()} after a labeled hop — named scope keys on
+   *       {@code DedupGlobalStep} decline (MATCH {@code DISTINCT} is whole-row only); shape emits
+   *       one row per friend-post→forum path
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic5FriendPostForums(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL)
+        .in(HAS_CREATOR_LABEL)
+        .hasLabel(POST_LABEL)
+        .in(CONTAINER_OF_LABEL).as("forumId", "forumTitle")
+        .select("forumId", "forumTitle").by("id").by("title");
+  }
+
+  /**
+   * LDBC: IC6 reduced — tag names on direct friends' posts ({@code groupCount}).
+   *
+   * <p>Gaps vs SQL IC6:
+   * <ul>
+   *   <li>[not-yet-translatable] FoF {@code while} depth &lt; 2
+   *   <li>[not-yet-translatable] co-occurrence filter with a given tag ({@code where(out(HAS_TAG))}
+   *       declines)
+   *   <li>[not-yet-translatable] {@code ORDER BY}/{@code LIMIT} after {@code groupCount} — plain
+   *       {@code order}+{@code limit} translate on this branch; the post-aggregate slice still declines
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<Object, Long>> ic6FriendPostTagCounts(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL)
+        .in(HAS_CREATOR_LABEL)
+        .hasLabel(POST_LABEL)
+        .out(HAS_TAG_LABEL)
+        .groupCount().by("name");
+  }
+
+  /**
+   * LDBC: IC7 reduced — likers' {@code firstName} via {@code in(HAS_CREATOR).in(LIKES)}.
+   *
+   * <p>Kept: two-hop like walk; liker {@code values(firstName)} only.
+   *
+   * <p>Gaps vs SQL IC7:
+   * <ul>
+   *   <li>[not-yet-translatable] like-edge {@code creationDate} — edge-{@code as} property projection
+   *   <li>[not-yet-translatable] per-liker latest like ({@code GROUP BY} + {@code first()}) — not the
+   *       plain hop walk this shape prices
+   *   <li>[not-yet-translatable] optional knows / {@code isNew} — {@link #optionalFriendOfCreator}
+   *   <li>[not-yet-translatable] {@code coalesce} on message content — {@link #coalesceMessageContent}
+   *   <li>[depends-on-above] message id/content/date columns, {@code ORDER BY}/{@code LIMIT} — need
+   *       the edge date and latest-per-liker plan above
+   * </ul>
    */
   public static YTDBGraphTraversal<Vertex, String> ic7Likers(
       YTDBGraphTraversalSource g, long personId) {
@@ -348,51 +616,184 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IC8 reduced. Comments that reply to a person's messages, newest first.
+   * LDBC: IC8 reduced — comments on a person's messages, SQL
+   * {@code ORDER BY creationDate DESC, id ASC}, top {@link #RESULT_LIMIT}.
    *
-   * <p>IC8 is {@code MATCH {class: Person}.in('HAS_CREATOR'){as: message}.in('REPLY_OF'){as: comment}
-   * .out('HAS_CREATOR'){as: creator} RETURN creator.*, comment.* ORDER BY date DESC LIMIT n}. Kept:
-   * the two inbound hops, {@code hasLabel(Comment)}, {@code ORDER BY creationDate DESC}, and three
-   * comment columns. Dropped: creator columns, {@code coalesce}, and {@code LIMIT}.
+   * <p>Kept: bind comment + creator (same pattern as {@link #is7RepliesWithAuthors}); sort on
+   * comment date/id via {@code select} modulators; {@code limit}; every non-coalesce RETURN column
+   * via multi-{@code as} after the slice. Labels that {@code LazyBarrierStrategy} parks on {@code
+   * NoOpBarrierStep} are salvaged by the walker.
+   *
+   * <p>Gaps vs SQL IC8:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code coalesce(imageFile, content)} — {@link #coalesceMessageContent};
+   *       shape returns plain {@code content}
+   * </ul>
    */
-  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> ic8RecentRepliesOrdered(
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic8RecentRepliesOrdered(
       YTDBGraphTraversalSource g, long personId) {
     return g.V()
         .hasLabel(PERSON_LABEL)
         .has("id", personId)
         .in(HAS_CREATOR_LABEL)
-        .in(REPLY_OF_LABEL)
-        .hasLabel(COMMENT_LABEL)
-        .order().by("creationDate", Order.desc)
-        .valueMap("id", "content", "creationDate");
+        .in(REPLY_OF_LABEL).as("commentCreationDate", "commentId", "commentContent")
+        .out(HAS_CREATOR_LABEL).as("personId", "firstName", "lastName")
+        .order()
+        .by(__.select("commentCreationDate").by("creationDate"), Order.desc)
+        .by(__.select("commentId").by("id"), Order.asc)
+        .limit(RESULT_LIMIT)
+        .select(
+            "personId",
+            "firstName",
+            "lastName",
+            "commentCreationDate",
+            "commentId",
+            "commentContent")
+        .by("id")
+        .by("firstName")
+        .by("lastName")
+        .by("creationDate")
+        .by("id")
+        .by("content");
   }
 
   /**
-   * LDBC: IC11 reduced. Direct friends' companies in a named country.
+   * LDBC: IC9 reduced — direct friends' messages before {@code maxDate} (same walk as
+   * {@link #ic2FriendsMessagesOrdered}; SQL IC9 adds FoF).
    *
-   * <p>IC11 is {@code MATCH {class: Person}.out('KNOWS'){while: ($depth < 2)}.outE('WORK_AT'){where:
-   * (workFrom < :year)}.inV(){as: company}.out('IS_LOCATED_IN'){where: (name = :country)} RETURN
-   * person.*, company.name, workFrom ORDER BY workFrom, personId LIMIT n}. Kept: one {@code KNOWS}
-   * hop (not FoF), {@code out(WORK_AT)} onto {@code Organisation}, country filter, and
-   * {@code select("company", "country")}. Dropped: depth-2 {@code repeat}, person columns, {@code
-   * workFrom} predicate and column, {@code ORDER BY} + {@code LIMIT}. The company alias binds on
-   * valued {@code has("id", P.neq(-1L))}, the same pattern as IS1: a bare {@code has("name")}
-   * rewrites to {@code TraversalFilterStep} and declines. The LDBC loader inserts companies as
-   * {@code Organisation} vertices, so the filter is that class, not the empty {@code Company}
-   * subclass.
+   * <p>Gaps vs SQL IC9:
+   * <ul>
+   *   <li>[not-yet-translatable] FoF {@code while} depth &lt; 2
+   *   <li>[not-yet-translatable] {@code coalesce(imageFile, content)} — {@link #coalesceMessageContent}
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic9FriendsMessagesOrdered(
+      YTDBGraphTraversalSource g, long personId, Date maxDate) {
+    return ic2FriendsMessagesOrdered(g, personId, maxDate);
+  }
+
+  /**
+   * LDBC: IC10 reduced — friends-of-friends (two {@code KNOWS} hops) with city name.
+   *
+   * <p>Gaps vs SQL IC10:
+   * <ul>
+   *   <li>[not-yet-translatable] exclude the start person via {@code where(neq(start))} before a
+   *       multi-{@code as}/{@code select} — TinkerPop parks the person labels on the
+   *       {@code WherePredicateStep}, and the walker cannot bind those aliases for the following
+   *       {@code select} (see {@link #threeHopKnowsExcludingIntermediate} for {@code where(neq)}
+   *       without a later select). Shape therefore keeps the Alice←Bob→Alice cycle row.
+   *   <li>[not-yet-translatable] exclude direct friends ({@code NOT IN start.out(KNOWS)})
+   *   <li>[not-yet-translatable] birthday MMdd window + {@code LET} interest score
+   *   <li>[depends-on-above] {@code ORDER BY commonInterestScore} + {@code LIMIT}
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic10FriendsOfFriendsInCity(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL)
+        .out(KNOWS_LABEL)
+        .as("personId", "firstName", "lastName", "gender", "birthday")
+        .out(IS_LOCATED_IN_LABEL).as("cityName")
+        .select(
+            "personId",
+            "firstName",
+            "lastName",
+            "gender",
+            "birthday",
+            "cityName")
+        .by("id")
+        .by("firstName")
+        .by("lastName")
+        .by("gender")
+        .by("birthday")
+        .by("name");
+  }
+
+  /**
+   * LDBC: IC11 reduced — direct friends' companies in a named country.
+   *
+   * <p>Kept: one {@code KNOWS} hop; {@code out(WORK_AT)}; country filter; friend id/name + company
+   * name via multi-{@code as} (SQL RETURN without {@code workFrom}).
+   *
+   * <p>Gaps vs SQL IC11:
+   * <ul>
+   *   <li>[not-yet-translatable] friends-of-friends ({@code while} depth &lt; 2) — {@code repeat}/
+   *       {@code while} ({@code RepeatDeclineStrategy})
+   *   <li>[not-yet-translatable] {@code workFrom} filter + column — edge-{@code as} on {@code
+   *       outE(WORK_AT)}
+   *   <li>[depends-on-above] SQL {@code ORDER BY workFrom, personId, organizationName} +
+   *       {@code LIMIT} — {@code order}+{@code limit} already translates; the shape omits them
+   *       until {@code workFrom} exists so remis order stays SQL-identical (a personId/name-only
+   *       sort would compile but disagree with SQL on ties)
+   * </ul>
    */
   public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic11FriendsCompaniesInCountry(
       YTDBGraphTraversalSource g, long personId, String countryName) {
     return g.V()
         .hasLabel(PERSON_LABEL)
         .has("id", personId)
-        .out(KNOWS_LABEL)
-        .out(WORK_AT_LABEL)
-        .hasLabel(ORGANISATION_LABEL)
-        .has("id", P.neq(-1L)).as("company")
+        .out(KNOWS_LABEL).as("personId", "firstName", "lastName")
+        .out(WORK_AT_LABEL).as("organizationName")
         .out(IS_LOCATED_IN_LABEL)
-        .has("name", countryName).as("country")
-        .select("company", "country").by("name").by("name");
+        .has("name", countryName)
+        .select("personId", "firstName", "lastName", "organizationName")
+        .by("id")
+        .by("firstName")
+        .by("lastName")
+        .by("name");
+  }
+
+  /**
+   * LDBC: IC12 reduced — friends' comments that reply to a post, with that post's tags.
+   *
+   * <p>Gaps vs SQL IC12:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code HAS_TYPE} / {@code IS_SUBCLASS_OF} {@code while} TagClass
+   *       filter
+   *   <li>[not-yet-translatable] {@code set(tag.name)} + {@code count} {@code GROUP BY} friend
+   *   <li>[depends-on-above] {@code ORDER BY replyCount}/{@code LIMIT} — {@code order}+{@code limit}
+   *       already translate; the shape omits them until {@code replyCount} exists so remis order
+   *       stays SQL-identical
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic12FriendCommentPostTags(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL).as("personId", "firstName", "lastName")
+        .in(HAS_CREATOR_LABEL)
+        .hasLabel(COMMENT_LABEL)
+        .out(REPLY_OF_LABEL)
+        .hasLabel(POST_LABEL)
+        .out(HAS_TAG_LABEL).as("tagName")
+        .select("personId", "firstName", "lastName", "tagName")
+        .by("id")
+        .by("firstName")
+        .by("lastName")
+        .by("name");
+  }
+
+  /**
+   * LDBC: IC13 reduced — whether {@code person1} has a direct {@code KNOWS} edge to {@code person2}
+   * ({@code count}, 0 or more).
+   *
+   * <p>Gaps vs SQL IC13:
+   * <ul>
+   *   <li>[not-yet-translatable] {@code shortestPath(...)} length — no shortest-path recogniser;
+   *       shape only probes a one-hop edge
+   * </ul>
+   */
+  public static YTDBGraphTraversal<Vertex, Long> ic13DirectKnowsCount(
+      YTDBGraphTraversalSource g, long person1Id, long person2Id) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", person1Id)
+        .out(KNOWS_LABEL)
+        .has("id", person2Id)
+        .count();
   }
 
   /**
@@ -438,8 +839,9 @@ public final class GremlinTraversalShapes {
    *
    * <p>{@code where(P.neq("f"))} drops the paths whose third hop returns to the friend the second
    * hop came from — a back-reference to a mid-walk alias. An earlier note here explained that
-   * choice by a start-step label being unresolvable; that is the gate {@link #is1FullProfile}
-   * describes, it has since closed, and no shape in this class measures the start-alias variant, so
+   * choice by a start-step label being unresolvable; that gate has since closed on {@link
+   * #is1PersonCityProfile}'s {@code as("p")} label, and no shape in this class measures the
+   * start-alias variant, so
    * the explanation is withdrawn rather than restated.
    */
   public static YTDBGraphTraversal<Vertex, String> threeHopKnowsExcludingIntermediate(
@@ -452,30 +854,6 @@ public final class GremlinTraversalShapes {
         .out(KNOWS_LABEL)
         .where(P.neq("f"))
         .values("firstName");
-  }
-
-  /**
-   * LDBC: IS1 reduced. {@code select("p", "city")} of {@code firstName} and city {@code id}; SQL
-   * returns eight person fields plus {@code city.id}.
-   *
-   * <p>Same SQL as {@link #is1PersonCityProfile}, with the person-side columns added.
-   * {@code select("p", "city")} needs both user {@code as(...)} labels to resolve to pattern
-   * aliases, and the harness first measured this shape declining because they did not. The reason
-   * recorded here at the time — that {@code as("p")} sits on the start step — was wrong twice over:
-   * the label is authored on the {@code has("id", …)} step, and what declined was the {@code has}
-   * recogniser binding no labels at all. It binds them now, so the shape translates and its
-   * previously recorded decline-path number no longer describes it.
-   *
-   * <p>Two person-side columns rather than IS1's seven. The projection width is not what the shape
-   * measures, and a shorter one keeps the hand-computed expected value readable.
-   */
-  public static YTDBGraphTraversal<Vertex, Map<String, Object>> is1FullProfile(
-      YTDBGraphTraversalSource g, long personId) {
-    return g.V()
-        .hasLabel(PERSON_LABEL)
-        .has("id", personId).as("p")
-        .out(IS_LOCATED_IN_LABEL).as("city")
-        .select("p", "city").by("firstName").by("id");
   }
 
   /**
@@ -542,7 +920,7 @@ public final class GremlinTraversalShapes {
    * first and filters last. {@code WherePredicateStepRecogniser} translates the {@code
    * where(P.eq(label))} closure via a {@code $matched.start} accessor; the start-step {@code
    * as("start")} label binds through the {@code has} recogniser (the same label gate {@link
-   * #is1FullProfile} relies on).
+   * #is1PersonCityProfile} relies on).
    */
   public static YTDBGraphTraversal<Vertex, String> mutualFriendTriangle(
       YTDBGraphTraversalSource g, long personId) {
@@ -556,21 +934,40 @@ public final class GremlinTraversalShapes {
         .values("firstName");
   }
 
+  /**
+   * LDBC: none. Translator primitive: {@code order().by(firstName).range(1, 3)} on friends.
+   *
+   * <p>{@code Person.firstName} is {@code NOTUNIQUE}; ties are implementation-defined like YQL.
+   * Same-boundary slice translates. Non-unique control beside the LDBC top-N shapes
+   * ({@link #is2PersonMessages} date-only; {@link #ic2FriendsMessagesOrdered} /
+   * {@link #ic8RecentRepliesOrdered} date+id as in SQL).
+   */
+  public static YTDBGraphTraversal<Vertex, String> knowsOrderedPage(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL)
+        .order().by("firstName")
+        .range(1, 3)
+        .values("firstName");
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Declining shapes: no boundary step with kill-switch on. CI: both sides native — head-vs-base
   // is not a MATCH win/loss. Optional on/off A/B prices decline overhead on one commit.
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * LDBC: IS3 full attempt. Edge {@code creationDate} plus friend {@code firstName} through
-   * {@code select("k", "friend")}; declines because {@code as("k")} on {@code outE} would bind the
-   * edge-as-node vertex.
+   * LDBC: IS3 fragment — declining twin of {@link #is3FriendsWithNames}.
    *
-   * <p>Same SQL as {@link #is3FriendsWithNames}, but projects the friendship edge's {@code
-   * creationDate} via a user {@code as("k")} label on {@code outE(KNOWS)}. That edge {@code as(k)}
-   * label declines: it would bind to the edge-as-node <em>vertex</em> alias, so {@code
-   * select("k").by("creationDate")} would read the target vertex rather than the friendship edge.
-   * Runtime-incorrect, so the whole shape falls back to native on both arms.
+   * <p>Target: friendship {@code creationDate} via {@code select("k", "friend")}.
+   *
+   * <p>Gap (whole shape declines):
+   * <ul>
+   *   <li>[not-yet-translatable] edge-property projection — {@code as("k")} on {@code outE} binds the
+   *       edge-as-node vertex alias, so {@code select("k").by("creationDate")} reads the wrong entity
+   * </ul>
    */
   public static YTDBGraphTraversal<Vertex, Map<String, Object>> is3FriendsWithDates(
       YTDBGraphTraversalSource g, long personId) {
@@ -584,49 +981,17 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: none. Declining translator primitive: {@code order().by(firstName).range(1, 3)}. LDBC
-   * pages look like this; the walker refuses a slice behind a captured {@code ORDER BY}.
+   * LDBC: IC1 fragment — variable-depth {@code KNOWS} walk.
    *
-   * <p>{@code ORDER BY firstName SKIP 1 LIMIT 2} is what MATCH would compile this to, and the
-   * walker refuses it: a slice sitting behind a captured {@code ORDER BY} declines, so the whole
-   * traversal runs natively on both arms. The shape was written as a translating one and measured
-   * as such at the time; the slice-after-sort decline widened underneath it afterwards, which is
-   * why the group changed rather than the spelling.
+   * <p>Target: {@code repeat(out(KNOWS)).times(3).emit()} (one slice of IC1's pattern).
    *
-   * <p>The spelling is kept as authored rather than nudged into something translatable. Paging a
-   * sorted hop is what the LDBC read queries actually ask for. The both-arms assertion fails the
-   * day a recogniser claims a slice after a sort and signals that CI baselines need re-reading.
-   */
-  public static YTDBGraphTraversal<Vertex, String> knowsOrderedPage(
-      YTDBGraphTraversalSource g, long personId) {
-    return g.V()
-        .hasLabel(PERSON_LABEL)
-        .has("id", personId)
-        .out(KNOWS_LABEL)
-        .order().by("firstName")
-        .range(1, 3)
-        .values("firstName");
-  }
-
-  /**
-   * LDBC: IC1 fragment. Variable-depth {@code KNOWS} via {@code repeat().times(3).emit()};
-   * {@code RepeatDeclineStrategy} vetoes it before the walker runs. The same veto covers IS2 and
-   * IS6's {@code while:} recursion over {@code REPLY_OF}. Drops IC1's {@code LET} universities /
-   * companies, {@code GROUP BY} min(distance), and {@code LIMIT}.
+   * <p>Gap (whole shape declines):
+   * <ul>
+   *   <li>[not-yet-translatable] {@code repeat}/{@code emit} — {@code RepeatDeclineStrategy}
+   * </ul>
    *
-   * <p>IC1 walks {@code KNOWS} to depth three. {@code RepeatDeclineStrategy} vetoes any traversal
-   * whose subtree carries a {@code RepeatStep}, because {@code RepeatUnrollStrategy} rewrites the
-   * repeat into a chain the walker cannot tell from a hand-written one, and MATCH enumerates paths
-   * where the native barriers merge traversers into bulks. Declining is what makes the TinkerPop
-   * feature suite terminate.
-   *
-   * <p>This is the cheapest decline route in the group: the veto is a marker on the traversal's
-   * strategy list, so {@code GremlinToMatchStrategy} exits before walking a single step. The other
-   * declining shapes walk until they meet an unregistered step class, so the two prices differ and
-   * the group measures both.
-   *
-   * <p>The same veto covers IS2 and IS6, whose {@code while:} recursion over {@code REPLY_OF} is the
-   * same shape over a different edge.
+   * <p>Other IC1 pieces not in this fragment: {@code LET}, {@code GROUP BY} min(distance), profile
+   * columns, {@code ORDER BY}, {@code LIMIT}.
    */
   public static YTDBGraphTraversal<Vertex, String> repeatKnowsToThreeHops(
       YTDBGraphTraversalSource g, long personId) {
@@ -641,14 +1006,14 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IS4 fragment. {@code coalesce(imageFile, content)} on a message; declines on
-   * {@code CoalesceStep}. IS2 projects the same expression.
+   * LDBC: IS4 fragment — {@code coalesce(imageFile, content)}.
    *
-   * <p>IS4 is {@code SELECT coalesce(imageFile, content) as messageContent, creationDate FROM
-   * Message WHERE id = :messageId}; IS2 projects the same expression. Gremlin spells it {@code
-   * coalesce(__.values(a), __.values(b))}, whose {@code CoalesceStep} has no recogniser, so the walk
-   * declines at that step — after {@code V}, {@code hasLabel} and {@code has} have already been
-   * recognised, which is the walk-then-decline price this shape measures.
+   * <p>Translating twin without coalesce: {@link #is4MessageContent}.
+   *
+   * <p>Gap (whole shape declines):
+   * <ul>
+   *   <li>[not-yet-translatable] {@code CoalesceStep} — no recogniser
+   * </ul>
    */
   public static YTDBGraphTraversal<Vertex, String> coalesceMessageContent(
       YTDBGraphTraversalSource g, long messageId) {
@@ -659,13 +1024,14 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IS7 fragment. {@code optional(out(KNOWS))} after the message's author; declines on
-   * {@code optional()}. SQL also has {@code coalesce} and {@code ifnull(knowsCheck)}.
+   * LDBC: IS7 fragment — {@code optional(out(KNOWS))} after message author.
    *
-   * <p>IS7 ends with {@code .out('KNOWS'){as: knowsCheck, where: (@rid = $matched.author.@rid),
-   * optional: true}}. MATCH's {@code optional: true} is a Phase 2 capability, and Gremlin's
-   * {@code optional(...)} compiles to a branch step with no recogniser, so the walk declines
-   * there. The shape reserves the baseline for the day Phase 2 lands the optional hop.
+   * <p>Target: SQL IS7 knows-author flag ({@code ifnull(knowsCheck, false, true)}).
+   *
+   * <p>Gap (whole shape declines):
+   * <ul>
+   *   <li>[not-yet-translatable] {@code optional()} — no recogniser
+   * </ul>
    */
   public static YTDBGraphTraversal<Vertex, String> optionalFriendOfCreator(
       YTDBGraphTraversalSource g, long messageId) {

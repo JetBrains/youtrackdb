@@ -21,6 +21,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +124,13 @@ final class WalkerContext implements RecognitionContext {
   /** {@code ORDER BY} clause for {@code order()} terminators. */
   @Nullable SQLOrderBy orderBy;
 
+  /**
+   * Alias the captured {@code ORDER BY} was keyed on, or {@code null} when none is captured. A hop
+   * after {@code order()} re-pins the boundary, and a slice is then sorting one alias while cutting
+   * another.
+   */
+  @Nullable private String orderByAlias;
+
   /** {@code LIMIT} for {@code limit()} / {@code range()} terminators. */
   @Nullable SQLLimit limit;
 
@@ -129,12 +138,12 @@ final class WalkerContext implements RecognitionContext {
   @Nullable SQLSkip skip;
 
   /**
-   * Boundary row-projection shaping — the seven flags plus the ordered list-shaping ops a
-   * terminator pins so the boundary base ({@link
+   * Boundary row-projection shaping — every flag and column list plus the ordered list-shaping ops
+   * a terminator pins so the boundary base ({@link
    * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep}) knows
    * how to project each row: row dropping, presence checks, valueMap list wrapping, group-map
-   * accumulation, singleton-map unwrapping, elementMap token keys, and the {@code fold} /
-   * {@code unfold} / {@code reverse} / {@code tail} stream stages. Defaults to {@link
+   * accumulation, singleton-map unwrapping, elementMap token keys, record-identifier emit keys, and
+   * the {@code fold} / {@code unfold} / {@code reverse} / {@code tail} stream stages. Defaults to {@link
    * ResultShaping#NONE} (the element path).
    *
    * <p>Two write paths reach it. A flag-pinning terminator replaces the whole record through {@link
@@ -151,6 +160,12 @@ final class WalkerContext implements RecognitionContext {
    * re-declaring the alias, so a post-union slice cannot promote and stays declined.
    */
   @Nullable String presenceDropAlias;
+
+  /**
+   * {@code alias + '\\0' + key} pairs for which {@link ByModulatorPresence} already wrote
+   * {@code key IS DEFINED}. Lets {@code values(key)} skip a redundant {@code dropOnAbsent} check.
+   */
+  final HashSet<String> presenceConjunctKeys = new HashSet<>();
 
   /**
    * Field-access expression from the immediately preceding single-key property extraction, consumed
@@ -186,7 +201,8 @@ final class WalkerContext implements RecognitionContext {
   /** Schema snapshot the walk resolves types against, or {@code null} when the traversal has no
    *  attached YTDB session. Used by {@link #isDeclaredStringProperty(String, String)} to pick the
    *  {@code startingWith} translation form and by {@link #isVertexClass(String)} for hasLabel
-   *  re-typing; a {@code null} schema resolves every property as "not a declared String". */
+   *  re-typing; a {@code null} schema resolves every property as "not a declared String" and every
+   *  class check as false. */
   @Nullable private final Schema schema;
 
   /** The recogniser registry a {@link #walkChild} sub-walk drives child sub-traversals against — the
@@ -468,6 +484,24 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
+  public boolean isDeclaredPropertyTypeIn(
+      @Nullable String className, String propertyKey, Collection<String> typeNames) {
+    if (schema == null || className == null || propertyKey == null || typeNames == null
+        || typeNames.isEmpty()) {
+      return false;
+    }
+    var clazz = schema.getClass(className);
+    if (clazz == null) {
+      return false;
+    }
+    var property = clazz.getProperty(propertyKey);
+    if (property == null || property.getType() == null) {
+      return false;
+    }
+    return typeNames.contains(property.getType().name());
+  }
+
+  @Override
   public boolean isVertexClass(String className) {
     if (schema == null || className == null) {
       // No schema to verify against: decline the re-type so a hasLabel never builds a scan over an
@@ -537,6 +571,16 @@ final class WalkerContext implements RecognitionContext {
     // would silently drop the earlier filter and return a wrong (over-large) multiset.
     var merged = WHERE.and(existing.getBaseExpression(), where.getBaseExpression());
     aliasFilters.put(alias, WHERE.wrap(merged));
+  }
+
+  @Override
+  public void recordPresenceConjunct(String alias, String key) {
+    presenceConjunctKeys.add(alias + '\0' + key);
+  }
+
+  @Override
+  public boolean hasPresenceConjunct(String alias, String key) {
+    return presenceConjunctKeys.contains(alias + '\0' + key);
   }
 
   @Override
@@ -652,6 +696,32 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void setOrderBy(@Nullable SQLOrderBy orderBy) {
     this.orderBy = orderBy;
+    if (orderBy == null) {
+      this.orderByAlias = null;
+    }
+  }
+
+  @Override
+  public void recordOrderByCapture(@Nullable String alias, boolean keysOnlyBoundary) {
+    this.orderByAlias = alias;
+  }
+
+  @Override
+  public void markReturnReadsForeignAlias() {
+    // No-op: retained for select recognisers; ordered-slice gate no longer reads this flag.
+  }
+
+  @Override
+  public boolean orderAllowsSliceOnCurrentBoundary() {
+    if (orderBy == null) {
+      return false;
+    }
+    var boundary = boundaryAlias;
+    // A hop between order() and the slice re-pins the boundary — LIMIT would cut the sorted
+    // source, not the post-hop traverser stream Gremlin applies. Foreign-alias ORDER BY items and
+    // multi-alias RETURN are allowed: tie-breaking under equal sort keys is implementation-defined,
+    // same as YQL ORDER BY + LIMIT and as boundary-only ordered slices.
+    return boundary != null && orderByAlias != null && boundary.equals(orderByAlias);
   }
 
   @Override
@@ -688,15 +758,32 @@ final class WalkerContext implements RecognitionContext {
     if (!shaping.dropOnAbsent()) {
       return true;
     }
-    if (presenceDropAlias == null) {
+    if (presenceDropAlias != null) {
+      for (var key : shaping.presencePropertyKeys()) {
+        ByModulatorPresence.requireProjectedProperty(this, presenceDropAlias, key);
+      }
+      // dropOnAbsent stays on: after the conjunct no row lacking the key survives, so the shaping
+      // drop is redundant, but it cannot remove a row the conjunct left.
+      return true;
+    }
+    // select(…).by(key) before a slice: post-plan AliasPropertyPresence must become IS DEFINED
+    // before LIMIT/SKIP so the cut applies to survivors, not pre-drop rows.
+    if (shaping.aliasPropertyPresences().isEmpty()) {
       return false;
     }
-    for (var key : shaping.presencePropertyKeys()) {
-      ByModulatorPresence.requireProjectedProperty(this, presenceDropAlias, key);
+    for (var presence : shaping.aliasPropertyPresences()) {
+      var internalAlias = internalAliasFromPresenceEntityColumn(presence.entityColumnAlias());
+      ByModulatorPresence.requireProjectedProperty(this, internalAlias, presence.propertyKey());
     }
-    // dropOnAbsent stays on: after the conjunct no row lacking the key survives, so the shaping
-    // drop is redundant, but it cannot remove a row the conjunct left.
     return true;
+  }
+
+  private static String internalAliasFromPresenceEntityColumn(String entityColumnAlias) {
+    var prefix = "$g2m_pe_";
+    if (entityColumnAlias.startsWith(prefix)) {
+      return entityColumnAlias.substring(prefix.length());
+    }
+    return entityColumnAlias;
   }
 
   @Override

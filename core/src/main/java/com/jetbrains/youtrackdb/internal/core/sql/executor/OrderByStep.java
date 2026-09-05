@@ -7,8 +7,10 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
@@ -34,6 +36,13 @@ import javax.annotation.Nullable;
  * <p>This reduces memory from O(|all results|) to O(N) and time from
  * O(|results| &times; log(|results|)) to O(|results| &times; log(N)).
  *
+ * <h2>Parameterized bounds</h2>
+ * The bound may come from a parameterized {@code SKIP}/{@code LIMIT} (e.g. {@code LIMIT :n}).
+ * Because this step belongs to a cacheable plan, such a bound is resolved on every execution
+ * through {@link SQLLimit#getValue(CommandContext)} rather than baked in at planning time.
+ * Baking it in made a second execution of the same statement text with a larger parameter return
+ * the row count of the first execution.
+ *
  * <h2>Unbounded path (ORDER BY without LIMIT)</h2>
  * All upstream rows are collected into a list and sorted once. The step respects
  * {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP} and throws a
@@ -51,10 +60,24 @@ public class OrderByStep extends AbstractExecutionStep {
   private final long timeoutMillis;
 
   /**
-   * When non-null, the maximum number of results needed (SKIP + LIMIT).
-   * Enables the bounded min-heap path that holds at most this many elements.
+   * When non-null, a plan-time constant maximum number of results (SKIP + LIMIT).
+   * Used only when no {@code SKIP}/{@code LIMIT} clause was handed to this step;
+   * otherwise the bound is resolved per execution from those clauses.
    */
-  private Integer maxResults;
+  @Nullable private final Integer fixedMaxResults;
+
+  /**
+   * The SKIP clause contributing to the bound, or {@code null} when there is none.
+   * Held as an AST node, not a number, so a parameterized SKIP resolves per execution.
+   */
+  @Nullable private final SQLSkip skipClause;
+
+  /**
+   * The LIMIT clause defining the bound, or {@code null} when the step is unbounded or when a
+   * plan-time constant was supplied instead. Held as an AST node so a parameterized LIMIT
+   * resolves per execution.
+   */
+  @Nullable private final SQLLimit limitClause;
 
   /**
    * When non-null, the input stream is known to be sorted by this ORDER BY
@@ -96,6 +119,33 @@ public class OrderByStep extends AbstractExecutionStep {
   }
 
   /**
+   * Preferred constructor for a planner: hands over the SKIP and LIMIT clauses instead of a
+   * resolved number, so a parameterized bound is read on every execution of a cached plan.
+   *
+   * @param skipClause  the SKIP clause, or {@code null} when there is none
+   * @param limitClause the LIMIT clause, or {@code null} when the step must stay unbounded
+   *                    (for instance under EXPAND or UNWIND, which invalidate the bound)
+   */
+  public OrderByStep(
+      SQLOrderBy orderBy,
+      @Nullable SQLSkip skipClause,
+      @Nullable SQLLimit limitClause,
+      @Nullable SQLOrderByItem primaryKeySortedInput,
+      boolean indexOrderedUpstream,
+      CommandContext ctx,
+      long timeoutMillis,
+      boolean profilingEnabled) {
+    super(ctx, profilingEnabled);
+    this.orderBy = orderBy;
+    this.fixedMaxResults = null;
+    this.skipClause = skipClause;
+    this.limitClause = limitClause;
+    this.primaryKeySortedInput = primaryKeySortedInput;
+    this.indexOrderedUpstream = indexOrderedUpstream;
+    this.timeoutMillis = timeoutMillis;
+  }
+
+  /**
    * @param primaryKeySortedInput when non-null, enables early termination in
    *        the bounded heap: stop reading when this item's value is strictly
    *        worse than the worst in the heap.
@@ -112,13 +162,35 @@ public class OrderByStep extends AbstractExecutionStep {
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.orderBy = orderBy;
-    this.maxResults = maxResults;
-    if (this.maxResults != null && this.maxResults < 0) {
-      this.maxResults = null;
-    }
+    this.fixedMaxResults = maxResults != null && maxResults >= 0 ? maxResults : null;
+    this.skipClause = null;
+    this.limitClause = null;
     this.primaryKeySortedInput = primaryKeySortedInput;
     this.indexOrderedUpstream = indexOrderedUpstream;
     this.timeoutMillis = timeoutMillis;
+  }
+
+  /**
+   * Resolves the bounded-heap size for one execution. A parameterized SKIP or LIMIT is read from
+   * {@code ctx} here, which is what keeps a cached plan correct across parameter values.
+   *
+   * @return the maximum number of rows this execution needs, or {@code null} when unbounded
+   */
+  @Nullable private Integer resolveMaxResults(CommandContext ctx) {
+    if (limitClause == null) {
+      return fixedMaxResults;
+    }
+    var limitSize = limitClause.getValue(ctx);
+    if (limitSize < 0) {
+      return null;
+    }
+    var skipSize = skipClause == null ? 0 : skipClause.getValue(ctx);
+    // Summed in long, because two large ints overflow: SKIP 2000000000 LIMIT 2000000000 wrapped
+    // to a negative bound, which is neither null nor zero nor above the element cap, so it
+    // reached PriorityQueue and raised an argument error. A bound past what any heap may hold
+    // is the same thing as no bound, so it falls back to the unbounded sort.
+    var total = (long) limitSize + Math.max(skipSize, 0);
+    return total > Integer.MAX_VALUE ? null : (int) total;
   }
 
   @Override
@@ -147,7 +219,7 @@ public class OrderByStep extends AbstractExecutionStep {
       return upstream;
     }
 
-    var results = init(upstream, ctx);
+    var results = init(upstream, ctx, resolveMaxResults(ctx));
     return ExecutionStream.resultIterator(results.iterator());
   }
 
@@ -163,13 +235,15 @@ public class OrderByStep extends AbstractExecutionStep {
    *
    * <p>When {@code maxResults} is not set, all rows are collected and sorted once.
    *
-   * @param upstream the already-started upstream stream to pull from
-   * @param ctx      the command context
+   * @param upstream   the already-started upstream stream to pull from
+   * @param ctx        the command context
+   * @param maxResults the bound resolved for this execution, or {@code null} when unbounded
    * @return the sorted (and possibly truncated) list of results
    * @throws CommandExecutionException if the number of elements exceeds
    *         {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}
    */
-  private List<Result> init(ExecutionStream upstream, CommandContext ctx) {
+  private List<Result> init(
+      ExecutionStream upstream, CommandContext ctx, @Nullable Integer maxResults) {
     var timeoutBegin = System.currentTimeMillis();
 
     if (maxResults != null) {
@@ -177,7 +251,7 @@ public class OrderByStep extends AbstractExecutionStep {
         upstream.close(ctx);
         return Collections.emptyList();
       }
-      return initBoundedHeap(upstream, ctx, timeoutBegin);
+      return initBoundedHeap(upstream, ctx, timeoutBegin, maxResults);
     }
     return initUnbounded(upstream, ctx, timeoutBegin);
   }
@@ -189,7 +263,7 @@ public class OrderByStep extends AbstractExecutionStep {
    * worst kept element, enabling O(1) comparison for each incoming row.
    */
   private List<Result> initBoundedHeap(
-      ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
+      ExecutionStream upstream, CommandContext ctx, long timeoutBegin, int maxResults) {
     var maxElementsAllowed =
         GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
     try {
@@ -290,11 +364,17 @@ public class OrderByStep extends AbstractExecutionStep {
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }
-    result += (maxResults != null ? "\n  (buffer size: " + maxResults + ")" : "");
+    // Printed with the step's own context, so a parameterized bound shows the value that
+    // context carries rather than a value frozen into the step.
+    var printedMaxResults = resolveMaxResults(this.ctx);
+    result += (printedMaxResults != null ? "\n  (buffer size: " + printedMaxResults + ")" : "");
     return result;
   }
 
-  /** Cacheable: the ORDER BY clause is a structural AST node deep-copied per execution. */
+  /**
+   * Cacheable: the ORDER BY clause is a structural AST node deep-copied per execution, and the
+   * SKIP/LIMIT bound is resolved per execution rather than stored as a number.
+   */
   @Override
   public boolean canBeCached() {
     return true;
@@ -318,8 +398,13 @@ public class OrderByStep extends AbstractExecutionStep {
       }
       copiedHint = copiedOrderBy.getItems().get(idx);
     }
+    if (limitClause != null) {
+      return new OrderByStep(
+          copiedOrderBy, skipClause == null ? null : skipClause.copy(), limitClause.copy(),
+          copiedHint, indexOrderedUpstream, ctx, timeoutMillis, profilingEnabled);
+    }
     return new OrderByStep(
-        copiedOrderBy, maxResults, copiedHint,
+        copiedOrderBy, fixedMaxResults, copiedHint,
         indexOrderedUpstream, ctx, timeoutMillis, profilingEnabled);
   }
 }

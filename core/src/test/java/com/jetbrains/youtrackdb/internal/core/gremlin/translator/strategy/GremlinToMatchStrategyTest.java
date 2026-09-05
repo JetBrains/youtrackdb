@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
@@ -26,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -35,13 +37,17 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for {@link GremlinToMatchStrategy}, the skeleton of the Gremlin-to-MATCH
@@ -72,6 +78,7 @@ import org.junit.Test;
 // narrowed to the methods that dereference the @Nullable getConfiguration(), so a genuine
 // null-dereference in a future test added to this class is not silenced.
 @SuppressWarnings({"unchecked", "resource"})
+@Category(SequentialTest.class)
 public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   private final TranslatorEquivalenceSupport support =
@@ -1002,7 +1009,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .aliasFilters(ir.aliasFilters())
             .returnElements(true)
             .build();
-    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs);
+    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs, ResultShaping.NONE);
     var translation =
         fixtureMultiPlanTranslation(
             List.of(childInputs, childInputs), List.of(Map.of(), Map.of()));
@@ -1044,7 +1051,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .aliasFilters(ir.aliasFilters())
             .returnElements(true)
             .build();
-    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs);
+    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs, ResultShaping.NONE);
     var translation =
         fixtureMultiPlanTranslation(
             List.of(childInputs, childInputs), List.of(Map.of(), Map.of()));
@@ -1113,7 +1120,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .aliasFilters(ir.aliasFilters())
             .returnElements(true)
             .build();
-    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs);
+    var fingerprint = GremlinPlanFingerprint.fingerprint(childInputs, ResultShaping.NONE);
     var translation =
         fixtureMultiPlanTranslation(
             List.of(childInputs, childInputs),
@@ -1219,10 +1226,10 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   /**
    * Planning must see bound {@code ?} values (like SQLMatchStatement). Without them a UNIQUE
-   * {@code id = ?} estimates {@code classCount / 2}; a smaller mid-walk class carrying
-   * {@code IS DEFINED} from {@code select().by()} can win the root and full-scan — the IS6/IC11
-   * catastrophe. Fixture: many Forums, one Post with UNIQUE id; assert the plan roots at the
-   * Post origin, not at Forum.
+   * {@code id = ?} estimates {@code classCount / 2}; a smaller mid-walk class with any filter that
+   * the estimator over-narrows (historically {@code IS DEFINED} from {@code select().by()}) can win
+   * the root and full-scan — the IS6/IC11 catastrophe. Fixture: many Forums, one Post with UNIQUE
+   * id; assert the plan roots at the Post origin, not at Forum.
    */
   @Test
   public void uniqueIdParamAtPlanTime_rootsAtStartNotSmallerMidWalkAlias() {
@@ -1270,6 +1277,652 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         .as(
             "UNIQUE id=? must win root over a smaller Forum class; plan was:\n" + planText)
         .isEqualTo("$g2m_v0");
+  }
+
+  /**
+   * LDBC IC2 reduced: Person → KNOWS → friends → HAS_CREATOR ← Message, {@code ORDER BY
+   * creationDate DESC, id ASC}, {@code LIMIT 20}. SQL MATCH and the translated Gremlin shape must
+   * both pick INDEX ORDERED MATCH FILTERED_BOUND on HAS_CREATOR.
+   */
+  @Test
+  public void ic2FriendsMessages_translatedPlanUsesIndexOrderedFilteredBound() throws Exception {
+    seedIc2FriendsMessagesGraph();
+    var maxDate = new Date(4_000L);
+
+    try (var ignored = setIndexOrderedTestConfig()) {
+      session.begin();
+      try (var sqlResult = session.query(
+          "MATCH {class: Person, as: p, where: (id = 1)}"
+              + ".out('KNOWS'){as: friend}"
+              + ".in('HAS_CREATOR'){class: Message, as: msg,"
+              + " where: (creationDate < ?)} "
+              + "RETURN friend.id as personId, friend.firstName as firstName,"
+              + " friend.lastName as lastName, msg.id as messageId,"
+              + " msg.content as messageContent, msg.creationDate as messageCreationDate "
+              + "ORDER BY messageCreationDate DESC, messageId ASC LIMIT 20",
+          maxDate)) {
+        var sqlPlan = sqlResult.getExecutionPlan().prettyPrint(0, 2);
+        assertThat(sqlPlan)
+            .as("SQL IC2 must use INDEX ORDERED MATCH FILTERED_BOUND; plan was:\n" + sqlPlan)
+            .contains("INDEX ORDERED MATCH")
+            .contains("FILTERED_BOUND");
+      }
+      session.commit();
+
+      support.withTranslator(true, () -> {
+        var admin = graph.traversal().V()
+            .hasLabel("Person").has("id", 1L)
+            .out("KNOWS").as("personId", "firstName", "lastName")
+            .in("HAS_CREATOR")
+            .hasLabel("Message").as("messageId", "messageContent", "messageCreationDate")
+            .has("creationDate", P.lt(maxDate))
+            .order().by("creationDate", Order.desc).by("id", Order.asc)
+            .limit(20)
+            .select(
+                "personId",
+                "firstName",
+                "lastName",
+                "messageId",
+                "messageContent",
+                "messageCreationDate")
+            .by("id")
+            .by("firstName")
+            .by("lastName")
+            .by("id")
+            .by("content")
+            .by("creationDate")
+            .asAdmin();
+        admin.applyStrategies();
+        var steps = admin.getSteps().stream()
+            .map(s -> s.getClass().getSimpleName())
+            .toList();
+        var boundary = admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance)
+            .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(
+                "IC2 Gremlin shape must translate; steps after applyStrategies: " + steps));
+        var gremlinPlan = boundary.getPlan().prettyPrint(0, 2);
+        assertThat(gremlinPlan)
+            .as("Gremlin IC2 must use INDEX ORDERED MATCH FILTERED_BOUND; plan was:\n"
+                + gremlinPlan)
+            .contains("INDEX ORDERED MATCH")
+            .contains("FILTERED_BOUND");
+      });
+    }
+  }
+
+  /**
+   * LDBC IC2 reduced benchmark shape: multi-{@code as} before the slice, {@code select().by()}
+   * after {@code limit(20)}. MATCH must keep INDEX ORDERED and defer CALCULATE PROJECTIONS past
+   * ORDER BY + LIMIT — same contract as {@link #is2PersonMessages_translatedPlanDefersProjectionsUntilAfterLimit}.
+   */
+  @Test
+  public void ic2FriendsMessages_translatedPlanDefersProjectionsUntilAfterLimit() throws Exception {
+    seedIc2FriendsMessagesGraph();
+    var maxDate = new Date(4_000L);
+
+    try (var ignored = setIndexOrderedTestConfig()) {
+      support.withTranslator(true, () -> {
+        var admin = graph.traversal().V()
+            .hasLabel("Person").has("id", 1L)
+            .out("KNOWS").as("personId", "firstName", "lastName")
+            .in("HAS_CREATOR")
+            .hasLabel("Message").as("messageId", "messageContent", "messageCreationDate")
+            .has("creationDate", P.lt(maxDate))
+            .order().by("creationDate", Order.desc).by("id", Order.asc)
+            .limit(20)
+            .select(
+                "personId",
+                "firstName",
+                "lastName",
+                "messageId",
+                "messageContent",
+                "messageCreationDate")
+            .by("id")
+            .by("firstName")
+            .by("lastName")
+            .by("id")
+            .by("content")
+            .by("creationDate")
+            .asAdmin();
+        admin.applyStrategies();
+        var steps = admin.getSteps().stream()
+            .map(s -> s.getClass().getSimpleName())
+            .toList();
+        var boundary = admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance)
+            .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(
+                "IC2 benchmark shape must translate; steps after applyStrategies: " + steps));
+        assertPlanDefersProjectionsUntilAfterLimit(boundary.getPlan().prettyPrint(0, 2));
+      });
+    }
+  }
+
+  /**
+   * LDBC IC8 reduced benchmark shape: foreign-alias {@code order().by(select().by())} before the
+   * slice and multi-{@code select().by()} after {@code limit(20)}.
+   */
+  @Test
+  public void ic8RecentReplies_translatedPlanDefersProjectionsUntilAfterLimit() throws Exception {
+    seedIc8RecentRepliesGraph();
+
+    try (var ignored = setIndexOrderedTestConfig()) {
+      support.withTranslator(true, () -> {
+        var admin = graph.traversal().V()
+            .hasLabel("Person").has("id", 2L)
+            .in("HAS_CREATOR")
+            .in("REPLY_OF").hasLabel("Comment")
+            .as("commentCreationDate", "commentId", "commentContent")
+            .out("HAS_CREATOR").as("personId", "firstName", "lastName")
+            .order()
+            .by(__.select("commentCreationDate").by("creationDate"), Order.desc)
+            .by(__.select("commentId").by("id"), Order.asc)
+            .limit(20)
+            .select(
+                "personId",
+                "firstName",
+                "lastName",
+                "commentCreationDate",
+                "commentId",
+                "commentContent")
+            .by("id")
+            .by("firstName")
+            .by("lastName")
+            .by("creationDate")
+            .by("id")
+            .by("content")
+            .asAdmin();
+        admin.applyStrategies();
+        var steps = admin.getSteps().stream()
+            .map(s -> s.getClass().getSimpleName())
+            .toList();
+        var boundary = admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance)
+            .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(
+                "IC8 benchmark shape must translate; steps after applyStrategies: " + steps));
+        var plan = boundary.getPlan().prettyPrint(0, 2);
+        assertThat(plan)
+            .as("IC8 benchmark shape must use INDEX ORDERED MATCH; plan was:\n" + plan)
+            .contains("INDEX ORDERED MATCH");
+        assertPlanDefersProjectionsUntilAfterLimit(plan);
+      });
+    }
+  }
+
+  /** Sets index-ordered knobs to the values the plan-shape tests need, and restores them on close. */
+  private static AutoCloseable setIndexOrderedTestConfig() {
+    var oldMinLinkBag = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
+    var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+    var oldCostBias = GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValue();
+    var oldMaxSources = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValue();
+
+    GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(1);
+    GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(10_000_000);
+    GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.setValue(1.0);
+    GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.setValue(100_000);
+
+    return () -> {
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(oldMinLinkBag);
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.setValue(oldCostBias);
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.setValue(oldMaxSources);
+    };
+  }
+
+  private static void assertPlanDefersProjectionsUntilAfterLimit(String plan) {
+    assertThat(plan).contains("INDEX ORDERED MATCH");
+    var orderAt = plan.indexOf("+ ORDER BY");
+    var limitAt = plan.indexOf("+ LIMIT");
+    var projectAt = plan.indexOf("+ CALCULATE PROJECTIONS");
+    assertThat(orderAt).as("missing ORDER BY:\n" + plan).isGreaterThanOrEqualTo(0);
+    assertThat(limitAt).as("missing LIMIT:\n" + plan).isGreaterThanOrEqualTo(0);
+    assertThat(projectAt).as("missing CALCULATE PROJECTIONS:\n" + plan).isGreaterThanOrEqualTo(0);
+    assertThat(orderAt)
+        .as("ORDER BY must precede projections; plan was:\n" + plan)
+        .isLessThan(projectAt);
+    assertThat(limitAt)
+        .as("LIMIT must precede projections; plan was:\n" + plan)
+        .isLessThan(projectAt);
+  }
+
+  /**
+   * Alice (id=1) knows bob and carol; each friend authored 30 messages before {@code t=4000},
+   * for 60 in the {@code creationDate} index. The count is three times what the shape needs,
+   * because the plan-time check refuses an ordered scan whose LIMIT reaches the whole index and
+   * this shape asks for twenty rows.
+   */
+  private void seedIc2FriendsMessagesGraph() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    person.createProperty("firstName", PropertyType.STRING);
+    person.createProperty("lastName", PropertyType.STRING);
+    var message = session.createVertexClass("Message");
+    message.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    message.createProperty("creationDate", PropertyType.DATETIME)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+    message.createProperty("content", PropertyType.STRING);
+    session.createEdgeClass("KNOWS");
+    session.createEdgeClass("HAS_CREATOR");
+
+    var alice = graph.addVertex(T.label, "Person", "id", 1L, "firstName", "Alice", "lastName", "A");
+    var msgId = 100L;
+    for (int f = 2; f <= 3; f++) {
+      var friend = graph.addVertex(
+          T.label, "Person", "id", (long) f, "firstName", "F" + f, "lastName", "L" + f);
+      alice.addEdge("KNOWS", friend);
+      // Thirty messages per friend, where ten used to do. The plan-time check now rejects an
+      // ordered scan whose LIMIT reaches the whole index, and this shape asks for twenty rows.
+      // With twenty messages in the index the scan would read every entry and load every
+      // record, so no ordered plan could pay and the plan-shape assertions had nothing to
+      // observe. Sixty messages make the LIMIT a real cut.
+      for (int m = 0; m < 30; m++) {
+        var msg = graph.addVertex(
+            T.label, "Message",
+            "id", msgId++,
+            "creationDate", new Date(1000L + m),
+            "content", "c" + m);
+        msg.addEdge("HAS_CREATOR", friend);
+      }
+    }
+    graph.tx().commit();
+  }
+
+  /**
+   * LDBC IC8 reduced: Person → HAS_CREATOR ← Message → REPLY_OF ← Comment → HAS_CREATOR → author,
+   * {@code ORDER BY comment.creationDate DESC, comment.id ASC}, {@code LIMIT 20}. SQL uses
+   * {@code {class: Comment}}; Gremlin uses {@code hasLabel(Comment)} for the same constraint.
+   * {@code GremlinTraversalShapes#ic8RecentRepliesOrdered} omits the label and relies on edge-schema
+   * class inference ({@code REPLY_OF.out → Comment}) in {@link IndexOrderedPlanner}.
+   */
+  @Test
+  public void ic8RecentReplies_translatedPlanUsesIndexOrderedMatch() throws Exception {
+    seedIc8RecentRepliesGraph();
+
+    try (var ignored = setIndexOrderedTestConfig()) {
+      session.begin();
+      try (var sqlResult = session.query(
+          "MATCH {class: Person, as: p, where: (id = 2)}"
+              + ".in('HAS_CREATOR'){as: message}"
+              + ".in('REPLY_OF'){class: Comment, as: comment}"
+              + ".out('HAS_CREATOR'){as: creator} "
+              + "RETURN creator.id as personId, creator.firstName as firstName,"
+              + " creator.lastName as lastName, comment.creationDate as commentCreationDate,"
+              + " comment.id as commentId, comment.content as commentContent "
+              + "ORDER BY commentCreationDate DESC, commentId ASC LIMIT 20")) {
+        var sqlPlan = sqlResult.getExecutionPlan().prettyPrint(0, 2);
+        assertThat(sqlPlan)
+            .as("SQL IC8 must use INDEX ORDERED MATCH; plan was:\n" + sqlPlan)
+            .contains("INDEX ORDERED MATCH");
+      }
+      session.commit();
+
+      support.withTranslator(true, () -> {
+        var admin = graph.traversal().V()
+            .hasLabel("Person").has("id", 2L)
+            .in("HAS_CREATOR")
+            .in("REPLY_OF")
+            .hasLabel("Comment").as("commentCreationDate", "commentId", "commentContent")
+            .out("HAS_CREATOR").as("personId", "firstName", "lastName")
+            .order()
+            .by(__.select("commentCreationDate").by("creationDate"), Order.desc)
+            .by(__.select("commentId").by("id"), Order.asc)
+            .limit(20)
+            .select(
+                "personId",
+                "firstName",
+                "lastName",
+                "commentCreationDate",
+                "commentId",
+                "commentContent")
+            .by("id")
+            .by("firstName")
+            .by("lastName")
+            .by("creationDate")
+            .by("id")
+            .by("content")
+            .asAdmin();
+        admin.applyStrategies();
+        var steps = admin.getSteps().stream()
+            .map(s -> s.getClass().getSimpleName())
+            .toList();
+        var boundary = admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance)
+            .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(
+                "IC8 Gremlin shape must translate; steps after applyStrategies: " + steps));
+        var gremlinPlan = boundary.getPlan().prettyPrint(0, 2);
+        assertThat(gremlinPlan)
+            .as("Gremlin IC8 must use INDEX ORDERED MATCH; plan was:\n" + gremlinPlan)
+            .contains("INDEX ORDERED MATCH");
+      });
+    }
+  }
+
+  /**
+   * {@code valueMap} after {@code order().limit()}: translated MATCH must use INDEX ORDERED and
+   * defer CALCULATE PROJECTIONS until after ORDER BY + LIMIT so only the top-N rows are projected.
+   */
+  @Test
+  public void is2PersonMessages_translatedPlanDefersProjectionsUntilAfterLimit() throws Exception {
+    seedIs2PersonMessagesGraph();
+
+    try (var ignored = setIndexOrderedTestConfig()) {
+      support.withTranslator(true, () -> {
+        var admin = graph.traversal().V()
+            .hasLabel("Person").has("id", 2L)
+            .in("HAS_CREATOR")
+            .hasLabel("Message")
+            .order().by("creationDate", Order.desc)
+            .limit(20)
+            .valueMap("id", "content", "creationDate")
+            .asAdmin();
+        admin.applyStrategies();
+        var steps = admin.getSteps().stream()
+            .map(s -> s.getClass().getSimpleName())
+            .toList();
+        var boundary = admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance)
+            .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(
+                "order().limit().valueMap must translate; steps after applyStrategies: " + steps));
+        assertPlanDefersProjectionsUntilAfterLimit(boundary.getPlan().prettyPrint(0, 2));
+      });
+    }
+  }
+
+  /**
+   * {@code order().by(key).range(…).values(key)}: ORDER BY / SKIP / LIMIT must precede CALCULATE
+   * PROJECTIONS so only the page survivors are projected.
+   */
+  @Test
+  public void knowsOrderedPage_translatedPlanDefersProjectionsUntilAfterRange() {
+    seedKnowsOrderedPageGraph();
+
+    support.withTranslator(true, () -> {
+      var admin = graph.traversal().V()
+          .hasLabel("Person").has("id", 1L)
+          .out("KNOWS")
+          .order().by("firstName")
+          .range(1, 3)
+          .values("firstName")
+          .asAdmin();
+      admin.applyStrategies();
+      var steps = admin.getSteps().stream()
+          .map(s -> s.getClass().getSimpleName())
+          .toList();
+      var boundary = admin.getSteps().stream()
+          .filter(YTDBMatchPlanStep.class::isInstance)
+          .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+          .findFirst()
+          .orElseThrow(() -> new AssertionError(
+              "order().range().values must translate; steps after applyStrategies: " + steps));
+      var plan = boundary.getPlan().prettyPrint(0, 2);
+      var orderAt = plan.indexOf("+ ORDER BY");
+      var skipAt = plan.indexOf("+ SKIP");
+      var limitAt = plan.indexOf("+ LIMIT");
+      var projectAt = plan.indexOf("+ CALCULATE PROJECTIONS");
+      assertThat(orderAt).as("missing ORDER BY:\n" + plan).isGreaterThanOrEqualTo(0);
+      assertThat(projectAt).as("missing CALCULATE PROJECTIONS:\n" + plan)
+          .isGreaterThanOrEqualTo(0);
+      assertThat(orderAt)
+          .as("ORDER BY must precede projections; plan was:\n" + plan)
+          .isLessThan(projectAt);
+      // range(1, 3) must produce both a SKIP and a LIMIT. Guarding these assertions on
+      // skipAt / limitAt being present would let a plan that lost either clause pass silently.
+      assertThat(skipAt).as("missing SKIP:\n" + plan).isGreaterThanOrEqualTo(0);
+      assertThat(limitAt).as("missing LIMIT:\n" + plan).isGreaterThanOrEqualTo(0);
+      assertThat(skipAt)
+          .as("SKIP must precede projections; plan was:\n" + plan)
+          .isLessThan(projectAt);
+      assertThat(limitAt)
+          .as("LIMIT must precede projections; plan was:\n" + plan)
+          .isLessThan(projectAt);
+    });
+  }
+
+  /**
+   * {@code valueMap} after {@code order()} without LIMIT: the sort visits every row and no slice
+   * drops any, so deferring the projection would only make each comparison re-evaluate the sort
+   * key. CALCULATE PROJECTIONS must therefore run <em>before</em> ORDER BY.
+   *
+   * <p>This expectation is the deliberate inverse of the one this test shipped with. Gating the
+   * deferral decision on a slice being present is what inverts it: with no LIMIT there is no
+   * top-N to bound, so early projection is the cheaper plan.
+   */
+  @Test
+  public void is3FriendsWithNames_translatedPlanProjectsBeforeOrderByWithoutSlice() {
+    seedKnowsOrderedPageGraph();
+
+    support.withTranslator(true, () -> {
+      var admin = graph.traversal().V()
+          .hasLabel("Person").has("id", 1L)
+          .out("KNOWS")
+          .order().by("firstName")
+          .valueMap("id", "firstName", "lastName")
+          .asAdmin();
+      admin.applyStrategies();
+      var steps = admin.getSteps().stream()
+          .map(s -> s.getClass().getSimpleName())
+          .toList();
+      var boundary = admin.getSteps().stream()
+          .filter(YTDBMatchPlanStep.class::isInstance)
+          .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+          .findFirst()
+          .orElseThrow(() -> new AssertionError(
+              "order().valueMap must translate; steps after applyStrategies: " + steps));
+      var plan = boundary.getPlan().prettyPrint(0, 2);
+      var orderAt = plan.indexOf("+ ORDER BY");
+      var projectAt = plan.indexOf("+ CALCULATE PROJECTIONS");
+      assertThat(orderAt).as("missing ORDER BY:\n" + plan).isGreaterThanOrEqualTo(0);
+      assertThat(projectAt).as("missing CALCULATE PROJECTIONS:\n" + plan)
+          .isGreaterThanOrEqualTo(0);
+      assertThat(projectAt)
+          .as("projections must precede ORDER BY without a slice; plan was:\n" + plan)
+          .isLessThan(orderAt);
+    });
+  }
+
+  /**
+   * A post-cut multi-alias {@code select().by()} on an <em>unfiltered</em> root keeps every
+   * upstream binding and returns native's rows.
+   *
+   * <p>This is the shape the LDBC benchmark queries escape. They pin the root with
+   * {@code has("id", …)}, which puts a {@code WHERE} filter on the source alias, and
+   * {@code IndexOrderedPlanner} reads that filter alone to classify the source as filtered and
+   * take a FILTERED mode. A bare {@code hasLabel} sets a class and no filter, so the planner
+   * reaches the UNFILTERED arm and has to decide binding on its own — from the RETURN clause.
+   *
+   * <p>It used to decide wrongly. The select shipped an empty RETURN clause, which
+   * {@code IndexOrderedPlanner.isUpstreamBindingNeeded} read as "no alias is needed downstream";
+   * it then chose UNFILTERED_UNBOUND, whose empty upstream row leaves the source alias unbound, and
+   * the presence check dropped every row. So the query returned nothing where native returns the
+   * twenty maps the slice keeps.
+   *
+   * <p>Four things are asserted, because the row equality alone cannot tell a fixed planner from a
+   * plan that never became index-ordered: the sort keys are all distinct, the plan is
+   * index-ordered, its multi-source mode is the BOUND one, and the rows match native.
+   */
+  @Test
+  public void unfilteredRootPostCutMultiSelect_keepsUpstreamBindingsAndMatchesNative()
+      throws Exception {
+    seedIs2PersonMessagesGraph();
+    assertDistinctCreationDatesAcrossMessages();
+
+    try (var ignored = setIndexOrderedTestConfig()) {
+      support.withTranslator(true, () -> {
+        var admin = unfilteredRootPostCutMultiSelect().asAdmin();
+        admin.applyStrategies();
+        var steps = admin.getSteps().stream().map(s -> s.getClass().getSimpleName()).toList();
+        var boundary = admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance)
+            .map(s -> (YTDBMatchPlanStep<?, ?>) s)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(
+                "unfiltered-root post-cut select must translate; steps after applyStrategies: "
+                    + steps));
+        var plan = boundary.getPlan().prettyPrint(0, 2);
+        assertThat(plan)
+            .as("the fixture must reach the index-ordered plan, or the mode pin below is "
+                + "vacuous; plan was:\n" + plan)
+            .contains("INDEX ORDERED MATCH");
+        assertThat(plan)
+            .as("an unfiltered root whose alias the RETURN reads must bind it; plan was:\n" + plan)
+            .contains("UNFILTERED_BOUND");
+      });
+
+      support.assertEquivalent(
+          "g.V().hasLabel(Person).as(a).in(HAS_CREATOR).hasLabel(Message).as(b)"
+              + ".order().by(creationDate).limit(20).select(a, b).by(id).by(id)",
+          TranslatorEquivalenceSupport.Recognition.RECOGNIZED,
+          TranslatorEquivalenceSupport.Cardinality.NON_EMPTY,
+          TranslatorEquivalenceSupport::sortedStrings,
+          this::unfilteredRootPostCutMultiSelect);
+    }
+  }
+
+  /**
+   * The shape under test above, built twice: once to read the plan off and once per arm of the
+   * equivalence comparison. {@code limit(20)} is a real slice — the hop yields all 25 messages of
+   * the one seeded author — so which rows survive is part of the answer, and the comparison holds
+   * only because the sort keys are all distinct. {@link #assertDistinctCreationDatesAcrossMessages}
+   * states that premise, so a fixture edit that introduces a duplicate timestamp fails there
+   * instead of flaking here.
+   *
+   * <p>{@code hasLabel("Message")} narrows the hop target's class so the sort key has an index to
+   * be ordered by. Without it the target's class is {@code V} and no index-ordered candidate is
+   * detected at all. The root keeps only its own class narrowing, which is what makes it
+   * unfiltered: a class is not a {@code WHERE} filter.
+   *
+   * <p>Source and target are deliberately different classes. The order-key presence conjunct
+   * ({@code creationDate IS DEFINED}) makes the target look selective to the MATCH root estimator,
+   * so a same-class pattern hands the root slot to the target, schedules the edge in reverse, and
+   * loses the candidate before the mode decision is ever reached. One Person against 25 Messages
+   * keeps the root on the source.
+   */
+  private GraphTraversal<Vertex, Map<String, Object>> unfilteredRootPostCutMultiSelect() {
+    return graph.traversal().V()
+        .hasLabel("Person").as("a")
+        .in("HAS_CREATOR").hasLabel("Message").as("b")
+        .order().by("creationDate", Order.desc)
+        .limit(20)
+        .select("a", "b").by("id").by("id");
+  }
+
+  /**
+   * States the premise the ordered-slice comparison rests on: the 25 seeded messages carry 25
+   * distinct {@code creationDate} values, so the top twenty are the same twenty on either arm.
+   *
+   * <p>Read with the translator off, because the premise is about the seeded data rather than about
+   * either pipeline. Without this the multiset equality would still pass today and would start
+   * flaking the moment two messages shared a timestamp, since a cut inside a tie group is resolved
+   * differently by the two arms.
+   */
+  private void assertDistinctCreationDatesAcrossMessages() {
+    support.withTranslator(
+        false,
+        () -> {
+          var dates = graph.traversal().V().hasLabel("Message").values("creationDate").toList();
+          assertThat(dates).as("the fixture seeds 25 messages").hasSize(25);
+          assertThat(new java.util.HashSet<>(dates))
+              .as("the ordered slice is only deterministic while every sort key is distinct")
+              .hasSize(25);
+        });
+  }
+
+  /** Person id=1 with four friends that have distinct {@code firstName} values. */
+  private void seedKnowsOrderedPageGraph() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    person.createProperty("firstName", PropertyType.STRING)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+    person.createProperty("lastName", PropertyType.STRING);
+    session.createEdgeClass("KNOWS");
+
+    var alice = graph.addVertex(T.label, "Person", "id", 1L, "firstName", "Alice", "lastName", "A");
+    for (var name : List.of("Dana", "Cara", "Bea", "Eve")) {
+      var friend = graph.addVertex(
+          T.label, "Person", "id", (long) name.charAt(0), "firstName", name, "lastName", "X");
+      alice.addEdge("KNOWS", friend);
+    }
+    graph.tx().commit();
+  }
+
+  /** Bob (id=2) authored 25 messages with monotonic {@code creationDate}. */
+  private void seedIs2PersonMessagesGraph() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    var message = session.createVertexClass("Message");
+    message.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    message.createProperty("creationDate", PropertyType.DATETIME)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+    message.createProperty("content", PropertyType.STRING);
+    session.createEdgeClass("HAS_CREATOR");
+
+    var bob = graph.addVertex(T.label, "Person", "id", 2L);
+    for (int m = 0; m < 25; m++) {
+      var msg = graph.addVertex(
+          T.label, "Message",
+          "id", 100L + m,
+          "creationDate", new Date(1000L + m),
+          "content", "m" + m);
+      msg.addEdge("HAS_CREATOR", bob);
+    }
+    graph.tx().commit();
+  }
+
+  /**
+   * Bob (id=2) authored one message; Carol (id=3) replied to it 41 times; Alice (id=1) is an
+   * unused anchor. One reply would leave the ordered plan unreachable, because the plan-time
+   * check refuses a scan whose LIMIT reaches the whole index and this shape asks for twenty
+   * rows.
+   */
+  private void seedIc8RecentRepliesGraph() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    person.createProperty("firstName", PropertyType.STRING);
+    person.createProperty("lastName", PropertyType.STRING);
+    var message = session.createVertexClass("Message");
+    message.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    message.createProperty("creationDate", PropertyType.DATETIME)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+    var comment = session.createVertexClass("Comment");
+    comment.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    comment.createProperty("creationDate", PropertyType.DATETIME)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+    comment.createProperty("content", PropertyType.STRING);
+    session.createEdgeClass("HAS_CREATOR");
+    session.createEdgeClass("REPLY_OF");
+
+    var bob = graph.addVertex(T.label, "Person", "id", 2L, "firstName", "Bob", "lastName", "B");
+    var carol = graph.addVertex(T.label, "Person", "id", 3L, "firstName", "Carol", "lastName", "C");
+    var msg = graph.addVertex(
+        T.label, "Message", "id", 100L, "creationDate", new Date(1000L), "content", "post");
+    var reply = graph.addVertex(
+        T.label, "Comment", "id", 200L, "creationDate", new Date(2000L), "content", "reply");
+    msg.addEdge("HAS_CREATOR", bob);
+    reply.addEdge("HAS_CREATOR", carol);
+    reply.addEdge("REPLY_OF", msg);
+    // Forty more replies by Carol on the same message. The shape asks for twenty rows ordered
+    // by comment creation date, and the plan-time check rejects an ordered scan whose LIMIT
+    // reaches the whole index. One comment in the index left the plan-shape assertions with
+    // nothing to observe.
+    for (var i = 0; i < 40; i++) {
+      var extra = graph.addVertex(
+          T.label, "Comment",
+          "id", 300L + i,
+          "creationDate", new Date(2100L + i),
+          "content", "reply" + i);
+      extra.addEdge("HAS_CREATOR", carol);
+      extra.addEdge("REPLY_OF", msg);
+    }
+    graph.tx().commit();
   }
 
   /** Alias after the first {@code + SET} line in a MATCH plan pretty-print. */

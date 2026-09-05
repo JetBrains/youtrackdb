@@ -10,7 +10,9 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +87,37 @@ public class SubTraversalPredicateAdapterTest {
     assertThat(adapter.isVertexClass("Person")).isTrue();
     assertThat(adapter.nextAnonVertexAlias()).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(adapter.nextEdgeAlias()).isEqualTo("$g2m_edge_0");
+  }
+
+  /**
+   * Order capture and the ordered-slice gate are swallowed on a sub-walk: a child's {@code order()}
+   * must not let a slice inside a combinator ride a sort the parent captured, and the adapter never
+   * forwards the parent's affirmative answer.
+   */
+  @Test
+  public void orderCaptureAndSliceGate_areSwallowedAndAlwaysFalse() {
+    var parent = new WalkerContext(true, false);
+    parent.addNode(BOUNDARY_ALIAS, "V");
+    parent.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    parent.setSingleReturnColumn(BOUNDARY_ALIAS);
+    parent.setOrderBy(
+        MatchProjectionBuilder.orderBy(
+            List.of(ProjectionExpressionFactories.orderByProperty(BOUNDARY_ALIAS, "name", true))));
+    parent.recordOrderByCapture(BOUNDARY_ALIAS, true);
+    assertThat(parent.orderAllowsSliceOnCurrentBoundary())
+        .as("fixture premise: parent would allow a slice on its captured order")
+        .isTrue();
+
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    adapter.recordOrderByCapture(FIRST_ANON_ALIAS, false);
+    adapter.markReturnReadsForeignAlias();
+
+    assertThat(adapter.orderAllowsSliceOnCurrentBoundary())
+        .as("sub-walk must never license an ordered slice")
+        .isFalse();
+    assertThat(parent.orderAllowsSliceOnCurrentBoundary())
+        .as("child calls must not mutate the parent's capture")
+        .isTrue();
   }
 
   /**

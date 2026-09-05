@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -116,6 +117,9 @@ final class GremlinStepWalker {
    * between chained hops, and {@code RepeatUnrollStrategy} wedges one between the hops it unrolls a
    * {@code repeat(...)} into. Skipping it preserves the <em>answer set</em>: the barrier merges
    * identical traversers into bulks, and a MATCH plan reaches the same answers by other means.
+   * Labels TinkerPop parks on the barrier ({@code as(...)} after a hop) are not dropped: {@link
+   * StepStreamCursor} stashes them and {@link #bindSkippedTransparentLabels} binds them to the
+   * current boundary alias so a later {@code select}/{@code order().by(select)} still resolves.
    *
    * <p>The transparency rule carries no <em>cost</em> bound, for either barrier. Bulking is what
    * keeps a chain of n hops at n passes over the edge set; a MATCH plan enumerates one row per
@@ -571,6 +575,10 @@ final class GremlinStepWalker {
       if (cursor.position() > positionBeforePeek) {
         ctx.setAtTraversalStart(false);
       }
+      // Barriers skipped by peek() may carry as(...) — bind before dispatching the next head.
+      if (!bindSkippedTransparentLabels(cursor, ctx)) {
+        return false;
+      }
       if (head == null) {
         return true;
       }
@@ -622,6 +630,10 @@ final class GremlinStepWalker {
       List<ListShapingOp> opsBefore = ctx.listShapingOps();
       Outcome outcome = recogniser.recognize(cursor, ctx);
       if (outcome == Outcome.DECLINE) {
+        return false;
+      }
+      // take()/takeWhile inside the recogniser may have skipped labeled barriers mid-shape.
+      if (!bindSkippedTransparentLabels(cursor, ctx)) {
         return false;
       }
       // An ACCEPTED must have advanced the cursor. An accept that consumed nothing would re-dispatch
@@ -681,6 +693,33 @@ final class GremlinStepWalker {
               || (head instanceof HasStep<?> && ctx.atTraversalStart()))
               && cursor.position() < childScopeBoundary);
     }
+  }
+
+  /**
+   * Binds {@code as(...)} labels TinkerPop left on transparent barriers skipped since the last
+   * drain to the current boundary alias. Fail-closed when a labeled barrier appears before any
+   * boundary exists, when a label is already bound to a different alias, or when the boundary is
+   * no longer an element stream — after {@code values}/{@code valueMap}/{@code select} the path
+   * history holds scalars or maps, so binding a barrier label to the pattern vertex alias would
+   * make {@code values("name").as("a").select("a")} emit vertices (TinkerPop feature
+   * {@code g_V_name_asXaX_selectXlast_aX}).
+   */
+  private static boolean bindSkippedTransparentLabels(
+      StepStreamCursor cursor, RecognitionContext ctx) {
+    for (var step : cursor.drainSkippedTransparentLabeled()) {
+      var boundary = ctx.boundaryAlias();
+      if (boundary == null) {
+        return false;
+      }
+      // Hop/element streams only: a projection has already re-pinned the boundary away from ELEMENT.
+      if (ctx.boundaryOutputType() != BoundaryOutputType.ELEMENT) {
+        return false;
+      }
+      if (!ctx.bindStepLabels(step, boundary)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -754,11 +793,11 @@ final class GremlinStepWalker {
    * refuses to do. Were the entity column ever dropped from that projection, this membership would
    * stop being sound.
    *
-   * <p>The projection family is not admitted wholesale. {@code SelectOneStepRecogniser} and {@code
-   * SelectStepRecogniser} call {@code ByModulatorPresence.requireModulatedProperty} for a {@code
-   * by(key)} modulator, which contributes {@code key IS DEFINED} into the pattern's alias filters —
-   * a filter that runs before the slice counts rows, which is the whole defect this gate exists to
-   * close. They stay out, so {@code g.V().as("a").limit(2).select("a").by(k)} declines.
+   * <p>The projection family admits select as well: bare {@code select} is projection-only, and
+   * {@code by(key)} after a cardinality clause uses {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence} post-plan
+   * instead of pattern {@code IS DEFINED}, so the drop lands after the cut (see {@link
+   * SelectStepRecogniser}).
    *
    * <p>Fail-closed by construction, like the post-union allow-list above: a recogniser added later
    * is refused after a slice until someone establishes that its contribution lands on the far side
@@ -768,7 +807,9 @@ final class GremlinStepWalker {
       Set.of(
           PropertiesStepRecogniser.INSTANCE,
           PropertyMapStepRecogniser.INSTANCE,
-          ElementMapStepRecogniser.INSTANCE);
+          ElementMapStepRecogniser.INSTANCE,
+          SelectStepRecogniser.INSTANCE,
+          SelectOneStepRecogniser.INSTANCE);
 
   /**
    * Whether the walk has already captured a list-shaping stream stage — a {@code fold} / {@code

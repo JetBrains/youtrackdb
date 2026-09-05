@@ -4545,7 +4545,18 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     session.begin();
     session.execute("CREATE VERTEX EOLHub set name = 'hub'").close();
-    for (int i = 1; i <= 8; i++) {
+    // Forty items and two hundred unrelated hubs, where eight items and one hub used to do.
+    // The index-ordered plan this test asserts is now admitted on honest numbers only: the
+    // planner must estimate more reachable edges than the geometric mean of the LIMIT and the
+    // index size. A single hub with eight edges cannot clear that, because the estimate is the
+    // source count times the configured average fan-out. The extra hubs raise the source
+    // estimate, which is what makes the ordered plan the right plan here rather than an
+    // artefact of a gate that used to pass everything. The assertions below read only items 3
+    // to 5, so the larger fixture does not change what the test checks.
+    for (int i = 0; i < 200; i++) {
+      session.execute("CREATE VERTEX EOLHub set name = 'other" + i + "'").close();
+    }
+    for (int i = 1; i <= 40; i++) {
       session.execute(
           "CREATE VERTEX EOLItem set label = 'item" + i + "'").close();
       session.execute(
@@ -4557,7 +4568,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     session.commit();
 
     session.begin();
-    // priority >= 30: item3(30)..item8(80) → 6 items. LIMIT 3, ORDER BY priority
+    // priority >= 30: item3(30)..item40(400) → 38 items. LIMIT 3, ORDER BY priority
     String query =
         "MATCH {class: EOLHub, as: hub, where: (name = 'hub')}"
             + ".outE('EOLLink'){as: e, where: (priority >= 30)}"

@@ -404,20 +404,35 @@ public final class IndexOrderedPlanner {
       // for sorting anyway, so the sourceMap overhead is minor — the real
       // benefit is avoiding the O(N log N) sort via pre-sorted index scan.
 
-      if (effectivelyFiltered && upstreamBindingNeeded) {
+      // When earlier edges constrain the source, prefer FILTERED_BOUND even if RETURN
+      // omits those upstream aliases. BOUND can pick GLOBAL_SCAN: walk the
+      // ORDER BY index in order, reverse-check membership in the small source
+      // set, and stop under LIMIT. UNBOUND builds a union RidSet of every
+      // source's adjacency and has no GLOBAL_SCAN — catastrophic fan-out when
+      // RETURN is valueMap-only.
+
+      if (effectivelyFiltered
+          && (upstreamBindingNeeded || sourceConstrainedByEarlierEdges)) {
         if (!hasReverseField) {
           return null;
         }
         if (!isFilteredScanLikelyWorthwhile(
             sourceAlias, matchedIndex, orderItem,
-            estimatedRootEntries, session, context)) {
+            estimatedRootEntries, session, context,
+            sortedEdges, matchedEdge, sourceConstrainedByEarlierEdges)) {
           return null;
         }
         multiSourceMode = MultiSourceMode.FILTERED_BOUND;
       } else if (effectivelyFiltered) {
+        // The unbound union scan still counts reverse edges to recover the row
+        // multiplicity of a shared target, so it needs the reverse field too.
+        if (!hasReverseField) {
+          return null;
+        }
         if (!isFilteredScanLikelyWorthwhile(
             sourceAlias, matchedIndex, orderItem,
-            estimatedRootEntries, session, context)) {
+            estimatedRootEntries, session, context,
+            sortedEdges, matchedEdge, sourceConstrainedByEarlierEdges)) {
           return null;
         }
         multiSourceMode = MultiSourceMode.FILTERED_UNBOUND;
@@ -778,9 +793,27 @@ public final class IndexOrderedPlanner {
   }
 
   /**
-   * Plan-time cost check for FILTERED modes. Uses estimated cardinality
-   * and default fan-out to predict whether the index scan is likely to
-   * beat load-and-sort.
+   * Plan-time cost check for FILTERED modes. Uses estimated cardinality and default fan-out to
+   * predict whether the index scan is likely to beat load-and-sort.
+   *
+   * <p>Fan-out is the configured {@code QUERY_STATS_DEFAULT_FAN_OUT} only. An earlier formula
+   * used {@code max(defaultFanOut, indexSize / sourceEstimate)}, which saturated
+   * {@code estimatedEdges} at the index size whenever the index was large relative to the
+   * source estimate. Density then became {@code 1.0}, expected scan length collapsed to the
+   * LIMIT, and the gate admitted FILTERED plans on sparse multi-hop shapes that then paid for a
+   * near-full GLOBAL_SCAN at runtime.
+   *
+   * <p>{@code Long.MAX_VALUE} in {@code estimatedRootEntries} is a scheduling sentinel (inferred
+   * WHILE aliases), not a cardinality. Treating it as a real count overflows the edge product
+   * to a negative {@code int} and fails {@code minLinkBag} by accident. Map it to
+   * {@link MatchExecutionPlanner#THRESHOLD} so SQL and Gremlin share the same unknown-source
+   * estimate.
+   *
+   * <p>When the source alias has no WHERE filter, its map entry is often the whole class size
+   * even though an earlier edge already constrains it (one hop from a smaller upstream set).
+   * Prefer {@code upstreamEstimate × defaultFanOut} from the immediate earlier edge that
+   * targets this alias. Fall back to {@code min(mapValue, defaultFanOut)} when no upstream
+   * estimate exists. A real WHERE on the source keeps the map value.
    */
   private boolean isFilteredScanLikelyWorthwhile(
       String sourceAlias,
@@ -788,18 +821,39 @@ public final class IndexOrderedPlanner {
       SQLOrderByItem orderItem,
       Map<String, Long> estimatedRootEntries,
       DatabaseSessionEmbedded session,
-      CommandContext context) {
+      CommandContext context,
+      List<EdgeTraversal> sortedEdges,
+      EdgeTraversal matchedEdge,
+      boolean sourceConstrainedByEarlierEdges) {
     long sourceEstimate =
         estimatedRootEntries.getOrDefault(sourceAlias, MatchExecutionPlanner.THRESHOLD);
+    if (sourceEstimate == Long.MAX_VALUE || sourceEstimate < 0) {
+      sourceEstimate = MatchExecutionPlanner.THRESHOLD;
+    }
     long indexSize = matchedIndex.size(session);
-    // Use optimistic fan-out estimate: max of defaultFanOut and
-    // indexSize/sourceEstimate. This avoids rejecting too aggressively
-    // when sourceEstimate is low but the actual edges-per-source is high.
-    // Plan-time should be a loose gate — runtime cost model refines.
     int defaultFanOut =
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
-    long fanOutEstimate = Math.max(defaultFanOut,
-        indexSize / Math.max(sourceEstimate, 1));
+    if (aliasFilters.get(sourceAlias) == null) {
+      if (sourceConstrainedByEarlierEdges) {
+        var upstreamAlias =
+            immediateUpstreamAlias(sourceAlias, sortedEdges, matchedEdge);
+        if (upstreamAlias != null) {
+          long upstreamEstimate =
+              estimatedRootEntries.getOrDefault(
+                  upstreamAlias, MatchExecutionPlanner.THRESHOLD);
+          if (upstreamEstimate == Long.MAX_VALUE || upstreamEstimate < 0) {
+            upstreamEstimate = MatchExecutionPlanner.THRESHOLD;
+          }
+          // One hop from the upstream set — not the unconstrained class size.
+          sourceEstimate = Math.max(1L, upstreamEstimate) * defaultFanOut;
+        } else {
+          sourceEstimate = Math.min(sourceEstimate, defaultFanOut);
+        }
+      } else {
+        sourceEstimate = Math.min(sourceEstimate, defaultFanOut);
+      }
+    }
+    long fanOutEstimate = defaultFanOut;
     int estimatedEdges = (int) Math.min(
         sourceEstimate * fanOutEstimate, Integer.MAX_VALUE);
 
@@ -814,6 +868,27 @@ public final class IndexOrderedPlanner {
         estimatedEdges, indexSize, queryLimit,
         matchedIndex.getHistogram(session), asc);
     return costs != null && costs.costUnionScan() < costs.costLoadSort();
+  }
+
+  /**
+   * Source alias of the latest edge scheduled before {@code matchedEdge} whose target is
+   * {@code sourceAlias}, or {@code null} if none.
+   */
+  @Nullable private static String immediateUpstreamAlias(
+      String sourceAlias,
+      List<EdgeTraversal> sortedEdges,
+      EdgeTraversal matchedEdge) {
+    String upstream = null;
+    for (var edge : sortedEdges) {
+      if (edge.edge == matchedEdge.edge) {
+        break;
+      }
+      var target = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+      if (sourceAlias.equals(target)) {
+        upstream = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+      }
+    }
+    return upstream;
   }
 
   /**
