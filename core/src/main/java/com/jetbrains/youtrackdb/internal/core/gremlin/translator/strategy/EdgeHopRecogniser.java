@@ -185,10 +185,10 @@ final class EdgeHopRecogniser implements StepRecogniser {
     }
     ctx.markEdgeAlias(edgeAlias);
 
-    // AND-merge the accumulated predicates
-    // an outE(L).barrier().inV() chain that never folded). Record it under the edge alias so the
-    // accumulation is observable, and hand the same clause to the assembler, which puts it on the edge
-    // path item so it filters the edge rather than the target vertex.
+    // AND-merge the accumulated edge predicates into one WHERE (null when the edge is unfiltered,
+    // e.g. an outE(L).inV() chain with no has). Record it under the edge alias so the accumulation
+    // is observable, and hand the same clause to the assembler, which puts it on the edge path item
+    // so it filters the edge rather than the target vertex.
     SQLWhereClause edgeWhere = null;
     var merged = WHERE.andOptional(edgeFilters.toArray(new SQLBooleanExpression[0]));
     if (merged != null) {

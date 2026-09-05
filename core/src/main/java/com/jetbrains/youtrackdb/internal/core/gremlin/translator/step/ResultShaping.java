@@ -193,6 +193,8 @@ public record ResultShaping(
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -300,6 +302,7 @@ public record ResultShaping(
         presencePropertyKeys,
         aliasPropertyPresences,
         mapEmitColumnOrder,
+        recordIdMapKeys,
         wrapMapValuesInLists,
         value ? false : accumulateMap,
         unwrapSingletonMap,
@@ -320,6 +323,7 @@ public record ResultShaping(
         presencePropertyKeys,
         aliasPropertyPresences,
         mapEmitColumnOrder,
+        recordIdMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,

@@ -896,7 +896,11 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
 
   /** Boundary / alias-presence entity columns are never part of the emitted map payload. */
   private boolean isStrippedMapColumn(String name) {
-    return name.equals(boundaryAlias) || presenceEntityColumnSet.contains(name);
+    // $g2m_pe_* identity columns (post-dedup DISTINCT keys without AliasPropertyPresence) strip
+    // the same way as presence entity columns registered on the shaping.
+    return name.equals(boundaryAlias)
+        || presenceEntityColumnSet.contains(name)
+        || name.startsWith("$g2m_pe_");
   }
 
   /**
@@ -1163,13 +1167,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   /**
    * Projects the matched element bound to {@link #boundaryAlias}, dispatching on {@link
    * #returnClass}: a vertex-producing prefix ({@code g.V()}, {@code .out(...)}) emits a TinkerPop
-   * {@link Vertex}, an edge-producing prefix ({@code g.E()}, {@code .outE(...)}) a {@link Edge}.
-   *
-   * <p>Only the vertex arm is wired today — the translator recognises no edge-producing prefix in
-   * the current scope, so {@code returnClass} is always {@code Vertex.class} and the edge arm is
-   * unreachable. The branch is written out anyway so the field's role (it selects the element kind,
-   * orthogonally to {@link #outputType} selecting the payload shape) is visible before the edge
-   * track lands; that track fills in edge projection in place of the throw.
+   * {@link Vertex}; an edge-producing prefix ({@code .outE(...).as(e).select(e)}, boundary pinned
+   * via {@code markEdgeAlias}) emits a {@link Edge}.
    *
    * <p>Package-private so unit tests can exercise projection directly.
    */
