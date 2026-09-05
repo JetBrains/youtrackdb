@@ -518,7 +518,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   public void walk_nonPolymorphicSingleId_buildsRidInFilterWithoutClassFilter() {
     withNonPolymorphicDefault(() -> {
       // #25:3 is an arbitrary well-formed RID literal; the walker only renders it. A hop follows the
-      // RID start so the walk translates (a bare RID point-lookup declines).
+      // RID start so the walk exercises the aliased-hop path (not only the bare lookup).
       var admin = graph.traversal().V("#25:3").out("knows").asAdmin();
 
       var result = GremlinStepWalker.production().walk(admin);
@@ -545,7 +545,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   public void walk_nonPolymorphicMultipleIds_buildsRidInFilterWithoutClassFilter() {
     withNonPolymorphicDefault(() -> {
       // #25:3 and #25:7 are arbitrary well-formed RID literals used only for filter rendering. A hop
-      // follows the RID start so the walk translates (a bare RID point-lookup declines).
+      // follows the RID start so the walk exercises the aliased-hop path (not only the bare lookup).
       var admin = graph.traversal().V("#25:3", "#25:7").out("knows").asAdmin();
 
       var result = GremlinStepWalker.production().walk(admin);

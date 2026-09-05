@@ -699,32 +699,32 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.knowsOrderedPage(t, arm.personId(i)).toList());
   }
 
-  // ---------------------------------------------------------------------------------------------
-  // Declining shapes. CI: both sides native — PR delta is not a MATCH regression. Optional on/off
-  // A/B prices decline overhead; LdbcGremlinShapeTranslationTest keeps groups honest.
-  // ---------------------------------------------------------------------------------------------
-
   /**
-   * LDBC: none. Bare {@code g.V(rid)} point-lookup; translator declines, both CI arms native.
+   * LDBC: none. Bare {@code g.V(rid)} point-lookup; translates to MATCH (uncached RID plan).
    */
   @Benchmark
-  public List<Vertex> gremlin_vertexByRidDeclines(LdbcBenchmarkState state, TranslatorArm arm) {
+  public List<Vertex> gremlin_vertexByRid(LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes.personByRid(t, arm.personRid(i)).toList());
   }
 
   /**
-   * LDBC: IS3 full attempt. Edge date plus friend name via {@code select}; declines on edge
-   * {@code as("k")}. See {@link GremlinTraversalShapes#is3FriendsWithDates}.
+   * LDBC: IS3 reduced. Edge date plus friend name via {@code select}; see
+   * {@link GremlinTraversalShapes#is3FriendsWithDates}.
    */
   @Benchmark
-  public List<Map<String, Object>> gremlin_is3_friendsWithDatesDeclines(
+  public List<Map<String, Object>> gremlin_is3_friendsWithDates(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes.is3FriendsWithDates(t, arm.personId(i)).toList());
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Declining shapes. CI: both sides native — PR delta is not a MATCH regression. Optional on/off
+  // A/B prices decline overhead; LdbcGremlinShapeTranslationTest keeps groups honest.
+  // ---------------------------------------------------------------------------------------------
 
   /**
    * LDBC: IS4 fragment. {@code coalesce} only — declines. Missing vs SQL: {@code creationDate}.
