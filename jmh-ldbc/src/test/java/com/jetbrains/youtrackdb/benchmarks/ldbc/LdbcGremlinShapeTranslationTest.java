@@ -275,7 +275,8 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
-   * Shape 5 — IS1's join and city column translate, and return Zurich's id and name for Alice.
+   * Shape 5 — IS1's complete person+city projection translates and returns Alice's profile
+   * fields beside Zurich's id.
    *
    * <p>Berlin is in the fixture and Bob lives there, so a plan that drops the {@code IS_LOCATED_IN}
    * join and scans {@code Place} returns two rows where this expects one.
@@ -283,9 +284,13 @@ public class LdbcGremlinShapeTranslationTest {
   @Test
   public void is1PersonCityProfileTranslatesOnAndRunsNativeOff() {
     assertTranslates(
-        "IS1 reduced: …has(id).out(IS_LOCATED_IN).valueMap(id, name)",
+        "IS1 complete: …as(firstName,…,creationDate).out(IS_LOCATED_IN).as(cityId).select(…)",
         t -> GremlinTraversalShapes.is1PersonCityProfile(t, ALICE),
-        List.of("{id=[" + ZURICH + "], name=[Zurich]}"));
+        List.of(
+            "{birthday=date:0, browserUsed=Chrome, cityId=" + ZURICH
+                + ", creationDate=date:" + POST_AT
+                + ", firstName=Alice, gender=neutral, lastName=Aliceson,"
+                + " locationIP=127.0.0.1}"));
   }
 
   /**
@@ -334,47 +339,57 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
-   * IS6 reduced — the post's forum title and moderator first name. SQL climbs {@code REPLY_OF}
-   * from any Message; this shape starts at the Post and walks {@code in(CONTAINER_OF)}. Labels
-   * bind on {@code has()} like IS1, not on {@code hasLabel}.
+   * IS6 reduced — the post's forum id/title and moderator id/name fields. SQL climbs
+   * {@code REPLY_OF} from any Message; this shape starts at the Post and walks
+   * {@code in(CONTAINER_OF)}. Labels bind on {@code has()} like IS1, not on {@code hasLabel}.
    */
   @Test
   public void is6ForumOfPostTranslatesOnAndRunsNativeOff() {
     assertTranslates(
-        "IS6 reduced: …in(CONTAINER_OF).hasLabel(Forum).has(id, neq(-1)).as(forum)"
-            + ".out(HAS_MODERATOR).has(id, neq(-1)).as(moderator).select(forum, moderator)"
-            + ".by(title).by(firstName)",
+        "IS6 reduced: …in(CONTAINER_OF).as(forumId, forumTitle).out(HAS_MODERATOR)"
+            + ".as(moderator…).select(…)",
         t -> GremlinTraversalShapes.is6ForumOfPost(t, POST),
-        List.of("{forum=Wall, moderator=Alice}"));
+        List.of(
+            "{forumId=" + FORUM + ", forumTitle=Wall, moderatorFirstName=Alice,"
+                + " moderatorId=" + ALICE + ", moderatorLastName=Aliceson}"));
   }
 
   /**
-   * IS7 reduced — authors of direct replies to the post. Carol replied; Alice did not, so a plan
-   * that walked {@code KNOWS} instead of {@code REPLY_OF} would return her.
+   * IS7 reduced — direct replies + authors (comment + reply-author columns). Carol replied;
+   * Alice did not, so a plan that walked {@code KNOWS} instead of {@code REPLY_OF} would return
+   * her.
    */
   @Test
   public void is7RepliesWithAuthorsTranslatesOnAndRunsNativeOff() {
     assertTranslates(
-        "IS7 reduced: …in(REPLY_OF).out(HAS_CREATOR).valueMap(id, firstName, lastName)",
+        "IS7 reduced: …in(REPLY_OF).as(comment…).out(HAS_CREATOR).as(replyAuthor…).select(…)",
         t -> GremlinTraversalShapes.is7RepliesWithAuthors(t, POST),
-        List.of("{firstName=[Carol], id=[" + CAROL + "], lastName=[Carolson]}"));
+        List.of(
+            "{commentContent=c-1001, commentCreationDate=date:" + COMMENT_AT
+                + ", commentId=" + COMMENT
+                + ", replyAuthorFirstName=Carol, replyAuthorId=" + CAROL
+                + ", replyAuthorLastName=Carolson}"));
   }
 
   /**
    * IC2 reduced — Alice's friends' messages before {@link #IC2_MAX_DATE}, newest first. Carol's
-   * comment then Bob's post. Dave has no messages, so a plan that ignored {@code KNOWS} and
-   * scanned {@code Message} would still pass if it also ignored the date filter; the two-row
-   * ordered list is the discriminant.
+   * comment then Bob's post, with friend + message columns. Dave has no messages, so a plan that
+   * ignored {@code KNOWS} and scanned {@code Message} would still pass if it also ignored the date
+   * filter; the two-row ordered list is the discriminant.
    */
   @Test
   public void ic2FriendsMessagesOrderedTranslatesOnAndRunsNativeOffInDateOrder() {
     assertTranslatesInOrder(
-        "IC2 reduced: …out(KNOWS).in(HAS_CREATOR).has(creationDate, lt).order()"
-            + ".by(creationDate, desc).valueMap(id, content, creationDate)",
+        "IC2 reduced: …out(KNOWS).as(person…).in(HAS_CREATOR).as(message…)"
+            + ".has(creationDate, lt).order().by(creationDate, desc).limit.select(…)",
         t -> GremlinTraversalShapes.ic2FriendsMessagesOrdered(t, ALICE, new Date(IC2_MAX_DATE)),
         List.of(
-            "{content=[c-1001], creationDate=[date:" + COMMENT_AT + "], id=[" + COMMENT + "]}",
-            "{content=[post-1000], creationDate=[date:" + POST_AT + "], id=[" + POST + "]}"));
+            "{firstName=Carol, lastName=Carolson, messageContent=c-1001,"
+                + " messageCreationDate=date:" + COMMENT_AT + ", messageId=" + COMMENT
+                + ", personId=" + CAROL + "}",
+            "{firstName=Bob, lastName=Bobson, messageContent=post-1000,"
+                + " messageCreationDate=date:" + POST_AT + ", messageId=" + POST
+                + ", personId=" + BOB + "}"));
   }
 
   /**
@@ -390,33 +405,36 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
-   * IC8 reduced — comments that reply to Bob's messages, newest first. Carol's comment replies to
-   * Bob's post; a plan that returned the post itself would fail the {@code hasLabel(Comment)}
-   * filter.
+   * IC8 reduced — comments that reply to Bob's messages, newest first, with comment + author
+   * columns. Carol's comment replies to Bob's post; a plan that returned the post itself would
+   * fail the reply walk.
    */
   @Test
   public void ic8RecentRepliesOrderedTranslatesOnAndRunsNativeOffInDateOrder() {
     assertTranslatesInOrder(
-        "IC8 reduced: …in(HAS_CREATOR).in(REPLY_OF).hasLabel(Comment).order()"
-            + ".by(creationDate, desc).valueMap(id, content, creationDate)",
+        "IC8 reduced: …in(HAS_CREATOR).in(REPLY_OF).as(comment…).out(HAS_CREATOR)"
+            + ".as(person…).order().by(select(commentCreationDate)).limit.select(…)",
         t -> GremlinTraversalShapes.ic8RecentRepliesOrdered(t, BOB),
         List.of(
-            "{content=[c-1001], creationDate=[date:" + COMMENT_AT + "], id=[" + COMMENT + "]}"));
+            "{commentContent=c-1001, commentCreationDate=date:" + COMMENT_AT
+                + ", commentId=" + COMMENT
+                + ", firstName=Carol, lastName=Carolson, personId=" + CAROL + "}"));
   }
 
   /**
-   * IC11 reduced — companies of Alice's friends located in China. Bob works at Acme in China;
-   * Carol does not work anywhere, so a plan that skipped {@code WORK_AT} returns nothing and a
-   * plan that skipped the country filter still has only Acme in this fixture.
+   * IC11 reduced — companies of Alice's friends located in China (friend + organisation columns).
+   * Bob works at Acme in China; Carol does not work anywhere, so a plan that skipped
+   * {@code WORK_AT} returns nothing and a plan that skipped the country filter still has only
+   * Acme in this fixture.
    */
   @Test
   public void ic11FriendsCompaniesInCountryTranslatesOnAndRunsNativeOff() {
     assertTranslates(
-        "IC11 reduced: …out(WORK_AT).hasLabel(Organisation).has(id, neq(-1)).as(company)"
-            + ".out(IS_LOCATED_IN).has(name, China).as(country).select(company, country)"
-            + ".by(name).by(name)",
+        "IC11 reduced: …out(KNOWS).as(person…).out(WORK_AT).as(organizationName)"
+            + ".out(IS_LOCATED_IN).has(name, China).select(…)",
         t -> GremlinTraversalShapes.ic11FriendsCompaniesInCountry(t, ALICE, "China"),
-        List.of("{company=Acme, country=China}"));
+        List.of(
+            "{firstName=Bob, lastName=Bobson, organizationName=Acme, personId=" + BOB + "}"));
   }
 
   /**
@@ -540,21 +558,17 @@ public class LdbcGremlinShapeTranslationTest {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * {@code order().by(firstName).range(1, 3)} declines on both arms and returns the second and
-   * third of Erin's four friends either way.
+   * {@code order().by(firstName).range(1, 3)} translates and returns the second and third of
+   * Erin's four friends in sorted order.
    *
-   * <p>Compared in stream order. Erin's friends sort to Alice, Bob, Carol, Dave, so the page is Bob
-   * then Carol, and a run that paged before sorting returns a different pair. Both arms produce it
-   * natively: a slice behind a captured {@code ORDER BY} declines, which {@code core}'s
-   * {@code OrderRangeStepRecogniserTest} pins for this exact spelling alongside a translating
-   * control.
-   *
-   * <p>Failing here means a recogniser now claims a slice after a sort, so this shape's recorded
-   * number stops describing the decline path and starts describing a MATCH plan.
+   * <p>Compared in stream order. Erin's friends sort to Alice, Bob, Carol, Dave, so the page is
+   * Bob then Carol. This branch accepts same-boundary {@code order}+{@code range}; failing here
+   * means the ordered-slice recogniser declined again and the shape fell back to native on both
+   * arms (still correct rows, but no longer measuring MATCH).
    */
   @Test
-  public void knowsOrderedPageDeclinesOnBothArmsInSortedOrder() {
-    assertDeclinesInOrder(
+  public void knowsOrderedPageTranslatesOnAndRunsNativeOffInSortedOrder() {
+    assertTranslatesInOrder(
         "…out(KNOWS).order().by(firstName).range(1, 3).values(firstName)",
         t -> GremlinTraversalShapes.knowsOrderedPage(t, ERIN),
         List.of("Bob", "Carol"));
@@ -811,8 +825,17 @@ public class LdbcGremlinShapeTranslationTest {
 
   private static void insertPerson(YTDBGraphTraversalSource t, long id, String firstName) {
     t.yql(
-        "INSERT INTO Person SET id = :id, firstName = :firstName, lastName = :lastName",
-        "id", id, "firstName", firstName, "lastName", firstName + "son").iterate();
+        "INSERT INTO Person SET id = :id, firstName = :firstName, lastName = :lastName,"
+            + " birthday = :birthday, locationIP = :ip, browserUsed = :browser,"
+            + " gender = :gender, creationDate = :cd",
+        "id", id,
+        "firstName", firstName,
+        "lastName", firstName + "son",
+        "birthday", new Date(0L),
+        "ip", "127.0.0.1",
+        "browser", "Chrome",
+        "gender", "neutral",
+        "cd", new Date(POST_AT)).iterate();
   }
 
   private static void insertPlace(YTDBGraphTraversalSource t, long id, String name) {

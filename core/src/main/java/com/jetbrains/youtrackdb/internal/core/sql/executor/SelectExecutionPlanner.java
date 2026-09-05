@@ -42,6 +42,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
@@ -1131,23 +1132,41 @@ public class SelectExecutionPlanner {
     List<SQLProjectionItem> result = new ArrayList<>();
     var nextAliasCount = 0;
     if ((orderBy != null && orderBy.getItems() != null) || !orderBy.getItems().isEmpty()) {
+      // When every ORDER BY key is alias.property / @rid, skip synthetics so ORDER BY can
+      // run on MATCH bindings and projections defer past LIMIT (post-LIMIT select().by
+      // presence). When any key needs early projection (bare RETURN alias, …), those
+      // binding-key siblings must also get synthetics — early projection replaces
+      // MatchResultRow and would otherwise null the secondary keys
+      // (testMatchMixedOrderByBareAliasAndAliasPropertyKeepsSecondaryKey).
+      var earlyProjectionForced = false;
       for (var item : orderBy.getItems()) {
-        // alias.property / alias.@rid are already evaluable on MATCH bindings and entity
-        // upstream rows. Synthesising a column for them forces ProjectionCalculationStep
-        // before ORDER BY (via projectionAfterOrderBy ≠ null), which replaces MatchResultRow
-        // and drops the bindings post-LIMIT select().by presence still needs. Keep this list
-        // aligned with {@link #orderByNeedsProjectedColumns}.
+        if (item.getRecordAttr() != null) {
+          continue;
+        }
         if (item.getAlias() != null && item.getModifier() != null) {
           continue;
         }
-        if (item.getRecordAttr() != null) {
-          continue;
+        earlyProjectionForced = true;
+        break;
+      }
+      for (var item : orderBy.getItems()) {
+        if (!earlyProjectionForced) {
+          if (item.getAlias() != null && item.getModifier() != null) {
+            continue;
+          }
+          if (item.getRecordAttr() != null) {
+            continue;
+          }
         }
         if (!allAliases.contains(item.getAlias())) {
           var newProj = new SQLProjectionItem(-1);
           if (item.getAlias() != null) {
             newProj.setExpression(
                 new SQLExpression(new SQLIdentifier(item.getAlias()), item.getModifier()));
+          } else if (item.getRecordAttr() != null) {
+            var attr = new SQLRecordAttribute(-1);
+            attr.setName(item.getRecordAttr());
+            newProj.setExpression(new SQLExpression(attr, item.getModifier()));
           } else if (item.getRid() != null) {
             var exp = new SQLExpression(-1);
             exp.setRid(item.getRid().copy());
