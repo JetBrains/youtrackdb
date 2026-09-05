@@ -6260,18 +6260,21 @@ public class MatchExecutionPlanner {
             currentEdgeClass = null;
           }
 
-          // Infer target class from edge LINK schema when no explicit class
-          // is set. Handles both vertex-to-vertex traversals (out/in) and
-          // edge-method traversals (outE/inE/inV/outV).
-          if (alias != null && !aliasClasses.containsKey(alias)) {
-            var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
-            if (inferred != null) {
-              aliasClasses.put(alias, inferred);
-              inferredWhileExprAliases.add(alias);
-              logger.debug(
-                  "MATCH class inference: alias '{}' -> class '{}' "
-                      + "(from edge LINK schema)",
-                  alias, inferred);
+          // Infer target class from edge LINK schema when no explicit class is set,
+          // or when the alias still carries only the generic root (Gremlin bare hops
+          // register V; without an upgrade the creationDate index on Comment is invisible).
+          if (alias != null) {
+            var existing = aliasClasses.get(alias);
+            if (existing == null || "V".equals(existing) || "E".equals(existing)) {
+              var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
+              if (inferred != null && !inferred.equals(existing)) {
+                aliasClasses.put(alias, inferred);
+                inferredWhileExprAliases.add(alias);
+                logger.debug(
+                    "MATCH class inference: alias '{}' -> class '{}' "
+                        + "(from edge LINK schema)",
+                    alias, inferred);
+              }
             }
           }
 

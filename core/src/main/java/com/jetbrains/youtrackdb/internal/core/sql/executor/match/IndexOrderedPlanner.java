@@ -307,9 +307,19 @@ public final class IndexOrderedPlanner {
     // 8. Look up index on target class for the property.
     //    For .inE()/.outE(), the target alias IS the edge record.
     //    Use the edge class name as target class if not already inferred.
+    //    Gremlin bare hops register the generic root V; upgrade from edge LINK schema
+    //    so Comment.creationDate (etc.) is visible to the ordered scan.
     var targetClassName = aliasClasses.get(targetAlias);
     if (targetClassName == null && isEdgeTraversal) {
       targetClassName = edgeClassName;
+    }
+    if ("V".equals(targetClassName) || "E".equals(targetClassName)) {
+      var inferred = MatchExecutionPlanner.inferClassFromEdgeSchema(
+          matchedEdge.edge.item.getMethod(), null, context);
+      if (inferred != null) {
+        targetClassName = inferred;
+        aliasClasses.put(targetAlias, inferred);
+      }
     }
     if (targetClassName == null) {
       return null;
@@ -795,12 +805,14 @@ public final class IndexOrderedPlanner {
    * Plan-time cost check for FILTERED modes. Uses estimated cardinality and default fan-out to
    * predict whether the index scan is likely to beat load-and-sort.
    *
-   * <p>Fan-out is the configured {@code QUERY_STATS_DEFAULT_FAN_OUT} only. An earlier formula
-   * used {@code max(defaultFanOut, indexSize / sourceEstimate)}, which saturated
-   * {@code estimatedEdges} at the index size whenever the index was large relative to the
-   * source estimate. Density then became {@code 1.0}, expected scan length collapsed to the
-   * LIMIT, and the gate admitted FILTERED plans on sparse multi-hop shapes that then paid for a
-   * near-full GLOBAL_SCAN at runtime.
+   * <p>Fan-out starts at {@code QUERY_STATS_DEFAULT_FAN_OUT}. An earlier formula used
+   * {@code max(defaultFanOut, indexSize / sourceEstimate)} unbound, which saturated
+   * {@code estimatedEdges} at the index size on any large index, priced density {@code 1.0},
+   * collapsed expected scan length to the LIMIT, and admitted FILTERED plans on sparse
+   * multi-hop shapes that then paid for a near-full GLOBAL_SCAN. The lift is therefore capped
+   * at {@code defaultFanOut × 10}: small dense fixtures (one source, tens of edges on a small
+   * index) still see a realistic fan-out, while multi-million indexes stay on the default and
+   * refuse. Runtime {@code estimateCapped → LOAD} and the scan budget cover residual miss.
    *
    * <p>{@code Long.MAX_VALUE} in {@code estimatedRootEntries} is a scheduling sentinel (inferred
    * WHILE aliases), not a cardinality. Treating it as a real count overflows the edge product
@@ -852,7 +864,11 @@ public final class IndexOrderedPlanner {
         sourceEstimate = Math.min(sourceEstimate, defaultFanOut);
       }
     }
-    long fanOutEstimate = defaultFanOut;
+    // Lift toward indexSize/source only while the ratio stays modest (see method Javadoc).
+    long optimisticFanOut = indexSize / Math.max(sourceEstimate, 1L);
+    long fanOutCap = (long) defaultFanOut * 10L;
+    long fanOutEstimate = Math.max(
+        defaultFanOut, Math.min(optimisticFanOut, fanOutCap));
     int estimatedEdges = (int) Math.min(
         sourceEstimate * fanOutEstimate, Integer.MAX_VALUE);
 

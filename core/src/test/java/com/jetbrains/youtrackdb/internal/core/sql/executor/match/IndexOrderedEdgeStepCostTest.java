@@ -700,15 +700,18 @@ public class IndexOrderedEdgeStepCostTest {
   }
 
   /**
-   * Fan-out for FILTERED admission must not be {@code indexSize/sourceEstimate}: that saturates
-   * density at 1.0 on a large index. With default fan-out only, a small source against a huge
-   * index stays sparse and loses to load-and-sort.
+   * Fan-out for FILTERED admission may lift toward {@code indexSize/sourceEstimate}, but only up to
+   * {@code defaultFanOut × 10}. Unbound {@code max(default, indexSize/source)} saturated density at
+   * 1.0 on large indexes and collapsed expected scan length to ~LIMIT. On a multi-million index the
+   * cap keeps the effective estimate at default fan-out, so a small source stays sparse and loses to
+   * load-and-sort.
    */
   @Test
   public void testDefaultFanOutDoesNotSaturateDensityOnLargeIndex() {
     int defaultFanOut =
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
-    // sourceEstimate=10, fanOut=default only → edges = 10 * defaultFanOut
+    // Large-index case (2.4M): effective fan-out stays at default (lift capped at default×10 still
+    // leaves indexSize/source >> cap), so edges = source × defaultFanOut.
     int estimatedEdges = 10 * defaultFanOut;
     long indexSize = 2_400_000L;
     var costs = IndexOrderedCostModel.computeCosts(

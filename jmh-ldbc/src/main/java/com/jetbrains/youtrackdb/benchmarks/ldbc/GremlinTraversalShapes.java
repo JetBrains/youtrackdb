@@ -241,6 +241,27 @@ public final class GremlinTraversalShapes {
   }
 
   /**
+   * LDBC: IS1 reduced. {@code select("p", "city")} of {@code firstName} and city {@code id}; SQL
+   * returns eight person fields plus {@code city.id}.
+   *
+   * <p>Same SQL as {@link #is1PersonCityProfile}, with the person-side columns added.
+   * {@code select("p", "city")} needs both user {@code as(...)} labels to resolve to pattern
+   * aliases. The {@code has} recogniser binds labels on the filtered start step, so the shape
+   * translates.
+   *
+   * <p>Two person-side columns rather than IS1's seven. The projection width is not what the shape
+   * measures, and a shorter one keeps the hand-computed expected value readable.
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> is1FullProfile(
+      YTDBGraphTraversalSource g, long personId) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId).as("p")
+        .out(IS_LOCATED_IN_LABEL).as("city")
+        .select("p", "city").by("firstName").by("id");
+  }
+
+  /**
    * LDBC: IS2 reduced — person's messages, SQL {@code ORDER BY creationDate DESC}, top
    * {@link #RESULT_LIMIT}.
    *
