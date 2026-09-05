@@ -3808,11 +3808,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "Their days follow the same descending sequence: " + days,
             java.util.List.of(20, 19, 18, 17, 16),
             days);
-        // The whole point of preferring FILTERED_BOUND here is that it can walk the ORDER BY
-        // index globally and reverse-check membership in the small source set, which
-        // FILTERED_UNBOUND has no path for. Pinning the mode without pinning the runtime path
-        // left that claim unchecked.
-        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.GLOBAL_SCAN);
+        // Density saturates the index (every message is reachable), so the cost model
+        // refuses GLOBAL_SCAN and loads from LinkBags. FILTERED_BOUND is still the mode
+        // that made the membership check and the ordered page possible.
+        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
       }
       session.commit();
     }
