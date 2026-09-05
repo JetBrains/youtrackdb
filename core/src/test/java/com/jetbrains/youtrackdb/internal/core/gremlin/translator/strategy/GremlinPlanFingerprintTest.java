@@ -342,6 +342,24 @@ public class GremlinPlanFingerprintTest {
   }
 
   /**
+   * {@code ;RD:} encodes a prior-label row-dedup alias. Two shapings that differ only in that alias
+   * must not share a plan-cache fingerprint.
+   */
+  @Test
+  public void rowDedupAlias_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var byA = ResultShaping.NONE.withRowDedupAlias("$g2m_a");
+    var byB = ResultShaping.NONE.withRowDedupAlias("$g2m_b");
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, byA))
+        .as(";RD: must encode rowDedupAlias")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, byB));
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, byA))
+        .as("null rowDedupAlias must differ from a set alias")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, ResultShaping.NONE));
+  }
+
+  /**
    * {@code ;LS:} encodes TailListShapingOp's limit. {@code tail(2)} and {@code tail(5)} share a
    * class name, so omitting the limit would let them collide on one plan-cache entry.
    */
