@@ -189,6 +189,16 @@ public final class ByModulatorTranslator {
     return classifyKey(modulator).filter(ref -> !ref.recordAttr()).map(FieldRef::name);
   }
 
+  /**
+   * {@code true} when the key-side modulator is {@code by(T.id)} / {@code IdStep} / the record
+   * identifier sort key — the emit column must stay a RID rather than wrap as a vertex.
+   */
+  public static boolean keyModulatorIsRecordId(Traversal.Admin<?, ?> modulator) {
+    return classifyKey(modulator)
+        .filter(ref -> ref.recordAttr() && "@rid".equals(ref.name()))
+        .isPresent();
+  }
+
   /** Classifies a key-side modulator into a field reference, independent of the target alias. */
   private static Optional<FieldRef> classifyKey(Traversal.Admin<?, ?> modulator) {
     if (modulator == null) {

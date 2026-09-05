@@ -12,6 +12,34 @@ import javax.annotation.Nullable;
  * <p>All methods are pure static functions with no database or index dependencies,
  * enabling direct unit testing. The cost model reads tuning parameters from
  * {@link GlobalConfiguration} at each call.
+ *
+ * <h2>Where admission is decided</h2>
+ * The ordered scan reads index entries; the alternative reads records. Which one runs is
+ * decided by {@link #computeCosts} and {@link #pickMultiSourceStrategy}, with no dominance
+ * gate ahead of that comparison. An earlier gate converted records to entries through
+ * {@link #scanCostPerEntry} and refused the scan when expected length exceeded that budget;
+ * the conversion was unmeasured and stood in front of every ordered top-N MATCH plan, so it
+ * was removed. Density, histogram skew, page amortization and the two cost estimates are the
+ * whole plan-time decision.
+ *
+ * <p>A runtime valve covers clustered membership. Density prices hits as spread evenly
+ * ({@code expectedScanLength = k / density}); when they are not, {@code IndexOrderedEdgeStep}
+ * counts consumed index entries and abandons the scan for load-from-sources once spend reaches
+ * {@link #entriesWorthTheLoadAlternative}. See {@code scanUnderBudget} there.
+ *
+ * <p>A capped multi-source edge estimate ({@code extrapolated >= indexSize}) is not proof that
+ * every index entry is reachable. Under density {@code 1.0}, {@link MultiSourceStrategy#GLOBAL_SCAN}
+ * prices a LIMIT-sized walk that can degrade to a near-full index scan when membership is sparse
+ * in the ordered prefix. {@link #pickMultiSourceStrategy} therefore loads from LinkBags whenever
+ * the caller marks the estimate as capped — independent of index size.
+ *
+ * <h2>Shared per-entry cursor cost</h2>
+ * {@link #computeCosts} and {@link #pickMultiSourceStrategy} both price a filtered ordered-scan
+ * cursor advance through {@link #scanCostPerEntry}: amortized leaf-page read plus
+ * {@link GlobalConfiguration#QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR} times per-row CPU. Default
+ * factor is 5 — roughly one {@link CostModel#perRowCpuCost} each for read lock, RidSet bitmap
+ * check, filter lambda, key compare, and leaf advance. Lower values favour index scan; raise
+ * them to prefer load-all-and-sort.
  */
 final class IndexOrderedCostModel {
 
@@ -99,24 +127,11 @@ final class IndexOrderedCostModel {
         GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble();
 
     // Union RidSet scan: build RidSet + scan (seq) + load matches.
-    // B-tree leaf pages hold many entries (~200 per 8KB page); amortize
-    // sequential page read cost across entries instead of charging per entry.
-    // Per-entry CPU: each B-tree cursor advance involves read lock
-    // acquire/release, RidSet bitmap check, and stream filter lambda —
-    // significantly more work than a simple field comparison (base cpu).
-    // The 5× factor is a heuristic: ~1× lock acquire/release, ~1× bitmap
-    // check, ~1× filter-lambda invocation, ~1× key comparison + cursor
-    // advance, ~1× per-entry overhead — summed and rounded. Not tied to a
-    // specific benchmark; tuned empirically so the model prefers loadSort
-    // at low density where scan dominates.
-    int entriesPerPage =
-        GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
-            .getValueAsInteger();
-    double scanCpuPerEntry = 5 * cpu;
+    // Per-entry cursor cost is shared with pickMultiSourceStrategy via
+    // scanCostPerEntry() (page amort + SCAN_CPU_FACTOR × cpu).
     double costUnionScan = linkBagSize * cpu
         + seekCost
-        + (expectedScanLength / entriesPerPage) * seqRead
-        + expectedScanLength * scanCpuPerEntry
+        + expectedScanLength * scanCostPerEntry()
         + k * randRead;
     costUnionScan *= costBias;
 
@@ -145,12 +160,86 @@ final class IndexOrderedCostModel {
   }
 
   /**
-   * Picks the cheapest multi-source strategy among three options:
-   * union RidSet scan, global scan, or load-all-sort.
+   * Cost of advancing a filtered ordered scan by one index entry: one amortized leaf-page read
+   * plus {@link GlobalConfiguration#QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR} times per-row CPU
+   * (read lock, RidSet bitmap, filter lambda, key compare, advance at the default factor).
+   * Shared by {@link #computeCosts}, {@link #pickMultiSourceStrategy}, and
+   * {@link #entriesWorthTheLoadAlternative}.
+   */
+  static double scanCostPerEntry() {
+    int entriesPerPage =
+        GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
+            .getValueAsInteger();
+    double cpuFactor =
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR
+            .getValueAsDouble();
+    return CostModel.seqPageReadCost() / entriesPerPage
+        + cpuFactor * CostModel.perRowCpuCost();
+  }
+
+  /**
+   * Cost of reading one record: a random page read plus the per-row CPU. Same per-record term
+   * {@link #computeCosts} charges the load-and-sort alternative.
+   */
+  static double recordReadCost() {
+    return CostModel.randomPageReadCost() + CostModel.perRowCpuCost();
+  }
+
+  /**
+   * Index entries whose <em>index-cursor</em> cost equals reading
+   * {@code recordsReadByLoadAndSort} records. Budget for a UNION RidSet scan, where each entry
+   * is a cheap cursor advance + bitmap check — not a record load.
+   *
+   * <p>Do NOT use this for {@link MultiSourceStrategy#GLOBAL_SCAN}: that path loads every
+   * entry's record, so one entry already costs about one record. Its budget is
+   * {@code recordsReadByLoadAndSort} itself.
+   */
+  static long entriesWorthTheLoadAlternative(long recordsReadByLoadAndSort) {
+    if (recordsReadByLoadAndSort <= 0) {
+      return 0;
+    }
+    var perEntry = scanCostPerEntry();
+    if (perEntry <= 0) {
+      return Long.MAX_VALUE;
+    }
+    var entries = recordsReadByLoadAndSort * recordReadCost() / perEntry;
+    return entries >= Long.MAX_VALUE ? Long.MAX_VALUE : (long) entries;
+  }
+
+  /**
+   * Picks the cheapest multi-source strategy among three options: union RidSet scan, global
+   * scan, or load-all-sort. Treats {@code totalEdges} as an uncapped estimate
+   * ({@code estimateCapped == false}).
    */
   static MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize, long limit,
       @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
+    return pickMultiSourceStrategy(
+        totalEdges, indexSize, limit, histogram, orderAsc, false);
+  }
+
+  /**
+   * Picks the cheapest multi-source strategy among three options:
+   * union RidSet scan, global scan, or load-all-sort.
+   *
+   * <p>When {@code estimateCapped} is true, the caller hit the structural ceiling
+   * (extrapolated edges clamped to {@code indexSize}). That is not evidence every index
+   * entry is reachable. Under density {@code 1.0}, {@link MultiSourceStrategy#GLOBAL_SCAN}
+   * would price a LIMIT-sized walk and can degrade to a near-full index scan when hits are
+   * sparse in key order. Refuse the capped estimate and load from the real source LinkBags
+   * instead — independent of index size. A runtime scan budget still covers plausible but
+   * wrong densities that were not capped.
+   *
+   * @param estimateCapped {@code true} when {@code totalEdges} came from a capped estimate
+   */
+  static MultiSourceStrategy pickMultiSourceStrategy(
+      int totalEdges, long indexSize, long limit,
+      @Nullable EquiDepthHistogram histogram, boolean orderAsc,
+      boolean estimateCapped) {
+    if (limit > 0 && estimateCapped) {
+      return MultiSourceStrategy.LOAD_ALL_SORT;
+    }
+
     var costs = computeCosts(totalEdges, indexSize, limit, histogram, orderAsc);
     if (costs == null) {
       return MultiSourceStrategy.LOAD_ALL_SORT;
@@ -161,14 +250,10 @@ final class IndexOrderedCostModel {
 
     // Multi-source union: build RidSet + scan index (seq) + load k matches.
     // Extra cpu term per match vs single-source: reverse-edge lookup cost.
-    // Amortize sequential page reads across B-tree entries per page.
-    int entriesPerPage =
-        GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
-            .getValueAsInteger();
+    // Cursor advance uses the same scanCostPerEntry() as computeCosts.
     double costUnion = totalEdges * costs.cpu
         + costs.seekCost
-        + (costs.expectedScanLength / entriesPerPage) * costs.seqRead
-        + costs.expectedScanLength * costs.cpu
+        + costs.expectedScanLength * scanCostPerEntry()
         + costs.k * (costs.randRead + costs.cpu);
     costUnion *= costBias;
 

@@ -1,8 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
+import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
@@ -12,6 +15,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * Recogniser for single-label {@link SelectOneStep} ({@code select("label")} / {@code
  * select("label").by(…)}): same RETURN / {@link BoundaryOutputType#MAP} wiring as {@link
  * SelectStepRecogniser}.
+ *
+ * <p>Key-side {@code by(key)} returns the entity column only; the plan step reads the property.
+ * Presence rides post-plan {@link AliasPropertyPresence} + {@code dropOnAbsent}, never pattern
+ * {@code IS DEFINED} — same rationale as {@link SelectStepRecogniser}.
  */
 final class SelectOneStepRecogniser implements StepRecogniser {
 
@@ -45,22 +52,60 @@ final class SelectOneStepRecogniser implements StepRecogniser {
     if (modulators.size() != 1) {
       return Outcome.DECLINE;
     }
+    if (!ctx.promotePresenceDropToPatternFilter()) {
+      return Outcome.DECLINE;
+    }
     var userLabel = scopeKeys.iterator().next();
     var internalAlias = ctx.resolveUserLabel(userLabel);
     if (internalAlias == null) {
       return Outcome.DECLINE;
     }
-    var field = ByModulatorTranslator.translateKeyModulator(internalAlias, modulators.getFirst());
+    if (ctx.returnDistinct()
+        && (ctx.boundaryAlias() == null || !ctx.boundaryAlias().equals(internalAlias))) {
+      return Outcome.DECLINE;
+    }
+    var modulator = modulators.getFirst();
+    var field = ByModulatorTranslator.translateKeyModulator(internalAlias, modulator);
     if (field.isEmpty()) {
       return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
-    ctx.appendReturnColumn(field.get(), userLabel);
-    // by(key) drops an element that has no such property — see ByModulatorPresence.
-    ByModulatorPresence.requireModulatedProperty(ctx, internalAlias, modulators.getFirst());
+    ctx.markReturnAliasIfForeign(internalAlias);
+    var shaping =
+        ResultShaping.NONE
+            .withUnwrapSingletonMap(true)
+            .withMapEmitColumnOrder(List.of(userLabel));
+    var returnDistinct = ctx.returnDistinct();
+    var propertyKey = ByModulatorTranslator.keyModulatorPropertyKey(modulator);
+    if (propertyKey.isPresent()) {
+      var key = propertyKey.get();
+      var productive = ctx.byModulatorIsProductive(key);
+      var entityCol = ResultShaping.presenceEntityColumnAlias(internalAlias);
+      // Same as SelectStepRecogniser: always project the entity column, including post-slice.
+      // A following token RETURN column would otherwise drop MATCH bindings that presence
+      // resolved from when the entity column was omitted.
+      ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), entityCol);
+      if (productive && !returnDistinct) {
+        ctx.appendReturnColumn(field.get(), userLabel);
+      } else {
+        var presence = new AliasPropertyPresence(entityCol, key, userLabel);
+        if (!productive) {
+          shaping = shaping.withDropOnAbsent(true);
+        }
+        shaping = shaping.withAliasPropertyPresences(List.of(presence));
+      }
+    } else {
+      if (returnDistinct) {
+        var entityCol = ResultShaping.presenceEntityColumnAlias(internalAlias);
+        ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), entityCol);
+      }
+      ctx.appendReturnColumn(field.get(), userLabel);
+      if (ByModulatorTranslator.keyModulatorIsRecordId(modulator)) {
+        shaping = shaping.withRecordIdMapKeys(List.of(userLabel));
+      }
+    }
     ctx.pinBoundary(ctx.boundaryAlias(), BoundaryOutputType.MAP, Vertex.class);
-    // A single-label select emits the column value directly (native SelectOneStep shape).
-    ctx.setResultShaping(ResultShaping.NONE.withUnwrapSingletonMap(true));
+    ctx.setResultShaping(shaping);
     return Outcome.ACCEPTED;
   }
 

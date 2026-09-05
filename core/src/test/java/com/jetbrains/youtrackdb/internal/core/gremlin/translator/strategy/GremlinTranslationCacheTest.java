@@ -10,8 +10,10 @@ import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ConstantTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Before;
@@ -131,7 +133,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         .walk(graph.traversal().V().has("age", P.eq(30)).asAdmin());
     assertThat(walked).isNotNull();
     assertThat(walked.inputs()).isNotNull();
-    var fp = GremlinPlanFingerprint.fingerprint(walked.inputs());
+    var fp = GremlinPlanFingerprint.fingerprint(walked.inputs(), walked.shaping());
     assertThat(GremlinPlanCache.instance(graphSession()).peekStored(fp)).isSameAs(template);
 
     admin.toList();
@@ -461,10 +463,175 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         .containsExactly("Bob");
   }
 
+  /**
+   * A user {@code as(...)} label parked on a transparent barrier is part of the shape, and so is the
+   * position of that barrier. {@code out().as(mid)[on barrier].out()} and {@code
+   * out().out().as(mid)[on barrier]} leave every significant step unlabelled, so before the barrier
+   * labels were encoded both spellings produced one key. The walker binds the label to the boundary
+   * reached where the barrier sits, so the two spellings name different hops and must not share a
+   * cache entry.
+   */
+  @Test
+  public void barrierLabelPosition_discriminatesShapeKeys() {
+    var afterFirstHop = shapeKey(barrierLabelAfterHop(1));
+    var afterSecondHop = shapeKey(barrierLabelAfterHop(2));
+
+    assertThat(afterFirstHop)
+        .as("a barrier label after the first hop names a different alias than after the second")
+        .isNotEqualTo(afterSecondHop);
+  }
+
+  /**
+   * The row-level half of {@link #barrierLabelPosition_discriminatesShapeKeys}. Over the chain
+   * Alice knows Bob knows Carol, {@code out().as(mid)[on barrier].out().select(mid)} must return
+   * Bob and {@code out().out().as(mid)[on barrier].select(mid)} must return Carol. Warming the cache
+   * with the first shape must not serve its plan to the second.
+   */
+  @Test
+  public void barrierLabelPosition_doNotShareCachedPlan() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    bob.addEdge("knows", carol);
+    graph.tx().commit();
+
+    var afterFirstHop = applyAdmin(barrierLabelAfterHop(1));
+    assertThat(sortedNames(afterFirstHop))
+        .as("a label bound after the first hop selects the middle vertex")
+        .containsExactly("Bob");
+
+    var afterSecondHop = applyAdmin(barrierLabelAfterHop(2));
+    assertThat(sortedNames(afterSecondHop))
+        .as("the second shape must not be served the first shape's cached plan")
+        .containsExactly("Carol");
+  }
+
+  /**
+   * A barrier with no label on it is part of the shape too, because the walker reads a skipped
+   * barrier through the fold latch. {@code g.V().has("name", gt(27))} is folded and compares with
+   * SQL ordering, which ranks a String above an Integer, while {@code
+   * g.V().barrier().has("name", gt(27))} is unfolded and carries the per-record type guard, which
+   * keeps only the numeric row. Over one class holding both runtime types the two spellings return
+   * different rows, so one cache entry cannot serve both.
+   */
+  @Test
+  public void unlabelledBarrier_doesNotShareCachedPlanWithTheFoldedSpelling() {
+    seedMixedRuntimeTypes();
+
+    assertThat(shapeKey(() -> graph.traversal().V().has("name", P.gt(27))))
+        .as("a barrier that closes the fold must discriminate the shape key")
+        .isNotEqualTo(shapeKey(() -> graph.traversal().V().barrier().has("name", P.gt(27))));
+
+    var folded = apply(() -> graph.traversal().V().has("name", P.gt(27)));
+    assertThat(sortedTags(folded))
+        .as("the folded comparison keeps the SQL ordering answer, which ranks the String above 27")
+        .containsExactly("loose_num", "loose_zulu");
+
+    var unfolded = apply(() -> graph.traversal().V().barrier().has("name", P.gt(27)));
+    assertThat(sortedTags(unfolded))
+        .as("the unfolded comparison must not be served the folded plan, which drops its guard")
+        .containsExactly("loose_num");
+  }
+
+  /**
+   * Two vertices of one schema-less class holding both runtime types under {@code name}: the String
+   * {@code zulu} and the Integer {@code 99}. A comparison that ignores runtime type answers over
+   * both, one that respects it answers over the Integer alone.
+   */
+  private void seedMixedRuntimeTypes() {
+    session.createVertexClass("Loose");
+    graph.addVertex(T.label, "Loose", "tag", "loose_zulu", "name", "zulu");
+    graph.addVertex(T.label, "Loose", "tag", "loose_num", "name", 99);
+    graph.tx().commit();
+  }
+
+  /** Sorted {@code tag} values of the returned vertices — the mixed-type fixture's row identity. */
+  private static List<String> sortedTags(List<?> vertices) {
+    return vertices.stream()
+        .map(v -> ((Vertex) v).value("tag"))
+        .map(Object::toString)
+        .sorted()
+        .toList();
+  }
+
+  /**
+   * Documentation-only / pre-existing encoding (TQ1500): a label {@code FilterRankingStrategy}
+   * migrates onto the {@code dedup()} step is already part of the shape key through the per-step
+   * label section that existed before Track 03. Production rarely reaches the hop-labelled
+   * spelling, because the ranking strategy moves the label onto {@code dedup} first. Kept here to
+   * record that encoding, not as Track 03 coverage.
+   */
+  @Test
+  public void dedupStepLabel_isPartOfShapeKey() {
+    var labelOnHop = shapeKey(dedupSelectShape(/* labelOnDedupStep= */ false));
+    var labelOnDedup = shapeKey(dedupSelectShape(/* labelOnDedupStep= */ true));
+
+    assertThat(labelOnHop)
+        .as("the dedup step's own labels reach the key through the per-step label section")
+        .isNotEqualTo(labelOnDedup);
+  }
+
+  /**
+   * Documentation-only companion to {@link #dedupStepLabel_isPartOfShapeKey} (TQ1500): the
+   * over-keying is harmless because {@code dedup} emits the traverser it received, so both label
+   * positions name the same hop target and return the same row.
+   */
+  @Test
+  public void dedupStepLabel_bothPositionsReturnTheSameRow() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+
+    assertThat(sortedNames(applyAdmin(dedupSelectShape(false))))
+        .as("the label on the hop selects the hop target")
+        .containsExactly("Bob");
+    assertThat(sortedNames(applyAdmin(dedupSelectShape(true))))
+        .as("the migrated label names the same element the hop bound")
+        .containsExactly("Bob");
+  }
+
+  /**
+   * {@code g.V().out("knows").out("knows").select("mid")} with {@code as("mid")} parked on a
+   * transparent {@link NoOpBarrierStep} that follows hop number {@code hop}. This is the placement
+   * {@code LazyBarrierStrategy} produces for {@code out().as("mid").out()}: it inserts a barrier
+   * after the hop and moves the hop's labels onto it through {@code TraversalHelper.copyLabels}. The
+   * barrier is placed by hand so both shapes differ in that one position and nothing else.
+   */
+  private Traversal.Admin<?, ?> barrierLabelAfterHop(int hop) {
+    var admin = graph.traversal().V().out("knows").out("knows").select("mid").asAdmin();
+    var barrier = new NoOpBarrierStep<>(admin);
+    barrier.addLabel("mid");
+    // Step 0 is the GraphStep, so hop n sits at index n and its barrier goes at index n + 1.
+    admin.addStep(hop + 1, barrier);
+    return admin;
+  }
+
+  /**
+   * {@code g.V().out("knows").as("t").dedup().select("t")} with {@code as("t")} either left on the
+   * hop or moved onto the {@code dedup} step, which is what {@code FilterRankingStrategy} does to
+   * this shape in production.
+   */
+  private Traversal.Admin<?, ?> dedupSelectShape(boolean labelOnDedupStep) {
+    var admin = graph.traversal().V().out("knows").as("t").dedup().select("t").asAdmin();
+    if (labelOnDedupStep) {
+      // Index 1 is the hop, index 2 the DedupGlobalStep — the migration moves the label forward.
+      // getSteps() is a raw Step list, and label mutation needs no type argument.
+      admin.getSteps().get(1).removeLabel("t");
+      admin.getSteps().get(2).addLabel("t");
+    }
+    return admin;
+  }
+
   private String shapeKey(
       java.util.function.Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {
-    var extraction = GremlinStepWalker.extractShape(supplier.get().asAdmin(), graphSession());
+    return shapeKey(supplier.get().asAdmin());
+  }
+
+  private String shapeKey(Traversal.Admin<?, ?> admin) {
+    var extraction = GremlinStepWalker.extractShape(admin, graphSession());
     assertThat(extraction.complete()).isTrue();
     return extraction.key();
   }
@@ -472,7 +639,15 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
   private List<?> apply(
       java.util.function.Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {
-    var admin = supplier.get().asAdmin();
+    return applyAdmin(supplier.get().asAdmin());
+  }
+
+  /**
+   * Runs {@link GremlinToMatchStrategy} over a prepared step list and drains it, pinning that the
+   * shape translated. Strategies are not applied first, so a hand-placed barrier stays where the
+   * test put it.
+   */
+  private List<?> applyAdmin(Traversal.Admin<?, ?> admin) {
     GremlinToMatchStrategy.instance().apply(admin);
     assertThat(admin.getSteps()).hasSize(1);
     assertThat(admin.getSteps().getFirst()).isInstanceOf(YTDBMatchPlanStep.class);

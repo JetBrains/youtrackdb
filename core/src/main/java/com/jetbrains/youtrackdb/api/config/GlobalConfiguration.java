@@ -1500,6 +1500,25 @@ public enum GlobalConfiguration {
       Integer.class,
       200,
       true),
+
+  /**
+   * Shared CPU multiplier for one filtered ordered-scan cursor advance in
+   * {@code IndexOrderedCostModel#scanCostPerEntry}. Both single-source
+   * {@code computeCosts} and multi-source {@code pickMultiSourceStrategy} use
+   * that helper. Default {@code 5.0} prices the work of one filtered cursor
+   * advance relative to per-row CPU cost: read lock, RidSet bitmap check,
+   * filter lambda, key compare, and leaf advance. Lower values favour index
+   * scan; raise them to prefer load-all-and-sort.
+   */
+  QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR(
+      "youtrackdb.query.indexOrdered.scanCpuFactor",
+      "Per-entry CPU multiplier (times CostModel.perRowCpuCost) for a filtered"
+          + " ordered index-scan cursor advance. Shared by single- and"
+          + " multi-source index-ordered MATCH estimates. Default 5.0 covers"
+          + " lock, RidSet bitmap, filter lambda, key compare, and advance",
+      Double.class,
+      5.0,
+      true),
       ;
 
   static {

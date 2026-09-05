@@ -5,6 +5,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
@@ -13,6 +14,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.Transl
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -273,6 +276,44 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     ctx.userLabelToAlias.put("k", "$g2m_edge_0");
     ctx.patternBuilder.registerUserLabel("$g2m_edge_0", "k");
     assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderAllowsSliceOnCurrentBoundary())
+        .as("foreign sort keys are allowed when boundary is unchanged")
+        .isTrue();
+  }
+
+  /**
+   * A real slice after {@code ORDER BY} on a foreign-alias comparator is accepted when boundary is
+   * unchanged — same tie contract as boundary-only sorts.
+   */
+  @Test
+  public void limitAfterOrderOnForeignSortKey_accepts() {
+    var admin =
+        graph
+            .traversal()
+            // Opted out of the productive-order rewrite for the reason given in
+            // orderBySelectModulator_resolvesLabel: the recogniser is driven by hand here.
+            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
+            .V()
+            .outE("knows")
+            .as("k")
+            .inV()
+            .order()
+            .by(__.select("k").by("since"), Order.asc)
+            .limit(2)
+            .asAdmin();
+    support.withTranslator(false, admin::applyStrategies);
+    var ctx = seededContext();
+    ctx.userLabelToAlias.put("k", "$g2m_edge_0");
+    ctx.patternBuilder.registerUserLabel("$g2m_edge_0", "k");
+    assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderAllowsSliceOnCurrentBoundary()).isTrue();
+
+    var outcome =
+        RangeGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, RangeGlobalStep.class), ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.limit).isNotNull();
+    assertThat(ctx.limit.toString()).contains("2");
   }
 
   /** {@code Order.shuffle} has no MATCH equivalent and declines. */
@@ -385,24 +426,52 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A real slice declines once an {@code ORDER BY} is on the context, and it sets neither clause on
-   * the way out. MATCH's {@code ORDER BY} on a repeated key is a partial order, so a bound cutting
-   * inside a tie group keeps an arbitrary member where Gremlin's stable sort keeps arrival order —
-   * measured end to end in {@link #orderThenHopThenLimit_declinesAndReturnsNativeRows}. This is the
-   * recogniser-level pin on the same guard.
+   * A real slice behind a captured {@code ORDER BY} on the same boundary is accepted and writes
+   * {@code LIMIT}. Direct recogniser invocation — end-to-end coverage is in the ordered-slice
+   * section below. Equal-key ties are implementation-defined (YQL-equivalent).
    */
   @Test
-  public void sliceAfterCapturedOrderBy_declines() {
+  public void sliceAfterCapturedOrderBy_acceptsAndSetsLimit() {
     var admin = graph.traversal().V().order().by("name").limit(2).asAdmin();
     var ctx = seededContext();
     assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.orderBy).isNotNull();
+    assertThat(ctx.orderAllowsSliceOnCurrentBoundary()).isTrue();
 
     var outcome =
         RangeGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, RangeGlobalStep.class), ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
-    assertThat(ctx.limit).isNull();
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.limit).isNotNull();
+    assertThat(ctx.limit.toString()).contains("2");
+    assertThat(ctx.skip).isNull();
+  }
+
+  /**
+   * Labelled multi-key {@code ORDER BY} plus {@code LIMIT}: recogniser writes {@code LIMIT 3}.
+   * End-to-end pin: {@link #orderByTiedDateThenUniqueIdThenLimit_translatesAndMatchesNativeOrder}.
+   */
+  @Test
+  public void sliceAfterCapturedOrderByOnPerson_acceptsAndSetsLimit() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    var admin =
+        graph.traversal().V().hasLabel("Person")
+            .order().by("creationDate", Order.desc).by("id", Order.asc)
+            .limit(3)
+            .asAdmin();
+    var ctx = seededPersonContext();
+    assertThat(
+        OrderGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, OrderGlobalStep.class), ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.orderBy).isNotNull();
+    assertThat(ctx.orderAllowsSliceOnCurrentBoundary()).isTrue();
+
+    var outcome =
+        RangeGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin, RangeGlobalStep.class), ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.limit).isNotNull();
+    assertThat(ctx.limit.toString()).contains("3");
     assertThat(ctx.skip).isNull();
   }
 
@@ -536,7 +605,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   /**
    * A post-union range whose {@code count()} follows immediately is accepted as a {@link
-   * PostConcatOp.Range} rather than as YQL {@code SKIP}/{@code LIMIT} clauses: a union's slice
+   * PostConcatOp.Range} rather than as SQL {@code SKIP}/{@code LIMIT} clauses: a union's slice
    * applies to the concatenation, so pushing it into each child would slice every arm separately.
    * {@code range(1, 3)} normalises to skip 1, limit {@code high - low}.
    */
@@ -550,8 +619,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
         .isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.postConcatOps()).containsExactly(new PostConcatOp.Range(1L, 2L));
-    assertThat(ctx.skip).as("a union slice must not become a per-child YQL SKIP").isNull();
-    assertThat(ctx.limit).as("a union slice must not become a per-child YQL LIMIT").isNull();
+    assertThat(ctx.skip).as("a union slice must not become a per-child SQL SKIP").isNull();
+    assertThat(ctx.limit).as("a union slice must not become a per-child SQL LIMIT").isNull();
   }
 
   /**
@@ -842,9 +911,11 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * <p>The decline of the first two is keyed on the captured {@code ORDER BY}: after the drop-on-absent
    * promotion a slice behind {@code values(k)} would otherwise translate, so stripping the slice
    * (rather than the sort) is still the control that proves the fixture can engage a boundary step.
+   * {@code order().by(name).range().values(name)} translates — same boundary, no hop, ties
+   * implementation-defined like YQL.
    */
   @Test
-  public void sortedSliceOverAProjection_declines_withATranslatingControl() {
+  public void sortedSliceOverValues_declines_orderThenRangeTranslates() {
     seedHubWithReverseSortedTargets();
 
     assertDeclinesOverTheSameNativeRows(
@@ -853,13 +924,12 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertDeclinesOverTheSameNativeRows(
         "g.V().out(knows).values(name).order().range(1, 3)",
         () -> graph.traversal().V().out("knows").values("name").order().range(1, 3));
-    assertDeclinesOverTheSameNativeRows(
+
+    // Distinct names on this fixture — sequence equality holds for the translating spelling.
+    assertTranslatesAndMatchesNativeOrderedValues(
         "g.V().out(knows).order().by(name).range(1, 3).values(name)",
         () -> graph.traversal().V().out("knows").order().by("name").range(1, 3).values("name"));
 
-    // The control compares in the sort's own order rather than as a multiset, since order() makes
-    // the sequence the answer, and the fixture seeds its targets reverse-alphabetically so the
-    // sorted sequence is not the one a scan would hand back unsorted.
     support.assertEquivalent(
         "control: g.V().out(knows).values(name).order()",
         Recognition.RECOGNIZED,
@@ -925,12 +995,379 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Ordered slice behind a captured ORDER BY on the current boundary (ties like YQL).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code order().by(creationDate, desc).by(id, asc).limit(3)} translates. UNIQUE {@code id} makes
+   * on/off sequences agree even when {@code creationDate} ties across the cut. LDBC multi-key
+   * spelling; non-unique single-key twin:
+   * {@link #orderByNonUniqueFirstNameThenLimit_translatesWithSizeAndSubset}.
+   */
+  @Test
+  public void orderByTiedDateThenUniqueIdThenLimit_translatesAndMatchesNativeOrder() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).order().by(creationDate, desc).by(id, asc).limit(3).values(id)",
+        () -> graph.traversal().V().hasLabel("Person")
+            .order().by("creationDate", Order.desc).by("id", Order.asc)
+            .limit(3)
+            .values("id"));
+  }
+
+  /**
+   * The {@code skip} spelling of the same unique-{@code id} order. {@code skip(2)} over five people
+   * ordered by unique {@code id} keeps a determined suffix, so both arms must return the same
+   * sequence.
+   */
+  @Test
+  public void orderByUniqueIdThenSkip_translatesAndMatchesNativeOrder() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).order().by(id).skip(2).values(id)",
+        () -> graph.traversal().V().hasLabel("Person").order().by("id").skip(2).values("id"));
+  }
+
+  /**
+   * The {@code range} spelling of the same unique-{@code id} order. {@code range(1, 4)} keeps three
+   * of the five unique-id rows in determined order.
+   */
+  @Test
+  public void orderByUniqueIdThenRange_translatesAndMatchesNativeOrder() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).order().by(id).range(1, 4).values(id)",
+        () -> graph.traversal().V().hasLabel("Person").order().by("id").range(1, 4).values("id"));
+  }
+
+  /**
+   * NOTUNIQUE {@code firstName} + {@code LIMIT 2} translates (YQL-equivalent ties). Four Anns share
+   * the key across the cut, so on/off may keep different ids — only engagement, size, and subset of
+   * the Ann id set are asserted. Twin with UNIQUE {@code id}:
+   * {@link #orderByUniqueIdThenLimit_translates}.
+   */
+  @Test
+  public void orderByNonUniqueFirstNameThenLimit_translatesWithSizeAndSubset() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertBareSliceSizeAndSubset(
+        "g.V().hasLabel(Person).order().by(firstName).limit(2)",
+        () -> graph.traversal().V().hasLabel("Person").order().by("firstName").limit(2),
+        () -> graph.traversal().V().hasLabel("Person").has("firstName", "Ann"),
+        2);
+  }
+
+  /**
+   * Discriminating twin of {@link #orderByNonUniqueFirstNameThenLimit_translatesWithSizeAndSubset}:
+   * UNIQUE {@code id} makes on/off sequences agree.
+   */
+  @Test
+  public void orderByUniqueIdThenLimit_translates() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).order().by(id).limit(2).values(id)",
+        () -> graph.traversal().V().hasLabel("Person").order().by("id").limit(2).values("id"));
+  }
+
+  /**
+   * A hop between the sort and the slice fans one sorted source into several rows — still declines.
+   * Twin: {@link #orderByUniqueIdThenLimit_translates}.
+   */
+  @Test
+  public void orderByUniqueIdThenHopThenLimit_declines() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertOrderedSliceDeclinesWithRemainingSteps(
+        "g.V().hasLabel(Person).order().by(id).out(knows).limit(2).values(id)",
+        () -> graph.traversal().V().hasLabel("Person").order().by("id").out("knows").limit(2)
+            .values("id"));
+  }
+
+  /**
+   * Discriminating twin of hop-then-slice decline — sort and slice on the hop target only.
+   *
+   * <p>Runs under the PORTABLE OPT-OUT. Under the shipped productive-order default the order key
+   * emits no {@code IS DEFINED} conjunct, the sorted alias carries no filter at all, and the
+   * planner then roots an INDEX-ORDERED scan on the unique {@code id} index. That scan preserves
+   * the fan-in multiplicity, which
+   * {@link #orderByUniqueIdOnFanInHopTarget_underDefault_keepsDuplicateRows} asserts.
+   */
+  @Test
+  public void orderByUniqueIdOnHopTargetThenLimit_underPortableOptOut_translates() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    withOrderIncludesMissingKey(false, () -> assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).as(src).out(knows).as(dst).hasLabel(Person)"
+            + ".order().by(id).limit(2).values(id)",
+        () -> graph.traversal().V().hasLabel("Person").as("src").out("knows").as("dst")
+            .hasLabel("Person").order().by("id").limit(2).values("id")));
+  }
+
+  /**
+   * CONTRACT. Under the shipped productive-order default a fan-in hop whose order key carries an
+   * index keeps every row, so the translated arm matches native Gremlin exactly.
+   *
+   * <p>The fixture reaches {@code b} from both {@code a} and {@code e}, and likewise {@code c}, so
+   * both arms return four rows, {@code [b, b, c, c]}. With the order-key presence conjunct gone
+   * the sorted alias carries no filter and the planner roots an index-ordered scan on the unique
+   * {@code id} index. That scan reaches every target once, so it has to recover the row
+   * multiplicity from the reverse edges of each target rather than emit one row per target.
+   *
+   * <p>This assertion was formerly a defect pin recorded as BG1600, which the index-ordered step
+   * fix inverted. The collapse it pinned needed a fan-in hop, an INDEXED order key, and the order
+   * alias being the fan-in target, so this shape is the narrowest reproduction of it.
+   */
+  @Test
+  public void orderByUniqueIdOnFanInHopTarget_underDefault_keepsDuplicateRows() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+
+    withOrderIncludesMissingKey(true, () -> {
+      var original = translatorEnabled();
+      try {
+        setTranslatorEnabled(false);
+        var nativeAdmin = graph.traversal().V().hasLabel("Person").as("src").out("knows").as("dst")
+            .hasLabel("Person").order().by("id").values("id").asAdmin();
+        nativeAdmin.applyStrategies();
+        assertThat(nativeAdmin.toList().stream().map(String::valueOf).toList())
+            .as("native Gremlin keeps one row per (src, dst) pair")
+            .containsExactly("b", "b", "c", "c");
+
+        setTranslatorEnabled(true);
+        var translatedAdmin = graph.traversal().V().hasLabel("Person").as("src").out("knows")
+            .as("dst").hasLabel("Person").order().by("id").values("id").asAdmin();
+        translatedAdmin.applyStrategies();
+        assertThat(countBoundarySteps(translatedAdmin))
+            .as("the shape does translate, so the loss below is a plan defect, not a decline")
+            .isEqualTo(1);
+        assertThat(translatedAdmin.toList().stream().map(String::valueOf).toList())
+            .as("the index-ordered root keeps one row per (src, dst) pair, like native Gremlin")
+            .containsExactly("b", "b", "c", "c");
+      } finally {
+        setTranslatorEnabled(original);
+      }
+    });
+  }
+
+  /**
+   * CONTRACT. The LIMIT spelling of the fan-in shape above, which is the discriminating case: a
+   * cut placed over the formerly collapsed rows returned DIFFERENT records rather than merely
+   * fewer of them, so a row-count assertion alone would not have caught the defect.
+   *
+   * <p>Both arms sort {@code [b, b, c, c]} and keep the first two, so both return {@code [b, b]}.
+   * Before the index-ordered step fix the translated plan sorted {@code [b, c]} and kept both.
+   */
+  @Test
+  public void orderByUniqueIdOnFanInHopTargetThenLimit_underDefault_matchesNativeRows() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+
+    withOrderIncludesMissingKey(true, () -> {
+      var original = translatorEnabled();
+      try {
+        setTranslatorEnabled(false);
+        var nativeAdmin = graph.traversal().V().hasLabel("Person").as("src").out("knows").as("dst")
+            .hasLabel("Person").order().by("id").limit(2).values("id").asAdmin();
+        nativeAdmin.applyStrategies();
+        assertThat(nativeAdmin.toList().stream().map(String::valueOf).toList())
+            .as("native Gremlin cuts the first two of four sorted rows")
+            .containsExactly("b", "b");
+
+        setTranslatorEnabled(true);
+        var translatedAdmin = graph.traversal().V().hasLabel("Person").as("src").out("knows")
+            .as("dst").hasLabel("Person").order().by("id").limit(2).values("id").asAdmin();
+        translatedAdmin.applyStrategies();
+        assertThat(countBoundarySteps(translatedAdmin))
+            .as("the shape translates, so the difference below is a plan defect, not a decline")
+            .isEqualTo(1);
+        assertThat(translatedAdmin.toList().stream().map(String::valueOf).toList())
+            .as("the cut keeps the first two of four sorted rows, exactly as native Gremlin does")
+            .containsExactly("b", "b");
+      } finally {
+        setTranslatorEnabled(original);
+      }
+    });
+  }
+
+  /**
+   * REGRESSION GUARD for the shipped promise on the ordered-index path. An INDEX ORDERED MATCH
+   * scan over an index that ignores null values still returns the record that lacks the ordered
+   * key, sorted as a null key.
+   *
+   * <p>A review predicted the opposite: an index ignores null values by default, so a key-less
+   * record holds no index entry and an index-rooted scan could never emit it. Execution refutes
+   * that prediction. The assertion below runs on the plan the prediction named, which the shape
+   * comment records, and the key-less target is the FIRST row of the translated result.
+   *
+   * <p>The duplicate-row loss formerly pinned above was present on the very same plan, which is
+   * why both live here. Any ordered-scan bounding work must not break either assertion.
+   */
+  @Test
+  public void orderByIndexedKeyOnHopTarget_underDefault_keepsTheRecordLackingTheKey() {
+    seedFanInWhereOneTargetLacksTheIndexedKey();
+
+    withOrderIncludesMissingKey(true, () -> {
+      var original = translatorEnabled();
+      try {
+        setTranslatorEnabled(true);
+        var translatedAdmin = graph.traversal().V().hasLabel("Person").as("src").out("knows")
+            .as("dst").hasLabel("Person").order().by("id").values("name").asAdmin();
+        translatedAdmin.applyStrategies();
+        assertThat(countBoundarySteps(translatedAdmin))
+            .as("the shape translates through the INDEX ORDERED MATCH plan on Person.id")
+            .isEqualTo(1);
+        var rows = translatedAdmin.toList().stream().map(String::valueOf).toList();
+        assertThat(rows)
+            .as("the index-ordered scan still emits the key-less target, sorted as a null key")
+            .startsWith("Nemo")
+            .contains("Bea", "Cid");
+      } finally {
+        setTranslatorEnabled(original);
+      }
+    });
+  }
+
+  /**
+   * The fan-in fixture plus one target that carries no {@code id}. Two sources reach three
+   * targets, so the duplicate collapse and the key-less question can be asked of one plan. The
+   * unique index holds a single key-less record, which is legal. A second one would raise a
+   * duplicate-key error unrelated to the question under test.
+   */
+  private void seedFanInWhereOneTargetLacksTheIndexedKey() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.STRING).createIndex(INDEX_TYPE.UNIQUE);
+    var ann = graph.addVertex(T.label, "Person", "id", "a", "name", "Ann");
+    var eve = graph.addVertex(T.label, "Person", "id", "e", "name", "Eve");
+    var bea = graph.addVertex(T.label, "Person", "id", "b", "name", "Bea");
+    var cid = graph.addVertex(T.label, "Person", "id", "c", "name", "Cid");
+    var nemo = graph.addVertex(T.label, "Person", "name", "Nemo");
+    ann.addEdge("knows", bea);
+    ann.addEdge("knows", cid);
+    ann.addEdge("knows", nemo);
+    eve.addEdge("knows", bea);
+    eve.addEdge("knows", cid);
+    eve.addEdge("knows", nemo);
+    graph.tx().commit();
+  }
+
+  /**
+   * Bare {@code g.V().order().by(id).limit(2)} translates without a labelled class. Sequence
+   * equality holds because {@code id} values are unique on this fixture.
+   */
+  @Test
+  public void orderByIdOnBareVThenLimit_translates() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(id).limit(2).values(id)",
+        () -> graph.traversal().V().order().by("id").limit(2).values("id"));
+  }
+
+  /**
+   * Post-cardinality bare {@code select} is projection-only and may follow {@code order}+{@code
+   * limit}. Both arms return the same ordered id sequence on this UNIQUE-{@code id} fixture.
+   */
+  @Test
+  public void orderLimitThenBareSelect_translatesAndMatchesNative() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).as(p).order().by(id).limit(2).select(p)",
+        () -> graph.traversal().V().hasLabel("Person").as("p")
+            .order().by("id").limit(2).select("p"));
+  }
+
+  /**
+   * {@code select().by(key)} after {@code order}+{@code limit} translates: presence drops after the
+   * cut via post-plan shaping, not pattern {@code IS DEFINED}. Unique {@code id} keeps on/off
+   * sequences aligned. Single-label {@code select} is {@code SelectOneStep}.
+   */
+  @Test
+  public void orderLimitThenSelectBy_translatesAndMatchesNative() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).as(p).order().by(id).limit(2).select(p).by(id)",
+        () -> graph.traversal().V().hasLabel("Person").as("p")
+            .order().by("id").limit(2).select("p").by("id"));
+  }
+
+  /**
+   * Multi-alias {@code select(a,b).by…} after {@code order}+{@code limit} — presence on different
+   * aliases, whole-row drop semantics. Both kept rows share dst id {@code b}, so on/off may disagree
+   * on src tie order; compare as a multiset.
+   */
+  @Test
+  public void orderLimitThenMultiSelectBy_translatesAndMatchesNative() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().hasLabel(Person).as(src).out(knows).as(dst).order().by(id).limit(2)"
+            + ".select(src,dst).by(id).by(id)",
+        () -> graph.traversal().V().hasLabel("Person").as("src").out("knows").as("dst")
+            .order().by("id").limit(2).select("src", "dst").by("id").by("id"));
+  }
+
+  /**
+   * Pre-cardinality {@code select().by} then {@code limit} still translates (pattern {@code IS
+   * DEFINED} before the cut — same order as Gremlin). Limit above the fixture size so both arms
+   * keep every id.
+   */
+  @Test
+  public void selectByThenLimit_translatesAndMatchesNative() {
+    seedPeopleWithTiedCreationDateAndUniqueId();
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().hasLabel(Person).as(p).select(p).by(id).limit(10)",
+        () -> graph.traversal().V().hasLabel("Person").as("p").select("p").by("id").limit(10));
+  }
+
+  /**
+   * A slice behind {@code select().by(key)} promotes the post-plan presence into a pattern
+   * {@code IS DEFINED} conjunct, so the cut counts survivors. Only the last-scanned vertex carries
+   * {@code age}: native drops the four ageless rows at the {@code by} and then keeps the one left,
+   * so {@code limit(1)} returns {@code 44} and {@code skip(1)} returns nothing.
+   *
+   * <p>This is the arm of the promotion that had no coverage. Its neighbour
+   * {@link #selectByThenLimit_translatesAndMatchesNative} uses {@code limit(10)} over a key every
+   * vertex carries, so the promotion is unobservable there: nothing is dropped and no cut bites.
+   * Here a failure to promote leaves the drop on the plan's output, which cuts first and then
+   * drops — returning nothing for {@code limit(1)} and {@code 44} for {@code skip(1)}, both the
+   * exact inverse of native.
+   */
+  @Test
+  public void selectByThenSliceOnASparseKey_promotesTheDropBeforeTheCut() {
+    seedAgeOnLastScannedVertex();
+
+    assertTranslatesAndMatchesNativeValues(
+        "g.V().as(p).select(p).by(age).limit(1)",
+        () -> graph.traversal().V().as("p").select("p").by("age").limit(1));
+    assertTranslatesAndMatchesNativeValuesAllowEmpty(
+        "g.V().as(p).select(p).by(age).skip(1)",
+        () -> graph.traversal().V().as("p").select("p").by("age").skip(1));
+
+    support.withTranslator(
+        false,
+        () -> {
+          assertThat(graph.traversal().V().as("p").select("p").by("age").limit(1).toList())
+              .as("native drops the four ageless rows first, so limit(1) keeps the one age")
+              .containsExactly(44);
+          assertThat(graph.traversal().V().as("p").select("p").by("age").skip(1).toList())
+              .as("native has nothing left to skip past")
+              .isEmpty();
+        });
+  }
+
+  /**
+   * {@code limit(1)} then {@code select().by(age)} with {@code age} only on the last-scanned
+   * vertex: both arms empty (slice first, then drop). Pattern {@code IS DEFINED} before the cut
+   * would keep the aged row and return {@code 44} — the empty match pins post-plan presence.
+   */
+  @Test
+  public void limitThenSelectBySparseProperty_dropAfterCutMatchesNative() {
+    seedAgeOnLastScannedVertex();
+    assertTranslatesAndMatchesNativeValuesAllowEmpty(
+        "g.V().limit(1).as(p).select(p).by(age)",
+        () -> graph.traversal().V().limit(1).as("p").select("p").by("age"));
+  }
+
+  // ---------------------------------------------------------------------------
   // Bare element-returning LIMIT / SKIP / RANGE — the row-equality gap.
   //
   // G2 semantics. An unordered slice is non-deterministic by the Gremlin spec:
   // limit(n) keeps "the first n" in whatever order the source enumerates, and
   // nothing pins that order. Measured on this engine both arms enumerate in the
-  // same storage (RID/cluster) order and so the translated YQL LIMIT and native
+  // same storage (RID/cluster) order and so the translated SQL LIMIT and native
   // Gremlin limit keep the identical prefix — but that agreement rests on a shared
   // implementation detail, not on a contract, so asserting exact multiset equality
   // over a real slice would pin engine internals and could turn flaky against a
@@ -944,7 +1381,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * A bare {@code limit} whose bound is at or above the scan total is an identity slice, so it keeps
    * every row on both arms and the multiset equality holds without resting on the two pipelines
    * agreeing about order. This is the strict-equality half of the bare-slice coverage: five seeded
-   * vertices, {@code limit(10)}, so the slice removes nothing and the translated YQL {@code LIMIT}
+   * vertices, {@code limit(10)}, so the slice removes nothing and the translated SQL {@code LIMIT}
    * and native {@code limit} must return the same five elements.
    */
   @Test
@@ -1002,7 +1439,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   /**
    * The range spelling: {@code range(1, 4)} keeps three of the five vertices on both arms, all
    * members of the full set. Rounds out the bare-slice family across the three DSL entry points that
-   * all normalise to YQL {@code SKIP}/{@code LIMIT}.
+   * all normalise to SQL {@code SKIP}/{@code LIMIT}.
    */
   @Test
   public void bareRangeBelowTotal_matchesSizeAndSubset() {
@@ -1055,6 +1492,29 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     first.addEdge("knows", shared);
     second.addEdge("knows", shared);
     shared.addEdge("knows", leaf);
+    graph.tx().commit();
+  }
+
+  /**
+   * Five Person vertices with a UNIQUE {@code id}, a tying {@code creationDate}, and a NOTUNIQUE
+   * {@code firstName}. Inserted so the unique-id sequence is not the insertion sequence. {@code a}
+   * and {@code e} know {@code b} and {@code c}, which gives the hop and {@code select} cases rows
+   * without making the source key decide membership after the hop.
+   */
+  private void seedPeopleWithTiedCreationDateAndUniqueId() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.STRING).createIndex(INDEX_TYPE.UNIQUE);
+    person.createProperty("creationDate", PropertyType.LONG);
+    person.createProperty("firstName", PropertyType.STRING).createIndex(INDEX_TYPE.NOTUNIQUE);
+    var a = graph.addVertex(T.label, "Person", "id", "a", "creationDate", 100L, "firstName", "Ann");
+    var e = graph.addVertex(T.label, "Person", "id", "e", "creationDate", 200L, "firstName", "Ann");
+    var c = graph.addVertex(T.label, "Person", "id", "c", "creationDate", 100L, "firstName", "Ann");
+    var b = graph.addVertex(T.label, "Person", "id", "b", "creationDate", 100L, "firstName", "Ann");
+    graph.addVertex(T.label, "Person", "id", "d", "creationDate", 50L, "firstName", "Bob");
+    a.addEdge("knows", b);
+    a.addEdge("knows", c);
+    e.addEdge("knows", b);
+    e.addEdge("knows", c);
     graph.tx().commit();
   }
 
@@ -1211,6 +1671,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       var onAdmin = shape.get().asAdmin();
       onAdmin.applyStrategies();
       var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      String explainDump;
+      try {
+        var exAdmin = shape.get().asAdmin();
+        exAdmin.applyStrategies();
+        explainDump = exAdmin.explain().toString();
+      } catch (Exception e) {
+        explainDump = "explain-failed: " + e;
+      }
       var onRows = onAdmin.toList().stream().map(String::valueOf).toList();
 
       var controlAdmin = sameShapeWithoutOrder.get().asAdmin();
@@ -1230,6 +1698,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       assertThat(boundaryOff)
           .as(scenario + " (translator off) must never engage a boundary step")
           .isEqualTo(0);
+      System.out.println("DBG " + scenario + " on=" + onRows + " off=" + offRows
+          + " bOn=" + boundaryOn + " bOff=" + boundaryOff);
       assertThat(onRows)
           .as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();
@@ -1238,6 +1708,86 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
           .isEqualTo(0);
       assertThat(onRows)
           .as(scenario + ": translator-on and translator-off rows must match in native's order")
+          .isEqualTo(offRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * Asserts that {@code shape} declines (zero boundary steps), still has a non-empty native step
+   * list after strategy application, and returns a non-empty native sequence. The non-empty step
+   * list keeps a decline from being satisfied by a walk that produced no plan and no steps.
+   */
+  private void assertOrderedSliceDeclinesWithRemainingSteps(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var stepsOn = onAdmin.getSteps();
+      var onRows = onAdmin.toList().stream().map(String::valueOf).toList();
+
+      setTranslatorEnabled(false);
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offRows = offAdmin.toList().stream().map(String::valueOf).toList();
+
+      assertThat(stepsOn)
+          .as(scenario + ": a declined walk must still carry a non-empty step list")
+          .isNotEmpty();
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
+      assertThat(onRows)
+          .as(scenario + " must return rows, or the comparison is vacuous")
+          .isNotEmpty();
+      assertThat(boundaryOn)
+          .as(scenario + ": hop/foreign-RETURN ordered slice must decline the whole walk")
+          .isEqualTo(0);
+      assertThat(onRows)
+          .as(scenario + ": translator-on and translator-off rows must match in native's order")
+          .isEqualTo(offRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * The ordered sibling of {@link #assertTranslatesAndMatchesNativeValues}: sequence equality,
+   * because {@code order()} makes the sequence the answer. A discriminating-key top-N that agreed
+   * as a multiset but disagreed on positions would fail this pin.
+   */
+  private void assertTranslatesAndMatchesNativeOrderedValues(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = shape.get().asAdmin();
+      onAdmin.applyStrategies();
+      var boundaryOn = countBoundarySteps(onAdmin.getSteps());
+      var onRows = onAdmin.toList().stream().map(String::valueOf).toList();
+
+      setTranslatorEnabled(false);
+      var offAdmin = shape.get().asAdmin();
+      offAdmin.applyStrategies();
+      var boundaryOff = countBoundarySteps(offAdmin.getSteps());
+      var offRows = offAdmin.toList().stream().map(String::valueOf).toList();
+
+      assertThat(boundaryOn)
+          .as(scenario + " must translate — exactly one boundary step")
+          .isEqualTo(1);
+      assertThat(boundaryOff)
+          .as(scenario + " (translator off) must never engage a boundary step")
+          .isEqualTo(0);
+      assertThat(onRows)
+          .as(scenario + " must return rows, or the comparison is vacuous")
+          .isNotEmpty();
+      assertThat(onRows)
+          .as(scenario + ": translator-on and translator-off sequences must match")
           .isEqualTo(offRows);
     } finally {
       setTranslatorEnabled(original);
@@ -1290,6 +1840,20 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    */
   private void assertTranslatesAndMatchesNativeValues(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    assertTranslatesAndMatchesNativeValues(scenario, shape, true);
+  }
+
+  /**
+   * Like {@link #assertTranslatesAndMatchesNativeValues} but allows an empty multiset — used when
+   * the correct Gremlin result is empty and a wrong pre-cut {@code IS DEFINED} would not be.
+   */
+  private void assertTranslatesAndMatchesNativeValuesAllowEmpty(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    assertTranslatesAndMatchesNativeValues(scenario, shape, false);
+  }
+
+  private void assertTranslatesAndMatchesNativeValues(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape, boolean requireNonEmpty) {
     var original = translatorEnabled();
     try {
       setTranslatorEnabled(true);
@@ -1310,9 +1874,11 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       assertThat(boundaryOff)
           .as(scenario + " (translator off) must never engage a boundary step")
           .isEqualTo(0);
-      assertThat(onRows)
-          .as(scenario + " must return rows, or the comparison is vacuous")
-          .isNotEmpty();
+      if (requireNonEmpty) {
+        assertThat(onRows)
+            .as(scenario + " must return rows, or the comparison is vacuous")
+            .isNotEmpty();
+      }
       assertThat(onRows)
           .as(scenario + ": translator-on and translator-off multisets must match")
           .isEqualTo(offRows);
@@ -1382,6 +1948,19 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     return admin.toList();
   }
 
+  /** Runs {@code body} with the productive-order setting forced, restoring the previous value. */
+  private void withOrderIncludesMissingKey(boolean value, Runnable body) {
+    var config = session.getConfiguration();
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, value);
+    try {
+      body.run();
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY, previous);
+    }
+  }
+
   private boolean translatorEnabled() {
     return support.translatorEnabled();
   }
@@ -1433,6 +2012,18 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   /** Mirrors production: tie-break runs before {@link GremlinToMatchStrategy}. */
   private static void applyOrderTieBreak(Traversal.Admin<?, ?> admin) {
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+  }
+
+  /**
+   * A seeded context whose boundary is re-typed to {@code Person} (and carries the live schema
+   * snapshot like a production walk). Used after {@link #seedPeopleWithTiedCreationDateAndUniqueId}.
+   */
+  private WalkerContext seededPersonContext() {
+    var ctx = new WalkerContext(true, false, session.getSchema());
+    ctx.addNode(BOUNDARY_ALIAS, "Person");
+    ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
+    return ctx;
   }
 
   private static StepStreamCursor cursorAt(Traversal.Admin<?, ?> admin, Class<?> stepType) {

@@ -1401,17 +1401,24 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * The allow-list stops at the projections that contribute nothing but columns. A {@code
-   * select(...).by(key)} contributes a {@code key IS DEFINED} conjunct into the pattern, which
-   * would filter rows before the slice counted them, so it declines.
+   * {@code select(...).by(key)} after a slice is on {@code POST_CARDINALITY_RECOGNISERS}: presence
+   * rides post-plan {@code AliasPropertyPresence} (not pattern {@code IS DEFINED} before the cut),
+   * so the shape translates with the limit captured.
    */
   @Test
-  public void walk_sliceThenSelectByKey_declines() {
+  public void walk_sliceThenSelectByKey_translatesWithAliasPresence() {
     var admin = graph.traversal().V().as("a").limit(2).select("a").by("name").asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).isNull();
+    assertThat(result).isNotNull();
+    assertThat(result.inputs().limit()).isNotNull();
+    assertThat(result.shaping().dropOnAbsent()).isTrue();
+    assertThat(result.shaping().mapEmitColumnOrder()).containsExactly("a");
+    assertThat(result.shaping().aliasPropertyPresences()).hasSize(1);
+    assertThat(result.shaping().aliasPropertyPresences().getFirst().propertyKey())
+        .isEqualTo("name");
+    assertThat(result.shaping().aliasPropertyPresences().getFirst().mapKey()).isEqualTo("a");
   }
 
   /** A terminal slice is unaffected — {@code g.V().out().limit(2)} still translates. */
@@ -1425,7 +1432,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result.inputs().limit()).isNotNull();
   }
 
-  /** {@code g.V().values("name")} translates end-to-end with {@code SINGLE_VALUE} boundary type. */
+  /**
+   * {@code g.V().values("name")} translates end-to-end with {@code SINGLE_VALUE}. RETURN is the
+   * boundary entity only; {@code name} lives in {@code presencePropertyKeys} under
+   * {@code dropOnAbsent}.
+   */
   @Test
   public void walk_valuesSingleKey_pinsSingleValueOutput() {
     var admin = graph.traversal().V().values("name").asAdmin();
@@ -1436,15 +1447,18 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result.outputType()).isEqualTo(BoundaryOutputType.SINGLE_VALUE);
     assertThat(result.shaping().dropOnAbsent()).isTrue();
     assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
-    assertThat(result.inputs().returnItems()).hasSize(2);
-    assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
+    assertThat(result.inputs().returnItems()).hasSize(1);
+    assertThat(result.inputs().returnAliases().getFirst().getStringValue())
+        .isEqualTo(BOUNDARY_ALIAS);
+    assertThat(result.inputs().returnItems().getFirst().toString()).doesNotContain(".name");
   }
 
   /**
    * {@code order().by("name").values("name")} under the PORTABLE OPT-OUT: the order key puts
-   * {@code name IS DEFINED} on the pattern. The terminal {@code values("name")} still sets
-   * {@code dropOnAbsent} — that shaping skip lives with ORDER BY projection deferral on the
-   * ordered-limit branch, not with this setting alone — so the filter and the drop both fire.
+   * {@code name IS DEFINED} on the pattern. With that conjunct already present, {@code values}
+   * keeps the entity-plus-field RETURN pair and leaves shaping at {@link ResultShaping#NONE} —
+   * the pattern filter already drops absent keys, so {@code dropOnAbsent} / presencePropertyKeys
+   * stay off.
    */
   @Test
   public void walk_orderByThenValuesSameKey_underPortableOptOut_emitsOrderKeyPresence() {
@@ -1458,8 +1472,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
       assertThat(result.inputs().aliasFilters()).containsKey(BOUNDARY_ALIAS);
       assertThat(result.inputs().aliasFilters().get(BOUNDARY_ALIAS).toString())
           .containsIgnoringCase("DEFINED");
-      assertThat(result.shaping().dropOnAbsent()).isTrue();
-      assertThat(result.shaping().presencePropertyKeys()).containsExactly("name");
+      assertThat(result.shaping().dropOnAbsent()).isFalse();
+      assertThat(result.shaping().presencePropertyKeys()).isEmpty();
       assertThat(result.inputs().returnItems()).hasSize(2);
       assertThat(result.inputs().returnItems().get(1).toString()).contains("name");
     });

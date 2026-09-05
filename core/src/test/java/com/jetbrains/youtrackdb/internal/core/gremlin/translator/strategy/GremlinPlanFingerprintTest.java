@@ -2,6 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.TailListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
@@ -9,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
+import java.util.List;
 import org.junit.Test;
 
 /**
@@ -59,8 +63,8 @@ public class GremlinPlanFingerprintTest {
     var required = patternWithOptional("friend", false);
     var optional = patternWithOptional("friend", true);
 
-    assertThat(GremlinPlanFingerprint.fingerprint(required))
-        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(optional));
+    assertThat(GremlinPlanFingerprint.fingerprint(required, ResultShaping.NONE))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(optional, ResultShaping.NONE));
   }
 
   /**
@@ -87,8 +91,8 @@ public class GremlinPlanFingerprintTest {
             .returnNestedProjections(likes.getReturnNestedProjections())
             .build();
 
-    assertThat(GremlinPlanFingerprint.fingerprint(fpKnows))
-        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(fpLikes));
+    assertThat(GremlinPlanFingerprint.fingerprint(fpKnows, ResultShaping.NONE))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(fpLikes, ResultShaping.NONE));
   }
 
   /** UNWIND expands collections; present vs absent must not share a fingerprint. */
@@ -135,8 +139,8 @@ public class GremlinPlanFingerprintTest {
     var patterns =
         MatchPlanInputs.builder(new Pattern()).returnPatterns(true).build();
 
-    assertThat(GremlinPlanFingerprint.fingerprint(base))
-        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(patterns));
+    assertThat(GremlinPlanFingerprint.fingerprint(base, ResultShaping.NONE))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(patterns, ResultShaping.NONE));
   }
 
   /** Same for {@code returnPathElements}. */
@@ -147,8 +151,8 @@ public class GremlinPlanFingerprintTest {
     var pathElements =
         MatchPlanInputs.builder(new Pattern()).returnPathElements(true).build();
 
-    assertThat(GremlinPlanFingerprint.fingerprint(base))
-        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(pathElements));
+    assertThat(GremlinPlanFingerprint.fingerprint(base, ResultShaping.NONE))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(pathElements, ResultShaping.NONE));
   }
 
   /**
@@ -250,9 +254,9 @@ public class GremlinPlanFingerprintTest {
   }
 
   private static void assertDistinct(String field, MatchPlanInputs left, MatchPlanInputs right) {
-    assertThat(GremlinPlanFingerprint.fingerprint(left))
+    assertThat(GremlinPlanFingerprint.fingerprint(left, ResultShaping.NONE))
         .as("fingerprints must differ when only %s changes", field)
-        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(right));
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(right, ResultShaping.NONE));
   }
 
   private static Pattern patternWithAlias(String alias) {
@@ -261,6 +265,95 @@ public class GremlinPlanFingerprintTest {
     node.alias = alias;
     pattern.aliasToNode.put(alias, node);
     return pattern;
+  }
+
+  /**
+   * PF10: the fingerprint buffer must be pre-sized for the widest key the translator builds.
+   *
+   * <p>This test MEASURES that key rather than assuming it. The shape is a six-column
+   * {@code select().by()}: a three-alias pattern, six RETURN columns, six presence entries and
+   * six emit columns. The assertions state that the key passes the old pre-size and fits the
+   * new one, so a later key section that pushes it past the buffer fails here instead of
+   * silently reintroducing the array copies.
+   */
+  @Test
+  public void sixColumnSelectFingerprintFitsThePreSizedBuffer() {
+    var statement = parse(
+        "MATCH {class: Person, as: p}.out('KNOWS'){as: f}"
+            + ".in('HAS_CREATOR'){class: Message, as: m}"
+            + " RETURN f.id as personId, f.firstName as firstName,"
+            + " f.lastName as lastName, m.id as messageId,"
+            + " m.content as messageContent, m.creationDate as messageCreationDate");
+    var presences = List.of(
+        new AliasPropertyPresence("$g2m_pe_$g2m_v1", "id", "personId"),
+        new AliasPropertyPresence("$g2m_pe_$g2m_v1", "firstName", "firstName"),
+        new AliasPropertyPresence("$g2m_pe_$g2m_v1", "lastName", "lastName"),
+        new AliasPropertyPresence("$g2m_pe_$g2m_v2", "id", "messageId"),
+        new AliasPropertyPresence("$g2m_pe_$g2m_v2", "content", "messageContent"),
+        new AliasPropertyPresence("$g2m_pe_$g2m_v2", "creationDate", "messageCreationDate"));
+    var shaping = ResultShaping.NONE
+        .withDropOnAbsent(true)
+        .withAliasPropertyPresences(presences)
+        .withMapEmitColumnOrder(List.of(
+            "personId", "firstName", "lastName",
+            "messageId", "messageContent", "messageCreationDate"));
+
+    var key = GremlinPlanFingerprint.fingerprint(
+        fingerprintInputsFromProjection(statement), shaping);
+
+    assertThat(key.length())
+        .as("the six-column select key runs past the old 256-character pre-size")
+        .isGreaterThan(256);
+    assertThat(key.length())
+        .as("and it must fit the pre-size, or every build pays array copies again")
+        .isLessThanOrEqualTo(GremlinPlanFingerprint.INITIAL_KEY_CAPACITY);
+  }
+
+  /**
+   * {@code ;AP:} encodes each alias-property presence. Two selects that differ only in the
+   * presence property key (same entity column and map key) must not share a fingerprint.
+   */
+  @Test
+  public void aliasPropertyPresence_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var byName = ResultShaping.NONE.withAliasPropertyPresences(List.of(
+        new AliasPropertyPresence("$g2m_pe_$g2m_v0", "name", "v")));
+    var byAge = ResultShaping.NONE.withAliasPropertyPresences(List.of(
+        new AliasPropertyPresence("$g2m_pe_$g2m_v0", "age", "v")));
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, byName))
+        .as(";AP: must encode the presence property key")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, byAge));
+  }
+
+  /**
+   * {@code ;MO:} encodes map emit column order. Swapping emit column order with identical
+   * presence entries must change the fingerprint.
+   */
+  @Test
+  public void mapEmitColumnOrder_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var nameFirst = ResultShaping.NONE.withMapEmitColumnOrder(List.of("name", "age"));
+    var ageFirst = ResultShaping.NONE.withMapEmitColumnOrder(List.of("age", "name"));
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, nameFirst))
+        .as(";MO: must encode emit column order")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, ageFirst));
+  }
+
+  /**
+   * {@code ;LS:} encodes TailListShapingOp's limit. {@code tail(2)} and {@code tail(5)} share a
+   * class name, so omitting the limit would let them collide on one plan-cache entry.
+   */
+  @Test
+  public void tailListShapingLimit_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var tail2 = ResultShaping.NONE.withListShapingOps(List.of(new TailListShapingOp(2)));
+    var tail5 = ResultShaping.NONE.withListShapingOps(List.of(new TailListShapingOp(5)));
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, tail2))
+        .as(";LS: must encode TailListShapingOp.limit()")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, tail5));
   }
 
   private static MatchPlanInputs patternWithOptional(String alias, boolean optional) {
@@ -273,7 +366,8 @@ public class GremlinPlanFingerprintTest {
   }
 
   private static String fingerprintForProjection(SQLMatchStatement statement) {
-    return GremlinPlanFingerprint.fingerprint(fingerprintInputsFromProjection(statement));
+    return GremlinPlanFingerprint.fingerprint(
+        fingerprintInputsFromProjection(statement), ResultShaping.NONE);
   }
 
   private static MatchPlanInputs fingerprintInputsFromProjection(SQLMatchStatement statement) {
@@ -289,7 +383,8 @@ public class GremlinPlanFingerprintTest {
    * running the planner's pattern-build pass — enough to pin clause-level distinctions.
    */
   private static String fingerprintFromStatementClauses(SQLMatchStatement statement) {
-    return GremlinPlanFingerprint.fingerprint(fingerprintInputsFromClauses(statement));
+    return GremlinPlanFingerprint.fingerprint(
+        fingerprintInputsFromClauses(statement), ResultShaping.NONE);
   }
 
   private static MatchPlanInputs fingerprintInputsFromClauses(SQLMatchStatement statement) {

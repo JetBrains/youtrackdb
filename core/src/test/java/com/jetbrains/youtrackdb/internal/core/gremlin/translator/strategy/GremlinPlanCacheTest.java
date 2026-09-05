@@ -487,7 +487,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
   private static String fingerprint(GremlinToMatchTranslator.TranslationResult result) {
     var inputs = result.inputs();
     assertThat(inputs).as("single-plan cache tests require MatchPlanInputs").isNotNull();
-    return GremlinPlanFingerprint.fingerprint(inputs);
+    return GremlinPlanFingerprint.fingerprint(inputs, result.shaping());
   }
 
   private static List<String> sortedNames(List<?> vertices) {

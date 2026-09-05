@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -11,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -152,18 +155,46 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   private final Map<Object, Object> inputParameters;
 
   /**
-   * Boundary shaping — the seven row-projection flags that dictate how each MATCH row projects onto
-   * a traverser (row dropping via {@code dropNullRows} / {@code dropOnAbsent}, presence-checked
-   * property keys, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, and
-   * elementMap token keys) plus the ordered list-shaping ops applied to the projected payload stream
-   * afterward ({@link ResultShaping#listShapingOps()}, empty for every traversal that has no
-   * list-shaping terminator).
+   * Boundary shaping — the row-projection settings that dictate how each MATCH row projects onto a
+   * traverser (row dropping via {@code dropNullRows} / {@code dropOnAbsent}, presence-checked
+   * property keys, valueMap list wrapping, group-map accumulation, singleton-map unwrapping,
+   * elementMap token keys, and record-identifier emit keys) plus the ordered list-shaping ops
+   * applied to the projected payload stream afterward ({@link ResultShaping#listShapingOps()},
+   * empty for every traversal that has no list-shaping terminator).
    */
   private final ResultShaping shaping;
 
   /** {@link ResultShaping#presencePropertyKeys()} as a set, for O(1) membership checks in {@link
    *  #projectMap}. */
   private final Set<String> presenceKeySet;
+
+  /**
+   * RETURN column names that hold entities only for {@link AliasPropertyPresence} checks — stripped
+   * from emitted maps the way {@link #boundaryAlias} is for {@code valueMap}.
+   */
+  private final Set<String> presenceEntityColumnSet;
+
+  /**
+   * {@link AliasPropertyPresence#mapKey()} → presence, for {@code select().by} emit without a
+   * property RETURN column.
+   */
+  private final Map<String, AliasPropertyPresence> aliasPresenceByMapKey;
+
+  /** {@link ResultShaping#recordIdMapKeys()} as a set, for the RID-versus-vertex decision. */
+  private final Set<String> recordIdMapKeySet;
+
+  /**
+   * Entity columns already resolved for the row being projected, cleared once per row. Holds at
+   * most one entry per distinct entity column, so it is bounded by the projection width rather
+   * than by the row count. A null value records a column that does not hold an entity.
+   */
+  private final Map<String, EntityImpl> rowEntityCache = new HashMap<>();
+
+  /**
+   * Entity-column resolutions performed, read by a test through {@link #entityColumnResolutions}.
+   * Not reset per row: the test compares a total against an emitted row count.
+   */
+  private long entityColumnResolutions;
 
   // The current arming's open stream, or null before the first open / after close. Single source of
   // truth — there is no inherited iterator to shadow.
@@ -274,6 +305,15 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.inputParameters = Map.copyOf(inputParameters);
     this.shaping = shaping;
     this.presenceKeySet = Set.copyOf(shaping.presencePropertyKeys());
+    var entityColumns = new HashSet<String>();
+    var byMapKey = new LinkedHashMap<String, AliasPropertyPresence>();
+    for (var presence : shaping.aliasPropertyPresences()) {
+      entityColumns.add(presence.entityColumnAlias());
+      byMapKey.put(presence.mapKey(), presence);
+    }
+    this.presenceEntityColumnSet = Set.copyOf(entityColumns);
+    this.aliasPresenceByMapKey = Map.copyOf(byMapKey);
+    this.recordIdMapKeySet = Set.copyOf(shaping.recordIdMapKeys());
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -702,6 +742,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * row must not emit a traverser ({@code dropOnAbsent} / {@code dropNullRows}).
    */
   private Object projectOrSkip(Result row) {
+    // One row, one resolution per distinct entity column. A six-column select().by() reads two
+    // distinct aliases but used to resolve one per presence entry and then again per emitted
+    // column, so twelve resolutions did the work of two.
+    rowEntityCache.clear();
     return switch (outputType) {
       case ELEMENT -> projectElement(row, armingGraph);
       case MAP -> projectMap(row);
@@ -711,18 +755,26 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * Builds a {@link Map} from RETURN columns. The boundary-entity column (when present) is stripped
-   * from the emitted map and used only for {@link EntityImpl#hasProperty} classification of
-   * presence-checked keys. Absent keys are omitted; present-with-null keys are included.
+   * Builds a {@link Map} from RETURN columns and presence-checked keys. The boundary-entity column
+   * (when present) is stripped from the emitted map and used for {@link EntityImpl#hasProperty}
+   * plus property values of presence-checked keys. Alias-presence entity columns from
+   * post-cardinality {@code select().by} are stripped the same way. Absent keys are omitted;
+   * present-with-null keys are included.
    *
-   * <p>The entity is loaded only when a presence-checked key needs {@code hasProperty} — a
-   * {@code select} / {@code select().by(...)} map has an empty presence set, so it must not
-   * {@code getEntity} the boundary alias (MATCH already stored that column as a RID, and a load
-   * here would re-fetch a vertex the payload never reads). {@code unwrapSingletonMap} emits the
-   * single column directly rather than allocating a one-entry {@link LinkedHashMap} and throwing
-   * it away.
+   * <p>When {@link ResultShaping#mapEmitColumnOrder()} is non-empty (valueMap / elementMap /
+   * multi-label select), that list is the emit order — presence keys may appear there without a
+   * matching RETURN column. Otherwise property names come from the {@link Result}.
+   *
+   * <p>The boundary entity is loaded only when a boundary presence-checked key needs
+   * {@code hasProperty} — a bare {@code select} map has an empty boundary presence set, so it must
+   * not {@code getEntity} the boundary alias. {@code select().by} loads per-alias entities from
+   * stripped presence columns instead. {@code unwrapSingletonMap} emits the single column directly
+   * rather than allocating a one-entry {@link LinkedHashMap} and throwing it away.
    */
   private Object projectMap(Result row) {
+    if (failsAliasPropertyPresence(row)) {
+      return SKIP;
+    }
     var entity = presenceKeySet.isEmpty() ? null : resolveEntity(row);
     if (shaping.unwrapSingletonMap()) {
       var unwrapped = unwrapSingletonColumn(row, entity);
@@ -730,7 +782,11 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
         return unwrapped;
       }
     }
-    var names = row.getPropertyNames();
+    // Multi-label select / valueMap pins mapEmitColumnOrder so key order matches native Gremlin.
+    var names =
+        shaping.mapEmitColumnOrder().isEmpty()
+            ? row.getPropertyNames()
+            : shaping.mapEmitColumnOrder();
     var map = new LinkedHashMap<Object, Object>(Math.max(names.size(), 4));
     for (String name : names) {
       putMapColumn(map, row, name, entity);
@@ -751,10 +807,24 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * so a mis-set flag cannot drop entries.
    */
   private Object unwrapSingletonColumn(Result row, @Nullable EntityImpl entity) {
+    // select().by: emit order may list a mapKey with no RETURN column — read from the entity.
+    if (shaping.mapEmitColumnOrder().size() == 1) {
+      var only = shaping.mapEmitColumnOrder().getFirst();
+      if (aliasPresenceByMapKey.containsKey(only) || presenceKeySet.contains(only)) {
+        var value = mapColumnValue(row, only, entity);
+        return value == SKIP ? new LinkedHashMap<Object, Object>() : value;
+      }
+      // Token / projected-field select (e.g. by(T.label) after dedup): RETURN may also carry a
+      // DISTINCT identity column ($g2m_pe_*). Prefer the pinned emit column over scanning every
+      // RETURN name, which would otherwise see two columns and fall through to BUILD_MAP.
+      if (row.getPropertyNames().contains(only)) {
+        return mapColumnValue(row, only, entity);
+      }
+    }
     String onlyName = null;
     int emitted = 0;
     for (String name : row.getPropertyNames()) {
-      if (name.equals(boundaryAlias)) {
+      if (isStrippedMapColumn(name)) {
         continue;
       }
       if (presenceKeySet.contains(name) && (entity == null || !entity.hasProperty(name))) {
@@ -774,7 +844,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
 
   private void putMapColumn(
       LinkedHashMap<Object, Object> map, Result row, String name, @Nullable EntityImpl entity) {
-    if (name.equals(boundaryAlias)) {
+    if (isStrippedMapColumn(name)) {
       return;
     }
     var value = mapColumnValue(row, name, entity);
@@ -784,11 +854,38 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     map.put(mapKeyForColumn(name), value);
   }
 
+  /** Boundary / alias-presence entity columns are never part of the emitted map payload. */
+  private boolean isStrippedMapColumn(String name) {
+    return name.equals(boundaryAlias) || presenceEntityColumnSet.contains(name);
+  }
+
   /**
-   * One RETURN column as a map value, or {@link #SKIP} when a presence-checked key is absent (the
-   * column must not appear in the map).
+   * One map entry value, or {@link #SKIP} when a presence-checked key is absent (the column must not
+   * appear in the map).
    */
   private Object mapColumnValue(Result row, String name, @Nullable EntityImpl entity) {
+    var aliasPresence = aliasPresenceByMapKey.get(name);
+    if (aliasPresence != null) {
+      var aliasEntity = resolveEntityFromColumn(row, aliasPresence.entityColumnAlias());
+      if (aliasEntity == null) {
+        return SKIP;
+      }
+      // Under dropOnAbsent the row-level check in failsAliasPropertyPresence already proved every
+      // presence key present on its alias, and it walks the same presence list this map is built
+      // from, so repeating hasProperty here only re-reads what that check established. Without
+      // dropOnAbsent that check returns early and this is the only test of presence.
+      //
+      // The skip rests on an invariant across two methods: every projection entry point that
+      // reaches here runs the row-level check first. A future entry point that does not would
+      // silently emit a column that must be omitted, so the invariant is asserted rather than
+      // left to a reader of both methods.
+      assert !shaping.dropOnAbsent() || aliasEntity.hasProperty(aliasPresence.propertyKey())
+          : "row-level presence check must run before the map projection reads a presence column";
+      if (!shaping.dropOnAbsent() && !aliasEntity.hasProperty(aliasPresence.propertyKey())) {
+        return SKIP;
+      }
+      return convertValue(aliasEntity.getProperty(aliasPresence.propertyKey()));
+    }
     if (presenceKeySet.contains(name)) {
       if (entity == null || !entity.hasProperty(name)) {
         return SKIP;
@@ -801,17 +898,29 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
 
   /**
    * Converts a non-presence MAP column. Select labels often arrive as bare {@link RID}s and must
-   * become TinkerPop vertices; {@code elementMap}'s {@code id} column must stay a RID (native uses
-   * {@code T.id}).
+   * become TinkerPop vertices; a column read as a record-identifier token must stay a RID.
    */
   private Object convertMapColumn(String columnName, Object raw) {
     if (raw instanceof RID rid) {
-      if (shaping.elementMapTokens() && "id".equals(columnName)) {
+      if (holdsRecordIdToken(columnName)) {
         return rid;
       }
       return new YTDBVertexImpl(armingGraph, rid);
     }
     return convertValue(raw);
+  }
+
+  /**
+   * Whether this emit column carries a record identifier the traversal asked for as a token rather
+   * than an element the map should surface as a vertex. Two shapes ask for one: {@code elementMap},
+   * whose {@code id} column is emitted under {@code T.id}, and {@code select(label).by(T.id)},
+   * whose column is emitted under the select label. Native {@code by(T.id)} evaluates
+   * {@code Element.id()}, which on this engine returns a {@link RID}, so wrapping it as a vertex
+   * put an element in the map where portable Gremlin puts an id.
+   */
+  private boolean holdsRecordIdToken(String columnName) {
+    return (shaping.elementMapTokens() && "id".equals(columnName))
+        || recordIdMapKeySet.contains(columnName);
   }
 
   private Object mapKeyForColumn(String name) {
@@ -829,9 +938,13 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
 
   /**
    * Emits a single property value. With {@code dropOnAbsent}, rows whose property is absent on the
-   * entity are skipped; present-with-null still emits a {@code null} traverser.
+   * entity are skipped; present-with-null still emits a {@code null} traverser. Alias-presence
+   * checks (post-cardinality {@code select().by}) drop the whole row the same way.
    */
   private Object projectSingleValue(Result row) {
+    if (failsAliasPropertyPresence(row)) {
+      return SKIP;
+    }
     if (shaping.dropOnAbsent() && !shaping.presencePropertyKeys().isEmpty()) {
       var key = shaping.presencePropertyKeys().getFirst();
       var entity = resolveEntity(row);
@@ -852,6 +965,23 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
+   * {@code true} when {@code dropOnAbsent} is set and any {@link AliasPropertyPresence} fails —
+   * Gremlin {@code by(key)} drops the traverser when the modulated property is absent.
+   */
+  private boolean failsAliasPropertyPresence(Result row) {
+    if (!shaping.dropOnAbsent() || shaping.aliasPropertyPresences().isEmpty()) {
+      return false;
+    }
+    for (var presence : shaping.aliasPropertyPresences()) {
+      var entity = resolveEntityFromColumn(row, presence.entityColumnAlias());
+      if (entity == null || !entity.hasProperty(presence.propertyKey())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Emits a scalar aggregate cell. {@code dropNullRows} drops the empty-input null cell for {@code
    * sum}/{@code min}/{@code max}/{@code mean}; {@code count} keeps its {@code 0}.
    */
@@ -869,7 +999,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    */
   private Object primaryProjectedValue(Result row) {
     for (String name : row.getPropertyNames()) {
-      if (!name.equals(boundaryAlias)) {
+      if (!isStrippedMapColumn(name)) {
         return convertValue(row.getProperty(name));
       }
     }
@@ -877,16 +1007,54 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   private EntityImpl resolveEntity(Result row) {
-    var entity = row.getEntity(boundaryAlias);
-    if (entity instanceof EntityImpl entityImpl) {
-      return entityImpl;
-    }
-    return null;
+    return resolveEntityFromColumn(row, boundaryAlias);
   }
 
   /**
-   * Converts MATCH cell values into TinkerPop-facing payloads: entities become {@link
-   * YTDBVertexImpl}, nested lists are mapped recursively, RIDs stay as id objects.
+   * Resolves the entity held by {@code columnAlias}, MEMOIZED FOR THE CURRENT ROW.
+   *
+   * <p>Every caller resolves the same handful of aliases repeatedly within one row: the row-level
+   * presence check walks one presence entry at a time and the map projection then re-reads the
+   * same alias for the emitted column. The cache is cleared once per row in
+   * {@link #projectOrSkip}, so it holds at most one entry per distinct entity column.
+   *
+   * <p>An absent or wrongly-typed column caches as {@code null} too, through
+   * {@code containsKey}, because re-resolving a miss costs the same map and parent-chain walk as
+   * re-resolving a hit.
+   */
+  private EntityImpl resolveEntityFromColumn(Result row, String columnAlias) {
+    if (rowEntityCache.containsKey(columnAlias)) {
+      return rowEntityCache.get(columnAlias);
+    }
+    entityColumnResolutions++;
+    var entity = row.getEntity(columnAlias);
+    var resolved = entity instanceof EntityImpl entityImpl ? entityImpl : null;
+    rowEntityCache.put(columnAlias, resolved);
+    return resolved;
+  }
+
+  /**
+   * Entity-column resolutions this step has performed since it was armed, EXPOSED FOR TESTING.
+   *
+   * <p>The per-row memoization above has no other observable effect: the rows, their order and
+   * their values are identical with and without it. This counter is the only way a test can tell
+   * that a six-column projection stopped resolving one alias twelve times.
+   */
+  public long entityColumnResolutions() {
+    return entityColumnResolutions;
+  }
+
+  /**
+   * Converts MATCH cell values into TinkerPop-facing payloads: a vertex entity becomes a {@link
+   * YTDBVertexImpl} and an edge entity a {@link YTDBEdgeImpl}, nested lists are mapped recursively,
+   * and RIDs stay as id objects.
+   *
+   * <p>Both graph kinds are wrapped because a link-typed property is a graph element on the native
+   * side too. {@code YTDBPropertyImpl} wraps whatever {@code value()} returns, so native
+   * {@code select("a").by(linkKey)} and {@code values(linkKey)} hand back a {@link YTDBEdgeImpl}
+   * for an edge link. Returning the loaded entity instead put an internal record across the
+   * TinkerPop boundary, where every other value on this path is a TinkerPop type. A non-graph
+   * entity is still returned as it is, which is what the native wrapper does with one too.
    */
   private Object convertValue(Object value) {
     if (value == null) {
@@ -901,6 +1069,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     if (value instanceof Entity entity) {
       if (entity.isVertex()) {
         return new YTDBVertexImpl(armingGraph, entity.asVertex());
+      }
+      if (entity.isEdge()) {
+        return new YTDBEdgeImpl(armingGraph, entity.asEdge());
       }
       return entity;
     }

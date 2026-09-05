@@ -122,6 +122,11 @@ final class GremlinShapeExtractor {
     encoder.appendToken("T", Integer.toString(counted));
     for (Step<?, ?> step : traversal.getSteps()) {
       if (transparentSteps.contains(step.getClass())) {
+        // Transparent steps (barriers, …) stay out of the counted step list, but must still
+        // discriminate the shape key — labelled or not. An unlabelled barrier that closes the
+        // fold changes comparison semantics vs the folded spelling.
+        encoder.appendToken("TB", step.getClass().getName());
+        encoder.appendStringSeq("L", GremlinStepLabels.userLabels(step));
         continue;
       }
       encoder.appendToken("S", step.getClass().getName());

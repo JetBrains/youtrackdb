@@ -330,10 +330,14 @@ public class SelectExecutionPlanner {
    *   (SKIP/LIMIT applied early to minimize projection work)
    * </pre>
    *
-   * <p>In all paths, if an ORDER BY clause is present,
-   * {@link #handleProjectionsBeforeOrderBy} is called first to ensure that ORDER BY
-   * expressions that are not part of the user's SELECT list are temporarily added as
-   * projections (they will be stripped later by {@code projectionAfterOrderBy}).
+   * <p>In all paths, if an ORDER BY clause is present and sort keys are only available
+   * after the SELECT-list projection (projection aliases, or synthetic
+   * {@code _$$$ORDER_BY_ALIAS$$$_*} columns), {@link #handleProjectionsBeforeOrderBy}
+   * runs first so those keys exist for {@link OrderByStep}. When every ORDER BY item is
+   * already evaluable on the upstream row ({@code alias.property}, {@code @rid}, …),
+   * projections stay deferred until after ORDER BY (and SKIP/LIMIT when present) so the
+   * sort still sees MATCH bindings and a top-N query does not run
+   * {@link ProjectionCalculationStep} on every candidate before the bounded heap drops them.
    */
   public static void handleProjectionsBlock(
       SelectExecutionPlan result,
@@ -341,7 +345,7 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean enableProfiling) {
 
-    // Ensure ORDER BY expressions are available as projected columns.
+    // Project early only when ORDER BY cannot read its keys from upstream rows.
     handleProjectionsBeforeOrderBy(result, info, ctx, enableProfiling);
 
     if (info.expand || info.unwind != null || info.groupBy != null) {
@@ -546,19 +550,56 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * If an ORDER BY clause is present, projections are calculated early so that
-   * sort keys derived from projected expressions are available to
-   * {@link OrderByStep}. Without ORDER BY this is a no-op (projections are
-   * deferred for efficiency).
+   * When ORDER BY keys need SELECT-list (or synthetic) columns, project before
+   * {@link OrderByStep}. Otherwise leave projections for Path C after SKIP/LIMIT —
+   * including when there is no slice. Binding-key ORDER BY ({@code alias.property} /
+   * {@code @rid}) compares on MATCH rows; projecting the RETURN list early would drop
+   * those bindings whenever RETURN does not keep the ordered alias as an entity column
+   * (e.g. {@code RETURN src.name, dst.name ORDER BY dst.id}).
+   *
+   * <p>Early projection is required for {@code ORDER BY messageCreationDate} (RETURN
+   * alias) and for synthetic {@code _$$$ORDER_BY_ALIAS$$$_*} columns from
+   * {@link #addOrderByProjections}. Binding-key ORDER BY with a slice must not project
+   * early for the same Match-binding reason, and so that a top-N query does not run
+   * {@link ProjectionCalculationStep} on every candidate before the bounded heap drops
+   * them.
    */
   private static void handleProjectionsBeforeOrderBy(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
-    if (info.orderBy != null) {
+    if (info.orderBy != null && orderByNeedsProjectedColumns(info)) {
       handleProjections(result, info, ctx, profilingEnabled);
     }
+  }
+
+  /**
+   * {@code true} when at least one ORDER BY item cannot be evaluated on the upstream
+   * row and must wait for {@link ProjectionCalculationStep}.
+   */
+  private static boolean orderByNeedsProjectedColumns(QueryPlanningInfo info) {
+    // Synthetic ORDER BY columns exist only after the expanded projection runs.
+    if (info.projectionAfterOrderBy != null) {
+      return true;
+    }
+    var items = info.orderBy.getItems();
+    if (items == null || items.isEmpty()) {
+      return false;
+    }
+    for (var item : items) {
+      if (item.getRecordAttr() != null) {
+        // @rid / @class / … — present on MATCH rows and entities.
+        continue;
+      }
+      if (item.getAlias() != null && item.getModifier() != null) {
+        // alias.property — MatchResultRow binds aliases; modifier reads the field.
+        continue;
+      }
+      // Bare alias (RETURN AS name), RID literal, or unknown form — need projection.
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1096,7 +1137,32 @@ public class SelectExecutionPlanner {
     List<SQLProjectionItem> result = new ArrayList<>();
     var nextAliasCount = 0;
     if ((orderBy != null && orderBy.getItems() != null) || !orderBy.getItems().isEmpty()) {
+      // When every ORDER BY key is alias.property / @rid, skip synthetics so ORDER BY can
+      // run on MATCH bindings and projections defer past LIMIT (post-LIMIT select().by
+      // presence). When any key needs early projection (bare RETURN alias, …), those
+      // binding-key siblings must also get synthetics — early projection replaces
+      // MatchResultRow and would otherwise null the secondary keys
+      // (testMatchMixedOrderByBareAliasAndAliasPropertyKeepsSecondaryKey).
+      var earlyProjectionForced = false;
       for (var item : orderBy.getItems()) {
+        if (item.getRecordAttr() != null) {
+          continue;
+        }
+        if (item.getAlias() != null && item.getModifier() != null) {
+          continue;
+        }
+        earlyProjectionForced = true;
+        break;
+      }
+      for (var item : orderBy.getItems()) {
+        if (!earlyProjectionForced) {
+          if (item.getAlias() != null && item.getModifier() != null) {
+            continue;
+          }
+          if (item.getRecordAttr() != null) {
+            continue;
+          }
+        }
         if (!allAliases.contains(item.getAlias())) {
           var newProj = new SQLProjectionItem(-1);
           if (item.getAlias() != null) {
@@ -2137,10 +2203,25 @@ public class SelectExecutionPlanner {
    *       ({@code info.orderApplied == false})</li>
    * </ul>
    *
-   * <p>The step loads all upstream records into memory and sorts them. When both SKIP
-   * and LIMIT are specified (and no EXPAND/UNWIND invalidates them), the step is told
-   * the maximum number of results needed ({@code SKIP + LIMIT}) so it can use a
-   * bounded priority queue instead of a full sort.
+   * <p>The step loads all upstream records into memory and sorts them. When LIMIT is
+   * specified (and no EXPAND/UNWIND invalidates it), the step receives the SKIP and LIMIT
+   * CLAUSES so it can use a bounded priority queue instead of a full sort. The clauses go
+   * over as AST nodes rather than as a resolved number, because the plan is cacheable and a
+   * parameterized bound must be read on every execution.
+   *
+   * <p>THE LIST OF INVALIDATING OPERATORS IS INCOMPLETE, and knowingly so. EXPAND and UNWIND
+   * multiply rows after the sort and are withheld from below. DISTINCT REDUCES them after the
+   * sort and is NOT, although it invalidates the bound the same way: on the DISTINCT path
+   * {@code handleProjectionsBlock} chains this step before the projection and the distinct step,
+   * so a bounded heap of {@code SKIP + LIMIT} rows can be filled with duplicates that the
+   * distinct step then collapses, returning fewer rows than the LIMIT asked for. With names
+   * {@code a, a, b, c}, {@code SELECT DISTINCT name FROM Person ORDER BY name LIMIT 2} yields
+   * {@code [a]} where {@code [a, b]} is correct.
+   *
+   * <p>That defect PREDATES the per-execution bound resolution recorded here: the old code
+   * computed the same {@code skipSize + limitSize} with the same two exceptions. It is filed
+   * separately rather than fixed here, and it is named in this list so the enumeration stops
+   * reading as a safety claim it does not make.
    *
    * <p>Edge properties (e.g. {@code out_FriendOf}) are detected and flagged so the
    * comparator can handle LINKBAG values correctly.
@@ -2158,14 +2239,14 @@ public class SelectExecutionPlanner {
     if (skipSize < 0) {
       throw new CommandExecutionException(session, "Cannot execute a query with a negative SKIP");
     }
-    var limitSize = info.limit == null ? -1 : info.limit.getValue(ctx);
-    Integer maxResults = null;
-    if (limitSize >= 0) {
-      maxResults = skipSize + limitSize;
-    }
-    if (info.expand || info.unwind != null) {
-      maxResults = null;
-    }
+    // EXPAND and UNWIND multiply rows after the sort, so SKIP + LIMIT no longer bounds what
+    // the sort has to keep. Withholding the LIMIT clause keeps the step unbounded.
+    //
+    // DISTINCT belongs in this condition too and is deliberately absent: it runs after the sort
+    // and reduces rows, so a bounded heap can hand it duplicates and return fewer rows than the
+    // LIMIT. That is a pre-existing lost-row defect filed on its own, not a consequence of the
+    // bound being resolved per execution. See the method Javadoc.
+    var boundedByLimit = !info.expand && info.unwind == null;
 
     if (!info.orderApplied
         && info.orderBy != null
@@ -2191,7 +2272,8 @@ public class SelectExecutionPlanner {
       plan.chain(
           new OrderByStep(
               info.orderBy,
-              maxResults,
+              boundedByLimit ? info.skip : null,
+              boundedByLimit ? info.limit : null,
               info.primaryKeySortedInput,
               info.indexOrderedUpstream,
               ctx,

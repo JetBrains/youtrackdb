@@ -287,6 +287,12 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public boolean isDeclaredPropertyTypeIn(
+      @Nullable String className, String propertyKey, java.util.Collection<String> typeNames) {
+    return parent.isDeclaredPropertyTypeIn(className, propertyKey, typeNames);
+  }
+
+  @Override
   public boolean isVertexClass(String className) {
     return parent.isVertexClass(className);
   }
@@ -351,6 +357,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // conjoined clause per alias.
     var merged = WHERE.and(existing.getBaseExpression(), where.getBaseExpression());
     capturedAliasFilters.put(alias, WHERE.wrap(merged));
+  }
+
+  @Override
+  public void recordPresenceConjunct(String alias, String key) {
+    // Captured presence is local to the child; do not forward to the parent walk.
+  }
+
+  @Override
+  public boolean hasPresenceConjunct(String alias, String key) {
+    return false;
   }
 
   @Override
@@ -450,6 +466,23 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Override
   public void setOrderBy(@Nullable SQLOrderBy orderBy) {
     // Swallowed — see setReturnDistinct.
+  }
+
+  @Override
+  public void recordOrderByCapture(@Nullable String alias, boolean keysOnlyBoundary) {
+    // Swallowed with setOrderBy: a child's order() does not capture a parent ORDER BY.
+  }
+
+  @Override
+  public void markReturnReadsForeignAlias() {
+    // Swallowed — see clearReturnProjection. A child's select does not shape the parent's RETURN.
+  }
+
+  @Override
+  public boolean orderAllowsSliceOnCurrentBoundary() {
+    // Always false: the adapter never holds a captured ORDER BY, and forwarding the parent's
+    // answer would let a slice inside a combinator child ride a sort the child did not capture.
+    return false;
   }
 
   @Override

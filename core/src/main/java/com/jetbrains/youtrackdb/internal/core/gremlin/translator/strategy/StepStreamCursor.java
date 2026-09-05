@@ -23,6 +23,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
  * significant steps are consumed the position reaches the end of the list and the walker's
  * "every step recognised" invariant holds. A recogniser never sees a transparent step.
  *
+ * <p>TinkerPop may park {@code as(...)} labels on a skipped barrier rather than on the preceding hop.
+ * Those steps are stashed for {@link #drainSkippedTransparentLabeled()} so the walker can bind them
+ * to the current boundary alias — otherwise a later {@code select("x")} / {@code
+ * order().by(select("x"))} would resolve no alias and decline. A recogniser that must refuse such a
+ * label asks {@link #skippedLabeledTransparentPending()}, which reads the stash without draining it
+ * and so leaves the walker's binding duty untouched.
+ *
  * <h2>Exact-class matching</h2>
  *
  * {@link #takeIf} and {@link #takeWhile} match on {@code step.getClass() == exact}, so a subclass of
@@ -40,6 +47,12 @@ final class StepStreamCursor implements StepCursor {
 
   /** Forward-only position into {@link #steps}. Never rewound: a decline discards the whole walk. */
   private int position;
+
+  /**
+   * Transparent steps with user {@code as(...)} labels skipped since the last
+   * {@link #drainSkippedTransparentLabeled()} — walker binds them to the boundary alias.
+   */
+  private final List<Step<?, ?>> skippedTransparentLabeled = new ArrayList<>();
 
   StepStreamCursor(List<?> steps, Set<Class<?>> transparentSteps) {
     this.steps = steps;
@@ -59,6 +72,8 @@ final class StepStreamCursor implements StepCursor {
     }
     // Scan forward from the head, skipping transparent steps, until `ahead` significant steps have
     // been passed. A local probe leaves the cursor's position untouched — peek consumes nothing.
+    // Lookahead does not stash barrier labels: only advancing skips (peek/take/…) do, so a probe
+    // cannot bind aliases the walk has not yet reached.
     int probe = position;
     int seen = 0;
     while (probe < steps.size()) {
@@ -131,9 +146,39 @@ final class StepStreamCursor implements StepCursor {
     return position;
   }
 
-  /** Advances the position past any transparent steps at the head. Idempotent. */
+  public boolean skippedLabeledTransparentPending() {
+    return !skippedTransparentLabeled.isEmpty();
+  }
+
+  /**
+   * Transparent steps carrying {@code as(...)} labels skipped since the previous drain. The walker
+   * binds each to {@link RecognitionContext#boundaryAlias()} and must drain after every advancing
+   * skip ({@link #peek()} / {@link #take()} paths) so labels are not left stranded.
+   */
+  List<Step<?, ?>> drainSkippedTransparentLabeled() {
+    if (skippedTransparentLabeled.isEmpty()) {
+      return List.of();
+    }
+    var out = List.<Step<?, ?>>copyOf(skippedTransparentLabeled);
+    skippedTransparentLabeled.clear();
+    return out;
+  }
+
+  /**
+   * Advances the position past any transparent steps at the head. Idempotent.
+   *
+   * <p>The label test asks {@link GremlinStepLabels#hasUserLabel} rather than building the label
+   * set and testing it for emptiness, which allocated a {@code LinkedHashSet} per skipped step to
+   * answer a yes-or-no question. A bare {@code getLabels().isEmpty()} would not do: a step
+   * labelled only by {@code as((String) null)} has a non-empty label set and no user label, and
+   * treating it as labelled can strand the walker on a binding that does not exist.
+   */
   private void skipTransparent() {
     while (position < steps.size() && isTransparent(stepAt(position))) {
+      var skipped = stepAt(position);
+      if (GremlinStepLabels.hasUserLabel(skipped)) {
+        skippedTransparentLabeled.add(skipped);
+      }
       position++;
     }
   }

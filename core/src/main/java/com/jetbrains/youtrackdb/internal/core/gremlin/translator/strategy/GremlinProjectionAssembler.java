@@ -45,42 +45,62 @@ final class GremlinProjectionAssembler {
     if (boundary == null || userLabels.isEmpty()) {
       return Outcome.DECLINE;
     }
+    // values(key).select(...) — promote the values drop into the pattern before select
+    // replaces ResultShaping and clears dropOnAbsent (ProjectionEquivalenceTest
+    // selectAfterValues_keepsTheAbsenceDrop).
+    if (!ctx.promotePresenceDropToPatternFilter()) {
+      return Outcome.DECLINE;
+    }
     ctx.clearReturnProjection();
     for (String userLabel : userLabels) {
       var internalAlias = ctx.resolveUserLabel(userLabel);
       if (internalAlias == null) {
         return Outcome.DECLINE;
       }
+      // After dedup(), MATCH DISTINCT keys the RETURN row — a foreign hop label is not
+      // Gremlin's "dedup current, then select another path label" contract.
+      if (ctx.returnDistinct() && !boundary.equals(internalAlias)) {
+        return Outcome.DECLINE;
+      }
+      ctx.markReturnAliasIfForeign(internalAlias);
       ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), userLabel);
     }
     // A single-label select emits the column value directly (native SelectOneStep shape).
-    ctx.setResultShaping(ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1));
+    var shaping = ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1);
+    if (userLabels.size() > 1) {
+      // Result content is a HashMap — pin select-label order for LinkedHashMap emission.
+      shaping = shaping.withMapEmitColumnOrder(List.copyOf(userLabels));
+    }
+    ctx.setResultShaping(shaping);
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
   }
 
   /**
-   * Configures single-key {@code values(key)}: boundary entity column (for {@code hasProperty}) plus
-   * one field-access RETURN column, {@link BoundaryOutputType#SINGLE_VALUE}, {@code dropOnAbsent},
-   * and {@code lastPropertyProjection} for a following aggregate ({@code values("age").mean()}).
+   * Configures single-key {@code values(key)}: {@link BoundaryOutputType#SINGLE_VALUE},
+   * {@code lastPropertyProjection} for a following aggregate ({@code values("age").mean()}), and a
+   * RETURN list that matches what the plan step actually reads.
    *
-   * <p>An element without the property produces no traverser, and that drop has to reach the plan by
-   * one of two routes depending on where the projection sits. On the main line it travels as result
-   * shaping, which {@code YTDBMatchPlanStep} applies to the rows it returns. In a captured child
-   * ({@code and(values(a), values(b))}) it cannot: {@link SubTraversalPredicateAdapter} swallows every
-   * result-shape write, because the child returns no rows and its projection is discarded on commit.
-   * There the drop has to travel as a pattern conjunct instead, or the child commits an empty filter
-   * map and filters nothing — {@code and(values(age), values(name))} returned every vertex against
-   * native's one. {@link ByModulatorPresence#requireProjectedProperty} writes that conjunct through
-   * {@code putAliasFilter}, which the adapter does capture. Whether it belongs there at all depends on
-   * what follows the projection inside the child — see {@code contributePresenceConjunct} below.
+   * <p>With {@code dropOnAbsent}, {@code AbstractMatchPlanStep} loads the boundary entity and reads
+   * the key via {@code hasProperty} / {@code getProperty}, so RETURN is only the entity column — a
+   * parallel {@code alias.key} projection would be unused work in {@code CALCULATE PROJECTIONS}.
+   * When {@link RecognitionContext#hasPresenceConjunct} already records {@code key IS DEFINED},
+   * shaping stays {@link ResultShaping#NONE} and RETURN keeps both the entity (so {@code ORDER BY
+   * alias.property} remains a projected alias and projections can defer) and the field column
+   * ({@code primaryProjectedValue} emits it).
    *
-   * <p>Keeping the conjunct off the main-line arm matters: {@code IS DEFINED} has no estimator in the
-   * MATCH root-selection cost model (see {@link ByModulatorPresence}'s {@code @implNote}), and the
-   * main line already expresses the same drop through {@code dropOnAbsent}. A following slice
-   * promotes the conjunct on demand through {@link
-   * RecognitionContext#promotePresenceDropToPatternFilter}, so the estimator caveat applies only to
-   * that sliced surface rather than to every {@code values(k)}.
+   * <p>An element without the property produces no traverser. On the main line that drop travels as
+   * {@code dropOnAbsent} unless a presence conjunct is already recorded. In a captured child
+   * ({@code and(values(a), values(b))}) shaping cannot travel: {@link
+   * SubTraversalPredicateAdapter} swallows every result-shape write. There the drop travels as a
+   * pattern conjunct via {@link ByModulatorPresence#requireProjectedProperty} — see {@code
+   * contributePresenceConjunct}.
+   *
+   * <p>Keeping the conjunct off the main-line arm when no prior by-modulator wrote it matters:
+   * {@code IS DEFINED} has no estimator in the MATCH root-selection cost model (see {@link
+   * ByModulatorPresence}'s {@code @implNote}), and the main line already expresses the drop through
+   * {@code dropOnAbsent}. A following slice promotes the conjunct on demand through {@link
+   * RecognitionContext#promotePresenceDropToPatternFilter}.
    *
    * @param contributePresenceConjunct whether the captured child still emits nothing for an element
    *     without the property once its remaining steps have run. Read only on the captured-child path;
@@ -102,18 +122,27 @@ final class GremlinProjectionAssembler {
     }
     var expr = aliasProperty(boundary, propertyKey);
     ctx.clearReturnProjection();
-    // Entity column first — the plan step's dropOnAbsent reads EntityImpl.hasProperty from it.
-    ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
-    ctx.appendReturnColumn(expr, null);
     ctx.setLastPropertyProjection(
         new RecognitionContext.PropertyProjection(boundary, propertyKey, expr));
     if (ctx.projectsReturnedPayload()) {
-      // dropOnAbsent + presence key so the plan step drops rows where the entity lacks the property.
-      ctx.setResultShaping(
-          ResultShaping.NONE.withDropOnAbsent(true).withPresencePropertyKeys(List.of(propertyKey)));
-      // After setResultShaping, which clears any previous alias. The slice recogniser promotes
-      // this alias into a pattern conjunct when a real SKIP / LIMIT arrives.
-      ctx.setPresenceDropAlias(boundary);
+      if (ctx.hasPresenceConjunct(boundary, propertyKey)) {
+        // Pattern already drops absent keys — no dropOnAbsent. Keep the entity column in
+        // RETURN so ORDER BY alias.property stays on a projected alias and projections can
+        // defer past ORDER BY / SKIP / LIMIT; the field column is what primaryProjectedValue
+        // emits.
+        ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
+        ctx.appendReturnColumn(expr, null);
+        ctx.setResultShaping(ResultShaping.NONE);
+      } else {
+        // dropOnAbsent reads the entity; do not also project alias.key.
+        ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
+        ctx.setResultShaping(
+            ResultShaping.NONE.withDropOnAbsent(true)
+                .withPresencePropertyKeys(List.of(propertyKey)));
+        // After setResultShaping, which clears any previous alias. The slice recogniser promotes
+        // this alias into a pattern conjunct when a real SKIP / LIMIT arrives.
+        ctx.setPresenceDropAlias(boundary);
+      }
     } else if (contributePresenceConjunct) {
       // A captured child's shaping is swallowed, so the same drop travels as a pattern conjunct.
       ByModulatorPresence.requireProjectedProperty(ctx, boundary, propertyKey);
@@ -124,9 +153,14 @@ final class GremlinProjectionAssembler {
 
   /**
    * Configures {@code valueMap(keys…)} / {@code elementMap(keys…)}: boundary entity for presence
-   * checks, one RETURN column per map entry ({@code id}, {@code label}, then property keys), and
-   * {@link BoundaryOutputType#MAP}. {@code valueMap} wraps property values in singleton lists;
-   * {@code elementMap} leaves them unwrapped. An empty key list declines — see the body.
+   * reads, optional token columns ({@code id} / {@code label}), and {@link BoundaryOutputType#MAP}.
+   * Property keys are <em>not</em> RETURN columns — {@link
+   * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep} already
+   * loads the entity for {@code hasProperty} and reads values from it, so projecting {@code
+   * alias.key} would only duplicate that work in {@code CALCULATE PROJECTIONS}. Emit order is pinned
+   * via {@link ResultShaping#mapEmitColumnOrder()} (tokens then keys). {@code valueMap} wraps
+   * property values in singleton lists; {@code elementMap} leaves them unwrapped. An empty key list
+   * declines — see the body.
    *
    * @param tokens bit set of the {@code T.id} / {@code T.label} token columns to emit, from
    *     {@code valueMap(true)} / {@code with(WithOptions.tokens)} or from {@code elementMap}, which
@@ -149,38 +183,38 @@ final class GremlinProjectionAssembler {
       return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
-    // Entity column — omitted from the emitted MAP; used only for hasProperty classification.
+    // Entity column — omitted from the emitted MAP; used for hasProperty and property values.
     ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
+    var emitOrder = new ArrayList<String>();
     if (tokens != 0) {
       if ((tokens & ELEMENT_MAP_TOKEN_ID) != 0) {
         ctx.appendReturnColumn(aliasRecordAttribute(boundary, "@rid"), ELEMENT_MAP_KEY_ID);
+        emitOrder.add(ELEMENT_MAP_KEY_ID);
       }
       if ((tokens & ELEMENT_MAP_TOKEN_LABEL) != 0) {
         ctx.appendReturnColumn(aliasRecordAttribute(boundary, "@class"), ELEMENT_MAP_KEY_LABEL);
+        emitOrder.add(ELEMENT_MAP_KEY_LABEL);
       }
     }
     var presenceKeys = new ArrayList<String>();
-    if (propertyKeys != null) {
-      for (String key : propertyKeys) {
-        if (key == null || key.isBlank() || WalkerContext.isReservedHasKey(key)) {
-          return Outcome.DECLINE;
-        }
-        ctx.appendReturnColumn(aliasProperty(boundary, key), key);
-        presenceKeys.add(key);
+    for (String key : propertyKeys) {
+      if (key == null || key.isBlank() || WalkerContext.isReservedHasKey(key)) {
+        return Outcome.DECLINE;
       }
-    }
-    if (ctx.returnItems().size() <= 1) {
-      // Only the entity column — nothing to project.
-      return Outcome.DECLINE;
+      // Keys stay off RETURN: the plan step reads them from the entity after hasProperty.
+      presenceKeys.add(key);
+      emitOrder.add(key);
     }
     // List wrapping follows the step, not the tokens: valueMap wraps property values in singleton
     // lists whether or not it was asked for tokens, and elementMap never does. Deriving it from the
     // token bits instead made valueMap(true, "name") emit name=josh where native emits name=[josh].
     // The token-key flag does follow the tokens — id / label go under T.id / T.label whenever they
-    // are emitted, from either step.
+    // are emitted, from either step. mapEmitColumnOrder drives projectMap so presence keys appear
+    // even though they are not RETURN columns.
     ctx.setResultShaping(
         ResultShaping.NONE
             .withPresencePropertyKeys(presenceKeys)
+            .withMapEmitColumnOrder(emitOrder)
             .withWrapMapValuesInLists(!isElementMap)
             .withElementMapTokens(tokens != 0));
     repinMap(ctx, boundary);
