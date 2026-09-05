@@ -2440,7 +2440,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   // Verifies that a WHILE traversal WITHOUT pathAlias produces the same vertices
   // and depths as one WITH pathAlias, but does not expose any path property.
   // This exercises the optimization that skips PathNode construction entirely
-  // when no pathAlias is declared (the common case for queries like IS2).
+  // when no pathAlias is declared (the common case).
   @Test
   public void testWhileWithoutPathAliasSkipsPathConstruction() {
     var clazz = "testWhileNoPath";
@@ -3757,10 +3757,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * IC2-shaped multi-hop: start -out KNOWS→ friend -in HAS_CREATOR→ msg, RETURN only msg
-   * columns. Friend is constrained by an earlier edge even when absent from RETURN, so the
-   * planner must choose FILTERED_BOUND (GLOBAL_SCAN-capable) rather than FILTERED_UNBOUND —
-   * otherwise LDBC fan-out materialises every friends' message before LIMIT can cut.
+   * Multi-hop: start -out KNOWS→ friend -in HAS_CREATOR→ msg, RETURN only msg columns. Friend
+   * is constrained by an earlier edge even when absent from RETURN, so the planner must choose
+   * FILTERED_BOUND (GLOBAL_SCAN-capable) rather than FILTERED_UNBOUND — otherwise a wide
+   * fan-out materialises every friend's message before LIMIT can cut.
    */
   @Test
   public void testIndexOrderedMatchEarlierEdgeForcesFilteredBoundWithoutSourceInReturn()
@@ -3786,7 +3786,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
                 + plan,
             plan.contains("FILTERED_BOUND"));
         Assert.assertFalse(
-            "Must not fall back to FILTERED_UNBOUND for the IC2-shaped pattern. Plan:\n" + plan,
+            "Must not fall back to FILTERED_UNBOUND when an earlier edge constrains"
+                + " a non-RETURN alias. Plan:\n" + plan,
             plan.contains("FILTERED_UNBOUND"));
 
         // Exact message ids, not a size plus a monotonic-day check. A reverse-membership check
@@ -5126,8 +5127,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
   // Single-source query without LIMIT must not use IndexOrderedEdgeStep.
   // Without LIMIT the saving is just sort elision, which is dwarfed by the
-  // planner + per-source RidSet/cursor setup overhead for typical linkBags
-  // (reproduces the IS7 -6.9% regression observed on LDBC SF 1).
+  // planner + per-source RidSet/cursor setup overhead for typical LinkBags.
   @Test
   public void testIndexOrderedMatchSingleSourceNoLimitSkipsOptimization() throws Exception {
     initIndexOrderedMatchData(false);
@@ -7404,9 +7404,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * The LDBC IS2 query, verbatim from {@code jmh-ldbc/.../ldbc-queries/IS2.sql}
-   * with the parameters inlined. Kept as a constant so a drift between this test
-   * and the benchmarked query is a visible edit rather than a silent divergence.
+   * Person → messages → WHILE REPLY_OF to Post → author, {@code ORDER BY creationDate DESC
+   * LIMIT 10}. Text kept aligned with {@code jmh-ldbc/.../ldbc-queries/IS2.sql} so a drift
+   * between this test and the JMH query is a visible edit.
    */
   private static final String LDBC_IS2_QUERY =
       "MATCH {class: LdbcPerson, as: p, where: (id = 1)}"
@@ -7425,23 +7425,16 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           + " LIMIT 10";
 
   /**
-   * End-to-end regression for the LDBC IS2 query shape — the benchmark this
-   * optimization was built for.
+   * End-to-end row pin for the person-messages / WHILE-to-post / author shape above.
    *
-   * <p>The JMH harness hands its rows to JMH and never inspects them, and the
-   * benchmark workflows run no correctness step, so a change that wrongly
-   * discarded matching rows would register there as a throughput improvement.
-   * This test pins the rows instead: it runs IS2 with the optimization enabled
-   * and again with it disabled, and requires both to return the same result.
+   * <p>The JMH harness never inspects rows, so a change that wrongly discarded matches could
+   * look like a throughput win. This test runs with the optimization on and off and requires
+   * the same result.
    *
-   * <p>The schema mirrors {@code ldbc-schema.sql}: LdbcPost and LdbcComment both
-   * extend LdbcMessage, the ORDER BY index sits on the parent
-   * LdbcMessage.creationDate, and LDBC_HAS_CREATOR declares its endpoints as
-   * LINK properties. Those endpoint declarations matter — the {@code {as:
-   * message}} pattern in IS2 carries no {@code class:} constraint, so the
-   * planner infers LdbcMessage for it from the edge definition. Reproducing that
-   * inference is the point: the target class filter then has to accept both
-   * subclasses, which is exactly the behaviour the optimization changed.
+   * <p>Schema mirrors the JMH LDBC schema: Post and Comment extend Message, the ORDER BY index
+   * sits on Message.creationDate, and HAS_CREATOR declares LINK endpoints. The {@code {as:
+   * message}} pattern carries no {@code class:} constraint, so the planner infers Message from
+   * the edge definition and the target class filter must accept both subclasses.
    */
   @Test
   public void testIndexOrderedMatchLdbcIs2ShapeMatchesClassic() throws Exception {
@@ -7453,7 +7446,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       try (var result = session.query(LDBC_IS2_QUERY)) {
         var plan = getPlan(result);
         Assert.assertTrue(
-            "IS2 should use INDEX ORDERED MATCH, but plan was:\n" + plan,
+            "person-messages shape should use INDEX ORDERED MATCH, but plan was:\n" + plan,
             plan.contains("INDEX ORDERED MATCH"));
         optimized = collectRows(result);
       }
@@ -7479,13 +7472,13 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
     session.commit();
     Assert.assertEquals(
-        "IS2 must return identical rows with and without the optimization",
+        "on/off runs must return identical rows",
         classic, optimized);
 
     // Comparing two runs proves agreement but not that either returned anything,
     // so pin the expected content too. The newest ten messages are the level-2
     // comments 60..51; each resolves through two REPLY_OF hops to post id-40.
-    Assert.assertEquals("IS2 must fill its LIMIT", 10, optimized.size());
+    Assert.assertEquals("must fill LIMIT 10", 10, optimized.size());
     var messageIds = new java.util.ArrayList<Long>();
     var originalPostIds = new java.util.ArrayList<Long>();
     for (var row : optimized) {
@@ -7520,7 +7513,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
-   * Builds a miniature LDBC graph for the IS2 shape: one person owning 20 posts,
+   * Builds a miniature graph for the person-messages / WHILE-to-post shape: one person owning 20 posts,
    * 20 comments replying to those posts, and 20 further comments replying to
    * those comments. The two comment levels give the recursive REPLY_OF hop
    * something to walk — the newest messages resolve to their original post
@@ -7580,7 +7573,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  /** Creates one IS2 message of the given class and links it to the person. */
+  /** Creates one message of the given class and links it to the person. */
   private void createIs2Message(String className, int id) {
     session.execute(
         "CREATE VERTEX " + className + " SET id = " + id

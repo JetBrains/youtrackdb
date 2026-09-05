@@ -1228,8 +1228,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    * Planning must see bound {@code ?} values (like SQLMatchStatement). Without them a UNIQUE
    * {@code id = ?} estimates {@code classCount / 2}; a smaller mid-walk class with any filter that
    * the estimator over-narrows (historically {@code IS DEFINED} from {@code select().by()}) can win
-   * the root and full-scan — the IS6/IC11 catastrophe. Fixture: many Forums, one Post with UNIQUE
-   * id; assert the plan roots at the Post origin, not at Forum.
+   * the root and full-scan. Fixture: many Forums, one Post with UNIQUE id; assert the plan roots at
+   * the Post origin, not at Forum.
    */
   @Test
   public void uniqueIdParamAtPlanTime_rootsAtStartNotSmallerMidWalkAlias() {
@@ -1280,9 +1280,9 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * LDBC IC2 reduced: Person → KNOWS → friends → HAS_CREATOR ← Message, {@code ORDER BY
-   * creationDate DESC, id ASC}, {@code LIMIT 20}. SQL MATCH and the translated Gremlin shape must
-   * both pick INDEX ORDERED MATCH FILTERED_BOUND on HAS_CREATOR.
+   * Person → KNOWS → friends → HAS_CREATOR ← Message, {@code ORDER BY creationDate DESC, id ASC},
+   * {@code LIMIT 20}. SQL MATCH and the translated Gremlin shape must both pick INDEX ORDERED
+   * MATCH FILTERED_BOUND on HAS_CREATOR.
    */
   @Test
   public void ic2FriendsMessages_translatedPlanUsesIndexOrderedFilteredBound() throws Exception {
@@ -1303,7 +1303,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
           maxDate)) {
         var sqlPlan = sqlResult.getExecutionPlan().prettyPrint(0, 2);
         assertThat(sqlPlan)
-            .as("SQL IC2 must use INDEX ORDERED MATCH FILTERED_BOUND; plan was:\n" + sqlPlan)
+            .as("SQL friends→messages must use INDEX ORDERED MATCH FILTERED_BOUND; plan was:\n"
+                + sqlPlan)
             .contains("INDEX ORDERED MATCH")
             .contains("FILTERED_BOUND");
       }
@@ -1341,10 +1342,10 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "IC2 Gremlin shape must translate; steps after applyStrategies: " + steps));
+                "friends→messages Gremlin shape must translate; steps after applyStrategies: " + steps));
         var gremlinPlan = boundary.getPlan().prettyPrint(0, 2);
         assertThat(gremlinPlan)
-            .as("Gremlin IC2 must use INDEX ORDERED MATCH FILTERED_BOUND; plan was:\n"
+            .as("Gremlin friends→messages must use INDEX ORDERED MATCH FILTERED_BOUND; plan was:\n"
                 + gremlinPlan)
             .contains("INDEX ORDERED MATCH")
             .contains("FILTERED_BOUND");
@@ -1353,8 +1354,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * LDBC IC2 reduced benchmark shape: multi-{@code as} before the slice, {@code select().by()}
-   * after {@code limit(20)}. MATCH must keep INDEX ORDERED and defer CALCULATE PROJECTIONS past
+   * Friends' messages with multi-{@code as} before the slice and {@code select().by()} after
+   * {@code limit(20)}. MATCH must keep INDEX ORDERED and defer CALCULATE PROJECTIONS past
    * ORDER BY + LIMIT — same contract as {@link #is2PersonMessages_translatedPlanDefersProjectionsUntilAfterLimit}.
    */
   @Test
@@ -1395,15 +1396,15 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "IC2 benchmark shape must translate; steps after applyStrategies: " + steps));
+                "friends→messages deferred-projection shape must translate; steps after applyStrategies: " + steps));
         assertPlanDefersProjectionsUntilAfterLimit(boundary.getPlan().prettyPrint(0, 2));
       });
     }
   }
 
   /**
-   * LDBC IC8 reduced benchmark shape: foreign-alias {@code order().by(select().by())} before the
-   * slice and multi-{@code select().by()} after {@code limit(20)}.
+   * Recent replies with foreign-alias {@code order().by(select().by())} before the slice and
+   * multi-{@code select().by()} after {@code limit(20)}.
    */
   @Test
   public void ic8RecentReplies_translatedPlanDefersProjectionsUntilAfterLimit() throws Exception {
@@ -1444,10 +1445,10 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "IC8 benchmark shape must translate; steps after applyStrategies: " + steps));
+                "recent-replies deferred-projection shape must translate; steps after applyStrategies: " + steps));
         var plan = boundary.getPlan().prettyPrint(0, 2);
         assertThat(plan)
-            .as("IC8 benchmark shape must use INDEX ORDERED MATCH; plan was:\n" + plan)
+            .as("recent-replies shape must use INDEX ORDERED MATCH; plan was:\n" + plan)
             .contains("INDEX ORDERED MATCH");
         assertPlanDefersProjectionsUntilAfterLimit(plan);
       });
@@ -1533,11 +1534,11 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * LDBC IC8 reduced: Person → HAS_CREATOR ← Message → REPLY_OF ← Comment → HAS_CREATOR → author,
+   * Person → HAS_CREATOR ← Message → REPLY_OF ← Comment → HAS_CREATOR → author,
    * {@code ORDER BY comment.creationDate DESC, comment.id ASC}, {@code LIMIT 20}. SQL uses
    * {@code {class: Comment}}; Gremlin uses {@code hasLabel(Comment)} for the same constraint.
-   * {@code GremlinTraversalShapes#ic8RecentRepliesOrdered} omits the label and relies on edge-schema
-   * class inference ({@code REPLY_OF.out → Comment}) in {@link IndexOrderedPlanner}.
+   * The JMH harness shape that omits the label relies on edge-schema class inference
+   * ({@code REPLY_OF.out → Comment}) in {@link IndexOrderedPlanner}.
    */
   @Test
   public void ic8RecentReplies_translatedPlanUsesIndexOrderedMatch() throws Exception {
@@ -1556,7 +1557,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
               + "ORDER BY commentCreationDate DESC, commentId ASC LIMIT 20")) {
         var sqlPlan = sqlResult.getExecutionPlan().prettyPrint(0, 2);
         assertThat(sqlPlan)
-            .as("SQL IC8 must use INDEX ORDERED MATCH; plan was:\n" + sqlPlan)
+            .as("SQL recent-replies must use INDEX ORDERED MATCH; plan was:\n" + sqlPlan)
             .contains("INDEX ORDERED MATCH");
       }
       session.commit();
@@ -1595,10 +1596,10 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             .map(s -> (YTDBMatchPlanStep<?, ?>) s)
             .findFirst()
             .orElseThrow(() -> new AssertionError(
-                "IC8 Gremlin shape must translate; steps after applyStrategies: " + steps));
+                "recent-replies Gremlin shape must translate; steps after applyStrategies: " + steps));
         var gremlinPlan = boundary.getPlan().prettyPrint(0, 2);
         assertThat(gremlinPlan)
-            .as("Gremlin IC8 must use INDEX ORDERED MATCH; plan was:\n" + gremlinPlan)
+            .as("Gremlin recent-replies must use INDEX ORDERED MATCH; plan was:\n" + gremlinPlan)
             .contains("INDEX ORDERED MATCH");
       });
     }

@@ -270,11 +270,11 @@ public class GremlinPlanFingerprintTest {
   /**
    * PF10: the fingerprint buffer must be pre-sized for the widest key the translator builds.
    *
-   * <p>This test MEASURES that key rather than assuming it. The shape is the six-column
-   * {@code select().by()} the LDBC IC2 traversal produces: a three-alias pattern, six RETURN
-   * columns, six presence entries and six emit columns. The assertions state that the key passes
-   * the old pre-size and fits the new one, so a later key section that pushes it past the buffer
-   * fails here instead of silently reintroducing the array copies.
+   * <p>This test MEASURES that key rather than assuming it. The shape is a six-column
+   * {@code select().by()}: a three-alias pattern, six RETURN columns, six presence entries and
+   * six emit columns. The assertions state that the key passes the old pre-size and fits the
+   * new one, so a later key section that pushes it past the buffer fails here instead of
+   * silently reintroducing the array copies.
    */
   @Test
   public void sixColumnSelectFingerprintFitsThePreSizedBuffer() {

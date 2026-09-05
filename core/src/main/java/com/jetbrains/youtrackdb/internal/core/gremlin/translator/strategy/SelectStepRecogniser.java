@@ -83,8 +83,9 @@ final class SelectStepRecogniser implements StepRecogniser {
           continue;
         }
         if (ctx.cardinalityClauseCaptured()) {
-          // Post-slice select: load entities from MATCH row bindings in the plan step —
-          // do not project $g2m_pe_* columns before ORDER BY / LIMIT (IC2/IC9 regression).
+          // Post-slice select: load entities from MATCH row bindings in the plan step.
+          // Projecting $g2m_pe_* columns before ORDER BY / LIMIT would force an early
+          // ProjectionCalculationStep over every candidate the slice later drops.
           aliasPresences.add(
               new AliasPropertyPresence(internalAlias, propertyKey.get(), userLabel));
         } else {

@@ -494,22 +494,17 @@ public class IndexOrderedEdgeStepCostTest {
   }
 
   /**
-   * LDBC SF1 IS2 shape: small person LinkBag vs huge Message.creationDate index, LIMIT 10,
-   * downstream REPLY_OF. This is the shape the pull request made about a hundred times slower
-   * than native execution, so it is the shape the repair has to refuse.
-   *
-   * <p>The scan would walk 240,000 index entries to find 10 rows, where loading the LinkBag
-   * reads 100 records. The cost comparison rejects that on its own, by a wide margin and without
-   * help from any gate ahead of it, which is what lets the admission path stay free of a
-   * threshold nobody has measured.
+   * Small source LinkBag vs a huge ordered index and a small LIMIT: the scan would walk
+   * far more index entries than the LinkBag has records. The cost comparison must refuse
+   * that plan on its own, without a gate ahead of {@link IndexOrderedCostModel#computeCosts}.
    */
   @Test
   public void testSf1Is2LikeShapeRefusesTheIndexScan() {
-    // SF1: ~2.4M messages; curated persons often have ~50–200 posts/comments.
+    // ~2.4M indexed rows; source LinkBag ~50–200.
     int linkBag = 100;
     long indexSize = 2_400_000L;
     long limit = 10;
-    int downstreamEdges = 2; // REPLY_OF (+ HAS_CREATOR on original)
+    int downstreamEdges = 2;
 
     // expectedScanLength = 10 / (100/2.4e6) = 240_000, against 100 loadable records.
     var costs = IndexOrderedCostModel.computeCosts(
@@ -517,15 +512,15 @@ public class IndexOrderedEdgeStepCostTest {
     assertNotNull(costs);
     assertEquals(240_000.0, costs.expectedScanLength(), 1.0);
     assertTrue(
-        "The IS2-like sparse LinkBag must lose to load-and-sort by a wide margin; unionScan="
+        "Sparse LinkBag vs huge index must lose to load-and-sort by a wide margin; unionScan="
             + costs.costUnionScan() + " loadSort=" + costs.costLoadSort(),
         costs.costLoadSort() * 10 < costs.costUnionScan());
   }
 
   /**
-   * Opposite of IS2: person owns most of the indexed rows. Index scan must
-   * win — this is the regime integration tests force with large single-source
-   * data and no artificial MAX_SCAN=1.
+   * Opposite of the sparse-LinkBag case: the source owns most of the indexed rows. Index
+   * scan must win — the regime integration tests force with large single-source data and
+   * no artificial MAX_SCAN=1.
    */
   @Test
   public void testHighDensityWithLimitPrefersIndexScan() {
@@ -567,11 +562,9 @@ public class IndexOrderedEdgeStepCostTest {
   }
 
   /**
-   * THE CATASTROPHIC CASE STILL LOSES WITHOUT A GATE. The LDBC IS2 shape walks 240,000 entries
-   * to find ten rows where the alternative reads 100 records. This is the shape that made
-   * accepted shapes about a hundred times slower than native execution, so removing the
-   * dominance gate must not hand it back to the scan — and it does not, because the two cost
-   * estimates already separate by a factor of 33.
+   * Catastrophic sparse membership still loses without a dominance gate: 240,000 entries to
+   * find ten rows where the alternative reads 100 records. Removing the gate must not hand
+   * that shape back to the scan — the two cost estimates already separate by a wide margin.
    */
   @Test
   public void testCatastrophicScanStaysRefusedWithoutADominanceGate() {
@@ -681,8 +674,8 @@ public class IndexOrderedEdgeStepCostTest {
 
   /**
    * Single- and multi-source estimates share {@link IndexOrderedCostModel#scanCostPerEntry()}.
-   * The default factor is 5 (page amort + 5×cpu). Changing that factor without a throughput gate
-   * on IC2/IC8/IC9 is how the scan-vs-load boundary drifts.
+   * The default factor is 5 (page amort + 5×cpu for lock, bitmap, filter, compare, advance).
+   * Changing it moves the scan-vs-load boundary for every ordered top-N plan.
    */
   @Test
   public void testPerEntryCursorTermsShareScanCostPerEntry() {
