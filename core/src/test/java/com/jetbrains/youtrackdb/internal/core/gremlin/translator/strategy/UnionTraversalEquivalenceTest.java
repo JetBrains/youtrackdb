@@ -203,12 +203,13 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
 
   /**
    * {@code order().by(...)} after {@code union(...)} sorts the concatenated multiset in memory via
-   * {@link PostConcatOp.Order}; sort keys match the single-plan recogniser path.
+   * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp.Order};
+   * sequence equality (not only multiset) pins sort order vs native.
    */
   @Test
-  public void unionThenOrder_byName_matchesNative() {
+  public void unionThenOrder_byName_matchesNativeOrdered() {
     seedKnowsChain();
-    assertEquivalent(
+    assertEquivalentOrdered(
         "g.V().union(out(knows), in(knows)).order().by(name)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order().by("name"));
@@ -1007,6 +1008,19 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         expected,
         Cardinality.NON_EMPTY,
         TranslatorEquivalenceSupport::sortedIdsOrValues,
+        traversalSupplier);
+  }
+
+  /** Same as {@link #assertEquivalent} but preserves encounter order (no sort). */
+  private void assertEquivalentOrdered(
+      String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    support.assertEquivalent(
+        scenario,
+        expected,
+        Cardinality.NON_EMPTY,
+        results -> results.stream()
+            .map(v -> v instanceof Vertex vertex ? vertex.id().toString() : String.valueOf(v))
+            .toList(),
         traversalSupplier);
   }
 

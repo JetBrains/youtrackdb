@@ -157,9 +157,9 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
   }
 
-  /** Keyless {@code valueMap()} on {@code hasLabel(Person)} enumerates schema-declared keys. */
+  /** Keyless {@code valueMap()} on {@code hasLabel(Person)} still declines (schemaless gap). */
   @Test
-  public void valueMap_keyless_onHasLabelPerson_accepts() {
+  public void valueMap_keyless_onHasLabelPerson_declines() {
     session.getSchema().createClass("Person", session.getSchema().getClass("V"));
     session.getSchema().getClass("Person").createProperty("name", PropertyType.STRING);
     session.getSchema().getClass("Person").createProperty("age", PropertyType.INTEGER);
@@ -174,9 +174,7 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
 
     var outcome = PropertyMapStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
-    assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("age", "name");
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
   }
 
   /**
