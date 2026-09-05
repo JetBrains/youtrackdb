@@ -52,9 +52,16 @@ final class SelectOneStepRecogniser implements StepRecogniser {
     if (modulators.size() != 1) {
       return Outcome.DECLINE;
     }
+    if (!ctx.promotePresenceDropToPatternFilter()) {
+      return Outcome.DECLINE;
+    }
     var userLabel = scopeKeys.iterator().next();
     var internalAlias = ctx.resolveUserLabel(userLabel);
     if (internalAlias == null) {
+      return Outcome.DECLINE;
+    }
+    if (ctx.returnDistinct()
+        && (ctx.boundaryAlias() == null || !ctx.boundaryAlias().equals(internalAlias))) {
       return Outcome.DECLINE;
     }
     var modulator = modulators.getFirst();
@@ -68,32 +75,34 @@ final class SelectOneStepRecogniser implements StepRecogniser {
         ResultShaping.NONE
             .withUnwrapSingletonMap(true)
             .withMapEmitColumnOrder(List.of(userLabel));
+    var returnDistinct = ctx.returnDistinct();
     var propertyKey = ByModulatorTranslator.keyModulatorPropertyKey(modulator);
     if (propertyKey.isPresent()) {
-      var presence =
-          ByModulatorPresence.aliasPresenceForEmit(ctx, internalAlias, modulator, userLabel);
-      if (presence.isPresent()) {
-        if (ctx.cardinalityClauseCaptured()) {
-          shaping =
-              shaping
-                  .withDropOnAbsent(true)
-                  .withAliasPropertyPresences(
-                      List.of(
-                          new AliasPropertyPresence(internalAlias, propertyKey.get(), userLabel)));
-        } else {
-          var entityCol = presence.get().entityColumnAlias();
-          ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), entityCol);
-          shaping =
-              shaping
-                  .withDropOnAbsent(true)
-                  .withAliasPropertyPresences(List.of(presence.get()));
-        }
-      } else {
-        // Productive by — project the field expression (null for absent keys).
+      var key = propertyKey.get();
+      var productive = ctx.byModulatorIsProductive(key);
+      var entityCol = ResultShaping.presenceEntityColumnAlias(internalAlias);
+      // Same as SelectStepRecogniser: always project the entity column, including post-slice.
+      // A following token RETURN column would otherwise drop MATCH bindings that presence
+      // resolved from when the entity column was omitted.
+      ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), entityCol);
+      if (productive && !returnDistinct) {
         ctx.appendReturnColumn(field.get(), userLabel);
+      } else {
+        var presence = new AliasPropertyPresence(entityCol, key, userLabel);
+        if (!productive) {
+          shaping = shaping.withDropOnAbsent(true);
+        }
+        shaping = shaping.withAliasPropertyPresences(List.of(presence));
       }
     } else {
+      if (returnDistinct) {
+        var entityCol = ResultShaping.presenceEntityColumnAlias(internalAlias);
+        ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), entityCol);
+      }
       ctx.appendReturnColumn(field.get(), userLabel);
+      if (ByModulatorTranslator.keyModulatorIsRecordId(modulator)) {
+        shaping = shaping.withRecordIdMapKeys(List.of(userLabel));
+      }
     }
     ctx.pinBoundary(ctx.boundaryAlias(), BoundaryOutputType.MAP, Vertex.class);
     ctx.setResultShaping(shaping);

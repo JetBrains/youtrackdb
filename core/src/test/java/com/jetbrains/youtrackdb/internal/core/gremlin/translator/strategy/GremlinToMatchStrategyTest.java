@@ -1693,16 +1693,19 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * {@code valueMap} after {@code order()} without LIMIT: the sort visits every row and no slice
-   * drops any, so deferring the projection would only make each comparison re-evaluate the sort
-   * key. CALCULATE PROJECTIONS must therefore run <em>before</em> ORDER BY.
+   * {@code valueMap} after {@code order()} without LIMIT: ORDER BY is {@code alias.property},
+   * which compares on MATCH bindings, so CALCULATE PROJECTIONS stays <em>after</em> ORDER BY
+   * even without a slice. Projecting the RETURN list first would only be safe when every
+   * ordered alias survives as an entity column; the uniform binding-key deferral keeps
+   * {@code RETURN a.name ORDER BY a.id} correct and still lets a later LIMIT cut before the
+   * projection.
    *
-   * <p>This expectation is the deliberate inverse of the one this test shipped with. Gating the
-   * deferral decision on a slice being present is what inverts it: with no LIMIT there is no
-   * top-N to bound, so early projection is the cheaper plan.
+   * <p>With a LIMIT the same deferral is what
+   * {@link #is2PersonMessages_translatedPlanDefersProjectionsUntilAfterLimit} pins; this
+   * case shows the rule is not gated on the slice alone.
    */
   @Test
-  public void is3FriendsWithNames_translatedPlanProjectsBeforeOrderByWithoutSlice() {
+  public void is3FriendsWithNames_translatedPlanDefersProjectionsAfterOrderByWithoutSlice() {
     seedKnowsOrderedPageGraph();
 
     support.withTranslator(true, () -> {
@@ -1728,9 +1731,9 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
       assertThat(orderAt).as("missing ORDER BY:\n" + plan).isGreaterThanOrEqualTo(0);
       assertThat(projectAt).as("missing CALCULATE PROJECTIONS:\n" + plan)
           .isGreaterThanOrEqualTo(0);
-      assertThat(projectAt)
-          .as("projections must precede ORDER BY without a slice; plan was:\n" + plan)
-          .isLessThan(orderAt);
+      assertThat(orderAt)
+          .as("binding-key ORDER BY defers projections even without a slice; plan was:\n" + plan)
+          .isLessThan(projectAt);
     });
   }
 

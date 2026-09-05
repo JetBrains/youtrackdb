@@ -814,6 +814,12 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
         var value = mapColumnValue(row, only, entity);
         return value == SKIP ? new LinkedHashMap<Object, Object>() : value;
       }
+      // Token / projected-field select (e.g. by(T.label) after dedup): RETURN may also carry a
+      // DISTINCT identity column ($g2m_pe_*). Prefer the pinned emit column over scanning every
+      // RETURN name, which would otherwise see two columns and fall through to BUILD_MAP.
+      if (row.getPropertyNames().contains(only)) {
+        return mapColumnValue(row, only, entity);
+      }
     }
     String onlyName = null;
     int emitted = 0;

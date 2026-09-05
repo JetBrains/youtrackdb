@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
@@ -21,7 +23,12 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
   private static final Set<Class<?>> TRANSPARENT = Set.of();
 
-  /** {@code values("name")} pins {@code SINGLE_VALUE}, sets {@code dropOnAbsent}, records field IR. */
+  /**
+   * {@code values("name")} pins {@code SINGLE_VALUE} and {@code dropOnAbsent}. RETURN is the
+   * boundary entity column only — the plan step reads {@code name} via presence; the key stays in
+   * {@code presencePropertyKeys}, not as a parallel {@code alias.key} RETURN column. Field IR for a
+   * following aggregate still records {@code $g2m_v0.name}.
+   */
   @Test
   public void valuesSingleKey_pinsSingleValueAndDropOnAbsent() {
     var admin = graph.traversal().V().values("name").asAdmin();
@@ -40,7 +47,9 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.lastPropertyProjection.alias()).isEqualTo(BOUNDARY_ALIAS);
     assertThat(ctx.lastPropertyProjection.expression().toString())
         .isEqualTo(BOUNDARY_ALIAS + ".name");
-    assertThat(ctx.returnItems).hasSize(2);
+    assertThat(ctx.returnItems).hasSize(1);
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(BOUNDARY_ALIAS);
+    assertThat(ctx.returnItems.getFirst().toString()).doesNotContain(".name");
     assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("name");
   }
 
@@ -106,7 +115,10 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
   }
 
-  /** {@code valueMap("name")} emits one named RETURN column and pins {@code MAP}. */
+  /**
+   * {@code valueMap("name")} pins {@code MAP} with list-wrap. RETURN is the boundary entity only;
+   * {@code name} is a presence / emit key, not a parallel RETURN column.
+   */
   @Test
   public void valueMapSingleKey_pinsMapProjection() {
     var admin = graph.traversal().V().valueMap("name").asAdmin();
@@ -119,9 +131,11 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
     assertThat(ctx.shaping().wrapMapValuesInLists()).isTrue();
     assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("name");
+    assertThat(ctx.shaping().mapEmitColumnOrder()).containsExactly("name");
     assertThat(ctx.returnAliases.stream().map(a -> a == null ? null : a.getStringValue()))
-        .contains(BOUNDARY_ALIAS, "name");
-    assertThat(ctx.returnItems.get(1).toString()).contains("name");
+        .containsExactly(BOUNDARY_ALIAS);
+    assertThat(ctx.returnItems).hasSize(1);
+    assertThat(ctx.returnItems.getFirst().toString()).doesNotContain(".name");
   }
 
   /** Bare {@code valueMap()} declines — all-property enumeration is deferred. */
@@ -136,7 +150,10 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
   }
 
-  /** {@code elementMap("name")} includes id/label token columns plus the property key. */
+  /**
+   * {@code elementMap("name")} RETURNs the boundary entity plus id/label token columns. The property
+   * key is presence / emit only — not a fourth RETURN alias.
+   */
   @Test
   public void elementMap_includesIdLabelAndPropertyColumns() {
     var admin = graph.traversal().V().elementMap("name").asAdmin();
@@ -152,11 +169,20 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
         .containsExactly(
             BOUNDARY_ALIAS,
             GremlinProjectionAssembler.ELEMENT_MAP_KEY_ID,
+            GremlinProjectionAssembler.ELEMENT_MAP_KEY_LABEL);
+    assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("name");
+    assertThat(ctx.shaping().mapEmitColumnOrder())
+        .containsExactly(
+            GremlinProjectionAssembler.ELEMENT_MAP_KEY_ID,
             GremlinProjectionAssembler.ELEMENT_MAP_KEY_LABEL,
             "name");
   }
 
-  /** {@code select("v").by("name")} applies the modulator to the bound label's internal alias. */
+  /**
+   * {@code select("v").by("name")} RETURNs a {@code $g2m_pe_*} entity column (not user label
+   * {@code "v"}). The user label is the map emit key; the entity expression has no {@code .name}
+   * field access — the plan step reads the property via {@link AliasPropertyPresence}.
+   */
   @Test
   public void selectWithBy_appliesModulatorToBoundLabel() {
     var admin = graph.traversal().V().as("v").select("v").by("name").asAdmin();
@@ -165,10 +191,15 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
 
     var outcome = SelectOneStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
+    var peAlias = ResultShaping.presenceEntityColumnAlias(BOUNDARY_ALIAS);
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
-    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo("v");
-    assertThat(ctx.returnItems.getFirst().toString()).contains("name");
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(peAlias);
+    assertThat(ctx.returnItems.getFirst().toString()).doesNotContain(".name");
+    assertThat(ctx.shaping().mapEmitColumnOrder()).containsExactly("v");
+    assertThat(ctx.shaping().dropOnAbsent()).isTrue();
+    assertThat(ctx.shaping().aliasPropertyPresences())
+        .containsExactly(new AliasPropertyPresence(peAlias, "name", "v"));
   }
 
   /** {@code project("n").by("name")} builds one modulated RETURN column per project key. */
@@ -188,8 +219,9 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Multi-label {@code select("a","b").by("name").by("age")} projects each label through its
-   * matching key modulator into a MAP (unwrapSingletonMap stays false).
+   * Multi-label {@code select("a","b").by("name").by("age")} RETURNs a {@code $g2m_pe_*} entity
+   * column per label; user labels stay in {@code mapEmitColumnOrder} / alias-presence map keys.
+   * unwrapSingletonMap stays false.
    */
   @Test
   public void selectMultiLabelWithMatchingBys_pinsMapColumns() {
@@ -201,12 +233,20 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
 
     var outcome = SelectStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
+    var peA = ResultShaping.presenceEntityColumnAlias(BOUNDARY_ALIAS);
+    var peB = ResultShaping.presenceEntityColumnAlias("$g2m_anon_0");
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
     assertThat(ctx.shaping().unwrapSingletonMap()).isFalse();
-    assertThat(ctx.returnAliases.stream().map(a -> a.getStringValue())).containsExactly("a", "b");
-    assertThat(ctx.returnItems.get(0).toString()).contains("name");
-    assertThat(ctx.returnItems.get(1).toString()).contains("age");
+    assertThat(ctx.returnAliases.stream().map(a -> a.getStringValue())).containsExactly(peA, peB);
+    assertThat(ctx.returnItems.get(0).toString()).doesNotContain(".name");
+    assertThat(ctx.returnItems.get(1).toString()).doesNotContain(".age");
+    assertThat(ctx.shaping().mapEmitColumnOrder()).containsExactly("a", "b");
+    assertThat(ctx.shaping().dropOnAbsent()).isTrue();
+    assertThat(ctx.shaping().aliasPropertyPresences())
+        .containsExactly(
+            new AliasPropertyPresence(peA, "name", "a"),
+            new AliasPropertyPresence(peB, "age", "b"));
   }
 
   /** {@code order().by(name)} ahead of the select keeps the same two-label/two-by shape. */
@@ -287,7 +327,10 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(SelectStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
   }
 
-  /** {@code valueMap("name","age")} emits both property columns under MAP with list-wrap. */
+  /**
+   * {@code valueMap("name","age")} pins both keys as presence / emit order under MAP with
+   * list-wrap; RETURN stays the boundary entity only.
+   */
   @Test
   public void valueMapMultiKey_pinsBothPresenceKeys() {
     var admin = graph.traversal().V().valueMap("name", "age").asAdmin();
@@ -299,6 +342,9 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
     assertThat(ctx.shaping().presencePropertyKeys()).containsExactly("name", "age");
+    assertThat(ctx.shaping().mapEmitColumnOrder()).containsExactly("name", "age");
+    assertThat(ctx.returnAliases.stream().map(a -> a.getStringValue()))
+        .containsExactly(BOUNDARY_ALIAS);
   }
 
   /** {@code select(Pop.first,"v")} declines — SelectOneStep only accepts Pop.last. */

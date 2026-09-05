@@ -329,7 +329,8 @@ public class SelectExecutionPlanner {
    * {@code _$$$ORDER_BY_ALIAS$$$_*} columns), {@link #handleProjectionsBeforeOrderBy}
    * runs first so those keys exist for {@link OrderByStep}. When every ORDER BY item is
    * already evaluable on the upstream row ({@code alias.property}, {@code @rid}, …),
-   * projections stay deferred until after SKIP/LIMIT so a top-N query does not run
+   * projections stay deferred until after ORDER BY (and SKIP/LIMIT when present) so the
+   * sort still sees MATCH bindings and a top-N query does not run
    * {@link ProjectionCalculationStep} on every candidate before the bounded heap drops them.
    */
   public static void handleProjectionsBlock(
@@ -544,14 +545,18 @@ public class SelectExecutionPlanner {
 
   /**
    * When ORDER BY keys need SELECT-list (or synthetic) columns, project before
-   * {@link OrderByStep}. Otherwise leave projections for Path C after SKIP/LIMIT.
+   * {@link OrderByStep}. Otherwise leave projections for Path C after SKIP/LIMIT —
+   * including when there is no slice. Binding-key ORDER BY ({@code alias.property} /
+   * {@code @rid}) compares on MATCH rows; projecting the RETURN list early would drop
+   * those bindings whenever RETURN does not keep the ordered alias as an entity column
+   * (e.g. {@code RETURN src.name, dst.name ORDER BY dst.id}).
    *
    * <p>Early projection is required for {@code ORDER BY messageCreationDate} (RETURN
    * alias) and for synthetic {@code _$$$ORDER_BY_ALIAS$$$_*} columns from
-   * {@link #addOrderByProjections}. It is <em>not</em> required for
-   * {@code ORDER BY message.creationDate} / {@code @rid} — those compare on MATCH
-   * bindings. Projecting early there forces every candidate through
-   * {@link ProjectionCalculationStep} before a bounded heap can drop them.
+   * {@link #addOrderByProjections}. Binding-key ORDER BY with a slice must not project
+   * early for the same Match-binding reason, and so that a top-N query does not run
+   * {@link ProjectionCalculationStep} on every candidate before the bounded heap drops
+   * them.
    */
   private static void handleProjectionsBeforeOrderBy(
       SelectExecutionPlan result,

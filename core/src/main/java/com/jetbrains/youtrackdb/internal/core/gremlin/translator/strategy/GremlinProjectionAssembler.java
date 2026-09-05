@@ -45,10 +45,21 @@ final class GremlinProjectionAssembler {
     if (boundary == null || userLabels.isEmpty()) {
       return Outcome.DECLINE;
     }
+    // values(key).select(...) — promote the values drop into the pattern before select
+    // replaces ResultShaping and clears dropOnAbsent (ProjectionEquivalenceTest
+    // selectAfterValues_keepsTheAbsenceDrop).
+    if (!ctx.promotePresenceDropToPatternFilter()) {
+      return Outcome.DECLINE;
+    }
     ctx.clearReturnProjection();
     for (String userLabel : userLabels) {
       var internalAlias = ctx.resolveUserLabel(userLabel);
       if (internalAlias == null) {
+        return Outcome.DECLINE;
+      }
+      // After dedup(), MATCH DISTINCT keys the RETURN row — a foreign hop label is not
+      // Gremlin's "dedup current, then select another path label" contract.
+      if (ctx.returnDistinct() && !boundary.equals(internalAlias)) {
         return Outcome.DECLINE;
       }
       ctx.markReturnAliasIfForeign(internalAlias);
