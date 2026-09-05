@@ -17,11 +17,11 @@ import org.junit.Test;
  * {@code REPLY_OF.out} link to {@code Comment}, whose {@code creationDate} index can then serve
  * the ORDER BY.
  *
- * <p>THE FINDING WAS THAT NO TEST FAILED ON REVERT. Every existing IC8 test pins the class with
- * {@code hasLabel("Comment")}, which skips the inference entirely, and the one shape that omits
- * the label asserts rows and boundary presence only. Rows cannot see the difference: without the
- * inference the planner falls back to an ordinary MATCH plan and returns the same records in the
- * same order. Only the plan shows it, which is what the tests below read.
+ * <p>THE FINDING WAS THAT NO TEST FAILED ON REVERT. Existing reply-order tests pin the class
+ * with {@code hasLabel("Comment")}, which skips the inference entirely, and the one shape that
+ * omits the label asserts rows and boundary presence only. Rows cannot see the difference:
+ * without the inference the planner falls back to an ordinary MATCH plan and returns the same
+ * records in the same order. Only the plan shows it, which is what the tests below read.
  */
 public class BareHopClassInferenceTest extends GraphBaseTest {
 

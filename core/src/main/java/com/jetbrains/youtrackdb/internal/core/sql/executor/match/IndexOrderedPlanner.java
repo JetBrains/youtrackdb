@@ -282,9 +282,9 @@ public final class IndexOrderedPlanner {
     //     filter or RID constraint, this query can only land in single-source,
     //     FILTERED_BOUND, or FILTERED_UNBOUND mode — all of which require LIMIT
     //     at step 10b. Returning here skips the expensive schema/index lookup
-    //     below (measured ~5-7% CPU regression on IS7, where msg has id= filter
-    //     but the query has no LIMIT). UNFILTERED_* modes still proceed because
-    //     they require source to have no filter and no RID constraint.
+    //     below — planner setup that does not pay back when the scan cannot
+    //     cut on LIMIT). UNFILTERED_* modes still proceed because they require
+    //     source to have no filter and no RID constraint.
     var earlyLimitSize = limit != null && limit.getValue(context) >= 0
         ? limit.getValue(context) : -1;
     if (earlyLimitSize < 0
@@ -463,8 +463,7 @@ public final class IndexOrderedPlanner {
     // Without LIMIT, all source rows' edges must be scanned regardless of
     // order, so the only saving is sort elision — which for small linkBags
     // is negligible compared to the planner setup + per-source RidSet build
-    // + index cursor init overhead (measured ~5-7% CPU regression on IS7
-    // where msg is unique-indexed, linkBag ≈ a few replies, no LIMIT).
+    // + index cursor init overhead on small LinkBags without a LIMIT cut.
     // UNFILTERED modes scan the whole index anyway — they stay enabled
     // without LIMIT (see testIndexOrderedMatchNoLimitAllResults,
     // testIndexOrderedMatchUnfilteredBoundNoLimit).
@@ -968,8 +967,8 @@ public final class IndexOrderedPlanner {
     // (b) if any later edge's WHERE clause references $matched — UNBOUND
     //     modes drop upstream aliases from the result row, which means
     //     $matched (set to the current row) would miss those aliases.
-    //     This breaks queries like IS7 where a downstream edge uses
-    //     $matched.author.@rid but author was bound before the optimized edge.
+    //     That breaks a downstream edge that reads $matched.<earlierAlias>.@rid
+    //     when that alias was bound before the optimized edge.
     var pastMatched = false;
     for (var edge : sortedEdges) {
       if (edge.edge == matchedEdge.edge) {
@@ -1002,8 +1001,8 @@ public final class IndexOrderedPlanner {
    * For example, {@code {class: Person, where: (id = :personId)}} with a
    * UNIQUE index on Person.id guarantees one row.
    *
-   * <p>This enables single-source index-ordered mode for queries like IS2
-   * where the source is identified by a unique key rather than a literal RID.
+   * <p>This enables single-source index-ordered mode when the source is pinned by a
+   * unique equality rather than a literal RID.
    */
   private static boolean hasSingleRowGuarantee(
       String alias,

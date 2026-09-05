@@ -37,9 +37,9 @@ import javax.annotation.Nullable;
  * {@link #computeCosts} and {@link #pickMultiSourceStrategy} both price a filtered ordered-scan
  * cursor advance through {@link #scanCostPerEntry}: amortized leaf-page read plus
  * {@link GlobalConfiguration#QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR} times per-row CPU. Default
- * factor is 5 (lock, bitmap, filter lambda, key compare, advance). An LDBC JMH sweep of factors
- * 1–5 on IC2/IC8/IC9 (SQL ST+MT) found no &gt;5% regression vs develop at any factor; factor 5
- * had the best geometric-mean throughput. Do not change the default without repeating that gate.
+ * factor is 5 — roughly one {@link CostModel#perRowCpuCost} each for read lock, RidSet bitmap
+ * check, filter lambda, key compare, and leaf advance. Lower values favour index scan; raise
+ * them to prefer load-all-and-sort.
  */
 final class IndexOrderedCostModel {
 

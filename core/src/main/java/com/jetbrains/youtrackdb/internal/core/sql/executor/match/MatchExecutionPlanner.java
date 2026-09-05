@@ -676,9 +676,9 @@ public class MatchExecutionPlanner {
     //
     // The schedule computed here is reused by Phase 5 (see precomputedSortedEdges
     // parameter of createPlanForPattern) to avoid a duplicate
-    // getTopologicalSortedSchedule call on every planning invocation — measured
-    // ~5% CPU savings on queries where plan cache misses (e.g. IS7, where
-    // $matched.X.@rid back-reference blocks caching).
+    // getTopologicalSortedSchedule call on every planning invocation — useful
+    // when the plan cache misses (e.g. a $matched.X.@rid back-reference that
+    // blocks caching).
     IndexOrderedPlanner.IndexOrderedCandidate indexOrderedCandidate = null;
     List<EdgeTraversal> probeEdges = null;
     if (subPatterns.size() == 1 && orderBy != null) {
