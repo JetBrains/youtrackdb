@@ -45,26 +45,20 @@ import org.junit.Test;
  *       MATCH / index-ordered path).
  *   <li><b>Pre-aggregate cardinality</b> — {@code limit}/{@code skip}/{@code dedup} then
  *       {@code count}/{@code sum}/… declines.
- *   <li><b>Edge {@code as(k)}</b> — binding the edge segment declines ({@code select(k)} would emit
- *       the edge-as-node vertex alias).
  *   <li><b>{@code bothE(L).has(...).otherV()}</b> — declines (self-loop RID rewrite is wrong); directed
- *       {@code outE.has.inV} / {@code inE.has.outV} translate.
- *   <li><b>Polymorphic multi-label {@code hasLabel}</b> — {@code hasLabel(L1,L2)} under default
- *       polymorphic mode declines; non-polymorphic {@code @class IN} and multi-label hops translate.
+ *       {@code outE.has.inV} / {@code inE.has.outV} translate. Edge {@code as(k)} + {@code select(k)}
+ *       emits an {@code Edge}.
  *   <li><b>Edge-bearing combinator child</b> — {@code and}/{@code or}/{@code where}/{@code filter}
  *       with a hop inside declines (existence would join-fan-out); pure property children translate.
  *   <li><b>Labelled {@code where(as(a)…)}</b> — scope steps unregistered → decline.
  *   <li><b>{@code where(P).by(...)}</b> — modulateBy property projection out of Phase 1.
- *   <li><b>{@code dedup().by(property)}</b> on an element boundary translates (post-projection
- *       dedup), including post-union; {@code values(k).dedup()} and prior-label {@code dedup(a)}
- *       translate; bare element {@code dedup()} and {@code RETURN DISTINCT} translate.
- *   <li><b>Keyless {@code valueMap()}/{@code elementMap()}</b> — on the generic {@code V} root declines;
- *       on a typed boundary ({@code hasLabel(L)} with schema-declared properties) translates; keyed
- *       forms always translate.
-   *   <li><b>Post-union hop/filter/positional slice</b> — declines; union+{@code count}/early
-   *       {@code dedup}/{@code order} translate.
- *   <li><b>Bare RID point-lookup</b> — {@code g.V(id)} / {@code hasId} with no hop declines (native
- *       seek); the same id with a hop translates.
+ *   <li><b>{@code dedup().by(property)}</b> / prior-label {@code dedup(a)} — decline (first-wins
+ *       survivor is MATCH-order-dependent vs native); {@code values(k).dedup()}, bare element
+ *       {@code dedup()}, and boundary-named {@code dedup(v)} translate.
+ *   <li><b>Keyless {@code valueMap()}/{@code elementMap()}</b> — declines (schema keys alone
+ *       under-project vs native schemaless enumeration); keyed forms translate.
+ *   <li><b>Post-union hop/filter/positional slice</b> — declines; union+{@code count}/early
+ *       {@code dedup}/{@code order} translate.
  *   <li><b>{@code Order.shuffle}</b> / second {@code order()} / order after {@code group} — decline.
  * </ul>
  */
@@ -785,13 +779,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .order().by(__.select("k").by("since"), Order.asc));
   }
 
-  /** dedup().by(property) dedups on modulator value while emitting elements. */
+  /** dedup().by(property) declines — survivor identity is MATCH-order-dependent vs native. */
   @Test
-  public void dedup_by_matchesNative() {
+  public void dedup_by_declines() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().out(created).dedup().by(name)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().out("created").dedup().by("name"));
   }
 
@@ -805,23 +799,23 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").values("name").dedup());
   }
 
-  /** Prior-label dedup(a) keeps the first out-neighbour per labelled source. */
+  /** Prior-label dedup(a) declines — boundary survivor is MATCH-order-dependent vs native. */
   @Test
-  public void priorLabel_dedup_matchesNative() {
+  public void priorLabel_dedup_declines() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().as(a).out(knows).dedup(a)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().as("a").out("knows").dedup("a"));
   }
 
-  /** Post-union dedup().by(prop) dedups concatenated elements by property. */
+  /** Post-union dedup().by(prop) declines for the same order-dependent reason. */
   @Test
-  public void union_dedup_by_matchesNative() {
+  public void union_dedup_by_declines() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().union(out(knows), out(created)).dedup().by(name)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V()
             .union(__.out("knows"), __.out("created"))
             .dedup().by("name"));
@@ -854,13 +848,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").groupCount().by("name").unfold());
   }
 
-  /** Keyless valueMap on a typed boundary enumerates schema-declared properties. */
+  /** Keyless valueMap declines — schema keys alone under-project vs native schemaless maps. */
   @Test
-  public void valueMap_keyless_onHasLabel_matchesNative() {
+  public void valueMap_keyless_onHasLabel_declines() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().hasLabel(Person).valueMap()",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().hasLabel("Person").valueMap());
   }
 

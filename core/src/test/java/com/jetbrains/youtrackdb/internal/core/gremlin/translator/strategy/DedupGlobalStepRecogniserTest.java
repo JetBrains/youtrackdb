@@ -69,21 +69,18 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnDistinct).isFalse();
   }
 
-  /** {@code dedup().by("name")} registers a post-projection dedup list-shaping stage. */
+  /** {@code dedup().by("name")} declines — survivor identity is MATCH-order-dependent vs native. */
   @Test
-  public void dedupWithByChild_appendsListShapingOp() {
+  public void dedupWithByChild_declines() {
     var admin = graph.traversal().V().dedup().by("name").asAdmin();
     var ctx = seededContext();
     var cursor = cursorAtDedup(admin);
 
     var outcome = DedupGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
     assertThat(ctx.returnDistinct).isFalse();
-    assertThat(ctx.shaping().listShapingOps()).hasSize(1);
-    assertThat(ctx.shaping().listShapingOps().getFirst())
-        .isInstanceOf(
-            com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.DedupByModulatorListShapingOp.class);
+    assertThat(ctx.shaping().listShapingOps()).isEmpty();
   }
 
   /** {@code values("name").dedup()} appends a payload-identity list-shaping stage. */

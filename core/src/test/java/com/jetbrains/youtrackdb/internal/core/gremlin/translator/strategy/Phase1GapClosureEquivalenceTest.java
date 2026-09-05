@@ -35,6 +35,25 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
   // Edge alias — bind, project, sort.
   // ---------------------------------------------------------------------------
 
+  /** {@code outE(L).as(k).inV().select(k)} emits a TinkerPop {@code Edge}, not a vertex wrapper. */
+  @Test
+  public void edgeAlias_select_emitsEdgeInstance() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    graph.tx().commit();
+
+    support.withTranslatorRestored(
+        () -> {
+          support.setTranslatorEnabled(true);
+          var result =
+              graph.traversal().V(alice.id()).outE("knows").as("k").inV().select("k").next();
+          assertThat(result)
+              .as("select(edgeAlias) must return a TinkerPop Edge under translator-on")
+              .isInstanceOf(org.apache.tinkerpop.gremlin.structure.Edge.class);
+        });
+  }
+
   /** {@code outE(L).as(k).inV().select(k).by(since)} binds the edge alias and projects edge properties. */
   @Test
   public void edgeAlias_selectByProperty_matchesNative() {

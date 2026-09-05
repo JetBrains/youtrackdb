@@ -1,22 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.DedupByModulatorListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.DedupPayloadListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
-import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 
 /**
  * Recogniser for {@link DedupGlobalStep}: anonymous / current-boundary named {@code dedup} sets
- * {@code RETURN DISTINCT}; {@code values(k).dedup()} and {@code dedup().by(prop)} append post-
- * projection list-shaping; prior-label {@code dedup(a)} keeps the first row per prior alias RID
- * then emits the current boundary element; post-union bare {@code dedup()} becomes a
- * {@link PostConcatOp.Dedup} and post-union {@code dedup().by(prop)} reuses the list-shaping path.
+ * {@code RETURN DISTINCT}; {@code values(k).dedup()} / {@code valueMap(…).dedup()} append
+ * post-projection payload list-shaping; post-union bare {@code dedup()} becomes a
+ * {@link PostConcatOp.Dedup}.
+ *
+ * <p>{@code dedup().by(prop)} and prior-label {@code dedup(a)} decline: both keep a first-wins
+ * survivor in stream order, and MATCH row order is not Gremlin traversal order, so the survivor
+ * can diverge when keys collide.
  */
 final class DedupGlobalStepRecogniser implements StepRecogniser {
 
@@ -33,14 +32,15 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
     }
     var byChildren = dedup.getLocalChildren();
     if (!byChildren.isEmpty()) {
-      return recognizeDedupBy(ctx, dedup, byChildren);
+      // dedup().by(prop): first element per modulator value is order-dependent vs native.
+      return Outcome.DECLINE;
     }
     if (ctx.hasUnionCarrier()) {
       return recognizePostUnion(ctx, dedup);
     }
-    var priorAlias = singlePriorScopeAlias(ctx, dedup);
-    if (priorAlias != null) {
-      return recognizePriorLabelDedup(ctx, priorAlias);
+    if (singlePriorScopeAlias(ctx, dedup) != null) {
+      // Prior-label dedup(a): boundary survivor per a's RID is order-dependent vs native.
+      return Outcome.DECLINE;
     }
     if (ctx.boundaryOutputType() == BoundaryOutputType.SINGLE_VALUE
         || ctx.boundaryOutputType() == BoundaryOutputType.MAP) {
@@ -59,38 +59,6 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     ctx.setReturnDistinct(true);
-    return Outcome.ACCEPTED;
-  }
-
-  private static Outcome recognizeDedupBy(
-      RecognitionContext ctx,
-      DedupGlobalStep<?> dedup,
-      java.util.List<? extends Traversal<?, ?>> byChildren) {
-    if (byChildren.size() != 1) {
-      return Outcome.DECLINE;
-    }
-    if (ctx.boundaryOutputType() != BoundaryOutputType.ELEMENT) {
-      return Outcome.DECLINE;
-    }
-    if (!scopeKeysNameOnlyBoundary(ctx, dedup)) {
-      return Outcome.DECLINE;
-    }
-    if (ctx.hasUnionCarrier()) {
-      for (var op : ctx.postConcatOps()) {
-        if (op instanceof PostConcatOp.Dedup || op instanceof PostConcatOp.Count) {
-          return Outcome.DECLINE;
-        }
-      }
-    }
-    if (!ctx.supportsListShaping()) {
-      return Outcome.DECLINE;
-    }
-    var modulatorKey =
-        ByModulatorTranslator.translateDedupModulatorKey(byChildren.getFirst().asAdmin());
-    if (modulatorKey.isEmpty()) {
-      return Outcome.DECLINE;
-    }
-    ctx.appendListShapingOp(new DedupByModulatorListShapingOp(modulatorKey.get()));
     return Outcome.ACCEPTED;
   }
 
@@ -114,23 +82,6 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
     return Outcome.ACCEPTED;
   }
 
-  /**
-   * Unique-by prior alias RID, emit the current boundary element. The prior column must appear in
-   * RETURN so the post-plan stream filter can read its identity; projection still emits only the
-   * boundary entity.
-   */
-  private static Outcome recognizePriorLabelDedup(RecognitionContext ctx, String priorAlias) {
-    if (ctx.boundaryOutputType() != BoundaryOutputType.ELEMENT) {
-      return Outcome.DECLINE;
-    }
-    if (ctx.rowDedupAlias() != null) {
-      return Outcome.DECLINE;
-    }
-    ensurePriorReturnColumn(ctx, priorAlias);
-    ctx.setRowDedupAlias(priorAlias);
-    return Outcome.ACCEPTED;
-  }
-
   private static Outcome recognizeProjectedPayloadDedup(
       RecognitionContext ctx, DedupGlobalStep<?> dedup) {
     var scopeKeys = dedup.getScopeKeys();
@@ -146,8 +97,7 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
 
   /**
    * When {@code dedup} names exactly one scope key that resolves to a prior (non-boundary) alias,
-   * returns that internal alias; otherwise {@code null} (empty scope, boundary-only names, unbound
-   * labels, or multi-key scopes fall through to other arms).
+   * returns that internal alias; otherwise {@code null}.
    */
   @Nullable private static String singlePriorScopeAlias(RecognitionContext ctx, DedupGlobalStep<?> dedup) {
     var scopeKeys = dedup.getScopeKeys();
@@ -164,23 +114,6 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
       return null;
     }
     return internalAlias;
-  }
-
-  private static void ensurePriorReturnColumn(RecognitionContext ctx, String priorAlias) {
-    ctx.markReturnAliasIfForeign(priorAlias);
-    if (ctx instanceof WalkerContext wc && alreadyReturnsAlias(wc, priorAlias)) {
-      return;
-    }
-    ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(priorAlias), priorAlias);
-  }
-
-  private static boolean alreadyReturnsAlias(WalkerContext ctx, String alias) {
-    for (var columnAlias : ctx.returnAliases) {
-      if (columnAlias != null && alias.equals(columnAlias.getStringValue())) {
-        return true;
-      }
-    }
-    return false;
   }
 
   @Override

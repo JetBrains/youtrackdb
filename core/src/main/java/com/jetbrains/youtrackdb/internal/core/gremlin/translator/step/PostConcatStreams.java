@@ -214,7 +214,7 @@ final class PostConcatStreams {
     @Override
     public Result next(CommandContext ctx) {
       if (!hasNext(ctx)) {
-        throw new IllegalStateException();
+        throw new java.util.NoSuchElementException();
       }
       return sorted.get(index++);
     }

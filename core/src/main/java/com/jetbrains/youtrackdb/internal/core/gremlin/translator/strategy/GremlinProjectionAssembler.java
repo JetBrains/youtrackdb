@@ -231,11 +231,9 @@ final class GremlinProjectionAssembler {
       return Outcome.DECLINE;
     }
     if (propertyKeys == null || propertyKeys.length == 0) {
-      var schemaKeys = ctx.boundaryDeclaredPropertyKeys();
-      if (schemaKeys.isEmpty()) {
-        return Outcome.DECLINE;
-      }
-      propertyKeys = schemaKeys.toArray(String[]::new);
+      // No key list means every property, including schemaless/ad-hoc ones native valueMap()
+      // enumerates at iteration time. Schema-declared keys alone under-project, so decline.
+      return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
     // Entity column — omitted from the emitted MAP; used for hasProperty and property values.

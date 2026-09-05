@@ -510,9 +510,10 @@ final class GremlinPredicateAdapter {
   }
 
   /**
-   * Translates a scalar {@link Compare}. Handles the {@code eq(null)} / {@code neq(null)} rewrites
-   *, the singleton-collection decline, the {@code neq} absent-property guard, and — when {@code
-   * rangeTypeGuard} is set — the per-record type guard on the four order comparisons.
+   * Translates a scalar {@link Compare}. Handles the {@code eq(null)} / {@code neq(null)} rewrites,
+   * size-1 collection unwrap under {@code eq}/{@code neq}, the {@code neq} absent-property guard,
+   * and — when {@code rangeTypeGuard} is set — the per-record type guard on the four order
+   * comparisons.
    *
    * <h2>The type guard</h2>
    *
