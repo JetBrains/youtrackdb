@@ -590,6 +590,35 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
   }
 
   /**
+   * BG500 — a bounded range lookup through {@code multipleRange} omits null-key entries. A full
+   * scan concatenates {@code fetchNullKeys}; a non-null {@code from}/{@code to} pair only calls
+   * {@code streamEntriesBetween}, so a record missing the indexed property disappears from every
+   * pushdown that carries a sort-key bound.
+   *
+   * <p>Pin of current behaviour (fix deferred). Contrast
+   * {@link #fullScanIncludesRecordsWithNullIndexedValue}.
+   */
+  @Test
+  public void boundedRangeOmitsNullKeyEntries() {
+    var fixture = createIndexedClass();
+    seed(fixture.className, 10, 20, 30);
+    seedNull(fixture.className, 1);
+    var ctx = newContext();
+    var step =
+        buildStep(
+            fixture.indexName,
+            andBlockOf(binaryCondition("key", new SQLGtOperator(-1), 5)),
+            ctx);
+
+    var results = startAndDrain(step, ctx);
+
+    assertThat(keys(results))
+        .as("multipleRange must not surface the null-key record for a bounded predicate")
+        .containsExactly(10, 20, 30)
+        .doesNotContainNull();
+  }
+
+  /**
    * {@code WHERE key >= X} is inclusive on the lower bound. Pins the {@code isGreaterOperator &&
    * isIncludeOperator} path in {@code indexKeyFromIncluded}.
    */

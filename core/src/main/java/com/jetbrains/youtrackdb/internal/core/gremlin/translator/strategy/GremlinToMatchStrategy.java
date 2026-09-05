@@ -551,7 +551,8 @@ public final class GremlinToMatchStrategy
     if (inputs == null) {
       return false;
     }
-    return GremlinPlanCache.instance(session).contains(GremlinPlanFingerprint.fingerprint(inputs));
+    return GremlinPlanCache.instance(session)
+        .contains(GremlinPlanFingerprint.fingerprint(inputs, translation.shaping()));
   }
 
   /**
@@ -578,7 +579,7 @@ public final class GremlinToMatchStrategy
           session, requireInputs(translation), translation.inputParameters());
     }
     var inputs = requireInputs(translation);
-    var fingerprint = GremlinPlanFingerprint.fingerprint(inputs);
+    var fingerprint = GremlinPlanFingerprint.fingerprint(inputs, translation.shaping());
     var cached = GremlinPlanCache.template(fingerprint, session);
     if (cached != null) {
       return cached;

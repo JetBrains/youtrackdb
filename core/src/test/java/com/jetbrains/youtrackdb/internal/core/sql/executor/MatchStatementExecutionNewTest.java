@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -21,7 +22,9 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class MatchStatementExecutionNewTest extends DbTestBase {
 
   @Override
@@ -3753,6 +3756,117 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  /**
+   * IC2-shaped multi-hop: start -out KNOWS→ friend -in HAS_CREATOR→ msg, RETURN only msg
+   * columns. Friend is constrained by an earlier edge even when absent from RETURN, so the
+   * planner must choose FILTERED_BOUND (GLOBAL_SCAN-capable) rather than FILTERED_UNBOUND —
+   * otherwise LDBC fan-out materialises every friends' message before LIMIT can cut.
+   */
+  @Test
+  public void testIndexOrderedMatchEarlierEdgeForcesFilteredBoundWithoutSourceInReturn()
+      throws Exception {
+    initIndexOrderedMatchIc2ShapedData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: start, where: (name = 'alice')}"
+              + ".out('TEST_KNOWS'){as: friend}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.creationDate as cd, m.msgId as mid "
+              + "ORDER BY cd DESC, mid ASC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "Earlier-edge-constrained friend omitted from RETURN must still use "
+                + "FILTERED_BOUND (not FILTERED_UNBOUND). Plan:\n"
+                + plan,
+            plan.contains("FILTERED_BOUND"));
+        Assert.assertFalse(
+            "Must not fall back to FILTERED_UNBOUND for the IC2-shaped pattern. Plan:\n" + plan,
+            plan.contains("FILTERED_UNBOUND"));
+
+        // Exact message ids, not a size plus a monotonic-day check. A reverse-membership check
+        // that saw only bob would return five descending days too, and pass. Bob holds ids 1 to
+        // 10 and carol 11 to 20 on ascending dates, so the newest five are carol's last five.
+        var mids = new java.util.ArrayList<Long>();
+        var days = new java.util.ArrayList<Integer>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          days.add(dayOfMonth(row.getProperty("cd")));
+        }
+        Assert.assertEquals(
+            "The five newest messages all belong to carol: " + mids,
+            java.util.List.of(20L, 19L, 18L, 17L, 16L),
+            mids);
+        Assert.assertEquals(
+            "Their days follow the same descending sequence: " + days,
+            java.util.List.of(20, 19, 18, 17, 16),
+            days);
+        // The whole point of preferring FILTERED_BOUND here is that it can walk the ORDER BY
+        // index globally and reverse-check membership in the small source set, which
+        // FILTERED_UNBOUND has no path for. Pinning the mode without pinning the runtime path
+        // left that claim unchecked.
+        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.GLOBAL_SCAN);
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Alice knows bob and carol; each friend has ten messages on distinct dates. Same message
+   * layout as {@link #initIndexOrderedMatchMultiSourceData} for bob/carol only.
+   */
+  private void initIndexOrderedMatchIc2ShapedData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute("CREATE CLASS TEST_KNOWS EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'alice'").close();
+    var msgCounter = 0;
+    for (var friend : new String[] {"bob", "carol"}) {
+      session.execute("CREATE VERTEX TestPerson SET name = '" + friend + "'").close();
+      session.execute(
+          "CREATE EDGE TEST_KNOWS FROM (SELECT FROM TestPerson WHERE name = 'alice') "
+              + "TO (SELECT FROM TestPerson WHERE name = '"
+              + friend
+              + "')")
+          .close();
+      for (var d = 1; d <= 10; d++) {
+        msgCounter++;
+        var month = msgCounter <= 28 ? "02" : "03";
+        var day = msgCounter <= 28 ? msgCounter : msgCounter - 28;
+        session.execute(
+            "CREATE VERTEX TestMessage SET creationDate = '2025-"
+                + month
+                + "-"
+                + String.format("%02d", day)
+                + " 00:00:00', msgId = "
+                + msgCounter)
+            .close();
+        session.execute(
+            "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+                + msgCounter
+                + ") TO (SELECT FROM TestPerson WHERE name = '"
+                + friend
+                + "')")
+            .close();
+      }
+    }
+    session.commit();
+  }
+
   // Multi-source UNFILTERED_UNBOUND mode with no WHERE and source alias NOT in RETURN returns ASC-sorted results.
   @Test
   public void testIndexOrderedMatchMultiSourceUnfilteredUnbound() throws Exception {
@@ -3806,6 +3920,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         Assert.assertTrue(
             "Alias resolution should enable INDEX ORDERED MATCH, but plan was:\n" + plan,
             plan.contains("INDEX ORDERED MATCH"));
+        // Bare RETURN alias in ORDER BY still needs early projection.
+        Assert.assertTrue(
+            "ORDER BY projection alias must project before sort; plan was:\n" + plan,
+            plan.indexOf("+ CALCULATE PROJECTIONS") < plan.indexOf("+ ORDER BY"));
 
         var r1 = result.next();
         Assert.assertEquals(10, dayOfMonth(r1.getProperty("messageDate")));
@@ -3817,6 +3935,103 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       }
       session.commit();
     }
+  }
+
+  /**
+   * {@code ORDER BY m.creationDate} (match alias.property) with a multi-column RETURN +
+   * LIMIT. Sort keys are on the MATCH row, so projections must run <em>after</em> ORDER BY
+   * + LIMIT — otherwise every candidate is projected before the top-N heap can drop them.
+   */
+  @Test
+  public void testMatchOrderByAliasPropertyDefersProjectionsUntilAfterLimit() throws Exception {
+    initIndexOrderedMatchData(false);
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              // RETURN carries the match alias `m` next to its fields. The ORDER BY key is a
+              // match binding, so the deferral decision holds and projections wait for LIMIT.
+              + "RETURN m, m.id as messageId, m.content as messageContent,"
+              + " m.creationDate as messageCreationDate "
+              + "ORDER BY m.creationDate DESC LIMIT 3";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH; plan was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        var orderAt = plan.indexOf("+ ORDER BY");
+        var limitAt = plan.indexOf("+ LIMIT");
+        var projectAt = plan.indexOf("+ CALCULATE PROJECTIONS");
+        Assert.assertTrue("missing ORDER BY in plan:\n" + plan, orderAt >= 0);
+        Assert.assertTrue("missing LIMIT in plan:\n" + plan, limitAt >= 0);
+        Assert.assertTrue("missing CALCULATE PROJECTIONS in plan:\n" + plan, projectAt >= 0);
+        Assert.assertTrue(
+            "ORDER BY must precede projections when keys are alias.property; plan was:\n"
+                + plan,
+            orderAt < projectAt);
+        Assert.assertTrue(
+            "LIMIT must precede projections when keys are alias.property; plan was:\n"
+                + plan,
+            limitAt < projectAt);
+
+        Assert.assertEquals(10, dayOfMonth(result.next().getProperty("messageCreationDate")));
+        Assert.assertEquals(9, dayOfMonth(result.next().getProperty("messageCreationDate")));
+        Assert.assertEquals(8, dayOfMonth(result.next().getProperty("messageCreationDate")));
+        Assert.assertFalse(result.hasNext());
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Mixed ORDER BY list on the MATCH path: a bare RETURN alias followed by a match
+   * {@code alias.property}. The bare alias exists only after the RETURN projection, so the
+   * whole statement must project early <em>and</em> keep a synthetic column for the second key.
+   * Dropping the synthetic column leaves the second key null on every projected row.
+   *
+   * <p>The fixture makes every friend share one {@code firstName}, so the primary key ties on
+   * every row and only the secondary key can select the page. Expected outcome: the three
+   * highest ranks, that is last names l5, l4, l3. An inert secondary key returns whichever
+   * three rows the bounded heap saw first. Closes finding PF2 on the MATCH path.
+   */
+  @Test
+  public void testMatchMixedOrderByBareAliasAndAliasPropertyKeepsSecondaryKey() {
+    session.execute("CREATE CLASS MixedOrderPerson EXTENDS V").close();
+    session.execute("CREATE CLASS MIXED_KNOWS EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MixedOrderPerson SET firstName = 'alice', tag = 'root'")
+        .close();
+    for (var i = 0; i < 6; i++) {
+      // Shared firstName forces a tie on the first ORDER BY key; rank ascends with insertion
+      // order so the requested DESC page is the last three friends created.
+      session.execute(
+          "CREATE VERTEX MixedOrderPerson SET firstName = 'same', lastName = 'l" + i
+              + "', rank = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE MIXED_KNOWS FROM (SELECT FROM MixedOrderPerson WHERE tag = 'root') "
+              + "TO (SELECT FROM MixedOrderPerson WHERE lastName = 'l" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var query =
+        "MATCH {class: MixedOrderPerson, as: p, where: (tag = 'root')}"
+            + ".out('MIXED_KNOWS'){as: f} "
+            + "RETURN f.firstName as fname, f.lastName as lname "
+            + "ORDER BY fname ASC, f.rank DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(3, rows.size());
+      Assert.assertEquals("l5", rows.get(0).getProperty("lname"));
+      Assert.assertEquals("l4", rows.get(1).getProperty("lname"));
+      Assert.assertEquals("l3", rows.get(2).getProperty("lname"));
+    }
+    session.commit();
   }
 
   // Index-ordered scan and standard load-all-and-sort produce identical results for the same data.
@@ -6184,6 +6399,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
     session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
     session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute("CREATE CLASS EdgeNoisePerson EXTENDS V").close();
     session.execute("CREATE CLASS TEST_KNOWS EXTENDS E").close();
     session.execute("CREATE PROPERTY TEST_KNOWS.creationDate DATETIME").close();
     session.execute(
@@ -6223,6 +6439,26 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             + "(SELECT FROM TestPerson WHERE name = 'carol') "
             + "SET creationDate = '2025-01-20 00:00:00'")
         .close();
+
+    // Thirty more TEST_KNOWS edges, between vertices of a SEPARATE CLASS. They exist only to
+    // make the edge index big enough that an ordered scan is worth planning at all: the
+    // plan-time check now evaluates the cost model on the exact index size, and a four-entry
+    // index cannot amortize the index seek. Every .outE() test below patterns its source on
+    // TestPerson, so no edge seeded here is reachable and no row assertion can see one. Their
+    // own class is what guarantees that, rather than a date range: the unfiltered tests read
+    // opposite ends of the sort, so no date would be invisible to both.
+    for (var i = 0; i < 30; i++) {
+      session.execute("CREATE VERTEX EdgeNoisePerson SET name = 'noise" + i + "'").close();
+    }
+    for (var i = 0; i < 30; i++) {
+      session.execute(
+          "CREATE EDGE TEST_KNOWS FROM "
+              + "(SELECT FROM EdgeNoisePerson WHERE name = 'noise" + i + "') TO "
+              + "(SELECT FROM EdgeNoisePerson WHERE name = 'noise" + ((i + 1) % 30) + "') "
+              + "SET creationDate = '2024-02-" + (i % 28 + 1 < 10 ? "0" : "")
+              + (i % 28 + 1) + " 00:00:00'")
+          .close();
+    }
     session.commit();
   }
 

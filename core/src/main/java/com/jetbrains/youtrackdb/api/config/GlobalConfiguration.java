@@ -1500,6 +1500,27 @@ public enum GlobalConfiguration {
       Integer.class,
       200,
       true),
+
+  /**
+   * Shared CPU multiplier for one filtered ordered-scan cursor advance in
+   * {@code IndexOrderedCostModel#scanCostPerEntry}. Both single-source
+   * {@code computeCosts} and multi-source {@code pickMultiSourceStrategy} use
+   * that helper. Default {@code 5.0} is the historical single-source heuristic
+   * (lock, bitmap, filter lambda, key compare, advance). An LDBC JMH sweep of
+   * factors 1–5 on SQL IC2/IC8/IC9 (ST+MT) found no &gt;5% regression vs develop
+   * at any factor; factor 5 had the best geometric-mean throughput, and Gremlin
+   * translator on still beat off for IC2/IC8/IC9 at that default. Lower values
+   * favour index scan; raise them to prefer load-all-and-sort.
+   */
+  QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR(
+      "youtrackdb.query.indexOrdered.scanCpuFactor",
+      "Per-entry CPU multiplier (times CostModel.perRowCpuCost) for a filtered"
+          + " ordered index-scan cursor advance. Shared by single- and"
+          + " multi-source index-ordered MATCH estimates. Default 5.0 chosen"
+          + " after an LDBC JMH factor sweep on IC2/IC8/IC9",
+      Double.class,
+      5.0,
+      true),
       ;
 
   static {

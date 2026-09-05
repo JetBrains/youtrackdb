@@ -749,12 +749,6 @@ public class MatchExecutionPlanner {
       }
 
       if (this.orderBy != null) {
-        Integer maxResults = null;
-        if (this.limit != null && this.limit.getValue(context) >= 0) {
-          var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
-              ? this.skip.getValue(context) : 0;
-          maxResults = skipSize + this.limit.getValue(context);
-        }
         // Multi-field + candidate → primary key cutoff hint for early
         // termination in the bounded heap.
         // Disabled when RETURN DISTINCT: early termination stops reading
@@ -775,8 +769,10 @@ public class MatchExecutionPlanner {
         // filter that preserves input order (RidSet-based dedup), and runs
         // AFTER OrderByStep in the pipeline.
         var indexOrderedUpstream = indexOrderedCandidate != null;
+        // The SKIP and LIMIT clauses go over as AST nodes, not as a resolved number: this plan
+        // is cacheable, so a parameterized bound has to be read on every execution.
         result.chain(new OrderByStep(
-            orderBy, maxResults, primaryHint, indexOrderedUpstream,
+            orderBy, this.skip, this.limit, primaryHint, indexOrderedUpstream,
             context, -1, enableProfiling));
       }
 
