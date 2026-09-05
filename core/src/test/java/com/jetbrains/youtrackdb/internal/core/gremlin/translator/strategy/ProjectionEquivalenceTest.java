@@ -1250,9 +1250,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().as("v").dedup("v"));
   }
 
-  /** {@code dedup().by("name")} dedups on the modulator value while emitting elements. */
+  /** {@code dedup().by("name")} declines — survivor identity is MATCH-order-dependent vs native. */
   @Test
-  public void dedupByName_matchesNative() {
+  public void dedupByName_declinesToNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
@@ -1260,16 +1260,16 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().dedup().by(name)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().dedup().by("name"));
   }
 
   /**
-   * Named dedup on a prior path label keeps the first current element per prior RID (unique-by-
-   * {@code a}, emit-{@code b}).
+   * Named dedup on a prior path label declines — boundary survivor per prior RID is
+   * MATCH-order-dependent vs native.
    */
   @Test
-  public void namedDedup_priorLabel_matchNative() {
+  public void namedDedup_priorLabel_declinesToNative() {
     var a = graph.addVertex(T.label, "Person", "name", "Alice");
     var b1 = graph.addVertex(T.label, "Person", "name", "Bob");
     var b2 = graph.addVertex(T.label, "Person", "name", "Carol");
@@ -1279,7 +1279,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().as(a).out(knows).as(b).dedup(a)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().as("a").out("knows").as("b").dedup("a"));
   }
 
@@ -1669,9 +1669,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().valueMap().with(WithOptions.tokens));
   }
 
-  /** Keyless {@code valueMap()} / {@code elementMap()} on a {@code hasLabel(Person)} boundary. */
+  /** Keyless {@code valueMap()} / {@code elementMap()} on {@code hasLabel} declines (schemaless gap). */
   @Test
-  public void hasLabelPerson_valueMap_matchesNative() {
+  public void hasLabelPerson_valueMap_declinesToNative() {
     session.getSchema().createClass("Person", session.getSchema().getClass("V"));
     session.getSchema()
         .getClass("Person")
@@ -1688,21 +1688,21 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().hasLabel(Person).valueMap()",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().hasLabel("Person").valueMap());
     assertEquivalent(
         "g.V().hasLabel(Person).elementMap()",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().hasLabel("Person").elementMap());
   }
 
-  /** {@code out(created).dedup().by(name)} dedups software authors by name. */
+  /** {@code out(created).dedup().by(name)} declines — order-dependent survivor vs native. */
   @Test
-  public void hopDedupByName_matchesNative() {
+  public void hopDedupByName_declinesToNative() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().out(created).dedup().by(name)",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         () -> graph.traversal().V().out("created").dedup().by("name"));
   }
 

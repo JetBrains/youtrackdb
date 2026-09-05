@@ -255,6 +255,11 @@ public final class IndexOrderedPlanner {
     if (methodParams == null || methodParams.isEmpty()) {
       return null; // no edge class specified
     }
+    // Multi-label hops (out('a','b')) need every LinkBag field; this planner keys one field from
+    // the first param only and would under-match. Leave those to the generic MATCH path.
+    if (methodParams.size() > 1) {
+      return null;
+    }
     // Extract edge class name from the method parameter (e.g., .in('TEST_HAS_CREATOR')).
     // Use execute() to properly decode the AST string literal, avoiding fragile
     // toString() + quote-stripping that breaks on escaped characters or backticks.
