@@ -62,6 +62,12 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
   private final SQLStatement sharedInnerQuery;
   private final @Nullable SQLWhereClause commonFilter;
   private final List<LetEntry> entries;
+  /**
+   * When true, nested subquery plans inherit the correlated RID fetch gate — same contract as
+   * {@link LetQueryStep}'s {@code letHostedPipeline} flag. Set only when the outer statement
+   * carries at least one user LET alias, not for grouped {@code $$$SUBQUERY$$_} entries alone.
+   */
+  private final boolean letHostedPipeline;
   /** Cached per-entry plan-cache flags — computed once on first use. */
   private boolean[] entryPlanCacheFlags;
 
@@ -70,17 +76,20 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
    * @param commonFilter     the common WHERE conditions shared by all entries,
    *                         or {@code null} if there are no common conditions
    * @param entries          the LET items in this group (varName + full query)
+   * @param letHostedPipeline when true, enables correlated RID fetch in nested subquery plans
    */
   public MaterializedLetGroupStep(
       SQLStatement sharedInnerQuery,
       @Nullable SQLWhereClause commonFilter,
       List<LetEntry> entries,
       CommandContext ctx,
-      boolean profilingEnabled) {
+      boolean profilingEnabled,
+      boolean letHostedPipeline) {
     super(ctx, profilingEnabled);
     this.sharedInnerQuery = sharedInnerQuery;
     this.commonFilter = commonFilter;
     this.entries = entries;
+    this.letHostedPipeline = letHostedPipeline;
   }
 
   @Override
@@ -106,6 +115,9 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(session);
     subCtx.setParentWithoutOverridingChild(currentRowCtx);
+    if (letHostedPipeline) {
+      subCtx.setLetHostedCorrelatedRidFetch(true);
+    }
 
     // Build materialization query with common filter. Push-down is NOT
     // skipped here — we want the planner to push the common filter into
@@ -280,7 +292,7 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
     return new MaterializedLetGroupStep(
         sharedInnerQuery.copy(),
         commonFilter != null ? commonFilter.copy() : null,
-        copiedEntries, ctx, profilingEnabled);
+        copiedEntries, ctx, profilingEnabled, letHostedPipeline);
   }
 
   /**

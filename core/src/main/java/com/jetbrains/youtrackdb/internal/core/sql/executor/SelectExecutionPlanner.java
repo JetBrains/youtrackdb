@@ -241,6 +241,11 @@ public class SelectExecutionPlanner {
     if (ctx.isSkipExpandPushDown()) {
       cacheKey += "\0skipExpandPushDown";
     }
+    var letHostedForCache =
+        ctx.isLetHostedCorrelatedRidFetch() || statementHasUserPerRecordLet(statement);
+    if (letHostedForCache) {
+      cacheKey += "\0letHostedCorrelatedRidFetch";
+    }
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
       var plan = YqlExecutionPlanCache.get(cacheKey, ctx, session);
       if (plan != null) {
@@ -1842,6 +1847,7 @@ public class SelectExecutionPlanner {
 
     var shared = detectSharedLetBases(items);
     var alreadyGrouped = new HashSet<SQLLetItem>();
+    var letHostedPipeline = statementHasUserPerRecordLet(statement);
 
     for (var item : items) {
       if (alreadyGrouped.contains(item)) {
@@ -1865,10 +1871,11 @@ public class SelectExecutionPlanner {
           alreadyGrouped.add(grouped);
         }
         plan.chain(new MaterializedLetGroupStep(
-            sharedInner, commonFilter, entries, ctx, profilingEnabled));
+            sharedInner, commonFilter, entries, ctx, profilingEnabled, letHostedPipeline));
       } else {
         plan.chain(
-            new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
+            new LetQueryStep(
+                item.getVarName(), item.getQuery(), ctx, profilingEnabled, letHostedPipeline));
       }
     }
   }
@@ -2379,15 +2386,44 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    // Only optimize a value resolvable now, at plan time (a literal or bound param). By the
-    // time this runs, extractSubQueries() has rewritten `@rid IN (subquery)` into
-    // `@rid IN $$$SUBQUERY$$_N` — a reference to an internal LET variable. isEarlyCalculated()
-    // still reports it as resolvable, but its value is bound only when the LET step runs during
-    // execution; evaluating it here yields empty and would wrongly collapse the plan to an
-    // EmptyStep. isPlanTimeResolvable() excludes it so the query falls through to the scan +
-    // filter, which runs after the LET step.
+    // Plan-time RID fetch fires only for a literal or bound param. extractSubQueries() rewrites
+    // `@rid IN (subquery)` into `@rid IN $$$SUBQUERY$$_N`. isEarlyCalculated() still reports
+    // that as resolvable, but the value is bound only when the LET step runs; evaluating it
+    // here yields empty and would wrongly collapse the plan to EmptyStep. isPlanTimeResolvable()
+    // excludes it so those queries fall through to scan + filter after the LET.
+    // Correlated `$parent` equality is the other non-plan-time case: the RID is known per
+    // parent row at execution, so FetchFromCorrelatedRidStep evaluates it then instead of
+    // scanning the class. The fetch is LET-hosted only ({@code LetQueryStep},
+    // {@code MaterializedLetGroupStep}). IN-lists that refer to $parent stay on the scan path.
+    //
+    // The gate is ParentOnlyChain.isParentOnlyChain, a closed syntactic whitelist, and NOT
+    // SQLExpression.refersToParent(). refersToParent() is existential — it fires when a $parent
+    // reference occurs anywhere — so it also admits expressions whose value depends on the inner
+    // row, for example `ifnull($parent.$current.missing, first(out('GE')))`. The correlated step
+    // evaluates the expression once with a null current record, so such an expression can diverge
+    // from the scan and rows are silently lost. refersToParent() is left untouched because its
+    // other callers rely on the existential meaning.
     var ridExpression = extraction.ridExpression();
     if (!ridExpression.isPlanTimeResolvable(ctx)) {
+      if (fromEquality
+          && ctx.isLetHostedCorrelatedRidFetch()
+          && ParentOnlyChain.isParentOnlyChain(ridExpression)) {
+        var classCollectionIds =
+            resolveClassToCollectionIds(queryTarget.getStringValue(), plan);
+        if (classCollectionIds == null) {
+          // Missing class: fall through so the scan path throws "Class or View not present",
+          // matching the plan-time RID branch and the no-WHERE form of this query.
+          return false;
+        }
+        var remaining = extraction.remainingWhere();
+        info.whereClause = remaining;
+        info.flattenedWhereClause = null;
+        // Same IntSet membership shape as ExpandStep / MATCH pre-filter / plan-time RID path.
+        plan.chain(
+            new FetchFromCorrelatedRidStep(
+                ridExpression, classCollectionIds, ctx, profilingEnabled));
+        return true;
+      }
       return false;
     }
 
@@ -2497,7 +2533,7 @@ public class SelectExecutionPlanner {
    * Used on the scalar-equality path to mirror {@code QueryOperatorEquals.equals}'s size-1
    * collection unwrap: a scalar {@code @rid} only matches a size-1 collection.
    */
-  @Nullable private static Object singleElementOrNull(@Nullable Iterable<?> iterable) {
+  @Nullable static Object singleElementOrNull(@Nullable Iterable<?> iterable) {
     if (iterable == null) {
       return null;
     }
@@ -2517,7 +2553,7 @@ public class SelectExecutionPlanner {
    * in {@code SQLRid.toRecordId}: an {@link Identifiable} yields its identity, a
    * {@link String} is parsed as a RID, anything else is skipped (null).
    */
-  @Nullable private static RecordIdInternal toRecordIdCandidate(Object value) {
+  @Nullable static RecordIdInternal toRecordIdCandidate(Object value) {
     return switch (value) {
       case null -> null;
       // Drop an identity that is not a RecordIdInternal (e.g. a marker/tombstone RID) rather than
@@ -3773,6 +3809,9 @@ public class SelectExecutionPlanner {
     var subCtx = new BasicCommandContext();
     subCtx.setDatabaseSession(ctx.getDatabaseSession());
     subCtx.setParent(ctx);
+    if (ctx.isLetHostedCorrelatedRidFetch()) {
+      subCtx.setLetHostedCorrelatedRidFetch(true);
+    }
     var subExecutionPlan =
         subQuery.createExecutionPlan(subCtx, profilingEnabled);
     plan.chain(new SubQueryStep(subExecutionPlan, ctx, subCtx, profilingEnabled));
@@ -4179,5 +4218,26 @@ public class SelectExecutionPlanner {
     }
 
     return info.target.getItem().getIdentifier() != null;
+  }
+
+  /**
+   * Returns {@code true} when the statement carries at least one user LET alias (not a
+   * {@link SubQueryCollector} synthetic {@code $$$SUBQUERY$$_} alias). Such statements host
+   * per-row parent context and admit correlated fetch in nested subqueries, including
+   * projection subqueries fed from a LET variable source.
+   */
+  private static boolean statementHasUserPerRecordLet(SQLSelectStatement selectStatement) {
+    var letClause = selectStatement.getLetClause();
+    if (letClause == null || letClause.getItems() == null) {
+      return false;
+    }
+    for (var item : letClause.getItems()) {
+      var varName = item.getVarName();
+      if (varName != null
+          && !varName.getStringValue().startsWith(SubQueryCollector.GENERATED_ALIAS_PREFIX)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

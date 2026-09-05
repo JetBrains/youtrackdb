@@ -69,6 +69,7 @@ public class BasicCommandContext implements CommandContext {
   private final List<SQLBooleanExpression> parentWhereExpressions = new LinkedList<>();
 
   private boolean skipExpandPushDown;
+  private boolean letHostedCorrelatedRidFetch;
 
   public BasicCommandContext() {
   }
@@ -586,6 +587,16 @@ public class BasicCommandContext implements CommandContext {
   @Override
   public void setSkipExpandPushDown(boolean skip) {
     this.skipExpandPushDown = skip;
+  }
+
+  @Override
+  public boolean isLetHostedCorrelatedRidFetch() {
+    return letHostedCorrelatedRidFetch;
+  }
+
+  @Override
+  public void setLetHostedCorrelatedRidFetch(boolean value) {
+    this.letHostedCorrelatedRidFetch = value;
   }
 
   @Override
