@@ -126,31 +126,30 @@ public class IndexOrderedEdgeStepCostTest {
         MultiSourceStrategy.LOAD_ALL_SORT, strategy);
   }
 
-  // A multi-source estimate marked capped hit the index-size ceiling — not proof that every
-  // entry is reachable. Density 1.0 would price GLOBAL_SCAN as a LIMIT-sized walk.
+  // A multi-source estimate clamped to indexSize still goes through the cost comparison.
+  // True dense top-N with a small LIMIT may keep GLOBAL_SCAN; a false density=1.0 ceiling
+  // that would near-full-scan is caught by the runtime scan budget, not by a hard refuse.
   @Test
-  public void testCappedEstimateRefusesGlobalScanRegardlessOfIndexSize() {
+  public void testClampedEstimateStillRunsCostComparison() {
     var large = IndexOrderedCostModel.pickMultiSourceStrategy(
-        3_600_000, // totalEdges == indexSize
+        3_600_000, // totalEdges == indexSize (as after the index-size clamp)
         3_600_000,
         20,
         null,
-        false,
-        true); // capped
+        false);
     assertEquals(
-        "Capped estimate must load from sources, not GLOBAL_SCAN",
-        MultiSourceStrategy.LOAD_ALL_SORT, large);
+        "true dense ceiling + small LIMIT prefers GLOBAL_SCAN over LOAD_ALL_SORT",
+        MultiSourceStrategy.GLOBAL_SCAN, large);
 
-    // Same rule below the old magic 100_000 index-size floor.
+    // Mid-size index with the same clamp shape: cost compare, not a size-floor refuse.
     var small = IndexOrderedCostModel.pickMultiSourceStrategy(
-        50_000, 50_000, 20, null, true, true);
-    assertEquals(
-        "Capped estimate refuses GLOBAL_SCAN on a mid-size index too",
-        MultiSourceStrategy.LOAD_ALL_SORT, small);
+        50_000, 50_000, 20, null, true);
+    assertTrue(
+        "clamped mid-size estimate keeps an index strategy, got: " + small,
+        small != MultiSourceStrategy.LOAD_ALL_SORT);
   }
 
-  // Legitimate density=1.0 on a small index (every entry reachable, not a capped estimate)
-  // may still scan.
+  // Legitimate density=1.0 on a small index (every entry reachable) may still scan.
   @Test
   public void testFullDensityOnSmallIndexStillAllowsIndexStrategy() {
     var strategy = IndexOrderedCostModel.pickMultiSourceStrategy(
@@ -158,8 +157,7 @@ public class IndexOrderedEdgeStepCostTest {
         500, // small index, true density=1.0
         5,
         null,
-        true,
-        false); // not capped
+        true);
     assertTrue(
         "True density=1.0 on a small index should keep an index strategy, got: " + strategy,
         strategy != MultiSourceStrategy.LOAD_ALL_SORT);
@@ -692,11 +690,11 @@ public class IndexOrderedEdgeStepCostTest {
         "computeCosts union estimate carries scanCostPerEntry",
         costs.costUnionScan() > costs.expectedScanLength() * perEntry);
 
-    // Uncapped true density=1.0 + small LIMIT still prefers an index strategy at default factor.
+    // True density=1.0 + small LIMIT still prefers an index strategy at default factor.
     assertEquals(
         "a dense small-LIMIT shape scans rather than sorts",
         MultiSourceStrategy.GLOBAL_SCAN,
-        IndexOrderedCostModel.pickMultiSourceStrategy(500, 500, 5, null, true, false));
+        IndexOrderedCostModel.pickMultiSourceStrategy(500, 500, 5, null, true));
   }
 
   /**

@@ -812,7 +812,8 @@ public final class IndexOrderedPlanner {
    * multi-hop shapes that then paid for a near-full GLOBAL_SCAN. The lift is therefore capped
    * at {@code defaultFanOut × 10}: small dense fixtures (one source, tens of edges on a small
    * index) still see a realistic fan-out, while multi-million indexes stay on the default and
-   * refuse. Runtime {@code estimateCapped → LOAD} and the scan budget cover residual miss.
+   * refuse. The runtime scan budget covers residual miss when a false density {@code 1.0}
+   * still admits GLOBAL_SCAN.
    *
    * <p>{@code Long.MAX_VALUE} in {@code estimatedRootEntries} is a scheduling sentinel (inferred
    * WHILE aliases), not a cardinality. Treating it as a real count overflows the edge product
