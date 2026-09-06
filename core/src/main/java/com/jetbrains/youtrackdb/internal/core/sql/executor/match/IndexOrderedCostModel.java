@@ -27,11 +27,12 @@ import javax.annotation.Nullable;
  * counts consumed index entries and abandons the scan for load-from-sources once spend reaches
  * {@link #entriesWorthTheLoadAlternative}. See {@code scanUnderBudget} there.
  *
- * <p>A capped multi-source edge estimate ({@code extrapolated >= indexSize}) is not proof that
- * every index entry is reachable. Under density {@code 1.0}, {@link MultiSourceStrategy#GLOBAL_SCAN}
- * prices a LIMIT-sized walk that can degrade to a near-full index scan when membership is sparse
- * in the ordered prefix. {@link #pickMultiSourceStrategy} therefore loads from LinkBags whenever
- * the caller marks the estimate as capped — independent of index size.
+ * <p>A multi-source edge estimate may be clamped to {@code indexSize}. That clamp is not proof
+ * every index entry is reachable, and under density {@code 1.0} {@link MultiSourceStrategy#GLOBAL_SCAN}
+ * prices a LIMIT-sized walk. An earlier revision refused every capped estimate up front; that
+ * also blocked true dense top-N shapes where GLOBAL wins. Capped estimates now go through the
+ * same cost comparison as uncapped ones. When membership is sparse in key order, the runtime
+ * scan budget on GLOBAL abandons the scan after roughly one entry per source edge.
  *
  * <h2>Shared per-entry cursor cost</h2>
  * {@link #computeCosts} and {@link #pickMultiSourceStrategy} both price a filtered ordered-scan
@@ -207,39 +208,17 @@ final class IndexOrderedCostModel {
   }
 
   /**
-   * Picks the cheapest multi-source strategy among three options: union RidSet scan, global
-   * scan, or load-all-sort. Treats {@code totalEdges} as an uncapped estimate
-   * ({@code estimateCapped == false}).
+   * Picks the cheapest multi-source strategy among three options:
+   * union RidSet scan, global scan, or load-all-sort.
+   *
+   * <p>{@code totalEdges} may already be clamped to {@code indexSize}. The comparison still
+   * runs: true dense top-N with a small LIMIT can keep {@link MultiSourceStrategy#GLOBAL_SCAN}.
+   * When density {@code 1.0} is a false ceiling and hits are sparse in key order, the runtime
+   * scan budget on GLOBAL abandons the walk after roughly one entry per source edge.
    */
   static MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize, long limit,
       @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
-    return pickMultiSourceStrategy(
-        totalEdges, indexSize, limit, histogram, orderAsc, false);
-  }
-
-  /**
-   * Picks the cheapest multi-source strategy among three options:
-   * union RidSet scan, global scan, or load-all-sort.
-   *
-   * <p>When {@code estimateCapped} is true, the caller hit the structural ceiling
-   * (extrapolated edges clamped to {@code indexSize}). That is not evidence every index
-   * entry is reachable. Under density {@code 1.0}, {@link MultiSourceStrategy#GLOBAL_SCAN}
-   * would price a LIMIT-sized walk and can degrade to a near-full index scan when hits are
-   * sparse in key order. Refuse the capped estimate and load from the real source LinkBags
-   * instead — independent of index size. A runtime scan budget still covers plausible but
-   * wrong densities that were not capped.
-   *
-   * @param estimateCapped {@code true} when {@code totalEdges} came from a capped estimate
-   */
-  static MultiSourceStrategy pickMultiSourceStrategy(
-      int totalEdges, long indexSize, long limit,
-      @Nullable EquiDepthHistogram histogram, boolean orderAsc,
-      boolean estimateCapped) {
-    if (limit > 0 && estimateCapped) {
-      return MultiSourceStrategy.LOAD_ALL_SORT;
-    }
-
     var costs = computeCosts(totalEdges, indexSize, limit, histogram, orderAsc);
     if (costs == null) {
       return MultiSourceStrategy.LOAD_ALL_SORT;
