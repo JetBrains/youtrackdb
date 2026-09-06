@@ -3808,10 +3808,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "Their days follow the same descending sequence: " + days,
             java.util.List.of(20, 19, 18, 17, 16),
             days);
-        // Density saturates the index (every message is reachable), so the cost model
-        // refuses GLOBAL_SCAN and loads from LinkBags. FILTERED_BOUND is still the mode
-        // that made the membership check and the ordered page possible.
-        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+        // Density saturates the index (every message is reachable). The cost model still
+        // compares strategies when the edge estimate is clamped to indexSize, so a small
+        // LIMIT keeps GLOBAL_SCAN. FILTERED_BOUND is the mode that made the membership
+        // check and the ordered page possible; sparse walks are cut by the runtime budget.
+        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.GLOBAL_SCAN);
       }
       session.commit();
     }
