@@ -54,8 +54,20 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
    * consumer-side check therefore bounds nothing on a filtered scan. Stopping inside the
    * pipeline, one element after the count is reached, is the only placement that bounds the
    * work the scan can do.
+   *
+   * <p>The configured bound is immutable ({@link #scanBudget}); the live gate the stream reads
+   * is {@link #activeBudget}. {@link #liftScanBudget()} clears the live gate after a successful
+   * pre-emission fill so a continuation can keep yielding — a post-emission bail-out is not
+   * possible, and leaving the gate armed would silently truncate when a downstream filter needs
+   * more rows than the prefill held.
    */
   private final long scanBudget;
+
+  /**
+   * Live entry bound the stream's {@code takeWhile} reads. Starts as {@link #scanBudget}; set to
+   * {@code -1} by {@link #liftScanBudget()}.
+   */
+  private final AtomicLong activeBudget;
 
   public RidFilteredIndexValuesStep(
       IndexSearchDescriptor desc,
@@ -81,6 +93,7 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
     super(desc, orderAsc, ctx, profilingEnabled);
     this.ridFilter = ridFilter;
     this.scanBudget = scanBudget;
+    this.activeBudget = new AtomicLong(scanBudget);
   }
 
   /** Index entries advanced over so far, filtered-out ones included. */
@@ -90,10 +103,22 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
 
   /**
    * Whether this scan stopped because it reached its budget rather than because the index ran
-   * out. A consumer that sees the stream end reads this to tell the two apart.
+   * out. A consumer that sees the stream end reads this to tell the two apart. Uses the
+   * configured {@link #scanBudget}, not the live gate — so a post-prefill
+   * {@link #liftScanBudget()} does not rewrite a prior exhaustion as a clean end.
    */
   public boolean scanBudgetExhausted() {
     return scanBudget >= 0 && consumedEntries.get() > scanBudget;
+  }
+
+  /**
+   * Clears the live entry bound so the stream can keep yielding past {@link #scanBudget}.
+   * Called by {@code IndexOrderedEdgeStep} after a successful pre-emission fill: the bail-out
+   * path is closed once rows have been buffered for emission, and an armed bound on the
+   * continuation would silently under-deliver if a downstream filter needs more rows.
+   */
+  public void liftScanBudget() {
+    activeBudget.set(-1);
   }
 
   @Override
@@ -115,7 +140,7 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
 
     List<Stream<RawPair<Object, RID>>> streams = init(desc, isOrderAsc(), ctx);
     var filter = this.ridFilter;
-    var budget = this.scanBudget;
+    var liveBudget = this.activeBudget;
     var res =
         new ExecutionStreamProducer() {
           private final Iterator<Stream<RawPair<Object, RID>>> iter = streams.iterator();
@@ -126,10 +151,14 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
             // count covers dropped entries and the stop fires on the entry that breaks the
             // budget rather than on the next delivered row. Overshoot is one entry per
             // sub-stream, because each sub-stream must consume an element to test the bound.
+            // liveBudget is read on each element so liftScanBudget() can clear the gate mid-stream.
             Stream<RawPair<Object, RID>> s =
                 iter.next()
                     .peek(pair -> consumedEntries.incrementAndGet())
-                    .takeWhile(pair -> budget < 0 || consumedEntries.get() <= budget)
+                    .takeWhile(pair -> {
+                      var budget = liveBudget.get();
+                      return budget < 0 || consumedEntries.get() <= budget;
+                    })
                     .filter(pair -> filter.contains(pair.second()));
             return ExecutionStream.resultIterator(
                 s.map((RawPair<Object, RID> nextEntry) -> {
