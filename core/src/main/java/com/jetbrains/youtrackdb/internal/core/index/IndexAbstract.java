@@ -181,6 +181,7 @@ public abstract class IndexAbstract implements Index {
 
     @SuppressWarnings("unchecked")
     var metadataEntity = (Map<String, Object>) config.get(METADATA);
+    IndexMetadataValidator.validate(metadataEntity);
     return new IndexMetadata(
         indexName,
         loadedIndexDefinition,

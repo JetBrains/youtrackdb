@@ -58,6 +58,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStor
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StartupMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LineageFloorAdoption;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind;
@@ -227,7 +232,10 @@ public class DiskStorage extends AbstractStorage {
       BTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
       IndexHistogramManager.IXS_EXTENSION,
       DoubleWriteLogGL.EXTENSION,
-      FreeSpaceMap.DEF_EXTENSION
+      FreeSpaceMap.DEF_EXTENSION,
+      ".bsm",
+      ".bsm.tmp",
+      ".bsml"
   };
 
   private static final int ONE_KB = 1024;
@@ -235,7 +243,11 @@ public class DiskStorage extends AbstractStorage {
   private final int deleteMaxRetries;
   private final int deleteWaitTime;
 
+  private static final FeatureFormatIdentity FEATURE_FORMAT = new FeatureFormatIdentity(1);
+
   private final StorageStartupMetadata startupMetadata;
+  @Nullable private StorageBootstrapMetadata bootstrapMetadata;
+  @Nullable private StorageBootstrapMetadata.Snapshot bootstrapSnapshot;
 
   private final Path storagePath;
   private final ClosableLinkedContainer<Long, File> files;
@@ -257,7 +269,7 @@ public class DiskStorage extends AbstractStorage {
       final long walMaxSegSize,
       long doubleWriteLogMaxSegSize,
       YouTrackDBInternalEmbedded context) {
-    super(name, filePath, id, context);
+    super(name, filePath, id, context, false);
 
     this.walMaxSegSize = walMaxSegSize;
     this.files = files;
@@ -317,6 +329,58 @@ public class DiskStorage extends AbstractStorage {
     }
 
     super.doCreate(contextConfiguration);
+  }
+
+  @Override
+  protected void prepareStorageBirth() {
+    try {
+      var birth = bootstrapMetadata().createBirth(StorageIdentity.random(),
+          StorageLineageIdentity.random());
+      bootstrapSnapshot = birth;
+      updateStorageIdentity(birth.storageIdentity(), birth.lineageIdentity());
+    } catch (IOException exception) {
+      throw BaseException.wrapException(
+          new StorageException(name, "Cannot publish the storage bootstrap birth"),
+          exception,
+          name);
+    }
+  }
+
+  @Override
+  protected void activateStorageBirth() {
+    activateBootstrapSnapshot("Cannot activate the storage bootstrap birth");
+  }
+
+  @Override
+  protected void readStorageIdentity() {
+    try {
+      var active = bootstrapMetadata().readActiveRequired();
+      bootstrapSnapshot = active;
+      updateStorageIdentity(active.storageIdentity(), active.lineageIdentity());
+    } catch (IOException exception) {
+      throw BaseException.wrapException(
+          new StorageException(name, "Cannot read the storage bootstrap authority"),
+          exception,
+          name);
+    }
+  }
+
+  private StorageBootstrapMetadata bootstrapMetadata() throws IOException {
+    if (bootstrapMetadata == null) {
+      bootstrapMetadata = new StorageBootstrapMetadata(storagePath, FEATURE_FORMAT);
+    }
+    return bootstrapMetadata;
+  }
+
+  void activateBootstrapSnapshot(String errorMessage) {
+    try {
+      var active = bootstrapMetadata().activate(
+          java.util.Objects.requireNonNull(bootstrapSnapshot, "bootstrapSnapshot"));
+      bootstrapSnapshot = active;
+      updateStorageIdentity(active.storageIdentity(), active.lineageIdentity());
+    } catch (IOException exception) {
+      throw BaseException.wrapException(new StorageException(name, errorMessage), exception, name);
+    }
   }
 
   @Override
@@ -1619,6 +1683,7 @@ public class DiskStorage extends AbstractStorage {
                   + "impossible.");
         }
 
+        beginLineageReplacement();
         var result = preprocessingIncrementalRestore();
         for (var ibuFilePair : tempIBUFiles) {
           var ibuPath = ibuFilePair.left();
@@ -1642,6 +1707,8 @@ public class DiskStorage extends AbstractStorage {
         }
 
         postProcessIncrementalRestore(result.contextConfiguration);
+        activateBootstrapSnapshot("Cannot activate the restored storage lineage");
+        dropStaleIndexLifecycles();
       } finally {
         PathUtils.deleteDirectory(tmpDirectory);
         LogManager.instance().info(this, "Temporary directory for backup restore %s deleted.",
@@ -1653,6 +1720,20 @@ public class DiskStorage extends AbstractStorage {
           new StorageException(name, "Error during restore from backup"), e, name);
     } finally {
       stateLock.writeLock().unlock();
+    }
+  }
+
+  void beginLineageReplacement() {
+    try {
+      var current = java.util.Objects.requireNonNull(bootstrapSnapshot, "bootstrapSnapshot");
+      var pending = bootstrapMetadata().beginLineageReplacement(
+          current, new LineageFloorAdoption(current.format(), current.sequenceFloor()));
+      bootstrapSnapshot = pending;
+    } catch (IOException exception) {
+      throw BaseException.wrapException(
+          new StorageException(name, "Cannot publish the storage restore authority"),
+          exception,
+          name);
     }
   }
 

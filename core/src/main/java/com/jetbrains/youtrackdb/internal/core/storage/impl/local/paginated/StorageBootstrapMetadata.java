@@ -41,6 +41,7 @@ public final class StorageBootstrapMetadata {
   private static final XXHash64 XX_HASH_64 = XXHashFactory.fastestInstance().hash64();
   private static final Object PROCESS_LOCKS_MONITOR = new Object();
   private static final Map<Path, ProcessLock> PROCESS_LOCKS = new HashMap<>();
+  private static final ThreadLocal<MoveStrategy> SCOPED_MOVE_STRATEGY = new ThreadLocal<>();
 
   private final Path directory;
   private final List<Path> authorityPaths;
@@ -56,7 +57,25 @@ public final class StorageBootstrapMetadata {
 
   public StorageBootstrapMetadata(
       final Path storageDirectory, final FeatureFormatIdentity expectedFormat) throws IOException {
-    this(storageDirectory, expectedFormat, FileUtils::durableAtomicMove);
+    this(
+        storageDirectory,
+        expectedFormat,
+        SCOPED_MOVE_STRATEGY.get() == null
+            ? FileUtils::durableAtomicMove
+            : SCOPED_MOVE_STRATEGY.get());
+  }
+
+  /** Overrides new metadata moves on the current thread until the returned scope closes. */
+  static AutoCloseable useMoveStrategyForCurrentThread(final MoveStrategy moveStrategy) {
+    final var previous = SCOPED_MOVE_STRATEGY.get();
+    SCOPED_MOVE_STRATEGY.set(Objects.requireNonNull(moveStrategy, "moveStrategy"));
+    return () -> {
+      if (previous == null) {
+        SCOPED_MOVE_STRATEGY.remove();
+      } else {
+        SCOPED_MOVE_STRATEGY.set(previous);
+      }
+    };
   }
 
   StorageBootstrapMetadata(
@@ -119,13 +138,16 @@ public final class StorageBootstrapMetadata {
     return withAuthorityLock(this::readAndConfirmLocked);
   }
 
-  /** Reads authority for Open and rejects an interrupted birth before WAL processing can start. */
+  /** Reads authority for Open and rejects interrupted work before WAL processing can start. */
   public Snapshot readActiveRequired() throws IOException {
     return withAuthorityLock(
         () -> {
           final var selected = selectLocked();
           if (selected.snapshot().state() == State.BIRTH_IN_PROGRESS) {
             throw new IOException("Interrupted storage birth must be removed before Open");
+          }
+          if (selected.snapshot().state() == State.RESTORE_IN_PROGRESS) {
+            throw new IOException("Interrupted storage restore must be retried before Open");
           }
           return confirmSelectedLocked(selected).snapshot();
         });
@@ -197,11 +219,14 @@ public final class StorageBootstrapMetadata {
     return withAuthorityLock(
         () -> {
           final var current = verifyExpected(expected);
-          if (current.state() != State.ACTIVE) {
-            throw new IllegalStateException("Lineage replacement requires active storage");
-          }
           if (!current.format().equals(adoption.format())) {
             throw new IllegalStateException("Cannot adopt a floor from another feature format");
+          }
+          if (current.state() == State.RESTORE_IN_PROGRESS) {
+            return current;
+          }
+          if (current.state() != State.ACTIVE) {
+            throw new IllegalStateException("Lineage replacement requires active storage");
           }
           final var sourceFloor = adoption.sourceFloor();
           final var newLineage =
@@ -330,8 +355,8 @@ public final class StorageBootstrapMetadata {
   }
 
   private RecordAt selectLocked() throws IOException {
-    rejectTemporaryResidue();
     final var records = readValidRecordsLocked();
+    recoverTemporaryResidueLocked(records);
     if (records.isEmpty()) {
       throw new IOException("Bootstrap authority does not exist or has no valid record");
     }
@@ -570,11 +595,15 @@ public final class StorageBootstrapMetadata {
             publicationError);
   }
 
-  private void rejectTemporaryResidue() throws IOException {
+  private void recoverTemporaryResidueLocked(final List<RecordAt> records) throws IOException {
     for (var path : temporaryPaths) {
-      if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+      if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+        continue;
+      }
+      if (records.isEmpty()) {
         throw new IOException("Interrupted bootstrap publication left a temporary file");
       }
+      Files.delete(path);
     }
   }
 

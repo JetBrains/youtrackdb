@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
@@ -52,6 +53,26 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     cls.createProperty("val", PropertyType.INTEGER);
     cls.createProperty("name", PropertyType.STRING);
     cls.createIndex(IDX, SchemaClass.INDEX_TYPE.UNIQUE, "val");
+  }
+
+  /** Reserved metadata is rejected before index creation mutates durable or in-memory state. */
+  @Test
+  public void createRejectsReservedMetadataPrefix() {
+    var cls = session.getMetadata().getSchema().getClass(CLS);
+
+    var manager = session.getSharedContext().getIndexManager();
+    var definition = manager.getIndex(IDX).getDefinition();
+    assertThrows(IllegalArgumentException.class,
+        () -> manager.createIndex(
+            session,
+            CLS + ".reserved",
+            SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+            definition,
+            cls.getPolymorphicCollectionIds(),
+            null,
+            Map.<String, Object>of("__ytdb_state", "forged"),
+            null));
+    assertNull(session.getSharedContext().getIndexManager().getIndex(CLS + ".reserved"));
   }
 
   /** A foreign index implementation is rejected before any registry or entity mutation. */
@@ -94,8 +115,8 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   /**
-   * Existing descriptors start usable, and a destructive manager reload attaches the replacement
-   * handle to the same storage-scoped lifecycle cell instead of resetting handle-local state.
+   * Existing descriptors start at EXISTS. A manager reload attaches the replacement handle to the
+   * same storage-scoped lifecycle cell.
    */
   @Test
   public void reloadPreservesStorageScopedLifecycleCell() {
@@ -104,17 +125,16 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     var cell = original.getLifecycleCell();
 
     assertNotNull("an existing descriptor must have a lifecycle cell", cell);
-    assertEquals("existing indexes default to usable", IndexLifecycle.USABLE, cell.get());
+    assertEquals("existing indexes start at exists", IndexLifecycle.EXISTS, cell.get());
     assertEquals("the engine must bind to the loaded descriptor", original.getIdentity(),
         original.getEngineReference().ownerDescriptorIdentity());
-    cell.set(IndexLifecycle.INVALID);
 
     manager.reload(session);
 
     var replacement = (IndexAbstract) manager.getIndex(IDX);
     assertTrue("reload must replace the Java handle", original != replacement);
     assertSame("reload must retain the storage-scoped cell", cell, replacement.getLifecycleCell());
-    assertEquals("reload must not reset the lifecycle value", IndexLifecycle.INVALID,
+    assertEquals("reload must retain the lifecycle value", IndexLifecycle.EXISTS,
         replacement.getLifecycleCell().get());
   }
 

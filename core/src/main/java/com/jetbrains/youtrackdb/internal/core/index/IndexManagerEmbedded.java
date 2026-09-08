@@ -855,6 +855,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       Map<String, Object> metadata,
       String algorithm) {
 
+    IndexMetadataValidator.validate(metadata);
+
     final var manualIndexesAreUsed =
         indexDefinition == null
             || indexDefinition.getClassName() == null

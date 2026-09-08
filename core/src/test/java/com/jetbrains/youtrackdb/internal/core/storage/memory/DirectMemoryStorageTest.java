@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -14,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.nio.file.Paths;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -80,6 +82,42 @@ public class DirectMemoryStorageTest {
         }
       }
     }
+  }
+
+  /** Each memory storage instance receives a distinct volatile identity pair. */
+  @Test
+  public void volatileIdentityIsStableAndUniquePerStorageInstance() throws Exception {
+    var firstStorage = new AtomicReference<Object>();
+    var firstLineage = new AtomicReference<Object>();
+    withMemoryStorage(
+        storage -> {
+          firstStorage.set(storage.getStorageIdentity());
+          firstLineage.set(storage.getStorageLineageIdentity());
+          assertEquals(firstStorage.get(), storage.getStorageIdentity());
+          assertEquals(firstLineage.get(), storage.getStorageLineageIdentity());
+        });
+
+    withMemoryStorage(
+        storage -> {
+          assertNotEquals(firstStorage.get(), storage.getStorageIdentity());
+          assertNotEquals(firstLineage.get(), storage.getStorageLineageIdentity());
+        });
+  }
+
+  /** The default identity-read hook leaves volatile memory identities unchanged. */
+  @Test
+  public void defaultIdentityReadHookPreservesMemoryIdentities() throws Exception {
+    withMemoryStorage(storage -> {
+      var storageIdentity = storage.getStorageIdentity();
+      var lineageIdentity = storage.getStorageLineageIdentity();
+      var method = AbstractStorage.class.getDeclaredMethod("readStorageIdentity");
+      method.setAccessible(true);
+
+      method.invoke(storage);
+
+      assertEquals(storageIdentity, storage.getStorageIdentity());
+      assertEquals(lineageIdentity, storage.getStorageLineageIdentity());
+    });
   }
 
   // ---------------------------------------------------------------------------

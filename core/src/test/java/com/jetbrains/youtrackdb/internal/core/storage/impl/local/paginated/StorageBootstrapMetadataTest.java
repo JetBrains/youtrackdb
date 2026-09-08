@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -16,14 +17,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import net.jpountz.xxhash.XXHashFactory;
 import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Tests redundant bootstrap selection, publication, recovery, and birth ownership. */
+@Category(SequentialTest.class)
 public class StorageBootstrapMetadataTest {
 
   private static final FeatureFormatIdentity FORMAT = new FeatureFormatIdentity(25);
@@ -157,18 +161,21 @@ public class StorageBootstrapMetadataTest {
     assertThat(Files.readAllBytes(authorityPath(0))).isEqualTo(selectedBytes);
   }
 
-  /** A failed publication removes its candidate and leaves selected authority readable. */
+  /** Failed publication removes the observed candidate without deleting the storage directory. */
   @Test
-  public void failedPublicationPreservesSelectedAuthority() throws IOException {
+  public void failedPublicationRemovesCandidateWithoutDirectoryDeletion() throws IOException {
     final var creator = metadata();
     final var birth = creator.createBirth(STORAGE, LINEAGE_ONE);
     final var active = creator.activate(birth);
     final byte[] selectedBytes = Files.readAllBytes(authorityPath(1));
+    final var observedCandidate = new AtomicReference<Path>();
     final var failing =
         new StorageBootstrapMetadata(
             directory,
             FORMAT,
             (source, target, requester) -> {
+              assertThat(source).exists();
+              observedCandidate.set(source);
               throw new IOException("injected publication failure");
             });
 
@@ -177,8 +184,10 @@ public class StorageBootstrapMetadataTest {
             active, new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 7)))
         .isInstanceOf(IOException.class)
         .hasMessageContaining("injected");
+    assertThat(observedCandidate).doesNotHaveValue(null);
+    assertThat(observedCandidate.get()).doesNotExist();
+    assertThat(directory).isDirectory();
     assertThat(Files.readAllBytes(authorityPath(1))).isEqualTo(selectedBytes);
-    assertThat(temporaryFiles()).isEmpty();
     assertThat(metadata().readActiveRequired()).isEqualTo(active);
   }
 
@@ -326,22 +335,15 @@ public class StorageBootstrapMetadataTest {
     assertThat(thrown.getSuppressed()).containsExactly(cleanupFailure);
   }
 
-  /** Residue present before a call is not removed and keeps recovery fail closed. */
+  /** Confirmation removes an abandoned candidate when durable authority still exists. */
   @Test
-  public void preexistingCandidateResidueIsNeverRemoved() throws IOException {
+  public void preexistingCandidateResidueIsRemovedDuringRead() throws IOException {
     final var metadata = metadata();
     final var active = metadata.activate(metadata.createBirth(STORAGE, LINEAGE_ONE));
     Files.write(temporaryPath(2), new byte[] {1});
 
-    assertThatThrownBy(
-        () -> metadata.advanceFloor(
-            active, new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 7)))
-        .isInstanceOf(IOException.class)
-        .hasMessageContaining("temporary");
-    assertThat(Files.readAllBytes(temporaryPath(2))).containsExactly(1);
-    assertThatThrownBy(metadata::readRequired)
-        .isInstanceOf(IOException.class)
-        .hasMessageContaining("temporary");
+    assertThat(metadata.readActiveRequired()).isEqualTo(active);
+    assertThat(temporaryFiles()).isEmpty();
   }
 
   /** Candidate cleanup failure is suppressed under the original publication failure. */
@@ -577,16 +579,25 @@ public class StorageBootstrapMetadataTest {
         .hasMessageContaining("Invalid bootstrap authority highest issued value: -1");
   }
 
-  /** Temporary publication residue is never treated as confirmed authority. */
+  /** Temporary publication residue is removed without treating its bytes as authority. */
   @Test
-  public void temporaryResidueFailsClosed() throws IOException {
+  public void temporaryResidueIsDiscardedWhenAuthorityExists() throws IOException {
     final var metadata = metadata();
-    metadata.createBirth(STORAGE, LINEAGE_ONE);
+    final var birth = metadata.createBirth(STORAGE, LINEAGE_ONE);
     Files.write(temporaryPath(1), new byte[] {1});
 
-    assertThatThrownBy(metadata::readRequired)
+    assertThat(metadata.readRequired()).isEqualTo(birth);
+    assertThat(temporaryFiles()).isEmpty();
+  }
+
+  /** Temporary publication residue without durable authority still blocks a new birth. */
+  @Test
+  public void temporaryResidueWithoutAuthorityBlocksCreation() throws IOException {
+    Files.write(temporaryPath(0), new byte[] {1});
+
+    assertThatThrownBy(() -> metadata().createBirth(STORAGE, LINEAGE_ONE))
         .isInstanceOf(IOException.class)
-        .hasMessageContaining("temporary");
+        .hasMessageContaining("already exists");
   }
 
   /** Equal floor advance preserves the live token so its creating object can activate birth. */
@@ -622,6 +633,16 @@ public class StorageBootstrapMetadataTest {
             advanced, new LogicalSequenceFloor(SOURCE_STORAGE, LINEAGE_ONE, 9)))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("identity");
+  }
+
+  /** Lineage replacement rejects a birth that has not become active. */
+  @Test
+  public void lineageReplacementRequiresActiveStorage() throws IOException {
+    final var birth = metadata().createBirth(STORAGE, LINEAGE_ONE);
+
+    assertThatThrownBy(() -> metadata().beginLineageReplacement(birth, adoption(20)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("Lineage replacement requires active storage");
   }
 
   /** Production replacement generates a lineage distinct from both inputs and retains the floor. */
@@ -709,6 +730,33 @@ public class StorageBootstrapMetadataTest {
     final var replacement = creator.beginLineageReplacement(active, adoption(20));
 
     assertThat(metadata().readRequired()).isEqualTo(replacement);
+  }
+
+  /** Open rejects an interrupted restore instead of accepting partially replaced content. */
+  @Test
+  public void openRejectsInterruptedRestore() throws IOException {
+    final var creator = metadata();
+    final var active = creator.activate(creator.createBirth(STORAGE, LINEAGE_ONE));
+    creator.beginLineageReplacement(active, adoption(20));
+
+    assertThatThrownBy(metadata()::readActiveRequired)
+        .isInstanceOf(IOException.class)
+        .hasMessageContaining("Interrupted storage restore");
+  }
+
+  /** A failed replacement token permits another restore attempt under the pending lineage. */
+  @Test
+  public void failedLineageReplacementCanBeRetried() throws IOException {
+    final var metadata = metadata();
+    final var active = metadata.activate(metadata.createBirth(STORAGE, LINEAGE_ONE));
+    final var failedReplacement = metadata.beginLineageReplacement(active, adoption(20));
+
+    final var retry = metadata.beginLineageReplacement(failedReplacement, adoption(30));
+    final var completed = metadata.activate(retry);
+
+    assertThat(retry).isEqualTo(failedReplacement);
+    assertThat(completed.state()).isEqualTo(StorageBootstrapMetadata.State.ACTIVE);
+    assertThat(completed.lineageIdentity()).isEqualTo(failedReplacement.lineageIdentity());
   }
 
   /** A FIFO at the lock path is rejected before FileChannel.open can block. */

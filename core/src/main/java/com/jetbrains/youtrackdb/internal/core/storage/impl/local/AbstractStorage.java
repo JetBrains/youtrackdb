@@ -94,8 +94,10 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildState;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleRegistry;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
@@ -123,6 +125,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
@@ -330,7 +334,8 @@ public abstract class AbstractStorage
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
-  private final IndexLifecycleRegistry indexLifecycleRegistry = new IndexLifecycleRegistry();
+  private final StorageIdentityHolder storageIdentityHolder;
+  private final IndexLifecycleRegistry indexLifecycleRegistry;
   private long indexEngineGeneration;
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
@@ -514,6 +519,15 @@ public abstract class AbstractStorage
   public AbstractStorage(
       final String name, final String filePath, final int id,
       YouTrackDBInternalEmbedded context) {
+    this(name, filePath, id, context, true);
+  }
+
+  protected AbstractStorage(
+      final String name,
+      final String filePath,
+      final int id,
+      YouTrackDBInternalEmbedded context,
+      boolean initializeVolatileIdentity) {
     this.context = context;
     this.name = checkName(name);
 
@@ -522,6 +536,11 @@ public abstract class AbstractStorage
     stateLock = new ScalableRWLock();
 
     this.id = id;
+
+    storageIdentityHolder = initializeVolatileIdentity
+        ? new StorageIdentityHolder(StorageIdentity.random(), StorageLineageIdentity.random())
+        : new StorageIdentityHolder();
+    indexLifecycleRegistry = new IndexLifecycleRegistry(storageIdentityHolder::lineageIdentity);
 
     int permits = GlobalConfiguration.QUERY_STATS_MAX_CONCURRENT_REBALANCES
         .getValueAsInteger();
@@ -824,6 +843,7 @@ public abstract class AbstractStorage
                 "Cannot open the storage '" + name + "' because it does not exist in path: " + url);
           }
 
+          readStorageIdentity();
           readIv();
 
           initWalAndDiskCache(contextConfiguration);
@@ -1477,6 +1497,7 @@ public abstract class AbstractStorage
           "Cannot create new storage '" + getURL() + "' because it already exists");
     }
 
+    prepareStorageBirth();
     uuid = UUID.randomUUID();
     initIv();
 
@@ -1545,6 +1566,10 @@ public abstract class AbstractStorage
             doAddCollection(atomicOperation, MetadataDefault.BLOB_COLLECTION_NAME_PREFIX + i);
           }
 
+          // Preserve established blob collection identifiers. Storage creation still completes
+          // before genesis creates security indexes, so the build state collection is ready.
+          doAddCollection(atomicOperation, MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+
           ((CollectionBasedStorageConfiguration) configuration)
               .setCreationVersion(atomicOperation, YouTrackDBConstants.getVersion());
           ((CollectionBasedStorageConfiguration) configuration)
@@ -1559,6 +1584,37 @@ public abstract class AbstractStorage
           clearStorageDirty();
           postCreateSteps();
         });
+
+    activateStorageBirth();
+  }
+
+  /** Reads durable identity before write-ahead log processing starts. */
+  protected void readStorageIdentity() {
+  }
+
+  /** Publishes durable birth before write-ahead log initialization starts. */
+  protected void prepareStorageBirth() {
+  }
+
+  /** Activates durable birth after shared storage creation finishes. */
+  protected void activateStorageBirth() {
+  }
+
+  protected final void updateStorageIdentity(
+      StorageIdentity storageIdentity, StorageLineageIdentity lineageIdentity) {
+    storageIdentityHolder.update(storageIdentity, lineageIdentity);
+  }
+
+  public final StorageIdentity getStorageIdentity() {
+    return storageIdentityHolder.storageIdentity();
+  }
+
+  public final StorageLineageIdentity getStorageLineageIdentity() {
+    return storageIdentityHolder.lineageIdentity();
+  }
+
+  protected final void dropStaleIndexLifecycles() {
+    indexLifecycleRegistry.dropStale();
   }
 
   protected void generateDatabaseInstanceId(AtomicOperation atomicOperation) {
@@ -4509,7 +4565,9 @@ public abstract class AbstractStorage
 
   /** Returns the stable lifecycle carrier for a durable index descriptor. */
   public IndexLifecycleCell getOrCreateIndexLifecycle(RID descriptorIdentity) {
-    return indexLifecycleRegistry.getOrCreate(descriptorIdentity);
+    var initial = IndexBuildState.initial(descriptorIdentity);
+    return indexLifecycleRegistry.getOrCreate(
+        descriptorIdentity, new IndexLifecycleSnapshot(initial, 0));
   }
 
   public IndexLifecycleCell getIndexLifecycle(RID descriptorIdentity) {

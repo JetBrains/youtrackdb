@@ -578,6 +578,27 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
     assertNotNull("index definition must survive round-trip", loaded.getIndexDefinition());
   }
 
+  /** Loading an index descriptor rejects forged metadata in the reserved namespace. */
+  @Test
+  public void loadMetadataRejectsReservedPrefix() {
+    var clsName = CLASS_NAME + "Reserved";
+    var cls = session.createClass(clsName);
+    cls.createProperty("prop", PropertyType.STRING);
+    var idxName = clsName + ".prop";
+    cls.createIndex(idxName, SchemaClass.INDEX_TYPE.UNIQUE, "prop");
+    var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(idxName);
+    Map<String, Object> config = index.getConfiguration(session);
+    config.put("metadata", Map.of("__ytdb_state", "forged"));
+
+    session.begin();
+    try {
+      assertThrows(IllegalArgumentException.class,
+          () -> IndexAbstract.loadMetadataFromMap(session.getTransactionInternal(), config));
+    } finally {
+      session.rollback();
+    }
+  }
+
   // -----------------------------------------------------------------------
   //  get() — no-result branch on a UNIQUE index
   // -----------------------------------------------------------------------

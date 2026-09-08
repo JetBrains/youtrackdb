@@ -20,6 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -55,9 +57,8 @@ public class IndexMetadata {
 
     this.algorithm = algorithm;
     this.version = version;
-    this.metadata = metadata;
+    this.metadata = copyValidatedMetadata(metadata);
   }
-
 
   @Nonnull
   public String getName() {
@@ -132,6 +133,15 @@ public class IndexMetadata {
   }
 
   public void setMetadata(Map<String, Object> metadata) {
-    this.metadata = metadata;
+    this.metadata = copyValidatedMetadata(metadata);
+  }
+
+  private static Map<String, Object> copyValidatedMetadata(Map<String, Object> metadata) {
+    if (metadata == null) {
+      return null;
+    }
+    var copy = Collections.unmodifiableMap(new HashMap<>(metadata));
+    IndexMetadataValidator.validate(copy);
+    return copy;
   }
 }
