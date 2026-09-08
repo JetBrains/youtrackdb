@@ -10,8 +10,9 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 ## Integration Tests
 
-- Activated via Maven profile: `./mvnw clean verify -P ci-integration-tests`
-- Uses failsafe plugin in `core` and `server` modules
+- The pull request pipeline activates the Maven profile for integration tests.
+- A developer machine never runs integration tests. Follow `docs-internal/dev-workflow/track-development.md`.
+- The profile uses the Failsafe plugin in `core` and `server` modules.
 
 ## TinkerPop Cucumber Feature Tests
 

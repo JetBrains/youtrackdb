@@ -85,7 +85,7 @@ Then implement **Step {CURRENT_STEP}** as described in:
 5. **Run tests and verify coverage.** Follow the Pre-Commit Verification section
    from `CLAUDE.md`:
    - Run unit tests for affected modules.
-   - Run integration tests if the step touches storage, WAL, or index code.
+   - The pull request pipeline runs integration tests for storage, WAL, or index changes. A developer machine never runs integration tests. Follow `docs-internal/dev-workflow/track-development.md`.
    - Run coverage check for new code using the `coverage` profile and
      `coverage-gate.py` (see `CLAUDE.md`). If coverage is below the threshold,
      go back to step 3 and add more tests before proceeding.

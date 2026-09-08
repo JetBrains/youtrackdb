@@ -515,8 +515,8 @@ Pacing is the orchestrator's job, not the implementer's. The
 implementer runs straight through sub-steps 1–3 and emits exactly
 one return block.
 
-**For long-running Maven runs** — full `core` test suite, coverage
-profile build, integration tests:
+**For long-running Maven runs** — full `core` test suite and coverage
+profile build. Integration tests run only in the pull request pipeline.
 
 - Use **foreground** Bash with the Bash tool's `timeout` parameter
   set to the realistic upper bound (the parameter is in
@@ -571,12 +571,12 @@ profile build, integration tests:
   surefire stdout into the conversation — typically a 10–25× context
   saving on a failing run, which is the lever that prevents the
   message-budget exhaustion mode the targeted-rerun rule above is
-  also targeting. Full-module verification, coverage-profile builds,
-  and integration tests stay on Bash per the project rule, even
-  when the IDE is reachable.
+  also targeting. Full-module verification and coverage-profile builds stay on Bash per the project
+  rule, even when the IDE is reachable. Integration tests run only in the pull request
+  pipeline.
 
 If even a staged sequence cannot fit the foreground budget (rare —
-only large `-P ci-integration-tests` runs or full multi-module
+only full pipeline-owned integration runs or full multi-module
 coverage on a slow host), return `RESULT: FAILED` with
 `recommended_action: split` (at `level=step`) or
 `recommended_action: escalate` (at `level=track`, where step-level

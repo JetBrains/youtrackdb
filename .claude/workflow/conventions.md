@@ -547,8 +547,9 @@ IDE. Three project-relevant defaults:
   after a focused fix) and **compile-fix loops** benefit from
   `steroid_execute_code` — the IDE returns parsed test results and
   filtered compiler output. Full-suite runs, coverage profiles, JMH
-  benchmarks, and integration-test suites stay on Bash `./mvnw` per the
-  Maven-routing rule in the project's `CLAUDE.md` § MCP Steroid.
+  benchmarks stay on Bash `./mvnw` per the Maven-routing rule in the project's `CLAUDE.md` § MCP
+  Steroid. Pipeline-owned integration tests stay in the pull request pipeline, not on a developer
+  machine.
 - **Renames, moves, signature changes, extract-method, pull-up/push-down,
   and any refactor that touches more than one reference site** route
   through the IDE refactoring engine via mcp-steroid, not raw `Edit`.

@@ -21,11 +21,7 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 # Full build with unit tests (in-memory storage, default)
 ./mvnw clean package
 
-# Full build with unit tests on disk storage (as CI does)
-./mvnw clean package -Dyoutrackdb.test.env=ci
-
-# Run integration tests (separate from PR pipeline, used by nightly CI)
-./mvnw clean verify -P ci-integration-tests
+# Verification scope follows docs-internal/dev-workflow/track-development.md.
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images
@@ -115,7 +111,7 @@ Two layers, two files. The chat/terminal register is set by default through the 
 
 ### Test Modules at a Glance
 - **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
-- **Integration tests**: `./mvnw clean verify -P ci-integration-tests` (uses failsafe in `core` and `server`).
+- **Integration tests**: Follow `docs-internal/dev-workflow/track-development.md`.
 - **Test utilities**: `test-commons` provides `TestBuilder`, `TestFactory`, `ConcurrentTestHelper`.
 
 For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDBC and legacy JMH benchmarks, and the per-test JVM properties (`bufferSize`, `createDefaultUsers`, `checksumMode`, `directMemory.trackMode`): see `.claude/docs/testing-details.md`.
@@ -173,14 +169,7 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
    ./mvnw clean package
    ```
 
-2. **Run related integration tests** if the change touches areas covered by integration tests:
-   ```bash
-   # Run integration tests for the affected module(s)
-   ./mvnw -pl core clean verify -P ci-integration-tests
-
-   # Or run the full integration test suite
-   ./mvnw clean verify -P ci-integration-tests
-   ```
+2. **Integration-test verification**: Follow `docs-internal/dev-workflow/track-development.md`.
 
 3. **Check coverage of changed code** by running tests with the `coverage` profile and verifying coverage locally:
    ```bash
@@ -201,8 +190,8 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 5. **Determining which tests to run:**
    - Changes to `core` module: always run `./mvnw -pl core clean test`
    - Changes to `server` module: run `./mvnw -pl server clean test`
-   - Changes to storage, WAL, or index code: also run integration tests (`-P ci-integration-tests`)
-   - Changes to Gremlin integration or transaction handling: also run integration tests
+   - Changes to storage, WAL, or index code: rely on the pull request pipeline for integration tests
+   - Changes to Gremlin integration or transaction handling: rely on the pull request pipeline
    - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (includes Cucumber feature tests)
    - Changes to `tests` module: run `./mvnw -pl tests clean test`
    - If in doubt, run the full test suite: `./mvnw clean package`
