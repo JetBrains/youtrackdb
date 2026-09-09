@@ -686,6 +686,9 @@ public class SecurityShared implements SecurityInternal {
     writerRole.addRule(session,
         ResourceGeneric.COLLECTION,
         MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
+    writerRole.addRule(session,
+        ResourceGeneric.COLLECTION,
+        MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME, Role.PERMISSION_READ);
     writerRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_READ);
     writerRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_ALL);
@@ -715,6 +718,13 @@ public class SecurityShared implements SecurityInternal {
         Rule.ResourceGeneric.COLLECTION.getLegacyName()
             + "."
             + MetadataDefault.COLLECTION_INTERNAL_NAME,
+        Role.PERMISSION_READ);
+    setSecurityPolicyWithBitmask(
+        session,
+        writerRole,
+        Rule.ResourceGeneric.COLLECTION.getLegacyName()
+            + "."
+            + MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME,
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,

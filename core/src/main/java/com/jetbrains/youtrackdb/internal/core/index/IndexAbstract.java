@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
@@ -270,6 +271,16 @@ public abstract class IndexAbstract implements Index {
     } finally {
       releaseExclusiveLock();
     }
+  }
+
+  /** Links the descriptor to its lifecycle record before the atomic record apply. */
+  void linkLifecycleRecordAtCommit(FrontendTransaction transaction, RID lifecycleIdentity) {
+    var descriptor = transaction.loadEntity(state().descriptorIdentity());
+    var existing = descriptor.getLink(Index.LIFECYCLE_RECORD);
+    if (existing != null) {
+      throw new IllegalStateException("Index descriptor already has a lifecycle record link");
+    }
+    descriptor.setLink(Index.LIFECYCLE_RECORD, lifecycleIdentity);
   }
 
   /**
@@ -526,7 +537,7 @@ public abstract class IndexAbstract implements Index {
     try {
       final var descriptorIdentity = state().descriptorIdentity();
       if (descriptorIdentity != null) {
-        transaction.loadEntity(descriptorIdentity).delete();
+        deleteDescriptorAndLifecycle(transaction, descriptorIdentity);
       }
     } finally {
       releaseExclusiveLock();
@@ -568,7 +579,7 @@ public abstract class IndexAbstract implements Index {
       // the recorded ids, so recording only after a fully-successful build would leave such a
       // failure's engine behind as a phantom registration no revert arm ever removes.
       createdEngineExternalIds.add(engineIdentifier);
-      attachDescriptorIdentityLocked();
+      bindEngineOwnerBeforeLifecyclePublication();
       onIndexEngineChange(transaction.getDatabaseSession(), state());
     } finally {
       releaseExclusiveLock();
@@ -803,6 +814,21 @@ public abstract class IndexAbstract implements Index {
     onIndexEngineChange(transaction.getDatabaseSession(), state());
   }
 
+  private void bindEngineOwnerBeforeLifecyclePublication() {
+    var current = state();
+    var descriptorIdentity = current.descriptorIdentity();
+    if (descriptorIdentity == null || !descriptorIdentity.isPersistent()) {
+      throw new IllegalStateException("Index engine owner requires a durable descriptor identity");
+    }
+    var durableIdentity = immutableIdentity(descriptorIdentity);
+    var boundReference =
+        storage.attachIndexEngineOwner(
+            current.engineIdentifier(), durableIdentity, current.engineReference());
+    handleState.set(
+        new IndexHandleState(
+            current.engineIdentifier(), boundReference, durableIdentity, null));
+  }
+
   void attachDescriptorIdentity() {
     acquireExclusiveLock();
     try {
@@ -980,6 +1006,7 @@ public abstract class IndexAbstract implements Index {
       // and WAL replay.
       session.executeInTxInternal(tx -> {
         save(tx);
+        storage.registerTopLevelIndexLifecycle(tx, getIdentity());
         session.getSharedContext().getIndexManager()
             .addIndexInternal(session, tx, this, true);
       });
@@ -1287,8 +1314,24 @@ public abstract class IndexAbstract implements Index {
 
     final var descriptorIdentity = state().descriptorIdentity();
     if (descriptorIdentity != null) {
-      transaction.loadEntity(descriptorIdentity).delete();
+      deleteDescriptorAndLifecycle(transaction, descriptorIdentity);
     }
+  }
+
+  /** Enrolls the descriptor and linked lifecycle deletion in one transaction. */
+  private static void deleteDescriptorAndLifecycle(
+      FrontendTransaction transaction, RID descriptorIdentity) {
+    var descriptor = transaction.loadEntity(descriptorIdentity);
+    var lifecycleIdentity = descriptor.getLink(Index.LIFECYCLE_RECORD);
+    if (lifecycleIdentity != null) {
+      try {
+        transaction.loadRecord(lifecycleIdentity).delete();
+      } catch (RecordNotFoundException ignored) {
+        // A dangling lifecycle link already has no lifecycle record to delete.
+      }
+      descriptor.setLink(Index.LIFECYCLE_RECORD, null);
+    }
+    descriptor.delete();
   }
 
   private void clearAllEntries(DatabaseSessionEmbedded session) {

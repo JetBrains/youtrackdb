@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -10,6 +11,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -238,7 +240,57 @@ public class DatabaseImportHardeningTest extends DbTestBase {
       target.begin();
       var blobCount = target.countCollectionElements(target.getBlobCollectionIds());
       target.rollback();
-      assertTrue("the dump's blob record must land in a blob collection", blobCount >= 1);
+      assertEquals("the dump's only blob record must land in a blob collection", 1, blobCount);
+    }
+  }
+
+  /**
+   * A legacy dump can contain lifecycle bytes from an older exporter. The importer must ignore
+   * those bytes instead of creating a blob or replacing target lifecycle state.
+   */
+  @Test
+  public void importIgnoresDumpRecordsForIndexBuildStateCollection() throws Exception {
+    var dump = exportSmallDump();
+    var mapper = new ObjectMapper();
+    var root = (ObjectNode) mapper.readTree(gunzip(dump));
+    ((ObjectNode) root.get("info")).put("exporter-version", 14);
+    root.remove("manifest");
+
+    var buildStateCollectionId = -1;
+    for (var collection : root.get("collections")) {
+      if (MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME.equals(
+          collection.get("name").asText())) {
+        buildStateCollectionId = collection.get("id").asInt();
+        break;
+      }
+    }
+    assertTrue("the dump must declare the index build state collection",
+        buildStateCollectionId >= 0);
+    root.withArray("records")
+        .addObject()
+        .put("@rid", "#" + buildStateCollectionId + ":999999")
+        .put("@version", 0)
+        .put("@type", "b")
+        .put("value", "dump-lifecycle".getBytes(StandardCharsets.UTF_8));
+    gzipTo(dump, mapper.writeValueAsBytes(root));
+
+    try (var target = createTargetDatabase("buildStateRecordTarget")) {
+      target.begin();
+      var lifecycleCountBefore =
+          target.countCollectionElements(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+      target.rollback();
+      runImport(target, dump);
+
+      target.begin();
+      var lifecycleCountAfter =
+          target.countCollectionElements(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+      target.rollback();
+      assertEquals("target lifecycle records must remain unchanged", lifecycleCountBefore,
+          lifecycleCountAfter);
+      target.begin();
+      var blobCount = target.countCollectionElements(target.getBlobCollectionIds());
+      target.rollback();
+      assertEquals("a dump lifecycle record must not become a blob", 0, blobCount);
     }
   }
 

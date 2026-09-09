@@ -333,7 +333,8 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     for (var i = 0; exportedCollections <= maxCollectionId; ++i) {
       var collectionName = session.getCollectionNameById(i);
 
-      if (MetadataDefault.COLLECTION_INTERNAL_NAME.equals(collectionName)) {
+      if (MetadataDefault.COLLECTION_INTERNAL_NAME.equals(collectionName)
+          || MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME.equals(collectionName)) {
         continue;
       }
 

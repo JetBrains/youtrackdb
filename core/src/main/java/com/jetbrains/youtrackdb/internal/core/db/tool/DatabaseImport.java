@@ -1591,6 +1591,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       rid = record.getIdentity();
       originalRid = metadata.recordId();
 
+      if (originalRid != null
+          && MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME.equals(
+              session.getCollectionNameById(
+                  collectionToCollectionMapping.get(originalRid.getCollectionId())))) {
+        record.delete();
+        return null;
+      }
+
       if (exporterVersion <= 13 &&
           record instanceof Entity entity &&
           Role.CLASS_NAME.equals(entity.getSchemaClassName())) {
@@ -1794,8 +1802,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       session.executeInTx(transaction -> {
         for (final var collectionName : session.getCollectionNames()) {
-          if (collectionName.equals(MetadataDefault.COLLECTION_INTERNAL_NAME)) {
-            // don't want to mess with the internal collection
+          if (collectionName.equals(MetadataDefault.COLLECTION_INTERNAL_NAME)
+              || collectionName.equals(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME)) {
+            // Do not delete records owned by internal database subsystems.
             continue;
           }
           var recordIterator = session.browseCollection(collectionName);

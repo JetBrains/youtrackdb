@@ -65,6 +65,41 @@ public class IndexLifecycleRegistryTest {
     assertSame(cell, registry.get(descriptor));
   }
 
+  /** Recovery retries when the storage lineage rotates during publication. */
+  @Test
+  public void recoveryRetriesAfterLineageRotatesDuringPublication() {
+    var firstLineage = StorageLineageIdentity.random();
+    var currentLineage = StorageLineageIdentity.random();
+    var lineageReads = new AtomicInteger();
+    var registry = new IndexLifecycleRegistry(
+        () -> lineageReads.getAndIncrement() == 0 ? firstLineage : currentLineage);
+    var descriptor = new RecordId(7, 9);
+    var recovered = snapshot(descriptor);
+
+    var cell = registry.recover(descriptor, recovered);
+
+    assertEquals(4, lineageReads.get());
+    assertSame(recovered, cell.snapshot());
+    assertSame(cell, registry.get(descriptor));
+  }
+
+  /** Recovery keeps a current-lineage cell and rejects its stale snapshot. */
+  @Test
+  public void recoveryPreservesCurrentLineageCellAndNewerPublication() {
+    var lineage = new AtomicReference<>(StorageLineageIdentity.random());
+    var registry = new IndexLifecycleRegistry(lineage::get);
+    var descriptor = new RecordId(7, 9);
+    var older = snapshot(descriptor, 1);
+    var newer = snapshot(descriptor, 2);
+    var current = registry.getOrCreate(descriptor, newer);
+
+    var recovered = registry.recover(descriptor, older);
+
+    assertSame(current, recovered);
+    assertSame(current, registry.get(descriptor));
+    assertSame(newer, recovered.snapshot());
+  }
+
   /** Stale cleanup retains the holder belonging to the current lineage. */
   @Test
   public void dropStaleKeepsCurrentLineageCell() {
@@ -100,6 +135,10 @@ public class IndexLifecycleRegistryTest {
   }
 
   private static IndexLifecycleSnapshot snapshot(RecordId descriptor) {
-    return new IndexLifecycleSnapshot(IndexBuildState.initial(descriptor), 0);
+    return snapshot(descriptor, 0);
+  }
+
+  private static IndexLifecycleSnapshot snapshot(RecordId descriptor, int recordVersion) {
+    return new IndexLifecycleSnapshot(IndexBuildState.initial(descriptor), recordVersion);
   }
 }

@@ -43,6 +43,35 @@ public final class IndexLifecycleRegistry {
     }
   }
 
+  /** Publishes durable recovery state while preserving a current-lineage cell. */
+  public IndexLifecycleCell recover(
+      @Nonnull RID descriptorIdentity, @Nonnull IndexLifecycleSnapshot recoveredSnapshot) {
+    if (!descriptorIdentity.equals(recoveredSnapshot.buildState().descriptorIdentity())) {
+      throw new IllegalArgumentException("The lifecycle snapshot belongs to another descriptor");
+    }
+
+    while (true) {
+      var registration = cells.compute(
+          descriptorIdentity,
+          (ignored, existing) -> {
+            var lineage = currentLineage.get();
+            if (existing != null && existing.lineageIdentity().equals(lineage)) {
+              existing.cell().recover(recoveredSnapshot);
+              return existing;
+            }
+            if (existing != null) {
+              existing.cell().retire();
+            }
+            return new Registration(lineage, new IndexLifecycleCell(recoveredSnapshot));
+          });
+      if (registration.lineageIdentity().equals(currentLineage.get())) {
+        return registration.cell();
+      }
+      registration.cell().retire();
+      cells.remove(descriptorIdentity, registration);
+    }
+  }
+
   @Nullable public IndexLifecycleCell get(@Nonnull RID descriptorIdentity) {
     while (true) {
       var registration = cells.get(descriptorIdentity);

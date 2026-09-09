@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /** Owns serialization and versioned persistence rules for index build state records. */
@@ -31,42 +32,71 @@ public final class IndexBuildStateStore {
     this.backend = Objects.requireNonNull(backend, "backend");
   }
 
-  public IndexLifecycleSnapshot createInitial(RID descriptorIdentity) {
-    return create(IndexBuildState.initial(descriptorIdentity));
+  /** Creates an unlinked initial record after confirming that the descriptor has no link. */
+  public CreatedLifecycleRecord createInitial(
+      RID descriptorIdentity, @Nullable RID existingLifecycleIdentity) {
+    return create(IndexBuildState.initial(descriptorIdentity), existingLifecycleIdentity);
   }
 
-  public IndexLifecycleSnapshot create(IndexBuildState state) {
-    var record = backend.create(state.descriptorIdentity(), serialize(state));
-    return snapshot(record);
+  /** Creates an initial record through the creator of an enclosing atomic unit. */
+  public CreatedLifecycleRecord createInitial(
+      RID descriptorIdentity,
+      @Nullable RID existingLifecycleIdentity,
+      Function<Map<String, Object>, CreatedRecord> creator) {
+    return create(
+        IndexBuildState.initial(descriptorIdentity), existingLifecycleIdentity, creator);
   }
 
-  public Optional<IndexLifecycleSnapshot> read(RID descriptorIdentity) {
-    return backend.read(descriptorIdentity).map(this::snapshot);
+  /** Creates an unlinked record after confirming that the descriptor has no link. */
+  public CreatedLifecycleRecord create(
+      IndexBuildState state, @Nullable RID existingLifecycleIdentity) {
+    return create(state, existingLifecycleIdentity, backend::create);
   }
 
-  /** Recovers an existing record or creates a direct missing-record quarantine publication. */
-  public IndexLifecycleSnapshot recover(RID descriptorIdentity) {
-    var existing = read(descriptorIdentity);
-    if (existing.isPresent()) {
-      return existing.orElseThrow();
+  private CreatedLifecycleRecord create(
+      IndexBuildState state,
+      @Nullable RID existingLifecycleIdentity,
+      Function<Map<String, Object>, CreatedRecord> creator) {
+    if (existingLifecycleIdentity != null) {
+      throw new IllegalStateException("Index descriptor already has a lifecycle record link");
     }
-    return create(IndexBuildState.quarantineMissing(descriptorIdentity));
+    var created = creator.apply(serialize(state));
+    return new CreatedLifecycleRecord(created.identity(), snapshot(created.record()));
   }
 
-  /**
-   * Updates one record after checking its durable version and then its lifecycle transition.
-   */
-  public IndexLifecycleSnapshot update(
-      RID descriptorIdentity, long expectedVersion, IndexBuildState replacement) {
-    var current = read(descriptorIdentity)
-        .orElseThrow(() -> new IllegalStateException("Index build state record is missing"));
-    if (current.recordVersion() != expectedVersion) {
+  /** Reads the single lifecycle record named by the descriptor link. */
+  public IndexLifecycleSnapshot read(
+      RID descriptorIdentity, @Nullable RID lifecycleIdentity) {
+    if (lifecycleIdentity == null) {
+      throw new IllegalStateException("Index descriptor has no lifecycle record link");
+    }
+    var record =
+        backend
+            .read(lifecycleIdentity)
+            .orElseThrow(() -> new MissingLinkedRecordException(lifecycleIdentity));
+    var snapshot = snapshot(record);
+    verifyDescriptor(snapshot.buildState(), descriptorIdentity);
+    return snapshot;
+  }
+
+  /** Publishes one record after comparing the expected snapshot by value except owner epoch. */
+  public IndexLifecycleSnapshot publish(
+      RID descriptorIdentity,
+      RID lifecycleIdentity,
+      IndexLifecycleSnapshot expected,
+      IndexBuildState replacement) {
+    verifyReplacementDescriptor(expected.buildState(), replacement, descriptorIdentity);
+    var current = read(descriptorIdentity, lifecycleIdentity);
+    if (current.recordVersion() != expected.recordVersion()
+        || !current
+            .buildState()
+            .withoutProcessOwnership()
+            .equals(expected.buildState().withoutProcessOwnership())) {
       throw new ConcurrentModificationException(
-          "Index build state version changed from " + expectedVersion + " to "
-              + current.recordVersion());
+          "Index build state changed from expected revision " + expected.recordVersion()
+              + " to durable revision " + current.recordVersion());
     }
 
-    verifyReplacementDescriptor(current.buildState(), replacement, descriptorIdentity);
     var currentLifecycle = current.lifecycle();
     var replacementLifecycle = replacement.lifecycle();
     if (currentLifecycle != replacementLifecycle
@@ -85,11 +115,12 @@ public final class IndexBuildStateStore {
       }
     }
 
-    return snapshot(backend.update(descriptorIdentity, expectedVersion, serialize(replacement)));
+    return snapshot(
+        backend.update(lifecycleIdentity, current.recordVersion(), serialize(replacement)));
   }
 
-  public void delete(RID descriptorIdentity, long expectedVersion) {
-    backend.delete(descriptorIdentity, expectedVersion);
+  public void delete(RID lifecycleIdentity, long expectedVersion) {
+    backend.delete(lifecycleIdentity, expectedVersion);
   }
 
   Map<String, Object> serialize(IndexBuildState state) {
@@ -127,48 +158,92 @@ public final class IndexBuildStateStore {
 
   private static void verifyReplacementDescriptor(
       IndexBuildState current, IndexBuildState replacement, RID descriptorIdentity) {
-    if (!current.descriptorIdentity().equals(descriptorIdentity)
-        || !replacement.descriptorIdentity().equals(descriptorIdentity)) {
+    verifyDescriptor(current, descriptorIdentity);
+    verifyDescriptor(replacement, descriptorIdentity);
+  }
+
+  private static void verifyDescriptor(IndexBuildState state, RID descriptorIdentity) {
+    if (!state.descriptorIdentity().equals(descriptorIdentity)) {
       throw new IllegalArgumentException("Index build state belongs to another descriptor");
     }
   }
 
   private static String string(Map<String, Object> record, String field) {
-    return Objects.requireNonNull((String) record.get(field), field);
+    return requiredValue(record, field, String.class);
   }
 
   @Nullable private static String nullableString(Map<String, Object> record, String field) {
-    return (String) record.get(field);
+    return nullableValue(record, field, String.class);
   }
 
   private static int integer(Map<String, Object> record, String field) {
-    return ((Number) Objects.requireNonNull(record.get(field), field)).intValue();
+    return requiredValue(record, field, Integer.class);
   }
 
   private static long longValue(Map<String, Object> record, String field) {
-    return ((Number) Objects.requireNonNull(record.get(field), field)).longValue();
+    return requiredValue(record, field, Long.class);
   }
 
   @Nullable private static Long nullableLong(Map<String, Object> record, String field) {
-    var value = (Number) record.get(field);
-    return value == null ? null : value.longValue();
+    return nullableValue(record, field, Long.class);
   }
 
   private static boolean booleanValue(Map<String, Object> record, String field) {
-    return (Boolean) Objects.requireNonNull(record.get(field), field);
+    return requiredValue(record, field, Boolean.class);
+  }
+
+  private static <T> T requiredValue(
+      Map<String, Object> record, String field, Class<T> expectedType) {
+    return Objects.requireNonNull(nullableValue(record, field, expectedType), field);
+  }
+
+  @Nullable private static <T> T nullableValue(
+      Map<String, Object> record, String field, Class<T> expectedType) {
+    var value = record.get(field);
+    if (value != null && !expectedType.isInstance(value)) {
+      throw new IllegalArgumentException(
+          "Index build state field " + field + " must have type " + expectedType.getSimpleName());
+    }
+    return expectedType.cast(value);
+  }
+
+  /** Signals that the descriptor link names no durable lifecycle record. */
+  public static final class MissingLinkedRecordException extends IllegalStateException {
+
+    public MissingLinkedRecordException(RID lifecycleIdentity) {
+      super("Linked index build state record is missing");
+      Objects.requireNonNull(lifecycleIdentity, "lifecycleIdentity");
+    }
   }
 
   /** Durable record access supplied by the storage transaction integration. */
   public interface Backend {
 
-    Optional<VersionedRecord> read(RID descriptorIdentity);
+    Optional<VersionedRecord> read(RID recordIdentity);
 
-    VersionedRecord create(RID descriptorIdentity, Map<String, Object> value);
+    CreatedRecord create(Map<String, Object> value);
 
-    VersionedRecord update(
-        RID descriptorIdentity, long expectedVersion, Map<String, Object> value);
+    VersionedRecord update(RID recordIdentity, long expectedVersion, Map<String, Object> value);
 
-    void delete(RID descriptorIdentity, long expectedVersion);
+    void delete(RID recordIdentity, long expectedVersion);
+  }
+
+  /** The durable address and committed value of a newly created lifecycle record. */
+  public record CreatedRecord(RID identity, VersionedRecord record) {
+
+    public CreatedRecord {
+      Objects.requireNonNull(identity, "identity");
+      Objects.requireNonNull(record, "record");
+    }
+  }
+
+  /** The durable address and immutable snapshot of a newly created lifecycle record. */
+  public record CreatedLifecycleRecord(RID identity, IndexLifecycleSnapshot snapshot) {
+
+    public CreatedLifecycleRecord {
+      Objects.requireNonNull(identity, "identity");
+      Objects.requireNonNull(snapshot, "snapshot");
+    }
   }
 
   /** One serialized durable record and its storage record version. */

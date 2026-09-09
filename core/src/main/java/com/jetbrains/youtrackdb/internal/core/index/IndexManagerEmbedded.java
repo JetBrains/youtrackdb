@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildStateStore;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.TxSchemaState;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
@@ -985,17 +986,16 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
                 metadata);
 
         index = createIndexFromMetadata(transaction, storage, im);
+        ((AbstractStorage) storage)
+            .registerTopLevelIndexLifecycle(transaction, index.getIdentity());
         addIndexInternalNoLock(index, transaction, true);
       } finally {
         releaseExclusiveLock(session, true);
       }
       return (IndexAbstract) index;
     });
-    // The descriptor RID becomes persistent only when computeInTxInternal returns. The manager map
-    // can therefore expose this handle briefly without an attachment, despite the pre-publication
-    // attempt in addIndexInternalNoLock. That window is harmless today because attachment accessors
-    // explicitly return empty and no production path consumes them. Attach before fill returns the
-    // handle to its creator. Later consumers must preserve the defined empty-result handling.
+    // The descriptor and lifecycle record are durable now. The commit publishes the lifecycle
+    // snapshot before this attachment exposes the stable lifecycle cell on the index handle.
     idx.attachDescriptorIdentity();
 
     if (progressListener == null)
@@ -1288,7 +1288,14 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       List<ReassociatedIndex> reassociated,
       List<AppliedMembership> appliedMembership,
       List<Integer> createdEngineExternalIds,
-      List<AbstractStorage.DroppedIndexEngine> droppedEngines) {
+      List<AbstractStorage.DroppedIndexEngine> droppedEngines,
+      List<CreatedIndexLifecycle> createdLifecycles) {
+
+  }
+
+  /** A created index and the lifecycle record committed with the index artifacts. */
+  public record CreatedIndexLifecycle(
+      IndexAbstract index, IndexBuildStateStore.CreatedLifecycleRecord lifecycle) {
 
   }
 
@@ -1452,7 +1459,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return null;
     }
     return new ReconciledIndexPlan(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-        new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
   }
 
   /**
@@ -1504,6 +1511,22 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
                 + " source collection in this version; collection '" + collectionName + "' is not"
                 + " empty. The unbounded populated-class in-commit build is tracked by YTDB-1064.");
       }
+    }
+  }
+
+  /** Creates and links lifecycle records after descriptor RIDs become durable addresses. */
+  public void createReconciledIndexLifecycles(
+      FrontendTransaction transaction, AtomicOperation atomicOperation, ReconciledIndexPlan plan) {
+    var localStorage = (AbstractStorage) storage;
+    for (var index : plan.created()) {
+      var descriptorIdentity = index.getIdentity();
+      var descriptor = transaction.loadEntity(descriptorIdentity);
+      var existingLifecycleIdentity = descriptor.getLink(Index.LIFECYCLE_RECORD);
+      var lifecycle =
+          localStorage.createInitialIndexLifecycle(
+              descriptorIdentity, existingLifecycleIdentity, atomicOperation);
+      index.linkLifecycleRecordAtCommit(transaction, lifecycle.identity());
+      plan.createdLifecycles().add(new CreatedIndexLifecycle(index, lifecycle));
     }
   }
 
@@ -1701,10 +1724,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
       runReconciledIndexPublicationTestHook();
     }
-    for (final var handle : plan.created()) {
-      // The engine is built and the record durable, so register the handle in the shared lookup maps
-      // exactly as the non-transactional create's addIndexInternalNoLock does, without re-updating the
-      // index-manager entity (its link set was updated in the enroll phase and is already durable).
+    for (final var createdLifecycle : plan.createdLifecycles()) {
+      var handle = createdLifecycle.index();
+      ((AbstractStorage) storage)
+          .publishInitialIndexLifecycle(
+              handle.getIdentity(), createdLifecycle.lifecycle().snapshot());
+      // The engine and all linked records are durable before the handle becomes shared.
       addIndexInternalNoLock(handle, transaction, false);
       runReconciledIndexPublicationTestHook();
     }

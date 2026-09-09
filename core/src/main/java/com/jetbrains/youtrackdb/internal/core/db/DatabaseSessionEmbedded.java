@@ -3250,6 +3250,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     final var collectionId = getCollectionIdByName(iCollectionName);
+    var collectionName = getCollectionNameById(collectionId);
+    if (MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME.equals(collectionName)) {
+      checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, collectionName);
+    }
+
     var schema = metadata.getSchema();
 
     var clazz = schema.getClassByCollectionId(collectionId);

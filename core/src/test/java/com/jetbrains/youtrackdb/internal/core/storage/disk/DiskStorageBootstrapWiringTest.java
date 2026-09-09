@@ -12,7 +12,8 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildState;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
@@ -98,38 +99,65 @@ public class DiskStorageBootstrapWiringTest {
     }
   }
 
-  /** A real restore rotates lineage and removes every registered stale lifecycle holder. */
+  /** Restore adopts stored progress without rewriting the lifecycle record. */
   @Test
-  public void restoreRotatesLineageAndDropsStaleLifecycleHolders() throws Exception {
+  public void restoreAdoptsProgressWithoutLifecycleRewrite() throws Exception {
     var backupDirectory = Files.createDirectory(directory.resolve("backup"));
     try (var youTrackDB = createDatabase();
         var session = youTrackDB.open(DATABASE, ADMIN, ADMIN)) {
       var storage = (AbstractStorage) session.getStorage();
-      var firstDescriptor = new RecordId(42, 1);
-      var secondDescriptor = new RecordId(42, 2);
-      var firstHolder = storage.getOrCreateIndexLifecycle(firstDescriptor);
-      var secondHolder = storage.getOrCreateIndexLifecycle(secondDescriptor);
-      assertEquals(IndexLifecycle.EXISTS, firstHolder.get());
-      assertEquals(IndexLifecycle.EXISTS, secondHolder.get());
+      var manager = session.getSharedContext().getIndexManager();
+      var index = manager.getIndex("OUser.name");
+      var lifecycle =
+          session.computeInTx(
+              tx -> tx.loadEntity(index.getIdentity()).getLink(Index.LIFECYCLE_RECORD));
+      var store = storage.getIndexBuildStateStore();
+      var initial = store.read(index.getIdentity(), lifecycle);
+      var state = initial.buildState();
+      var backedUpState = lifecycleState(state, 31, 77L);
+      var backedUp = store.publish(index.getIdentity(), lifecycle, initial, backedUpState);
+      var firstHolder = storage.getIndexLifecycle(index.getIdentity());
 
       var storageIdentity = storage.getStorageIdentity();
       var lineageIdentity = storage.getStorageLineageIdentity();
       storage.backup(backupDirectory);
+      store.publish(
+          index.getIdentity(), lifecycle, backedUp, lifecycleState(backedUpState, 99, null));
       storage.restoreFromBackup(backupDirectory, null);
+      manager.reload(session);
 
       assertEquals(storageIdentity, storage.getStorageIdentity());
       assertNotEquals(lineageIdentity, storage.getStorageLineageIdentity());
       assertThrows(IllegalStateException.class, firstHolder::get);
-      assertThrows(IllegalStateException.class, secondHolder::get);
-      var currentFirstHolder = storage.getOrCreateIndexLifecycle(firstDescriptor);
-      var currentSecondHolder = storage.getOrCreateIndexLifecycle(secondDescriptor);
-      assertNotSame(firstHolder, currentFirstHolder);
-      assertNotSame(secondHolder, currentSecondHolder);
-      assertEquals(IndexLifecycle.EXISTS, currentFirstHolder.get());
-      assertEquals(IndexLifecycle.EXISTS, currentSecondHolder.get());
-      assertEquals(storage.getStorageLineageIdentity(), authority().readActiveRequired()
-          .lineageIdentity());
+      var restoredIndex = manager.getIndex("OUser.name");
+      var restored = storage.getIndexLifecycle(restoredIndex.getIdentity()).snapshot();
+      assertNotSame(firstHolder, storage.getIndexLifecycle(restoredIndex.getIdentity()));
+      assertEquals(IndexLifecycle.EXISTS, restored.lifecycle());
+      assertEquals(31, restored.buildState().completedUnits());
+      assertEquals(null, restored.buildState().ownerEpoch());
+      var durable = store.read(restoredIndex.getIdentity(), lifecycle);
+      assertEquals(31, durable.buildState().completedUnits());
+      assertEquals(Long.valueOf(77), durable.buildState().ownerEpoch());
+      assertEquals(backedUp.recordVersion(), durable.recordVersion());
+      assertEquals(
+          storage.getStorageLineageIdentity(),
+          authority().readActiveRequired().lineageIdentity());
     }
+  }
+
+  private static IndexBuildState lifecycleState(
+      IndexBuildState state, long completedUnits, Long ownerEpoch) {
+    return new IndexBuildState(
+        state.formatVersion(),
+        state.descriptorIdentity(),
+        state.lifecycle(),
+        state.buildIncarnation(),
+        ownerEpoch,
+        state.completionCut(),
+        completedUnits,
+        state.suspended(),
+        state.failure(),
+        state.failureMessage());
   }
 
   /** Activation wraps an authority read failure with the creation context. */

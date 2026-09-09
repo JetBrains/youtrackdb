@@ -134,6 +134,38 @@ public class IndexBuildStateTest {
     assertSame(expected, cell.snapshot());
   }
 
+  /** A value-equal expected snapshot authorizes publication. */
+  @Test
+  public void compareAndSetMatchesExpectedSnapshotByValue() {
+    var current =
+        new IndexLifecycleSnapshot(state(IndexLifecycle.EXISTS, IndexBuildFailure.NONE), 1);
+    var rebuiltExpected =
+        new IndexLifecycleSnapshot(current.buildState(), current.recordVersion());
+    var replacement =
+        new IndexLifecycleSnapshot(state(IndexLifecycle.MAINTAINED, IndexBuildFailure.NONE), 2);
+    var cell = new IndexLifecycleCell(current);
+
+    assertTrue(cell.compareAndSet(rebuiltExpected, replacement));
+    assertSame(replacement, cell.snapshot());
+  }
+
+  /** A publication cannot replace a snapshot for another descriptor. */
+  @Test
+  public void compareAndSetRejectsAnotherDescriptor() {
+    var expected =
+        new IndexLifecycleSnapshot(state(IndexLifecycle.EXISTS, IndexBuildFailure.NONE), 1);
+    var otherState =
+        state(1, new RecordId(7, 10), null, null, 0, IndexLifecycle.MAINTAINED,
+            IndexBuildFailure.NONE);
+    var replacement = new IndexLifecycleSnapshot(otherState, 2);
+    var cell = new IndexLifecycleCell(expected);
+
+    var failure = assertThrows(
+        IllegalArgumentException.class, () -> cell.compareAndSet(expected, replacement));
+    assertEquals("The lifecycle snapshot belongs to another descriptor", failure.getMessage());
+    assertSame(expected, cell.snapshot());
+  }
+
   /** A retired cell rejects compare-and-set publication. */
   @Test
   public void compareAndSetRejectsRetiredCell() {
@@ -148,6 +180,20 @@ public class IndexBuildStateTest {
         IllegalStateException.class, () -> cell.compareAndSet(expected, replacement));
     assertEquals(
         "The lifecycle cell belongs to a retired storage lineage", failure.getMessage());
+  }
+
+  /** Recovery cannot replace a newer snapshot with an older durable revision. */
+  @Test
+  public void recoveryKeepsNewerPublishedSnapshot() {
+    var newer =
+        new IndexLifecycleSnapshot(state(IndexLifecycle.MAINTAINED, IndexBuildFailure.NONE), 2);
+    var older =
+        new IndexLifecycleSnapshot(state(IndexLifecycle.EXISTS, IndexBuildFailure.NONE), 1);
+    var cell = new IndexLifecycleCell(newer);
+
+    cell.recover(older);
+
+    assertSame(newer, cell.snapshot());
   }
 
   /** A snapshot rejects a negative durable record version. */

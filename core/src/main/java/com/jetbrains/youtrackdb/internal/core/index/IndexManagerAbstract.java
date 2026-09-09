@@ -229,6 +229,8 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
   protected void load(FrontendTransactionImpl transaction, EntityImpl entity) {
+    storage.validateIndexBuildStateCollection();
+
     indexes.clear();
     classPropertyIndex.clear();
 
@@ -236,8 +238,10 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     if (indexEntities != null) {
       for (var indexIdentifiable : indexEntities) {
         var indexEntity = transaction.loadEntity(indexIdentifiable);
-        final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(transaction,
-            indexEntity.toMap(false));
+        var lifecycleIdentity = indexEntity.getLink(Index.LIFECYCLE_RECORD);
+        storage.recoverIndexLifecycle(indexIdentifiable.getIdentity(), lifecycleIdentity);
+        final var newIndexMetadata =
+            IndexAbstract.loadMetadataFromMap(transaction, indexEntity.toMap(false));
         var index =
             createIndexInstance(transaction, indexIdentifiable, newIndexMetadata);
         addIndexInternalNoLock(index, transaction, false);

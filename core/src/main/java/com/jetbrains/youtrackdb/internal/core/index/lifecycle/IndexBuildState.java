@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.lifecycle;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.UUID;
 import javax.annotation.Nullable;
@@ -63,18 +64,41 @@ public record IndexBuildState(
         null);
   }
 
-  public static IndexBuildState quarantineMissing(RID descriptorIdentity) {
+  public static IndexBuildState quarantineMissing(
+      RID descriptorIdentity, String diagnosticReason) {
+    Objects.requireNonNull(diagnosticReason, "diagnosticReason");
+    var incarnation =
+        UUID.nameUUIDFromBytes(
+            (descriptorIdentity + "\n" + diagnosticReason).getBytes(StandardCharsets.UTF_8));
     return new IndexBuildState(
         CURRENT_FORMAT_VERSION,
         descriptorIdentity,
         IndexLifecycle.INVALID,
-        UUID.randomUUID(),
+        incarnation,
         null,
         null,
         0,
         false,
         IndexBuildFailure.INDEX_BUILD_STATE_MISSING,
-        "The durable index build state record was missing");
+        diagnosticReason);
+  }
+
+  /** Returns this value without process-attempt ownership. */
+  public IndexBuildState withoutProcessOwnership() {
+    if (ownerEpoch == null) {
+      return this;
+    }
+    return new IndexBuildState(
+        formatVersion,
+        descriptorIdentity,
+        lifecycle,
+        buildIncarnation,
+        null,
+        completionCut,
+        completedUnits,
+        suspended,
+        failure,
+        failureMessage);
   }
 
   public static boolean isLegalTransition(IndexLifecycle current, IndexLifecycle replacement) {

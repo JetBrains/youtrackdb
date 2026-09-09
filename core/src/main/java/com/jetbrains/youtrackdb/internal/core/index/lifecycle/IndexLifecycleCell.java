@@ -26,13 +26,51 @@ public final class IndexLifecycleCell {
 
   public boolean compareAndSet(
       @Nonnull IndexLifecycleSnapshot expected, @Nonnull IndexLifecycleSnapshot replacement) {
-    if (replacement.recordVersion() < expected.recordVersion()) {
-      throw new IllegalArgumentException("A lifecycle snapshot cannot move to an older version");
+    var descriptorIdentity = expected.buildState().descriptorIdentity();
+    if (!descriptorIdentity.equals(replacement.buildState().descriptorIdentity())) {
+      throw new IllegalArgumentException("The lifecycle snapshot belongs to another descriptor");
     }
-    if (snapshot.get() == null) {
-      throw new IllegalStateException("The lifecycle cell belongs to a retired storage lineage");
+
+    while (true) {
+      var current = snapshot.get();
+      if (current == null) {
+        throw new IllegalStateException("The lifecycle cell belongs to a retired storage lineage");
+      }
+      if (!descriptorIdentity.equals(current.buildState().descriptorIdentity())) {
+        throw new IllegalArgumentException("The lifecycle snapshot belongs to another descriptor");
+      }
+      if (replacement.recordVersion() < current.recordVersion()) {
+        throw new IllegalArgumentException("A lifecycle snapshot cannot move to an older version");
+      }
+      if (!current.equals(expected)) {
+        return false;
+      }
+      if (snapshot.compareAndSet(current, replacement)) {
+        return true;
+      }
     }
-    return snapshot.compareAndSet(expected, replacement);
+  }
+
+  /** Publishes recovered state unless the cell already holds a newer durable revision. */
+  void recover(@Nonnull IndexLifecycleSnapshot replacement) {
+    while (true) {
+      var current = snapshot.get();
+      if (current == null) {
+        throw new IllegalStateException("The lifecycle cell belongs to a retired storage lineage");
+      }
+      if (!current.buildState().descriptorIdentity()
+          .equals(replacement.buildState().descriptorIdentity())) {
+        throw new IllegalArgumentException("The lifecycle snapshot belongs to another descriptor");
+      }
+      if (replacement.recordVersion() < current.recordVersion()
+          && replacement.buildState().failure()
+              != IndexBuildFailure.INDEX_BUILD_STATE_MISSING) {
+        return;
+      }
+      if (snapshot.compareAndSet(current, replacement)) {
+        return;
+      }
+    }
   }
 
   void retire() {

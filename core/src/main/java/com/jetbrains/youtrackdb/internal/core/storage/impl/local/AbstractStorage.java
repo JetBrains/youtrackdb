@@ -95,6 +95,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildState;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildStateStore;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleRegistry;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleSnapshot;
@@ -336,6 +337,11 @@ public abstract class AbstractStorage
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
   private final StorageIdentityHolder storageIdentityHolder;
   private final IndexLifecycleRegistry indexLifecycleRegistry;
+  private static final String TOP_LEVEL_INDEX_LIFECYCLES =
+      AbstractStorage.class.getName() + ".topLevelIndexLifecycles";
+
+  private final IndexBuildStateStorageBackend indexBuildStateStorageBackend;
+  private final IndexBuildStateStore indexBuildStateStore;
   private long indexEngineGeneration;
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
@@ -541,6 +547,8 @@ public abstract class AbstractStorage
         ? new StorageIdentityHolder(StorageIdentity.random(), StorageLineageIdentity.random())
         : new StorageIdentityHolder();
     indexLifecycleRegistry = new IndexLifecycleRegistry(storageIdentityHolder::lineageIdentity);
+    indexBuildStateStorageBackend = new IndexBuildStateStorageBackend(this);
+    indexBuildStateStore = new IndexBuildStateStore(indexBuildStateStorageBackend);
 
     int permits = GlobalConfiguration.QUERY_STATS_MAX_CONCURRENT_REBALANCES
         .getValueAsInteger();
@@ -2682,14 +2690,27 @@ public abstract class AbstractStorage
         }
 
         if (logger.isDebugEnabled()) {
+          // Whole entities can resolve links after the atomic operation has ended. Log only values
+          // that are already available on each committed record operation.
+          final var committedRecords =
+              result.stream()
+                  .map(
+                      operation -> "%s %s %s"
+                          .formatted(
+                              operation.getRecordId(),
+                              RecordOperation.getName(operation.type),
+                              operation.record == null
+                                  ? "<null>"
+                                  : "v.%d".formatted(operation.record.getVersion())))
+                  .toList();
           LogManager.instance()
               .debug(
                   this,
-                  "%d Committed transaction %d on database '%s' (result=%s)",
+                  "%d Committed transaction %d on database '%s' (records=%s)",
                   logger, Thread.currentThread().threadId(),
                   frontendTransaction.getId(),
                   session.getDatabaseName(),
-                  result);
+                  committedRecords);
         }
         return result;
       } finally {
@@ -2906,6 +2927,7 @@ public abstract class AbstractStorage
       // populate the engines after the record apply, publish into the shared index maps after
       // commitChanges. Null on a pure-data commit and on a schema-carry commit with no index delta.
       IndexManagerEmbedded.ReconciledIndexPlan indexPlan = null;
+      var topLevelIndexLifecycles = pendingTopLevelIndexLifecycles(frontendTransaction);
       startTxCommit(atomicOperation, schemaContext != null);
       try {
         if (schemaContext != null) {
@@ -3137,6 +3159,16 @@ public abstract class AbstractStorage
           }
         }
 
+        if (indexPlan != null) {
+          // Descriptor identities are persistent now. Create the lifecycle record and set the
+          // descriptor link before record serialization. Every write remains in this atomic unit.
+          schemaContext.indexManager()
+              .createReconciledIndexLifecycles(
+                  frontendTransaction, atomicOperation, indexPlan);
+        }
+        createTopLevelIndexLifecycles(
+            frontendTransaction, atomicOperation, topLevelIndexLifecycles);
+
         for (final var recordOperation : workingSet.recordOperations()) {
           commitEntry(
               frontendTransaction,
@@ -3271,6 +3303,7 @@ public abstract class AbstractStorage
             }
             throw e;
           }
+          publishTopLevelIndexLifecycles(topLevelIndexLifecycles);
           try {
             cleanupSnapshotIndex();
           } catch (final RuntimeException | AssertionError e) {
@@ -4563,11 +4596,133 @@ public abstract class AbstractStorage
     return new IndexEngineReference(slot, apiVersion, ++indexEngineGeneration);
   }
 
+  private static final class TopLevelIndexLifecycle {
+
+    private final RID descriptorIdentity;
+    private IndexBuildStateStore.CreatedLifecycleRecord created;
+
+    private TopLevelIndexLifecycle(RID descriptorIdentity) {
+      this.descriptorIdentity = descriptorIdentity;
+    }
+  }
+
+  /** Registers lifecycle creation for a top-level index descriptor in the current commit. */
+  public void registerTopLevelIndexLifecycle(
+      FrontendTransaction transaction, RID descriptorIdentity) {
+    var descriptor = transaction.loadEntity(descriptorIdentity);
+    if (descriptor.getLink(Index.LIFECYCLE_RECORD) != null) {
+      throw new IllegalStateException("Index descriptor already has a lifecycle record link");
+    }
+
+    var pending = pendingTopLevelIndexLifecycles(transaction);
+    if (pending.isEmpty()) {
+      pending = new ArrayList<>();
+      transaction.setCustomData(TOP_LEVEL_INDEX_LIFECYCLES, pending);
+    }
+    if (pending.stream()
+        .anyMatch(candidate -> candidate.descriptorIdentity.equals(descriptorIdentity))) {
+      throw new IllegalStateException("Index descriptor already awaits a lifecycle record");
+    }
+    pending.add(new TopLevelIndexLifecycle(descriptorIdentity));
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<TopLevelIndexLifecycle> pendingTopLevelIndexLifecycles(
+      FrontendTransaction transaction) {
+    var pending =
+        (List<TopLevelIndexLifecycle>) transaction.getCustomData(TOP_LEVEL_INDEX_LIFECYCLES);
+    return pending == null ? List.of() : pending;
+  }
+
+  private void createTopLevelIndexLifecycles(
+      FrontendTransaction transaction,
+      AtomicOperation atomicOperation,
+      List<TopLevelIndexLifecycle> pending) {
+    for (var lifecycle : pending) {
+      var descriptor = transaction.loadEntity(lifecycle.descriptorIdentity);
+      var existing = descriptor.getLink(Index.LIFECYCLE_RECORD);
+      lifecycle.created =
+          createInitialIndexLifecycle(
+              lifecycle.descriptorIdentity, existing, atomicOperation);
+      descriptor.setLink(Index.LIFECYCLE_RECORD, lifecycle.created.identity());
+    }
+  }
+
+  private void publishTopLevelIndexLifecycles(List<TopLevelIndexLifecycle> pending) {
+    for (var lifecycle : pending) {
+      publishInitialIndexLifecycle(
+          lifecycle.descriptorIdentity, lifecycle.created.snapshot());
+    }
+  }
+
+  /** Fails metadata loading when the lifecycle storage area is absent. */
+  public void validateIndexBuildStateCollection() {
+    indexBuildStateStorageBackend.validateBuildStateCollection();
+  }
+
+  /** Loads durable lifecycle state or publishes stable missing-state quarantine. */
+  public IndexLifecycleCell recoverIndexLifecycle(
+      RID descriptorIdentity, @Nullable RID lifecycleIdentity) {
+    final IndexLifecycleSnapshot recovered;
+    if (lifecycleIdentity == null) {
+      recovered = quarantineMissingLifecycle(
+          descriptorIdentity, "Index descriptor has no lifecycle record link");
+    } else {
+      IndexLifecycleSnapshot durable;
+      try {
+        durable = indexBuildStateStore.read(descriptorIdentity, lifecycleIdentity);
+      } catch (IndexBuildStateStore.MissingLinkedRecordException exception) {
+        durable = null;
+      }
+      if (durable == null) {
+        recovered = quarantineMissingLifecycle(
+            descriptorIdentity, "Linked index build state record is missing");
+      } else if (durable.buildState().ownerEpoch() != null) {
+        recovered =
+            new IndexLifecycleSnapshot(
+                durable.buildState().withoutProcessOwnership(), durable.recordVersion());
+      } else {
+        recovered = durable;
+      }
+    }
+    return indexLifecycleRegistry.recover(descriptorIdentity, recovered);
+  }
+
+  private static IndexLifecycleSnapshot quarantineMissingLifecycle(
+      RID descriptorIdentity, String diagnosticReason) {
+    return new IndexLifecycleSnapshot(
+        IndexBuildState.quarantineMissing(descriptorIdentity, diagnosticReason), 0);
+  }
+
+  /** Returns the durable lifecycle read and write path for local schema indexes. */
+  public IndexBuildStateStore getIndexBuildStateStore() {
+    return indexBuildStateStore;
+  }
+
+  /** Creates initial lifecycle state inside an enclosing index creation atomic unit. */
+  public IndexBuildStateStore.CreatedLifecycleRecord createInitialIndexLifecycle(
+      RID descriptorIdentity,
+      @Nullable RID existingLifecycleIdentity,
+      AtomicOperation atomicOperation) {
+    return indexBuildStateStore.createInitial(
+        descriptorIdentity,
+        existingLifecycleIdentity,
+        value -> indexBuildStateStorageBackend.createInsideAtomicOperation(atomicOperation, value));
+  }
+
+  /** Publishes a committed lifecycle snapshot into the storage-scoped registry. */
+  public IndexLifecycleCell publishInitialIndexLifecycle(
+      RID descriptorIdentity, IndexLifecycleSnapshot snapshot) {
+    return indexLifecycleRegistry.getOrCreate(descriptorIdentity, snapshot);
+  }
+
   /** Returns the stable lifecycle carrier for a durable index descriptor. */
   public IndexLifecycleCell getOrCreateIndexLifecycle(RID descriptorIdentity) {
-    var initial = IndexBuildState.initial(descriptorIdentity);
-    return indexLifecycleRegistry.getOrCreate(
-        descriptorIdentity, new IndexLifecycleSnapshot(initial, 0));
+    var cell = indexLifecycleRegistry.get(descriptorIdentity);
+    if (cell == null) {
+      throw new IllegalStateException("The index lifecycle snapshot is not loaded");
+    }
+    return cell;
   }
 
   public IndexLifecycleCell getIndexLifecycle(RID descriptorIdentity) {
@@ -7651,6 +7806,15 @@ public abstract class AbstractStorage
       @Nonnull final byte[] content,
       final byte recordType) throws IOException {
     checkCallerOwnsStateLock();
+    return createRecordInsideCommitAtomicOperation(atomicOperation, rid, content, recordType);
+  }
+
+  /** Creates a record while the commit caller holds the storage state lock. */
+  long createRecordInsideCommitAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      @Nonnull final byte[] content,
+      final byte recordType) throws IOException {
     checkOpennessAndMigration();
     if (!rid.isNew() || !(rid instanceof ChangeableRecordId)) {
       throw new IllegalArgumentException(
@@ -7673,10 +7837,27 @@ public abstract class AbstractStorage
     return position.recordVersion;
   }
 
+  /** Deletes a record inside a caller-owned atomic operation. */
+  public void deleteRecordInsideAtomicOperation(
+      final AtomicOperation atomicOperation,
+      final RecordIdInternal rid,
+      final long expectedVersion) throws IOException {
+    checkCallerOwnsStateLock();
+    checkOpennessAndMigration();
+    if (!rid.isPersistent()) {
+      throw new IllegalArgumentException(
+          "Record deletion requires a persistent identifier: " + rid);
+    }
+
+    atomicOperation.validateRecordCollectionLockOrder(rid.getCollectionId());
+    makeStorageDirty();
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    collection.acquireAtomicExclusiveLock(atomicOperation);
+    doDeleteRecord(atomicOperation, rid, expectedVersion, collection);
+  }
+
   /**
-   * Updates a record inside a caller-owned atomic operation and checks its durable version. One
-   * operation may use these record primitives for one collection only. Future multi-collection
-   * support must lock collections in ascending identifier order before mutation.
+   * Updates a record inside a caller-owned atomic operation and checks its durable version.
    *
    * @return the new durable record version
    */

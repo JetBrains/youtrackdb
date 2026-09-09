@@ -190,6 +190,7 @@ public interface Index extends Comparable<Index> {
   String INDEX_DEFINITION = "indexDefinition";
   String INDEX_DEFINITION_CLASS = "indexDefinitionClass";
   String INDEX_VERSION = "indexVersion";
+  String LIFECYCLE_RECORD = "lifecycleRecord";
   String METADATA = "metadata";
   String MERGE_KEYS = "mergeKeys";
 

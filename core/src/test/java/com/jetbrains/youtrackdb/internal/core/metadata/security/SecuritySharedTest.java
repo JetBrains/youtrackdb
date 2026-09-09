@@ -1,6 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
 import java.util.List;
@@ -21,6 +25,52 @@ public class SecuritySharedTest extends DbTestBase {
     if (session != null && !session.isClosed() && session.isTxActive()) {
       session.rollback();
     }
+  }
+
+  /** The default writer cannot update a durable index lifecycle record. */
+  @Test
+  public void defaultWriterCannotWriteIndexBuildStateCollection() {
+    var lifecycleIdentity = lifecycleIdentity();
+    createLifecycleWriter();
+
+    session.close();
+    session = openDatabase("lifecycleWriter", "password");
+    session.begin();
+    var record = (RecordAbstract) session.loadBlob(lifecycleIdentity);
+    record.setDirty();
+
+    Assert.assertThrows(SecurityException.class, session::commit);
+    session.rollback();
+  }
+
+  /** The default writer cannot drop the index build state collection by name. */
+  @Test
+  public void defaultWriterCannotDropIndexBuildStateCollection() {
+    createLifecycleWriter();
+
+    session.close();
+    session = openDatabase("lifecycleWriter", "password");
+
+    Assert.assertThrows(
+        SecurityException.class,
+        () -> session.dropCollection(
+            MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME.toUpperCase(java.util.Locale.ROOT)));
+    Assert.assertTrue(
+        session.existsCollection(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME));
+  }
+
+  private com.jetbrains.youtrackdb.internal.core.db.record.record.RID lifecycleIdentity() {
+    var index = session.getSharedContext().getIndexManager().getIndex("OUser.name");
+    return session.computeInTx(
+        transaction -> transaction.loadEntity(index.getIdentity()).getLink(Index.LIFECYCLE_RECORD));
+  }
+
+  private void createLifecycleWriter() {
+    var security = session.getSharedContext().getSecurity();
+    session.begin();
+    var writerRole = security.getRole(session, "writer");
+    security.createUser(session, "lifecycleWriter", "password", new Role[] {writerRole});
+    session.commit();
   }
 
   @Test
