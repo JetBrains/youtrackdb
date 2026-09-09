@@ -39,12 +39,17 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -369,6 +374,44 @@ public class SchedulerImplTest extends DbTestBase {
         first, firstRegistered);
     assertNotSame("dual-instance: builder-returned 'second' must differ from registered",
         second, secondRegistered);
+  }
+
+  @Test
+  public void updatedEventMessageIncludesDetachedNameAndIdentity() {
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnUpdateMessage");
+    var event = buildEvent("evt-update-message", FAR_FUTURE_RULE, function, Map.of());
+
+    assertEquals(
+        "Updated scheduled event 'evt-update-message' rid=" + event.getIdentity() + "...",
+        SchedulerImpl.updatedEventMessage(event));
+  }
+
+  /** The update call site emits exactly the detached message built for the updated event. */
+  @Test
+  public void updateEventLogsDetachedMessage() {
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnUpdateLog");
+    var event = buildEvent("evt-update-log", FAR_FUTURE_RULE, function, Map.of());
+    var impl = session.getSharedContext().getScheduler();
+    var logger = Logger.getLogger(SchedulerImpl.class.getName());
+    var previousLevel = logger.getLevel();
+    var handler = new CapturingHandler();
+    handler.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    logger.setLevel(Level.ALL);
+    try {
+      impl.updateEvent(session, event);
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(previousLevel);
+    }
+
+    var messages =
+        handler.records.stream()
+            .map(LogRecord::getMessage)
+            .filter(message -> message.startsWith("Updated scheduled event"))
+            .toList();
+    assertEquals(1, messages.size());
+    assertEquals(SchedulerImpl.updatedEventMessage(event), messages.getFirst());
   }
 
   @Test
@@ -1092,6 +1135,24 @@ public class SchedulerImplTest extends DbTestBase {
   private ScheduledEvent buildEvent(String name, String rule, Function function,
       Map<Object, Object> args) {
     return SchedulerTestFixtures.buildEvent(session, name, rule, function, args);
+  }
+
+  private static final class CapturingHandler extends Handler {
+
+    private final CopyOnWriteArrayList<LogRecord> records = new CopyOnWriteArrayList<>();
+
+    @Override
+    public void publish(LogRecord record) {
+      records.add(record);
+    }
+
+    @Override
+    public void flush() {
+    }
+
+    @Override
+    public void close() {
+    }
   }
 
   private static ScheduledFuture<?> readTimerField(ScheduledEvent event) throws Exception {

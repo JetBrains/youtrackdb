@@ -120,12 +120,18 @@ public class SchedulerImpl {
       oldEvent.interrupt();
     }
     scheduleEvent(session, event);
-    LogManager.instance()
-        .debug(
-            this,
-            "Updated scheduled event '%s' rid=%s...",
-            logger, event,
-            event.getIdentity());
+    if (logger.isDebugEnabled()) {
+      LogManager.instance().debug(this, updatedEventMessage(event), logger);
+    }
+  }
+
+  static String updatedEventMessage(ScheduledEvent event) {
+    try {
+      return "Updated scheduled event '%s' rid=%s..."
+          .formatted(event.getName(), event.getIdentity());
+    } catch (RuntimeException exception) {
+      return "Updated scheduled event <unavailable>";
+    }
   }
 
   public Map<String, ScheduledEvent> getEvents() {
@@ -167,15 +173,15 @@ public class SchedulerImpl {
         .createClass(ScheduledEvent.CLASS_NAME);
 
     f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,
-            (PropertyTypeInternal) null,
-            true)
+        (PropertyTypeInternal) null,
+        true)
         .setMandatory(true)
         .setNotNull(true);
     f.createIndex(ScheduledEvent.PROP_NAME + "Index", SchemaClass.INDEX_TYPE.UNIQUE,
         ScheduledEvent.PROP_NAME);
     f.createProperty(ScheduledEvent.PROP_RULE, PropertyTypeInternal.STRING,
-            (PropertyTypeInternal) null,
-            true)
+        (PropertyTypeInternal) null,
+        true)
         .setMandatory(true)
         .setNotNull(true);
     f.createProperty(ScheduledEvent.PROP_ARGUMENTS, PropertyTypeInternal.EMBEDDEDMAP,
@@ -185,9 +191,9 @@ public class SchedulerImpl {
         (PropertyTypeInternal) null,
         true);
     f.createProperty(
-            ScheduledEvent.PROP_FUNC,
-            PropertyTypeInternal.LINK,
-            database.getMetadata().getSchema().getClass(Function.CLASS_NAME), true)
+        ScheduledEvent.PROP_FUNC,
+        PropertyTypeInternal.LINK,
+        database.getMetadata().getSchema().getClass(Function.CLASS_NAME), true)
         .setMandatory(true)
         .setNotNull(true);
     f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyTypeInternal.DATETIME,
