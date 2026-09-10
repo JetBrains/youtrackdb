@@ -86,6 +86,7 @@ public final class IndexBuildStateStore {
       IndexLifecycleSnapshot expected,
       IndexBuildState replacement) {
     verifyReplacementDescriptor(expected.buildState(), replacement, descriptorIdentity);
+    backend.checkStandaloneUpdateAllowed();
     var current = read(descriptorIdentity, lifecycleIdentity);
     if (current.recordVersion() != expected.recordVersion()
         || !current
@@ -222,6 +223,10 @@ public final class IndexBuildStateStore {
     Optional<VersionedRecord> read(RID recordIdentity);
 
     CreatedRecord create(Map<String, Object> value);
+
+    /** Rejects a protected caller before publication performs its internal record read. */
+    default void checkStandaloneUpdateAllowed() {
+    }
 
     VersionedRecord update(RID recordIdentity, long expectedVersion, Map<String, Object> value);
 

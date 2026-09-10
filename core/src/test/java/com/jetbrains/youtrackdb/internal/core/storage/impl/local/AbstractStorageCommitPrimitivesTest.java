@@ -20,6 +20,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildStateStore;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
@@ -28,11 +30,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.After;
 import org.junit.Before;
@@ -446,6 +451,296 @@ public class AbstractStorageCommitPrimitivesTest {
       storage.stateLock.writeLock().unlock();
       db.rollback();
     }
+  }
+
+  /** The collection lookup resolves through every protection branch without dropping ownership. */
+  @Test(timeout = 30_000)
+  public void collectionIdentifierLookupSelfRoutesForEveryProtectionState() {
+    var storage = (AbstractStorage) db.getStorage();
+    var collectionName = MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME;
+    var expected = storage.getCollectionIdByName(collectionName);
+
+    assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+      assertThat(storage.stateLock.isReadLockedByCurrentThread()).isTrue();
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.writeLock().lock();
+    try {
+      assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+      assertThat(storage.stateLock.isWriteLockedByCurrentThread()).isTrue();
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+
+    storage.enterCommitWindow();
+    try {
+      assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+    } finally {
+      storage.exitCommitWindow();
+    }
+  }
+
+  /** The public lifecycle creation boundary rejects a caller without state protection. */
+  @Test
+  public void initialLifecycleCreationRejectsUnprotectedCaller() {
+    var storage = (AbstractStorage) db.getStorage();
+
+    assertThatThrownBy(
+        () -> storage.createInitialIndexLifecycle(new RecordId(0, 41), null, null))
+        .isExactlyInstanceOf(StorageStateContextException.class)
+        .hasMessageContaining("state lock")
+        .hasMessageContaining("commit window");
+  }
+
+  /** Initial lifecycle creation accepts read mode, write mode, and an open commit window. */
+  @Test
+  public void initialLifecycleCreationAcceptsEveryProtectionState() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.readLock().lock();
+    try {
+      createInitialLifecycleInsideAtomicOperation(storage, new RecordId(0, 42));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.writeLock().lock();
+    try {
+      createInitialLifecycleInsideAtomicOperation(storage, new RecordId(0, 43));
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+
+    storage.enterCommitWindow();
+    try {
+      createInitialLifecycleInsideAtomicOperation(storage, new RecordId(0, 44));
+    } finally {
+      storage.exitCommitWindow();
+    }
+  }
+
+  /** The commit-time record primitive rejects a caller without storage state protection. */
+  @Test
+  public void commitRecordCreateRejectsUnprotectedCaller() {
+    var storage = (AbstractStorage) db.getStorage();
+    var collectionId =
+        storage.getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      assertThatThrownBy(
+          () -> storage.createRecordInsideCommitAtomicOperation(
+              operation, rid, new byte[] {1}, RecordBytes.RECORD_TYPE))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("state lock")
+          .hasMessageContaining("commit window");
+    } finally {
+      db.rollback();
+    }
+  }
+
+  /** An applying ownership rejection leaves storage usable for a later valid write. */
+  @Test
+  public void applyingRecordOwnershipRejectionDoesNotSetStorageErrorMarker() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    var collectionId =
+        storage.getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+
+    assertThatThrownBy(
+        () -> storage
+            .getAtomicOperationsManager()
+            .executeInsideAtomicOperation(
+                operation -> storage.createRecordInsideCommitAtomicOperation(
+                    operation, rid, new byte[] {1}, RecordBytes.RECORD_TYPE)))
+        .hasRootCauseInstanceOf(StorageStateContextException.class);
+
+    var created = new IndexBuildStateStorageBackend(storage).create(Map.of("value", 1));
+
+    assertThat(created.identity().isPersistent()).isTrue();
+    assertThat(storage.getStatus().name()).isEqualTo("OPEN");
+  }
+
+  /** Checked record writes accept read mode, write mode, and an open commit window. */
+  @Test
+  public void checkedRecordCreateAcceptsEveryProtectionState() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.readLock().lock();
+    try {
+      createPrimitiveRecordInsideAtomicOperation(storage);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.writeLock().lock();
+    try {
+      createPrimitiveRecordInsideAtomicOperation(storage);
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+
+    storage.enterCommitWindow();
+    try {
+      createPrimitiveRecordInsideAtomicOperation(storage);
+    } finally {
+      storage.exitCommitWindow();
+    }
+  }
+
+  /** Protected standalone lifecycle writes fail promptly with operation-specific messages. */
+  @Test(timeout = 30_000)
+  public void standaloneLifecycleWritesRejectProtectedReentryWithClearMessages() {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var foreignIdentity = new RecordId(0, 99);
+
+    storage.stateLock.writeLock().lock();
+    try {
+      assertThatThrownBy(() -> backend.create(Map.of("value", 1)))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("creation")
+          .hasMessageContaining("createInsideAtomicOperation");
+      assertThatThrownBy(() -> backend.update(foreignIdentity, 0, Map.of("value", 2)))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("update")
+          .hasMessageNotContaining("createInsideAtomicOperation");
+      assertThatThrownBy(() -> backend.delete(foreignIdentity, 0))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("deletion")
+          .hasMessageNotContaining("createInsideAtomicOperation");
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+  }
+
+  /** A protected caller rejects before waiting for the standalone backend monitor. */
+  @Test(timeout = 30_000)
+  public void protectedStandaloneCallerCannotDeadlockOnBackendMonitor() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var monitorHeld = new CountDownLatch(1);
+    var writeModeHeld = new CountDownLatch(1);
+    var rejectionObserved = new CountDownLatch(1);
+    var failure = new AtomicReference<Throwable>();
+
+    var monitorHolder =
+        new Thread(
+            () -> {
+              synchronized (backend) {
+                monitorHeld.countDown();
+                try {
+                  writeModeHeld.await();
+                  backend.create(Map.of("value", 1));
+                } catch (Throwable throwable) {
+                  failure.compareAndSet(null, throwable);
+                }
+              }
+            });
+    var protectedCaller =
+        new Thread(
+            () -> {
+              try {
+                monitorHeld.await();
+                storage.stateLock.writeLock().lock();
+                writeModeHeld.countDown();
+                try {
+                  assertProtectedCallRejected(
+                      () -> backend.create(Map.of("value", 2)));
+                  assertProtectedCallRejected(
+                      () -> backend.update(new RecordId(0, 102), 0, Map.of("value", 3)));
+                  assertProtectedCallRejected(
+                      () -> backend.delete(new RecordId(0, 103), 0));
+                  rejectionObserved.countDown();
+                } catch (Throwable throwable) {
+                  failure.compareAndSet(null, throwable);
+                } finally {
+                  storage.stateLock.writeLock().unlock();
+                }
+              } catch (Throwable throwable) {
+                failure.compareAndSet(null, throwable);
+              }
+            });
+    monitorHolder.setDaemon(true);
+    protectedCaller.setDaemon(true);
+    monitorHolder.start();
+    protectedCaller.start();
+
+    assertThat(rejectionObserved.await(10, TimeUnit.SECONDS))
+        .as("the protected caller must reject before monitor acquisition")
+        .isTrue();
+    monitorHolder.join(10_000);
+    protectedCaller.join(10_000);
+    assertThat(monitorHolder.isAlive()).isFalse();
+    assertThat(protectedCaller.isAlive()).isFalse();
+    if (failure.get() != null) {
+      throw new AssertionError("both lifecycle callers must finish", failure.get());
+    }
+  }
+
+  /** Update and delete reject protected reentry before validating a foreign identity. */
+  @Test
+  public void standaloneReentryRejectionPrecedesIdentityValidation() {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var foreignIdentity = new RecordId(0, 100);
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThatThrownBy(() -> backend.update(foreignIdentity, 0, Map.of()))
+          .isExactlyInstanceOf(StorageStateContextException.class);
+      assertThatThrownBy(() -> backend.delete(foreignIdentity, 0))
+          .isExactlyInstanceOf(StorageStateContextException.class);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+  }
+
+  /** Standalone create, update, and delete hold state read mode before atomic admission. */
+  @Test(timeout = 30_000)
+  public void standaloneLifecycleWritesAcquireStateLockBeforeAtomicWindow() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var created = backend.create(Map.of("value", 1));
+    var updated = new AtomicReference<IndexBuildStateStore.VersionedRecord>();
+
+    assertStateLockHeldBeforeAtomicAdmission(
+        storage, backend, () -> backend.create(Map.of("value", 2)));
+    assertStateLockHeldBeforeAtomicAdmission(
+        storage,
+        backend,
+        () -> updated.set(
+            backend.update(
+                created.identity(), created.record().version(), Map.of("value", 3))));
+    assertStateLockHeldBeforeAtomicAdmission(
+        storage,
+        backend,
+        () -> backend.delete(created.identity(), updated.get().version()));
+  }
+
+  /** A lifecycle context rejection leaves the storage open for a later valid write. */
+  @Test
+  public void lifecycleContextRejectionDoesNotSetStorageErrorMarker() {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var rejection =
+        org.junit.Assert.assertThrows(
+            StorageStateContextException.class,
+            () -> storage.createInitialIndexLifecycle(new RecordId(0, 101), null, null));
+
+    storage.moveToErrorStateIfNeeded(rejection);
+    var created = backend.create(Map.of("value", 1));
+
+    assertThat(created.identity().isPersistent()).isTrue();
+    assertThat(storage.getStatus().name()).isEqualTo("OPEN");
   }
 
   /** Caller-owned create and update operations persist versions without nested transactions. */
@@ -1345,6 +1640,77 @@ public class AbstractStorageCommitPrimitivesTest {
       engines.set(slot, registered);
       db.rollback();
     }
+  }
+
+  private static void assertProtectedCallRejected(Runnable call) {
+    try {
+      call.run();
+      throw new AssertionError("the protected caller must be rejected");
+    } catch (StorageStateContextException expected) {
+      // Expected before monitor acquisition.
+    }
+  }
+
+  private void assertStateLockHeldBeforeAtomicAdmission(
+      AbstractStorage storage, IndexBuildStateStorageBackend backend, Runnable write)
+      throws Exception {
+    var failure = new AtomicReference<Throwable>();
+    var reachedAtomicAdmission = new CountDownLatch(1);
+    backend.setBeforeAtomicOperationTestHook(reachedAtomicAdmission::countDown);
+    storage.freeze(db, false);
+    var writer =
+        new Thread(
+            () -> {
+              try {
+                write.run();
+              } catch (Throwable throwable) {
+                failure.set(throwable);
+              }
+            });
+    writer.setDaemon(true);
+    writer.start();
+    try {
+      assertThat(reachedAtomicAdmission.await(10, TimeUnit.SECONDS))
+          .as("the standalone writer must reach atomic admission")
+          .isTrue();
+      var competingWriterEntered = storage.stateLock.writeLock().tryLock();
+      if (competingWriterEntered) {
+        storage.stateLock.writeLock().unlock();
+      }
+      assertThat(competingWriterEntered)
+          .as("the standalone writer must hold state read mode while atomic admission waits")
+          .isFalse();
+    } finally {
+      backend.setBeforeAtomicOperationTestHook(null);
+      storage.release(db);
+      writer.join(10_000);
+    }
+    assertThat(writer.isAlive()).isFalse();
+    if (failure.get() != null) {
+      throw new AssertionError("the standalone lifecycle write must finish", failure.get());
+    }
+  }
+
+  private static void createInitialLifecycleInsideAtomicOperation(
+      AbstractStorage storage, RecordId descriptorIdentity) throws IOException {
+    storage
+        .getAtomicOperationsManager()
+        .executeInsideAtomicOperation(
+            operation -> storage.createInitialIndexLifecycle(
+                descriptorIdentity, null, operation));
+  }
+
+  private static void createPrimitiveRecordInsideAtomicOperation(AbstractStorage storage)
+      throws IOException {
+    var collectionId =
+        storage.getCollectionIdByNameWithStateLock(
+            MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+    storage
+        .getAtomicOperationsManager()
+        .executeInsideAtomicOperation(
+            operation -> storage.createRecordInsideCommitAtomicOperation(
+                operation, rid, new byte[] {1}, RecordBytes.RECORD_TYPE));
   }
 
   private static void assertForwardedFailure(ThrowingCallable call, Throwable failure) {

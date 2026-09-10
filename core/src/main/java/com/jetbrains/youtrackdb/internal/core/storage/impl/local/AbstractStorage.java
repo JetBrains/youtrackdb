@@ -2451,6 +2451,15 @@ public abstract class AbstractStorage
 
   @Override
   public final int getCollectionIdByName(final String collectionName) {
+    return getCollectionIdByName(collectionName, isCommitWindowActive());
+  }
+
+  /** Resolves a collection without reacquiring state protection already held by this thread. */
+  final int getCollectionIdByNameWithStateLock(final String collectionName) {
+    return getCollectionIdByName(collectionName, callerOwnsStateProtection());
+  }
+
+  private int getCollectionIdByName(final String collectionName, final boolean lockFree) {
     try {
       if (collectionName == null) {
         throw new IllegalArgumentException("Collection name is null");
@@ -2460,20 +2469,13 @@ public abstract class AbstractStorage
         throw new IllegalArgumentException("Collection name is empty");
       }
 
-      // The schema-carry commit reaches this through session.newInternalInstance() while
-      // serializing the tx-local schema (toStream allocates a fresh per-class record), still
-      // holding stateLock.writeLock(). Re-acquiring the read lock there busy-spins forever on the
-      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free read. The
-      // held write lock supplies the exclusion and the visibility edge for collectionMap.
-      final boolean lockFree = isCommitWindowActive();
+      // Protected callers already have the exclusion and visibility edge for collectionMap.
+      // Other callers acquire read mode around the lookup.
       if (!lockFree) {
         stateLock.readLock().lock();
       }
       try {
-
         checkOpennessAndMigration();
-
-        // SEARCH IT BETWEEN PHYSICAL COLLECTIONS
 
         final var segment = collectionMap.get(collectionName.toLowerCase(Locale.ROOT));
         if (segment != null) {
@@ -4704,6 +4706,10 @@ public abstract class AbstractStorage
       RID descriptorIdentity,
       @Nullable RID existingLifecycleIdentity,
       AtomicOperation atomicOperation) {
+    if (!callerOwnsStateProtection()) {
+      throw new StorageStateContextException(
+          "Initial lifecycle creation requires the storage state lock or an active commit window");
+    }
     return indexBuildStateStore.createInitial(
         descriptorIdentity,
         existingLifecycleIdentity,
@@ -5822,6 +5828,13 @@ public abstract class AbstractStorage
     return commitWindowDepth.get()[0] > 0;
   }
 
+  /** Returns whether this thread owns any supported storage state protection. */
+  final boolean callerOwnsStateProtection() {
+    return stateLock.isReadLockedByCurrentThread()
+        || stateLock.isWriteLockedByCurrentThread()
+        || isCommitWindowActive();
+  }
+
   public <T> void callIndexEngine(
       final boolean readOperation, int indexId,
       @Nullable IndexEngineReference expectedReference, final IndexEngineCallback<T> callback)
@@ -6611,7 +6624,8 @@ public abstract class AbstractStorage
     if (error != null
         && !((error instanceof HighLevelException)
             || (error instanceof NeedRetryException)
-            || (error instanceof InternalErrorException))) {
+            || (error instanceof InternalErrorException)
+            || (error instanceof StorageStateContextException))) {
       setInError(error);
     }
   }
@@ -7815,6 +7829,7 @@ public abstract class AbstractStorage
       final RecordIdInternal rid,
       @Nonnull final byte[] content,
       final byte recordType) throws IOException {
+    checkCallerOwnsStateLock();
     checkOpennessAndMigration();
     if (!rid.isNew() || !(rid instanceof ChangeableRecordId)) {
       throw new IllegalArgumentException(
@@ -7882,8 +7897,8 @@ public abstract class AbstractStorage
   }
 
   private void checkCallerOwnsStateLock() {
-    if (!stateLock.isReadLockedByCurrentThread() && !isCommitWindowActive()) {
-      throw new IllegalStateException(
+    if (!callerOwnsStateProtection()) {
+      throw new StorageStateContextException(
           "Caller-owned record writes require the storage state lock or an active commit window");
     }
   }

@@ -31,6 +31,9 @@ final class IndexBuildStateStorageBackend implements IndexBuildStateStore.Backen
 
   private final AbstractStorage storage;
 
+  /** Test signal fired before atomic admission. Caller state protection depends on the path. */
+  private volatile Runnable beforeAtomicOperationTestHook;
+
   IndexBuildStateStorageBackend(AbstractStorage storage) {
     this.storage = storage;
   }
@@ -52,22 +55,26 @@ final class IndexBuildStateStorageBackend implements IndexBuildStateStore.Backen
   }
 
   @Override
-  public synchronized IndexBuildStateStore.CreatedRecord create(Map<String, Object> value) {
-    return runAtomic(
-        operation -> {
-          var rid = new ChangeableRecordId(buildStateCollectionId(), RID.COLLECTION_POS_INVALID);
-          var content = encode(value);
-          storage.stateLock.readLock().lock();
-          try {
-            var version =
-                storage.createRecordInsideAtomicOperation(
-                    operation, rid, content, RecordBytes.RECORD_TYPE);
-            return new IndexBuildStateStore.CreatedRecord(
-                rid.copy(), new IndexBuildStateStore.VersionedRecord(value, version));
-          } finally {
-            storage.stateLock.readLock().unlock();
-          }
-        });
+  public IndexBuildStateStore.CreatedRecord create(Map<String, Object> value) {
+    rejectProtectedStandaloneCaller(
+        "Standalone lifecycle creation cannot run with storage state protection. Use "
+            + "createInsideAtomicOperation instead");
+    synchronized (this) {
+      storage.stateLock.readLock().lock();
+      try {
+        var rid = new ChangeableRecordId(buildStateCollectionId(), RID.COLLECTION_POS_INVALID);
+        return runAtomic(
+            operation -> {
+              var version =
+                  storage.createRecordInsideAtomicOperation(
+                      operation, rid, encode(value), RecordBytes.RECORD_TYPE);
+              return new IndexBuildStateStore.CreatedRecord(
+                  rid.copy(), new IndexBuildStateStore.VersionedRecord(value, version));
+            });
+      } finally {
+        storage.stateLock.readLock().unlock();
+      }
+    }
   }
 
   IndexBuildStateStore.CreatedRecord createInsideAtomicOperation(
@@ -89,41 +96,54 @@ final class IndexBuildStateStorageBackend implements IndexBuildStateStore.Backen
   }
 
   @Override
-  public synchronized IndexBuildStateStore.VersionedRecord update(
-      RID recordIdentity, long expectedVersion, Map<String, Object> value) {
-    verifyBuildStateIdentity(recordIdentity);
-    return runAtomic(
-        operation -> {
-          storage.stateLock.readLock().lock();
-          try {
-            var version =
-                storage.updateRecordInsideAtomicOperation(
-                    operation,
-                    new RecordId(recordIdentity),
-                    encode(value),
-                    expectedVersion,
-                    RecordBytes.RECORD_TYPE);
-            return new IndexBuildStateStore.VersionedRecord(value, version);
-          } finally {
-            storage.stateLock.readLock().unlock();
-          }
-        });
+  public void checkStandaloneUpdateAllowed() {
+    rejectProtectedStandaloneCaller(
+        "Standalone lifecycle update cannot run with storage state protection");
   }
 
   @Override
-  public synchronized void delete(RID recordIdentity, long expectedVersion) {
-    verifyBuildStateIdentity(recordIdentity);
-    runAtomic(
-        operation -> {
-          storage.stateLock.readLock().lock();
-          try {
-            storage.deleteRecordInsideAtomicOperation(
-                operation, new RecordId(recordIdentity), expectedVersion);
-            return null;
-          } finally {
-            storage.stateLock.readLock().unlock();
-          }
-        });
+  public IndexBuildStateStore.VersionedRecord update(
+      RID recordIdentity, long expectedVersion, Map<String, Object> value) {
+    checkStandaloneUpdateAllowed();
+    synchronized (this) {
+      storage.stateLock.readLock().lock();
+      try {
+        verifyBuildStateIdentity(recordIdentity);
+        return runAtomic(
+            operation -> {
+              var version =
+                  storage.updateRecordInsideAtomicOperation(
+                      operation,
+                      new RecordId(recordIdentity),
+                      encode(value),
+                      expectedVersion,
+                      RecordBytes.RECORD_TYPE);
+              return new IndexBuildStateStore.VersionedRecord(value, version);
+            });
+      } finally {
+        storage.stateLock.readLock().unlock();
+      }
+    }
+  }
+
+  @Override
+  public void delete(RID recordIdentity, long expectedVersion) {
+    rejectProtectedStandaloneCaller(
+        "Standalone lifecycle deletion cannot run with storage state protection");
+    synchronized (this) {
+      storage.stateLock.readLock().lock();
+      try {
+        verifyBuildStateIdentity(recordIdentity);
+        runAtomic(
+            operation -> {
+              storage.deleteRecordInsideAtomicOperation(
+                  operation, new RecordId(recordIdentity), expectedVersion);
+              return null;
+            });
+      } finally {
+        storage.stateLock.readLock().unlock();
+      }
+    }
   }
 
   private void verifyBuildStateIdentity(RID recordIdentity) {
@@ -139,15 +159,31 @@ final class IndexBuildStateStorageBackend implements IndexBuildStateStore.Backen
 
   private int buildStateCollectionId() {
     var collectionId =
-        storage.getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+        storage.getCollectionIdByNameWithStateLock(
+            MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
     if (collectionId < 0) {
       throw new IllegalStateException("The index build state collection is missing");
     }
     return collectionId;
   }
 
+  private void rejectProtectedStandaloneCaller(String message) {
+    if (storage.callerOwnsStateProtection()) {
+      throw new StorageStateContextException(message);
+    }
+  }
+
+  /** Installs the lock-order test signal. Production leaves this value unset. */
+  void setBeforeAtomicOperationTestHook(Runnable hook) {
+    beforeAtomicOperationTestHook = hook;
+  }
+
   private <T> T runAtomic(TxFunction<T> action) {
     try {
+      var testHook = beforeAtomicOperationTestHook;
+      if (testHook != null) {
+        testHook.run();
+      }
       return storage.getAtomicOperationsManager().calculateInsideAtomicOperation(action);
     } catch (IOException exception) {
       throw BaseException.wrapException(

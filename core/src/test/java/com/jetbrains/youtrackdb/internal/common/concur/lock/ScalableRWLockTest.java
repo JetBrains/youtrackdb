@@ -233,6 +233,66 @@ public class ScalableRWLockTest {
     lock.exclusiveUnlock();
   }
 
+  /** The write-owner predicate follows normal acquisition and release on the current thread. */
+  @Test
+  public void writeOwnerPredicateTracksAcquireAndRelease() {
+    final var lock = new ScalableRWLock();
+
+    assertFalse(lock.isWriteLockedByCurrentThread());
+    lock.exclusiveLock();
+    assertTrue(lock.isWriteLockedByCurrentThread());
+    lock.exclusiveUnlock();
+    assertFalse(lock.isWriteLockedByCurrentThread());
+  }
+
+  /** The write-owner predicate is false on a thread that does not own the held write mode. */
+  @Test
+  public void writeOwnerPredicateIdentifiesOnlyCurrentThread() throws Exception {
+    final var lock = new ScalableRWLock();
+    final var otherThreadOwnsWriteMode = new AtomicBoolean(true);
+
+    lock.exclusiveLock();
+    var observer =
+        new Thread(
+            () -> otherThreadOwnsWriteMode.set(lock.isWriteLockedByCurrentThread()));
+    observer.start();
+    observer.join(5_000);
+    try {
+      assertFalse(observer.isAlive());
+      assertFalse(otherThreadOwnsWriteMode.get());
+    } finally {
+      lock.exclusiveUnlock();
+    }
+  }
+
+  /** A failed immediate write attempt clears current-thread ownership. */
+  @Test
+  public void failedImmediateWriteAttemptClearsOwner() {
+    final var lock = new ScalableRWLock();
+
+    lock.sharedLock();
+    try {
+      assertFalse(lock.exclusiveTryLock());
+      assertFalse(lock.isWriteLockedByCurrentThread());
+    } finally {
+      lock.sharedUnlock();
+    }
+  }
+
+  /** A timed write attempt clears current-thread ownership after its reader drain expires. */
+  @Test
+  public void expiredTimedWriteAttemptClearsOwner() throws Exception {
+    final var lock = new ScalableRWLock();
+
+    lock.sharedLock();
+    try {
+      assertFalse(lock.exclusiveTryLockNanos(TimeUnit.MILLISECONDS.toNanos(1)));
+      assertFalse(lock.isWriteLockedByCurrentThread());
+    } finally {
+      lock.sharedUnlock();
+    }
+  }
+
   /**
    * Verifies that a writer blocks while a reader holds the lock, and proceeds once the reader
    * releases it.
@@ -333,9 +393,14 @@ public class ScalableRWLockTest {
     lock.exclusiveLock(); // the competing writer holds the bit for the whole phase-1 park
     final var abort = new AtomicBoolean(false);
     final var result = new AtomicReference<Boolean>();
-    final var waiter = new Thread(
-        () -> result.set(
-            lock.exclusiveLockWithAbort(abort::get, TimeUnit.MILLISECONDS.toNanos(5))));
+    final var ownsWriteModeAfterAbort = new AtomicBoolean(true);
+    final var waiter =
+        new Thread(
+            () -> {
+              result.set(
+                  lock.exclusiveLockWithAbort(abort::get, TimeUnit.MILLISECONDS.toNanos(5)));
+              ownsWriteModeAfterAbort.set(lock.isWriteLockedByCurrentThread());
+            });
     waiter.setDaemon(true);
     waiter.start();
     try {
@@ -350,6 +415,8 @@ public class ScalableRWLockTest {
     waiter.join(5_000);
     assertFalse("the aborted waiter must exit promptly (one poll granularity)", waiter.isAlive());
     assertEquals("the aborted acquisition must return false", Boolean.FALSE, result.get());
+    assertFalse(
+        "the aborted waiter must not retain write ownership", ownsWriteModeAfterAbort.get());
     assertTrue("the competing writer's bit must be untouched by the abort", lock.isWriteLocked());
 
     lock.exclusiveUnlock();
@@ -386,12 +453,18 @@ public class ScalableRWLockTest {
 
     final var abort = new AtomicBoolean(false);
     final var result = new AtomicReference<Boolean>();
+    final var ownsWriteModeAfterAbort = new AtomicBoolean(true);
     try {
       assertTrue("the residual reader must be inside", readerIn.await(5, TimeUnit.SECONDS));
 
-      final var writer = new Thread(
-          () -> result.set(
-              lock.exclusiveLockWithAbort(abort::get, TimeUnit.MILLISECONDS.toNanos(5))));
+      final var writer =
+          new Thread(
+              () -> {
+                result.set(
+                    lock.exclusiveLockWithAbort(
+                        abort::get, TimeUnit.MILLISECONDS.toNanos(5)));
+                ownsWriteModeAfterAbort.set(lock.isWriteLockedByCurrentThread());
+              });
       writer.setDaemon(true);
       writer.start();
       // The writer acquires the bit once and enters the drain spin against the parked reader.
@@ -403,6 +476,9 @@ public class ScalableRWLockTest {
       assertFalse("the aborted drain must exit promptly", writer.isAlive());
       assertEquals("the aborted acquisition must return false", Boolean.FALSE, result.get());
       assertFalse("the abort must release the write bit fully", lock.isWriteLocked());
+      assertFalse(
+          "the drain abort must clear current-thread ownership",
+          ownsWriteModeAfterAbort.get());
       // Readers proceed after the abort: a fresh shared acquire succeeds while the residual
       // reader is still inside (no reader stranded, no lost wakeup — readers poll the released
       // bit).
@@ -442,6 +518,9 @@ public class ScalableRWLockTest {
         + " a different count means the scenario drifted off the edge",
         2, calls.get());
     assertFalse("the success-edge abort must release the write bit", lock.isWriteLocked());
+    assertFalse(
+        "the success-edge abort must clear current-thread ownership",
+        lock.isWriteLockedByCurrentThread());
     // Reusable immediately.
     assertTrue(lock.exclusiveLockWithAbort(() -> false, TimeUnit.MILLISECONDS.toNanos(10)));
     lock.exclusiveUnlock();
@@ -668,6 +747,9 @@ public class ScalableRWLockTest {
     }
     assertFalse("the write bit must be released before the predicate failure propagates",
         lock.isWriteLocked());
+    assertFalse(
+        "the failed acquisition must clear current-thread write ownership",
+        lock.isWriteLockedByCurrentThread());
     assertTrue("readers must be admitted after the failed acquisition", lock.sharedTryLock());
     lock.sharedUnlock();
     assertTrue("the primitive must be reusable after the failed acquisition",
@@ -702,9 +784,10 @@ public class ScalableRWLockTest {
       assertTrue("the residual reader must be inside", readerIn.await(5, TimeUnit.SECONDS));
 
       final var thrown = new AtomicReference<Throwable>();
+      final var ownsWriteModeAfterFailure = new AtomicBoolean(true);
       final var writer = new Thread(() -> {
         try {
-          // Phase 1 poll returns false; the drain poll against the parked reader throws.
+          // Phase 1 poll returns false. The drain poll against the parked reader throws.
           final var calls = new AtomicInteger();
           lock.exclusiveLockWithAbort(() -> {
             if (calls.incrementAndGet() >= 2) {
@@ -714,6 +797,7 @@ public class ScalableRWLockTest {
           }, TimeUnit.MILLISECONDS.toNanos(10));
         } catch (Throwable t) {
           thrown.set(t);
+          ownsWriteModeAfterFailure.set(lock.isWriteLockedByCurrentThread());
         }
       });
       writer.setDaemon(true);
@@ -726,6 +810,9 @@ public class ScalableRWLockTest {
               && thrown.get().getMessage().contains("forced drain-poll predicate failure"));
       assertFalse("the write bit must be released before the predicate failure propagates",
           lock.isWriteLocked());
+      assertFalse(
+          "the drain failure must clear current-thread ownership",
+          ownsWriteModeAfterFailure.get());
       assertTrue("a fresh reader must be admitted after the failed acquisition",
           lock.sharedTryLock());
       lock.sharedUnlock();

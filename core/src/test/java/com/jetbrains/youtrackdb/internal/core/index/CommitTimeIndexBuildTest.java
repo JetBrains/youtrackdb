@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -462,6 +463,97 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertEquals(durable, cellAfter.snapshot());
     assertEquals(durable, storage().getIndexBuildStateStore().read(index.getIdentity(), lifecycle));
     assertTrue("recovery must preserve the current-lineage cell", cellBefore == cellAfter);
+  }
+
+  /** A pure-data commit retains state read mode while creating a lifecycle record. */
+  @Test
+  public void pureDataCommitRetainsStateReadModeThroughLifecycleCreation() throws Exception {
+    var stateLockField = AbstractStorage.class.getDeclaredField("stateLock");
+    stateLockField.setAccessible(true);
+    var stateLock = (ScalableRWLock) stateLockField.get(storage());
+    var observedReadMode = new AtomicBoolean();
+
+    storage()
+        .setEndTxCommitFailureTestHook(
+            () -> observedReadMode.set(stateLock.isReadLockedByCurrentThread()));
+    try {
+      session.begin();
+      var descriptor = session.newEntity().getIdentity();
+      storage().registerTopLevelIndexLifecycle(session.getTransactionInternal(), descriptor);
+      session.commit();
+    } finally {
+      storage().setEndTxCommitFailureTestHook(null);
+    }
+
+    assertTrue(
+        "lifecycle creation must not release the pure-data commit's outer state read mode",
+        observedReadMode.get());
+  }
+
+  /** Protected publication rejects before reading and leaves its applying data commit reversible. */
+  @Test
+  public void protectedPublishRejectsBeforeReadAndOuterCommitRollsBack() {
+    var cls = session.getMetadata().getSchema().createClass("ProtectedPublishRollbackTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex(
+        "ProtectedPublishRollbackTarget.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex("ProtectedPublishRollbackTarget.name");
+    var lifecycle = lifecycleIdentity(index);
+    var store = storage().getIndexBuildStateStore();
+    var durableBefore = store.read(index.getIdentity(), lifecycle);
+    var state = durableBefore.buildState();
+    var replacement =
+        new IndexBuildState(
+            state.formatVersion(),
+            state.descriptorIdentity(),
+            state.lifecycle(),
+            state.buildIncarnation(),
+            state.ownerEpoch(),
+            state.completionCut(),
+            state.completedUnits() + 1,
+            state.suspended(),
+            state.failure(),
+            state.failureMessage());
+
+    storage()
+        .setEndTxCommitFailureTestHook(
+            () -> store.publish(index.getIdentity(), lifecycle, durableBefore, replacement));
+    try {
+      session.begin();
+      var inserted = session.newEntity("ProtectedPublishRollbackTarget");
+      inserted.setProperty("name", "rolled-back");
+      assertThrows(
+          "the protected publication must reject during the applying commit",
+          IllegalStateException.class,
+          session::commit);
+    } finally {
+      storage().setEndTxCommitFailureTestHook(null);
+    }
+
+    assertEquals(
+        "the lifecycle record must not advance",
+        durableBefore,
+        store.read(index.getIdentity(), lifecycle));
+    session.begin();
+    try (var records = session.query("select from ProtectedPublishRollbackTarget")) {
+      assertEquals("the outer data commit must roll back", 0L, records.stream().count());
+    }
+    session.commit();
+
+    session.executeInTx(
+        transaction -> {
+          var usable = session.newEntity("ProtectedPublishRollbackTarget");
+          usable.setProperty("name", "usable");
+        });
+    session.begin();
+    try (var records = session.query("select from ProtectedPublishRollbackTarget")) {
+      assertEquals("the storage must accept a later write", 1L, records.stream().count());
+    }
+    session.commit();
   }
 
   /** A pure data commit does not allocate top-level lifecycle bookkeeping. */
