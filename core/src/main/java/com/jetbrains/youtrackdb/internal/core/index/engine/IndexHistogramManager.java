@@ -1030,9 +1030,33 @@ public class IndexHistogramManager extends StorageComponent {
    * synch, close, and recovery.
    *
    * <p>Failures are logged but never propagated — histogram persistence is
-   * best-effort and must not block checkpoint or shutdown.
+   * best-effort and must not block checkpoint or shutdown. The strict variant
+   * {@link #flushIfDirtyOrFail()} reports every failure instead.
    */
   public void flushIfDirty() {
+    try {
+      flushIfDirtyOrFail();
+    } catch (IOException e) {
+      // The strict variant already restored the dirty count, so the next flush retries.
+      logger.warn("Failed to flush histogram stats for {}"
+          + " during checkpoint", getName(), e);
+    }
+  }
+
+  /**
+   * Persists the current snapshot of this index histogram, and reports every failure.
+   *
+   * <p>An index histogram is index statistics data that the index engine keeps in a separate
+   * file. The write-ahead log never carries that data, so a swallowed write failure loses that
+   * data forever. The durability barrier of storage birth therefore calls this strict variant.
+   *
+   * <p>The method restores the dirty-mutation count before the method reports a failure, so the
+   * next flush of this index histogram retries the write. The best-effort variant
+   * {@link #flushIfDirty()} logs the same failure and returns.
+   *
+   * @throws IOException when the write of the index statistics page fails
+   */
+  public void flushIfDirtyOrFail() throws IOException {
     if (detached) {
       return;
     }
@@ -1044,8 +1068,7 @@ public class IndexHistogramManager extends StorageComponent {
       } catch (IOException e) {
         // Restore the count so the next checkpoint or applyDelta re-triggers.
         DIRTY_MUTATIONS.getAndAdd(this, observed);
-        logger.warn("Failed to flush histogram stats for {}"
-            + " during checkpoint", getName(), e);
+        throw e;
       }
     }
   }

@@ -414,4 +414,31 @@ public interface YouTrackDB extends AutoCloseable {
   /// @param config       database configuration
   void restore(@Nonnull String databaseName, @Nonnull String path, @Nullable String expectedUUID,
       @Nonnull Configuration config);
+
+  /// Restarts an interrupted restore of one database, and destroys the target of that restore.
+  ///
+  /// An interrupted restore leaves a target that no open accepts. This method deletes that whole
+  /// target and restores the backup again. This method never continues a partial restore.
+  ///
+  /// This method accepts a target of an interrupted restore only. This method refuses a healthy
+  /// database and refuses the residue of an interrupted creation, and such a refusal changes no
+  /// file.
+  ///
+  /// This method works for an embedded connection only. Every other connection refuses this
+  /// method, because the restart deletes a whole database directory of the host that stores the
+  /// database.
+  ///
+  /// @param databaseName Name of the database whose restore was interrupted.
+  /// @param path         Path to the backup directory.
+  /// @param expectedUUID UUID of the database to be restored. If null, the database will be
+  ///                     restored only if the directory contains backup only from one database.
+  /// @param config       database configuration
+  default void restartInterruptedRestore(@Nonnull String databaseName, @Nonnull String path,
+      @Nullable String expectedUUID, @Nullable Configuration config) {
+    throw new UnsupportedOperationException(
+        "The destructive restart of an interrupted restore is available for an embedded connection"
+            + " only. Run the restart of database '"
+            + databaseName
+            + "' on the host that stores the database.");
+  }
 }

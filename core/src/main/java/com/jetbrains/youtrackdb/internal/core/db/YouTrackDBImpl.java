@@ -315,6 +315,19 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
         YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
   }
 
+  /// Restarts an interrupted restore of one database, and destroys the target of that restore.
+  ///
+  /// The embedded implementation deletes the whole target and restores the backup again.
+  @Override
+  public void restartInterruptedRestore(@Nonnull String databaseName, @Nonnull String path,
+      @Nullable String expectedUUID, @Nullable Configuration config) {
+    var restoreConfig =
+        config == null
+            ? YouTrackDBConfig.defaultConfig()
+            : YouTrackDBConfig.builder().fromApacheConfiguration(config).build();
+    internal.restartInterruptedRestore(databaseName, path, expectedUUID, restoreConfig);
+  }
+
   @Override
   public void close() {
     lock.lock();

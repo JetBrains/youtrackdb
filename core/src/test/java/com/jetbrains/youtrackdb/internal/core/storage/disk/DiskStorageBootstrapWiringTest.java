@@ -72,16 +72,26 @@ public class DiskStorageBootstrapWiringTest {
     }
   }
 
-  /** Open rejects a disk storage whose authority files are absent. */
+  /**
+   * Open reports the missing-record reason for a directory without any bootstrap artifact.
+   *
+   * <p>The scenario removes every authority copy and also removes the authority lock file, so the
+   * directory holds content files only. The expected outcome is one open failure whose cause names
+   * the missing-record reason. The scenario keeps the lock file out on purpose, because a
+   * remaining lock file would turn the directory into birth residue.
+   */
   @Test
   public void openRejectsAbsentAuthority() throws Exception {
     try (var ignored = createDatabase()) {
       // Closing the manager leaves a complete disk image for the open attempt.
     }
     deleteAuthorityFiles();
+    Files.delete(directory.resolve(DATABASE).resolve("storage-bootstrap.bsml"));
 
     try (var youTrackDB = openManager()) {
-      assertThrows(RuntimeException.class, () -> youTrackDB.open(DATABASE, ADMIN, ADMIN));
+      var failure =
+          assertThrows(RuntimeException.class, () -> youTrackDB.open(DATABASE, ADMIN, ADMIN));
+      assertTrue(hasCauseMessage(failure, "AUTHORITY_MISSING"));
     }
   }
 
@@ -96,6 +106,44 @@ public class DiskStorageBootstrapWiringTest {
 
     try (var youTrackDB = openManager()) {
       assertThrows(RuntimeException.class, () -> youTrackDB.open(DATABASE, ADMIN, ADMIN));
+    }
+  }
+
+  /**
+   * Open reports the named interrupted-birth reason for a directory with lock-file residue.
+   *
+   * <p>The scenario keeps only the authority lock file of a complete image. The expected outcome is
+   * a storage failure whose message names the interrupted-birth admission reason.
+   */
+  @Test
+  public void openReportsInterruptedBirthForLockFileResidue() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Closing the manager leaves a complete disk image for the residue construction.
+    }
+    deleteAuthorityFiles();
+    assertTrue(Files.exists(directory.resolve(DATABASE).resolve("storage-bootstrap.bsml")));
+
+    try (var youTrackDB = openManager()) {
+      var failure =
+          assertThrows(RuntimeException.class, () -> youTrackDB.open(DATABASE, ADMIN, ADMIN));
+      assertTrue(hasCauseMessage(failure, "INTERRUPTED_BIRTH"));
+    }
+  }
+
+  /**
+   * The directory scanner lists a database directory that holds only birth residue.
+   *
+   * <p>The scenario creates a directory with the authority lock file alone. The expected outcome is
+   * one listing entry, so the listing agrees with the existence probe.
+   */
+  @Test
+  public void directoryScannerListsBirthResidueDirectory() throws Exception {
+    var residueDirectory = Files.createDirectory(directory.resolve("residueOnly"));
+    Files.createFile(residueDirectory.resolve("storage-bootstrap.bsml"));
+
+    try (var youTrackDB = openManager()) {
+      assertTrue(youTrackDB.listDatabases().contains("residueOnly"));
+      assertTrue(youTrackDB.exists("residueOnly"));
     }
   }
 

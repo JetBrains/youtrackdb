@@ -851,6 +851,9 @@ public abstract class AbstractStorage
                 "Cannot open the storage '" + name + "' because it does not exist in path: " + url);
           }
 
+          // This call is the single admission decision of storage open. Admission runs before
+          // write-ahead log initialization and before recovery, so a rejected image never reaches
+          // recovery. A write-ahead log records a change before that change reaches its final file.
           readStorageIdentity();
           readIv();
 
@@ -1500,7 +1503,7 @@ public abstract class AbstractStorage
           "Cannot create new storage '" + getURL() + "' because it is not closed");
     }
 
-    if (exists()) {
+    if (existsBeforeCreation()) {
       throw new StorageExistsException(name,
           "Cannot create new storage '" + getURL() + "' because it already exists");
     }
@@ -1593,7 +1596,156 @@ public abstract class AbstractStorage
           postCreateSteps();
         });
 
+    // Track 24 delays the publication of the active lifecycle state. Storage creation builds the
+    // storage files only. Genesis creates the initial schema, the index manager, the index
+    // statistics, and the default users after this method returns. The creation path calls
+    // completeStorageBirth after genesis, so a crash inside genesis leaves an inadmissible image.
+  }
+
+  /**
+   * Completes storage birth after genesis finished.
+   *
+   * <p>Genesis is the creation of the initial database metadata. Genesis creates the schema, the
+   * index manager, the index statistics, and the default users. Genesis completes inside the
+   * database session creation path of the embedded factory.
+   *
+   * <p>This method runs the durability barrier over every genesis artifact first. This method
+   * publishes the active lifecycle state afterwards. A crash before this method therefore leaves
+   * an image that storage admission rejects with the interrupted-birth reason.
+   */
+  public final void completeStorageBirth() {
+    final var observer = SCOPED_BIRTH_COMPLETION_OBSERVER.get();
+    if (observer != null) {
+      observer.afterGenesisBeforeBarrier(this);
+    }
+    barrierOverGenesisArtifacts();
+    if (observer != null) {
+      observer.afterBarrierBeforeActivation(this);
+    }
     activateStorageBirth();
+  }
+
+  /**
+   * Observes the two boundaries inside {@link #completeStorageBirth()}.
+   *
+   * <p>This interface is a test seam. A test uses this seam to build the durable image of a crash
+   * after genesis and before the durability barrier. A test also uses this seam to build the
+   * durable image of a crash after the durability barrier and before the activation. Production
+   * code installs no observer, so production code runs two null checks per creation.
+   */
+  interface BirthCompletionObserver {
+
+    /** Runs after genesis finished and before the durability barrier starts. */
+    void afterGenesisBeforeBarrier(AbstractStorage storage);
+
+    /** Runs after the durability barrier finished and before the activation starts. */
+    void afterBarrierBeforeActivation(AbstractStorage storage);
+  }
+
+  private static final ThreadLocal<BirthCompletionObserver> SCOPED_BIRTH_COMPLETION_OBSERVER =
+      new ThreadLocal<>();
+
+  /** Installs one birth completion observer on the current thread until the scope closes. */
+  static AutoCloseable useBirthCompletionObserverForCurrentThread(
+      final BirthCompletionObserver observer) {
+    final var previous = SCOPED_BIRTH_COMPLETION_OBSERVER.get();
+    SCOPED_BIRTH_COMPLETION_OBSERVER.set(Objects.requireNonNull(observer, "observer"));
+    return () -> {
+      if (previous == null) {
+        SCOPED_BIRTH_COMPLETION_OBSERVER.remove();
+      } else {
+        SCOPED_BIRTH_COMPLETION_OBSERVER.set(previous);
+      }
+    };
+  }
+
+  /**
+   * Forces every genesis artifact to durable media.
+   *
+   * <p>The default implementation performs no work. Memory storage keeps that default, because
+   * Track 24 changes disk storage admission only. Memory storage therefore pays no extra flush
+   * during creation.
+   */
+  protected void barrierOverGenesisArtifacts() {
+  }
+
+  /**
+   * Publishes the restore-in-progress lifecycle state of a fresh restore target.
+   *
+   * <p>Restore creates the restore target without genesis and without activation. Genesis is the
+   * creation of the initial database metadata. The restore path calls this method directly after
+   * the creation of the storage files, so a restore target never appears as an empty active
+   * database.
+   *
+   * <p>The default implementation performs no work, because Track 24 changes disk storage
+   * admission only. Memory storage supports no restore at all.
+   */
+  public void beginRestoreLifecycle() {
+  }
+
+  /**
+   * Forces every durable artifact of this storage to durable media.
+   *
+   * <p>This method runs the same two steps as the public synchronization entry point. The first
+   * step flushes dirty index histogram data. An index histogram is index statistics data that the
+   * index engine keeps in a separate file. The second step flushes every index engine, the
+   * write-ahead log, and the write cache.
+   *
+   * <p>This method takes no state lock, so the caller must already own the storage state lock. The
+   * state lock of this storage is not reentrant, so the public entry point would deadlock a caller
+   * that already owns the write lock.
+   *
+   * <p>This method fails closed. The public synchronization entry point skips every flush while
+   * the storage sits in the internal error state. That entry point also swallows a failure of one
+   * index histogram flush and a failure of one index engine flush. This method reports every such
+   * case to the caller instead. The caller therefore never publishes the active lifecycle state
+   * over content that never reached durable media.
+   */
+  protected final void barrierWhileCallerOwnsStateLock() {
+    requireNoErrorStateForBarrier();
+    flushDirtyHistograms(true);
+    doSynch(true);
+    // A flush can move this storage into the error state without throwing. One example is a page
+    // checksum failure under the read-only error mode. The second check therefore repeats.
+    requireNoErrorStateForBarrier();
+  }
+
+  /**
+   * Runs the durability barrier of this storage under the state read lock of this storage.
+   *
+   * <p>The creation path owns no state lock when the path completes storage birth, so the barrier
+   * of the creation path takes the read lock itself. The barrier fails closed, so a failed flush
+   * reaches the creation path and the creation path publishes no active lifecycle state.
+   */
+  protected final void barrierWithOwnStateLock() {
+    stateLock.readLock().lock();
+    try {
+      barrierWhileCallerOwnsStateLock();
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * Fails the durability barrier when this storage sits in the internal error state.
+   *
+   * <p>A storage in the internal error state flushes nothing. A barrier over such a storage would
+   * therefore report success without any durable write. The barrier reports the error state to the
+   * caller instead, and the caller keeps the storage out of the active lifecycle state.
+   */
+  private void requireNoErrorStateForBarrier() {
+    final var storageError = error.get();
+    if (storageError == null) {
+      return;
+    }
+    throw BaseException.wrapException(
+        new StorageException(
+            name,
+            "The durability barrier of database '"
+                + name
+                + "' failed, because the storage reached an internal error state"),
+        storageError,
+        name);
   }
 
   /** Reads durable identity before write-ahead log processing starts. */
@@ -1604,7 +1756,11 @@ public abstract class AbstractStorage
   protected void prepareStorageBirth() {
   }
 
-  /** Activates durable birth after shared storage creation finishes. */
+  /**
+   * Activates durable birth after genesis finished and after the durability barrier completed.
+   *
+   * <p>Only {@link #completeStorageBirth()} calls this method on the creation path.
+   */
   protected void activateStorageBirth() {
   }
 
@@ -6638,10 +6794,10 @@ public abstract class AbstractStorage
         // Flush dirty histogram stats before freezing — see
         // flushDirtyHistograms() Javadoc for deadlock details.
         if (!isInError()) {
-          flushDirtyHistograms();
+          flushDirtyHistograms(false);
         }
 
-        doSynch();
+        doSynch(false);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -6662,6 +6818,16 @@ public abstract class AbstractStorage
    * flush's {@code executeInsideAtomicOperation()} call.
    */
   private void doSynch() {
+    doSynch(false);
+  }
+
+  /**
+   * Runs the core synchronization logic, and optionally reports every flush failure.
+   *
+   * @param failOnFlushFailure true when a flush failure must reach the caller, which the
+   *                           durability barrier of storage birth requires
+   */
+  private void doSynch(final boolean failOnFlushFailure) {
     final var synchStartedAt = System.nanoTime();
     // A TRANSIENT self-quiesce: bounded by the flush body, so schema commits may park behind it
     // exactly like data commits. Note the legal nesting: freeze() (an OPERATOR freeze) calls this
@@ -6679,6 +6845,18 @@ public abstract class AbstractStorage
               indexEngine.flush();
             }
           } catch (final Throwable t) {
+            if (failOnFlushFailure) {
+              throw BaseException.wrapException(
+                  new StorageException(
+                      name,
+                      "The durability barrier of database '"
+                          + name
+                          + "' failed, because one index engine of class "
+                          + indexEngine.getClass().getSimpleName()
+                          + " could not flush its data"),
+                  t,
+                  name);
+            }
             LogManager.instance()
                 .error(
                     this,
@@ -6691,6 +6869,9 @@ public abstract class AbstractStorage
         flushAllData();
 
       } else {
+        if (failOnFlushFailure) {
+          requireNoErrorStateForBarrier();
+        }
         LogManager.instance()
             .error(
                 this,
@@ -7382,13 +7563,46 @@ public abstract class AbstractStorage
    * best-effort and must not block checkpoint or shutdown.
    */
   private void flushDirtyHistograms() {
+    flushDirtyHistograms(false);
+  }
+
+  /**
+   * Flushes dirty index histogram data, and optionally reports every flush failure.
+   *
+   * <p>An index histogram is index statistics data that the index engine keeps in a separate file.
+   * The write-ahead log never carries that data, so a swallowed failure loses that data forever.
+   * The durability barrier of storage birth therefore reports every such failure to the caller.
+   *
+   * <p>The strict path calls the strict flush variant of the index histogram manager. The
+   * best-effort variant logs an input and output failure and returns, so the strict path would
+   * otherwise never observe such a failure.
+   *
+   * @param failOnFlushFailure true when a flush failure must reach the caller
+   */
+  private void flushDirtyHistograms(final boolean failOnFlushFailure) {
     for (var engine : indexEngines) {
       if (engine instanceof BTreeIndexEngine btreeEngine) {
         var mgr = btreeEngine.getHistogramManager();
         if (mgr != null) {
           try {
-            mgr.flushIfDirty();
+            if (failOnFlushFailure) {
+              mgr.flushIfDirtyOrFail();
+            } else {
+              mgr.flushIfDirty();
+            }
           } catch (Exception e) {
+            if (failOnFlushFailure) {
+              throw BaseException.wrapException(
+                  new StorageException(
+                      name,
+                      "The durability barrier of database '"
+                          + name
+                          + "' failed, because the index statistics of index "
+                          + mgr.getName()
+                          + " could not reach durable media"),
+                  e,
+                  name);
+            }
             LogManager.instance().error(this,
                 "Failed to flush histogram stats for engine %d (%s)"
                     + " — histogram data may be stale after restart",
@@ -7510,6 +7724,16 @@ public abstract class AbstractStorage
   }
 
   protected void preCreateSteps() throws IOException {
+  }
+
+  /**
+   * Reports whether this image already holds content that a creation must not overwrite.
+   *
+   * <p>The default answer is the plain existence of this storage. A storage type that can hold
+   * one residue file without any content overrides this method.
+   */
+  protected boolean existsBeforeCreation() {
+    return exists();
   }
 
   protected abstract void initWalAndDiskCache(ContextConfiguration contextConfiguration)
