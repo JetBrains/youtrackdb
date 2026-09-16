@@ -111,6 +111,11 @@ public final class YTDBStrategyUtil {
   /// Resolves both null placements for one traversal. Each explicit per-traversal option overrides
   /// only its direction. The database setting, server setting, and shipped value then supply every
   /// direction without an explicit option.
+  ///
+  /// Both direction options share one [OptionsStrategy] lookup because each lookup scans the entire
+  /// registered strategy list. An absent strategy means no per-traversal override exists, so the
+  /// configured placements apply without reading options. The lookup uses the root traversal for
+  /// the reason documented by [#getConfigValue].
   @Nullable public static ResolvedOrderByNullsPlacement orderByNullsPlacements(
       Admin<?, ?> traversal) {
     final var session = resolveYtdbSession(traversal);
@@ -119,18 +124,28 @@ public final class YTDBStrategyUtil {
     }
 
     final var configured = OrderByNullsUtil.resolvePlacements(session.getConfiguration());
+    final var optionsStrategy =
+        rootTraversal(traversal).getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
+    if (optionsStrategy == null) {
+      return configured;
+    }
+
+    final var options = optionsStrategy.getOptions();
     final var ascending =
-        queryNullPlacement(YTDBQueryConfigParam.orderByNullsPlacementAsc, traversal);
+        queryNullPlacement(
+            YTDBQueryConfigParam.orderByNullsPlacementAsc,
+            options.get(YTDBQueryConfigParam.orderByNullsPlacementAsc.name()));
     final var descending =
-        queryNullPlacement(YTDBQueryConfigParam.orderByNullsPlacementDesc, traversal);
+        queryNullPlacement(
+            YTDBQueryConfigParam.orderByNullsPlacementDesc,
+            options.get(YTDBQueryConfigParam.orderByNullsPlacementDesc.name()));
     return new ResolvedOrderByNullsPlacement(
         ascending == null ? configured.ascending() : ascending,
         descending == null ? configured.descending() : descending);
   }
 
   private static @Nullable OrderByNullsPlacement queryNullPlacement(
-      YTDBQueryConfigParam param, Admin<?, ?> traversal) {
-    final Object raw = getConfigValue(param, traversal);
+      YTDBQueryConfigParam param, Object raw) {
     if (raw == null) {
       return null;
     }

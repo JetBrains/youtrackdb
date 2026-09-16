@@ -56,18 +56,24 @@ public final class YTDBOrderNullsStrategy
 
   @Override
   public void apply(Admin<?, ?> traversal) {
+    // Check steps first because resolving session configuration is costly for order-free traversals.
+    var globalSteps =
+        TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, traversal);
+    var localSteps = TraversalHelper.getStepsOfAssignableClass(OrderLocalStep.class, traversal);
+    if (globalSteps.isEmpty() && localSteps.isEmpty()) {
+      return;
+    }
+
     // Resolve configuration once for the whole apply. Every wrap below reuses this value.
     var placements = YTDBStrategyUtil.orderByNullsPlacements(traversal);
     if (placements == null) {
       return;
     }
 
-    for (OrderGlobalStep<?, ?> step : TraversalHelper.getStepsOfAssignableClass(
-        OrderGlobalStep.class, traversal)) {
+    for (OrderGlobalStep<?, ?> step : globalSteps) {
       rebuildGlobal(step, placements);
     }
-    for (OrderLocalStep<?, ?> step : TraversalHelper.getStepsOfAssignableClass(
-        OrderLocalStep.class, traversal)) {
+    for (OrderLocalStep<?, ?> step : localSteps) {
       rebuildLocal(step, placements);
     }
   }

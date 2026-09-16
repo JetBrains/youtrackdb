@@ -330,6 +330,22 @@ public class YTDBOrderNullsStrategyTest extends GraphBaseTest {
   }
 
   /**
+   * An order-free traversal skips malformed placement validation. Validation applies only where
+   * placement can affect the result.
+   */
+  @Test
+  public void orderFreeTraversalIgnoresMalformedUntypedPlacement() {
+    var values =
+        graph
+            .traversal()
+            .with(YTDBQueryConfigParam.orderByNullsPlacementAsc.name(), "MIDDLE")
+            .inject("value")
+            .toList();
+
+    assertThat(values).containsExactly("value");
+  }
+
+  /**
    * Direct {@code apply} on a native {@code order()} traversal rebuilds framework comparators when
    * storage uses {@code LAST}. End-to-end runs often translate {@code order().by(...)} to
    * MATCH, so this pins the strategy body itself.
