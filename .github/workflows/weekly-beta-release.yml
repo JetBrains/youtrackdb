@@ -34,7 +34,7 @@ permissions:
 jobs:
   classify:
     name: Classify changes and pick beta coordinate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     timeout-minutes: 30
     permissions:
       contents: read
@@ -333,7 +333,7 @@ jobs:
     name: Deploy Maven Artifacts
     needs: classify
     if: needs.classify.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     timeout-minutes: 270
     permissions:
       contents: read
@@ -413,10 +413,10 @@ jobs:
     strategy:
       matrix:
         platform:
-          - os: ubuntu-latest
+          - os: ubuntu-latest-8-cores-x64-public
             arch: x64
             docker_platform: 'linux/amd64'
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-24.04-8-cores-arm64-public
             arch: arm64
             docker_platform: 'linux/arm64/v8'
     steps:
@@ -471,7 +471,7 @@ jobs:
     name: Create GitHub release tag
     needs: [ classify, deploy, deploy-docker ]
     if: needs.classify.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     timeout-minutes: 30
     permissions:
       contents: write
@@ -526,7 +526,7 @@ jobs:
     # classifier flakes — when the siren *does* fire, it now reliably
     # means "an artifact may be in an inconsistent published state."
     if: always() && needs.classify.result == 'failure'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions: {}
     steps:
       - name: Send Zulip Notification
@@ -569,7 +569,7 @@ jobs:
         || needs['deploy-docker'].result == 'failure'
         || needs['create-release'].result == 'failure'
       )
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions: {}
     steps:
       - name: Send Zulip Notification
@@ -599,7 +599,7 @@ jobs:
     # succeeded) and the only trace is a `::warning::` annotation in
     # the workflow log that nobody reads.
     if: success() && needs.classify.outputs.classifier_degraded == 'true' && needs.classify.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions: {}
     steps:
       - name: Send Zulip Notification
@@ -626,7 +626,7 @@ jobs:
     # `skipped`, which `success()` treats as success but the user
     # shouldn't be notified about.
     if: success() && needs.classify.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions:
       # `gh run list` / `gh run view` need `actions: read` to inspect
       # prior workflow runs and their job conclusions. `contents` is

@@ -22,12 +22,12 @@ concurrency:
 permissions:
   contents: write
   packages: write
-  actions: write
+  actions: read
   checks: write
 jobs:
   check-changes:
     name: Check for Code Changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     # Define outputs so the next job can read them
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
@@ -90,7 +90,7 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
     runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 600
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -99,20 +99,19 @@ jobs:
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
-            # Powerful self-hosted Hetzner runner: full job — integration tests
-            # (clean verify) plus the multi-arch Docker image build.
-            runs_on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
+            # Larger x64 runner: full job — integration tests (clean verify)
+            # plus the multi-arch Docker image build.
+            runs_on: ubuntu-latest-8-cores-x64-public
             maven_goals: 'clean verify'
             mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/amd64'
             required_report_kinds: 'surefire,failsafe'
             java_arch: x64
           - arch: arm
-            # GitHub-hosted runner — Hetzner ARM capacity is scarce. This runner
-            # is weak, like windows-latest, so it runs the light test build: clean
+            # Supplied hosted ARM runner. It runs the light test build: clean
             # package with unit tests only, no failsafe integration-test/verify
             # phase. The Docker image build is bound to the package phase, so it
             # still produces the arm64 image without running integration tests.
-            runs_on: ubuntu-24.04-arm
+            runs_on: ubuntu-24.04-8-cores-arm64-public
             maven_goals: 'clean package'
             mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/arm64/v8'
             # The ARM leg never reaches integration tests, so it requires unit test reports only.
@@ -141,13 +140,8 @@ jobs:
 
       - name: Run Maven Test
         id: tests
-        # No step-level timeout here, deliberately. The obvious value (just inside this job's
-        # timeout-minutes: 600) is not expressible: GitHub documents a maximum of 360 for
-        # jobs.<job_id>.steps[*].timeout-minutes on both hosted and self-hosted runners, so a
-        # 570 would be out of range — currently unenforced, but not something to rely on. Any
-        # in-range value (<= 360) would be well below this job's 600-minute budget and could
-        # kill integration runs that legitimately take longer, which is a real regression for a
-        # nightly suite sized at 600.
+        # No step-level timeout is used. The job timeout is capped at the hosted six-hour
+        # maximum, and a step cap would terminate legitimate integration runs earlier.
         #
         # What this job gives up by not having one, stated precisely (see the canonical note on
         # the test-linux diagnostics upload in maven-pipeline.yml): always() still makes the
@@ -227,10 +221,8 @@ jobs:
         uses: actions/upload-artifact@v7
         # always(), NOT !cancelled(): a job killed by a timeout is reported as cancelled, so
         # !cancelled() skipped the upload in exactly the case the dumps are the only evidence
-        # of what hung. Which timeout fires differs per leg: the x86 leg is self-hosted, so
-        # this job's timeout-minutes: 600 applies; the arm leg runs on a GitHub-hosted runner,
-        # where the 6-hour (360-minute) hard limit on hosted jobs is reached first and the 600
-        # setting can never fire.
+        # of what hung. The migrated matrix uses supplied hosted runners, so this job's
+        # timeout-minutes: 360 cap applies to both legs.
         #
         # Mixed matrix, so BOTH report directories are needed and neither may be dropped: the
         # x86 leg runs `clean verify` (failsafe — previously not collected here at all) and the
@@ -268,7 +260,7 @@ jobs:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    runs-on: windows-latest
+    runs-on: windows-latest-8-cores-x64-public
     strategy:
       fail-fast: false
       matrix:
@@ -355,7 +347,7 @@ jobs:
     name: Merge develop into main
     needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     # Every GitHub operation here authenticates with the minted App token
     # (checkout + persisted push credential); no step uses GITHUB_TOKEN, so the
     # built-in token carries no scopes (defense-in-depth over the broad
@@ -422,7 +414,7 @@ jobs:
     name: Deploy Artifacts
     needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     # The timestamped coordinate is the uniquely addressable artifact just
     # published; update-youtrack quotes it in the "Fixed in <version>" comment.
     outputs:
@@ -504,7 +496,7 @@ jobs:
       github.event_name == 'push' &&
       needs.check-changes.outputs.last_success_sha != '' &&
       needs.check-changes.outputs.last_success_sha != needs.check-changes.outputs.current_sha
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     # Least privilege: the only write target is YouTrack (via YOUTRACK_TOKEN).
     # checkout needs read access to clone the range; nothing here uses the
     # GITHUB_TOKEN write scopes granted at the workflow level.
@@ -547,26 +539,9 @@ jobs:
         needs.merge-to-main.result == 'failure' ||
         needs.deploy.result == 'failure'
       )
-    runs-on: ubuntu-latest
-    # Job-level permissions REPLACE the broader workflow-level block (contents,
-    # packages, actions, checks: write) that other jobs in this file need. This
-    # job only dispatches the CI Fix Agent via gh workflow run (actions: write)
-    # and posts a Zulip message, so actions: write is the complete minimal set.
-    permissions:
-      actions: write
+    runs-on: ubuntu-latest-8-cores-x64-public
+    permissions: {}
     steps:
-      - name: Dispatch CI Fix Agent
-        if: >-
-          needs.test-linux.result == 'failure' ||
-          needs.test-windows.result == 'failure'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run ci-failure-fix-agent.yml \
-            --repo "${{ github.repository }}" \
-            -f failed_run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            -f failed_workflow_name="${{ github.workflow }}" \
-            -f trigger_sha="${{ github.sha }}"
       - name: Send Zulip Notification
         uses: zulip/github-actions-zulip/send-message@v2
         with:
@@ -580,7 +555,7 @@ jobs:
             **BUILD FAILED** :rotating_light:
             Integration tests or merge failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            :robot: Automated fix agent has been dispatched and is investigating...
+            Manual investigation is required.
 
   notify-youtrack-failure:
     name: Notify YouTrack sync failure on Zulip
@@ -594,7 +569,7 @@ jobs:
     # update-youtrack only runs on push, so its result is 'failure' only
     # in that context (it is 'skipped' on dispatch / schedule).
     if: always() && needs.update-youtrack.result == 'failure'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions: {}
     steps:
       - name: Send Zulip Notification
@@ -620,7 +595,7 @@ jobs:
     # success() false, so the fixed signal still fires on scheduled runs.
     needs: [ test-linux, test-windows, merge-to-main, deploy ]
     if: success() && github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7

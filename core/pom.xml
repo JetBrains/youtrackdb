@@ -238,7 +238,7 @@
       anyway, via failIfNoSpecifiedTests (default true): once -Dtest= is set,
       AbstractSurefireMojo#getEffectiveFailIfNoTests() consults only that flag, never
       failIfNoTests, so the <failIfNoTests>true</failIfNoTests> below is not what triggers it.
-      The -Dtest= builds run by .github/workflows/ci-failure-fix-agent.yml are real instances of
+      Some -Dtest= builds are real instances of
       this pattern. Deactivating the whole profile
       whenever -Dtest is supplied removes these three executions from the reactor entirely for
       such runs, restoring the pre-existing -Dtest= behavior, while an ordinary build (no

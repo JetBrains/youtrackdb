@@ -1,0 +1,38 @@
+name: Runner migration contract tests
+
+# Run lasting workflow invariants and mutation-based negative controls.
+# Migration-only baseline checks remain an explicit local review command.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/scripts/runner-migration-contract-test.py'
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+  pull_request:
+    paths:
+      - '.github/scripts/runner-migration-contract-test.py'
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  contract-tests:
+    runs-on: ubuntu-latest-8-cores-x64-public
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install YAML parser
+        run: python3 -m pip install 'PyYAML==6.0.3'
+
+      - name: Run contract tests and negative controls
+        run: python3 .github/scripts/runner-migration-contract-test.py --self-test

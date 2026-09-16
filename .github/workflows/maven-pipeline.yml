@@ -25,7 +25,7 @@ jobs:
   detect-changes:
     name: Detect Build-Relevant Changes
     if: github.event.pull_request.draft != true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     outputs:
       should_build: ${{ steps.filter.outputs.should_build }}
       run_integration_tests: ${{ steps.filter.outputs.run_integration_tests }}
@@ -222,7 +222,7 @@ jobs:
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
-            runs_on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
+            runs_on: ubuntu-latest-8-cores-x64-public
             java_arch: x64
             docker_platform: 'linux/amd64'
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images,coverage -Ddocker.platforms=linux/amd64'
@@ -234,7 +234,7 @@ jobs:
             #     exercised on the x86 leg; disk-IO-heavy suites time out here.
             #   * coverage profile — coverage is collected on x86 only.
             # docker-images is kept for the arm64 image build.
-            runs_on: ubuntu-24.04-arm
+            runs_on: ubuntu-24.04-8-cores-arm64-public
             java_arch: aarch64
             docker_platform: 'linux/arm64/v8'
             mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images -Ddocker.platforms=linux/arm64/v8'
@@ -377,7 +377,7 @@ jobs:
     name: Windows x64 - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: [ detect-changes ]
     if: needs.detect-changes.outputs.should_build == 'true'
-    runs-on: windows-latest
+    runs-on: windows-latest-8-cores-x64-public
     strategy:
       fail-fast: false
       matrix:
@@ -451,104 +451,14 @@ jobs:
           compare_to_earlier_commit: false
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
-  test-macos:
-    name: macOS arm - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
-    needs: [ detect-changes ]
-    if: needs.detect-changes.outputs.should_build == 'true'
-    # GitHub-hosted Apple Silicon runner. The docker-images profile is
-    # intentionally omitted — it builds linux/amd64 and linux/arm64
-    # images, which don't belong on a macOS runner. Otherwise options
-    # mirror the Windows leg (reduced, since the runner is less potent
-    # than the Hetzner CPX42 nodes).
-    #
-    # Non-blocking during soak period: this job is excluded from the
-    # needs: of save-test-counts and the ci-status blocking check, so a
-    # macOS failure does not block the build. The notify-failure/
-    # notify-fixed jobs still observe it so the team sees macOS
-    # regressions. Promote to blocking once the leg is proven stable on
-    # develop.
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        java: [ '21', '25' ]
-        distribution: [ 'temurin' ]
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5
-        with:
-          java-version: ${{ matrix.java }}
-          distribution: ${{ matrix.distribution }}
-          architecture: aarch64
-          cache: 'maven'
-          overwrite-settings: false
-      - name: Set up Python
-        id: python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-      - name: Run Unit Tests
-        id: tests
-        run: ./mvnw $MAVEN_SETTINGS clean package -B -Dmaven.test.failure.ignore=true
-        env:
-          MAVEN_SETTINGS: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && '-s .github/workflows/settings.xml' || '' }}
-          MAVEN_MIRROR_USERNAME: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_USERNAME || '' }}
-          MAVEN_MIRROR_PASSWORD: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_PASSWORD || '' }}
-      # Maven ignores test failures, so this gate reads reports and restores a failing outcome.
-      - name: Gate Unit Test Results
-        if: success()
-        shell: bash
-        run: >-
-          "${{ steps.python.outputs.python-path }}" .github/scripts/test-failure-gate.py
-          --root '${{ github.workspace }}' --require surefire
-      # Ordered before Publish Test Results on purpose — see the comment in the Linux job:
-      # both steps are always()-gated and share the ~5-minute post-timeout window, and the
-      # publish action is the expensive one, so it must not starve the upload.
-      - name: Upload Test Diagnostics
-        uses: actions/upload-artifact@v7
-        # always(), NOT !cancelled(): this job declares no timeout-minutes, so GitHub's
-        # default 360-minute job limit is what fires; either way a timeout-killed job is
-        # reported as cancelled, which is precisely when these dumps are the only diagnostic
-        # left. The failsafe globs are deliberate future-proofing and match nothing today
-        # (`clean package` never runs failsafe); if-no-files-found: ignore makes them free.
-        # run_attempt in the name avoids the upload-artifact v4+ duplicate-name 409 on re-runs.
-        if: always()
-        with:
-          name: test-diagnostics-macos-jdk${{ matrix.java }}-${{ matrix.distribution }}-attempt${{ github.run_attempt }}
-          path: |
-            **/target/deadlock-report.txt
-            **/target/surefire-reports/*.dumpstream
-            **/target/surefire-reports/*.dump
-            **/target/failsafe-reports/*.dumpstream
-            **/target/failsafe-reports/*.dump
-          retention-days: 7
-          if-no-files-found: ignore
-      - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action/macos@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
-        if: always()
-        with:
-          files: |
-            **/target/surefire-reports/TEST-*.xml
-            **/target/failsafe-reports/TEST-*.xml
-          action_fail: true
-          large_files: true
-          comment_mode: off
-          compare_to_earlier_commit: false
-          check_name: Tests Results (macOS arm, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
-
   integration-tests:
     needs: detect-changes
     if: needs.detect-changes.outputs.run_integration_tests == 'true'
     permissions:
       contents: read
       checks: write
-    runs-on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
-    # Lower caps can terminate legitimate long-running integration tests.
-    timeout-minutes: 600
+    runs-on: ubuntu-latest-8-cores-x64-public
+    timeout-minutes: 360
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
@@ -665,23 +575,11 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/develop' &&
       needs.detect-changes.outputs.should_build == 'true'
-    runs-on:
-      - self-hosted
-      - in-nbg1
-      - type-cpx42
-      - image-x86-system-ubuntu-24.04
-      - volume-cache
+    runs-on: ubuntu-latest-8-cores-x64-public
     timeout-minutes: 120
-    # Job-level permissions REPLACE the workflow-level block, so enumerate every
-    # scope this job uses: checkout (contents: read), publish-unit-test-result
-    # (checks: write), and the gh workflow run dispatch below (actions: write).
-    # actions: write is required because GITHUB_TOKEN now dispatches the fix agent
-    # (workflow_dispatch is exempt from the "GITHUB_TOKEN can't trigger workflows"
-    # rule); the workflow-level default of actions: read is insufficient.
     permissions:
       contents: read
       checks: write
-      actions: write
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
@@ -711,10 +609,9 @@ jobs:
         # run that passes today.
         #
         # Deliberate side effect: a hang now ends the job as FAILED rather than CANCELLED, so it
-        # reaches the failure()-gated Dispatch CI Fix Agent and Zulip steps below, which a
-        # cancellation silently skipped. That is the intent — a suite that hangs for 105 minutes
-        # is exactly the event those notifications exist for, and the diagnostics artifact the
-        # agent needs is now uploaded before them.
+        # reaches the failure()-gated Zulip step below, which a cancellation silently skipped.
+        # That is the intent — a suite that hangs for 105 minutes is exactly the event that
+        # notification covers, and the diagnostics artifact is uploaded before it.
         timeout-minutes: 105
         run: ./mvnw $MAVEN_SETTINGS -pl core -am clean verify -P small-cache-it -Dmaven.test.failure.ignore=true -B
         env:
@@ -752,8 +649,8 @@ jobs:
         #
         # run_attempt in the name avoids the upload-artifact v4+ duplicate-name 409 on a job
         # re-run. That collision mattered here beyond the lost artifact: a failing upload
-        # step fails the job, which triggers the failure()-gated Dispatch CI Fix Agent and
-        # Zulip notification steps below on what was only an artifact-name conflict.
+        # step fails the job, which triggers the failure()-gated Zulip notification step
+        # below on what was only an artifact-name conflict.
         if: always()
         with:
           name: test-diagnostics-small-cache-linux-attempt${{ github.run_attempt }}
@@ -775,20 +672,6 @@ jobs:
           comment_mode: off
           compare_to_earlier_commit: false
           check_name: Tests Results (Small Cache IT)
-      # Inline dispatch (single non-matrix job, no dedicated notify-failure job needed)
-      - name: Dispatch CI Fix Agent
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FAILED_RUN_URL: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          FAILED_WORKFLOW_NAME: ${{ github.workflow }}
-          TRIGGER_SHA: ${{ github.sha }}
-        run: |
-          gh workflow run ci-failure-fix-agent.yml \
-            --repo "${{ github.repository }}" \
-            -f failed_run_url="$FAILED_RUN_URL" \
-            -f failed_workflow_name="$FAILED_WORKFLOW_NAME" \
-            -f trigger_sha="$TRIGGER_SHA"
       - name: Send Zulip notification on failure
         if: failure()
         uses: zulip/github-actions-zulip/send-message@v2
@@ -813,7 +696,7 @@ jobs:
     name: Coverage Gate (New Code)
     needs: [ test-linux ]
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions:
       contents: read
       actions: read
@@ -910,7 +793,7 @@ jobs:
     name: Test Count Gate
     needs: [ test-linux ]
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions:
       contents: read
       actions: read
@@ -1037,13 +920,12 @@ jobs:
   # ------------------------------------------------------------------
   save-test-counts:
     name: Save Test Count Baseline
-    # test-macos intentionally excluded: non-blocking during soak period.
     needs: [ detect-changes, test-linux, test-windows ]
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/develop' &&
       needs.detect-changes.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     permissions:
       contents: write
       actions: read
@@ -1080,8 +962,8 @@ jobs:
   ci-status:
     name: CI Status
     if: always() && github.event.pull_request.draft != true
-    needs: [ detect-changes, integration-tests, test-linux, test-windows, test-macos, coverage-gate, test-count-gate ]
-    runs-on: ubuntu-latest
+    needs: [ detect-changes, integration-tests, test-linux, test-windows, coverage-gate, test-count-gate ]
+    runs-on: ubuntu-latest-8-cores-x64-public
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
@@ -1110,7 +992,6 @@ jobs:
           INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
           LINUX_RESULT: ${{ needs.test-linux.result }}
           WINDOWS_RESULT: ${{ needs.test-windows.result }}
-          MACOS_RESULT: ${{ needs.test-macos.result }}
           COVERAGE_RESULT: ${{ needs.coverage-gate.result }}
           TEST_COUNT_RESULT: ${{ needs.test-count-gate.result }}
         run: |
@@ -1145,11 +1026,6 @@ jobs:
             echo "Build skipped — no relevant changes"
             exit 0
           fi
-          # macOS is non-blocking during soak period: we wait for it
-          # (it's in needs:) and log its result, but do not fail
-          # ci-status on a macOS-only regression. The notify-failure
-          # job observes test-macos separately and still alerts.
-          echo "macOS result (non-blocking during soak): $MACOS_RESULT"
           if [[ "$LINUX_RESULT" != "success" ]] || \
              [[ "$WINDOWS_RESULT" != "success" ]]; then
             echo "Not all required jobs succeeded" \
@@ -1170,32 +1046,18 @@ jobs:
 
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ detect-changes, test-linux, test-windows, test-macos ]
+    needs: [ detect-changes, test-linux, test-windows ]
     if: >-
       failure() &&
       needs.detect-changes.outputs.should_build == 'true' &&
       github.event_name == 'push' &&
       contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
-    runs-on: ubuntu-latest
-    # Job-level permissions REPLACE the workflow-level block. This job only
-    # dispatches the CI Fix Agent via gh workflow run (actions: write) and posts
-    # a Zulip message, so actions: write is the complete minimal set.
-    permissions:
-      actions: write
+    runs-on: ubuntu-latest-8-cores-x64-public
+    permissions: {}
     steps:
       - name: Determine Branch Name
         id: branch_name
         run: echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-      - name: Dispatch CI Fix Agent
-        if: github.ref_name == 'develop'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run ci-failure-fix-agent.yml \
-            --repo "${{ github.repository }}" \
-            -f failed_run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            -f failed_workflow_name="${{ github.workflow }}" \
-            -f trigger_sha="${{ github.sha }}"
       - name: Send Zulip notification
         uses: zulip/github-actions-zulip/send-message@v2
         with:
@@ -1209,11 +1071,9 @@ jobs:
             **BUILD FAILED** :rotating_light:
             Build failed on branch `${{ steps.branch_name.outputs.branch }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            :robot: Automated fix agent has been dispatched and is investigating...
+            Manual investigation is required.
   notify-fixed:
     name: Notify build fixed on Zulip
-    # test-macos intentionally excluded during soak: a "fixed" signal should
-    # fire when Linux/Windows recover even if macOS is still flaky.
     needs: [ detect-changes, test-linux, test-windows ]
     if: >-
       always() &&
@@ -1222,7 +1082,7 @@ jobs:
       !contains(needs.*.result, 'cancelled') &&
       github.event_name == 'push' &&
       contains(fromJSON(vars.MAIN_BRANCHES), github.ref_name)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores-x64-public
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
