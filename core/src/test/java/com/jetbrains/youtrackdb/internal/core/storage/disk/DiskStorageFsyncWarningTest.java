@@ -28,6 +28,7 @@ public class DiskStorageFsyncWarningTest extends DbTestBase {
   private static final String WARNING_MESSAGE =
       "Storage durability barriers are disabled by youtrackdb.storage.callFsync. "
           + "A power loss can lose data. Use this mode only for tests.";
+  private static final String UNRELATED_WARNING_MESSAGE = "An unrelated warning";
 
   private Object previousCallFsync;
   private AtomicBoolean warningState;
@@ -81,6 +82,18 @@ public class DiskStorageFsyncWarningTest extends DbTestBase {
     assertFalse(DiskStorage.warnIfFsyncDisabled(false));
   }
 
+  /** Unrelated root-logger warnings do not affect the disabled durability warning count. */
+  @Test
+  public void unrelatedWarningIsExcludedFromFsyncWarningRecords() {
+    rootLogger.warning(UNRELATED_WARNING_MESSAGE);
+
+    assertTrue(
+        capturingHandler.records.stream()
+            .anyMatch(record -> UNRELATED_WARNING_MESSAGE.equals(record.getMessage())));
+    assertEquals(1, warningRecords().size());
+    assertEquals(WARNING_MESSAGE, warningRecords().get(0).getMessage());
+  }
+
   private void reopenStorage() {
     session.close();
     pool.close();
@@ -94,6 +107,7 @@ public class DiskStorageFsyncWarningTest extends DbTestBase {
   private List<LogRecord> warningRecords() {
     return capturingHandler.records.stream()
         .filter(record -> record.getLevel().intValue() >= Level.WARNING.intValue())
+        .filter(record -> WARNING_MESSAGE.equals(record.getMessage()))
         .toList();
   }
 
