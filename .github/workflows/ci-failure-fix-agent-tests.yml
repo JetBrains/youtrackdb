@@ -1,0 +1,45 @@
+name: CI fix agent step tests
+
+# Run when the fix agent's workflow or its tests change.
+# The tests execute two of that workflow's shell steps against a stubbed gh, so they
+# catch a silently degraded failure context before a nightly failure dispatches the
+# agent and it spends a multi-hour budget on an investigation it cannot perform.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/workflows/ci-failure-fix-agent.yml'
+      - '.github/scripts/ci-failure-fix-agent-test.py'
+      - '.github/workflows/ci-failure-fix-agent-tests.yml'
+  pull_request:
+    paths:
+      - '.github/workflows/ci-failure-fix-agent.yml'
+      - '.github/scripts/ci-failure-fix-agent-test.py'
+      - '.github/workflows/ci-failure-fix-agent-tests.yml'
+  # Allow manual runs after a transient GitHub Actions outage.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      # The tests read the step bodies out of the workflow, so they need a YAML parser.
+      # setup-python ships a bare interpreter and PyYAML is not in the standard library.
+      # Pinned: this job runs PR-authored code, so the version it installs should not
+      # be whatever PyPI serves that minute.
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
+
+      - name: Run unit tests
+        run: python3 .github/scripts/ci-failure-fix-agent-test.py
