@@ -650,8 +650,8 @@ public enum GlobalConfiguration {
   NETWORK_REQUEST_TIMEOUT(
       "youtrackdb.network.requestTimeout",
       "Request completion timeout (in ms)",
-      Integer.class,
-      3600000 /* one hour */,
+      Integer.class, // One hour.
+      3600000,
       true),
 
   NETWORK_SOCKET_RETRY(
