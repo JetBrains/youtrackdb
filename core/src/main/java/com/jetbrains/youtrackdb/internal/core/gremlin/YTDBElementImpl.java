@@ -10,24 +10,30 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.Graph.Hidden;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public abstract class YTDBElementImpl implements YTDBElement {
-  private final ThreadLocal<Entity> threadLocalEntity = new ThreadLocal<>();
+  private static final int COLLECTED_THREAD_CLEANUP_LIMIT = 16;
   private static final char INTERNAL_PREFIX = '@';
   private static final List<String> EDGE_LINK_FIELDS =
       List.of(Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
 
   @Nullable private final Entity fastPathEntity;
+
+  // Fallback infrastructure stays absent for wrappers that always use their direct entity.
+  @Nullable private volatile HolderInfrastructure holderInfrastructure;
 
   protected YTDBGraphInternal graph;
   protected final RID rid;
@@ -186,22 +192,71 @@ public abstract class YTDBElementImpl implements YTDBElement {
     if (fastPathEntity == null || fastPathEntity.isNotBound(session)) {
       var tx = session.getActiveTransaction();
 
-      var entity = threadLocalEntity.get();
-      if (entity == null) {
-        entity = tx.loadEntity(rid);
-        threadLocalEntity.set(entity);
+      var infrastructure = holderInfrastructure();
+      cleanCollectedThreadHolders(infrastructure);
 
-        return entity;
+      var holderReference = infrastructure.threadLocalHolder.get();
+      var holder = holderReference == null ? null : holderReference.get();
+      if (holder == null) {
+        holder = new EntityHolder(tx.loadEntity(rid));
+        infrastructure.entityHolders.put(
+            new ThreadReference(Thread.currentThread(), infrastructure.collectedThreads), holder);
+        infrastructure.threadLocalHolder.set(new WeakReference<>(holder));
+      } else if (holder.entity.isNotBound(session)) {
+        holder.entity = tx.load(holder.entity);
       }
 
-      if (entity.isNotBound(session)) {
-        entity = tx.load(entity);
-        threadLocalEntity.set(entity);
-      }
-
-      return entity;
+      return holder.entity;
     } else {
       return fastPathEntity;
+    }
+  }
+
+  private HolderInfrastructure holderInfrastructure() {
+    var infrastructure = holderInfrastructure;
+    if (infrastructure == null) {
+      synchronized (this) {
+        infrastructure = holderInfrastructure;
+        if (infrastructure == null) {
+          infrastructure = new HolderInfrastructure();
+          holderInfrastructure = infrastructure;
+        }
+      }
+    }
+    return infrastructure;
+  }
+
+  private static void cleanCollectedThreadHolders(HolderInfrastructure infrastructure) {
+    // Bound cleanup work so one access never scans all accumulated holders.
+    for (var cleaned = 0; cleaned < COLLECTED_THREAD_CLEANUP_LIMIT; cleaned++) {
+      var threadReference = infrastructure.collectedThreads.poll();
+      if (threadReference == null) {
+        return;
+      }
+
+      infrastructure.entityHolders.remove(threadReference);
+    }
+  }
+
+  private static final class HolderInfrastructure {
+    // The thread stores only a weak holder reference. The wrapper owns holders and their entities.
+    private final ThreadLocal<WeakReference<EntityHolder>> threadLocalHolder = new ThreadLocal<>();
+    private final ReferenceQueue<Thread> collectedThreads = new ReferenceQueue<>();
+    // Weak thread keys prevent a live wrapper from retaining terminated threads.
+    private final Map<ThreadReference, EntityHolder> entityHolders = new ConcurrentHashMap<>();
+  }
+
+  private static final class EntityHolder {
+    private Entity entity;
+
+    private EntityHolder(Entity entity) {
+      this.entity = entity;
+    }
+  }
+
+  private static final class ThreadReference extends WeakReference<Thread> {
+    private ThreadReference(Thread thread, ReferenceQueue<Thread> collectedThreads) {
+      super(thread, collectedThreads);
     }
   }
 
