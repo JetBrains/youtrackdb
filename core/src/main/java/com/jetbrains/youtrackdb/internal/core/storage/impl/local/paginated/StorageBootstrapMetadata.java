@@ -260,8 +260,23 @@ public final class StorageBootstrapMetadata {
         });
   }
 
-  /** Activates a validated pending image without changing its identity or sequence floor. */
+  /** Activates a validated pending image without lowering its logical sequence floor. */
   public Snapshot activate(final Snapshot expected) throws IOException {
+    return activate(expected, expected.sequenceFloor().highestIssued());
+  }
+
+  /**
+   * Activates a validated pending image and publishes its highest issued operation identifier.
+   *
+   * <p>The lifecycle state and effective floor travel in one authority record. A requested floor
+   * below the durable floor keeps the durable value. An exhausted effective floor is rejected
+   * before publication because an active image must be able to issue a later identifier.
+   */
+  public Snapshot activate(final Snapshot expected, final long highestIssued) throws IOException {
+    if (highestIssued < 0) {
+      throw new IllegalArgumentException("Logical sequence floor must not be negative");
+    }
+
     return withAuthorityLock(
         () -> {
           final var current = verifyExpected(expected);
@@ -271,12 +286,20 @@ public final class StorageBootstrapMetadata {
             throw new IllegalStateException("Only a pending image can become active");
           }
 
+          final var effectiveHighestIssued =
+              Math.max(current.sequenceFloor().highestIssued(), highestIssued);
+          if (effectiveHighestIssued == Long.MAX_VALUE) {
+            throw new IllegalStateException("Logical operation identifier space is exhausted");
+          }
+          final var floor =
+              new LogicalSequenceFloor(
+                  current.storageIdentity(), current.lineageIdentity(), effectiveHighestIssued);
           final var next =
               new Snapshot(
                   current.format(),
                   nextGeneration(current.generation()),
                   State.ACTIVE,
-                  current.sequenceFloor());
+                  floor);
           publish(next);
           if (current.state() == State.BIRTH_IN_PROGRESS) {
             liveBirth = null;

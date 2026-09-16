@@ -118,6 +118,7 @@ import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -150,6 +151,8 @@ public class DiskStorage extends AbstractStorage {
 
   private static final Logger logger = LoggerFactory.getLogger(DiskStorage.class);
   private static final AtomicBoolean fsyncWarningLogged = new AtomicBoolean();
+  private static final AtomicReference<Consumer<DiskStorage>> RESTORE_BARRIER_TEST_ACTION =
+      new AtomicReference<>();
 
   private static final String BACKUP_LOCK = "backup.ibl";
 
@@ -573,6 +576,8 @@ public class DiskStorage extends AbstractStorage {
   protected void readStorageIdentity() {
     try {
       var active = bootstrapMetadata().readActiveRequired();
+      requireUsableOperationIdFloor(
+          active.sequenceFloor().highestIssued(), "bootstrap authority admission");
       bootstrapSnapshot = active;
       updateStorageIdentity(active.storageIdentity(), active.lineageIdentity());
     } catch (StorageAdmissionException rejection) {
@@ -592,6 +597,15 @@ public class DiskStorage extends AbstractStorage {
     }
   }
 
+  @Override
+  protected long operationIdFloorOnOpen(final long startupLastTxId) {
+    final var active = java.util.Objects.requireNonNull(bootstrapSnapshot, "bootstrapSnapshot");
+    final var startupFloor = Math.max(0, startupLastTxId);
+    final var effectiveFloor =
+        Math.max(active.sequenceFloor().highestIssued(), startupFloor);
+    return requireUsableOperationIdFloor(effectiveFloor, "disk storage open");
+  }
+
   private StorageBootstrapMetadata bootstrapMetadata() throws IOException {
     if (bootstrapMetadata == null) {
       bootstrapMetadata = new StorageBootstrapMetadata(storagePath, FEATURE_FORMAT);
@@ -600,9 +614,44 @@ public class DiskStorage extends AbstractStorage {
   }
 
   void activateBootstrapSnapshot(String errorMessage) {
+    activateBootstrapSnapshot(errorMessage, null);
+  }
+
+  /** Installs a one-shot action used to prove restore-barrier timestamp ordering. */
+  static void setRestoreBarrierActionForTesting(final Consumer<DiskStorage> action) {
+    if (!RESTORE_BARRIER_TEST_ACTION.compareAndSet(null, action)) {
+      throw new IllegalStateException("A restore barrier test action is already installed");
+    }
+  }
+
+  @Override
+  protected void beforeDurabilityBarrierSynchronizationForTesting() {
+    final var snapshot = bootstrapSnapshot;
+    if (snapshot == null
+        || snapshot.state() != StorageBootstrapMetadata.State.RESTORE_IN_PROGRESS) {
+      return;
+    }
+    final var action = RESTORE_BARRIER_TEST_ACTION.getAndSet(null);
+    if (action != null) {
+      action.accept(this);
+    }
+  }
+
+  /** Publishes restore activation with the post-barrier generator high-water mark. */
+  void activateRestoredBootstrapSnapshot() {
+    activateBootstrapSnapshot(
+        "Cannot activate the restored storage lineage", getIdGen().getLastId());
+  }
+
+  private void activateBootstrapSnapshot(
+      final String errorMessage, @Nullable final Long highestIssued) {
     try {
-      var active = bootstrapMetadata().activate(
-          java.util.Objects.requireNonNull(bootstrapSnapshot, "bootstrapSnapshot"));
+      final var pending =
+          java.util.Objects.requireNonNull(bootstrapSnapshot, "bootstrapSnapshot");
+      final var active =
+          highestIssued == null
+              ? bootstrapMetadata().activate(pending)
+              : bootstrapMetadata().activate(pending, highestIssued);
       bootstrapSnapshot = active;
       updateStorageIdentity(active.storageIdentity(), active.lineageIdentity());
     } catch (IOException exception) {
@@ -2425,7 +2474,8 @@ public class DiskStorage extends AbstractStorage {
 
       var backupLastTxId = chain.lastTxId();
       if (backupLastTxId >= 0 && backupLastTxId >= getIdGen().getLastId()) {
-        getIdGen().setStartId(backupLastTxId + 1);
+        getIdGen().advanceToAtLeast(
+            requireUsableOperationIdFloor(backupLastTxId, "backup restore"));
       }
 
       postProcessIncrementalRestore(result.contextConfiguration);
@@ -2435,7 +2485,8 @@ public class DiskStorage extends AbstractStorage {
       // the destructive restart entry accepts that state.
       validateRestoredContent();
       barrierWhileCallerOwnsStateLock();
-      activateBootstrapSnapshot("Cannot activate the restored storage lineage");
+      // Capture after the barrier because histogram and index flushing can issue operations.
+      activateRestoredBootstrapSnapshot();
       dropStaleIndexLifecycles();
     } catch (IOException e) {
       throw BaseException.wrapException(
@@ -2457,8 +2508,8 @@ public class DiskStorage extends AbstractStorage {
    * that fresh target already generated a random storage identity and a random storage lineage.
    * That fresh target therefore needs no replacement.
    *
-   * <p>The logical sequence floor needs no adoption either. A fresh target starts at the lowest
-   * floor, and no production reader of the durable floor exists today.
+   * <p>The production fresh target keeps its pending floor here. Restore activation publishes the
+   * post-barrier generator high-water mark, and every later disk open consumes that durable floor.
    */
   void beginLineageReplacement() {
     try {
