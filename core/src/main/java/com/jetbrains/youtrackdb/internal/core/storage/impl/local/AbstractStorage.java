@@ -865,18 +865,16 @@ public abstract class AbstractStorage
           PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
 
           final var startupMetadata = checkIfStorageDirty();
-          final var lastTxId = startupMetadata.lastTxId;
-          if (lastTxId > 0) {
-            idGen.setStartId(lastTxId + 1);
-          } else {
-            idGen.setStartId(0);
+          final var openingFloor = operationIdFloorOnOpen(startupMetadata.lastTxId);
+          if (openingFloor >= idGen.getLastId()) {
+            idGen.advanceToAtLeast(openingFloor);
           }
 
           atomicOperationsTable =
               new AtomicOperationsTable(
                   contextConfiguration.getValueAsInteger(
                       GlobalConfiguration.STORAGE_ATOMIC_OPERATIONS_TABLE_COMPACTION_LIMIT),
-                  idGen.getLastId() + 1);
+                  nextOperationId(idGen.getLastId(), "storage open"));
           atomicOperationsManager = new AtomicOperationsManager(this, atomicOperationsTable);
 
           recoverIfNeeded();
@@ -1705,10 +1703,15 @@ public abstract class AbstractStorage
   protected final void barrierWhileCallerOwnsStateLock() {
     requireNoErrorStateForBarrier();
     flushDirtyHistograms(true);
+    beforeDurabilityBarrierSynchronizationForTesting();
     doSynch(true);
     // A flush can move this storage into the error state without throwing. One example is a page
     // checksum failure under the read-only error mode. The second check therefore repeats.
     requireNoErrorStateForBarrier();
+  }
+
+  /** Allows a deterministic test action inside the durability barrier. */
+  protected void beforeDurabilityBarrierSynchronizationForTesting() {
   }
 
   /**
@@ -1751,6 +1754,42 @@ public abstract class AbstractStorage
 
   /** Reads durable identity before write-ahead log processing starts. */
   protected void readStorageIdentity() {
+  }
+
+  /**
+   * Returns the highest issued operation identifier to install before recovery.
+   *
+   * <p>Memory storage keeps its historical startup seeding. Disk storage overrides this method to
+   * combine durable bootstrap authority with graceful-close progress.
+   */
+  protected long operationIdFloorOnOpen(final long startupLastTxId) {
+    return memoryOperationIdFloor(startupLastTxId);
+  }
+
+  /** Preserves the historical memory-storage startup seed while checking its increment. */
+  static long memoryOperationIdFloor(final long startupLastTxId) {
+    return startupLastTxId > 0
+        ? nextOperationId(startupLastTxId, "memory storage startup progress")
+        : 0;
+  }
+
+  /** Returns the identifier after a highest-issued value without signed arithmetic wraparound. */
+  protected static long nextOperationId(final long highestIssued, final String context) {
+    if (highestIssued == Long.MAX_VALUE) {
+      throw new IllegalStateException(
+          "Logical operation identifier space is exhausted during " + context);
+    }
+    return highestIssued + 1;
+  }
+
+  /** Rejects an exhausted highest-issued value before it can become startup evidence. */
+  protected static long requireUsableOperationIdFloor(
+      final long highestIssued, final String context) {
+    if (highestIssued == Long.MAX_VALUE) {
+      throw new IllegalStateException(
+          "Logical operation identifier space is exhausted during " + context);
+    }
+    return highestIssued;
   }
 
   /** Publishes durable birth before write-ahead log initialization starts. */
@@ -9026,10 +9065,11 @@ public abstract class AbstractStorage
               e);
     }
 
-    // After WAL replay, synchronize idGen with the highest operationUnitId seen.
-    // This is critical after backup/restore where the idGen counter may be stale.
+    // WAL operation identifiers are highest-issued evidence, not the next identifier to issue.
+    // Install the evidence directly so the next generator call advances exactly once.
     if (maxOperationUnitId >= 0 && maxOperationUnitId >= idGen.getLastId()) {
-      idGen.setStartId(maxOperationUnitId + 1);
+      idGen.advanceToAtLeast(
+          requireUsableOperationIdFloor(maxOperationUnitId, "write-ahead log recovery"));
     }
 
     return lastUpdatedLSN;

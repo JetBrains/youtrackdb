@@ -314,6 +314,48 @@ public class StorageBootstrapMetadataTest {
         .hasMessageContaining("already exists");
   }
 
+  /** Restore activation publishes the greater requested floor in the active authority record. */
+  @Test
+  public void activationPublishesRequestedFloorWithActiveState() throws IOException {
+    final var metadata = metadata();
+    final var pending = metadata.beginRestoreFromBirth(metadata.createBirth(STORAGE, LINEAGE_ONE));
+
+    final var active = metadata.activate(pending, 41);
+
+    assertThat(active.state()).isEqualTo(StorageBootstrapMetadata.State.ACTIVE);
+    assertThat(active.sequenceFloor().highestIssued()).isEqualTo(41);
+    assertThat(metadata().readActiveRequired()).isEqualTo(active);
+  }
+
+  /** A stale activation proposal cannot lower the pending authority floor. */
+  @Test
+  public void activationRetainsHigherPendingFloor() throws IOException {
+    final var metadata = metadata();
+    final var birth = metadata.createBirth(STORAGE, LINEAGE_ONE);
+    final var highPending =
+        metadata.advanceFloor(birth, new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 73));
+    final var pending = metadata.beginRestoreFromBirth(highPending);
+
+    final var active = metadata.activate(pending, 19);
+
+    assertThat(active.sequenceFloor().highestIssued()).isEqualTo(73);
+  }
+
+  /** Exhausted activation leaves the restore pending and publishes no wrapped floor. */
+  @Test
+  public void activationRejectsExhaustedFloorBeforePublication() throws IOException {
+    final var metadata = metadata();
+    final var pending = metadata.beginRestoreFromBirth(metadata.createBirth(STORAGE, LINEAGE_ONE));
+    final var before = authorityBytes();
+
+    assertThatThrownBy(() -> metadata.activate(pending, Long.MAX_VALUE))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("exhausted");
+    assertAuthorityBytesUnchanged(before);
+    assertThat(metadata().readRequired().state())
+        .isEqualTo(StorageBootstrapMetadata.State.RESTORE_IN_PROGRESS);
+  }
+
   /** Each update uses another slot and recovery selects the newest legal generation. */
   @Test
   public void redundantPublicationSelectsNewestLegalRecord() throws IOException {
@@ -585,6 +627,58 @@ public class StorageBootstrapMetadataTest {
     assertThat(failure).hasMessageContaining("primary publication failure");
     assertThat(failure.getSuppressed()).hasSize(1);
     assertThat(failure.getSuppressed()[0].getMessage()).contains("secondary cleanup failure");
+  }
+
+  /** A restore activation move failure leaves the prior pending authority unchanged. */
+  @Test
+  public void failedActivationMoveLeavesPendingAuthority() throws IOException {
+    final var moves = new AtomicInteger();
+    final var failing =
+        new StorageBootstrapMetadata(
+            directory,
+            FORMAT,
+            (source, target, requester) -> {
+              if (moves.incrementAndGet() == 3) {
+                throw new IOException("injected activation move failure");
+              }
+              FileUtils.durableAtomicMove(source, target, requester);
+            });
+    final var pending = failing.beginRestoreFromBirth(failing.createBirth(STORAGE, LINEAGE_ONE));
+    final var before = authorityBytes();
+
+    assertThatThrownBy(() -> failing.activate(pending, 89))
+        .isInstanceOf(IOException.class)
+        .hasMessageContaining("activation move failure");
+    assertAuthorityBytesUnchanged(before);
+    assertThat(metadata().readRequired().state())
+        .isEqualTo(StorageBootstrapMetadata.State.RESTORE_IN_PROGRESS);
+  }
+
+  /** A moved restore activation keeps its active state and floor when the barrier reports failure. */
+  @Test
+  public void movedActivationFailureLeavesRecoverableActiveFloor() throws IOException {
+    final var moves = new AtomicInteger();
+    final var uncertainCreator =
+        new StorageBootstrapMetadata(
+            directory,
+            FORMAT,
+            (source, target, requester) -> {
+              FileUtils.durableAtomicMove(source, target, requester);
+              if (moves.incrementAndGet() == 3) {
+                throw new IOException("directory barrier failed after activation move");
+              }
+            });
+    final var pending =
+        uncertainCreator.beginRestoreFromBirth(
+            uncertainCreator.createBirth(STORAGE, LINEAGE_ONE));
+
+    assertThatThrownBy(() -> uncertainCreator.activate(pending, 91))
+        .isInstanceOf(IOException.class)
+        .hasMessageContaining("barrier failed");
+
+    final var recovered = metadata().readActiveRequired();
+    assertThat(recovered.state()).isEqualTo(StorageBootstrapMetadata.State.ACTIVE);
+    assertThat(recovered.sequenceFloor().highestIssued()).isEqualTo(91);
   }
 
   /** A complete active candidate from a failed barrier is selected only after fresh confirmation. */
