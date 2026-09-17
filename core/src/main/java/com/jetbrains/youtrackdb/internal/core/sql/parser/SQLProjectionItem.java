@@ -75,6 +75,10 @@ public class SQLProjectionItem extends SimpleNode {
     return exclude;
   }
 
+  public void setExclude(boolean exclude) {
+    this.exclude = exclude;
+  }
+
   public boolean hasNestedProjection() {
     return nestedProjection != null;
   }

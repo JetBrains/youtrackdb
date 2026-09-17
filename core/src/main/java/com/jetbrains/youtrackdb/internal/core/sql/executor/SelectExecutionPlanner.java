@@ -1166,10 +1166,22 @@ public class SelectExecutionPlanner {
       info.orderBy = newOrderBy; // the ORDER BY has changed
     }
     if (!additionalOrderByProjections.isEmpty()) {
-      info.projectionAfterOrderBy = new SQLProjection(-1);
-      info.projectionAfterOrderBy.setItems(new ArrayList<>());
-      for (var alias : info.projection.getAllAliases()) {
-        info.projectionAfterOrderBy.getItems().add(projectionFromAlias(new SQLIdentifier(alias)));
+      if (info.projection.getItems().stream()
+          .anyMatch(item -> item.isAll() || item.isExclude())) {
+        // Preserve wildcard and exclusion items structurally before appending synthetic keys.
+        info.projectionAfterOrderBy = info.projection.copy();
+        for (var item : additionalOrderByProjections) {
+          var excluded = new SQLProjectionItem(-1);
+          excluded.setExpression(new SQLExpression(item.getAlias().copy()));
+          excluded.setExclude(true);
+          info.projectionAfterOrderBy.getItems().add(excluded);
+        }
+      } else {
+        info.projectionAfterOrderBy = new SQLProjection(-1);
+        info.projectionAfterOrderBy.setItems(new ArrayList<>());
+        for (var alias : info.projection.getAllAliases()) {
+          info.projectionAfterOrderBy.getItems().add(projectionFromAlias(new SQLIdentifier(alias)));
+        }
       }
 
       for (var item : additionalOrderByProjections) {
@@ -1226,7 +1238,6 @@ public class SelectExecutionPlanner {
           // The synthetic alias fully replaces the original expression.
           // Keeping either field makes the comparator ignore the alias.
           item.setRecordAttr(null);
-          item.setRid(null);
           result.add(newProj);
         }
       }
@@ -2269,8 +2280,9 @@ public class SelectExecutionPlanner {
    * separately rather than fixed here, and it is named in this list so the enumeration stops
    * reading as a safety claim it does not make.
    *
-   * <p>Edge properties (e.g. {@code out_FriendOf}) are detected and flagged so the
-   * comparator can handle LINKBAG values correctly.
+   * <p>For vertex targets, an {@code out_<alias>} LINKBAG is flagged only when the target has no
+   * same-named scalar property. This preserves scalar ORDER BY semantics while allowing edge-label
+   * ordering. Non-vertex targets never use the edge-property path.
    *
    * <p>If {@code projectionAfterOrderBy} is set (i.e. synthetic ORDER BY aliases were
    * added during planning), an additional projection step strips those temporary columns.
