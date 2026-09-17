@@ -191,6 +191,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    */
   private Map<String, EntityImpl> rowEntityCache = new HashMap<>();
 
+  /** Filtering presences proved by the current row-level check. Each clone receives a new set. */
+  private Set<AliasPropertyPresence> verifiedFilteringPresences = new HashSet<>();
+
   /**
    * Entity-column resolutions performed, read by a test through {@link #entityColumnResolutions}.
    * The count spans rows within one arming. Reset and clone start a new observation window.
@@ -737,6 +740,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.armingGraph = null;
     this.shapedPayloads = null;
     this.rowEntityCache = new HashMap<>();
+    this.verifiedFilteringPresences = new HashSet<>();
     this.entityColumnResolutions = 0;
     this.state = State.NEW;
   }
@@ -750,6 +754,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     // distinct aliases but used to resolve one per presence entry and then again per emitted
     // column, so twelve resolutions did the work of two.
     rowEntityCache.clear();
+    verifiedFilteringPresences.clear();
     return switch (outputType) {
       case ELEMENT -> projectElement(row, armingGraph);
       case MAP -> projectMap(row);
@@ -864,8 +869,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * One map entry value, or {@link #SKIP} when a presence-checked key is absent (the column must not
-   * appear in the map).
+   * Returns one map entry value. Row filtering already removed absent nonproductive keys. An absent
+   * productive key returns {@code null}.
    */
   private Object mapColumnValue(Result row, String name, @Nullable EntityImpl entity) {
     var aliasPresence = aliasPresenceByMapKey.get(name);
@@ -876,11 +881,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
         return null;
       }
       // Filtering presences are checked before projection. Productive presences emit null when absent.
-      assert !aliasPresence.dropOnAbsent() || aliasEntity.hasProperty(aliasPresence.propertyKey())
+      assert !aliasPresence.dropOnAbsent()
+          || verifiedFilteringPresences.contains(aliasPresence)
           : "row-level filtering must run before the map projection reads a presence column";
-      if (!aliasEntity.hasProperty(aliasPresence.propertyKey())) {
-        return null;
-      }
       return convertValue(aliasEntity.getProperty(aliasPresence.propertyKey()));
     }
     if (presenceKeySet.contains(name)) {
@@ -934,9 +937,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * Emits a single property value. With {@code dropOnAbsent}, rows whose property is absent on the
-   * entity are skipped; present-with-null still emits a {@code null} traverser. Alias-presence
-   * checks (post-cardinality {@code select().by}) drop the whole row the same way.
+   * Emits a single property value. With {@code dropOnAbsent}, an absent boundary property drops the
+   * row. Present-with-null still emits a {@code null} traverser. An absent nonproductive select key
+   * drops the row. An absent productive select key emits {@code null}.
    */
   private Object projectSingleValue(Result row) {
     if (failsAliasPropertyPresence(row)) {
@@ -962,8 +965,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * {@code true} when {@code dropOnAbsent} is set and any {@link AliasPropertyPresence} fails —
-   * Gremlin {@code by(key)} drops the traverser when the modulated property is absent.
+   * Returns {@code true} when an absent nonproductive select key requires a row drop. Productive
+   * keys do not drop rows.
    */
   private boolean failsAliasPropertyPresence(Result row) {
     if (!shaping.dropOnAbsent() || shaping.aliasPropertyPresences().isEmpty()) {
@@ -977,6 +980,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       if (entity == null || !entity.hasProperty(presence.propertyKey())) {
         return true;
       }
+      verifiedFilteringPresences.add(presence);
     }
     return false;
   }

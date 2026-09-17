@@ -49,7 +49,7 @@ The change covers a GLOBAL-scope order modulator only. Every other modulator kee
 filtering behavior.
 
 - `order(Scope.local)` still drops an entry that lacks the key.
-- `select("a").by("age")` still drops a record that lacks the key.
+- `select("a").by("age")` emits `null` when the absent key is productive. It drops the row when the absent key is nonproductive.
 - `values("age")` still emits nothing for a record that lacks the key.
 - `group().by("age")` and `groupCount().by("age")` still form no null bucket.
 

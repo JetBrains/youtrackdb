@@ -8,10 +8,9 @@ import javax.annotation.Nonnull;
  * {@link #propertyKey()} via {@code hasProperty} / {@code getProperty}, and puts the value under
  * {@link #mapKey()} (the user select label).
  *
- * <p>After a cardinality clause, {@link AbstractMatchPlanStep} also uses the list as a whole-row
- * drop when {@code dropOnAbsent} is set — Gremlin {@code by} drops the traverser if any modulated
- * key is absent, and pattern {@code IS DEFINED} must not run before {@code LIMIT}/{@code SKIP}/
- * {@code DISTINCT}.
+ * <p>After a cardinality clause, each entry records its absence policy. An absent nonproductive
+ * select key drops the row. An absent productive select key emits {@code null}. Pattern {@code IS
+ * DEFINED} must not run before {@code LIMIT}, {@code SKIP}, or {@code DISTINCT}.
  *
  * @param entityColumnAlias RETURN column holding the entity (or its RID); stripped from the emitted
  *     map

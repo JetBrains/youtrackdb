@@ -123,8 +123,8 @@ final class SelectStepRecogniser implements StepRecogniser {
     var shaping = ResultShaping.NONE.withUnwrapSingletonMap(labels.size() == 1);
     shaping = shaping.withMapEmitColumnOrder(List.copyOf(labels));
     if (!aliasPresences.isEmpty()) {
-      // dropOnAbsent only when every presence is a filtering by(key); productive keys after
-      // dedup still use AliasPropertyPresence for emit but must not drop the row.
+      // Enable row dropping when any presence filters. Productive keys after dedup still use
+      // AliasPropertyPresence for emission but do not drop the row.
       var anyFiltering = aliasPresences.stream().anyMatch(AliasPropertyPresence::dropOnAbsent);
       if (anyFiltering) {
         shaping = shaping.withDropOnAbsent(true);
