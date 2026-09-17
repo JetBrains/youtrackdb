@@ -1166,22 +1166,10 @@ public class SelectExecutionPlanner {
       info.orderBy = newOrderBy; // the ORDER BY has changed
     }
     if (!additionalOrderByProjections.isEmpty()) {
-      if (info.projection.getItems().stream()
-          .anyMatch(item -> item.isAll() || item.isExclude())) {
-        // Preserve wildcard and exclusion items structurally before appending synthetic keys.
-        info.projectionAfterOrderBy = info.projection.copy();
-        for (var item : additionalOrderByProjections) {
-          var excluded = new SQLProjectionItem(-1);
-          excluded.setExpression(new SQLExpression(item.getAlias().copy()));
-          excluded.setExclude(true);
-          info.projectionAfterOrderBy.getItems().add(excluded);
-        }
-      } else {
-        info.projectionAfterOrderBy = new SQLProjection(-1);
-        info.projectionAfterOrderBy.setItems(new ArrayList<>());
-        for (var alias : info.projection.getAllAliases()) {
-          info.projectionAfterOrderBy.getItems().add(projectionFromAlias(new SQLIdentifier(alias)));
-        }
+      info.projectionAfterOrderBy = new SQLProjection(-1);
+      info.projectionAfterOrderBy.setItems(new ArrayList<>());
+      for (var alias : info.projection.getAllAliases()) {
+        info.projectionAfterOrderBy.getItems().add(projectionFromAlias(new SQLIdentifier(alias)));
       }
 
       for (var item : additionalOrderByProjections) {
