@@ -33,6 +33,7 @@ import javax.annotation.Nullable;
  *  extractSubQs()   | whereClause, projection, orderBy (subqueries extracted)
  *  flatten WHERE    | flattenedWhereClause populated
  *  splitProjections | preAggregateProjection, aggregateProjection, projection
+ *  ORDER BY guard   | deferOrderByProjections
  *  addOrderByProjs  | projectionAfterOrderBy, projection (ORDER BY aliases added)
  *  handleFetch*     | whereClause/flattenedWhereClause set to null when consumed
  *                   |   by index; orderApplied set to true when index sorts
@@ -203,6 +204,12 @@ public class QueryPlanningInfo {
   protected boolean projectionsCalculated = false;
 
   /**
+   * Set when every ORDER BY key is readable before projection and no row-shaping operation
+   * requires projection first.
+   */
+  protected boolean deferOrderByProjections;
+
+  /**
    * RID range conditions extracted from the WHERE clause (e.g. {@code @rid > #10:5}).
    * Used to narrow the collection scan range in
    * {@link FetchFromClassExecutionStep}.
@@ -241,6 +248,7 @@ public class QueryPlanningInfo {
     result.limit = this.limit;
     result.orderApplied = this.orderApplied;
     result.projectionsCalculated = this.projectionsCalculated;
+    result.deferOrderByProjections = this.deferOrderByProjections;
     result.ridRangeConditions = this.ridRangeConditions;
 
     return result;

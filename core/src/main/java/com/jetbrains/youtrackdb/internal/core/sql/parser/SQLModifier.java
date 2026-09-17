@@ -43,6 +43,22 @@ public class SQLModifier extends SimpleNode {
     super(p, id);
   }
 
+  /**
+   * {@code true} when this whole modifier chain contains only property or record-attribute
+   * reads, such as {@code .a}, {@code .a.b}, or {@code .a.@rid}.
+   *
+   * <p>Method calls, bracket forms, and wildcards require projection-time evaluation.
+   */
+  public boolean isPlainPropertyChain() {
+    if (squareBrackets || methodCall != null || suffix == null || suffix.star) {
+      return false;
+    }
+    if (suffix.identifier == null && suffix.recordAttribute == null) {
+      return false;
+    }
+    return next == null || next.isPlainPropertyChain();
+  }
+
   public boolean isArraySingleValue() {
     if (this.arraySingleValues != null) {
       return this.arraySingleValues.items.size() == 1;

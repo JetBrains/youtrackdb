@@ -160,6 +160,8 @@ import javax.annotation.Nullable;
  */
 public class SelectExecutionPlanner {
 
+  private static final String TRANSLATOR_ALIAS_PREFIX = "$g2m_";
+
   /** Mutable planning state -- populated by {@link #init} and mutated by optimization passes. */
   private QueryPlanningInfo info;
 
@@ -574,57 +576,120 @@ public class SelectExecutionPlanner {
     }
   }
 
-  /**
-   * When ORDER BY keys need SELECT-list (or synthetic) columns, project before
-   * {@link OrderByStep}. Otherwise leave projections for Path C after SKIP/LIMIT —
-   * including when there is no slice. Binding-key ORDER BY ({@code alias.property} /
-   * {@code @rid}) compares on MATCH rows; projecting the RETURN list early would drop
-   * those bindings whenever RETURN does not keep the ordered alias as an entity column
-   * (e.g. {@code RETURN src.name, dst.name ORDER BY dst.id}).
-   *
-   * <p>Early projection is required for {@code ORDER BY messageCreationDate} (RETURN
-   * alias) and for synthetic {@code _$$$ORDER_BY_ALIAS$$$_*} columns from
-   * {@link #addOrderByProjections}. Binding-key ORDER BY with a slice must not project
-   * early for the same Match-binding reason, and so that a top-N query does not run
-   * {@link ProjectionCalculationStep} on every candidate before the bounded heap drops
-   * them.
-   */
+  /** Projects before ORDER BY unless the statement-level guard accepted every sort key. */
   private static void handleProjectionsBeforeOrderBy(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
-    if (info.orderBy != null && orderByNeedsProjectedColumns(info)) {
+    if (info.orderBy != null && !info.deferOrderByProjections) {
       handleProjections(result, info, ctx, profilingEnabled);
     }
   }
 
   /**
-   * {@code true} when at least one ORDER BY item cannot be evaluated on the upstream
-   * row and must wait for {@link ProjectionCalculationStep}.
+   * Decides whether ORDER BY can read every key from the upstream row before projection.
+   *
+   * <p>The decision is statement-wide because {@link OrderByStep} sees one row shape. GROUP BY,
+   * aggregation, EXPAND, and UNWIND replace or multiply rows, so they always require projection
+   * first. A slice is deliberately not required because deferral also preserves MATCH bindings
+   * for unbounded sorts.
    */
-  private static boolean orderByNeedsProjectedColumns(QueryPlanningInfo info) {
-    // Synthetic ORDER BY columns exist only after the expanded projection runs.
-    if (info.projectionAfterOrderBy != null) {
-      return true;
-    }
-    var items = info.orderBy.getItems();
-    if (items == null || items.isEmpty()) {
+  private static boolean canDeferOrderByProjections(QueryPlanningInfo info) {
+    if (info.orderBy == null
+        || info.orderBy.getItems() == null
+        || info.orderBy.getItems().isEmpty()) {
       return false;
     }
-    for (var item : items) {
-      if (item.getRecordAttr() != null) {
-        // @rid / @class / … — present on MATCH rows and entities.
-        continue;
+    if (info.projection == null || info.projection.getItems() == null) {
+      return false;
+    }
+    if (info.groupBy != null
+        || info.expand
+        || info.unwind != null
+        || info.preAggregateProjection != null
+        || info.aggregateProjection != null) {
+      return false;
+    }
+
+    var projectionAliases = info.projection.getAllAliases();
+    var passThroughAliases = passThroughProjectionAliases(info.projection);
+    var letVariables = declaredLetVariables(info);
+    for (var item : info.orderBy.getItems()) {
+      if (!orderByItemReadsUpstreamRow(
+          item, projectionAliases, passThroughAliases, letVariables)) {
+        return false;
       }
-      if (item.getAlias() != null && item.getModifier() != null) {
-        // alias.property — MatchResultRow binds aliases; modifier reads the field.
-        continue;
-      }
-      // Bare alias (RETURN AS name), RID literal, or unknown form — need projection.
+    }
+    return true;
+  }
+
+  /** Returns whether one ORDER BY item resolves identically before and after projection. */
+  private static boolean orderByItemReadsUpstreamRow(
+      SQLOrderByItem item,
+      Set<String> projectionAliases,
+      Set<String> passThroughAliases,
+      Set<String> letVariables) {
+    if (item.getRecordAttr() != null) {
       return true;
     }
-    return false;
+    var alias = item.getAlias();
+    if (alias == null || letVariables.contains(alias)) {
+      return false;
+    }
+    if (alias.startsWith("$") && !alias.startsWith(TRANSLATOR_ALIAS_PREFIX)) {
+      return false;
+    }
+    var modifier = item.getModifier();
+    if (modifier != null && !modifier.isPlainPropertyChain()) {
+      return false;
+    }
+    return !projectionAliases.contains(alias) || passThroughAliases.contains(alias);
+  }
+
+  /** Collects aliases whose projection item preserves the identically named upstream value. */
+  private static Set<String> passThroughProjectionAliases(SQLProjection projection) {
+    Set<String> passThrough = new HashSet<>();
+    Set<String> shadowed = new HashSet<>();
+    for (var item : projection.getItems()) {
+      if (item.isAll()) {
+        continue;
+      }
+      var projected = item.getProjectionAliasAsString();
+      var expression = item.getExpression();
+      if (!item.isExclude()
+          && !item.hasNestedProjection()
+          && expression != null
+          && expression.isBaseIdentifier()
+          && projected.equals(expression.getDefaultAlias().getStringValue())) {
+        passThrough.add(projected);
+      } else {
+        shadowed.add(projected);
+      }
+    }
+    passThrough.removeAll(shadowed);
+    return passThrough;
+  }
+
+  /** Collects all global and per-record LET variable names. */
+  private static Set<String> declaredLetVariables(QueryPlanningInfo info) {
+    Set<String> result = new HashSet<>();
+    collectLetVariableNames(info.globalLetClause, result);
+    collectLetVariableNames(info.perRecordLetClause, result);
+    return result;
+  }
+
+  private static void collectLetVariableNames(
+      @Nullable SQLLetClause letClause, Set<String> target) {
+    if (letClause == null || letClause.getItems() == null) {
+      return;
+    }
+    for (var letItem : letClause.getItems()) {
+      var varName = letItem.getVarName();
+      if (varName != null) {
+        target.add(varName.getStringValue());
+      }
+    }
   }
 
   /**
@@ -752,6 +817,8 @@ public class SelectExecutionPlanner {
 
     splitProjectionsForGroupBy(info, ctx);
     resolveOrderByCollations(info, ctx);
+    // The deferral decision must inspect the user's ORDER BY before synthetic aliases rewrite it.
+    info.deferOrderByProjections = canDeferOrderByProjections(info);
     addOrderByProjections(info);
   }
 
@@ -1105,7 +1172,9 @@ public class SelectExecutionPlanner {
    * </pre>
    */
   private static void addOrderByProjections(QueryPlanningInfo info) {
-    if (info.orderApplied
+    // Deferred ORDER BY reads the original keys directly, before projection.
+    if (info.deferOrderByProjections
+        || info.orderApplied
         || info.expand
         || info.unwind != null
         || info.orderBy == null
@@ -1162,32 +1231,7 @@ public class SelectExecutionPlanner {
     List<SQLProjectionItem> result = new ArrayList<>();
     var nextAliasCount = 0;
     if ((orderBy != null && orderBy.getItems() != null) || !orderBy.getItems().isEmpty()) {
-      // When every ORDER BY key is alias.property / @rid, skip synthetics so ORDER BY can
-      // run on MATCH bindings and projections defer past LIMIT (post-LIMIT select().by
-      // presence). When any key needs early projection (bare RETURN alias, …), those
-      // binding-key siblings must also get synthetics — early projection replaces
-      // MatchResultRow and would otherwise null the secondary keys
-      // (testMatchMixedOrderByBareAliasAndAliasPropertyKeepsSecondaryKey).
-      var earlyProjectionForced = false;
       for (var item : orderBy.getItems()) {
-        if (item.getRecordAttr() != null) {
-          continue;
-        }
-        if (item.getAlias() != null && item.getModifier() != null) {
-          continue;
-        }
-        earlyProjectionForced = true;
-        break;
-      }
-      for (var item : orderBy.getItems()) {
-        if (!earlyProjectionForced) {
-          if (item.getAlias() != null && item.getModifier() != null) {
-            continue;
-          }
-          if (item.getRecordAttr() != null) {
-            continue;
-          }
-        }
         if (!allAliases.contains(item.getAlias())) {
           var newProj = new SQLProjectionItem(-1);
           if (item.getAlias() != null) {
