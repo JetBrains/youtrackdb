@@ -71,6 +71,14 @@ public class SQLProjectionItem extends SimpleNode {
     this.all = all;
   }
 
+  public boolean isExclude() {
+    return exclude;
+  }
+
+  public boolean hasNestedProjection() {
+    return nestedProjection != null;
+  }
+
   public SQLIdentifier getAlias() {
     return alias;
   }
