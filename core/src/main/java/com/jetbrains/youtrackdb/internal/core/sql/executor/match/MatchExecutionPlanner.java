@@ -676,9 +676,9 @@ public class MatchExecutionPlanner {
     //
     // The schedule computed here is reused by Phase 5 (see precomputedSortedEdges
     // parameter of createPlanForPattern) to avoid a duplicate
-    // getTopologicalSortedSchedule call on every planning invocation — measured
-    // ~5% CPU savings on queries where plan cache misses (e.g. IS7, where
-    // $matched.X.@rid back-reference blocks caching).
+    // getTopologicalSortedSchedule call on every planning invocation — useful
+    // when the plan cache misses (e.g. a $matched.X.@rid back-reference that
+    // blocks caching).
     IndexOrderedPlanner.IndexOrderedCandidate indexOrderedCandidate = null;
     List<EdgeTraversal> probeEdges = null;
     if (subPatterns.size() == 1 && orderBy != null) {
@@ -749,12 +749,6 @@ public class MatchExecutionPlanner {
       }
 
       if (this.orderBy != null) {
-        Integer maxResults = null;
-        if (this.limit != null && this.limit.getValue(context) >= 0) {
-          var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
-              ? this.skip.getValue(context) : 0;
-          maxResults = skipSize + this.limit.getValue(context);
-        }
         // Multi-field + candidate → primary key cutoff hint for early
         // termination in the bounded heap.
         // Disabled when RETURN DISTINCT: early termination stops reading
@@ -775,8 +769,10 @@ public class MatchExecutionPlanner {
         // filter that preserves input order (RidSet-based dedup), and runs
         // AFTER OrderByStep in the pipeline.
         var indexOrderedUpstream = indexOrderedCandidate != null;
+        // The SKIP and LIMIT clauses go over as AST nodes, not as a resolved number: this plan
+        // is cacheable, so a parameterized bound has to be read on every execution.
         result.chain(new OrderByStep(
-            orderBy, maxResults, primaryHint, indexOrderedUpstream,
+            orderBy, this.skip, this.limit, primaryHint, indexOrderedUpstream,
             context, -1, enableProfiling));
       }
 
@@ -6264,18 +6260,21 @@ public class MatchExecutionPlanner {
             currentEdgeClass = null;
           }
 
-          // Infer target class from edge LINK schema when no explicit class
-          // is set. Handles both vertex-to-vertex traversals (out/in) and
-          // edge-method traversals (outE/inE/inV/outV).
-          if (alias != null && !aliasClasses.containsKey(alias)) {
-            var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
-            if (inferred != null) {
-              aliasClasses.put(alias, inferred);
-              inferredWhileExprAliases.add(alias);
-              logger.debug(
-                  "MATCH class inference: alias '{}' -> class '{}' "
-                      + "(from edge LINK schema)",
-                  alias, inferred);
+          // Infer target class from edge LINK schema when no explicit class is set,
+          // or when the alias still carries only the generic root (Gremlin bare hops
+          // register V; without an upgrade the creationDate index on Comment is invisible).
+          if (alias != null) {
+            var existing = aliasClasses.get(alias);
+            if (existing == null || "V".equals(existing) || "E".equals(existing)) {
+              var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
+              if (inferred != null && !inferred.equals(existing)) {
+                aliasClasses.put(alias, inferred);
+                inferredWhileExprAliases.add(alias);
+                logger.debug(
+                    "MATCH class inference: alias '{}' -> class '{}' "
+                        + "(from edge LINK schema)",
+                    alias, inferred);
+              }
             }
           }
 

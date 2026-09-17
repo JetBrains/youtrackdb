@@ -125,7 +125,26 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     ctx.setOrderBy(MatchProjectionBuilder.orderBy(items));
+    ctx.recordOrderByCapture(boundary, orderKeysOnlyBoundary(boundary, items));
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Whether every sort item keys {@code boundary} (no foreign-alias comparator). Equal-key ties are
+   * left to MATCH — same as YQL {@code ORDER BY} + {@code LIMIT}. A comparator that sorts another
+   * alias zeroes the flag so a following slice declines.
+   */
+  private static boolean orderKeysOnlyBoundary(String boundary, ArrayList<SQLOrderByItem> items) {
+    if (items.isEmpty()) {
+      return false;
+    }
+    for (var item : items) {
+      var alias = item.getAlias();
+      if (alias == null || !alias.equals(boundary)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

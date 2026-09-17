@@ -107,7 +107,8 @@ import javax.annotation.Nullable;
  *     d. Flatten WHERE          |   whereClause.flatten()
  *     e. Move equalities left   |   moveFlattenedEqualitiesLeft()
  *     f. Split projections      |   splitProjectionsForGroupBy()
- *     g. Add ORDER BY projs     |   addOrderByProjections()
+ *     g. Check ORDER BY keys    |   canDeferOrderByProjections()
+ *     h. Add ORDER BY projs     |   addOrderByProjections()
  *  3. Hard-wired optimizations  | handleHardwiredOptimizations()
  *     (COUNT(*) short-circuits) |
  *  4. Global LET                | handleGlobalLet()
@@ -123,11 +124,11 @@ import javax.annotation.Nullable;
  *      SKIP, LIMIT, DISTINCT)   |
  *  10. Timeout                  | AccumulatingTimeoutStep
  *  11. Cache plan (optional)    | YqlExecutionPlanCache.put()
- * </pre>
+ * </pre>.
  *
  * <h2>Projection splitting for aggregation</h2>
- * When the SELECT list contains aggregate functions (e.g. {@code count(*), max(price)}),
- * the planner splits projections into three phases to support GROUP BY correctly:
+ * Aggregate functions in the SELECT list trigger projection splitting.
+ * For example, the planner splits {@code count(*)} and {@code max(price)} into three phases.
  * <pre>
  *   SELECT city, count(*), max(price) FROM Product GROUP BY city
  *
@@ -137,10 +138,10 @@ import javax.annotation.Nullable;
  *
  *   Pipeline:
  *   FetchFromClass -&gt; ProjectionCalc(pre) -&gt; AggregateProjectionCalc -&gt; ProjectionCalc(post)
- * </pre>
+ * </pre>.
  *
- * <h2>Index selection strategy</h2>
- * For class-targeted queries with a WHERE clause the planner attempts, in order:
+ * <h2>Index selection strategy.</h2>
+ * For class-targeted queries with a WHERE clause, the planner attempts these strategies in order.
  * <ol>
  *   <li>Indexed function execution (e.g. spatial / full-text custom functions)</li>
  *   <li>Best-fit B-tree / hash index lookup via {@link #findBestIndexFor}</li>
@@ -157,6 +158,8 @@ import javax.annotation.Nullable;
  * @see ExecutionStepInternal
  */
 public class SelectExecutionPlanner {
+
+  private static final String TRANSLATOR_ALIAS_PREFIX = "$g2m_";
 
   /** Mutable planning state -- populated by {@link #init} and mutated by optimization passes. */
   private QueryPlanningInfo info;
@@ -330,10 +333,10 @@ public class SelectExecutionPlanner {
    *   (SKIP/LIMIT applied early to minimize projection work)
    * </pre>
    *
-   * <p>In all paths, if an ORDER BY clause is present,
-   * {@link #handleProjectionsBeforeOrderBy} is called first to ensure that ORDER BY
-   * expressions that are not part of the user's SELECT list are temporarily added as
-   * projections (they will be stripped later by {@code projectionAfterOrderBy}).
+   * <p>The planner checks every ORDER BY key before adding synthetic projections.
+   * It projects early when any key depends on the SELECT output row.
+   * It defers projection when every key reads the same value from the upstream row.
+   * Deferral preserves MATCH bindings and avoids projecting rows that a bounded sort drops.
    */
   public static void handleProjectionsBlock(
       SelectExecutionPlan result,
@@ -341,7 +344,7 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean enableProfiling) {
 
-    // Ensure ORDER BY expressions are available as projected columns.
+    // Project early only when ORDER BY cannot read its keys from upstream rows.
     handleProjectionsBeforeOrderBy(result, info, ctx, enableProfiling);
 
     if (info.expand || info.unwind != null || info.groupBy != null) {
@@ -545,19 +548,119 @@ public class SelectExecutionPlanner {
     }
   }
 
-  /**
-   * If an ORDER BY clause is present, projections are calculated early so that
-   * sort keys derived from projected expressions are available to
-   * {@link OrderByStep}. Without ORDER BY this is a no-op (projections are
-   * deferred for efficiency).
-   */
+  /** Projects before ORDER BY unless the statement-level guard accepted every sort key. */
   private static void handleProjectionsBeforeOrderBy(
       SelectExecutionPlan result,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
-    if (info.orderBy != null) {
+    if (info.orderBy != null && !info.deferOrderByProjections) {
       handleProjections(result, info, ctx, profilingEnabled);
+    }
+  }
+
+  /**
+   * Decides whether ORDER BY can read every key from the upstream row before projection.
+   *
+   * <p>The decision is statement-wide because {@link OrderByStep} sees one row shape. GROUP BY,
+   * aggregation, EXPAND, and UNWIND replace or multiply rows, so they always require projection
+   * first. A slice is deliberately not required because deferral also preserves MATCH bindings
+   * for unbounded sorts.
+   */
+  private static boolean canDeferOrderByProjections(QueryPlanningInfo info) {
+    if (info.orderBy == null
+        || info.orderBy.getItems() == null
+        || info.orderBy.getItems().isEmpty()) {
+      return false;
+    }
+    if (info.projection == null || info.projection.getItems() == null) {
+      return false;
+    }
+    if (info.groupBy != null
+        || info.expand
+        || info.unwind != null
+        || info.preAggregateProjection != null
+        || info.aggregateProjection != null) {
+      return false;
+    }
+
+    var projectionAliases = info.projection.getAllAliases();
+    var passThroughAliases = passThroughProjectionAliases(info.projection);
+    var letVariables = declaredLetVariables(info);
+    for (var item : info.orderBy.getItems()) {
+      if (!orderByItemReadsUpstreamRow(
+          item, projectionAliases, passThroughAliases, letVariables)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Returns whether one ORDER BY item resolves identically before and after projection. */
+  private static boolean orderByItemReadsUpstreamRow(
+      SQLOrderByItem item,
+      Set<String> projectionAliases,
+      Set<String> passThroughAliases,
+      Set<String> letVariables) {
+    if (item.getRecordAttr() != null) {
+      return true;
+    }
+    var alias = item.getAlias();
+    if (alias == null || letVariables.contains(alias)) {
+      return false;
+    }
+    if (alias.startsWith("$") && !alias.startsWith(TRANSLATOR_ALIAS_PREFIX)) {
+      return false;
+    }
+    var modifier = item.getModifier();
+    if (modifier != null && !modifier.isPlainPropertyChain()) {
+      return false;
+    }
+    return !projectionAliases.contains(alias) || passThroughAliases.contains(alias);
+  }
+
+  /** Collects aliases whose projection item preserves the identically named upstream value. */
+  private static Set<String> passThroughProjectionAliases(SQLProjection projection) {
+    Set<String> passThrough = new HashSet<>();
+    Set<String> shadowed = new HashSet<>();
+    for (var item : projection.getItems()) {
+      if (item.isAll()) {
+        continue;
+      }
+      var projected = item.getProjectionAliasAsString();
+      var expression = item.getExpression();
+      if (!item.isExclude()
+          && !item.hasNestedProjection()
+          && expression != null
+          && expression.isBaseIdentifier()
+          && projected.equals(expression.getDefaultAlias().getStringValue())) {
+        passThrough.add(projected);
+      } else {
+        shadowed.add(projected);
+      }
+    }
+    passThrough.removeAll(shadowed);
+    return passThrough;
+  }
+
+  /** Collects all global and per-record LET variable names. */
+  private static Set<String> declaredLetVariables(QueryPlanningInfo info) {
+    Set<String> result = new HashSet<>();
+    collectLetVariableNames(info.globalLetClause, result);
+    collectLetVariableNames(info.perRecordLetClause, result);
+    return result;
+  }
+
+  private static void collectLetVariableNames(
+      @Nullable SQLLetClause letClause, Set<String> target) {
+    if (letClause == null || letClause.getItems() == null) {
+      return;
+    }
+    for (var letItem : letClause.getItems()) {
+      var varName = letItem.getVarName();
+      if (varName != null) {
+        target.add(varName.getStringValue());
+      }
     }
   }
 
@@ -640,7 +743,7 @@ public class SelectExecutionPlanner {
    * Master optimization pass that rewrites the mutable {@link QueryPlanningInfo} in-place.
    *
    * <p>The sub-passes run in a fixed order because each may depend on the output of
-   * the previous one:
+   * the previous one.
    * <pre>
    *  1. splitLet           -- separate global vs per-record LET items
    *  2. rewriteIndexChains -- convert chained index traversals to subqueries
@@ -650,13 +753,15 @@ public class SelectExecutionPlanner {
    *  6. equalities left    -- reorder each AND block: equalities first (index-friendly)
    *  7. splitProjections   -- split into pre-aggregate / aggregate / post-aggregate
    *  8. resolveCollations  -- pin the declared collation of each ORDER BY property
-   *  9. addOrderByProjs    -- add synthetic projections for ORDER BY expressions
-   * </pre>
+   *  9. checkOrderByKeys   -- decide whether every key can read the upstream row
+   * 10. addOrderByProjs    -- add synthetic projections when projection must run first
+   * </pre>.
    *
-   * <p>After this method completes, {@code info.flattenedWhereClause} is a
-   * {@code List<SQLAndBlock>} where each block represents one OR-branch, and within
-   * each block the conditions are ordered with equalities first (which allows the
-   * index selection logic to match index prefixes greedily).
+   * <p>After this method completes, {@code info.flattenedWhereClause} becomes a
+   * {@code List<SQLAndBlock>}.
+   * Each block represents one OR-branch.
+   * Conditions appear in equality-first order.
+   * This order lets index selection match prefixes greedily.
    */
   public static void optimizeQuery(QueryPlanningInfo info, CommandContext ctx) {
     splitLet(info, ctx);
@@ -686,6 +791,8 @@ public class SelectExecutionPlanner {
 
     splitProjectionsForGroupBy(info, ctx);
     resolveOrderByCollations(info, ctx);
+    // The deferral decision must inspect the user's ORDER BY before synthetic aliases rewrite it.
+    info.deferOrderByProjections = canDeferOrderByProjections(info);
     addOrderByProjections(info);
   }
 
@@ -1039,7 +1146,9 @@ public class SelectExecutionPlanner {
    * </pre>
    */
   private static void addOrderByProjections(QueryPlanningInfo info) {
-    if (info.orderApplied
+    // Deferred ORDER BY reads the original keys directly, before projection.
+    if (info.deferOrderByProjections
+        || info.orderApplied
         || info.expand
         || info.unwind != null
         || info.orderBy == null
@@ -1115,6 +1224,9 @@ public class SelectExecutionPlanner {
           newProj.setAlias(newAlias);
           item.setAlias(newAlias.getStringValue());
           item.setModifier(null);
+          // The synthetic alias fully replaces the original expression.
+          // Keeping either field makes the comparator ignore the alias.
+          item.setRecordAttr(null);
           result.add(newProj);
         }
       }
@@ -2137,13 +2249,29 @@ public class SelectExecutionPlanner {
    *       ({@code info.orderApplied == false})</li>
    * </ul>
    *
-   * <p>The step loads all upstream records into memory and sorts them. When both SKIP
-   * and LIMIT are specified (and no EXPAND/UNWIND invalidates them), the step is told
-   * the maximum number of results needed ({@code SKIP + LIMIT}) so it can use a
-   * bounded priority queue instead of a full sort.
+   * <p>The step loads upstream records and sorts them.
+   * When LIMIT is valid, it receives SKIP and LIMIT clauses.
+   * It can then use a bounded priority queue instead of a full sort.
+   * The clauses remain AST nodes because the plan is cacheable.
+   * A parameterized bound must be read on every execution.
    *
-   * <p>Edge properties (e.g. {@code out_FriendOf}) are detected and flagged so the
-   * comparator can handle LINKBAG values correctly.
+   * <p>The invalidating-operator list is intentionally incomplete.
+   * EXPAND and UNWIND multiply rows before sorting, so they remain unbounded.
+   * DISTINCT also invalidates the bound.
+   * Its step follows projection and sorting on the DISTINCT path.
+   * Duplicate rows can fill the bounded heap.
+   * DISTINCT can then return fewer rows than LIMIT requests.
+   * For {@code a, a, b, c}, the query {@code SELECT DISTINCT name FROM Person ORDER BY name LIMIT 2}
+   * returns {@code [a]} instead of {@code [a, b]}.
+   *
+   * <p>That defect predates per-execution bound resolution.
+   * The old code computed the same {@code skipSize + limitSize} with the same exceptions.
+   * This change does not fix the defect.
+   * The list names it so readers do not mistake the list for a safety guarantee.
+   *
+   * <p>For vertex targets, an {@code out_<alias>} LINKBAG is flagged only when the target has no
+   * same-named scalar property. This preserves scalar ORDER BY semantics while allowing edge-label
+   * ordering. Non-vertex targets never use the edge-property path.
    *
    * <p>If {@code projectionAfterOrderBy} is set (i.e. synthetic ORDER BY aliases were
    * added during planning), an additional projection step strips those temporary columns.
@@ -2158,14 +2286,14 @@ public class SelectExecutionPlanner {
     if (skipSize < 0) {
       throw new CommandExecutionException(session, "Cannot execute a query with a negative SKIP");
     }
-    var limitSize = info.limit == null ? -1 : info.limit.getValue(ctx);
-    Integer maxResults = null;
-    if (limitSize >= 0) {
-      maxResults = skipSize + limitSize;
-    }
-    if (info.expand || info.unwind != null) {
-      maxResults = null;
-    }
+    // EXPAND and UNWIND multiply rows after the sort, so SKIP + LIMIT no longer bounds what
+    // the sort has to keep. Withholding the LIMIT clause keeps the step unbounded.
+    //
+    // DISTINCT belongs in this condition too and is deliberately absent: it runs after the sort
+    // and reduces rows, so a bounded heap can hand it duplicates and return fewer rows than the
+    // LIMIT. That is a pre-existing lost-row defect filed on its own, not a consequence of the
+    // bound being resolved per execution. See the method Javadoc.
+    var boundedByLimit = !info.expand && info.unwind == null;
 
     if (!info.orderApplied
         && info.orderBy != null
@@ -2179,9 +2307,13 @@ public class SelectExecutionPlanner {
               .getItems()
               .forEach(
                   item -> {
-                    var possibleEdgeProperty =
-                        targetClass.getProperty("out_" + item.getAlias());
-                    if (possibleEdgeProperty != null
+                    var alias = item.getAlias();
+                    var possibleEdgeProperty = targetClass.getProperty("out_" + alias);
+                    // A declared scalar property is the SQL ORDER BY key.
+                    // Edge-label lookup remains available only for vertices without that property.
+                    if (targetClass.isVertexType()
+                        && targetClass.getProperty(alias) == null
+                        && possibleEdgeProperty != null
                         && possibleEdgeProperty.getType() == PropertyType.LINKBAG) {
                       item.setEdge(true);
                     }
@@ -2191,7 +2323,8 @@ public class SelectExecutionPlanner {
       plan.chain(
           new OrderByStep(
               info.orderBy,
-              maxResults,
+              boundedByLimit ? info.skip : null,
+              boundedByLimit ? info.limit : null,
               info.primaryKeySortedInput,
               info.indexOrderedUpstream,
               ctx,

@@ -500,14 +500,19 @@ public class LdbcQueryExplainTest {
       createEdge(ytg, "IS_LOCATED_IN", "Company", 1001, "Place", 201); // India
 
       // ---- WORK_AT edges (for IC11) ----
-      ytg.yql(
-          "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
-              + " TO (SELECT FROM Company WHERE id = :to) SET workFrom = :wf",
-          "from", 2L, "to", 1000L, "wf", 2008).iterate();
-      ytg.yql(
-          "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
-              + " TO (SELECT FROM Company WHERE id = :to) SET workFrom = :wf",
-          "from", 3L, "to", 1001L, "wf", 2012).iterate();
+      // IndexOrdered's FILTERED plan-time gate prices the scan with linkBag =
+      // indexSize and refuses when that size is below
+      // QUERY_INDEX_ORDERED_MIN_LINKBAG (default 10). Seed enough edges so the
+      // fixture can select INDEX ORDERED MATCHE rather than falling back to
+      // in-memory ORDER BY.
+      for (var year = 2000; year < 2020; year++) {
+        var companyId = (year % 2 == 0) ? 1000L : 1001L;
+        var personId = (year % 2 == 0) ? 2L : 3L;
+        ytg.yql(
+            "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
+                + " TO (SELECT FROM Company WHERE id = :to) SET workFrom = :wf",
+            "from", personId, "to", companyId, "wf", year).iterate();
+      }
 
       // ---- LIKES ----
       ytg.yql(

@@ -202,10 +202,10 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * The same hop under a bound of three, which cuts inside the single four-row tie group. The shape
-   * declines, because a real slice behind a captured {@code ORDER BY} does, so the prefix assertion
-   * rather than the two-arm comparison carries the claim: which three targets survive is decided by
-   * the appended key, and they must be the first three of the record identifier order.
+   * The same hop under a bound of three, which cuts inside the single four-row tie group. Ordered
+   * slice translation keeps the shape recognised; the prefix assertion rather than a decline carries
+   * the claim: which three targets survive is decided by the appended key, and they must be the
+   * first three of the record identifier order.
    */
   @Test
   public void duplicateIdPropertyAfterAHopWithALimit_keepsTheOrderedPrefix() {
@@ -213,7 +213,7 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
 
     assertEquivalentOrdered(
         "g.V().out(knows).order().by(id).limit(3).values(tag)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("knows").order().by("id").limit(3).values("tag"));
 
     var oracle = hopTargetTagsInRecordIdOrder();

@@ -4,7 +4,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 
 /**
- * Immutable bundle of the seven boundary row-projection shaping flags plus the ordered list-shaping
+ * Immutable bundle of the boundary row-projection shaping flags plus the ordered list-shaping
  * post-process a Gremlin terminator pins on the walk. Each terminator ({@code count}, {@code
  * values}, {@code valueMap}, {@code select}, {@code group}, …) builds one instance from {@link
  * #NONE} plus the overrides its shape needs, and {@link AbstractMatchPlanStep} reads it when
@@ -20,7 +20,19 @@ import javax.annotation.Nonnull;
  * @param dropOnAbsent skip rows where a presence-checked property is absent on the entity (distinct
  *     from present-with-null)
  * @param presencePropertyKeys property keys checked with {@code EntityImpl.hasProperty} when
- *     projecting {@code values} / {@code valueMap} / {@code elementMap}; empty when unused
+ *     projecting {@code values} / {@code valueMap} / {@code elementMap} against the boundary entity;
+ *     empty when unused
+ * @param aliasPropertyPresences multi-alias presence / emit for {@code select(…).by(key)}; each
+ *     names an entity RETURN column, a property key, and the map emit key (select label); empty when
+ *     unused
+ * @param mapEmitColumnOrder column names to put into the emitted map in order; empty means
+ *     iterate {@code Result} property names (HashMap order). Multi-label {@code select} sets this so
+ *     map key order matches native Gremlin even when presence entity columns scramble Result keys.
+ *     {@code valueMap} / {@code elementMap} set it to token aliases then property keys so presence
+ *     keys emit even when they are not RETURN columns (values are read from the boundary entity)
+ * @param recordIdMapKeys map emit keys that must stay a {@code RID} rather than wrap as a vertex —
+ *     {@code select(label).by(T.id)} columns, beside {@code elementMap}'s {@code id} under
+ *     {@code T.id}
  * @param wrapMapValuesInLists wrap {@code valueMap} property values in singleton lists (native
  *     TinkerPop {@code valueMap} shape; {@code elementMap} leaves them unwrapped)
  * @param accumulateMap drain every GROUP BY row into one accumulated map and emit a single
@@ -38,6 +50,9 @@ public record ResultShaping(
     boolean dropNullRows,
     boolean dropOnAbsent,
     @Nonnull List<String> presencePropertyKeys,
+    @Nonnull List<AliasPropertyPresence> aliasPropertyPresences,
+    @Nonnull List<String> mapEmitColumnOrder,
+    @Nonnull List<String> recordIdMapKeys,
     boolean wrapMapValuesInLists,
     boolean accumulateMap,
     boolean unwrapSingletonMap,
@@ -49,54 +64,201 @@ public record ResultShaping(
    * Terminators layer their overrides on this through the {@code withX} methods.
    */
   public static final ResultShaping NONE =
-      new ResultShaping(false, false, List.of(), false, false, false, false, List.of());
+      new ResultShaping(
+          false,
+          false,
+          List.of(),
+          List.of(),
+          List.of(),
+          List.of(),
+          false,
+          false,
+          false,
+          false,
+          List.of());
+
+  /**
+   * RETURN column name for an entity loaded only for {@link AliasPropertyPresence} checks. Must not
+   * collide with user {@code as} / {@code select} labels; stripped from the emitted map.
+   */
+  public static String presenceEntityColumnAlias(@Nonnull String internalAlias) {
+    return "$g2m_pe_" + internalAlias;
+  }
 
   /** Copies the list components defensively so the record stays immutable. */
   public ResultShaping {
     presencePropertyKeys = List.copyOf(presencePropertyKeys);
+    aliasPropertyPresences = List.copyOf(aliasPropertyPresences);
+    mapEmitColumnOrder = List.copyOf(mapEmitColumnOrder);
+    recordIdMapKeys = List.copyOf(recordIdMapKeys);
     listShapingOps = List.copyOf(listShapingOps);
   }
 
   /** This shaping with {@code dropNullRows} set to {@code value}. */
   public ResultShaping withDropNullRows(boolean value) {
-    return new ResultShaping(value, dropOnAbsent, presencePropertyKeys, wrapMapValuesInLists,
-        accumulateMap, unwrapSingletonMap, elementMapTokens, listShapingOps);
+    return new ResultShaping(
+        value,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
   }
 
   /** This shaping with {@code dropOnAbsent} set to {@code value}. */
   public ResultShaping withDropOnAbsent(boolean value) {
-    return new ResultShaping(dropNullRows, value, presencePropertyKeys, wrapMapValuesInLists,
-        accumulateMap, unwrapSingletonMap, elementMapTokens, listShapingOps);
+    return new ResultShaping(
+        dropNullRows,
+        value,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
   }
 
   /** This shaping with {@code presencePropertyKeys} replaced by {@code keys}. */
   public ResultShaping withPresencePropertyKeys(@Nonnull List<String> keys) {
-    return new ResultShaping(dropNullRows, dropOnAbsent, keys, wrapMapValuesInLists,
-        accumulateMap, unwrapSingletonMap, elementMapTokens, listShapingOps);
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        keys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
+  }
+
+  /** This shaping with {@code aliasPropertyPresences} replaced by {@code presences}. */
+  public ResultShaping withAliasPropertyPresences(
+      @Nonnull List<AliasPropertyPresence> presences) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        presences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
+  }
+
+  /**
+   * This shaping with {@code mapEmitColumnOrder} replaced by {@code columns} — select-label order
+   * for multi-entry maps.
+   */
+  public ResultShaping withMapEmitColumnOrder(@Nonnull List<String> columns) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        columns,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
+  }
+
+  /**
+   * This shaping with {@code recordIdMapKeys} replaced by {@code keys} — emit columns that must
+   * stay a RID rather than wrap as a vertex.
+   */
+  public ResultShaping withRecordIdMapKeys(@Nonnull List<String> keys) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        keys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
   }
 
   /** This shaping with {@code wrapMapValuesInLists} set to {@code value}. */
   public ResultShaping withWrapMapValuesInLists(boolean value) {
-    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys, value,
-        accumulateMap, unwrapSingletonMap, elementMapTokens, listShapingOps);
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        value,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
   }
 
   /** This shaping with {@code accumulateMap} set to {@code value}. */
   public ResultShaping withAccumulateMap(boolean value) {
-    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys, wrapMapValuesInLists,
-        value, unwrapSingletonMap, elementMapTokens, listShapingOps);
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        value,
+        unwrapSingletonMap,
+        elementMapTokens,
+        listShapingOps);
   }
 
   /** This shaping with {@code unwrapSingletonMap} set to {@code value}. */
   public ResultShaping withUnwrapSingletonMap(boolean value) {
-    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys, wrapMapValuesInLists,
-        accumulateMap, value, elementMapTokens, listShapingOps);
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        value,
+        elementMapTokens,
+        listShapingOps);
   }
 
   /** This shaping with {@code elementMapTokens} set to {@code value}. */
   public ResultShaping withElementMapTokens(boolean value) {
-    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys, wrapMapValuesInLists,
-        accumulateMap, unwrapSingletonMap, value, listShapingOps);
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        value,
+        listShapingOps);
   }
 
   /**
@@ -104,7 +266,17 @@ public record ResultShaping(
    * payload stream in the given order. An empty list restores the structural bypass.
    */
   public ResultShaping withListShapingOps(@Nonnull List<ListShapingOp> ops) {
-    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys, wrapMapValuesInLists,
-        accumulateMap, unwrapSingletonMap, elementMapTokens, ops);
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        ops);
   }
 }

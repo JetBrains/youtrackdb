@@ -19,10 +19,11 @@ import javax.annotation.Nullable;
  * Mutable container for all the state accumulated during query planning inside
  * {@link SelectExecutionPlanner}.
  *
- * <p>An instance is created at the start of planning ({@code init()}) by shallow-copying
- * the relevant clauses from the parsed {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement}.
- * Subsequent optimization passes mutate these fields in-place (rewriting, splitting,
- * nullifying) without touching the original AST.
+ * <p>Planning starts by calling {@code init()}.
+ * The method shallow-copies clauses from the parsed
+ * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement}.
+ * Subsequent optimization passes mutate these fields in-place.
+ * They rewrite, split, or nullify fields without touching the original AST.
  *
  * <h2>Field lifecycle during planning</h2>
  * <pre>
@@ -33,6 +34,7 @@ import javax.annotation.Nullable;
  *  extractSubQs()   | whereClause, projection, orderBy (subqueries extracted)
  *  flatten WHERE    | flattenedWhereClause populated
  *  splitProjections | preAggregateProjection, aggregateProjection, projection
+ *  ORDER BY guard   | deferOrderByProjections
  *  addOrderByProjs  | projectionAfterOrderBy, projection (ORDER BY aliases added)
  *  handleFetch*     | whereClause/flattenedWhereClause set to null when consumed
  *                   |   by index; orderApplied set to true when index sorts
@@ -203,6 +205,12 @@ public class QueryPlanningInfo {
   protected boolean projectionsCalculated = false;
 
   /**
+   * Set when every ORDER BY key is readable before projection and no row-shaping operation
+   * requires projection first.
+   */
+  protected boolean deferOrderByProjections;
+
+  /**
    * RID range conditions extracted from the WHERE clause (e.g. {@code @rid > #10:5}).
    * Used to narrow the collection scan range in
    * {@link FetchFromClassExecutionStep}.
@@ -241,6 +249,7 @@ public class QueryPlanningInfo {
     result.limit = this.limit;
     result.orderApplied = this.orderApplied;
     result.projectionsCalculated = this.projectionsCalculated;
+    result.deferOrderByProjections = this.deferOrderByProjections;
     result.ridRangeConditions = this.ridRangeConditions;
 
     return result;

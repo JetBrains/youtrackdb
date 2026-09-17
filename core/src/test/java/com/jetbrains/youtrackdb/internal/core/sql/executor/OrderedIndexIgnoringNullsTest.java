@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.ArrayList;
@@ -243,4 +244,72 @@ public class OrderedIndexIgnoringNullsTest extends DbTestBase {
     assertThat(names(query, "name")).containsExactly("Nemo", "Ann");
   }
 
+  /**
+   * BG503 — an empty indexed collection produces no index entry ({@code ClassIndexManager}
+   * iterates list keys and stores nothing for {@code []}). A filtering lookup on that index
+   * therefore omits the empty-list record.
+   *
+   * <p>ORDER BY must not walk a multi-value index for the sort (YTDB-1289): that shortcut is
+   * not total over the class, so the planner sorts in memory and keeps {@code Empty}.
+   */
+  @Test
+  public void emptyIndexedCollectionIsInvisibleToFilteringIndexLookup() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    session.execute("CREATE INDEX Person.tags ON Person (tags) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX Person SET name = 'Ann', tags = ['a']").close();
+    session.execute("CREATE VERTEX Person SET name = 'Empty', tags = []").close();
+    session.execute("CREATE VERTEX Person SET name = 'Bea', tags = ['b']").close();
+    session.commit();
+
+    var orderQuery = "SELECT name FROM Person ORDER BY tags";
+    assertThat(plan(orderQuery))
+        .as("a multi-value index must not satisfy ORDER BY (YTDB-1289)")
+        .doesNotContain("FETCH FROM INDEX");
+    assertThat(names(orderQuery, "name"))
+        .as("in-memory ORDER BY sees every class record, including the empty list")
+        .contains("Ann", "Bea", "Empty");
+
+    var filterQuery = "SELECT name FROM Person WHERE tags CONTAINS 'a'";
+    assertThat(plan(filterQuery))
+        .as("a filtering lookup may still use the list index")
+        .contains("FETCH FROM INDEX");
+    assertThat(names(filterQuery, "name"))
+        .as("the empty-list record has no index entry, so a key lookup omits it")
+        .containsExactly("Ann")
+        .doesNotContain("Empty");
+  }
+
+  /**
+   * BG502 — a UNIQUE index admits only one record that lacks the indexed property. The first
+   * missing-property insert stores under the null key; a second raises
+   * {@link RecordDuplicatedException}. Pin only: do not change the write path here.
+   */
+  @Test
+  public void secondMissingPropertyInsertAgainstUniqueIndexThrowsDuplicate() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("id", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
+    session.execute("CREATE INDEX Person.id ON Person (id) UNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX Person SET name = 'First'").close();
+    session.commit();
+
+    session.begin();
+    try {
+      session.execute("CREATE VERTEX Person SET name = 'Second'").close();
+      session.commit();
+      throw new AssertionError(
+          "expected RecordDuplicatedException on the second missing-property insert");
+    } catch (RecordDuplicatedException expected) {
+      session.rollback();
+      assertThat(expected.getMessage())
+          .as("the duplicate is the null-key slot of the unique index")
+          .isNotBlank();
+    }
+  }
 }

@@ -134,15 +134,45 @@ final class GremlinPredicateAdapter {
    * has no schema input, so the gate is passed in per call. Callers with no schema context (unit
    * tests, a generic {@code V} boundary whose leaf class is unknown) pass {@link #NO_TYPE_INFO},
    * which reports every key as not-a-declared-String, so {@code startingWith} routes to strict.
+   *
+   * <p>{@link #declaredTypeIn} additionally answers whether a declared property's schema type sits
+   * in a Gremlin comparability block. When that is true for an order comparison, the adapter skips
+   * the per-row {@code key.type() IN [...]} guard — the schema already guarantees the same answer.
    */
   @FunctionalInterface
   interface PropertyTypeGate {
     boolean isDeclaredString(String key);
+
+    /**
+     * Whether {@code key} is a declared property whose schema type name is in {@code typeNames}.
+     * Default {@code false} — unknown schema keeps the runtime type guard.
+     */
+    default boolean declaredTypeIn(String key, List<String> typeNames) {
+      return false;
+    }
   }
 
   /** Type gate for callers with no schema context: reports no key as a declared String, so a
    *  {@code startingWith} routes to the strict full-scan form (the value type is unknown). */
   static final PropertyTypeGate NO_TYPE_INFO = key -> false;
+
+  /**
+   * Schema-backed gate for a known element class: {@link #isDeclaredString} for {@code startingWith}
+   * routing, {@link #declaredTypeIn} for dropping order-comparison type guards.
+   */
+  static PropertyTypeGate schemaGate(RecognitionContext ctx, @Nullable String className) {
+    return new PropertyTypeGate() {
+      @Override
+      public boolean isDeclaredString(String key) {
+        return ctx.isDeclaredStringProperty(className, key);
+      }
+
+      @Override
+      public boolean declaredTypeIn(String key, List<String> typeNames) {
+        return ctx.isDeclaredPropertyTypeIn(className, key, typeNames);
+      }
+    };
+  }
 
   /**
    * Resolves a user-facing Gremlin {@code as(...)} label to the pattern alias the walker minted for
@@ -430,7 +460,10 @@ final class GremlinPredicateAdapter {
       List<String> sharedBlock,
       Translation translation) {
     var operands = new ArrayList<SQLBooleanExpression>(children.size() + 1);
-    operands.add(WHERE.typeIn(key, sharedBlock));
+    // Schema already pins the property to this block — one type() IN would only restate that.
+    if (!translation.typeGate().declaredTypeIn(key, sharedBlock)) {
+      operands.add(WHERE.typeIn(key, sharedBlock));
+    }
     var unguarded = translation.withoutRangeGuard();
     for (var child : children) {
       var expr = translate(key, child, unguarded);
@@ -496,12 +529,17 @@ final class GremlinPredicateAdapter {
       return null;
     }
     // Resolve the comparability block before binding the literal, so a shape that must decline does
-    // not first push a positional parameter into the sink.
-    var guardTypeNames =
-        isOrderComparison(compare) && translation.rangeTypeGuard() ? comparabilityBlock(value)
-            : null;
-    if (isOrderComparison(compare) && translation.rangeTypeGuard() && guardTypeNames == null) {
-      return null;
+    // not first push a positional parameter into the sink. A declared property whose schema type
+    // already sits in that block needs no per-row type() guard — drop it at compile time.
+    List<String> guardTypeNames = null;
+    if (isOrderComparison(compare) && translation.rangeTypeGuard()) {
+      guardTypeNames = comparabilityBlock(value);
+      if (guardTypeNames == null) {
+        return null;
+      }
+      if (translation.typeGate().declaredTypeIn(key, guardTypeNames)) {
+        guardTypeNames = null;
+      }
     }
     if (!translation.emitAst()) {
       translation.paramSink().bindParam(value);
