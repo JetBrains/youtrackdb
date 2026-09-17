@@ -1226,13 +1226,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT name FROM Class ORDER BY tags[0] ASC LIMIT 2} where {@code tags} is a stored
-   * collection the projection does not rename. The key is readable upstream, yet a bracket
-   * modifier is not a plain property read, so the planner materialises it once per row instead
-   * of evaluating it on both sides of every comparison.
+   * {@code SELECT name FROM Class ORDER BY tags[0] ASC LIMIT 2} uses a stored collection.
+   * The projection does not rename the collection.
+   * The bracket modifier requires projection-time evaluation.
+   * The planner materialises the key once per row.
    *
-   * <p>Expected outcome: projections precede ORDER BY in the plan, and the rows come back in
-   * first-tag order.
+   * <p>Expected outcome: projections precede ORDER BY and rows follow first-tag order.
    */
   @Test
   public void orderByCollectionIndexOnUnshadowedName_projectsBeforeSort() {

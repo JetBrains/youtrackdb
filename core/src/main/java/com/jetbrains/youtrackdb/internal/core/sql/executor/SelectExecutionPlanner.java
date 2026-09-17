@@ -124,11 +124,11 @@ import javax.annotation.Nullable;
  *      SKIP, LIMIT, DISTINCT)   |
  *  10. Timeout                  | AccumulatingTimeoutStep
  *  11. Cache plan (optional)    | YqlExecutionPlanCache.put()
- * </pre>
+ * </pre>.
  *
  * <h2>Projection splitting for aggregation</h2>
- * When the SELECT list contains aggregate functions (e.g. {@code count(*), max(price)}),
- * the planner splits projections into three phases to support GROUP BY correctly:
+ * Aggregate functions in the SELECT list trigger projection splitting.
+ * For example, the planner splits {@code count(*)} and {@code max(price)} into three phases.
  * <pre>
  *   SELECT city, count(*), max(price) FROM Product GROUP BY city
  *
@@ -138,10 +138,10 @@ import javax.annotation.Nullable;
  *
  *   Pipeline:
  *   FetchFromClass -&gt; ProjectionCalc(pre) -&gt; AggregateProjectionCalc -&gt; ProjectionCalc(post)
- * </pre>
+ * </pre>.
  *
- * <h2>Index selection strategy</h2>
- * For class-targeted queries with a WHERE clause the planner attempts, in order:
+ * <h2>Index selection strategy.</h2>
+ * For class-targeted queries with a WHERE clause, the planner attempts these strategies in order.
  * <ol>
  *   <li>Indexed function execution (e.g. spatial / full-text custom functions)</li>
  *   <li>Best-fit B-tree / hash index lookup via {@link #findBestIndexFor}</li>
@@ -743,7 +743,7 @@ public class SelectExecutionPlanner {
    * Master optimization pass that rewrites the mutable {@link QueryPlanningInfo} in-place.
    *
    * <p>The sub-passes run in a fixed order because each may depend on the output of
-   * the previous one:
+   * the previous one.
    * <pre>
    *  1. splitLet           -- separate global vs per-record LET items
    *  2. rewriteIndexChains -- convert chained index traversals to subqueries
@@ -755,12 +755,13 @@ public class SelectExecutionPlanner {
    *  8. resolveCollations  -- pin the declared collation of each ORDER BY property
    *  9. checkOrderByKeys   -- decide whether every key can read the upstream row
    * 10. addOrderByProjs    -- add synthetic projections when projection must run first
-   * </pre>
+   * </pre>.
    *
    * <p>After this method completes, {@code info.flattenedWhereClause} is a
-   * {@code List<SQLAndBlock>} where each block represents one OR-branch, and within
-   * each block the conditions are ordered with equalities first (which allows the
-   * index selection logic to match index prefixes greedily).
+   * {@code List<SQLAndBlock>}.
+   * Each block represents one OR-branch.
+   * Conditions appear in equality-first order.
+   * This order lets index selection match prefixes greedily.
    */
   public static void optimizeQuery(QueryPlanningInfo info, CommandContext ctx) {
     splitLet(info, ctx);
@@ -2248,25 +2249,25 @@ public class SelectExecutionPlanner {
    *       ({@code info.orderApplied == false})</li>
    * </ul>
    *
-   * <p>The step loads all upstream records into memory and sorts them. When LIMIT is
-   * specified (and no EXPAND/UNWIND invalidates it), the step receives the SKIP and LIMIT
-   * CLAUSES so it can use a bounded priority queue instead of a full sort. The clauses go
-   * over as AST nodes rather than as a resolved number, because the plan is cacheable and a
-   * parameterized bound must be read on every execution.
+   * <p>The step loads upstream records and sorts them.
+   * When LIMIT is valid, it receives SKIP and LIMIT clauses.
+   * It can then use a bounded priority queue instead of a full sort.
+   * The clauses remain AST nodes because the plan is cacheable.
+   * A parameterized bound must be read on every execution.
    *
-   * <p>THE LIST OF INVALIDATING OPERATORS IS INCOMPLETE, and knowingly so. EXPAND and UNWIND
-   * multiply rows after the sort and are withheld from below. DISTINCT REDUCES them after the
-   * sort and is NOT, although it invalidates the bound the same way: on the DISTINCT path
-   * {@code handleProjectionsBlock} chains this step before the projection and the distinct step,
-   * so a bounded heap of {@code SKIP + LIMIT} rows can be filled with duplicates that the
-   * distinct step then collapses, returning fewer rows than the LIMIT asked for. With names
-   * {@code a, a, b, c}, {@code SELECT DISTINCT name FROM Person ORDER BY name LIMIT 2} yields
-   * {@code [a]} where {@code [a, b]} is correct.
+   * <p>The invalidating-operator list is intentionally incomplete.
+   * EXPAND and UNWIND multiply rows after sorting, so they remain unbounded.
+   * DISTINCT also invalidates the bound.
+   * Its step follows projection and sorting on the DISTINCT path.
+   * Duplicate rows can fill the bounded heap.
+   * DISTINCT can then return fewer rows than LIMIT requests.
+   * For {@code a, a, b, c}, the query {@code SELECT DISTINCT name FROM Person ORDER BY name LIMIT 2}
+   * returns {@code [a]} instead of {@code [a, b]}.
    *
-   * <p>That defect PREDATES the per-execution bound resolution recorded here: the old code
-   * computed the same {@code skipSize + limitSize} with the same two exceptions. It is filed
-   * separately rather than fixed here, and it is named in this list so the enumeration stops
-   * reading as a safety claim it does not make.
+   * <p>That defect predates per-execution bound resolution.
+   * The old code computed the same {@code skipSize + limitSize} with the same exceptions.
+   * This change does not fix the defect.
+   * The list names it so readers do not mistake the list for a safety guarantee.
    *
    * <p>For vertex targets, an {@code out_<alias>} LINKBAG is flagged only when the target has no
    * same-named scalar property. This preserves scalar ORDER BY semantics while allowing edge-label

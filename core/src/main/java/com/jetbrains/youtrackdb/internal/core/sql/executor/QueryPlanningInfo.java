@@ -19,10 +19,11 @@ import javax.annotation.Nullable;
  * Mutable container for all the state accumulated during query planning inside
  * {@link SelectExecutionPlanner}.
  *
- * <p>An instance is created at the start of planning ({@code init()}) by shallow-copying
- * the relevant clauses from the parsed {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement}.
- * Subsequent optimization passes mutate these fields in-place (rewriting, splitting,
- * nullifying) without touching the original AST.
+ * <p>Planning starts by calling {@code init()}.
+ * The method shallow-copies clauses from the parsed
+ * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement}.
+ * Subsequent optimization passes mutate these fields in-place.
+ * They rewrite, split, or nullify fields without touching the original AST.
  *
  * <h2>Field lifecycle during planning</h2>
  * <pre>
