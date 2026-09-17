@@ -1840,16 +1840,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           });
         });
       } catch (Exception e) {
-        // Log and continue with the next page. A failure on one page should not
-        // prevent GC from processing other pages. The atomic operation is rolled
-        // back by executeInsideAtomicOperation before the exception propagates.
+        // Continue only when the atomic body discovered a real dirty page. Startup failures
+        // leave the sentinel at -1 and terminate this collection attempt. Advancing from
+        // searchFrom in that case would invent page indexes and retry until integer overflow.
+        final var failedPage = result[0];
         LogManager.instance().error(
             this,
             "Error during records GC on collection '%s' in storage '%s'"
-                + " at page %d, skipping page",
-            e, getName(), storageName, searchFrom);
-        // Skip past the failing page to avoid an infinite retry loop.
-        result[0] = searchFrom;
+                + (failedPage >= 0 ? " at page %d, skipping page" : " before page discovery"),
+            e, getName(), storageName, failedPage);
       }
 
       pageIndex = result[0];

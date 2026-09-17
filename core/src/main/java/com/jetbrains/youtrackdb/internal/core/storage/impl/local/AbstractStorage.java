@@ -8672,6 +8672,14 @@ public abstract class AbstractStorage
         return;
       }
 
+      // Snapshot cleanup creates collection-GC work, and reclamation starts write atomic
+      // operations. Defer both while either operator freeze mode is already active. A throw-mode
+      // freeze racing after this probe uses the bounded collection startup-failure path. A racing
+      // park-mode freeze can still wait for release, which remains outside this change.
+      if (atomicOperationsManager.isOperatorFreezeActive()) {
+        return;
+      }
+
       // Step 1: Opportunistically clean snapshot/visibility indexes.
       try {
         cleanupSnapshotIndex();
