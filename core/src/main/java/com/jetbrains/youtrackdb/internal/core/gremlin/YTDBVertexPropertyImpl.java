@@ -27,8 +27,7 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
       String key,
       @Nullable V value,
       @Nullable PropertyType propertyType,
-      YTDBVertex vertex
-  ) {
+      YTDBVertex vertex) {
     super(key, value, propertyType, (YTDBElementImpl) vertex);
   }
 
@@ -77,8 +76,7 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
                 entry.getKey(),
                 (U) entry.getValue(),
                 metadataEntity.getPropertyType(entry.getKey()),
-                this
-            ));
+                this));
     return propertyStream.iterator();
   }
 
@@ -107,6 +105,7 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
   }
 
   public void removeMetadata(String key) {
+    element.getGraph().tx().readWrite();
     var metadata = getMetadataEntity();
     metadata.removeProperty(key);
 

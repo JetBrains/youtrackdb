@@ -282,8 +282,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     var tx = tx();
 
     // When the transaction is open, use the cached parse path (statement cache +
-    // originalStatement set for execution plan cache). When no transaction is active
-    // (only possible for BEGIN), fall back to uncached parse.
+    // originalStatement set for execution plan cache). Without one, fall back to uncached parse.
     var statement = tx.isOpen()
         ? SQLEngine.parse(sqlCommand, tx.getDatabaseSession())
         : parseSqlUncached(sqlCommand);
@@ -292,6 +291,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       if (!tx.isOpen()) {
         tx.readWrite();
       }
+      tx.markTransactionControlBegin();
       return SqlCommandExecutionResult.unit();
     }
 
@@ -313,18 +313,24 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       return SqlCommandExecutionResult.unit();
     }
 
+    if (DatabaseSessionEmbedded.isSchemaDdl(statement) && tx.hasCallerTransaction()) {
+      var session = tx.getDatabaseSession();
+      try (var ignored = session.execute(statement, params)) {
+        // Schema execution can perform internal queries after the normal pre-execution cache hook.
+        // Clear those entries before another caller query can observe stale schema-dependent data.
+        session.invalidateCacheForBulkDml(statement);
+        return SqlCommandExecutionResult.unit();
+      }
+    }
+
     // Sequence DDL statements (ALTER SEQUENCE, DROP SEQUENCE) read sequence metadata internally,
     // which requires an active transaction. Route them through the regular tx-aware path (like
     // non-DDL statements) instead of the no-tx schema session used by other DDL.
     if (statement instanceof DDLStatement
         && !(statement instanceof SQLAlterSequenceStatement)
         && !(statement instanceof SQLDropSequenceStatement)) {
-      // The traversal strategy evaluation (isPolymorphic) may have auto-opened
-      // the Gremlin transaction via readWrite(), taking a snapshot BEFORE the
-      // DDL runs. Commit it first so any pending work from prior g.command()
-      // calls (e.g., CREATE SEQUENCE) is persisted. After the DDL runs on its
-      // own schema session, the closed transaction forces the next operation to
-      // start a fresh transaction with a snapshot that sees the DDL's changes.
+      // Provider strategies may have auto-opened a transaction only to inspect session settings.
+      // Preserve legacy standalone DDL by closing that transaction before the schema session runs.
       if (tx.isOpen()) {
         tx.commit();
       }
@@ -334,6 +340,11 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       return SqlCommandExecutionResult.unit();
     }
 
+    // Non-DDL commands and transaction-dependent sequence operations are real caller work.
+    // Promote a strategy-opened inspection transaction without changing closed-call behavior.
+    if (tx.isOpen()) {
+      tx.readWrite();
+    }
     var session = tx.getDatabaseSession();
     var resultSet = session.execute(statement, params);
     var schema = session.getMetadata().getImmutableSchemaSnapshot();

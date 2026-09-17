@@ -30,6 +30,9 @@ public final class YTDBTransaction extends AbstractTransaction {
       new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
   private DatabaseSessionEmbedded activeSession;
+  private TransactionRole transactionRole;
+  private boolean strategyInspection;
+  private int helperScopeDepth;
 
   // Query monitoring
   private QueryMonitoringMode queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
@@ -46,11 +49,21 @@ public final class YTDBTransaction extends AbstractTransaction {
       FailableConsumer<YTDBGraphTraversalSource, X> code, YTDBGraphTraversalSource g) throws X {
     var ok = false;
     var tx = g.tx();
+    var ytdbTx = tx instanceof YTDBTransaction localTx ? localTx : null;
+    if (ytdbTx != null) {
+      ytdbTx.enterHelperScope();
+    }
     try {
       code.accept(tx.begin(YTDBGraphTraversalSource.class));
       ok = true;
     } finally {
-      finishTx(ok, tx);
+      try {
+        finishTx(ok, tx);
+      } finally {
+        if (ytdbTx != null) {
+          ytdbTx.exitHelperScope();
+        }
+      }
     }
   }
 
@@ -59,12 +72,22 @@ public final class YTDBTransaction extends AbstractTransaction {
       YTDBGraphTraversalSource g) throws X {
     var ok = false;
     var tx = g.tx();
+    var ytdbTx = tx instanceof YTDBTransaction localTx ? localTx : null;
+    if (ytdbTx != null) {
+      ytdbTx.enterHelperScope();
+    }
     try {
       var traversal = code.apply(tx.begin(YTDBGraphTraversalSource.class));
       traversal.iterate();
       ok = true;
     } finally {
-      finishTx(ok, tx);
+      try {
+        finishTx(ok, tx);
+      } finally {
+        if (ytdbTx != null) {
+          ytdbTx.exitHelperScope();
+        }
+      }
     }
   }
 
@@ -73,11 +96,21 @@ public final class YTDBTransaction extends AbstractTransaction {
     var ok = false;
     R result;
     var tx = g.tx();
+    var ytdbTx = tx instanceof YTDBTransaction localTx ? localTx : null;
+    if (ytdbTx != null) {
+      ytdbTx.enterHelperScope();
+    }
     try {
       result = code.apply(tx.begin(YTDBGraphTraversalSource.class));
       ok = true;
     } finally {
-      finishTx(ok, tx);
+      try {
+        finishTx(ok, tx);
+      } finally {
+        if (ytdbTx != null) {
+          ytdbTx.exitHelperScope();
+        }
+      }
     }
     return result;
   }
@@ -98,6 +131,41 @@ public final class YTDBTransaction extends AbstractTransaction {
         }
       }
     }
+  }
+
+  /** Opens a transaction without making strategy inspection a caller operation. */
+  public void readWriteForTraversalStrategy() {
+    if (isOpen()) {
+      return;
+    }
+    strategyInspection = true;
+    try {
+      readWrite();
+    } finally {
+      strategyInspection = false;
+    }
+  }
+
+  /** Returns whether real caller work has claimed the active transaction. */
+  public boolean hasCallerTransaction() {
+    return isOpen() && transactionRole == TransactionRole.CALLER_ACTIVE;
+  }
+
+  public void markTransactionControlBegin() {
+    if (isOpen()) {
+      transactionRole = TransactionRole.CALLER_ACTIVE;
+    }
+  }
+
+  private void enterHelperScope() {
+    helperScopeDepth++;
+    if (isOpen()) {
+      transactionRole = TransactionRole.CALLER_ACTIVE;
+    }
+  }
+
+  private void exitHelperScope() {
+    helperScopeDepth--;
   }
 
   @Override
@@ -148,6 +216,9 @@ public final class YTDBTransaction extends AbstractTransaction {
   @Override
   protected void doReadWrite() {
     readWriteConsumerInternal.accept(this);
+    if (!strategyInspection && isOpen()) {
+      transactionRole = TransactionRole.CALLER_ACTIVE;
+    }
   }
 
   @Override
@@ -156,10 +227,14 @@ public final class YTDBTransaction extends AbstractTransaction {
     try {
       activeSession = graph.getUnderlyingDatabaseSession();
       activeSession.begin();
+      transactionRole = strategyInspection && helperScopeDepth == 0
+          ? TransactionRole.INSPECTION_ONLY
+          : TransactionRole.CALLER_ACTIVE;
       ok = true;
     } finally {
       if (!ok) {
         activeSession = null;
+        transactionRole = null;
       }
     }
   }
@@ -178,6 +253,7 @@ public final class YTDBTransaction extends AbstractTransaction {
         }
       } finally {
         activeSession = null;
+        transactionRole = null;
       }
     }
   }
@@ -189,6 +265,7 @@ public final class YTDBTransaction extends AbstractTransaction {
         activeSession.rollback();
       } finally {
         activeSession = null;
+        transactionRole = null;
       }
     }
   }
@@ -279,5 +356,9 @@ public final class YTDBTransaction extends AbstractTransaction {
   public boolean isTransactionMetricsEnabled() {
     return transactionMetricsListener != null
         && transactionMetricsListener != TransactionMetricsListener.NO_OP;
+  }
+
+  private enum TransactionRole {
+    INSPECTION_ONLY, CALLER_ACTIVE
   }
 }

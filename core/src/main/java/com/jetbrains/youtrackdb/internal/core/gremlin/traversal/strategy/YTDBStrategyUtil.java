@@ -41,7 +41,7 @@ public final class YTDBStrategyUtil {
   /// Walks parent links to the outermost traversal. A root traversal reports [EmptyStep] as its
   /// parent, which ends the walk. The step count bound is a cycle guard: a malformed parent chain
   /// then yields the deepest traversal reached rather than hanging the compilation.
-  private static Admin<?, ?> rootTraversal(Admin<?, ?> traversal) {
+  public static Admin<?, ?> rootTraversal(Admin<?, ?> traversal) {
     var current = traversal;
     for (var guard = 0; guard < MAX_PARENT_DEPTH; guard++) {
       final var parent = current.getParent();
@@ -78,7 +78,7 @@ public final class YTDBStrategyUtil {
     if (!(graph.tx() instanceof YTDBTransaction tx)) {
       return null;
     }
-    tx.readWrite();
+    tx.readWriteForTraversalStrategy();
     return tx.getDatabaseSession();
   }
 
