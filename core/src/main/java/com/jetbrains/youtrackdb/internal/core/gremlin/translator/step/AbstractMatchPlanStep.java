@@ -871,14 +871,15 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     var aliasPresence = aliasPresenceByMapKey.get(name);
     if (aliasPresence != null) {
       var aliasEntity = resolveEntityFromColumn(row, aliasPresence.entityColumnAlias());
+      // Row filtering rejects missing filtering entities before projection.
       if (aliasEntity == null) {
-        return aliasPresence.dropOnAbsent() ? SKIP : null;
+        return null;
       }
       // Filtering presences are checked before projection. Productive presences emit null when absent.
       assert !aliasPresence.dropOnAbsent() || aliasEntity.hasProperty(aliasPresence.propertyKey())
           : "row-level filtering must run before the map projection reads a presence column";
       if (!aliasEntity.hasProperty(aliasPresence.propertyKey())) {
-        return aliasPresence.dropOnAbsent() ? SKIP : null;
+        return null;
       }
       return convertValue(aliasEntity.getProperty(aliasPresence.propertyKey()));
     }
