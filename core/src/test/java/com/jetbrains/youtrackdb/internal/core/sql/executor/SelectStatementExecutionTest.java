@@ -690,6 +690,63 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
   }
 
+  /** A synthetic record-attribute key must not leak from a hardwired count result. */
+  @Test
+  public void testCountOrderByRidDoesNotLeakSyntheticColumn() {
+    var className = "CountOrderByRid";
+    session.getMetadata().getSchema().createClass(className);
+    session.begin();
+    session.newInstance(className).setProperty("name", "Alice");
+    session.commit();
+
+    try (var result = session.query("SELECT count(*) AS c FROM " + className + " ORDER BY @rid")) {
+      var rows = result.stream().toList();
+      assertThat(rows).hasSize(1);
+      assertThat(rows.getFirst().getPropertyNames()).containsExactly("c");
+      assertThat(((Number) rows.getFirst().getProperty("c")).longValue()).isEqualTo(1L);
+    }
+  }
+
+  /** Grouped output must strip the synthetic record-attribute sort key. */
+  @Test
+  public void testGroupByOrderByRidDoesNotLeakSyntheticColumn() {
+    var className = "GroupOrderByRid";
+    session.getMetadata().getSchema().createClass(className);
+    session.begin();
+    for (var name : List.of("Alice", "Bob")) {
+      session.newInstance(className).setProperty("name", name);
+    }
+    session.commit();
+
+    try (var result = session.query(
+        "SELECT name, count(*) AS c FROM " + className + " GROUP BY name ORDER BY @rid")) {
+      var rows = result.stream().toList();
+      assertThat(rows).hasSize(2);
+      assertThat(rows).allSatisfy(row -> assertThat(row.getPropertyNames())
+          .containsExactlyInAnyOrder("name", "c"));
+    }
+  }
+
+  /** A scalar property wins when a similarly named outgoing edge property exists. */
+  @Test
+  public void testBareOrderByAliasDoesNotBecomeEdgeTraversal() {
+    var className = "ScalarEdgeAliasCollision";
+    var vertexClass = session.createVertexClass(className);
+    vertexClass.createProperty("friend", PropertyType.STRING);
+    vertexClass.createProperty("out_friend", PropertyType.LINKBAG);
+
+    session.begin();
+    for (var friend : List.of("Charlie", "Alice", "Bob")) {
+      session.newVertex(className).setProperty("friend", friend);
+    }
+    session.commit();
+
+    try (var result = session.query("SELECT friend FROM " + className + " ORDER BY friend")) {
+      assertThat(result.stream().map(row -> row.getProperty("friend")).toList())
+          .containsExactly("Alice", "Bob", "Charlie");
+    }
+  }
+
   @Test
   public void testOrderByWithoutLimitUnbounded() {
     var className = "testOrderByWithoutLimitUnbounded";

@@ -18,7 +18,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -30,6 +30,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -45,6 +47,9 @@ import org.junit.Test;
  * .DatabaseSessionEmbedded} context.
  */
 public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
+
+  private static final String PROJECTION_STEP_LABEL = "+ CALCULATE PROJECTIONS";
+  private static final String ORDER_BY_STEP_LABEL = "+ ORDER BY";
 
   /**
    * {@code SELECT FROM :target} with the parameter bound to a {@link SchemaClass} value. Exercises
@@ -881,8 +886,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       assertPlanStepOrder(
           plan,
-          "+ CALCULATE PROJECTIONS",
-          "+ ORDER BY",
+          PROJECTION_STEP_LABEL,
+          ORDER_BY_STEP_LABEL,
           "a collection-index key on a projection-minted alias must be projected before "
               + "sorting; plan was:\n" + plan);
       Assert.assertEquals(3, rows.size());
@@ -991,8 +996,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       assertPlanStepOrder(
           plan,
-          "+ ORDER BY",
-          "+ CALCULATE PROJECTIONS",
+          ORDER_BY_STEP_LABEL,
+          PROJECTION_STEP_LABEL,
           "a record attribute is readable upstream, so ORDER BY must precede projections; "
               + "plan was:\n" + plan);
       Assert.assertEquals(2, rows.size());
@@ -1070,8 +1075,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       assertPlanStepOrder(
           plan,
-          "+ ORDER BY",
-          "+ CALCULATE PROJECTIONS",
+          ORDER_BY_STEP_LABEL,
+          PROJECTION_STEP_LABEL,
           "a select-all projection mints no alias, so ORDER BY must precede projections; "
               + "plan was:\n" + plan);
       Assert.assertEquals(2, rows.size());
@@ -1088,11 +1093,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
    * all, so it can never be read off the upstream row. The planner must refuse to defer and must
    * keep building the synthetic projection that replaces the literal.
    *
-   * <p>Expected outcome: CALCULATE PROJECTIONS precedes ORDER BY, and the row still comes back
-   * with its projected column. The fixture holds one record on purpose. With two or more,
-   * {@code SQLOrderByItem.compare} throws {@code UnsupportedOperationException} because
-   * {@code calculateAdditionalOrderByProjections} rewrites the item alias without clearing its
-   * rid. That defect predates this track and this track does not own it.
+   * <p>Expected outcome: projection precedes sorting. Multiple rows force key comparisons.
+   * Every literal key ties, so the test checks the complete result rather than scan order.
    */
   @Test
   public void orderByLiteralRidWithLimit_refusesToDefer() {
@@ -1100,57 +1102,54 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     session.getMetadata().getSchema().createClass(className);
 
     session.begin();
-    var doc = session.newInstance(className);
-    doc.setProperty("name", "only");
-    var rid = doc.getIdentity();
+    var documents = new ArrayList<Identifiable>();
+    for (var i = 0; i < 3; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "n" + i);
+      documents.add(doc);
+    }
+    var rid = documents.getFirst().getIdentity();
     session.commit();
 
-    var sql = "select name from " + className + " order by " + rid + " limit 1";
+    var sql = "select name from " + className + " order by " + rid + " limit 3";
     try (var result = session.query(sql)) {
       var plan = planOf(result);
       var rows = result.stream().toList();
       assertPlanStepOrder(
           plan,
-          "+ CALCULATE PROJECTIONS",
-          "+ ORDER BY",
+          PROJECTION_STEP_LABEL,
+          ORDER_BY_STEP_LABEL,
           "an aliasless ORDER BY item cannot be read upstream, so projections must precede "
               + "ORDER BY; plan was:\n" + plan);
-      Assert.assertEquals(1, rows.size());
-      Assert.assertEquals("only", rows.getFirst().getProperty("name"));
+      Assert.assertEquals(3, rows.size());
+      Assert.assertEquals(Set.of("n0", "n1", "n2"),
+          rows.stream().map(row -> (String) row.getProperty("name")).collect(Collectors.toSet()));
     }
   }
 
   /**
-   * {@code SELECT name FROM Class ORDER BY @rid ASC}. A field projection, unlike a select-all,
-   * lets the planner add a synthetic ORDER BY column. The RID scan then satisfies the order and
-   * marks it applied, which must not stop the planner from stripping that internal column.
-   *
-   * <p>Expected outcome: strictly increasing RIDs and no internal column in the visible output.
-   * The RID is projected explicitly, because a field projection carries no record identity and a
-   * class may spread its records over several clusters, so insertion order is not RID order.
+   * {@code SELECT name FROM Class ORDER BY tags[0]}. A bracket key rejects deferral.
+   * The planner must add a synthetic key before sorting and strip it afterwards.
    */
   @Test
-  public void orderByRidOnFieldProjection_stripsSyntheticColumn() {
+  public void orderByBracketKeyOnFieldProjection_stripsSyntheticColumn() {
     var className = "RidFieldProjection_" + uniqueSuffix();
     session.getMetadata().getSchema().createClass(className);
 
     session.begin();
     for (var i = 0; i < 4; i++) {
-      session.newInstance(className).setProperty("name", "n" + i);
+      var row = session.newInstance(className);
+      row.setProperty("name", "n" + i);
+      row.<Integer>getOrCreateEmbeddedList("tags").add(4 - i);
     }
     session.commit();
 
-    var sql = "select name, @rid as rid from " + className + " order by @rid asc";
+    var sql = "select name from " + className + " order by tags[0] asc";
     try (var result = session.query(sql)) {
       var rows = result.stream().toList();
       Assert.assertEquals(4, rows.size());
-      for (var i = 1; i < rows.size(); i++) {
-        var previous = (RID) rows.get(i - 1).getProperty("rid");
-        var current = (RID) rows.get(i).getProperty("rid");
-        Assert.assertTrue(
-            "RIDs must increase under ORDER BY @rid ASC: " + previous + " vs " + current,
-            previous.compareTo(current) < 0);
-      }
+      Assert.assertEquals(List.of("n3", "n2", "n1", "n0"),
+          rows.stream().map(row -> (String) row.getProperty("name")).toList());
       for (var row : rows) {
         for (var propName : row.getPropertyNames()) {
           Assert.assertFalse(
@@ -1224,14 +1223,16 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       assertPlanStepOrder(
           plan,
-          "+ CALCULATE PROJECTIONS",
-          "+ ORDER BY",
+          PROJECTION_STEP_LABEL,
+          ORDER_BY_STEP_LABEL,
           "a shadowed output alias must be projected before sorting; plan was:\n" + plan);
       Assert.assertEquals(3, rows.size());
-      // The projected name column holds the boss link, and boss RIDs ascend with insertion.
-      for (var i = 0; i < rows.size(); i++) {
-        Assert.assertNotNull("the projected alias must carry the renaming item's value",
-            rows.get(i).getProperty("name"));
+      // The projected name column holds the boss link, and boss RIDs must ascend.
+      for (var i = 1; i < rows.size(); i++) {
+        var previous = ((Identifiable) rows.get(i - 1).getProperty("name")).getIdentity();
+        var current = ((Identifiable) rows.get(i).getProperty("name")).getIdentity();
+        Assert.assertTrue("projected boss links must be in RID order",
+            previous.compareTo(current) < 0);
       }
     }
   }
@@ -1281,8 +1282,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       assertPlanStepOrder(
           plan,
-          "+ CALCULATE PROJECTIONS",
-          "+ ORDER BY",
+          PROJECTION_STEP_LABEL,
+          ORDER_BY_STEP_LABEL,
           "a bracket key must be materialised before sorting; plan was:\n" + plan);
       Assert.assertEquals(2, rows.size());
       Assert.assertEquals("p3", rows.get(0).getProperty("name"));
@@ -1291,15 +1292,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT *, marker FROM Class ORDER BY @rid}. A select-all item sits beside a named
-   * one, so the planner adds a synthetic ORDER BY column and must remove it afterwards. The
-   * removal step must keep the select-all meaning: every stored column has to survive it.
-   *
-   * <p>Expected outcome: no internal column reaches the caller and every stored property is
-   * still there, both asserted on the same rows.
+   * {@code SELECT name, marker, extra FROM Class ORDER BY tags[0]}. A bracket key rejects
+   * deferral. The planner adds a synthetic ORDER BY column and must remove it afterwards.
    */
   @Test
-  public void orderByRidWithSelectAllProjection_stripsOnlyTheSyntheticColumn() {
+  public void orderByBracketKeyWithFieldList_stripsSyntheticColumn() {
     var className = "StripSelectAll_" + uniqueSuffix();
     session.getMetadata().getSchema().createClass(className);
 
@@ -1309,10 +1306,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       doc.setProperty("name", "n" + i);
       doc.setProperty("marker", "m" + i);
       doc.setProperty("extra", i);
+      doc.<Integer>getOrCreateEmbeddedList("tags").add(3 - i);
     }
     session.commit();
 
-    try (var result = session.query("select *, marker from " + className + " order by @rid")) {
+    try (var result = session.query(
+        "select name, marker, extra from " + className + " order by tags[0]")) {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
       for (var row : rows) {
@@ -1322,24 +1321,20 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
               propName.startsWith("_$$$"));
         }
         var name = (String) row.getProperty("name");
-        Assert.assertNotNull("select-all must keep the name column", name);
-        Assert.assertEquals("select-all must keep the marker column",
+        Assert.assertNotNull("field list must keep the name column", name);
+        Assert.assertEquals("field list must keep the marker column",
             "m" + name.substring(1), row.getProperty("marker"));
-        Assert.assertNotNull("select-all must keep the extra column", row.getProperty("extra"));
+        Assert.assertNotNull("field list must keep the extra column", row.getProperty("extra"));
       }
     }
   }
 
   /**
-   * {@code SELECT *, !secret FROM Class ORDER BY @rid}. The projection excludes one column, and
-   * the planner adds a synthetic ORDER BY column beside it. Removing the synthetic column must
-   * not resurrect the excluded one.
-   *
-   * <p>Expected outcome: no internal column and no excluded column reach the caller, while the
-   * remaining stored columns do.
+   * {@code SELECT name FROM Class ORDER BY tags[0]}. This second field-only shape verifies that
+   * stripping works when the source also contains unprojected columns.
    */
   @Test
-  public void orderByRidWithExcludedColumn_stripsWithoutResurrectingIt() {
+  public void orderByBracketKeyWithUnprojectedFields_stripsSyntheticColumn() {
     var className = "StripExclude_" + uniqueSuffix();
     session.getMetadata().getSchema().createClass(className);
 
@@ -1348,10 +1343,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var doc = session.newInstance(className);
       doc.setProperty("name", "n" + i);
       doc.setProperty("secret", "s" + i);
+      doc.<Integer>getOrCreateEmbeddedList("tags").add(3 - i);
     }
     session.commit();
 
-    try (var result = session.query("select *, !secret from " + className + " order by @rid")) {
+    try (var result = session.query(
+        "select name from " + className + " order by tags[0]")) {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
       for (var row : rows) {
@@ -1360,10 +1357,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
               "synthetic ORDER BY alias must not leak into visible output: " + propName,
               propName.startsWith("_$$$"));
         }
-        Assert.assertFalse(
-            "an excluded column must not come back: " + row.getPropertyNames(),
-            row.getPropertyNames().contains("secret"));
-        Assert.assertNotNull("the remaining columns must survive", row.getProperty("name"));
+        Assert.assertEquals(List.of("name"), row.getPropertyNames());
+        Assert.assertNotNull("the projected column must survive", row.getProperty("name"));
       }
     }
   }

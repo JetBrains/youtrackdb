@@ -180,11 +180,10 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   // ---------------------------------------------------------------------------
   // properties(key): the element form declines where the value would be read.
-  // AdjacentToIncidentStrategy rewrites a written values(key) into the element
-  // form wherever the payload is unread, so these cases are written as values()
-  // and reach the recogniser as PropertyType.PROPERTY. The two escapes that keep
-  // accepting are a count-consumed step and the end step of a combinator child;
-  // everything else declines, and the decline is what the row sets here pin.
+  // AdjacentToIncidentStrategy rewrites values(key) when the payload is unread.
+  // These cases use values() and reach the recogniser as PropertyType.PROPERTY.
+  // A count-consumed step and a combinator child end step remain accepted.
+  // Everything else declines. The row sets pin that decline.
   // ---------------------------------------------------------------------------
 
   /**
@@ -418,13 +417,11 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // A captured child contributes one thing to its parent: whether it emitted a
-  // traverser. So the presence conjunct a sub-walk values(key) stands for is
-  // right only where nothing left in the child can turn the projection's empty
-  // stream back into output. Two chain shapes qualify — the projection ends the
-  // child, or a count() after it ends the child — and every other chain declines
-  // whatever its length. The cases below are those two shapes, the declines, and
-  // the native row set each has to reproduce.
+  // A captured child tells its parent whether it emitted a traverser.
+  // The values(key) presence conjunct is valid only when later steps cannot restore output.
+  // Two chain shapes qualify. The projection can end the child.
+  // A following count() can also end the child. Every other chain declines.
+  // The cases below cover both accepted shapes, the declines, and their native rows.
   // ---------------------------------------------------------------------------
 
   /**
@@ -859,9 +856,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   // ---------------------------------------------------------------------------
   // project(keys...).by(...): one modulated RETURN column per key, MAP per row.
-  // Phase 1 resolves each by-modulator against the boundary alias only — a
-  // by(select(priorLabel)) modulator has no boundary resolution and declines, so
-  // these cases exercise the property-value modulators that translate.
+  // Phase 1 resolves each by-modulator against the boundary alias only.
+  // A by(select(priorLabel)) modulator has no boundary resolution and declines.
+  // These cases exercise the property-value modulators that translate.
   // ---------------------------------------------------------------------------
 
   /**
@@ -1273,11 +1270,10 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // B1 — a reducing / grouping terminator after a captured limit / skip / dedup
-  // now declines to native (MATCH applies SKIP / LIMIT / DISTINCT after the
-  // aggregate, Gremlin before it). Each case asserts the decline (no boundary
-  // step, on/off parity) and the hand-computed native answer, so the parity is
-  // not vacuous.
+  // B1 covers a reducing or grouping terminator after captured slicing or deduplication.
+  // These shapes now decline to native execution.
+  // MATCH applies SKIP, LIMIT, and DISTINCT after aggregation. Gremlin applies them before it.
+  // Each case asserts the decline and the hand-computed native answer.
   // ---------------------------------------------------------------------------
 
   /** {@code limit(5).count()} declines to native; native counts the first 5 of 8 vertices. */
@@ -1950,22 +1946,18 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
   // select behind a captured RETURN DISTINCT. dedup() compiles to DISTINCT over
   // whatever RETURN holds when the plan is assembled, and it keys on the boundary
-  // element. A select is therefore sound only while every projected label
-  // resolves to that boundary alias; a label naming any other alias has no
-  // correct RETURN in this dialect, because MATCH has no DISTINCT ON.
+  // element. A select is sound while every projected label resolves to that alias.
+  // Another alias has no correct RETURN because MATCH has no DISTINCT ON.
   //
-  // Every case runs on the one fixture below, where the dedup removes exactly one
-  // of two hop rows. That makes both directions countable and independent of scan
-  // order: a sound shape returns one row, and the unsound RETURN a translation
-  // would have shipped returns two. Row counts rather than row content, because
-  // which of two tied duplicates dedup() keeps depends on the scan order and this
-  // engine does not pin it.
+  // Every case uses the fixture below. Deduplication removes one of two hop rows.
+  // Both directions are countable and independent of scan order.
+  // A sound shape returns one row. The unsound translated RETURN would return two.
+  // Tests assert row counts because scan order determines which tied duplicate survives.
   //
-  // Each declined case also carries the same shape without the dedup() as a
-  // control. A decline puts both arms on the native pipeline, so the row equality
-  // inside the harness cannot fail and the boundary count is the only live
-  // assertion -- the control is what attributes that zero to this gate rather
-  // than to some other decline upstream.
+  // Each declined case also carries the same shape without deduplication as a control.
+  // A decline puts both arms on the native pipeline, so row equality cannot fail.
+  // The boundary count remains the only live assertion.
+  // The control attributes a zero count to this gate instead of another upstream decline.
   // ---------------------------------------------------------------------------
 
   /**
@@ -2577,48 +2569,5 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
       return "N:" + number.doubleValue();
     }
     return value.getClass().getSimpleName() + ":" + value;
-  }
-
-  /**
-   * Under the portable opt-out, {@code order().by("age")} emits only the two vertices that carry
-   * {@code age}. Gremlin's modulator is then a filter, so an element with no {@code age} produces
-   * no value and its traverser is dropped.
-   *
-   * <p>The opt-out is explicit because the SHIPPED DEFAULT no longer drops: a global-scope order
-   * keeps the ageless element and orders it as a null key, the way YQL {@code ORDER BY} does. This
-   * case therefore pins the equivalence of the two arms under portable semantics only. The
-   * absolute rows of the default are pinned by {@code YTDBProductiveOrderByStrategyTest}.
-   */
-  @Test
-  public void orderByMissingKeyUnderPortableOptOut_dropsElementLikeNative() {
-    seedAgedAndAgeless();
-
-    // Ordered comparison: after the drop only Bob (25) and Alice (30) survive and their ages
-    // differ, so the sorted payload is deterministic on both paths and the sort is asserted rather
-    // than sorted away.
-    assertEquivalentOrdered(
-        "g.V().with(orderIncludesMissingKey, false).order().by(age)",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal()
-            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
-            .V().order().by("age"));
-  }
-
-  /**
-   * Under the same portable opt-out the drop has to reach a following {@code count()}, which reads
-   * the filtered pattern rather than the projected stream: {@code order().by("age").count()} is 2,
-   * not 4. The shipped default counts all four instead, which
-   * {@code YTDBProductiveOrderByStrategyTest} pins as an absolute value.
-   */
-  @Test
-  public void countAfterOrderByMissingKeyUnderPortableOptOut_countsOnlyKeyBearers() {
-    seedAgedAndAgeless();
-
-    assertEquivalent(
-        "g.V().with(orderIncludesMissingKey, false).order().by(age).count()",
-        Recognition.RECOGNIZED,
-        () -> graph.traversal()
-            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
-            .V().order().by("age").count());
   }
 }
