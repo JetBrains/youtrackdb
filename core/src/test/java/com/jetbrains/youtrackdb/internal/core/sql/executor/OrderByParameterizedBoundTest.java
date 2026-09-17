@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -118,6 +119,72 @@ public class OrderByParameterizedBoundTest extends DbTestBase {
         Map.of("s", 2_000_000_000, "n", 2_000_000_000), "id"))
         .as("a bound that overflows int must sort unbounded and skip past every row")
         .isEmpty();
+  }
+
+  /**
+   * EXPAND multiplies rows, so the planner withholds the bound from ORDER BY and applies LIMIT
+   * after expansion and sorting. The result still honors the query-level LIMIT.
+   */
+  @Test
+  public void expandWithParameterizedLimitWithholdsBoundUntilAfterExpansion() {
+    var valueClass = session.getMetadata().getSchema().createClass("ExpandBound");
+    valueClass.createProperty("values", PropertyType.EMBEDDEDLIST);
+    session.begin();
+    var row = session.newInstance(valueClass.getName());
+    row.newEmbeddedList("values").addAll(List.of("c", "a", "b"));
+    session.commit();
+
+    var query = "SELECT expand(values) AS value FROM ExpandBound ORDER BY value LIMIT :n";
+    assertThat(ids(query, Map.of("n", 1), "value")).containsExactly("a");
+    assertThat(ids(query, Map.of("n", 2), "value")).containsExactly("a", "b");
+  }
+
+  /**
+   * UNWIND multiplies rows, so ORDER BY remains unbounded and the downstream LIMIT selects the
+   * requested sorted rows after unwinding.
+   */
+  @Test
+  public void unwindWithParameterizedLimitWithholdsBoundUntilAfterUnwind() {
+    var valueClass = session.getMetadata().getSchema().createClass("UnwindBound");
+    valueClass.createProperty("id", PropertyType.STRING);
+    valueClass.createProperty("values", PropertyType.EMBEDDEDLIST);
+    session.begin();
+    var row = session.newInstance(valueClass.getName());
+    row.setProperty("id", "row");
+    row.newEmbeddedList("values").addAll(List.of("c", "a", "b"));
+    session.commit();
+
+    var query = "SELECT id, values FROM UnwindBound ORDER BY id UNWIND values LIMIT :n";
+    assertThat(ids(query, Map.of("n", 1), "values")).containsExactly("c");
+    assertThat(ids(query, Map.of("n", 2), "values")).containsExactly("c", "a");
+  }
+
+  /** DISTINCT runs after ORDER BY, so duplicate rows can consume the bounded heap first. */
+  @Test
+  public void distinctAfterSortCanReturnFewerRowsThanParameterizedLimit() {
+    seedFivePeople();
+    session.begin();
+    for (var id : new String[] {"a", "a", "b"}) {
+      session.execute("CREATE VERTEX Person SET id = '" + id + "'").close();
+    }
+    session.commit();
+
+    var query = "SELECT DISTINCT id FROM Person ORDER BY id LIMIT :n";
+    assertThat(ids(query, Map.of("n", 2), "id")).containsExactly("a");
+    assertThat(ids(query, Map.of("n", 4), "id")).containsExactly("a", "b");
+  }
+
+  /** Missing and non-numeric LIMIT parameters are rejected when the bound is resolved. */
+  @Test
+  public void missingOrWrongTypeParameterizedLimitIsRejected() {
+    seedFivePeople();
+    var query = "SELECT id FROM Person ORDER BY id LIMIT :n";
+    assertThatThrownBy(() -> ids(query, Map.of(), "id"))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Invalid value for LIMIT");
+    assertThatThrownBy(() -> ids(query, Map.of("n", "two"), "id"))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Invalid value for LIMIT");
   }
 
   /**
