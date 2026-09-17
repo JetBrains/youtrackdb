@@ -733,13 +733,13 @@ to preserve TP-equivalent output:
   flag (which checks the projected value for null); it is a new
   `dropOnAbsent` flag that queries the entity layer for presence.
 - `select(label)` / `select(labels…).by("key")` /
-  `project(keys…).by("key")`: native `Scoping.getScopeValue` drops a
-  row when a nonproductive key is missing. Productive by strategies emit
-  a literal `null` instead. Present-with-null bindings also emit `null`.
-  Phase 1 only emits `select`/`project` against aliases the recogniser
-  binds during translation. For `by("foo")` against an absent versus
-  present-with-null `foo`, Track 5 follows the same `hasProperty(key)`
-  classification as `values(key)` and `valueMap` above.
+  `project(keys…).by("key")`: an absent property makes the modulator's
+  `TraversalProduct` nonproductive. An absent nonproductive select key
+  drops the row. An absent productive select key emits `null`.
+  Present-with-null bindings also emit `null`. Phase 1 only emits
+  `select`/`project` against aliases the recogniser binds during
+  translation. Track 5 uses `hasProperty(key)` to distinguish absence
+  from a present property whose value is `null`.
 
 This commitment is **load-bearing**: without the entity-layer presence
 check, MATCH projections silently merge two states that TP keeps

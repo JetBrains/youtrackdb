@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
@@ -10,8 +11,9 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CyclicBarrier;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -161,8 +163,40 @@ public class PresenceEntityResolutionCountTest extends GraphBaseTest {
   }
 
   /**
+   * A filtering presence check records its successful result for map projection. The projection
+   * must read the property without repeating {@code hasProperty}.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  public void filteringPresenceChecksPropertyOncePerRow() throws Exception {
+    seedTwoPairs();
+    var admin = graph.traversal().V().hasLabel("Person").as("a")
+        .select("a").by("name").asAdmin();
+    admin.applyStrategies();
+    var step = boundaryStep(admin);
+
+    Field presencesField = AbstractMatchPlanStep.class.getDeclaredField("aliasPresenceByMapKey");
+    presencesField.setAccessible(true);
+    var presences = (Map<String, AliasPropertyPresence>) presencesField.get(step);
+    var presence = presences.get("a");
+    assertThat(presence).as("the translated select must check its name property").isNotNull();
+
+    var entity = mock(EntityImpl.class);
+    when(entity.hasProperty("name")).thenReturn(true);
+    when(entity.getProperty("name")).thenReturn("Ann");
+    var row = mock(Result.class);
+    when(row.getEntity(presence.entityColumnAlias())).thenReturn(entity);
+
+    Method project = AbstractMatchPlanStep.class.getDeclaredMethod("projectOrSkip", Result.class);
+    project.setAccessible(true);
+    assertThat(project.invoke(step, row)).isEqualTo("Ann");
+    verify(entity).hasProperty("name");
+  }
+
+  /**
    * Two threads resolve the same column name through separate clones. Each clone must retain its
-   * own cached entity after the other clone writes its cache.
+   * own cached entity after the other clone writes its cache. Every barrier and join has a deadline,
+   * so a worker failure cannot leave its peer parked indefinitely.
    */
   @Test
   public void twoClonesResolveEntitiesWithoutSharingCache() throws Exception {
@@ -189,25 +223,45 @@ public class PresenceEntityResolutionCountTest extends GraphBaseTest {
     when(rowB.getEntity("entity")).thenReturn(entityB);
 
     var phases = new CyclicBarrier(2);
-    try (var pool = Executors.newFixedThreadPool(2)) {
-      var first = pool.submit(() -> {
-        phases.await();
+    var errors = new ConcurrentLinkedQueue<Throwable>();
+    var first = new Thread(() -> {
+      try {
+        phases.await(10, TimeUnit.SECONDS);
         assertThat(resolve.invoke(cloneA, rowA, "entity")).isSameAs(entityA);
-        phases.await();
-        phases.await();
+        phases.await(10, TimeUnit.SECONDS);
+        phases.await(10, TimeUnit.SECONDS);
         assertThat(resolve.invoke(cloneA, rowA, "entity")).isSameAs(entityA);
-        return null;
-      });
-      var second = pool.submit(() -> {
-        phases.await();
-        phases.await();
+      } catch (Throwable error) {
+        errors.add(error);
+      }
+    }, "entity-cache-clone-a");
+    var second = new Thread(() -> {
+      try {
+        phases.await(10, TimeUnit.SECONDS);
+        phases.await(10, TimeUnit.SECONDS);
         assertThat(resolve.invoke(cloneB, rowB, "entity")).isSameAs(entityB);
-        phases.await();
-        return null;
-      });
-      first.get(10, TimeUnit.SECONDS);
-      second.get(10, TimeUnit.SECONDS);
+        phases.await(10, TimeUnit.SECONDS);
+      } catch (Throwable error) {
+        errors.add(error);
+      }
+    }, "entity-cache-clone-b");
+
+    first.start();
+    second.start();
+    first.join(TimeUnit.SECONDS.toMillis(10));
+    second.join(TimeUnit.SECONDS.toMillis(10));
+    if (first.isAlive()) {
+      first.interrupt();
     }
+    if (second.isAlive()) {
+      second.interrupt();
+    }
+    first.join(TimeUnit.SECONDS.toMillis(1));
+    second.join(TimeUnit.SECONDS.toMillis(1));
+
+    assertThat(first.isAlive()).as("the first cache probe must finish").isFalse();
+    assertThat(second.isAlive()).as("the second cache probe must finish").isFalse();
+    assertThat(errors).as("cache probes must complete without failures").isEmpty();
     assertThat(cloneA.entityColumnResolutions()).isEqualTo(1L);
     assertThat(cloneB.entityColumnResolutions()).isEqualTo(1L);
   }

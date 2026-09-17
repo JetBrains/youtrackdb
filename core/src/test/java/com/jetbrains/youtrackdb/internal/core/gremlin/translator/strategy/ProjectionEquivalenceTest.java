@@ -1476,7 +1476,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .V().order().by("age").count());
   }
 
-  /** {@code select("a").by("age")} drops the elements without {@code age} the same way. */
+  /** A nonproductive {@code select("a").by("age")} drops elements without {@code age}. */
   @Test
   public void selectByMissingKey_dropsElementLikeNative() {
     seedAgedAndAgeless();
@@ -2211,15 +2211,20 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     var strategy = ProductiveByStrategy.build().productiveKeys("missing").create();
 
     assertEquivalent(
-        "g.withStrategies(ProductiveByStrategy(missing)).V().as(q).as(r).select(q, r).by(name).by(missing)",
+        "g.withStrategies(ProductiveByStrategy(missing)).V().as(q).as(r).dedup()"
+            + ".select(q, r).by(name).by(missing)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().withStrategies(strategy).V().hasLabel("Person")
-            .as("q").as("r").select("q", "r").by("name").by("missing"));
+            .as("q").as("r").dedup().select("q", "r").by("name").by("missing"));
 
-    assertThat(graph.traversal().withStrategies(strategy).V().hasLabel("Person")
-        .as("q").as("r").select("q", "r").by("name").by("missing").toList())
-        .as("only the vertex with the nonproductive property survives")
-        .hasSize(1);
+    var observedRows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+        .as("q").as("r").dedup().select("q", "r").by("name").by("missing").toList();
+    var expected = new LinkedHashMap<String, Object>();
+    expected.put("q", null);
+    expected.put("r", "kept");
+    assertThat(observedRows)
+        .as("the nonproductive key keeps one row, and the absent productive key emits null")
+        .containsExactly(expected);
   }
 
   /**
