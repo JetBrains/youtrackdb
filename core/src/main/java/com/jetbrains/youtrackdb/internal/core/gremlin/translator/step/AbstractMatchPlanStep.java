@@ -868,21 +868,13 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     if (aliasPresence != null) {
       var aliasEntity = resolveEntityFromColumn(row, aliasPresence.entityColumnAlias());
       if (aliasEntity == null) {
-        return SKIP;
+        return aliasPresence.dropOnAbsent() ? SKIP : null;
       }
-      // Under dropOnAbsent the row-level check in failsAliasPropertyPresence already proved every
-      // presence key present on its alias, and it walks the same presence list this map is built
-      // from, so repeating hasProperty here only re-reads what that check established. Without
-      // dropOnAbsent that check returns early and this is the only test of presence.
-      //
-      // The skip rests on an invariant across two methods: every projection entry point that
-      // reaches here runs the row-level check first. A future entry point that does not would
-      // silently emit a column that must be omitted, so the invariant is asserted rather than
-      // left to a reader of both methods.
-      assert !shaping.dropOnAbsent() || aliasEntity.hasProperty(aliasPresence.propertyKey())
-          : "row-level presence check must run before the map projection reads a presence column";
-      if (!shaping.dropOnAbsent() && !aliasEntity.hasProperty(aliasPresence.propertyKey())) {
-        return SKIP;
+      // Filtering presences are checked before projection. Productive presences emit null when absent.
+      assert !aliasPresence.dropOnAbsent() || aliasEntity.hasProperty(aliasPresence.propertyKey())
+          : "row-level filtering must run before the map projection reads a presence column";
+      if (!aliasEntity.hasProperty(aliasPresence.propertyKey())) {
+        return aliasPresence.dropOnAbsent() ? SKIP : null;
       }
       return convertValue(aliasEntity.getProperty(aliasPresence.propertyKey()));
     }
@@ -973,6 +965,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       return false;
     }
     for (var presence : shaping.aliasPropertyPresences()) {
+      if (!presence.dropOnAbsent()) {
+        continue;
+      }
       var entity = resolveEntityFromColumn(row, presence.entityColumnAlias());
       if (entity == null || !entity.hasProperty(presence.propertyKey())) {
         return true;

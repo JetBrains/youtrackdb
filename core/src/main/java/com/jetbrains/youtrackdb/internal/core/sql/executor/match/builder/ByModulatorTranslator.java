@@ -180,10 +180,10 @@ public final class ByModulatorTranslator {
    * resolves to a record attribute ({@code by(T.id)} / {@code by(T.label)}) or is unrecognised.
    *
    * <p>Callers need this because Gremlin's {@code by(key)} is filtering: a modulator is a
-   * traversal, and an element with no such property produces no value, so the traverser is dropped
-   * before the sort / projection / grouping ever sees it. SQL keeps the row and yields
-   * {@code null}, so the translated plan must add an {@code IS DEFINED} conjunct on the modulated
-   * alias to match. Record attributes need no conjunct — every record has a RID and a class.
+   * traversal, and an element with no such property normally produces no value. Productive by
+   * strategies replace that behavior with a null value. SQL keeps the row and yields {@code null},
+   * so filtering shapes need an {@code IS DEFINED} conjunct on the modulated alias. Record
+   * attributes need no conjunct because every record has a RID and a class.
    */
   public static Optional<String> keyModulatorPropertyKey(Traversal.Admin<?, ?> modulator) {
     return classifyKey(modulator).filter(ref -> !ref.recordAttr()).map(FieldRef::name);

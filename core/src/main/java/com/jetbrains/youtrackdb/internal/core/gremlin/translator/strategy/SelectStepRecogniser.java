@@ -103,7 +103,7 @@ final class SelectStepRecogniser implements StepRecogniser {
         if (productive && !returnDistinct) {
           ctx.appendReturnColumn(field.get(), userLabel);
         } else {
-          aliasPresences.add(new AliasPropertyPresence(entityCol, key, userLabel));
+          aliasPresences.add(new AliasPropertyPresence(entityCol, key, userLabel, !productive));
         }
       } else {
         if (returnDistinct) {
@@ -125,8 +125,7 @@ final class SelectStepRecogniser implements StepRecogniser {
     if (!aliasPresences.isEmpty()) {
       // dropOnAbsent only when every presence is a filtering by(key); productive keys after
       // dedup still use AliasPropertyPresence for emit but must not drop the row.
-      var anyFiltering = aliasPresences.stream()
-          .anyMatch(p -> !ctx.byModulatorIsProductive(p.propertyKey()));
+      var anyFiltering = aliasPresences.stream().anyMatch(AliasPropertyPresence::dropOnAbsent);
       if (anyFiltering) {
         shaping = shaping.withDropOnAbsent(true);
       }

@@ -88,7 +88,7 @@ final class SelectOneStepRecogniser implements StepRecogniser {
       if (productive && !returnDistinct) {
         ctx.appendReturnColumn(field.get(), userLabel);
       } else {
-        var presence = new AliasPropertyPresence(entityCol, key, userLabel);
+        var presence = new AliasPropertyPresence(entityCol, key, userLabel, !productive);
         if (!productive) {
           shaping = shaping.withDropOnAbsent(true);
         }

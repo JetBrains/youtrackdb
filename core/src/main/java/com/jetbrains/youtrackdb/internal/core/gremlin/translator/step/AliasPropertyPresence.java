@@ -17,9 +17,16 @@ import javax.annotation.Nonnull;
  *     map
  * @param propertyKey property read on that entity
  * @param mapKey key in the emitted map (the {@code select} label)
+ * @param dropOnAbsent whether absence drops the complete row
  */
 public record AliasPropertyPresence(
     @Nonnull String entityColumnAlias,
     @Nonnull String propertyKey,
-    @Nonnull String mapKey) {
+    @Nonnull String mapKey,
+    boolean dropOnAbsent) {
+
+  /** Creates a presence check that drops rows when the property is absent. */
+  public AliasPropertyPresence(String entityColumnAlias, String propertyKey, String mapKey) {
+    this(entityColumnAlias, propertyKey, mapKey, true);
+  }
 }

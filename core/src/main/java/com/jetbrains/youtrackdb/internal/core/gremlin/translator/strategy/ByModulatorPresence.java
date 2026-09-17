@@ -58,9 +58,9 @@ final class ByModulatorPresence {
   }
 
   /**
-   * Post-plan presence for {@code select(…).by(key)}: returns an {@link AliasPropertyPresence} for
-   * whole-row drop and map emit, or empty when the modulator is not a property key or is productive
-   * under {@code ProductiveByStrategy}. Never contributes pattern {@code IS DEFINED} — see
+   * Post-plan presence for nonproductive {@code select(…).by(key)}: returns an {@link
+   * AliasPropertyPresence} for row filtering and map emission. Productive keys emit null directly
+   * and need no presence record. Never contributes pattern {@code IS DEFINED} — see
    * {@link SelectStepRecogniser}. The caller appends the entity RETURN column named by
    * {@link ResultShaping#presenceEntityColumnAlias(String)}.
    *
