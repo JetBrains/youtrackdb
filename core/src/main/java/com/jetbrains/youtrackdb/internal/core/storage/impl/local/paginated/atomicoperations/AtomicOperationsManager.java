@@ -139,35 +139,72 @@ public class AtomicOperationsManager {
    */
   public void startToApplyOperations(AtomicOperation atomicOperation, final boolean schemaArmed,
       @Nullable final Supplier<? extends BaseException> schemaGate) {
-    writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
-
-    final long activeSegment;
-
-    // Transaction id, active segment, and table registration must all happen
-    // under the same lock to guarantee that operations appear in the table in
-    // strictly increasing timestamp order. Without this, a higher-TS operation
-    // could register before a lower-TS one, creating NOT_STARTED gaps that
-    // violate Snapshot Isolation's assumption that all TXs below minActiveTs
-    // are completed.
-    final long commitTs;
-    segmentLock.exclusiveLock();
+    var freezerEntered = false;
+    var tableRegistrationAttempted = false;
+    var commitTs = -1L;
     try {
-      commitTs = idGen.nextId();
-      activeSegment = writeAheadLog.activeSegment();
-      atomicOperationsTable.startOperation(commitTs, activeSegment);
-    } finally {
-      segmentLock.exclusiveUnlock();
-    }
+      writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
+      freezerEntered = true;
 
-    atomicOperation.startToApplyOperations(commitTs);
+      // Transaction id, active segment, and table registration must all happen
+      // under the same lock to guarantee that operations appear in the table in
+      // strictly increasing timestamp order. Without this, a higher-TS operation
+      // could register before a lower-TS one, creating NOT_STARTED gaps that
+      // violate Snapshot Isolation's assumption that all TXs below minActiveTs
+      // are completed.
+      segmentLock.exclusiveLock();
+      try {
+        // Read the WAL segment before allocating the timestamp. A failed segment read must not
+        // leave an unregistered timestamp that a later snapshot could mistake for a commit.
+        final var activeSegment = writeAheadLog.activeSegment();
+        commitTs = idGen.nextId();
+        tableRegistrationAttempted = true;
+        atomicOperationsTable.startOperation(commitTs, activeSegment);
+      } finally {
+        segmentLock.exclusiveUnlock();
+      }
+
+      atomicOperation.startToApplyOperations(commitTs);
+    } catch (RuntimeException | Error startupFailure) {
+      // Startup has staged ownership. Release only stages that completed, and retain the
+      // startup failure as the primary exception if any cleanup stage also fails.
+      if (tableRegistrationAttempted) {
+        try {
+          atomicOperationsTable.rollbackOperation(commitTs);
+        } catch (RuntimeException | Error cleanupFailure) {
+          suppressCleanupFailure(startupFailure, cleanupFailure);
+        }
+      }
+      try {
+        atomicOperation.deactivate();
+      } catch (RuntimeException | Error cleanupFailure) {
+        suppressCleanupFailure(startupFailure, cleanupFailure);
+      }
+      if (freezerEntered) {
+        try {
+          writeOperationsFreezer.endOperation();
+        } catch (RuntimeException | Error cleanupFailure) {
+          suppressCleanupFailure(startupFailure, cleanupFailure);
+        }
+      }
+      throw startupFailure;
+    }
+  }
+
+  private static void suppressCleanupFailure(Throwable startupFailure, Throwable cleanupFailure) {
+    if (startupFailure != cleanupFailure) {
+      startupFailure.addSuppressed(cleanupFailure);
+    }
   }
 
   public <T> T calculateInsideAtomicOperation(final TxFunction<T> function)
       throws IOException {
     Throwable error = null;
+    var operationStarted = false;
     final var atomicOperation = startAtomicOperation();
     try {
       startToApplyOperations(atomicOperation);
+      operationStarted = true;
       return function.accept(atomicOperation);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
@@ -185,16 +222,20 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(atomicOperation, error);
+      if (operationStarted) {
+        endAtomicOperation(atomicOperation, error);
+      }
     }
   }
 
   public void executeInsideAtomicOperation(final TxConsumer consumer)
       throws IOException {
     Throwable error = null;
+    var operationStarted = false;
     final var atomicOperation = startAtomicOperation();
     try {
       startToApplyOperations(atomicOperation);
+      operationStarted = true;
       consumer.accept(atomicOperation);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
@@ -212,7 +253,9 @@ public class AtomicOperationsManager {
                   + storage.getName()),
           e, storage.getName());
     } finally {
-      endAtomicOperation(atomicOperation, error);
+      if (operationStarted) {
+        endAtomicOperation(atomicOperation, error);
+      }
     }
   }
 
