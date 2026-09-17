@@ -186,13 +186,14 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   /**
    * Entity columns already resolved for the row being projected, cleared once per row. Holds at
    * most one entry per distinct entity column, so it is bounded by the projection width rather
-   * than by the row count. A null value records a column that does not hold an entity.
+   * than by the row count. A null value records a column that does not hold an entity. Each clone
+   * receives a new map through {@link #resetLifecycleForClone()}.
    */
-  private final Map<String, EntityImpl> rowEntityCache = new HashMap<>();
+  private Map<String, EntityImpl> rowEntityCache = new HashMap<>();
 
   /**
    * Entity-column resolutions performed, read by a test through {@link #entityColumnResolutions}.
-   * Not reset per row: the test compares a total against an emitted row count.
+   * The count spans rows within one arming. Reset and clone start a new observation window.
    */
   private long entityColumnResolutions;
 
@@ -666,6 +667,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   @Override
   public void reset() {
     super.reset();
+    entityColumnResolutions = 0;
     if (state == State.OPEN || state == State.DRAINED) {
       state = State.REARMED;
     } else if (state == State.CLOSED) {
@@ -734,6 +736,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.openStream = null;
     this.armingGraph = null;
     this.shapedPayloads = null;
+    this.rowEntityCache = new HashMap<>();
+    this.entityColumnResolutions = 0;
     this.state = State.NEW;
   }
 

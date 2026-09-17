@@ -182,6 +182,30 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
     }
   }
 
+  /** Clone and re-arm must not expose observations from a previous scan. */
+  @Test
+  public void cloneAndRearmClearLastScanObservations() {
+    seedSkewed();
+    try (var result = session.query(orderedQuery("ASC", 1))) {
+      drain(result, "mid");
+      var step = stepOf(result);
+      assertThat(step.lastScanBudget()).isGreaterThanOrEqualTo(0L);
+      assertThat(step.lastScanConsumedEntries()).isGreaterThanOrEqualTo(0L);
+
+      var clone = step.copy(step.ctx);
+      assertThat(clone.lastScanBudget()).as("a clone has no previous scan budget").isEqualTo(-1L);
+      assertThat(clone.lastScanConsumedEntries())
+          .as("a clone has no previous consumed-entry count")
+          .isEqualTo(-1L);
+
+      step.reset();
+      assertThat(step.lastScanBudget()).as("re-arm clears the previous scan budget").isEqualTo(-1L);
+      assertThat(step.lastScanConsumedEntries())
+          .as("re-arm clears the previous consumed-entry count")
+          .isEqualTo(-1L);
+    }
+  }
+
   /**
    * DESCENDING over the same fixture is the control. The reachable messages are the newest, so
    * the scan meets one immediately, spends almost none of its budget and keeps the index scan it

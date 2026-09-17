@@ -2205,6 +2205,8 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   @Test
   public void selectWithProductiveAndNonproductiveKeys_dropsOnlyForNonproductiveAbsence() {
     seedTwoSourcesSharingOneTarget();
+    graph.addVertex(T.label, "Person", "missing", "kept");
+    graph.tx().commit();
     var strategy = ProductiveByStrategy.build().productiveKeys("missing").create();
 
     assertEquivalent(

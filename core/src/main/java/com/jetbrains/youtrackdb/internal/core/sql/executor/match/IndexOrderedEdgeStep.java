@@ -188,6 +188,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return lastScanConsumedEntries;
   }
 
+  /** Clears observations before this step runs again. */
+  @Override
+  public void reset() {
+    lastScanBudget = -1;
+    lastScanConsumedEntries = -1;
+  }
+
   public IndexOrderedEdgeStep(
       CommandContext ctx,
       String sourceAlias,
