@@ -2185,6 +2185,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   public void selectAfterDedupWithProductiveModulator_keysOnBoundaryIdentity() {
     seedTwoSourcesSharingOneTarget();
     graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person");
     graph.tx().commit();
 
     assertEquivalent(
@@ -2197,7 +2198,20 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         graph.traversal().withStrategies(ProductiveByStrategy.instance())
             .V().hasLabel("Person").as("q").dedup().select("q").by("name").toList())
         .as("four distinct vertices survive the dedup even though two share the name Bob")
-        .containsExactlyInAnyOrder("Alice", "Bob", "Bob", "Dave");
+        .containsExactlyInAnyOrder("Alice", "Bob", "Bob", "Dave", null);
+  }
+
+  /** Productive and filtering keys must apply their absence rules independently. */
+  @Test
+  public void selectWithProductiveAndNonproductiveKeys_dropsOnlyForNonproductiveAbsence() {
+    seedTwoSourcesSharingOneTarget();
+    var strategy = ProductiveByStrategy.build().productiveKeys("missing").create();
+
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy(missing)).V().as(q).as(r).select(q, r).by(name).by(missing)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+            .as("q").as("r").select("q", "r").by("name").by("missing"));
   }
 
   /**
