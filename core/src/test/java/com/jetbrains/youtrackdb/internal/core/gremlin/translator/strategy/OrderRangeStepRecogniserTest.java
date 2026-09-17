@@ -1698,8 +1698,6 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       assertThat(boundaryOff)
           .as(scenario + " (translator off) must never engage a boundary step")
           .isEqualTo(0);
-      System.out.println("DBG " + scenario + " on=" + onRows + " off=" + offRows
-          + " bOn=" + boundaryOn + " bOff=" + boundaryOff);
       assertThat(onRows)
           .as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();
