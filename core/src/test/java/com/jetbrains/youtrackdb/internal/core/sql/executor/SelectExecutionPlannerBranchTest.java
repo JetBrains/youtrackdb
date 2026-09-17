@@ -1069,7 +1069,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT name FROM Class ORDER BY #c:p LIMIT 1}.
+   * {@code SELECT name FROM Class ORDER BY #c:p LIMIT 3}.
    * Literal record identifier sort keys are unsupported.
    * The query must raise an {@link UnsupportedOperationException}.
    */

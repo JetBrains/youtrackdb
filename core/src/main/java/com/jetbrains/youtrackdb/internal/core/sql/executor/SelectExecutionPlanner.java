@@ -757,7 +757,7 @@ public class SelectExecutionPlanner {
    * 10. addOrderByProjs    -- add synthetic projections when projection must run first
    * </pre>.
    *
-   * <p>After this method completes, {@code info.flattenedWhereClause} is a
+   * <p>After this method completes, {@code info.flattenedWhereClause} becomes a
    * {@code List<SQLAndBlock>}.
    * Each block represents one OR-branch.
    * Conditions appear in equality-first order.
@@ -2256,7 +2256,7 @@ public class SelectExecutionPlanner {
    * A parameterized bound must be read on every execution.
    *
    * <p>The invalidating-operator list is intentionally incomplete.
-   * EXPAND and UNWIND multiply rows after sorting, so they remain unbounded.
+   * EXPAND and UNWIND multiply rows before sorting, so they remain unbounded.
    * DISTINCT also invalidates the bound.
    * Its step follows projection and sorting on the DISTINCT path.
    * Duplicate rows can fill the bounded heap.
