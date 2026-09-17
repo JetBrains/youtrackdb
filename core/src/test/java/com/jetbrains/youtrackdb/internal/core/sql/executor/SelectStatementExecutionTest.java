@@ -576,6 +576,120 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
   }
 
+  /**
+   * A projection alias must not hide the linked source value used by ORDER BY.
+   * The result order follows the linked address cities, not insertion order.
+   */
+  @Test
+  public void testOrderByProjectionAliasPropertyUsesLinkedSourceValue() {
+    var addressClass = session.getMetadata().getSchema().createClass("OrderByAddress");
+    var personClass = session.getMetadata().getSchema().createClass("Person");
+    personClass.createProperty("name", PropertyType.STRING);
+    personClass.createProperty("address", PropertyType.LINK, addressClass);
+    addressClass.createProperty("city", PropertyType.STRING);
+
+    session.begin();
+    var zurich = session.newInstance(addressClass.getName());
+    zurich.setProperty("city", "Zurich");
+    var amsterdam = session.newInstance(addressClass.getName());
+    amsterdam.setProperty("city", "Amsterdam");
+    var berlin = session.newInstance(addressClass.getName());
+    berlin.setProperty("city", "Berlin");
+    var charlie = session.newInstance(personClass.getName());
+    charlie.setProperty("name", "Charlie");
+    charlie.setProperty("address", zurich);
+    var alice = session.newInstance(personClass.getName());
+    alice.setProperty("name", "Alice");
+    alice.setProperty("address", amsterdam);
+    var bob = session.newInstance(personClass.getName());
+    bob.setProperty("name", "Bob");
+    bob.setProperty("address", berlin);
+    session.commit();
+
+    try (var result = session.query("SELECT address AS a, name FROM Person ORDER BY a.city")) {
+      assertThat(result.stream().map(row -> row.getProperty("name")).toList())
+          .containsExactly("Alice", "Bob", "Charlie");
+    }
+  }
+
+  /** The projection-alias ORDER BY keeps the correct top two linked rows after sorting. */
+  @Test
+  public void testOrderByProjectionAliasPropertyUsesLinkedSourceValueWithLimit() {
+    var addressClass = session.getMetadata().getSchema().createClass("OrderByAddressLimit");
+    var personClass = session.getMetadata().getSchema().createClass("PersonLimit");
+    personClass.createProperty("name", PropertyType.STRING);
+    personClass.createProperty("address", PropertyType.LINK, addressClass);
+    addressClass.createProperty("city", PropertyType.STRING);
+
+    session.begin();
+    for (var entry : List.of(
+        List.of("Charlie", "Zurich"), List.of("Alice", "Amsterdam"), List.of("Bob", "Berlin"))) {
+      var address = session.newInstance(addressClass.getName());
+      address.setProperty("city", entry.get(1));
+      var person = session.newInstance(personClass.getName());
+      person.setProperty("name", entry.get(0));
+      person.setProperty("address", address);
+    }
+    session.commit();
+
+    try (var result = session.query(
+        "SELECT address AS a, name FROM PersonLimit ORDER BY a.city LIMIT 2")) {
+      assertThat(result.stream().map(row -> row.getProperty("name")).toList())
+          .containsExactly("Alice", "Bob");
+    }
+  }
+
+  /** GROUP BY rows retain the source address needed to order groups by their city values. */
+  @Test
+  public void testGroupByOrderByUnprojectedLinkedPropertyUsesSourceValue() {
+    var addressClass = session.getMetadata().getSchema().createClass("GroupOrderAddress");
+    var personClass = session.getMetadata().getSchema().createClass("GroupOrderPerson");
+    personClass.createProperty("name", PropertyType.STRING);
+    personClass.createProperty("address", PropertyType.LINK, addressClass);
+    addressClass.createProperty("city", PropertyType.STRING);
+
+    session.begin();
+    var zurich = session.newInstance(addressClass.getName());
+    zurich.setProperty("city", "Zurich");
+    var amsterdam = session.newInstance(addressClass.getName());
+    amsterdam.setProperty("city", "Amsterdam");
+    var berlin = session.newInstance(addressClass.getName());
+    berlin.setProperty("city", "Berlin");
+    for (var entry : List.of(List.of("Charlie", zurich), List.of("Alice", amsterdam),
+        List.of("Bob", berlin))) {
+      var person = session.newInstance(personClass.getName());
+      person.setProperty("name", entry.get(0));
+      person.setProperty("address", entry.get(1));
+    }
+    session.commit();
+
+    try (var result = session.query(
+        "SELECT name, count(*) AS c FROM GroupOrderPerson GROUP BY name "
+            + "ORDER BY address.city")) {
+      assertThat(result.stream().map(row -> row.getProperty("name")).toList())
+          .containsExactly("Alice", "Bob", "Charlie");
+    }
+  }
+
+  /** Context variables are not row columns, so ORDER BY must evaluate the projected name value. */
+  @Test
+  public void testOrderByCurrentContextVariableUsesProjectedNameValue() {
+    var className = "CurrentOrderPerson";
+    session.getMetadata().getSchema().createClass(className);
+    session.begin();
+    for (var name : List.of("Charlie", "Alice", "Bob")) {
+      var person = session.newInstance(className);
+      person.setProperty("name", name);
+    }
+    session.commit();
+
+    try (var result = session.query(
+        "SELECT name FROM CurrentOrderPerson ORDER BY $current.name LIMIT 3")) {
+      assertThat(result.stream().map(row -> row.getProperty("name")).toList())
+          .containsExactly("Alice", "Bob", "Charlie");
+    }
+  }
+
   @Test
   public void testOrderByWithoutLimitUnbounded() {
     var className = "testOrderByWithoutLimitUnbounded";
