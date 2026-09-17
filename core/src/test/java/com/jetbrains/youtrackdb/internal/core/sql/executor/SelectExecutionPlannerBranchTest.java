@@ -850,13 +850,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT tags AS t, name FROM Person ORDER BY t[0] LIMIT 3}. Same defect as
-   * {@link #orderByRenamedLinkAliasProperty_projectsBeforeSort} but with a collection-index
-   * modifier instead of a property modifier: {@code t} exists only after projection, so the
-   * planner must project before sorting.
+   * {@code SELECT tags AS t, name FROM Person ORDER BY t[0] LIMIT 3}.
+   * The collection-index key exists only after projection.
+   * The planner must project before sorting.
    *
-   * <p>Expected outcome: the three rows whose first tag sorts first, in first-tag order. Closes
-   * finding BG302.
+   * <p>Expected outcome: three rows sorted by their first tag. Closes finding BG302.
    */
   @Test
   public void orderByRenamedAliasCollectionIndex_projectsBeforeSort() {
@@ -892,16 +890,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
 
   /**
    * {@code SELECT boss.name AS bossName, name FROM Employee ORDER BY bossName ASC,
-   * boss.rank DESC LIMIT 3}. A mixed ORDER BY list is all-or-nothing: the bare alias
-   * {@code bossName} exists only after projection, so the whole statement must project early
-   * <em>and</em> keep a synthetic column for the second key. Dropping the synthetic column
-   * makes the tie-break key null on every row, so ties on {@code bossName} come out in scan
-   * order.
+   * boss.rank DESC LIMIT 3}.
+   * The alias requires early projection.
+   * The second key must remain available for sorting.
    *
-   * <p>Expected outcome: every row ties on boss name "ann", so rank DESC alone selects the page
-   * — the three highest ranks, e5, e4, e3. An inert secondary key returns some other trio, since
-   * the bounded heap then keeps whichever three rows it saw first. Closes finding PF2 on the
-   * plain SELECT path.
+   * <p>Expected outcome: ranks select e5, e4, and e3. Closes finding PF2.
    */
   @Test
   public void mixedOrderByBareAliasAndAliasProperty_keepsSecondaryKey() {
@@ -1039,12 +1032,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT * FROM Person ORDER BY name ASC LIMIT 2}. A select-all projection mints no
-   * alias of its own, so a plain field name in ORDER BY still reads the source record and the
-   * projection may wait for the slice. Exercises the select-all arm of the pass-through alias
-   * scan.
+   * {@code SELECT * FROM Person ORDER BY name ASC LIMIT 2}.
+   * A plain field reads the source record.
+   * The select-all projection may wait for the slice.
    *
-   * <p>Expected outcome: the two alphabetically first rows retain every stored property.
+   * <p>Expected outcome: two alphabetically first rows retain every stored property.
    */
   @Test
   public void orderBySelectAllProjectionWithLimit_defersProjections() {
@@ -1077,12 +1069,9 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT name FROM Class ORDER BY #c:p LIMIT 1}. A literal RID item carries no alias at
-   * all, so it can never be read off the upstream row. The planner must refuse to defer and must
-   * keep building the synthetic projection that replaces the literal.
-   *
-   * <p>Expected outcome: projection precedes sorting, then the unsupported literal RID comparison
-   * throws consistently with the select-all path.
+   * {@code SELECT name FROM Class ORDER BY #c:p LIMIT 1}.
+   * Literal record identifier sort keys are unsupported.
+   * The query must raise an {@link UnsupportedOperationException}.
    */
   @Test
   public void orderByLiteralRidWithLimit_isUnsupported() {
@@ -1275,8 +1264,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * Known pre-existing defect. The wildcard projection leaks the synthetic sort key.
-   * A correct separate fix must change this expectation.
+   * Known pre-existing defect for {@code SELECT *, marker FROM Class ORDER BY tags[0]}.
+   * The development branch leaks the synthetic sort key.
+   * This change deliberately does not fix that defect.
+   * A correct future fix must break this test.
+   * Review follow-up from 2026-09-17 tracks this defect because no repository identifier exists.
    */
   @Test
   public void knownPreExisting_wildcardProjectionLeaksSyntheticSortKey() {
@@ -1310,8 +1302,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * Known pre-existing defect. Wildcard exclusion resurrects the excluded column as null.
-   * A correct separate fix must change this expectation.
+   * Known pre-existing defect for {@code SELECT *, !secret FROM Class ORDER BY tags[0]}.
+   * The development branch resurrects {@code secret} with a null value.
+   * This change deliberately does not fix that defect.
+   * A correct future fix must break this test.
+   * Review follow-up from 2026-09-17 tracks this defect because no repository identifier exists.
    */
   @Test
   public void knownPreExisting_wildcardExclusionResurrectsColumn() {
