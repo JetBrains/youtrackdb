@@ -18,10 +18,15 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -842,5 +847,524 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   /** Returns a unique suffix so parallel test classes do not collide on class names. */
   private static String uniqueSuffix() {
     return java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+  }
+
+  /**
+   * {@code SELECT tags AS t, name FROM Person ORDER BY t[0] LIMIT 3}. Same defect as
+   * {@link #orderByRenamedLinkAliasProperty_projectsBeforeSort} but with a collection-index
+   * modifier instead of a property modifier: {@code t} exists only after projection, so the
+   * planner must project before sorting.
+   *
+   * <p>Expected outcome: the three rows whose first tag sorts first, in first-tag order. Closes
+   * finding BG302.
+   */
+  @Test
+  public void orderByRenamedAliasCollectionIndex_projectsBeforeSort() {
+    var className = "DeferTagged_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    // First tags run counter to insertion order, so scan order and tag order disagree.
+    var firstTags = new String[] {"delta", "charlie", "bravo", "alpha"};
+    for (var i = 0; i < firstTags.length; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "p" + i);
+      var tags = doc.<String>getOrCreateEmbeddedList("tags");
+      tags.add(firstTags[i]);
+      tags.add("zzz");
+    }
+    session.commit();
+
+    var sql = "select tags as t, name from " + className + " order by t[0] asc limit 3";
+    try (var result = session.query(sql)) {
+      var plan = planOf(result);
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          plan,
+          "+ CALCULATE PROJECTIONS",
+          "+ ORDER BY",
+          "a collection-index key on a projection-minted alias must be projected before "
+              + "sorting; plan was:\n" + plan);
+      Assert.assertEquals(3, rows.size());
+      Assert.assertEquals("p3", rows.get(0).getProperty("name"));
+      Assert.assertEquals("p2", rows.get(1).getProperty("name"));
+      Assert.assertEquals("p1", rows.get(2).getProperty("name"));
+    }
+  }
+
+  /**
+   * {@code SELECT boss.name AS bossName, name FROM Employee ORDER BY bossName ASC,
+   * boss.rank DESC LIMIT 3}. A mixed ORDER BY list is all-or-nothing: the bare alias
+   * {@code bossName} exists only after projection, so the whole statement must project early
+   * <em>and</em> keep a synthetic column for the second key. Dropping the synthetic column
+   * makes the tie-break key null on every row, so ties on {@code bossName} come out in scan
+   * order.
+   *
+   * <p>Expected outcome: every row ties on boss name "ann", so rank DESC alone selects the page
+   * — the three highest ranks, e5, e4, e3. An inert secondary key returns some other trio, since
+   * the bounded heap then keeps whichever three rows it saw first. Closes finding PF2 on the
+   * plain SELECT path.
+   */
+  @Test
+  public void mixedOrderByBareAliasAndAliasProperty_keepsSecondaryKey() {
+    var suffix = uniqueSuffix();
+    var bossClass = "MixedBoss_" + suffix;
+    var employeeClass = "MixedEmployee_" + suffix;
+    session.getMetadata().getSchema().createClass(bossClass);
+    var employee = session.getMetadata().getSchema().createClass(employeeClass);
+    employee.createProperty("boss", PropertyType.LINK);
+
+    session.begin();
+    // All bosses share one name, so the primary key ties on every row and only the secondary
+    // key can pick the page. Ranks ascend with insertion order, so the requested DESC page is
+    // the last three rows inserted.
+    for (var i = 0; i < 6; i++) {
+      var boss = session.newInstance(bossClass);
+      boss.setProperty("name", "ann");
+      boss.setProperty("rank", i);
+      var worker = session.newInstance(employeeClass);
+      worker.setProperty("name", "e" + i);
+      worker.setProperty("boss", boss);
+    }
+    session.commit();
+
+    var sql =
+        "select boss.name as bossName, name from " + employeeClass
+            + " order by bossName asc, boss.rank desc limit 3";
+    try (var result = session.query(sql)) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(3, rows.size());
+      Assert.assertEquals("e5", rows.get(0).getProperty("name"));
+      Assert.assertEquals("e4", rows.get(1).getProperty("name"));
+      Assert.assertEquals("e3", rows.get(2).getProperty("name"));
+    }
+  }
+
+  /**
+   * {@code SELECT name FROM Class ORDER BY @version DESC LIMIT 2}. A record attribute is
+   * readable from the source record itself, so with a slice present the planner may keep
+   * projections after ORDER BY and LIMIT. Guards the positive side of the deferral decision:
+   * the record-attribute shape must stay deferrable and must still sort correctly.
+   *
+   * <p>Expected outcome: ORDER BY precedes CALCULATE PROJECTIONS, and the two most-updated
+   * records come back highest version first.
+   */
+  @Test
+  public void orderByRecordAttributeWithLimit_defersProjections() {
+    var className = "DeferVersion_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 4; i++) {
+      session.newInstance(className).setProperty("name", "n" + i);
+    }
+    session.commit();
+
+    // Bump versions unevenly so @version discriminates. Record versions start from a
+    // storage-dependent baseline, so the expectation is derived from the stored versions
+    // rather than hard-coded.
+    for (var round = 0; round < 3; round++) {
+      session.begin();
+      session.execute("update " + className + " set touched = " + round + " where name = 'n0'")
+          .close();
+      session.commit();
+    }
+    session.begin();
+    session.execute("update " + className + " set touched = 0 where name = 'n2'").close();
+    session.commit();
+
+    List<String> expectedTopTwo;
+    try (var versions = session.query("select name, @version as v from " + className)) {
+      expectedTopTwo =
+          versions.stream()
+              .sorted(
+                  Comparator.comparingInt(
+                      (Result row) -> ((Number) row.getProperty("v")).intValue()).reversed())
+              .limit(2)
+              .map(row -> (String) row.getProperty("name"))
+              .toList();
+    }
+
+    var sql = "select name from " + className + " order by @version desc limit 2";
+    try (var result = session.query(sql)) {
+      var plan = planOf(result);
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          plan,
+          "+ ORDER BY",
+          "+ CALCULATE PROJECTIONS",
+          "a record attribute is readable upstream, so ORDER BY must precede projections; "
+              + "plan was:\n" + plan);
+      Assert.assertEquals(2, rows.size());
+      Assert.assertEquals(expectedTopTwo.get(0), rows.get(0).getProperty("name"));
+      Assert.assertEquals(expectedTopTwo.get(1), rows.get(1).getProperty("name"));
+    }
+  }
+
+  /**
+   * {@code SELECT name FROM Person LET $rank = 100 - score ORDER BY $rank LIMIT 2}. A LET
+   * variable lives in row metadata rather than in a column, so the deferral decision must refuse
+   * to sort the upstream row on it and must keep the synthetic ORDER BY column instead.
+   *
+   * <p>Expected outcome: ascending {@code $rank} is descending {@code score}, so the two highest
+   * scores come back, highest first. Exercises the LET-variable arm of the item test and the LET
+   * clause walk that feeds it.
+   */
+  @Test
+  public void orderByLetVariableWithLimit_sortsOnTheLetValue() {
+    var className = "DeferLetVar_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    // Scores run counter to the requested order, so scan order cannot pass by accident.
+    var scores = new int[] {10, 40, 20, 30};
+    for (var i = 0; i < scores.length; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("score", scores[i]);
+    }
+    session.commit();
+
+    var sql =
+        "select name from " + className + " let $rank = 100 - score order by $rank asc limit 2";
+    try (var result = session.query(sql)) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(2, rows.size());
+      Assert.assertEquals("n1", rows.get(0).getProperty("name"));
+      Assert.assertEquals("n3", rows.get(1).getProperty("name"));
+      for (var row : rows) {
+        for (var propName : row.getPropertyNames()) {
+          Assert.assertFalse(
+              "synthetic ORDER BY alias must not leak into visible output: " + propName,
+              propName.startsWith("_$$$"));
+        }
+      }
+    }
+  }
+
+  /**
+   * {@code SELECT * FROM Person ORDER BY name ASC LIMIT 2}. A select-all projection mints no
+   * alias of its own, so a plain field name in ORDER BY still reads the source record and the
+   * projection may wait for the slice. Exercises the select-all arm of the pass-through alias
+   * scan.
+   *
+   * <p>Expected outcome: the two alphabetically first rows, in order, each still carrying every
+   * stored property.
+   */
+  @Test
+  public void orderBySelectAllProjectionWithLimit_defersProjections() {
+    var className = "DeferSelectAll_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var name : new String[] {"zoe", "amy", "mia", "bea"}) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", name);
+      doc.setProperty("marker", "m-" + name);
+    }
+    session.commit();
+
+    var sql = "select * from " + className + " order by name asc limit 2";
+    try (var result = session.query(sql)) {
+      var plan = planOf(result);
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          plan,
+          "+ ORDER BY",
+          "+ CALCULATE PROJECTIONS",
+          "a select-all projection mints no alias, so ORDER BY must precede projections; "
+              + "plan was:\n" + plan);
+      Assert.assertEquals(2, rows.size());
+      Assert.assertEquals("amy", rows.get(0).getProperty("name"));
+      Assert.assertEquals("bea", rows.get(1).getProperty("name"));
+      // Select-all must still carry the non-sorted columns through the deferred projection.
+      Assert.assertEquals("m-amy", rows.get(0).getProperty("marker"));
+      Assert.assertEquals("m-bea", rows.get(1).getProperty("marker"));
+    }
+  }
+
+  /**
+   * {@code SELECT name FROM Class ORDER BY #c:p LIMIT 1}. A literal RID item carries no alias at
+   * all, so it can never be read off the upstream row. The planner must refuse to defer and must
+   * keep building the synthetic projection that replaces the literal.
+   *
+   * <p>Expected outcome: CALCULATE PROJECTIONS precedes ORDER BY, and the row still comes back
+   * with its projected column. The fixture holds one record on purpose. With two or more,
+   * {@code SQLOrderByItem.compare} throws {@code UnsupportedOperationException} because
+   * {@code calculateAdditionalOrderByProjections} rewrites the item alias without clearing its
+   * rid. That defect predates this track and this track does not own it.
+   */
+  @Test
+  public void orderByLiteralRidWithLimit_refusesToDefer() {
+    var className = "DeferLiteralRid_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    var doc = session.newInstance(className);
+    doc.setProperty("name", "only");
+    var rid = doc.getIdentity();
+    session.commit();
+
+    var sql = "select name from " + className + " order by " + rid + " limit 1";
+    try (var result = session.query(sql)) {
+      var plan = planOf(result);
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          plan,
+          "+ CALCULATE PROJECTIONS",
+          "+ ORDER BY",
+          "an aliasless ORDER BY item cannot be read upstream, so projections must precede "
+              + "ORDER BY; plan was:\n" + plan);
+      Assert.assertEquals(1, rows.size());
+      Assert.assertEquals("only", rows.getFirst().getProperty("name"));
+    }
+  }
+
+  /**
+   * {@code SELECT name FROM Class ORDER BY @rid ASC}. A field projection, unlike a select-all,
+   * lets the planner add a synthetic ORDER BY column. The RID scan then satisfies the order and
+   * marks it applied, which must not stop the planner from stripping that internal column.
+   *
+   * <p>Expected outcome: strictly increasing RIDs and no internal column in the visible output.
+   * The RID is projected explicitly, because a field projection carries no record identity and a
+   * class may spread its records over several clusters, so insertion order is not RID order.
+   */
+  @Test
+  public void orderByRidOnFieldProjection_stripsSyntheticColumn() {
+    var className = "RidFieldProjection_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 4; i++) {
+      session.newInstance(className).setProperty("name", "n" + i);
+    }
+    session.commit();
+
+    var sql = "select name, @rid as rid from " + className + " order by @rid asc";
+    try (var result = session.query(sql)) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(4, rows.size());
+      for (var i = 1; i < rows.size(); i++) {
+        var previous = (RID) rows.get(i - 1).getProperty("rid");
+        var current = (RID) rows.get(i).getProperty("rid");
+        Assert.assertTrue(
+            "RIDs must increase under ORDER BY @rid ASC: " + previous + " vs " + current,
+            previous.compareTo(current) < 0);
+      }
+      for (var row : rows) {
+        for (var propName : row.getPropertyNames()) {
+          Assert.assertFalse(
+              "synthetic ORDER BY alias must not leak into visible output: " + propName,
+              propName.startsWith("_$$$"));
+        }
+      }
+    }
+  }
+
+  /**
+   * {@code SELECT count(*) AS c FROM Class LIMIT :n} with {@code n} left unbound. Planning must
+   * not resolve the LIMIT parameter, because a bare {@code count(*)} short-circuits before any
+   * LIMIT step is built. Resolving it during planning turns a working statement into a plan-time
+   * failure.
+   *
+   * <p>Expected outcome: the count comes back.
+   */
+  @Test
+  public void countStarWithUnboundLimitParameter_stillPlans() {
+    var className = "UnboundLimitCount_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      session.newInstance(className).setProperty("name", "n" + i);
+    }
+    session.commit();
+
+    try (var result = session.query("select count(*) as c from " + className + " limit :n")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(1, rows.size());
+      Assert.assertEquals(3L, ((Number) rows.getFirst().getProperty("c")).longValue());
+    }
+  }
+
+  /**
+   * {@code SELECT name, boss AS name FROM Employee ORDER BY name ASC LIMIT 3}. Two projection
+   * items mint the same output alias: one passes the upstream field through, the other renames a
+   * link onto it. The renaming item wins in the output row, so the alias is shadowed and the
+   * planner must not sort the upstream value.
+   *
+   * <p>Expected outcome: the page follows the projected {@code name} column, which carries the
+   * boss link, so its ordering is by RID rather than by the employee name.
+   */
+  @Test
+  public void orderByDuplicateAliasWhereOneItemRenames_projectsBeforeSort() {
+    var suffix = uniqueSuffix();
+    var bossClass = "ShadowBoss_" + suffix;
+    var employeeClass = "ShadowEmployee_" + suffix;
+    session.getMetadata().getSchema().createClass(bossClass);
+    var employee = session.getMetadata().getSchema().createClass(employeeClass);
+    employee.createProperty("boss", PropertyType.LINK);
+
+    session.begin();
+    for (var i = 0; i < 4; i++) {
+      var boss = session.newInstance(bossClass);
+      boss.setProperty("name", "b" + i);
+      var worker = session.newInstance(employeeClass);
+      // Employee names descend while boss RIDs ascend, so sorting the upstream field and sorting
+      // the projected column disagree on every row.
+      worker.setProperty("name", "e" + (3 - i));
+      worker.setProperty("boss", boss);
+    }
+    session.commit();
+
+    var sql =
+        "select name, boss as name from " + employeeClass + " order by name asc limit 3";
+    try (var result = session.query(sql)) {
+      var plan = planOf(result);
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          plan,
+          "+ CALCULATE PROJECTIONS",
+          "+ ORDER BY",
+          "a shadowed output alias must be projected before sorting; plan was:\n" + plan);
+      Assert.assertEquals(3, rows.size());
+      // The projected name column holds the boss link, and boss RIDs ascend with insertion.
+      for (var i = 0; i < rows.size(); i++) {
+        Assert.assertNotNull("the projected alias must carry the renaming item's value",
+            rows.get(i).getProperty("name"));
+      }
+    }
+  }
+
+  private static String planOf(ResultSet result) {
+    var plan = result.getExecutionPlan();
+    Assert.assertNotNull("result set carries no execution plan", plan);
+    return plan.prettyPrint(0, 2);
+  }
+
+  private static void assertPlanStepOrder(
+      String plan, String earlier, String later, String message) {
+    var earlierAt = plan.indexOf(earlier);
+    var laterAt = plan.indexOf(later);
+    Assert.assertTrue("plan is missing " + earlier + ":\n" + plan, earlierAt >= 0);
+    Assert.assertTrue("plan is missing " + later + ":\n" + plan, laterAt >= 0);
+    Assert.assertTrue(message, earlierAt < laterAt);
+  }
+
+  /**
+   * {@code SELECT name FROM Class ORDER BY tags[0] ASC LIMIT 2} where {@code tags} is a stored
+   * collection the projection does not rename. The key is readable upstream, yet a bracket
+   * modifier is not a plain property read, so the planner materialises it once per row instead
+   * of evaluating it on both sides of every comparison.
+   *
+   * <p>Expected outcome: projections precede ORDER BY in the plan, and the rows come back in
+   * first-tag order.
+   */
+  @Test
+  public void orderByCollectionIndexOnUnshadowedName_projectsBeforeSort() {
+    var className = "DeferBracketKey_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    var firstTags = new String[] {"delta", "charlie", "bravo", "alpha"};
+    for (var i = 0; i < firstTags.length; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "p" + i);
+      var tags = doc.<String>getOrCreateEmbeddedList("tags");
+      tags.add(firstTags[i]);
+    }
+    session.commit();
+
+    var sql = "select name from " + className + " order by tags[0] asc limit 2";
+    try (var result = session.query(sql)) {
+      var plan = planOf(result);
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          plan,
+          "+ CALCULATE PROJECTIONS",
+          "+ ORDER BY",
+          "a bracket key must be materialised before sorting; plan was:\n" + plan);
+      Assert.assertEquals(2, rows.size());
+      Assert.assertEquals("p3", rows.get(0).getProperty("name"));
+      Assert.assertEquals("p2", rows.get(1).getProperty("name"));
+    }
+  }
+
+  /**
+   * {@code SELECT *, marker FROM Class ORDER BY @rid}. A select-all item sits beside a named
+   * one, so the planner adds a synthetic ORDER BY column and must remove it afterwards. The
+   * removal step must keep the select-all meaning: every stored column has to survive it.
+   *
+   * <p>Expected outcome: no internal column reaches the caller and every stored property is
+   * still there, both asserted on the same rows.
+   */
+  @Test
+  public void orderByRidWithSelectAllProjection_stripsOnlyTheSyntheticColumn() {
+    var className = "StripSelectAll_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("marker", "m" + i);
+      doc.setProperty("extra", i);
+    }
+    session.commit();
+
+    try (var result = session.query("select *, marker from " + className + " order by @rid")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(3, rows.size());
+      for (var row : rows) {
+        for (var propName : row.getPropertyNames()) {
+          Assert.assertFalse(
+              "synthetic ORDER BY alias must not leak into visible output: " + propName,
+              propName.startsWith("_$$$"));
+        }
+        var name = (String) row.getProperty("name");
+        Assert.assertNotNull("select-all must keep the name column", name);
+        Assert.assertEquals("select-all must keep the marker column",
+            "m" + name.substring(1), row.getProperty("marker"));
+        Assert.assertNotNull("select-all must keep the extra column", row.getProperty("extra"));
+      }
+    }
+  }
+
+  /**
+   * {@code SELECT *, !secret FROM Class ORDER BY @rid}. The projection excludes one column, and
+   * the planner adds a synthetic ORDER BY column beside it. Removing the synthetic column must
+   * not resurrect the excluded one.
+   *
+   * <p>Expected outcome: no internal column and no excluded column reach the caller, while the
+   * remaining stored columns do.
+   */
+  @Test
+  public void orderByRidWithExcludedColumn_stripsWithoutResurrectingIt() {
+    var className = "StripExclude_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("secret", "s" + i);
+    }
+    session.commit();
+
+    try (var result = session.query("select *, !secret from " + className + " order by @rid")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(3, rows.size());
+      for (var row : rows) {
+        for (var propName : row.getPropertyNames()) {
+          Assert.assertFalse(
+              "synthetic ORDER BY alias must not leak into visible output: " + propName,
+              propName.startsWith("_$$$"));
+        }
+        Assert.assertFalse(
+            "an excluded column must not come back: " + row.getPropertyNames(),
+            row.getPropertyNames().contains("secret"));
+        Assert.assertNotNull("the remaining columns must survive", row.getProperty("name"));
+      }
+    }
   }
 }
