@@ -107,7 +107,8 @@ import javax.annotation.Nullable;
  *     d. Flatten WHERE          |   whereClause.flatten()
  *     e. Move equalities left   |   moveFlattenedEqualitiesLeft()
  *     f. Split projections      |   splitProjectionsForGroupBy()
- *     g. Add ORDER BY projs     |   addOrderByProjections()
+ *     g. Check ORDER BY keys    |   canDeferOrderByProjections()
+ *     h. Add ORDER BY projs     |   addOrderByProjections()
  *  3. Hard-wired optimizations  | handleHardwiredOptimizations()
  *     (COUNT(*) short-circuits) |
  *  4. Global LET                | handleGlobalLet()
@@ -332,14 +333,10 @@ public class SelectExecutionPlanner {
    *   (SKIP/LIMIT applied early to minimize projection work)
    * </pre>
    *
-   * <p>In all paths, if an ORDER BY clause is present and sort keys are only available
-   * after the SELECT-list projection (projection aliases, or synthetic
-   * {@code _$$$ORDER_BY_ALIAS$$$_*} columns), {@link #handleProjectionsBeforeOrderBy}
-   * runs first so those keys exist for {@link OrderByStep}. When every ORDER BY item is
-   * already evaluable on the upstream row ({@code alias.property}, {@code @rid}, …),
-   * projections stay deferred until after ORDER BY (and SKIP/LIMIT when present) so the
-   * sort still sees MATCH bindings and a top-N query does not run
-   * {@link ProjectionCalculationStep} on every candidate before the bounded heap drops them.
+   * <p>The planner checks every ORDER BY key before adding synthetic projections.
+   * It projects early when any key depends on the SELECT output row.
+   * It defers projection when every key reads the same value from the upstream row.
+   * Deferral preserves MATCH bindings and avoids projecting rows that a bounded sort drops.
    */
   public static void handleProjectionsBlock(
       SelectExecutionPlan result,
@@ -756,7 +753,8 @@ public class SelectExecutionPlanner {
    *  6. equalities left    -- reorder each AND block: equalities first (index-friendly)
    *  7. splitProjections   -- split into pre-aggregate / aggregate / post-aggregate
    *  8. resolveCollations  -- pin the declared collation of each ORDER BY property
-   *  9. addOrderByProjs    -- add synthetic projections for ORDER BY expressions
+   *  9. checkOrderByKeys   -- decide whether every key can read the upstream row
+   * 10. addOrderByProjs    -- add synthetic projections when projection must run first
    * </pre>
    *
    * <p>After this method completes, {@code info.flattenedWhereClause} is a
@@ -1225,6 +1223,10 @@ public class SelectExecutionPlanner {
           newProj.setAlias(newAlias);
           item.setAlias(newAlias.getStringValue());
           item.setModifier(null);
+          // The synthetic alias fully replaces the original expression.
+          // Keeping either field makes the comparator ignore the alias.
+          item.setRecordAttr(null);
+          item.setRid(null);
           result.add(newProj);
         }
       }
@@ -2304,9 +2306,13 @@ public class SelectExecutionPlanner {
               .getItems()
               .forEach(
                   item -> {
-                    var possibleEdgeProperty =
-                        targetClass.getProperty("out_" + item.getAlias());
-                    if (possibleEdgeProperty != null
+                    var alias = item.getAlias();
+                    var possibleEdgeProperty = targetClass.getProperty("out_" + alias);
+                    // A declared scalar property is the SQL ORDER BY key.
+                    // Edge-label lookup remains available only for vertices without that property.
+                    if (targetClass.isVertexType()
+                        && targetClass.getProperty(alias) == null
+                        && possibleEdgeProperty != null
                         && possibleEdgeProperty.getType() == PropertyType.LINKBAG) {
                       item.setEdge(true);
                     }

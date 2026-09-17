@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.ArrayList;
 import java.util.List;
@@ -159,9 +160,13 @@ public class OrderByParameterizedBoundTest extends DbTestBase {
     assertThat(ids(query, Map.of("n", 2), "values")).containsExactly("c", "a");
   }
 
-  /** DISTINCT runs after ORDER BY, so duplicate rows can consume the bounded heap first. */
+  /**
+   * Pins known defect BG601. DISTINCT runs after the bounded sort.
+   * Duplicate rows can fill the heap and produce fewer rows than the requested LIMIT.
+   * A correct BG601 fix must change these expectations.
+   */
   @Test
-  public void distinctAfterSortCanReturnFewerRowsThanParameterizedLimit() {
+  public void knownBg601_distinctAfterBoundedSortCanLoseRows() {
     seedFivePeople();
     session.begin();
     for (var id : new String[] {"a", "a", "b"}) {
@@ -180,11 +185,11 @@ public class OrderByParameterizedBoundTest extends DbTestBase {
     seedFivePeople();
     var query = "SELECT id FROM Person ORDER BY id LIMIT :n";
     assertThatThrownBy(() -> ids(query, Map.of(), "id"))
-        .isInstanceOf(RuntimeException.class)
-        .hasMessageContaining("Invalid value for LIMIT");
+        .isExactlyInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Invalid value for LIMIT: null");
     assertThatThrownBy(() -> ids(query, Map.of("n", "two"), "id"))
-        .isInstanceOf(RuntimeException.class)
-        .hasMessageContaining("Invalid value for LIMIT");
+        .isExactlyInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Invalid value for LIMIT: two");
   }
 
   /**
