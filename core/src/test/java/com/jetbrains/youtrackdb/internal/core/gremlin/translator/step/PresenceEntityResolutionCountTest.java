@@ -1,9 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -127,6 +136,80 @@ public class PresenceEntityResolutionCountTest extends GraphBaseTest {
     assertThat(step.entityColumnResolutions())
         .as("two aliases per row, whatever the column count")
         .isEqualTo(20L);
+  }
+
+  /** A re-arm starts a new observation window for entity resolution counts. */
+  @Test
+  public void rearmResetsEntityResolutionCount() {
+    seedTwoPairs();
+
+    var admin = graph.traversal().V().hasLabel("Person").as("a")
+        .out("knows").as("b")
+        .select("a", "b").by("name").by("city")
+        .asAdmin();
+    admin.applyStrategies();
+    var step = boundaryStep(admin);
+
+    assertThat(admin.toList()).hasSize(2);
+    assertThat(step.entityColumnResolutions()).isEqualTo(4L);
+    admin.reset();
+    assertThat(step.entityColumnResolutions())
+        .as("reset clears observations before the next arming")
+        .isZero();
+    assertThat(admin.toList()).hasSize(2);
+    assertThat(step.entityColumnResolutions()).isEqualTo(4L);
+  }
+
+  /**
+   * Two threads resolve the same column name through separate clones. Each clone must retain its
+   * own cached entity after the other clone writes its cache.
+   */
+  @Test
+  public void twoClonesResolveEntitiesWithoutSharingCache() throws Exception {
+    seedTwoPairs();
+    var admin = graph.traversal().V().hasLabel("Person").as("a")
+        .select("a").by("name").asAdmin();
+    admin.applyStrategies();
+    var original = boundaryStep(admin);
+    var cloneA = (AbstractMatchPlanStep<?, ?>) original.clone();
+    var cloneB = (AbstractMatchPlanStep<?, ?>) original.clone();
+
+    Field cacheField = AbstractMatchPlanStep.class.getDeclaredField("rowEntityCache");
+    cacheField.setAccessible(true);
+    assertThat(cacheField.get(cloneA)).isNotSameAs(cacheField.get(cloneB));
+
+    Method resolve = AbstractMatchPlanStep.class.getDeclaredMethod(
+        "resolveEntityFromColumn", Result.class, String.class);
+    resolve.setAccessible(true);
+    var entityA = mock(EntityImpl.class);
+    var entityB = mock(EntityImpl.class);
+    var rowA = mock(Result.class);
+    var rowB = mock(Result.class);
+    when(rowA.getEntity("entity")).thenReturn(entityA);
+    when(rowB.getEntity("entity")).thenReturn(entityB);
+
+    var phases = new CyclicBarrier(2);
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var first = pool.submit(() -> {
+        phases.await();
+        assertThat(resolve.invoke(cloneA, rowA, "entity")).isSameAs(entityA);
+        phases.await();
+        phases.await();
+        assertThat(resolve.invoke(cloneA, rowA, "entity")).isSameAs(entityA);
+        return null;
+      });
+      var second = pool.submit(() -> {
+        phases.await();
+        phases.await();
+        assertThat(resolve.invoke(cloneB, rowB, "entity")).isSameAs(entityB);
+        phases.await();
+        return null;
+      });
+      first.get(10, TimeUnit.SECONDS);
+      second.get(10, TimeUnit.SECONDS);
+    }
+    assertThat(cloneA.entityColumnResolutions()).isEqualTo(1L);
+    assertThat(cloneB.entityColumnResolutions()).isEqualTo(1L);
   }
 
   /**
