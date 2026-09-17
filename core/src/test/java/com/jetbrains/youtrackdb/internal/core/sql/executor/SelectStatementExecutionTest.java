@@ -690,7 +690,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
   }
 
-  /** A synthetic record-attribute key must not leak from a hardwired count result. */
+  /** A synthetic record-attribute key must not leak from a generic aggregate result. */
   @Test
   public void testCountOrderByRidDoesNotLeakSyntheticColumn() {
     var className = "CountOrderByRid";

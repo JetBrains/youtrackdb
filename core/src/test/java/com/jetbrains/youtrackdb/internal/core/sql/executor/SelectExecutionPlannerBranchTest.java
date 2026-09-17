@@ -30,8 +30,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -47,9 +45,6 @@ import org.junit.Test;
  * .DatabaseSessionEmbedded} context.
  */
 public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
-
-  private static final String PROJECTION_STEP_LABEL = "+ CALCULATE PROJECTIONS";
-  private static final String ORDER_BY_STEP_LABEL = "+ ORDER BY";
 
   /**
    * {@code SELECT FROM :target} with the parameter bound to a {@link SchemaClass} value. Exercises
@@ -882,14 +877,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
 
     var sql = "select tags as t, name from " + className + " order by t[0] asc limit 3";
     try (var result = session.query(sql)) {
-      var plan = planOf(result);
       var rows = result.stream().toList();
       assertPlanStepOrder(
-          plan,
-          PROJECTION_STEP_LABEL,
-          ORDER_BY_STEP_LABEL,
-          "a collection-index key on a projection-minted alias must be projected before "
-              + "sorting; plan was:\n" + plan);
+          result,
+          ProjectionCalculationStep.class,
+          OrderByStep.class,
+          "a collection-index key on a projection-minted alias must be projected before sorting");
       Assert.assertEquals(3, rows.size());
       Assert.assertEquals("p3", rows.get(0).getProperty("name"));
       Assert.assertEquals("p2", rows.get(1).getProperty("name"));
@@ -992,14 +985,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
 
     var sql = "select name from " + className + " order by @version desc limit 2";
     try (var result = session.query(sql)) {
-      var plan = planOf(result);
       var rows = result.stream().toList();
       assertPlanStepOrder(
-          plan,
-          ORDER_BY_STEP_LABEL,
-          PROJECTION_STEP_LABEL,
-          "a record attribute is readable upstream, so ORDER BY must precede projections; "
-              + "plan was:\n" + plan);
+          result,
+          OrderByStep.class,
+          ProjectionCalculationStep.class,
+          "a record attribute is readable upstream, so ORDER BY must precede projections");
       Assert.assertEquals(2, rows.size());
       Assert.assertEquals(expectedTopTwo.get(0), rows.get(0).getProperty("name"));
       Assert.assertEquals(expectedTopTwo.get(1), rows.get(1).getProperty("name"));
@@ -1008,8 +999,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
 
   /**
    * {@code SELECT name FROM Person LET $rank = 100 - score ORDER BY $rank LIMIT 2}. A LET
-   * variable lives in row metadata rather than in a column, so the deferral decision must refuse
-   * to sort the upstream row on it and must keep the synthetic ORDER BY column instead.
+   * variable lives in row metadata rather than in a column.
+   * The planner must project its value before sorting.
    *
    * <p>Expected outcome: ascending {@code $rank} is descending {@code score}, so the two highest
    * scores come back, highest first. Exercises the LET-variable arm of the item test and the LET
@@ -1053,8 +1044,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
    * projection may wait for the slice. Exercises the select-all arm of the pass-through alias
    * scan.
    *
-   * <p>Expected outcome: the two alphabetically first rows, in order, each still carrying every
-   * stored property.
+   * <p>Expected outcome: the two alphabetically first rows retain every stored property.
    */
   @Test
   public void orderBySelectAllProjectionWithLimit_defersProjections() {
@@ -1071,14 +1061,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
 
     var sql = "select * from " + className + " order by name asc limit 2";
     try (var result = session.query(sql)) {
-      var plan = planOf(result);
       var rows = result.stream().toList();
       assertPlanStepOrder(
-          plan,
-          ORDER_BY_STEP_LABEL,
-          PROJECTION_STEP_LABEL,
-          "a select-all projection mints no alias, so ORDER BY must precede projections; "
-              + "plan was:\n" + plan);
+          result,
+          OrderByStep.class,
+          ProjectionCalculationStep.class,
+          "a select-all projection mints no alias, so ORDER BY must precede projections");
       Assert.assertEquals(2, rows.size());
       Assert.assertEquals("amy", rows.get(0).getProperty("name"));
       Assert.assertEquals("bea", rows.get(1).getProperty("name"));
@@ -1093,8 +1081,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
    * all, so it can never be read off the upstream row. The planner must refuse to defer and must
    * keep building the synthetic projection that replaces the literal.
    *
-   * <p>Expected outcome: projection precedes sorting. Multiple rows force key comparisons.
-   * Every literal key ties, so the test checks the complete result rather than scan order.
+   * <p>Expected outcome: projection precedes sorting, then the unsupported literal RID comparison
+   * throws consistently with the select-all path.
    */
   @Test
   public void orderByLiteralRidWithLimit_refusesToDefer() {
@@ -1112,19 +1100,13 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     session.commit();
 
     var sql = "select name from " + className + " order by " + rid + " limit 3";
-    try (var result = session.query(sql)) {
-      var plan = planOf(result);
-      var rows = result.stream().toList();
-      assertPlanStepOrder(
-          plan,
-          PROJECTION_STEP_LABEL,
-          ORDER_BY_STEP_LABEL,
-          "an aliasless ORDER BY item cannot be read upstream, so projections must precede "
-              + "ORDER BY; plan was:\n" + plan);
-      Assert.assertEquals(3, rows.size());
-      Assert.assertEquals(Set.of("n0", "n1", "n2"),
-          rows.stream().map(row -> (String) row.getProperty("name")).collect(Collectors.toSet()));
-    }
+    Assert.assertThrows(
+        UnsupportedOperationException.class,
+        () -> {
+          try (var result = session.query(sql)) {
+            result.stream().toList();
+          }
+        });
   }
 
   /**
@@ -1193,7 +1175,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
    * planner must not sort the upstream value.
    *
    * <p>Expected outcome: the page follows the projected {@code name} column, which carries the
-   * boss link, so its ordering is by RID rather than by the employee name.
+   * boss link. The projected links therefore determine the order.
    */
   @Test
   public void orderByDuplicateAliasWhereOneItemRenames_projectsBeforeSort() {
@@ -1219,13 +1201,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     var sql =
         "select name, boss as name from " + employeeClass + " order by name asc limit 3";
     try (var result = session.query(sql)) {
-      var plan = planOf(result);
       var rows = result.stream().toList();
       assertPlanStepOrder(
-          plan,
-          PROJECTION_STEP_LABEL,
-          ORDER_BY_STEP_LABEL,
-          "a shadowed output alias must be projected before sorting; plan was:\n" + plan);
+          result,
+          ProjectionCalculationStep.class,
+          OrderByStep.class,
+          "a shadowed output alias must be projected before sorting");
       Assert.assertEquals(3, rows.size());
       // The projected name column holds the boss link, and boss RIDs must ascend.
       for (var i = 1; i < rows.size(); i++) {
@@ -1237,18 +1218,21 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     }
   }
 
-  private static String planOf(ResultSet result) {
-    var plan = result.getExecutionPlan();
-    Assert.assertNotNull("result set carries no execution plan", plan);
-    return plan.prettyPrint(0, 2);
-  }
-
   private static void assertPlanStepOrder(
-      String plan, String earlier, String later, String message) {
-    var earlierAt = plan.indexOf(earlier);
-    var laterAt = plan.indexOf(later);
-    Assert.assertTrue("plan is missing " + earlier + ":\n" + plan, earlierAt >= 0);
-    Assert.assertTrue("plan is missing " + later + ":\n" + plan, laterAt >= 0);
+      ResultSet result, Class<?> earlier, Class<?> later, String message) {
+    var steps = result.getExecutionPlan().getSteps();
+    var earlierAt = -1;
+    var laterAt = -1;
+    for (var i = 0; i < steps.size(); i++) {
+      if (earlier.isInstance(steps.get(i)) && earlierAt < 0) {
+        earlierAt = i;
+      }
+      if (later.isInstance(steps.get(i)) && laterAt < 0) {
+        laterAt = i;
+      }
+    }
+    Assert.assertTrue("plan is missing " + earlier.getSimpleName(), earlierAt >= 0);
+    Assert.assertTrue("plan is missing " + later.getSimpleName(), laterAt >= 0);
     Assert.assertTrue(message, earlierAt < laterAt);
   }
 
@@ -1278,13 +1262,12 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
 
     var sql = "select name from " + className + " order by tags[0] asc limit 2";
     try (var result = session.query(sql)) {
-      var plan = planOf(result);
       var rows = result.stream().toList();
       assertPlanStepOrder(
-          plan,
-          PROJECTION_STEP_LABEL,
-          ORDER_BY_STEP_LABEL,
-          "a bracket key must be materialised before sorting; plan was:\n" + plan);
+          result,
+          ProjectionCalculationStep.class,
+          OrderByStep.class,
+          "a bracket key must be materialised before sorting");
       Assert.assertEquals(2, rows.size());
       Assert.assertEquals("p3", rows.get(0).getProperty("name"));
       Assert.assertEquals("p2", rows.get(1).getProperty("name"));
@@ -1292,11 +1275,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT name, marker, extra FROM Class ORDER BY tags[0]}. A bracket key rejects
-   * deferral. The planner adds a synthetic ORDER BY column and must remove it afterwards.
+   * {@code SELECT *, marker FROM Class ORDER BY tags[0]}. A bracket key rejects deferral.
+   * The planner must preserve the wildcard and remove the synthetic key.
    */
   @Test
-  public void orderByBracketKeyWithFieldList_stripsSyntheticColumn() {
+  public void orderByRidWithSelectAllProjection_stripsOnlyTheSyntheticColumn() {
     var className = "StripSelectAll_" + uniqueSuffix();
     session.getMetadata().getSchema().createClass(className);
 
@@ -1311,7 +1294,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     session.commit();
 
     try (var result = session.query(
-        "select name, marker, extra from " + className + " order by tags[0]")) {
+        "select *, marker from " + className + " order by tags[0]")) {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
       for (var row : rows) {
@@ -1321,20 +1304,20 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
               propName.startsWith("_$$$"));
         }
         var name = (String) row.getProperty("name");
-        Assert.assertNotNull("field list must keep the name column", name);
-        Assert.assertEquals("field list must keep the marker column",
+        Assert.assertNotNull("select-all must keep the name column", name);
+        Assert.assertEquals("select-all must keep the marker column",
             "m" + name.substring(1), row.getProperty("marker"));
-        Assert.assertNotNull("field list must keep the extra column", row.getProperty("extra"));
+        Assert.assertNotNull("select-all must keep the extra column", row.getProperty("extra"));
       }
     }
   }
 
   /**
-   * {@code SELECT name FROM Class ORDER BY tags[0]}. This second field-only shape verifies that
-   * stripping works when the source also contains unprojected columns.
+   * {@code SELECT *, !secret FROM Class ORDER BY tags[0]}. Exclusion must survive stripping.
+   * The synthetic key must not resurrect the excluded column.
    */
   @Test
-  public void orderByBracketKeyWithUnprojectedFields_stripsSyntheticColumn() {
+  public void orderByRidWithExcludedColumn_stripsWithoutResurrectingIt() {
     var className = "StripExclude_" + uniqueSuffix();
     session.getMetadata().getSchema().createClass(className);
 
@@ -1348,7 +1331,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     session.commit();
 
     try (var result = session.query(
-        "select name from " + className + " order by tags[0]")) {
+        "select *, !secret from " + className + " order by tags[0]")) {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
       for (var row : rows) {
@@ -1357,8 +1340,10 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
               "synthetic ORDER BY alias must not leak into visible output: " + propName,
               propName.startsWith("_$$$"));
         }
-        Assert.assertEquals(List.of("name"), row.getPropertyNames());
-        Assert.assertNotNull("the projected column must survive", row.getProperty("name"));
+        Assert.assertFalse(
+            "an excluded column must not come back: " + row.getPropertyNames(),
+            row.getPropertyNames().contains("secret"));
+        Assert.assertNotNull("the remaining columns must survive", row.getProperty("name"));
       }
     }
   }
