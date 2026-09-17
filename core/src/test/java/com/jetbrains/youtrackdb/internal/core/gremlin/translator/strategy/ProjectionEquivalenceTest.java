@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.Transl
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -2197,7 +2198,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     assertThat(
         graph.traversal().withStrategies(ProductiveByStrategy.instance())
             .V().hasLabel("Person").as("q").dedup().select("q").by("name").toList())
-        .as("four distinct vertices survive the dedup even though two share the name Bob")
+        .as("five vertices survive, including the vertex whose productive key is absent")
         .containsExactlyInAnyOrder("Alice", "Bob", "Bob", "Dave", null);
   }
 
@@ -2214,6 +2215,57 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         Recognition.RECOGNIZED,
         () -> graph.traversal().withStrategies(strategy).V().hasLabel("Person")
             .as("q").as("r").select("q", "r").by("name").by("missing"));
+
+    assertThat(graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+        .as("q").as("r").select("q", "r").by("name").by("missing").toList())
+        .as("only the vertex with the nonproductive property survives")
+        .hasSize(1);
+  }
+
+  /**
+   * A captured {@code dedup()} keeps a productive key on the presence list instead of a value
+   * column, so the row filter walks a list holding one filtering key and one productive key.
+   * The filtering key must still drop its absent rows, and the productive key must emit null.
+   *
+   * <p>The fixture separates the two rules. One vertex lacks the filtering key, so it must vanish.
+   * Another vertex lacks the productive key, so it must survive with a null cell.
+   */
+  @Test
+  public void selectAfterDedupWithMixedKeys_filtersOnlyOnTheFilteringKey() {
+    seedTwoSourcesSharingOneTarget();
+    graph.addVertex(T.label, "Person", "name", "Nina", "city", "Rome");
+    graph.addVertex(T.label, "Person", "city", "Oslo");
+    graph.tx().commit();
+    // A listed key stays filtering, and every unlisted key becomes productive.
+    var strategy = ProductiveByStrategy.build().productiveKeys("name").create();
+
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy(name)).V().as(q).as(r).dedup()"
+            + ".select(q, r).by(name).by(city)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+            .as("q").as("r").dedup().select("q", "r").by("name").by("city"));
+
+    var rows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+        .as("q").as("r").dedup().select("q", "r").by("name").by("city").toList();
+    assertThat(rows)
+        .as("the vertex without a name drops, and the four named vertices stay")
+        .hasSize(4);
+    assertThat(rows)
+        .as("three named vertices carry no city, so their productive cell is null")
+        .containsExactlyInAnyOrder(
+            Map.of("q", "Nina", "r", "Rome"),
+            mapWithNullCity("Alice"),
+            mapWithNullCity("Bob"),
+            mapWithNullCity("Dave"));
+  }
+
+  /** One select row whose productive city key is absent, so the emitted cell is null. */
+  private static Map<String, Object> mapWithNullCity(String name) {
+    var row = new LinkedHashMap<String, Object>();
+    row.put("q", name);
+    row.put("r", null);
+    return row;
   }
 
   /**
