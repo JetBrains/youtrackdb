@@ -55,7 +55,7 @@ public class LinkBagUpdateSerializationOperationTest {
   private LinkCollectionsBTreeManager manager;
   @SuppressWarnings("unchecked")
   private final IsolatedLinkBagBTree<RID, LinkBagValue> tree = mock(IsolatedLinkBagBTree.class);
-  private final LinkBagPointer collectionPointer = new LinkBagPointer(0L, 0L);
+  private final LinkBagPointer collectionPointer = new LinkBagPointer(0L, -1L);
 
   @Before
   public void setUp() {

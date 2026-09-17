@@ -73,11 +73,12 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
                 FILE_EXTENSION);
         bTree.load(atomicOperation);
         fileIdBTreeMap.put(AbstractWriteCache.extractFileId(entry.getValue()), bTree);
-        final var edgeKey = bTree.firstKey(atomicOperation);
-
-        if (edgeKey != null && edgeKey.ridBagId < 0 && ridBagIdCounter.get() < -edgeKey.ridBagId) {
-          ridBagIdCounter.set(-edgeKey.ridBagId);
+        final var persistedCounter = bTree.getRidBagIdCounter(atomicOperation);
+        if (persistedCounter < 0) {
+          throw new StorageException(
+              storage.getName(), "Negative link-bag identifier counter in " + fileName);
         }
+        ridBagIdCounter.accumulateAndGet(persistedCounter, Math::max);
       }
     }
   }
@@ -147,7 +148,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
       bTree.create(atomicOperation);
 
       fileId = bTree.getFileId();
-      final var nextRidBagId = -ridBagIdCounter.incrementAndGet();
+      final var nextRidBagId = allocateRidBagId(atomicOperation, bTree);
 
       final var intFileId = AbstractWriteCache.extractFileId(fileId);
       fileIdBTreeMap.put(intFileId, bTree);
@@ -158,12 +159,31 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     } else {
       final var intFileId = AbstractWriteCache.extractFileId(fileId);
       final var bTree = fileIdBTreeMap.get(intFileId);
-      final var nextRidBagId = -ridBagIdCounter.incrementAndGet();
+      final var nextRidBagId = allocateRidBagId(atomicOperation, bTree);
 
       return new IsolatedLinkBagBTreeImpl(
           bTree, intFileId, nextRidBagId, LinkSerializer.INSTANCE,
           LinkBagValueSerializer.INSTANCE);
     }
+  }
+
+  private long allocateRidBagId(AtomicOperation atomicOperation, SharedLinkBagBTree bTree) {
+    final long counter;
+    while (true) {
+      final var current = ridBagIdCounter.get();
+      if (current == Long.MAX_VALUE) {
+        throw new StorageException(
+            storage.getName(), "Link-bag identifier allocation is exhausted");
+      }
+      final var next = current + 1;
+      if (ridBagIdCounter.compareAndSet(current, next)) {
+        counter = next;
+        break;
+      }
+    }
+
+    bTree.updateRidBagIdCounter(atomicOperation, counter);
+    return -counter;
   }
 
   @Override

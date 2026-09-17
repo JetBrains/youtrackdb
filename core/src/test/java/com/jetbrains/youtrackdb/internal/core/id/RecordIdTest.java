@@ -486,6 +486,54 @@ public class RecordIdTest {
   }
 
   @Test
+  public void setCollectionIdChangesOnlyTheCollectionAndNotifiesListeners() {
+    var rid = new ChangeableRecordId(3, -2L);
+    var events = new int[] {0, 0};
+    var listener = new IdentityChangeListener() {
+      @Override
+      public void onBeforeIdentityChange(Object source) {
+        events[0]++;
+      }
+
+      @Override
+      public void onAfterIdentityChange(Object source) {
+        events[1]++;
+      }
+    };
+    rid.addIdentityChangeListener(listener);
+
+    rid.setCollectionId(-2);
+
+    assertEquals(-2, rid.getCollectionId());
+    assertEquals(-2L, rid.getCollectionPosition());
+    assertEquals(1, events[0]);
+    assertEquals(1, events[1]);
+  }
+
+  @Test
+  public void setCollectionIdDoesNotNotifyWhenCollectionAlreadyMatches() {
+    var rid = new ChangeableRecordId(3, -2L);
+    var events = new int[] {0};
+    var listener = new IdentityChangeListener() {
+      @Override
+      public void onBeforeIdentityChange(Object source) {
+        events[0]++;
+      }
+
+      @Override
+      public void onAfterIdentityChange(Object source) {
+        events[0]++;
+      }
+    };
+    rid.addIdentityChangeListener(listener);
+
+    rid.setCollectionId(3);
+
+    assertEquals(0, events[0]);
+    assertEquals(-2L, rid.getCollectionPosition());
+  }
+
+  @Test
   public void changeableRecordIdSetCollectionPositionUpdatesAtomicReference() {
     var rid = new ChangeableRecordId();
     rid.setCollectionPosition(5L);

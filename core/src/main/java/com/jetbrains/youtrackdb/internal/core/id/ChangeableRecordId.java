@@ -27,8 +27,7 @@ import javax.annotation.Nullable;
 /// their identity will be visible to other threads.
 public final class ChangeableRecordId implements ChangeableIdentity, RecordIdInternal {
 
-  @Nullable
-  private ArrayList<WeakReference<IdentityChangeListener>> identityChangeListeners;
+  @Nullable private ArrayList<WeakReference<IdentityChangeListener>> identityChangeListeners;
 
   /// Counter for temporal identity of the new record id till it will not be defined during storage
   /// of record.
@@ -80,11 +79,10 @@ public final class ChangeableRecordId implements ChangeableIdentity, RecordIdInt
         new RecordId(collectionId, collectionPosition));
   }
 
-
   public void setCollectionId(int collectionId) {
     var oldRecordId = recordIdAtomicReference.get();
 
-    if (collectionId == oldRecordId.collectionPosition()) {
+    if (collectionId == oldRecordId.collectionId()) {
       return;
     }
 
@@ -99,7 +97,6 @@ public final class ChangeableRecordId implements ChangeableIdentity, RecordIdInt
       throw new IllegalStateException("Record id was changed concurrently");
     }
   }
-
 
   public void setCollectionPosition(long collectionPosition) {
     var oldRecordId = recordIdAtomicReference.get();
@@ -116,7 +113,6 @@ public final class ChangeableRecordId implements ChangeableIdentity, RecordIdInt
       throw new IllegalStateException("Record id was changed concurrently");
     }
   }
-
 
   public void setCollectionAndPosition(int collectionId, long collectionPosition) {
     var oldRecordId = recordIdAtomicReference.get();
@@ -267,8 +263,7 @@ public final class ChangeableRecordId implements ChangeableIdentity, RecordIdInt
       return immutableRecordId.hashCode();
     }
 
-    return
-        immutableRecordId.hashCode() + 17 * Long.hashCode(tempId);
+    return immutableRecordId.hashCode() + 17 * Long.hashCode(tempId);
   }
 
   @Override

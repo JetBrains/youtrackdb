@@ -15,7 +15,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests for Ridbag EntryPoint PageOperation subclasses: record IDs, serialization roundtrips,
+ * Tests link-bag entry-point page operations. Coverage includes identifiers and serialization,
  * factory roundtrips, redo correctness (byte-level), redo suppression, and equals/hashCode.
  */
 public class RidbagEntryPointOpsTest {
@@ -127,6 +127,13 @@ public class RidbagEntryPointOpsTest {
     Assert.assertEquals(284, RidbagEntryPointSetPagesSizeOp.RECORD_ID);
   }
 
+  @Test
+  public void setRidBagIdCounterOpUsesRegisteredRecordId() {
+    Assert.assertEquals(WALRecordTypes.RIDBAG_ENTRY_POINT_SET_RID_BAG_ID_COUNTER_OP,
+        RidbagEntryPointSetRidBagIdCounterOp.RECORD_ID);
+    Assert.assertEquals(297, RidbagEntryPointSetRidBagIdCounterOp.RECORD_ID);
+  }
+
   // ---- Serialization roundtrip ----
 
   @Test
@@ -179,6 +186,20 @@ public class RidbagEntryPointOpsTest {
     Assert.assertEquals(original, deserialized);
   }
 
+  @Test
+  public void setRidBagIdCounterOpSerializationRoundTrips() {
+    var original = new RidbagEntryPointSetRidBagIdCounterOp(
+        10, 20, 30, new LogSequenceNumber(9, 400), 73L);
+    var content = new byte[original.serializedSize()];
+
+    Assert.assertEquals(content.length, original.toStream(content, 0));
+    var deserialized = new RidbagEntryPointSetRidBagIdCounterOp();
+    deserialized.fromStream(content, 0);
+
+    Assert.assertEquals(73L, deserialized.getCounter());
+    Assert.assertEquals(original, deserialized);
+  }
+
   // ---- Factory roundtrip ----
 
   @Test
@@ -225,6 +246,20 @@ public class RidbagEntryPointOpsTest {
         ((RidbagEntryPointSetPagesSizeOp) deserialized).getPages());
   }
 
+  @Test
+  public void setRidBagIdCounterOpFactoryRoundTrips() {
+    var original = new RidbagEntryPointSetRidBagIdCounterOp(
+        10, 20, 30, new LogSequenceNumber(42, 1024), 91L);
+
+    var serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+
+    Assert.assertTrue(deserialized instanceof RidbagEntryPointSetRidBagIdCounterOp);
+    Assert.assertEquals(original, deserialized);
+  }
+
   // ---- Redo correctness ----
 
   @Test
@@ -250,6 +285,7 @@ public class RidbagEntryPointOpsTest {
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
       Assert.assertEquals(0L, page2.getTreeSize());
       Assert.assertEquals(1, page2.getPagesSize());
+      Assert.assertEquals(0L, page2.getRidBagIdCounter());
     });
   }
 
@@ -277,6 +313,21 @@ public class RidbagEntryPointOpsTest {
       new RidbagEntryPointSetPagesSizeOp(0, 0, 0, new LogSequenceNumber(0, 0), 5)
           .redo(new EntryPoint(entry2));
 
+      Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
+    });
+  }
+
+  @Test
+  public void setRidBagIdCounterOpRedoRestoresCounter() {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
+      new EntryPoint(entry1).init();
+      new EntryPoint(entry2).init();
+
+      new EntryPoint(entry1).setRidBagIdCounter(117L);
+      new RidbagEntryPointSetRidBagIdCounterOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 117L).redo(new EntryPoint(entry2));
+
+      Assert.assertEquals(117L, new EntryPoint(entry2).getRidBagIdCounter());
       Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
     });
   }
@@ -315,6 +366,19 @@ public class RidbagEntryPointOpsTest {
   }
 
   @Test
+  public void setRidBagIdCounterOpEqualsAndHashCodeUseCounter() {
+    var lsn = new LogSequenceNumber(1, 1);
+    var op1 = new RidbagEntryPointSetRidBagIdCounterOp(10, 20, 30, lsn, 5);
+    var op2 = new RidbagEntryPointSetRidBagIdCounterOp(10, 20, 30, lsn, 5);
+    var op3 = new RidbagEntryPointSetRidBagIdCounterOp(10, 20, 30, lsn, 6);
+
+    Assert.assertEquals(op1, op2);
+    Assert.assertEquals(op1.hashCode(), op2.hashCode());
+    Assert.assertNotEquals(op1, op3);
+    Assert.assertTrue(op1.toString().contains("counter=5"));
+  }
+
+  @Test
   public void testSetPagesSizeOpEqualsAndHashCode() {
     var lsn = new LogSequenceNumber(1, 1);
     var op1 = new RidbagEntryPointSetPagesSizeOp(10, 20, 30, lsn, 5);
@@ -326,10 +390,10 @@ public class RidbagEntryPointOpsTest {
     Assert.assertNotEquals(op1, op3);
   }
 
-  // ---- toString coverage for all entry-point ops ----
+  // ---- toString coverage for the original entry-point ops ----
 
   /**
-   * toString() on all three entry-point ops must render the simple class name plus its
+   * toString() on the original three entry-point ops must render the simple class name plus its
    * op-specific fields. The pins are op-specific so a regression that drops or
    * mis-routes the @Override is detectable.
    */

@@ -6,8 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.P
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
 
 /**
- * Logical WAL record for {@link EntryPoint#init()}. No parameters — sets treeSize to 0
- * and pagesSize to 1.
+ * Logical write-ahead log record for {@link EntryPoint#init()}.
+ * Initialization clears tree size and identifier state. Initialization sets page size to one.
  */
 public final class RidbagEntryPointInitOp extends PageOperation {
 
