@@ -40,6 +40,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -69,24 +71,19 @@ public class AtomicOperationsManager {
   private final OperationsFreezer writeOperationsFreezer = new OperationsFreezer();
   private final AtomicOperationsTable atomicOperationsTable;
 
-  // Apply-phase epoch shared by all atomic operations of this storage. Owned here (one
-  // manager per storage) rather than by ReadCache, because on the disk engine a single
-  // read cache is shared by all storages of the engine — an engine-global epoch would
-  // let commits in one database spuriously invalidate optimistic reads in another.
-  // Writers bump it around the cache-apply section of commitChanges; readers capture
-  // and validate it via OptimisticReadScope.
-  private final ApplyPhaseEpoch applyPhaseEpoch = new ApplyPhaseEpoch();
+  // Stable logical-component identity for this storage's lifetime. Retaining epochs in
+  // the manager prevents a removed and recreated Java component with the same lock name
+  // from escaping readers or writers that still hold the previous component instance.
+  private final ConcurrentMap<String, ApplyPhaseEpoch> componentApplyPhaseEpochs =
+      new ConcurrentHashMap<>();
 
   /**
-   * TEST-ONLY accessor for this storage's apply-phase epoch, exposed package-private for
-   * the test bridge in the same test package (used by the YTDB-1178 mixed-apply-state
-   * regression tests to make baseline-relative assertions on the epoch counters).
-   * Production code must not call this — writers bump the epoch only through
-   * {@code AtomicOperationBinaryTracking.commitChanges} and readers observe it only
-   * through {@code OptimisticReadScope}.
+   * Returns the apply epoch shared by every component in this storage with {@code lockName}.
+   * The manager owns these identities for its complete lifetime.
    */
-  ApplyPhaseEpoch getApplyPhaseEpoch() {
-    return applyPhaseEpoch;
+  public ApplyPhaseEpoch getApplyPhaseEpoch(String lockName) {
+    return componentApplyPhaseEpochs.computeIfAbsent(
+        Objects.requireNonNull(lockName), ignored -> new ApplyPhaseEpoch());
   }
 
   public AtomicOperationsManager(
@@ -122,7 +119,7 @@ public class AtomicOperationsManager {
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize(),
         storage.getSharedEdgeSnapshotIndex(), storage.getEdgeVisibilityIndex(),
-        storage.getEdgeSnapshotIndexSize(), applyPhaseEpoch);
+        storage.getEdgeSnapshotIndexSize());
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {

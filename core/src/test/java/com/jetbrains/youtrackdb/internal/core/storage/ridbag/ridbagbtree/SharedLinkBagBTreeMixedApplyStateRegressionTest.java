@@ -53,8 +53,8 @@ import org.junit.experimental.categories.Category;
  * "absent" result. Upstream, {@code LinkBag.remove} surfaces that as
  * LinksConsistencyException, and {@code LinkBag.add} silently overwrites the counter.
  *
- * <p><b>The fix under test:</b> the per-storage {@code ApplyPhaseEpoch} bracket around
- * the commit-time apply loop. A reader whose window overlaps any apply phase fails
+ * <p><b>The fix under test:</b> the logical-component {@code ApplyPhaseEpoch} bracket
+ * around the commit-time apply loop. A reader whose window overlaps its apply phase fails
  * {@code OptimisticReadScope.validateOrThrow()} and falls back to the pinned path, which
  * blocks on the component shared lock until the writer commits — returning the correct
  * entry.
@@ -243,10 +243,11 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
    * </ol>
    */
   private void runMixedStateScenario(LookupAssertion lookup) throws Exception {
-    final var epoch = AtomicOperationTestBridge.applyPhaseEpoch(atomicOperationsManager);
+    final var epoch =
+        AtomicOperationTestBridge.applyPhaseEpoch(atomicOperationsManager, bTree.getLockName());
     // Baseline is captured while no operation is running (setUp's operations have
     // committed). Never assert absolute epoch values — every commit that mutates
-    // shared cache state bumps the epoch, and this storage is shared across tests.
+    // shared cache state in this lock domain bumps the epoch, and the tree is reused here.
     final long baseEnter = epoch.enterSeq();
     final long baseExit = epoch.exitSeq();
     assertEquals("epoch must be quiescent at baseline", baseEnter, baseExit);

@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Per-storage epoch bracketing the commit-time page-apply phase of atomic operations.
+ * Per-logical-component epoch bracketing the commit-time page-apply phase of atomic operations.
  *
  * <p>Optimistic multi-page reads validate each page individually via {@link
  * com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame} stamps, but per-page
@@ -26,11 +26,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *       epoch permanently "in apply" and shut down optimistic reads).
  * </ul>
  *
- * <p>Two independent counters are used instead of a single odd/even parity word because
- * apply phases of <em>different</em> components may run concurrently within one storage:
- * with parity, a second writer entering while the first is still applying would flip the
- * bit back to "idle" and mask the overlap. With separate counters the idle condition is
- * {@code enterSeq == exitSeq}, which holds only when no apply phase is in flight.
+ * <p>Two independent counters retain the explicit in-flight condition
+ * {@code enterSeq != exitSeq}. This also keeps validation safe if overlapping entry ever
+ * occurs despite the logical component lock contract, because a second entry cannot mask
+ * the first apply phase as an odd/even parity word could.
  *
  * <p>Reader protocol (see {@link OptimisticReadScope}):
  *
@@ -53,11 +52,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * unchanged {@code enterSeq} therefore observed either none or all of any committed
  * apply's effects — never a partial mix.
  *
- * <p>Ownership: one instance per storage, owned by
- * {@code AtomicOperationsManager}. Deliberately <em>not</em> placed on {@code ReadCache}:
- * on the disk engine a single read cache is shared by all storages of the engine, and an
- * engine-global epoch would let commits in one database spuriously invalidate optimistic
- * reads in another.
+ * <p>Ownership: one stable instance per {@code (storage, lockName)} logical component,
+ * owned by {@code AtomicOperationsManager}. Components sharing a lock name, such as a
+ * collection and its position and free-space maps, therefore share this epoch. Keeping
+ * epochs on the manager also prevents the shared disk read cache from coupling databases.
  */
 public final class ApplyPhaseEpoch {
 

@@ -13,10 +13,8 @@ import javax.annotation.Nullable;
  *   <li>{@link AtomicOperationBinaryTracking.PageApplyHook} installation on a live
  *       atomic operation, so an integration test can dictate the commit-time page-apply
  *       order and pause the writer mid-apply inside the epoch bracket;
- *   <li>the per-storage {@link ApplyPhaseEpoch} owned by {@link AtomicOperationsManager},
- *       so a test can make baseline-relative assertions on the epoch counters (never
- *       absolute ones — any commit that mutates shared cache state bumps the epoch,
- *       and storages are shared across tests).
+ *   <li>the per-logical-component {@link ApplyPhaseEpoch} owned by
+ *       {@link AtomicOperationsManager}, so a test can make baseline-relative assertions.
  * </ul>
  */
 public final class AtomicOperationTestBridge {
@@ -74,11 +72,9 @@ public final class AtomicOperationTestBridge {
     });
   }
 
-  /**
-   * Returns the apply-phase epoch of the given manager's storage. Tests must only make
-   * baseline-relative assertions on the returned counters.
-   */
-  public static ApplyPhaseEpoch applyPhaseEpoch(final AtomicOperationsManager manager) {
-    return manager.getApplyPhaseEpoch();
+  /** Returns the apply epoch for one logical lock-name domain. */
+  public static ApplyPhaseEpoch applyPhaseEpoch(
+      final AtomicOperationsManager manager, final String lockName) {
+    return manager.getApplyPhaseEpoch(lockName);
   }
 }

@@ -94,6 +94,21 @@ public class ApplyPhaseEpochTest {
   }
 
   @Test
+  public void testUnrelatedComponentApplyDoesNotInvalidateRead() {
+    // A reader captures only its logical component epoch. A complete apply in another
+    // lock domain must not invalidate that attempt.
+    var readerEpoch = new ApplyPhaseEpoch();
+    var unrelatedEpoch = new ApplyPhaseEpoch();
+    var scope = new OptimisticReadScope();
+
+    scope.reset(readerEpoch);
+    unrelatedEpoch.enterApplyPhase();
+    unrelatedEpoch.exitApplyPhase();
+
+    scope.validateOrThrow();
+  }
+
+  @Test
   public void testResetNeverThrowsAndRecapturesFreshValues() {
     // reset() is called outside the try/fallback block of
     // StorageComponent.executeOptimisticStorageRead, so it must never throw — even while

@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationBinaryTracking.PageApplyHook;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
@@ -338,6 +339,54 @@ public class CommitChangesPageApplyHookTest {
   }
 
   @Test
+  public void testComponentEpochsExitWhenPageApplyThrows() throws IOException {
+    // A real page-apply failure after all component entries must rebalance every domain.
+    // Otherwise later optimistic attempts would reject forever despite a quiescent writer.
+    var op = createOperation();
+    setupNewFileWithPages(op, "component-hook-throws.dat", 2);
+
+    var firstEpoch = new ApplyPhaseEpoch();
+    var secondEpoch = new ApplyPhaseEpoch();
+    var first = mock(StorageComponent.class);
+    var second = mock(StorageComponent.class);
+    when(first.getApplyPhaseEpoch()).thenReturn(firstEpoch);
+    when(second.getApplyPhaseEpoch()).thenReturn(secondEpoch);
+    op.addLockedComponent(first);
+    op.addLockedComponent(second);
+
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public void beforePageApply(long fileId, long pageIndex) {
+        Assert.assertEquals(1, firstEpoch.enterSeq());
+        Assert.assertEquals(0, firstEpoch.exitSeq());
+        Assert.assertEquals(1, secondEpoch.enterSeq());
+        Assert.assertEquals(0, secondEpoch.exitSeq());
+        throw new IllegalStateException("component apply failure");
+      }
+    });
+
+    try {
+      op.commitChanges(42L, wal);
+      Assert.fail("Expected the page-apply hook to abort the commit");
+    } catch (IllegalStateException expected) {
+      Assert.assertEquals("component apply failure", expected.getMessage());
+    }
+
+    Assert.assertEquals(1, firstEpoch.enterSeq());
+    Assert.assertEquals(1, firstEpoch.exitSeq());
+    Assert.assertEquals(1, secondEpoch.enterSeq());
+    Assert.assertEquals(1, secondEpoch.exitSeq());
+    var firstReader = new OptimisticReadScope(firstEpoch);
+    firstReader.reset();
+    firstReader.validateOrThrow();
+    var secondReader = new OptimisticReadScope(secondEpoch);
+    secondReader.reset();
+    secondReader.validateOrThrow();
+    Assert.assertEquals(0, epoch.enterSeq());
+    Assert.assertEquals(0, epoch.exitSeq());
+  }
+
+  @Test
   public void testHookReturningUnknownPageIndexFailsCommitWithBalancedEpoch()
       throws IOException {
     // A hook ordering that references a page index not present in the change set must
@@ -374,12 +423,18 @@ public class CommitChangesPageApplyHookTest {
     // gating fix, every commit bumped the epoch, spuriously invalidating all
     // concurrently overlapping optimistic reads in the storage.
     var op = createOperation();
+    var componentEpoch = new ApplyPhaseEpoch();
+    var component = mock(StorageComponent.class);
+    when(component.getApplyPhaseEpoch()).thenReturn(componentEpoch);
+    op.addLockedComponent(component);
 
     // Pure no-op commit: returns null (no WAL unit was ever started either).
     Assert.assertNull(op.commitChanges(42L, wal));
 
     Assert.assertEquals(0, epoch.enterSeq());
     Assert.assertEquals(0, epoch.exitSeq());
+    Assert.assertEquals(0, componentEpoch.enterSeq());
+    Assert.assertEquals(0, componentEpoch.exitSeq());
   }
 
   @Test
@@ -438,6 +493,75 @@ public class CommitChangesPageApplyHookTest {
 
     Assert.assertEquals(1, epoch.enterSeq());
     Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  @Test
+  public void testMultiComponentCommitProtectsEveryDomainForCompleteApply() throws IOException {
+    // Every locked domain must enter before any page is applied. An unrelated domain must
+    // remain unchanged, and all entered domains must exit only after the complete apply.
+    var op = createOperation();
+    setupNewFileWithPages(op, "multi-component.dat", 2);
+
+    var firstEpoch = new ApplyPhaseEpoch();
+    var secondEpoch = new ApplyPhaseEpoch();
+    var unrelatedEpoch = new ApplyPhaseEpoch();
+    var first = mock(StorageComponent.class);
+    var second = mock(StorageComponent.class);
+    when(first.getApplyPhaseEpoch()).thenReturn(firstEpoch);
+    when(second.getApplyPhaseEpoch()).thenReturn(secondEpoch);
+    op.addLockedComponent(first);
+    op.addLockedComponent(second);
+
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public void beforePageApply(long fileId, long pageIndex) {
+        Assert.assertEquals(1, firstEpoch.enterSeq());
+        Assert.assertEquals(0, firstEpoch.exitSeq());
+        Assert.assertEquals(1, secondEpoch.enterSeq());
+        Assert.assertEquals(0, secondEpoch.exitSeq());
+        Assert.assertEquals(0, unrelatedEpoch.enterSeq());
+      }
+    });
+
+    Assert.assertNotNull(op.commitChanges(42L, wal));
+    Assert.assertEquals(1, firstEpoch.enterSeq());
+    Assert.assertEquals(1, firstEpoch.exitSeq());
+    Assert.assertEquals(1, secondEpoch.enterSeq());
+    Assert.assertEquals(1, secondEpoch.exitSeq());
+    Assert.assertEquals(0, unrelatedEpoch.enterSeq());
+    Assert.assertEquals(0, unrelatedEpoch.exitSeq());
+    // A component-backed operation must not use its standalone test epoch.
+    Assert.assertEquals(0, epoch.enterSeq());
+    Assert.assertEquals(0, epoch.exitSeq());
+  }
+
+  @Test
+  public void testPartialComponentEntryIsUnwoundBeforeCacheApply() throws IOException {
+    // Failure while obtaining a later domain must balance every earlier successful enter
+    // and must occur before the first shared-cache mutation.
+    var op = createOperation();
+    setupNewFileWithPages(op, "partial-entry.dat", 1);
+
+    var firstEpoch = new ApplyPhaseEpoch();
+    var first = mock(StorageComponent.class);
+    var failing = mock(StorageComponent.class);
+    when(first.getApplyPhaseEpoch()).thenReturn(firstEpoch);
+    when(failing.getApplyPhaseEpoch()).thenThrow(new IllegalStateException("entry failure"));
+    op.addLockedComponent(first);
+    op.addLockedComponent(failing);
+
+    try {
+      op.commitChanges(42L, wal);
+      Assert.fail("Expected the second component entry to fail");
+    } catch (IllegalStateException expected) {
+      Assert.assertEquals("entry failure", expected.getMessage());
+    }
+
+    Assert.assertEquals(1, firstEpoch.enterSeq());
+    Assert.assertEquals(1, firstEpoch.exitSeq());
+    Assert.assertTrue("No page may be applied after partial entry", appliedPageOrder.isEmpty());
+    Assert.assertEquals(0, epoch.enterSeq());
+    Assert.assertEquals(0, epoch.exitSeq());
   }
 
   @Test
