@@ -65,6 +65,56 @@ Fork count and iteration length vary by tier to achieve stable results within a 
 | **All suites (ST + MT)** | 40 | **~7-8 hours** |
 | First run from CSV (includes DB init + factor tables) | — | adds ~25 min (SF 1) |
 
+## Pull request and commit comparison workflow
+
+A pull request head is its captured commit.
+A SHA is a full 40-character commit identifier.
+A Gremlin arm is one setting of the translator-enabled benchmark parameter.
+An attestation is a signed statement that identifies the trusted validator workflow.
+
+Dispatch `LDBC JMH Benchmark Compare` from `develop`.
+Provide exactly one pull request number or one same-repository commit SHA.
+Choose 8 or 32 dedicated vCPUs for manual runs. Omitted reusable-call input defaults to 8.
+The fixed profiles are CCX33 with 32 GB memory and CCX53 with 128 GB memory.
+A dedicated vCPU is a reserved processor thread, not proof of a separate physical CPU core.
+
+Pull requests use their merge-base as the baseline.
+Commit comparisons use the first parent and reject root or foreign commits.
+Commit comparisons never publish pull request completion or comments.
+
+Fork pull requests require a maintainer approval for the exact captured head.
+A later push does not cancel that running comparison.
+Different pull request and SHA targets use separate non-cancelling concurrency groups.
+
+Filters accept case-insensitive comma-separated `IS1`-`IS7`, `IC1`-`IC13`, and `gremlin`.
+Whitespace around commas is ignored.
+Empty tokens, unknown identifiers, internal whitespace, and metacharacters are rejected.
+
+Each query identifier selects its SQL methods and linked Gremlin methods.
+The `gremlin` token also selects translator-only methods.
+An empty filter runs the full suite.
+Both `on` and `both` Gremlin arm values remain available.
+
+A trusted job retrieves canonical data without running target code.
+The selected benchmark server receives data without dataset or signing credentials.
+It runs baseline and target revisions sequentially with the same 4 GB Java heap.
+Run summaries and comparison reports disclose the requested size and resolved fixed label.
+That disclosure records requested configuration. It does not attest physical hardware placement.
+
+A fresh trusted validator checks complete per-commit inventories and result parameters.
+Only a full production-arm pull request run creates signed completion.
+The exact completion JSON and portable Sigstore bundle are stored in one bounded comment.
+That record remains verifiable after result artifacts or hosted attestations expire.
+Performance regressions remain informational.
+
+Both runner profiles qualify for full pull request completion under the same rules.
+The runner choice does not alter the signed completion v3 schema.
+Reusable callers may pass `runner_cores` as `8` or `32`. Omission selects `8`.
+Future reusable callers must grant `contents: read`, `actions: read`, `id-token: write`,
+`attestations: write`, `artifact-metadata: write`, and `pull-requests: write` to the called
+workflow.
+Automatic core Java enforcement and `[no-benchmarks]` support require a later change.
+
 ## Prerequisites
 
 - **JDK 21+**

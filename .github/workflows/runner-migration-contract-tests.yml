@@ -8,11 +8,15 @@ on:
     branches: [develop, main]
     paths:
       - '.github/scripts/runner-migration-contract-test.py'
+      - '.github/scripts/mandatory-benchmark.py'
+      - '.github/scripts/mandatory-benchmark-test.py'
       - '.github/workflows/*.yml'
       - '.github/workflows/*.yaml'
   pull_request:
     paths:
       - '.github/scripts/runner-migration-contract-test.py'
+      - '.github/scripts/mandatory-benchmark.py'
+      - '.github/scripts/mandatory-benchmark-test.py'
       - '.github/workflows/*.yml'
       - '.github/workflows/*.yaml'
   workflow_dispatch: {}
@@ -35,4 +39,6 @@ jobs:
         run: python3 -m pip install 'PyYAML==6.0.3'
 
       - name: Run contract tests and negative controls
-        run: python3 .github/scripts/runner-migration-contract-test.py --self-test
+        run: |
+          python3 .github/scripts/runner-migration-contract-test.py --self-test
+          python3 .github/scripts/mandatory-benchmark-test.py

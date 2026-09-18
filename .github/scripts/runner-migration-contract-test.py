@@ -23,7 +23,6 @@ EXCLUDED_WORKFLOWS = {
 }
 BOUNDARY_PATHS = [
     ".github/workflows/jmh-alerter-tests.yml",
-    ".github/workflows/ldbc-jmh-compare.yml",
     ".github/workflows/ldbc-jmh-nightly.yml",
     ".github/workflows/maven-mirror",
     ".github/workflows/testflows-orchestrator.pkr.hcl",
@@ -103,6 +102,10 @@ def check_normal(root=ROOT):
     for name in active_workflows(root):
         document = load_workflow(root, name)
         for job_name, job in document.get("jobs", {}).items():
+            if "uses" in job:
+                assert_true("runs-on" not in job,
+                            f"reusable workflow caller declares runs-on: {name}:{job_name}")
+                continue
             assert_true("runs-on" in job, f"job has no runs-on: {name}:{job_name}")
             for runner in resolved_runners(job):
                 assert_true(runner in ALLOWED_RUNNERS,
@@ -396,6 +399,26 @@ def check_negative_controls():
     )
     try:
         expect_failure(lambda: check_normal(root), ".yaml workflow runner typo")
+    finally:
+        temporary.cleanup()
+
+    temporary, root = mutate_copy(
+        lambda fixture: (fixture / WORKFLOW_DIR / "reusable-caller.yml").write_text(
+            "name: Reusable caller fixture\non: workflow_dispatch\njobs:\n"
+            "  call:\n    uses: owner/repository/.github/workflows/called.yml@main\n"
+        )
+    )
+    try:
+        check_normal(root)
+        replace_once(
+            root / WORKFLOW_DIR / "reusable-caller.yml",
+            "    uses: owner/repository/.github/workflows/called.yml@main\n",
+            "    steps: []\n",
+        )
+        expect_failure(
+            lambda: check_normal(root),
+            "ordinary job without runs-on after reusable caller mutation",
+        )
     finally:
         temporary.cleanup()
 
