@@ -380,7 +380,7 @@ public class LdbcGremlinShapeTranslationTest {
     assertTranslatesInOrder(
         "Legacy IC2: …out(KNOWS).in(HAS_CREATOR).has(creationDate, lt)"
             + ".order().by(creationDate, desc).valueMap(id, content, creationDate)",
-        t -> LdbcGremlinTranslatorBenchmark.LEGACY_IC2.traversal(
+        t -> LdbcGremlinTranslatorBenchmark.LegacyIc2Workload.traversal(
             t, ALICE, new Date(IC2_MAX_DATE)),
         List.of(
             "{content=[c-1001], creationDate=[date:" + COMMENT_AT + "], id=[" + COMMENT + "]}",
@@ -396,7 +396,7 @@ public class LdbcGremlinShapeTranslationTest {
     assertTranslatesInOrder(
         "Ordered-limit IC2: …out(KNOWS).as(person…).in(HAS_CREATOR).as(message…)"
             + ".has(creationDate, lt).order().by(creationDate, desc).by(id).limit.select(…)",
-        t -> LdbcGremlinTranslatorBenchmark.ORDERED_LIMIT_IC2.traversal(
+        t -> LdbcGremlinTranslatorBenchmark.OrderedLimitIc2Workload.traversal(
             t, ALICE, new Date(IC2_MAX_DATE)),
         List.of(
             "{firstName=Carol, lastName=Carolson, messageContent=c-1001,"

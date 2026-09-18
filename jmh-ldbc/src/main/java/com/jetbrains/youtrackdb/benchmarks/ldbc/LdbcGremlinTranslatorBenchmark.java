@@ -486,15 +486,15 @@ public class LdbcGremlinTranslatorBenchmark {
 
   static final class LegacyIc2Workload {
 
-    long personId(LdbcBenchmarkState state, TranslatorArm arm, long index) {
+    static long personId(LdbcBenchmarkState state, long index) {
       return state.ic2PersonId(index);
     }
 
-    Date maxDate(LdbcBenchmarkState state, TranslatorArm arm, long index) {
+    static Date maxDate(LdbcBenchmarkState state, long index) {
       return state.ic2MaxDate(index);
     }
 
-    YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
+    static YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
         YTDBGraphTraversalSource source, long personId, Date maxDate) {
       return GremlinTraversalShapes.ic2FriendsMessagesOrdered(source, personId, maxDate);
     }
@@ -502,39 +502,18 @@ public class LdbcGremlinTranslatorBenchmark {
 
   static final class OrderedLimitIc2Workload {
 
-    long personId(LdbcBenchmarkState state, TranslatorArm arm, long index) {
+    static long personId(TranslatorArm arm, long index) {
       return arm.ic2PersonId(index);
     }
 
-    Date maxDate(LdbcBenchmarkState state, TranslatorArm arm, long index) {
+    static Date maxDate(TranslatorArm arm, long index) {
       return arm.ic2MaxDate(index);
     }
 
-    YTDBGraphTraversal<Vertex, Map<String, Object>> traversal(
+    static YTDBGraphTraversal<Vertex, Map<String, Object>> traversal(
         YTDBGraphTraversalSource source, long personId, Date maxDate) {
       return GremlinTraversalShapes.ic2FriendsMessagesOrderedLimit(source, personId, maxDate);
     }
-  }
-
-  static final LegacyIc2Workload LEGACY_IC2 = new LegacyIc2Workload();
-  static final OrderedLimitIc2Workload ORDERED_LIMIT_IC2 = new OrderedLimitIc2Workload();
-
-  List<Map<Object, Object>> runLegacyIc2(
-      LdbcBenchmarkState state, TranslatorArm arm, LegacyIc2Workload workload) {
-    var index = state.nextIndex();
-    var personId = workload.personId(state, arm, index);
-    var maxDate = workload.maxDate(state, arm, index);
-    return state.traversal.computeInTx(
-        t -> workload.traversal(t, personId, maxDate).toList());
-  }
-
-  List<Map<String, Object>> runOrderedLimitIc2(
-      LdbcBenchmarkState state, TranslatorArm arm, OrderedLimitIc2Workload workload) {
-    var index = state.nextIndex();
-    var personId = workload.personId(state, arm, index);
-    var maxDate = workload.maxDate(state, arm, index);
-    return state.traversal.computeInTx(
-        t -> workload.traversal(t, personId, maxDate).toList());
   }
 
   /**
@@ -543,7 +522,11 @@ public class LdbcGremlinTranslatorBenchmark {
   @Benchmark
   public List<Map<Object, Object>> gremlin_ic2_friendsMessagesOrdered(
       LdbcBenchmarkState state, TranslatorArm arm) {
-    return runLegacyIc2(state, arm, LEGACY_IC2);
+    var index = state.nextIndex();
+    var personId = LegacyIc2Workload.personId(state, index);
+    var maxDate = LegacyIc2Workload.maxDate(state, index);
+    return state.traversal.computeInTx(
+        t -> LegacyIc2Workload.traversal(t, personId, maxDate).toList());
   }
 
   /**
@@ -552,7 +535,11 @@ public class LdbcGremlinTranslatorBenchmark {
   @Benchmark
   public List<Map<String, Object>> gremlin_ic2_friendsMessagesOrderedLimit(
       LdbcBenchmarkState state, TranslatorArm arm) {
-    return runOrderedLimitIc2(state, arm, ORDERED_LIMIT_IC2);
+    var index = state.nextIndex();
+    var personId = OrderedLimitIc2Workload.personId(arm, index);
+    var maxDate = OrderedLimitIc2Workload.maxDate(arm, index);
+    return state.traversal.computeInTx(
+        t -> OrderedLimitIc2Workload.traversal(t, personId, maxDate).toList());
   }
 
   /**
