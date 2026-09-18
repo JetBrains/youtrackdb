@@ -767,13 +767,14 @@ final class WalkerContext implements RecognitionContext {
       // drop is redundant, but it cannot remove a row the conjunct left.
       return true;
     }
-    // select(…).by(key) before a slice: post-plan AliasPropertyPresence must become IS DEFINED
-    // before LIMIT/SKIP so the cut applies to survivors, not pre-drop rows.
+    // A filtering select presence must become IS DEFINED before LIMIT/SKIP counts rows.
+    // Productive presences remain projections that may emit null.
     if (shaping.aliasPropertyPresences().isEmpty()) {
       return false;
     }
     for (var presence : shaping.aliasPropertyPresences()) {
       if (!presence.dropOnAbsent()) {
+        // Productive absence emits null and must not become a pattern filter.
         continue;
       }
       var internalAlias = internalAliasFromPresenceEntityColumn(presence.entityColumnAlias());

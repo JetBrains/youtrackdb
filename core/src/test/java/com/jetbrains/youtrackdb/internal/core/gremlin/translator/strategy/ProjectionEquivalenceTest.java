@@ -2217,14 +2217,17 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().withStrategies(strategy).V().hasLabel("Person")
             .as("q").as("r").dedup().select("q", "r").by("name").by("missing"));
 
-    var observedRows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
-        .as("q").as("r").dedup().select("q", "r").by("name").by("missing").toList();
-    var expected = new LinkedHashMap<String, Object>();
-    expected.put("q", null);
-    expected.put("r", "kept");
-    assertThat(observedRows)
-        .as("the nonproductive key keeps one row, and the absent productive key emits null")
-        .containsExactly(expected);
+    withTranslatorOn(
+        () -> {
+          var observedRows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+              .as("q").as("r").dedup().select("q", "r").by("name").by("missing").toList();
+          var expected = new LinkedHashMap<String, Object>();
+          expected.put("q", null);
+          expected.put("r", "kept");
+          assertThat(observedRows)
+              .as("the nonproductive key keeps one row, and the absent productive key emits null")
+              .containsExactly(expected);
+        });
   }
 
   /**
@@ -2251,18 +2254,21 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().withStrategies(strategy).V().hasLabel("Person")
             .as("q").as("r").dedup().select("q", "r").by("name").by("city"));
 
-    var rows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
-        .as("q").as("r").dedup().select("q", "r").by("name").by("city").toList();
-    assertThat(rows)
-        .as("the vertex without a name drops, and the four named vertices stay")
-        .hasSize(4);
-    assertThat(rows)
-        .as("three named vertices carry no city, so their productive cell is null")
-        .containsExactlyInAnyOrder(
-            Map.of("q", "Nina", "r", "Rome"),
-            mapWithNullCity("Alice"),
-            mapWithNullCity("Bob"),
-            mapWithNullCity("Dave"));
+    withTranslatorOn(
+        () -> {
+          var rows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+              .as("q").as("r").dedup().select("q", "r").by("name").by("city").toList();
+          assertThat(rows)
+              .as("the vertex without a name drops, and the four named vertices stay")
+              .hasSize(4);
+          assertThat(rows)
+              .as("three named vertices carry no city, so their productive cell is null")
+              .containsExactlyInAnyOrder(
+                  Map.of("q", "Nina", "r", "Rome"),
+                  mapWithNullCity("Alice"),
+                  mapWithNullCity("Bob"),
+                  mapWithNullCity("Dave"));
+        });
   }
 
   /** A later select must not turn a productive presence into a filtering pattern conjunct. */
@@ -2282,12 +2288,15 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .as("q").as("r").as("s").dedup().select("q", "r").by("name").by("city")
             .select("s"));
 
-    var rows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
-        .as("q").as("r").as("s").dedup().select("q", "r").by("name").by("city")
-        .select("s").values("name").toList();
-    assertThat(rows)
-        .as("Alice survives with a null city before the second select")
-        .containsExactlyInAnyOrder("Alice", "Bob");
+    withTranslatorOn(
+        () -> {
+          var rows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+              .as("q").as("r").as("s").dedup().select("q", "r").by("name").by("city")
+              .select("s").values("name").toList();
+          assertThat(rows)
+              .as("Alice survives with a null city before the second select")
+              .containsExactlyInAnyOrder("Alice", "Bob");
+        });
   }
 
   /** One select row whose productive city key is absent, so the emitted cell is null. */
