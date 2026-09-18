@@ -166,12 +166,47 @@ public class IndexOrderedEdgeStepCostTest {
         strategy != MultiSourceStrategy.LOAD_ALL_SORT);
   }
 
+  /** A negative scan central processing unit factor disables the initial index scan. */
   @Test
-  public void testEntriesWorthTheLoadAlternativePositive() {
-    var entries = IndexOrderedCostModel.entriesWorthTheLoadAlternative(20);
-    assertTrue("20 records should be worth a positive entry budget, got: " + entries, entries > 0);
-    // At shipped constants ~73 entries per record
-    assertTrue("budget should be well above the record count, got: " + entries, entries > 20);
+  public void testNegativeScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(-1.0));
+  }
+
+  /** A zero scan central processing unit factor disables the initial index scan. */
+  @Test
+  public void testZeroScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(0.0));
+  }
+
+  /** A not-a-number scan central processing unit factor disables the initial index scan. */
+  @Test
+  public void testNanScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(Double.NaN));
+  }
+
+  /** An infinite scan central processing unit factor disables the initial index scan. */
+  @Test
+  public void testInfiniteScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(Double.POSITIVE_INFINITY));
+  }
+
+  /** A normal positive scan central processing unit factor preserves a useful finite budget. */
+  @Test
+  public void testPositiveScanCpuFactorProducesFiniteBudget() {
+    var entries = entriesWithScanCpuFactor(5.0);
+    assertTrue("20 records should produce a positive entry budget, got: " + entries, entries > 0);
+    assertTrue("the entry budget must remain finite", entries < Long.MAX_VALUE);
+  }
+
+  private static long entriesWithScanCpuFactor(double factor) {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var previous = configuration.getValue();
+    try {
+      configuration.setValue(factor);
+      return IndexOrderedCostModel.entriesWorthTheLoadAlternative(20);
+    } finally {
+      configuration.setValue(previous);
+    }
   }
 
   // Low density + no limit → LOAD_ALL_SORT (index scan too expensive)

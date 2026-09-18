@@ -2,6 +2,41 @@
 
 Queries the database in a declarative manner, using pattern matching.
 
+## Ordered scan cost configuration
+
+The `ORDER BY` clause can preserve result order through a compatible index. This avoids loading
+reachable records and sorting them in memory.
+
+`youtrackdb.query.indexOrdered.scanCpuFactor` controls the modeled central processing unit (CPU)
+cost of each filtered ordered-index cursor advance. Its `GlobalConfiguration` constant is
+`QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR`. The value is a dimensionless `double` multiplier. The
+default is `5.0`.
+
+The planner adds this CPU term to the amortized index-page read cost. It compares a filtered ordered
+scan with load-and-sort using that result. Multi-source planning also compares the record-identifier
+set scan, global scan, and load-and-sort. A larger value makes a filtered scan less likely.
+
+The modeled per-entry cost also sets the filtered scan's pre-emission runtime budget. A larger factor
+makes an unproductive scan switch to load-and-sort sooner. A successful prefill commits to index
+order and removes that budget. Later graph-pattern filters can reject prefetched rows, so continuation
+is unbounded. Global scans use a separate record-count budget.
+
+This setting changes plan selection and the filtered pre-emission budget. It does not change query
+results or ordering rules.
+
+The cost-model boundary requires a finite, positive value. Zero, negative, and non-finite values
+produce a zero index-scan budget. This forces the load-and-sort alternative.
+
+YouTrackDB reads the exact key as a Java system property at startup:
+
+```text
+-Dyoutrackdb.query.indexOrdered.scanCpuFactor=5.0
+```
+
+This entry has no environment-variable spelling. Code can change
+`GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR` at runtime. Later cost-model calls read
+the new value.
+
 **Simplified Syntax**
 
 

@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.Test;
 
 /**
@@ -103,18 +104,25 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     session.begin();
     try {
       var stream = step.internalStart(ctx);
-      var ages = new ArrayList<Integer>();
-      while (ages.size() < TIGHT_BUDGET && stream.hasNext(ctx)) {
-        ages.add(((Number) stream.next(ctx).getProperty("key")).intValue());
+      var prefillAges = new ArrayList<Integer>();
+      while (prefillAges.size() < TIGHT_BUDGET && stream.hasNext(ctx)) {
+        prefillAges.add(((Number) stream.next(ctx).getProperty("key")).intValue());
       }
 
       step.liftScanBudget();
 
+      var continuationAges = new ArrayList<Integer>();
       while (stream.hasNext(ctx)) {
-        ages.add(((Number) stream.next(ctx).getProperty("key")).intValue());
+        continuationAges.add(((Number) stream.next(ctx).getProperty("key")).intValue());
       }
       stream.close(ctx);
-      assertThat(ages).as("lifting removes the finite continuation ceiling").hasSize(TOTAL);
+
+      assertThat(prefillAges)
+          .as("the prefill returns the first ordered window")
+          .containsExactlyElementsOf(agesFrom(0, (int) TIGHT_BUDGET));
+      assertThat(continuationAges)
+          .as("continuation resumes after the prefill without duplicates")
+          .containsExactlyElementsOf(agesFrom((int) TIGHT_BUDGET, TOTAL));
       assertThat(step.consumedEntryCount()).isGreaterThan(TIGHT_BUDGET * 2);
     } finally {
       if (session.getTransactionInternal().isActive()) {
@@ -138,7 +146,7 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
 
     session.begin();
     try {
-      assertThat(drainAges(step, ctx)).hasSize(TOTAL);
+      assertThat(drainAges(step, ctx)).containsExactlyElementsOf(agesFrom(0, TOTAL));
     } finally {
       if (session.getTransactionInternal().isActive()) {
         session.rollback();
@@ -146,9 +154,9 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     }
   }
 
-  /** Lifting an already unbounded negative budget preserves the unbounded scan. */
+  /** An initially negative budget remains unbounded without requiring a lift. */
   @Test
-  public void liftScanBudgetPreservesNegativeBound() {
+  public void initiallyNegativeScanBudgetRemainsUnbounded() {
     seedIndexedPeople();
     var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "Person.age");
@@ -157,11 +165,9 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     var step = new RidFilteredIndexValuesStep(
         new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), -2);
 
-    step.liftScanBudget();
-
     session.begin();
     try {
-      assertThat(drainAges(step, ctx)).hasSize(TOTAL);
+      assertThat(drainAges(step, ctx)).containsExactlyElementsOf(agesFrom(0, TOTAL));
     } finally {
       if (session.getTransactionInternal().isActive()) {
         session.rollback();
@@ -186,11 +192,15 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
 
     session.begin();
     try {
-      assertThat(drainAges(step, ctx)).hasSize(TOTAL);
+      assertThat(drainAges(step, ctx)).containsExactlyElementsOf(agesFrom(0, TOTAL));
     } finally {
       if (session.getTransactionInternal().isActive()) {
         session.rollback();
       }
     }
+  }
+
+  private static List<Integer> agesFrom(int startInclusive, int endExclusive) {
+    return IntStream.range(startInclusive, endExclusive).boxed().toList();
   }
 }

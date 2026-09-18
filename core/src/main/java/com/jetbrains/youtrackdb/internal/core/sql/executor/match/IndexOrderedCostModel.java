@@ -191,6 +191,9 @@ final class IndexOrderedCostModel {
    * {@code recordsReadByLoadAndSort} records. Budget for a UNION RidSet scan, where each entry
    * is a cheap cursor advance + bitmap check — not a record load.
    *
+   * <p>A non-positive or non-finite scan CPU factor produces zero. This disables the filtered
+   * index scan instead of creating a practically unbounded initial budget.
+   *
    * <p>Do NOT use this for {@link MultiSourceStrategy#GLOBAL_SCAN}: that path loads every
    * entry's record, so one entry already costs about one record. Its budget is
    * {@code recordsReadByLoadAndSort} itself.
@@ -199,9 +202,15 @@ final class IndexOrderedCostModel {
     if (recordsReadByLoadAndSort <= 0) {
       return 0;
     }
+    var cpuFactor =
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR
+            .getValueAsDouble();
+    if (!Double.isFinite(cpuFactor) || cpuFactor <= 0) {
+      return 0;
+    }
     var perEntry = scanCostPerEntry();
     if (perEntry <= 0) {
-      return Long.MAX_VALUE;
+      return 0;
     }
     var entries = recordsReadByLoadAndSort * recordReadCost() / perEntry;
     return entries >= Long.MAX_VALUE ? Long.MAX_VALUE : (long) entries;

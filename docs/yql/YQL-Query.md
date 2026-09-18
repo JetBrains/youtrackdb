@@ -113,44 +113,6 @@ projection. `ORDER BY` works only on returned projection properties, not on `LET
    SELECT name.toUpperCase(), address.city.country.name FROM Profile
 ```
 
-## Ordered MATCH scan cost configuration
-
-The `ORDER BY` clause sorts query results. A MATCH query can preserve that order by scanning a
-compatible index instead of loading reachable records and sorting them in memory.
-
-`youtrackdb.query.indexOrdered.scanCpuFactor` controls the modeled central processing unit (CPU)
-cost of each filtered ordered-index cursor advance. Its `GlobalConfiguration` constant is
-`QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR`. The value is a dimensionless `double` multiplier. The
-default is `5.0`.
-
-The planner adds this CPU term to the amortized index-page read cost. It uses the result when it
-compares a filtered ordered scan with load-and-sort. Multi-source planning also uses it when it
-compares the record-identifier set scan with global scan and load-and-sort. A larger value raises
-the filtered scan cost, so the planner is less likely to choose that scan.
-
-The same modeled per-entry cost sets the pre-emission runtime budget for a filtered scan. A larger
-factor makes an unproductive scan switch to load-and-sort sooner. Once a scan prefills its requested
-rows, it commits to index order and removes that budget. The continuation is unbounded because later
-graph-pattern filters can reject the prefetched rows. Global scans use a separate record-count
-budget.
-
-This setting changes plan selection and the filtered pre-emission budget. It does not change query
-results or ordering rules.
-
-The parser accepts any Java `double` value. The code enforces no minimum or maximum. It also does
-not reject negative or non-finite values. Use a finite, non-negative value to keep the cost model
-meaningful.
-
-YouTrackDB reads the exact key as a Java system property at startup:
-
-```text
--Dyoutrackdb.query.indexOrdered.scanCpuFactor=5.0
-```
-
-This configuration entry does not define an environment-variable spelling. Code can also change
-`GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR` at runtime. Later cost-model calls read
-the new value.
-
 ## Projections
 In the standard implementations of SQL, projections are mandatory. 
 When projections are omitted, YouTrackDB returns the entire record.

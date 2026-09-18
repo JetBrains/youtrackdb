@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -482,17 +484,59 @@ public class LdbcGremlinTranslatorBenchmark {
             .toList());
   }
 
+  record Ic2Parameters(long personId, Date maxDate) {
+  }
+
+  static final class LegacyIc2Workload {
+
+    Ic2Parameters parameters(LdbcBenchmarkState state, TranslatorArm arm, long index) {
+      return new Ic2Parameters(state.ic2PersonId(index), state.ic2MaxDate(index));
+    }
+
+    YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
+        YTDBGraphTraversalSource source, Ic2Parameters parameters) {
+      return GremlinTraversalShapes.ic2FriendsMessagesOrdered(
+          source, parameters.personId(), parameters.maxDate());
+    }
+  }
+
+  static final class OrderedLimitIc2Workload {
+
+    Ic2Parameters parameters(LdbcBenchmarkState state, TranslatorArm arm, long index) {
+      return new Ic2Parameters(arm.ic2PersonId(index), arm.ic2MaxDate(index));
+    }
+
+    YTDBGraphTraversal<Vertex, Map<String, Object>> traversal(
+        YTDBGraphTraversalSource source, Ic2Parameters parameters) {
+      return GremlinTraversalShapes.ic2FriendsMessagesOrderedLimit(
+          source, parameters.personId(), parameters.maxDate());
+    }
+  }
+
+  static final LegacyIc2Workload LEGACY_IC2 = new LegacyIc2Workload();
+  static final OrderedLimitIc2Workload ORDERED_LIMIT_IC2 = new OrderedLimitIc2Workload();
+
+  List<Map<Object, Object>> runLegacyIc2(
+      LdbcBenchmarkState state, TranslatorArm arm, LegacyIc2Workload workload) {
+    var index = state.nextIndex();
+    var parameters = workload.parameters(state, arm, index);
+    return state.traversal.computeInTx(t -> workload.traversal(t, parameters).toList());
+  }
+
+  List<Map<String, Object>> runOrderedLimitIc2(
+      LdbcBenchmarkState state, TranslatorArm arm, OrderedLimitIc2Workload workload) {
+    var index = state.nextIndex();
+    var parameters = workload.parameters(state, arm, index);
+    return state.traversal.computeInTx(t -> workload.traversal(t, parameters).toList());
+  }
+
   /**
    * Legacy IC2 benchmark identity. It keeps the historical traversal and curated IC2 parameters.
    */
   @Benchmark
   public List<Map<Object, Object>> gremlin_ic2_friendsMessagesOrdered(
       LdbcBenchmarkState state, TranslatorArm arm) {
-    var i = state.nextIndex();
-    return state.traversal.computeInTx(
-        t -> GremlinTraversalShapes
-            .ic2FriendsMessagesOrdered(t, state.ic2PersonId(i), state.ic2MaxDate(i))
-            .toList());
+    return runLegacyIc2(state, arm, LEGACY_IC2);
   }
 
   /**
@@ -501,11 +545,7 @@ public class LdbcGremlinTranslatorBenchmark {
   @Benchmark
   public List<Map<String, Object>> gremlin_ic2_friendsMessagesOrderedLimit(
       LdbcBenchmarkState state, TranslatorArm arm) {
-    var i = state.nextIndex();
-    return state.traversal.computeInTx(
-        t -> GremlinTraversalShapes
-            .ic2FriendsMessagesOrderedLimit(t, arm.ic2PersonId(i), arm.ic2MaxDate(i))
-            .toList());
+    return runOrderedLimitIc2(state, arm, ORDERED_LIMIT_IC2);
   }
 
   /**

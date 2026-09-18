@@ -166,8 +166,15 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
       drain(result, "mid");
       var step = stepOf(result);
 
-      var expectedBudget =
-          IndexOrderedCostModel.entriesWorthTheLoadAlternative(REACHABLE);
+      var recordReadCost =
+          GlobalConfiguration.QUERY_STATS_COST_RANDOM_PAGE_READ.getValueAsDouble()
+              + GlobalConfiguration.QUERY_STATS_COST_PER_ROW_CPU.getValueAsDouble();
+      var scanCostPerEntry =
+          GlobalConfiguration.QUERY_STATS_COST_SEQ_PAGE_READ.getValueAsDouble()
+              / GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE.getValueAsInteger()
+              + GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR.getValueAsDouble()
+                  * GlobalConfiguration.QUERY_STATS_COST_PER_ROW_CPU.getValueAsDouble();
+      var expectedBudget = (long) (REACHABLE * recordReadCost / scanCostPerEntry);
       assertThat(step.lastScanBudget())
           .as("the budget is the entry count reachable records are worth")
           .isEqualTo(expectedBudget);
