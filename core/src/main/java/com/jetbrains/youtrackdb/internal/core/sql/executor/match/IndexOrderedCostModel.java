@@ -167,6 +167,13 @@ final class IndexOrderedCostModel {
    * Shared by {@link #computeCosts}, {@link #pickMultiSourceStrategy}, and
    * {@link #entriesWorthTheLoadAlternative}.
    */
+  private static boolean hasValidScanCpuFactor() {
+    var cpuFactor =
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR
+            .getValueAsDouble();
+    return Double.isFinite(cpuFactor) && cpuFactor > 0;
+  }
+
   static double scanCostPerEntry() {
     int entriesPerPage =
         GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
@@ -202,10 +209,7 @@ final class IndexOrderedCostModel {
     if (recordsReadByLoadAndSort <= 0) {
       return 0;
     }
-    var cpuFactor =
-        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR
-            .getValueAsDouble();
-    if (!Double.isFinite(cpuFactor) || cpuFactor <= 0) {
+    if (!hasValidScanCpuFactor()) {
       return 0;
     }
     var perEntry = scanCostPerEntry();
@@ -228,6 +232,11 @@ final class IndexOrderedCostModel {
   static MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize, long limit,
       @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
+    if (!hasValidScanCpuFactor()) {
+      // Route invalid factors through the filtered branch. Its zero budget selects load-and-sort
+      // before the filtered cursor consumes an entry.
+      return MultiSourceStrategy.UNION_RIDSET_SCAN;
+    }
     var costs = computeCosts(totalEdges, indexSize, limit, histogram, orderAsc);
     if (costs == null) {
       return MultiSourceStrategy.LOAD_ALL_SORT;

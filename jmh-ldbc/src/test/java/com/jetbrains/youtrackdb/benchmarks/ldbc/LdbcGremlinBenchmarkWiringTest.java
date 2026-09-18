@@ -44,19 +44,21 @@ public class LdbcGremlinBenchmarkWiringTest {
   /** The legacy workload reads the curated parameter source from shared benchmark state. */
   @Test
   public void legacyWorkloadUsesCuratedParameters() {
-    var parameters = LdbcGremlinTranslatorBenchmark.LEGACY_IC2.parameters(
-        new StubState(), new StubArm(), 7);
+    var state = new StubState();
+    var arm = new StubArm();
 
-    assertEquals(new LdbcGremlinTranslatorBenchmark.Ic2Parameters(11, CURATED_DATE), parameters);
+    assertEquals(11, LdbcGremlinTranslatorBenchmark.LEGACY_IC2.personId(state, arm, 7));
+    assertSame(CURATED_DATE, LdbcGremlinTranslatorBenchmark.LEGACY_IC2.maxDate(state, arm, 7));
   }
 
   /** The ordered-limit workload reads the live parameter source from translator-arm state. */
   @Test
   public void orderedLimitWorkloadUsesLiveParameters() {
-    var parameters = LdbcGremlinTranslatorBenchmark.ORDERED_LIMIT_IC2.parameters(
-        new StubState(), new StubArm(), 7);
+    var state = new StubState();
+    var arm = new StubArm();
 
-    assertEquals(new LdbcGremlinTranslatorBenchmark.Ic2Parameters(22, LIVE_DATE), parameters);
+    assertEquals(22, LdbcGremlinTranslatorBenchmark.ORDERED_LIMIT_IC2.personId(state, arm, 7));
+    assertSame(LIVE_DATE, LdbcGremlinTranslatorBenchmark.ORDERED_LIMIT_IC2.maxDate(state, arm, 7));
   }
 
   private static void assertBenchmarkAnnotation(String methodName) throws NoSuchMethodException {

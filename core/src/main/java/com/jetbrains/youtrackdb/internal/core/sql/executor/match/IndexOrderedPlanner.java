@@ -891,6 +891,10 @@ public final class IndexOrderedPlanner {
     long queryLimit = limitSize >= 0 ? skipSize + limitSize : -1;
     var asc = SQLOrderByItem.ASC.equals(orderItem.getType());
 
+    if (IndexOrderedCostModel.entriesWorthTheLoadAlternative(estimatedEdges) <= 0) {
+      // Keep the ordered step so its zero-budget branch selects the matching load-and-sort path.
+      return true;
+    }
     var costs = IndexOrderedCostModel.computeCosts(
         estimatedEdges, indexSize, queryLimit,
         matchedIndex.getHistogram(session), asc);

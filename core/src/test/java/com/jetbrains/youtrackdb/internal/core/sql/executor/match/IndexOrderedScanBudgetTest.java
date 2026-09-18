@@ -130,6 +130,32 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
     return rows;
   }
 
+  /** Invalid scan CPU factors select load-and-sort without consuming an index entry. */
+  @Test
+  public void invalidScanCpuFactorsUseLoadAndSort() {
+    seedSkewed();
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var previous = configuration.getValue();
+    try {
+      for (var factor : List.of(-1.0, 0.0, Double.NaN, Double.POSITIVE_INFINITY)) {
+        configuration.setValue(factor);
+        try (var result = session.query(orderedQuery("ASC", 1))) {
+          var rows = drain(result, "mid");
+          var step = stepOf(result);
+          assertThat(step.getChosenRuntimePath())
+              .as("invalid scan CPU factor " + factor + " must select load-and-sort")
+              .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+          assertThat(step.lastScanConsumedEntries())
+              .as("load-and-sort must start before an index entry is consumed")
+              .isEqualTo(-1);
+          assertThat(rows).containsExactly("m" + slot(0));
+        }
+      }
+    } finally {
+      configuration.setValue(previous);
+    }
+  }
+
   /**
    * ASCENDING over the skewed fixture must cross every orphan before its first reachable message.
    * The model derives its budget from the reachable record count. The scan abandons itself first.

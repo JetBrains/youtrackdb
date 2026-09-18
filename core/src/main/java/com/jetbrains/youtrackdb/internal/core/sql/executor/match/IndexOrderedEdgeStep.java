@@ -381,6 +381,16 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var indexDesc = new IndexSearchDescriptor(index);
     var entryBudget =
         IndexOrderedCostModel.entriesWorthTheLoadAlternative(linkBag.size());
+    if (entryBudget <= 0) {
+      if (downstreamEdgeCount > 0 && limit > 0) {
+        chosenRuntimePath = RuntimePath.LOAD_SORT;
+        signalLoadSortedOutput(ctx);
+        return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
+      }
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED;
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromLinkBag(linkBag, ctx, upstreamRow);
+    }
     var filteredStep = new RidFilteredIndexValuesStep(
         indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, ridSet, entryBudget);
     var indexStream = filteredStep.internalStart(ctx);
@@ -687,6 +697,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var indexDesc = new IndexSearchDescriptor(index);
     var entryBudget =
         IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size());
+    if (entryBudget <= 0) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromSourcesUnbound(sourceRids, ctx);
+    }
     var filteredStep = new RidFilteredIndexValuesStep(
         indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, unionRidSet, entryBudget);
     var indexStream = filteredStep.internalStart(ctx);
@@ -934,6 +949,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var indexDesc = new IndexSearchDescriptor(index);
     var entryBudget =
         IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size());
+    if (entryBudget <= 0) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromSourcesUnsorted(sourceMap, ctx);
+    }
     var filteredStep = new RidFilteredIndexValuesStep(
         indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, unionRidSet, entryBudget);
     var indexStream = filteredStep.internalStart(ctx);
@@ -1040,10 +1060,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var rowTarget = limit;
     lastScanBudget = entryBudget;
     lastScanConsumedEntries = 0;
-    if (rowTarget <= 0 || entryBudget <= 0) {
+    if (rowTarget <= 0) {
       // No LIMIT means the scan has to reach the end of the reachable set
       // either way — abandoning it cannot save work.
       return indexStream.flatMap(rowsForEntry::apply);
+    }
+    if (entryBudget <= 0) {
+      // Filtered callers reject this budget before constructing a scan. Keep this guard so a
+      // future caller cannot reinterpret an invalid initial budget as an unbounded scan.
+      return bailOutTo(indexStream, ctx, bailOut);
     }
 
     var maxBuffered = maxBufferedRows(rowTarget);
@@ -1111,6 +1136,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private boolean shouldUseIndexScan(
       int linkBagSize, long indexSize,
       @Nullable EquiDepthHistogram histogram) {
+    if (IndexOrderedCostModel.entriesWorthTheLoadAlternative(linkBagSize) <= 0) {
+      // Let the filtered branch interpret zero as an immediate load-and-sort decision.
+      return true;
+    }
     var costs = IndexOrderedCostModel.computeCosts(
         linkBagSize, indexSize, limit, histogram, orderAsc,
         downstreamEdgeCount);
