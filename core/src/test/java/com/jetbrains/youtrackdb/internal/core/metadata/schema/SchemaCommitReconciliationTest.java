@@ -26,6 +26,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -51,6 +52,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.io.FileUtils;
@@ -814,6 +816,194 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
       } finally {
         reopenedSession.activateOnCurrentThread();
         reopenedSession.close();
+      }
+      context.drop(dbName);
+    } finally {
+      context.close();
+      FileUtils.deleteDirectory(new File(contextPath));
+    }
+  }
+
+  /**
+   * A pure-data completion failure without internal rollback has uncertain durability. Both runtime
+   * and assertion failures must reach the caller unchanged, poison later writes, and recover the
+   * certainly durable test row after a disk reopen.
+   */
+  @Test
+  public void pureDataEndTxCommitFailuresPoisonWritesAndRecoverOnReopen() throws Exception {
+    verifyPureDataEndTxCommitFailure(false);
+    verifyPureDataEndTxCommitFailure(true);
+  }
+
+  private void verifyPureDataEndTxCommitFailure(boolean assertionFailure) throws Exception {
+    var suffix = assertionFailure ? "Assertion" : "Runtime";
+    var dbName = "DataPoison" + suffix;
+    var contextPath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-data-poison-" + suffix;
+    var context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+    try {
+      context.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+      RID durableRid;
+      var localSession = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        localSession.getMetadata().getSchema().createClass("DataTarget");
+        var storage = (AbstractStorage) localSession.getStorage();
+        var injected = assertionFailure
+            ? new AssertionError("injected pure-data completion assertion")
+            : new CommandInterruptedException(dbName,
+                "injected pure-data completion runtime failure");
+        storage.setEndTxCommitPostDurabilityFailureTestHook(() -> {
+          if (injected instanceof AssertionError assertionError) {
+            throw assertionError;
+          }
+          throw (RuntimeException) injected;
+        });
+        localSession.begin();
+        var row = (EntityImpl) localSession.newEntity("DataTarget");
+        row.setProperty("value", suffix);
+        try {
+          localSession.commit();
+          fail("the uncertain pure-data completion failure must reach the caller");
+        } catch (final Throwable observed) {
+          assertSame("the caller must receive the original completion failure", injected, observed);
+        } finally {
+          storage.setEndTxCommitPostDurabilityFailureTestHook(null);
+        }
+        durableRid = row.getIdentity();
+        assertTrue("the certainly durable test row must receive a persistent identity",
+            durableRid.isPersistent());
+        assertThrows("a real later write must fail while storage is poisoned",
+            RuntimeException.class,
+            () -> localSession.executeInTx(tx -> localSession.newEntity("DataTarget")));
+      } finally {
+        localSession.activateOnCurrentThread();
+        localSession.close();
+      }
+      context.close();
+
+      context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+      var reopened = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        ((AbstractStorage) reopened.getStorage()).checkErrorState();
+        reopened.executeInTx(tx -> {
+          EntityImpl loaded = reopened.load(durableRid);
+          assertEquals("the durable data row must survive recovery", suffix,
+              loaded.getProperty("value"));
+          var next = (EntityImpl) reopened.newEntity("DataTarget");
+          next.setProperty("value", "writable");
+        });
+      } finally {
+        reopened.activateOnCurrentThread();
+        reopened.close();
+      }
+      context.drop(dbName);
+    } finally {
+      context.close();
+      FileUtils.deleteDirectory(new File(contextPath));
+    }
+  }
+
+  /**
+   * A post-durability metadata fault must preserve commit success and poison writes. Runtime and
+   * assertion faults after the first index publication prove partial lookup-map publication is
+   * contained. A promotion assertion verifies the same assertion wrapping after all indexes publish.
+   */
+  @Test
+  public void metadataPublicationFailuresPreserveSuccessAndRecoverOnReopen() throws Exception {
+    verifyMetadataPublicationFailure("Runtime", false, false);
+    verifyMetadataPublicationFailure("Assertion", true, false);
+    verifyMetadataPublicationFailure("PromotionAssertion", true, true);
+  }
+
+  private void verifyMetadataPublicationFailure(
+      String suffix, boolean assertionFailure, boolean failAtPromotion) throws Exception {
+    var dbName = "MetadataPoison" + suffix;
+    var contextPath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-metadata-poison-" + suffix;
+    var context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+    try {
+      context.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
+      var localSession = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        var schema = localSession.getMetadata().getSchema();
+        var cls = schema.createClass("MetadataTarget");
+        cls.createProperty("left", PropertyType.STRING);
+        cls.createProperty("right", PropertyType.STRING);
+        var firstIndex = "MetadataTarget.left";
+        var secondIndex = "MetadataTarget.right";
+        var storage = (AbstractStorage) localSession.getStorage();
+        var indexManager = localSession.getSharedContext().getIndexManager();
+        var publishedAtFault = new AtomicInteger(-1);
+        Runnable fault = () -> {
+          publishedAtFault.set((indexManager.existsIndex(firstIndex) ? 1 : 0)
+              + (indexManager.existsIndex(secondIndex) ? 1 : 0));
+          if (assertionFailure) {
+            throw new AssertionError("injected post-durability metadata assertion");
+          }
+          throw new CommandInterruptedException(dbName,
+              "injected post-durability metadata runtime failure");
+        };
+        if (failAtPromotion) {
+          storage.setSchemaPromotionTestHook(fault);
+        } else {
+          indexManager.setReconciledIndexPublicationTestHook(fault);
+        }
+        localSession.begin();
+        var target = localSession.getMetadata().getSchema().getClass("MetadataTarget");
+        target.setStrictMode(true);
+        target.createIndex(firstIndex, SchemaClass.INDEX_TYPE.NOTUNIQUE, "left");
+        target.createIndex(secondIndex, SchemaClass.INDEX_TYPE.NOTUNIQUE, "right");
+        var row = (EntityImpl) localSession.newEntity("MetadataTarget");
+        row.setProperty("left", "L");
+        row.setProperty("right", "R");
+        try {
+          localSession.commit();
+        } finally {
+          storage.setSchemaPromotionTestHook(null);
+          indexManager.setReconciledIndexPublicationTestHook(null);
+        }
+
+        assertEquals("publication faults must occur after exactly one index becomes visible",
+            failAtPromotion ? 2 : 1, publishedAtFault.get());
+        assertEquals("partial publication must leave exactly the completed index visible",
+            failAtPromotion ? 2 : 1,
+            (indexManager.existsIndex(firstIndex) ? 1 : 0)
+                + (indexManager.existsIndex(secondIndex) ? 1 : 0));
+        assertFalse("schema promotion must stop after the metadata fault",
+            localSession.getSharedContext().getSchema().getClass("MetadataTarget").isStrictMode());
+        assertThrows("a later write must fail after metadata publication containment",
+            RuntimeException.class,
+            () -> localSession.executeInTx(tx -> localSession.newEntity("MetadataTarget")));
+      } finally {
+        localSession.activateOnCurrentThread();
+        localSession.close();
+      }
+      context.close();
+
+      context = (YouTrackDBImpl) YourTracks.instance(contextPath);
+      var reopened = context.open(dbName, "admin", ADMIN_PASSWORD);
+      try {
+        ((AbstractStorage) reopened.getStorage()).checkErrorState();
+        var recoveredSchema = reopened.getMetadata().getSchema();
+        assertTrue("the durable schema alteration must appear after recovery",
+            recoveredSchema.getClass("MetadataTarget").isStrictMode());
+        var recoveredIndexes = reopened.getSharedContext().getIndexManager();
+        assertNotNull("the first durable index must appear after recovery",
+            recoveredIndexes.getIndex("MetadataTarget.left"));
+        assertNotNull("the second durable index must appear after recovery",
+            recoveredIndexes.getIndex("MetadataTarget.right"));
+        var leftRows = reopened.computeInTx(
+            tx -> recoveredIndexes.getIndex("MetadataTarget.left")
+                .getRids(reopened, "L").toList());
+        assertEquals("the recovered index must contain the durable row", 1, leftRows.size());
+        reopened.executeInTx(tx -> {
+          var row = (EntityImpl) reopened.newEntity("MetadataTarget");
+          row.setProperty("left", "after-reopen");
+          row.setProperty("right", "after-reopen");
+        });
+      } finally {
+        reopened.activateOnCurrentThread();
+        reopened.close();
       }
       context.drop(dbName);
     } finally {
