@@ -7,10 +7,12 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricScope.Dat
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricScope.Global;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
+import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.LongSupplier;
 import javax.annotation.Nullable;
 import javax.management.Attribute;
 import javax.management.AttributeList;
@@ -41,14 +43,19 @@ import javax.management.ReflectionException;
  */
 public class MetricsRegistry {
 
+  public static final String DISK_USAGE_ATTRIBUTE = "DiskUsageBytes";
+
   private final Ticker ticker;
 
   private final GlobalMetrics globalMetrics;
-  private final ConcurrentMap<String, DatabaseMetrics> perDatabaseMetrics = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, DatabaseMetrics> perDatabaseMetrics =
+      new ConcurrentHashMap<>();
   private final Set<ObjectName> registeredMBeans = ConcurrentHashMap.newKeySet();
 
   private final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
   private volatile boolean closed = false;
+  private volatile Runnable beforeDiskUsageMBeanRegistration = () -> {
+  };
 
   public MetricsRegistry(Ticker ticker) {
     this.ticker = ticker;
@@ -67,8 +74,7 @@ public class MetricsRegistry {
    */
   public <T extends Metric<?>> T databaseMetric(
       MetricDefinition<Database, T> metric,
-      String databaseName
-  ) {
+      String databaseName) {
     return initDatabaseMetrics(databaseName).mGroup.init(null, metric);
   }
 
@@ -78,17 +84,76 @@ public class MetricsRegistry {
   public <T extends Metric<?>> T classMetric(
       MetricDefinition<Class, T> metric,
       String databaseName,
-      String className
-  ) {
+      String className) {
     return initDatabaseMetrics(databaseName).mGroup.init("class." + className, metric);
+  }
+
+  /** Registers a manager-specific, request-driven database disk-usage metric. */
+  public synchronized void registerDatabaseDiskUsage(long managerId, String databaseName,
+      LongSupplier valueSupplier) {
+    if (closed) {
+      return;
+    }
+    beforeDiskUsageMBeanRegistration.run();
+    var objectName = databaseDiskUsageObjectName(managerId, databaseName);
+    if (!registeredMBeans.add(objectName)) {
+      return;
+    }
+
+    try {
+      var metricsGroup = new MetricsGroup();
+      var definition = new MetricDefinition<Database, Gauge<Long>>(
+          DISK_USAGE_ATTRIBUTE,
+          DISK_USAGE_ATTRIBUTE,
+          "Sum of regular-file lengths in database " + databaseName,
+          MetricType.gauge(Long.class));
+      metricsGroup.initProvided(null, definition, new SupplierGauge(valueSupplier));
+      mBeanServer.registerMBean(
+          new MetricsMBean(metricsGroup, "Database disk usage for " + databaseName), objectName);
+    } catch (JMException ex) {
+      registeredMBeans.remove(objectName);
+      LogManager.instance()
+          .error(this, "Failed to register database disk usage MBean " + objectName, ex);
+    }
+  }
+
+  /** Unregisters one manager-specific database disk-usage metric. */
+  public synchronized void unregisterDatabaseDiskUsage(long managerId, String databaseName) {
+    var objectName = databaseDiskUsageObjectName(managerId, databaseName);
+    if (!registeredMBeans.remove(objectName)) {
+      return;
+    }
+
+    try {
+      mBeanServer.unregisterMBean(objectName);
+    } catch (JMException ex) {
+      LogManager.instance()
+          .error(this, "Failed to unregister database disk usage MBean " + objectName, ex);
+    }
+  }
+
+  void setBeforeDiskUsageMBeanRegistration(Runnable hook) {
+    beforeDiskUsageMBeanRegistration = hook;
+  }
+
+  public static ObjectName databaseDiskUsageObjectName(long managerId, String databaseName) {
+    try {
+      var properties = new Hashtable<String, String>();
+      properties.put("scope", "DatabaseDiskUsage");
+      properties.put("managerId", Long.toString(managerId));
+      properties.put("databaseName", ObjectName.quote(databaseName));
+      return new ObjectName("com.jetbrains.youtrackdb.metrics", properties);
+    } catch (JMException ex) {
+      throw new IllegalArgumentException("Invalid database disk usage metric identity", ex);
+    }
   }
 
   /**
    * Shutdown the registry, unregistering all MBeans.
    */
-  public void shutdown() {
+  public synchronized void shutdown() {
     closed = true;
-    for (Iterator<ObjectName> iterator = registeredMBeans.iterator(); iterator.hasNext(); ) {
+    for (Iterator<ObjectName> iterator = registeredMBeans.iterator(); iterator.hasNext();) {
       ObjectName mBeanName = iterator.next();
       try {
         mBeanServer.unregisterMBean(mBeanName);
@@ -107,7 +172,8 @@ public class MetricsRegistry {
   private final class MetricsGroup {
 
     private final ConcurrentMap<String, Metric<?>> metrics = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, MetricDefinition<?, ?>> definitions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, MetricDefinition<?, ?>> definitions =
+        new ConcurrentHashMap<>();
 
     @SuppressWarnings("unchecked")
     <T extends Metric<?>> T init(String namePrefix, MetricDefinition<?, T> def) {
@@ -120,10 +186,39 @@ public class MetricsRegistry {
           k -> {
             definitions.put(k, def);
             return def.type().create(ticker);
-          }
-      );
+          });
     }
 
+    <T extends Metric<?>> T initProvided(String namePrefix, MetricDefinition<?, T> def, T metric) {
+      if (closed || !def.enabled()) {
+        return def.type().noop();
+      }
+
+      var key = namePrefix == null ? def.name() : namePrefix + "." + def.name();
+      definitions.put(key, def);
+      metrics.put(key, metric);
+      return metric;
+    }
+
+  }
+
+  private static final class SupplierGauge implements Gauge<Long> {
+
+    private final LongSupplier valueSupplier;
+
+    private SupplierGauge(LongSupplier valueSupplier) {
+      this.valueSupplier = valueSupplier;
+    }
+
+    @Override
+    public void setValue(Long value) {
+      throw new UnsupportedOperationException("setValue");
+    }
+
+    @Override
+    public Long getValue() {
+      return valueSupplier.getAsLong();
+    }
   }
 
   private final class GlobalMetrics {
@@ -186,9 +281,7 @@ public class MetricsRegistry {
                 md.getValue().description(),
                 true,
                 false,
-                false
-            )
-        );
+                false));
       }
 
       return new MBeanInfo(
@@ -197,8 +290,7 @@ public class MetricsRegistry {
           attributes.toArray(new MBeanAttributeInfo[0]),
           new MBeanConstructorInfo[0],
           new MBeanOperationInfo[0],
-          new MBeanNotificationInfo[0]
-      );
+          new MBeanNotificationInfo[0]);
     }
 
     @Override
@@ -226,8 +318,7 @@ public class MetricsRegistry {
       throw new UnsupportedOperationException("setAttribute");
     }
 
-    @Nullable
-    @Override
+    @Nullable @Override
     public Object getAttribute(String attribute) {
       final var metric = metricsGroup.metrics.get(attribute);
       return metric == null ? null : metric.getValue();

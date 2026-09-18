@@ -103,7 +103,6 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
       String... userCredentials) {
     create(databaseName, type, YouTrackDBConfig.defaultConfig(), userCredentials);
 
-
   }
 
   public void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
@@ -207,7 +206,6 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
     return sessionPool.asGraph();
   }
 
-
   @Override
   public @NonNull YTDBGraphTraversalSource openTraversal(@NonNull String databaseName,
       @NonNull String userName, @NonNull String userPassword) {
@@ -295,6 +293,11 @@ public class YouTrackDBImpl implements YouTrackDB, AutoCloseable {
   @Nonnull
   public List<String> listDatabases() {
     return new ArrayList<>(this.internal.listDatabases(null, null));
+  }
+
+  @Override
+  public long diskUsage(@Nonnull String databaseName) {
+    return internal.diskUsage(databaseName);
   }
 
   /// Close the current YouTrackDB database manager with all related databases and pools.

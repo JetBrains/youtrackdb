@@ -498,6 +498,12 @@ public enum GlobalConfiguration {
       Long.class,
       600_000),
 
+  DB_DISK_USAGE_CACHE_DURATION(
+      "youtrackdb.db.diskUsage.cacheDuration",
+      "Duration in milliseconds for cached database directory sizes. The value must be positive",
+      Long.class,
+      300_000L),
+
   DB_POOL_ACQUIRE_TIMEOUT(
       "youtrackdb.db.pool.acquireTimeout",
       "Default database pool timeout in milliseconds",
