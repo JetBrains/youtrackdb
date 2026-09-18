@@ -6,6 +6,24 @@ One title tag changes which checks run:
 
 - `[no-test-number-check]` skips the test count gate. Use it only for an intentional test refactoring that does not reduce coverage.
 
+Manual comparison benchmark support:
+
+A pull request head is its captured commit.
+A SHA is a full 40-character commit identifier.
+An attestation is a signed statement that identifies the trusted validator.
+
+- Dispatch **LDBC JMH Benchmark Compare** from `develop`.
+- Provide exactly one pull request number or one same-repository commit SHA.
+- Choose 8 dedicated vCPUs by default or 32 dedicated vCPUs for the larger profile.
+- A dedicated vCPU is a reserved processor thread, not proof of a physical CPU core.
+- The comparison report records the requested profile and fixed provider label.
+- A fork head needs an approving maintainer review for that exact commit before execution.
+- SHA comparisons use the first parent and never publish pull request completion.
+- Filters accept comma-separated query identifiers without regular expressions.
+- Full pull request runs publish signed completion in a pull request comment.
+- Performance regressions remain informational for human review.
+- Automatic core Java enforcement and `[no-benchmarks]` support remain deferred.
+
 Integration test run conditions:
 
 - Integration tests do not run for a draft pull request or when every changed file is a Markdown file.

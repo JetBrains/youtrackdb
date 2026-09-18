@@ -1,739 +1,551 @@
 name: LDBC JMH Benchmark Compare
 
-permissions:
-  contents: read
-  pull-requests: write
-
 on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: number
+      head_repository:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      runner_cores:
+        description: Requested dedicated vCPU profile. Allowed values are 8 and 32.
+        required: false
+        type: string
+        default: '8'
+    secrets:
+      HETZNER_S3_ACCESS_KEY:
+        required: true
+      HETZNER_S3_SECRET_KEY:
+        required: true
+      HETZNER_S3_ENDPOINT:
+        required: true
   workflow_dispatch:
     inputs:
+      pr_number:
+        description: Pull request number. Leave empty when using commit_sha.
+        required: false
+        type: string
+        default: ''
+      commit_sha:
+        description: Full same-repository commit SHA. Leave empty when using pr_number.
+        required: false
+        type: string
+        default: ''
       queries:
-        description: >
-          Comma-separated query IDs (e.g. IS1,IC2,IC13), or gremlin for
-          LdbcGremlinTranslatorBenchmark only (methods are named gremlin_*).
-          A query ID matches SQL (.*is1_.*) and any Gremlin shape that
-          echoes it (gremlin_is1_*). The one complete SQL twin is
-          gremlin_is5_messageCreator. Leave empty for the full suite: SQL
-          LDBC (LdbcSingleThread / LdbcMultiThread) plus Gremlin. Gremlin
-          rows compare head against the fork-point with translator on both
-          sides (gremlin_arms default on). Pass gremlin_arms=both only for
-          an optional on/off A/B on one commit (~doubles Gremlin wall).
-          Full empty-filter with both arms was ~21h on CCX33; run on CCX53
-          (32 vCPU) to match nightly multi-thread core count. Job timeout
-          is 30h.
+        description: Comma-separated IS1-IS7, IC1-IC13, or gremlin. Empty runs all.
         required: false
         type: string
         default: ''
       gremlin_arms:
-        description: >
-          Which LdbcGremlinTranslatorBenchmark arms to run and report.
-          'on' (default) = production path on base and head
-          (-p translatorEnabled=true) for head-vs-develop compare.
-          'both' = optional same-commit translator on/off A/B (roughly doubles
-          Gremlin wall time; not the default PR comment framing).
+        description: Production arm or optional investigation A/B arms
         required: false
         type: choice
-        # Both values must stay quoted: YAML coerces a bare `on` to the boolean
-        # true, which the dispatch form then offers as "true" and passes on to
-        # `--gremlin-arms`, where it is not a valid choice.
-        options:
-          - 'on'
-          - 'both'
+        options: ['on', 'both']
         default: 'on'
-      base_branch:
-        description: >
-          Base branch to compare against (fork-point is computed with
-          `git merge-base HEAD origin/<base_branch>`).
+      runner_cores:
+        description: Requested dedicated vCPU profile
         required: false
-        type: string
-        default: 'develop'
+        type: choice
+        options: ['8', '32']
+        default: '8'
 
-# Prevent duplicate runs for the same branch; different branches run in parallel
-# on separate ephemeral runners provisioned by TestFlows.
 concurrency:
-  group: jmh-compare-${{ github.ref }}
-  cancel-in-progress: true
+  group: ldbc-jmh-${{ inputs.pr_number != '' && format('pr-{0}', inputs.pr_number) || format('sha-{0}', inputs.commit_sha) }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   LDBC_SCALE_FACTOR: '1'
-  # Shared marker for the in-progress placeholder comment. Referenced by
-  # both the "Check for in-progress benchmark" and "Remove in-progress
-  # placeholder" steps via `process.env.IN_PROGRESS_MARKER`.
-  IN_PROGRESS_MARKER: '<!-- jmh-ldbc-compare-in-progress -->'
+  FIXED_EXCLUSION: LdbcSingleThreadBothEBenchmark
 
 jobs:
-  compare:
-    runs-on:
-      - self-hosted
-      # CCX53: 32 dedicated vCPUs — same core count as nightly baremetal so
-      # @Threads(Threads.MAX) multi-thread scores are comparable (CCX33 was 8).
-      - type-ccx53
-      - image-x86-system-ubuntu-24.04
-      - in-nbg1-fsn1-hel1
-    # Full empty-filter suite = SQL LDBC (single+multi) + Gremlin translator.
-    # Default gremlin_arms=on: head vs fork-point, translator on both sides.
-    # gremlin_arms=both ≈ doubles Gremlin wall (~21h observed on CCX33).
-    # 30h timeout leaves margin for variance and new shapes on CCX53.
-    timeout-minutes: 1800
-
+  resolve:
+    name: Resolve immutable comparison target
+    runs-on: ubuntu-latest-8-cores-x64-public
+    outputs:
+      target_mode: ${{ steps.identity.outputs.target_mode }}
+      target_key: ${{ steps.identity.outputs.target_key }}
+      pr_number: ${{ steps.identity.outputs.pr_number }}
+      head_repository: ${{ steps.identity.outputs.head_repository }}
+      head_sha: ${{ steps.identity.outputs.head_sha }}
+      base_sha: ${{ steps.identity.outputs.base_sha }}
+      baseline_sha: ${{ steps.identity.outputs.baseline_sha }}
+      queries: ${{ steps.identity.outputs.queries }}
+      gremlin_arms: ${{ steps.identity.outputs.gremlin_arms }}
+      full_pr: ${{ steps.identity.outputs.full_pr }}
+      runner_cores: ${{ steps.identity.outputs.runner_cores }}
+      runner_label: ${{ steps.identity.outputs.runner_label }}
+      runner_memory_gb: ${{ steps.identity.outputs.runner_memory_gb }}
+      tooling_sha: ${{ steps.tooling.outputs.sha }}
     steps:
-      # ── Setup ────────────────────────────────────────────────────────────
-      - name: Checkout (full history for fork-point detection)
+      - name: Reject untrusted manual workflow ref
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/develop'
+        run: |
+          echo "::error::Manual comparisons must dispatch the workflow from develop."
+          exit 1
+
+      - name: Resolve immutable trusted develop tooling
+        id: tooling
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/develop" --jq '.object.sha')
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted resolver
         uses: actions/checkout@v7
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.tooling.outputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Setup Java 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
-      - name: Install tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd python3-pip > /dev/null 2>&1
-          pip install --break-system-packages boto3 -q
-
-      - name: Resolve commits
-        id: commits
+      - name: Resolve target, baseline, and filter
+        id: identity
         env:
-          BASE_BRANCH: ${{ inputs.base_branch }}
-        run: |
-          set -euo pipefail
-
-          HEAD_SHA=$(git rev-parse HEAD)
-          BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-          # Ensure we have the base branch ref for merge-base
-          git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" --no-tags
-
-          FORK_POINT=$(git merge-base HEAD "origin/$BASE_BRANCH")
-
-          if [ "$HEAD_SHA" = "$FORK_POINT" ]; then
-            echo "::error::Fork-point equals HEAD — nothing to compare."
-            exit 1
-          fi
-
-          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-          echo "head_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          echo "fork_point=$FORK_POINT" >> "$GITHUB_OUTPUT"
-          echo "fork_short=$(git rev-parse --short "$FORK_POINT")" >> "$GITHUB_OUTPUT"
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
-
-          echo "Base branch: $BASE_BRANCH"
-          echo "Branch:      $BRANCH"
-          echo "HEAD:        $HEAD_SHA"
-          echo "Fork-point:  $FORK_POINT"
-
-      # Post a placeholder comment on every open PR for this branch to signal
-      # that a run is starting. If a placeholder already exists, exit early —
-      # another run is in progress. Cleaned up by "Remove in-progress
-      # placeholder" below (runs on success, failure, or cancel). Base/Head
-      # are rendered in the same format as the final comparison comment.
-      #
-      # Best-effort belt-and-suspenders guard on top of the job-level
-      # `concurrency:` block: the API check+post is not atomic, so two runs
-      # racing within API latency could both post. In practice the top-level
-      # concurrency block already cancels same-ref duplicates; this PR-scoped
-      # guard covers only the remaining windows (rapid re-dispatch, or
-      # multiple refs pointing at the same PR), which are rare enough that a
-      # strict mutex isn't worth the complexity.
-      - name: Check for in-progress benchmark and post placeholder
-        id: placeholder
-        uses: actions/github-script@v9
-        env:
-          BRANCH: ${{ steps.commits.outputs.branch }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          BASE_SHA: ${{ steps.commits.outputs.fork_point }}
-          HEAD_SHA: ${{ steps.commits.outputs.head_sha }}
-          BASE_BRANCH: ${{ steps.commits.outputs.base_branch }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-        with:
-          script: |
-            const branch = process.env.BRANCH;
-            const IN_PROGRESS_MARKER = process.env.IN_PROGRESS_MARKER;
-
-            const { data: prs } = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head: `${context.repo.owner}:${branch}`,
-              state: 'open',
-            });
-
-            if (prs.length === 0) {
-              // No PR → nothing to guard here; the top-level `concurrency:`
-              // block still prevents same-ref duplicates.
-              console.log(`No open PRs for branch ${branch}; skipping placeholder.`);
-              core.setOutput('posted', 'false');
-              return;
-            }
-
-            for (const pr of prs) {
-              const comments = await github.paginate(
-                github.rest.issues.listComments,
-                {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                });
-              const existing = comments.find(
-                c => c.body && c.body.includes(IN_PROGRESS_MARKER));
-              if (existing) {
-                // Set posted=false BEFORE setFailed so the cleanup step's
-                // `posted == 'true'` guard evaluates to false and we do not
-                // delete the other run's marker.
-                core.setOutput('posted', 'false');
-                core.setFailed(
-                  `Another JMH LDBC compare run is already in progress for ` +
-                  `PR #${pr.number} (comment #${existing.id}: ${existing.html_url}). ` +
-                  `Exiting.`);
-                return;
-              }
-            }
-
-            // Matches the `fmt_sha` helper in jmh-ldbc/jmh-compare.py:
-            // [`<short10>`](<repo>/commit/<sha>)
-            const fmtSha = sha =>
-              `[\`${sha.slice(0, 10)}\`](${process.env.REPO_URL}/commit/${sha})`;
-            const commits =
-              `**Base:** ${fmtSha(process.env.BASE_SHA)} ` +
-              `(fork-point with \`${process.env.BASE_BRANCH}\`) ` +
-              `| **Head:** ${fmtSha(process.env.HEAD_SHA)}`;
-
-            // Strip backticks so a branch name containing them cannot break
-            // out of the code span in the rendered markdown body.
-            const branchLabel = branch.replace(/`/g, '');
-            const body = `${IN_PROGRESS_MARKER}\n` +
-              `## JMH LDBC Benchmark Comparison\n\n` +
-              `${commits}\n\n` +
-              `⏳ **Run in progress** on branch \`${branchLabel}\`. ` +
-              `Follow the run: ${process.env.RUN_URL}`;
-            for (const pr of prs) {
-              const { data: created } = await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body,
-              });
-              console.log(
-                `Posted in-progress placeholder #${created.id} on PR #${pr.number}`);
-            }
-            core.setOutput('posted', 'true');
-
-      - name: Build JMH filter from query list
-        id: filter
-        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          INPUT_SHA: ${{ inputs.commit_sha }}
+          CALL_HEAD_REPOSITORY: ${{ inputs.head_repository }}
+          CALL_HEAD_SHA: ${{ inputs.head_sha }}
+          CALL_BASE_SHA: ${{ inputs.base_sha }}
           QUERIES: ${{ inputs.queries }}
           GREMLIN_ARMS: ${{ inputs.gremlin_arms }}
+          RUNNER_CORES: ${{ inputs.runner_cores }}
         run: |
           set -euo pipefail
-          if [ -n "$QUERIES" ]; then
-            # Convert "IS1,IC2,IC13" → ".*is1_.*|.*ic2_.*|.*ic13_.*"
-            JMH_FILTER=$(echo "$QUERIES" \
-              | tr '[:upper:]' '[:lower:]' \
-              | tr ',' '\n' \
-              | sed 's/.*/.*&_.*/' \
-              | paste -sd'|')
-            echo "jmh_filter=$JMH_FILTER" >> "$GITHUB_OUTPUT"
-            echo "Filter: $JMH_FILTER"
-          else
-            echo "jmh_filter=" >> "$GITHUB_OUTPUT"
-            echo "Filter: (all benchmarks)"
+          if [[ "$EVENT_NAME" == "workflow_call" ]]; then
+            INPUT_SHA=
           fi
-
-          # LdbcSingleThreadBothEBenchmark is the only class that writes to the
-          # shared on-disk DB (it installs KNOWS.creationDate for one method).
-          # Building an index over every KNOWS edge evicts hot Person/KNOWS pages
-          # that the IC/IS benchmarks measure against, and IC1 — three hops of
-          # KNOWS — regressed ~14% because of it. The class also produces no A/B
-          # signal: the fork-point side does not contain it, so every row reads
-          # as "new". Exclude it on both sides and run it on demand instead.
-          echo "jmh_exclude=-e LdbcSingleThreadBothEBenchmark" >> "$GITHUB_OUTPUT"
-
-          # Default production arm only. JMH -p applies to benches that declare
-          # the @Param; SQL LDBC classes without translatorEnabled are unchanged.
+          TARGET=$(python3 .github/scripts/mandatory-benchmark.py target \
+            --pr-number "$INPUT_PR" --commit-sha "$INPUT_SHA")
+          MODE=$(jq -r .mode <<< "$TARGET")
+          VALUE=$(jq -r .value <<< "$TARGET")
+          python3 .github/scripts/mandatory-benchmark.py filter --queries "$QUERIES" >/dev/null
           ARMS="${GREMLIN_ARMS:-on}"
-          # `true` reaches here from any dispatch whose workflow file still has
-          # the unquoted `on` option. Reject anything else now rather than at
-          # the compare step, which runs after hours of benchmarking.
-          if [ "$ARMS" = "true" ]; then
-            ARMS=on
-          fi
-          if [ "$ARMS" != "on" ] && [ "$ARMS" != "both" ]; then
-            echo "::error::Unsupported gremlin_arms='$ARMS' (expected on|both)."
-            exit 1
-          fi
-          echo "gremlin_arms=$ARMS" >> "$GITHUB_OUTPUT"
-          if [ "$ARMS" = "on" ]; then
-            echo "jmh_param_arg=-p translatorEnabled=true" >> "$GITHUB_OUTPUT"
-            echo "Gremlin arms: on (-p translatorEnabled=true)"
+          [[ "$ARMS" == "on" || "$ARMS" == "both" ]]
+          RUNNER=$(python3 .github/scripts/mandatory-benchmark.py runner-profile \
+            --cores "${RUNNER_CORES:-8}")
+          RUNNER_CORES=$(jq -r .requested_cores <<< "$RUNNER")
+          RUNNER_LABEL=$(jq -r .label <<< "$RUNNER")
+          RUNNER_MEMORY_GB=$(jq -r .memory_gb <<< "$RUNNER")
+
+          if [[ "$MODE" == "pr" ]]; then
+            PR_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$VALUE")
+            PR_NUMBER=$(jq -r .number <<< "$PR_JSON")
+            HEAD_REPOSITORY=$(jq -r .head.repo.full_name <<< "$PR_JSON")
+            HEAD_SHA=$(jq -r .head.sha <<< "$PR_JSON")
+            BASE_SHA=$(jq -r .base.sha <<< "$PR_JSON")
+            if [[ "$EVENT_NAME" == "workflow_call" ]]; then
+              [[ "$HEAD_REPOSITORY" == "$CALL_HEAD_REPOSITORY" ]]
+              [[ "$HEAD_SHA" == "$CALL_HEAD_SHA" ]]
+              [[ "$BASE_SHA" == "$CALL_BASE_SHA" ]]
+            fi
+            git fetch --no-tags "https://github.com/$HEAD_REPOSITORY.git" "$HEAD_SHA"
+            git fetch --no-tags origin "$BASE_SHA"
+            BASELINE_SHA=$(git merge-base "$HEAD_SHA" "$BASE_SHA")
+            [[ "$BASELINE_SHA" != "$HEAD_SHA" ]]
+
+            if [[ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
+              gh api --paginate --slurp \
+                "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+                | jq 'flatten' > /tmp/reviews.json
+              printf '{}\n' > /tmp/permissions.json
+              mapfile -t REVIEWERS < <(jq -r '.[].user.login' /tmp/reviews.json | sort -u)
+              for reviewer in "${REVIEWERS[@]}"; do
+                PERMISSION=$(gh api \
+                  "repos/$GITHUB_REPOSITORY/collaborators/$reviewer/permission" \
+                  --jq .permission 2>/dev/null || true)
+                jq --arg login "$reviewer" --arg permission "$PERMISSION" \
+                  '. + {($login): $permission}' /tmp/permissions.json > /tmp/permissions.next
+                mv /tmp/permissions.next /tmp/permissions.json
+              done
+              python3 .github/scripts/mandatory-benchmark.py approval \
+                --reviews /tmp/reviews.json --permissions /tmp/permissions.json \
+                --head-sha "$HEAD_SHA"
+            fi
+            TARGET_KEY="pr-$PR_NUMBER"
           else
-            echo "jmh_param_arg=" >> "$GITHUB_OUTPUT"
-            echo "Gremlin arms: both (on/off A/B)"
+            PR_NUMBER=
+            HEAD_REPOSITORY="$GITHUB_REPOSITORY"
+            HEAD_SHA="$VALUE"
+            git fetch origin '+refs/heads/*:refs/remotes/origin/*' \
+              '+refs/tags/*:refs/tags/*' --force --tags
+            BASELINE_SHA=$(python3 .github/scripts/mandatory-benchmark.py owned-commit \
+              --repository . --sha "$HEAD_SHA")
+            BASE_SHA="$BASELINE_SHA"
+            TARGET_KEY="sha-$HEAD_SHA"
           fi
 
-      - name: Save helper scripts
-        run: |
-          # Copy comparison script to /tmp/ so it survives git checkouts
-          cp jmh-ldbc/jmh-compare.py /tmp/jmh-compare-${{ github.run_id }}.py
+          FULL_PR=false
+          if [[ "$MODE" == "pr" && -z "$QUERIES" && "$ARMS" == "on" ]]; then
+            FULL_PR=true
+          fi
+          {
+            echo "target_mode=$MODE"
+            echo "target_key=$TARGET_KEY"
+            echo "pr_number=$PR_NUMBER"
+            echo "head_repository=$HEAD_REPOSITORY"
+            echo "head_sha=$HEAD_SHA"
+            echo "base_sha=$BASE_SHA"
+            echo "baseline_sha=$BASELINE_SHA"
+            echo "queries=$QUERIES"
+            echo "gremlin_arms=$ARMS"
+            echo "full_pr=$FULL_PR"
+            echo "runner_cores=$RUNNER_CORES"
+            echo "runner_label=$RUNNER_LABEL"
+            echo "runner_memory_gb=$RUNNER_MEMORY_GB"
+          } >> "$GITHUB_OUTPUT"
 
-      # Compile head first to fail fast — avoids wasting hours on base
-      # benchmarks only to discover the branch doesn't compile.
-      - name: 'Pre-flight: verify head compiles'
-        run: |
-          chmod +x mvnw
-          ./mvnw -pl jmh-ldbc -am compile -DskipTests \
-            -Dspotless.check.skip=true -q
+          {
+            echo "## Requested benchmark runner"
+            echo
+            echo "- Profile: $RUNNER_CORES dedicated vCPUs, $RUNNER_MEMORY_GB GB memory"
+            echo "- Resolved provider label: \`$RUNNER_LABEL\`"
+            echo
+            echo "This records the requested configuration, not physical hardware proof."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      # ── Download data (once) ─────────────────────────────────────────────
-      - name: Download canonical curated parameters from S3
+  retrieve-dataset:
+    name: Retrieve benchmark dataset
+    needs: resolve
+    runs-on: ubuntu-latest-8-cores-x64-public
+    permissions:
+      contents: read
+    steps:
+      - run: python3 -m pip install 'boto3==1.40.46'
+      - name: Download canonical inputs without target code
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
           S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          set -euo pipefail
-          python3 - << 'PYEOF'
-          import boto3, os
-          s3 = boto3.client('s3',
-              endpoint_url=os.environ['S3_ENDPOINT'],
-              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          print('Downloading canonical curated parameters from S3...')
-          s3.download_file('bench-cache', 'ldbc/curated-params-v3.json',
-              '/tmp/curated-params-${{ github.run_id }}.json')
-          s3.download_file('bench-cache', 'ldbc/factor-tables.json',
-              '/tmp/factor-tables-${{ github.run_id }}.json')
-          print('Downloaded curated params and factor tables.')
-          PYEOF
+          mkdir dataset
+          python3 - <<'PY'
+          import boto3
+          import os
+          client = boto3.client(
+              "s3", endpoint_url=os.environ["S3_ENDPOINT"],
+              aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"])
+          for source, target in {
+              "ldbc/curated-params-v3.json": "dataset/curated-params-v3.json",
+              "ldbc/factor-tables.json": "dataset/factor-tables.json",
+              "ldbc/ldbc-sf1-composite-merged-fk.tar.zst": "dataset/ldbc.tar.zst",
+          }.items():
+            client.download_file("bench-cache", source, target)
+          PY
+          test -s dataset/curated-params-v3.json
+          test -s dataset/factor-tables.json
+          test -s dataset/ldbc.tar.zst
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ldbc-dataset-attempt${{ github.run_attempt }}
+          path: dataset
+          retention-days: 1
+          if-no-files-found: error
 
-      - name: Download LDBC CSV dataset from S3
+  benchmark:
+    name: Execute comparison on requested ${{ needs.resolve.outputs.runner_cores }}-vCPU profile
+    needs: [resolve, retrieve-dataset]
+    runs-on:
+      - self-hosted
+      - ${{ needs.resolve.outputs.runner_label }}
+      - image-x86-system-ubuntu-24.04
+      - in-nbg1-fsn1-hel1
+    timeout-minutes: 1800
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Install execution tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd > /dev/null 2>&1
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.resolve.outputs.tooling_sha }}
+          path: trusted-workflow
+          persist-credentials: false
+      - name: Select dataset from the latest available attempt
+        id: dataset
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
-          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          python3 - << 'PYEOF'
-          import boto3, os
-          s3 = boto3.client('s3',
-              endpoint_url=os.environ['S3_ENDPOINT'],
-              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          print('Downloading SF 1 CSV dataset from S3...')
-          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-composite-merged-fk.tar.zst',
-              '/tmp/ldbc-csv-${{ github.run_id }}.tar.zst')
-          print('Downloaded.')
-          PYEOF
-          zstd -d "/tmp/ldbc-csv-${{ github.run_id }}.tar.zst" \
-               -o "/tmp/ldbc-csv-${{ github.run_id }}.tar"
-          rm -f "/tmp/ldbc-csv-${{ github.run_id }}.tar.zst"
-
-      # ── Base run (fork-point) ────────────────────────────────────────────
-      - name: 'Base: checkout fork-point'
-        run: git checkout ${{ steps.commits.outputs.fork_point }}
-
-      - name: 'Base: compile'
-        run: |
-          chmod +x mvnw
-          ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
-            -Dspotless.check.skip=true -q
-
-      - name: 'Base: install canonical curated parameters'
-        run: |
-          # Install canonical curated params before DB load so
-          # ParameterCurator finds them and skips regeneration.
-          # This ensures BASE and HEAD use identical params.
-          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
-          mkdir -p "$DB_DIR"
-          cp /tmp/factor-tables-${{ github.run_id }}.json \
-             "$DB_DIR/factor-tables.json"
-          cp /tmp/curated-params-${{ github.run_id }}.json \
-             "$DB_DIR/curated-params-v3.json"
-          echo "Canonical curated params installed for base run"
-
-      - name: 'Base: setup database'
-        id: base_load
-        run: |
-          set -euo pipefail
-          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
-          CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
-          CSV_TAR="/tmp/ldbc-csv-${{ github.run_id }}.tar"
-
-          echo "Extracting CSV dataset..."
-          mkdir -p "$CSV_DIR"
-          tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
-
-          echo "=== Extracted CSV contents ==="
-          ls -la "$CSV_DIR/" | head -20
-
-          if [ ! -d "$CSV_DIR/static" ] || [ ! -d "$CSV_DIR/dynamic" ]; then
-            echo "::error::CSV dataset missing 'static' or 'dynamic' directories."
-            echo "Contents of $CSV_DIR:"
-            find "$CSV_DIR" -maxdepth 2 -type d
-            exit 1
-          fi
-          echo "CSV dataset verified: static/ and dynamic/ present"
-
-          echo "Loading database from CSV..."
-          LOAD_START=$(date +%s)
-          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-            -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
-            2>&1 | tee /tmp/jmh-load-base-${{ github.run_id }}.txt
-          LOAD_END=$(date +%s)
-          echo "load_time=$((LOAD_END - LOAD_START))" >> "$GITHUB_OUTPUT"
-
-          # Verify the database was actually created
-          if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
-            echo "::error::Database was not created after CSV load. Check load output above."
-            exit 1
-          fi
-          echo "Database loaded successfully from CSV ($(( LOAD_END - LOAD_START ))s)"
-
-      - name: 'Base: warm OS page cache'
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            | jq '[.[].artifacts[]]' > /tmp/artifacts.json
+          ID=$(python3 trusted-workflow/.github/scripts/mandatory-benchmark.py \
+            select-artifact --artifacts /tmp/artifacts.json --prefix ldbc-dataset \
+            --max-attempt "$GITHUB_RUN_ATTEMPT")
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          cp trusted-workflow/.github/scripts/mandatory-benchmark.py \
+            /tmp/mandatory-benchmark.py
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ steps.dataset.outputs.id }}
+          path: /tmp/ldbc-input
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.resolve.outputs.head_repository }}
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact target checkout
         env:
-          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
-          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
-          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
+          EXPECTED_HEAD: ${{ needs.resolve.outputs.head_sha }}
+          BASELINE_SHA: ${{ needs.resolve.outputs.baseline_sha }}
         run: |
-          FILTER_ARG=""
-          PARAM_ARG=""
-          EXCLUDE_ARG=""
-          if [ -n "$JMH_FILTER" ]; then
-            FILTER_ARG="$JMH_FILTER "
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_HEAD" ]]
+          if ! git cat-file -e "$BASELINE_SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags "https://github.com/$GITHUB_REPOSITORY.git" "$BASELINE_SHA"
           fi
-          if [ -n "$JMH_PARAM" ]; then
-            PARAM_ARG="$JMH_PARAM "
-          fi
-          if [ -n "$JMH_EXCLUDE" ]; then
-            EXCLUDE_ARG="$JMH_EXCLUDE "
-          fi
-          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-            -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
-            2>&1 | tee /tmp/jmh-warm-base-${{ github.run_id }}.txt
-
-          # JMH exits 0 even when all benchmarks fail with -f 0.
-          # Detect this by checking for failures with no successful results.
-          if grep -q '<failure>' /tmp/jmh-warm-base-${{ github.run_id }}.txt; then
-            # Check if ANY benchmark produced a score (successful result line)
-            if ! grep -qE '^[A-Za-z].*\s+avgt\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt && \
-               ! grep -qE '^[A-Za-z].*\s+thrpt\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt && \
-               ! grep -qE '^[A-Za-z].*\s+sample\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt && \
-               ! grep -qE '^[A-Za-z].*\s+ss\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt; then
-              echo "::error::All warm-up benchmarks failed. Check database setup."
-              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-base-${{ github.run_id }}.txt | head -5 || true
-              exit 1
-            fi
-          fi
-
-      - name: 'Base: run benchmarks'
+      - name: Run baseline and target benchmarks
         env:
-          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
-          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
-          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
-        run: |
-          FILTER_ARG=""
-          PARAM_ARG=""
-          EXCLUDE_ARG=""
-          if [ -n "$JMH_FILTER" ]; then
-            FILTER_ARG="$JMH_FILTER "
-          fi
-          if [ -n "$JMH_PARAM" ]; then
-            PARAM_ARG="$JMH_PARAM "
-          fi
-          if [ -n "$JMH_EXCLUDE" ]; then
-            EXCLUDE_ARG="$JMH_EXCLUDE "
-          fi
-          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-            -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-base-${{ github.run_id }}.json" \
-            2>&1 | tee /tmp/jmh-base-log-${{ github.run_id }}.txt
-
-          # Validate that JMH produced results (it exits 0 even on total failure)
-          if [ ! -s "/tmp/jmh-base-${{ github.run_id }}.json" ]; then
-            echo "::error::Base benchmark produced no results (empty or missing JSON)."
-            tail -50 /tmp/jmh-base-log-${{ github.run_id }}.txt
-            exit 1
-          fi
-          RESULT_COUNT=$(python3 -c "import json; print(len(json.load(open('/tmp/jmh-base-${{ github.run_id }}.json'))))")
-          echo "Base benchmarks completed: $RESULT_COUNT results"
-          if [ "$RESULT_COUNT" -eq 0 ]; then
-            echo "::error::Base benchmark JSON contains zero results."
-            exit 1
-          fi
-
-      # ── Head run (branch tip) ────────────────────────────────────────────
-      - name: 'Head: checkout branch tip'
-        run: git checkout ${{ steps.commits.outputs.head_sha }}
-
-      - name: 'Head: compile'
-        run: |
-          chmod +x mvnw
-          ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
-            -Dspotless.check.skip=true -q
-
-      - name: 'Head: install canonical curated parameters'
-        run: |
-          # Install canonical curated params before DB load — same as
-          # base, ensuring both runs use identical benchmark parameters.
-          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
-          mkdir -p "$DB_DIR"
-          cp /tmp/factor-tables-${{ github.run_id }}.json \
-             "$DB_DIR/factor-tables.json"
-          cp /tmp/curated-params-${{ github.run_id }}.json \
-             "$DB_DIR/curated-params-v3.json"
-          echo "Canonical curated params installed for head run"
-
-      - name: 'Head: setup database'
-        id: head_load
+          BASELINE_SHA: ${{ needs.resolve.outputs.baseline_sha }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          QUERIES: ${{ needs.resolve.outputs.queries }}
+          GREMLIN_ARMS: ${{ needs.resolve.outputs.gremlin_arms }}
+          RUNNER_CORES: ${{ needs.resolve.outputs.runner_cores }}
+          RUNNER_LABEL: ${{ needs.resolve.outputs.runner_label }}
+          RUNNER_MEMORY_GB: ${{ needs.resolve.outputs.runner_memory_gb }}
         run: |
           set -euo pipefail
-          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
-          CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
-          CSV_TAR="/tmp/ldbc-csv-${{ github.run_id }}.tar"
+          mkdir -p /tmp/mandatory-output
+          {
+            echo "requested_cores=$RUNNER_CORES"
+            echo "resolved_label=$RUNNER_LABEL"
+            echo "memory_gb=$RUNNER_MEMORY_GB"
+            echo "This is the requested configuration, not physical hardware proof."
+          } | tee /tmp/mandatory-output/runner-profile.txt >> "$GITHUB_STEP_SUMMARY"
+          zstd -d /tmp/ldbc-input/ldbc.tar.zst -o /tmp/ldbc.tar
+          SELECTION=$(python3 /tmp/mandatory-benchmark.py filter \
+            --queries "$QUERIES" --format shell)
+          PARAM=
+          [[ "$GREMLIN_ARMS" == "on" ]] && PARAM='-p translatorEnabled=true'
 
-          echo "Extracting CSV dataset..."
-          mkdir -p "$CSV_DIR"
-          tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
-
-          echo "=== Extracted CSV contents ==="
-          ls -la "$CSV_DIR/" | head -20
-
-          if [ ! -d "$CSV_DIR/static" ] || [ ! -d "$CSV_DIR/dynamic" ]; then
-            echo "::error::CSV dataset missing 'static' or 'dynamic' directories."
-            echo "Contents of $CSV_DIR:"
-            find "$CSV_DIR" -maxdepth 2 -type d
-            exit 1
-          fi
-          echo "CSV dataset verified: static/ and dynamic/ present"
-
-          echo "Loading database from CSV..."
-          LOAD_START=$(date +%s)
-          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-            -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
-            2>&1 | tee /tmp/jmh-load-head-${{ github.run_id }}.txt
-          LOAD_END=$(date +%s)
-          echo "load_time=$((LOAD_END - LOAD_START))" >> "$GITHUB_OUTPUT"
-
-          # Verify the database was actually created
-          if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
-            echo "::error::Database was not created after CSV load. Check load output above."
-            exit 1
-          fi
-          echo "Database loaded successfully from CSV ($(( LOAD_END - LOAD_START ))s)"
-
-      - name: 'Head: warm OS page cache'
-        env:
-          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
-          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
-          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
-        run: |
-          FILTER_ARG=""
-          PARAM_ARG=""
-          EXCLUDE_ARG=""
-          if [ -n "$JMH_FILTER" ]; then
-            FILTER_ARG="$JMH_FILTER "
-          fi
-          if [ -n "$JMH_PARAM" ]; then
-            PARAM_ARG="$JMH_PARAM "
-          fi
-          if [ -n "$JMH_EXCLUDE" ]; then
-            EXCLUDE_ARG="$JMH_EXCLUDE "
-          fi
-          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-            -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
-            2>&1 | tee /tmp/jmh-warm-head-${{ github.run_id }}.txt
-
-          # JMH exits 0 even when all benchmarks fail with -f 0.
-          if grep -q '<failure>' /tmp/jmh-warm-head-${{ github.run_id }}.txt; then
-            if ! grep -qE '^[A-Za-z].*\s+avgt\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt && \
-               ! grep -qE '^[A-Za-z].*\s+thrpt\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt && \
-               ! grep -qE '^[A-Za-z].*\s+sample\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt && \
-               ! grep -qE '^[A-Za-z].*\s+ss\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt; then
-              echo "::error::All warm-up benchmarks failed. Check database setup."
-              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-head-${{ github.run_id }}.txt | head -5 || true
-              exit 1
-            fi
-          fi
-
-      - name: 'Head: run benchmarks'
-        env:
-          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
-          JMH_PARAM: ${{ steps.filter.outputs.jmh_param_arg }}
-          JMH_EXCLUDE: ${{ steps.filter.outputs.jmh_exclude }}
-        run: |
-          FILTER_ARG=""
-          PARAM_ARG=""
-          EXCLUDE_ARG=""
-          if [ -n "$JMH_FILTER" ]; then
-            FILTER_ARG="$JMH_FILTER "
-          fi
-          if [ -n "$JMH_PARAM" ]; then
-            PARAM_ARG="$JMH_PARAM "
-          fi
-          if [ -n "$JMH_EXCLUDE" ]; then
-            EXCLUDE_ARG="$JMH_EXCLUDE "
-          fi
-          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-            -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}${EXCLUDE_ARG}${PARAM_ARG}-rf json -rff /tmp/jmh-head-${{ github.run_id }}.json" \
-            2>&1 | tee /tmp/jmh-head-log-${{ github.run_id }}.txt
-
-          # Validate that JMH produced results
-          if [ ! -s "/tmp/jmh-head-${{ github.run_id }}.json" ]; then
-            echo "::error::Head benchmark produced no results (empty or missing JSON)."
-            tail -50 /tmp/jmh-head-log-${{ github.run_id }}.txt
-            exit 1
-          fi
-          RESULT_COUNT=$(python3 -c "import json; print(len(json.load(open('/tmp/jmh-head-${{ github.run_id }}.json'))))")
-          echo "Head benchmarks completed: $RESULT_COUNT results"
-          if [ "$RESULT_COUNT" -eq 0 ]; then
-            echo "::error::Head benchmark JSON contains zero results."
-            exit 1
-          fi
-
-      # ── Compare & publish ────────────────────────────────────────────────
-      - name: Compare results
-        run: |
-          python3 "/tmp/jmh-compare-${{ github.run_id }}.py" \
-            --base "/tmp/jmh-base-${{ github.run_id }}.json" \
-            --head "/tmp/jmh-head-${{ github.run_id }}.json" \
-            --base-sha "${{ steps.commits.outputs.fork_point }}" \
-            --head-sha "${{ steps.commits.outputs.head_sha }}" \
-            --base-branch "${{ steps.commits.outputs.base_branch }}" \
-            --repo-url "${{ github.server_url }}/${{ github.repository }}" \
-            --base-load-time "${{ steps.base_load.outputs.load_time }}" \
-            --head-load-time "${{ steps.head_load.outputs.load_time }}" \
-            --gremlin-arms "${{ steps.filter.outputs.gremlin_arms }}" \
-            --output "/tmp/jmh-comparison-${{ github.run_id }}.md"
-
-      - name: Upload artifacts
-        if: always()
+          run_side() {
+            local side=$1
+            local sha=$2
+            git checkout --detach "$sha"
+            chmod +x mvnw
+            ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
+              -Dspotless.check.skip=true -q
+            local db=jmh-ldbc/target/ldbc-bench-db
+            local csv=jmh-ldbc/target/ldbc-dataset/sf1
+            mkdir -p "$db" "$csv"
+            python3 /tmp/mandatory-benchmark.py install-inputs \
+              --source /tmp/ldbc-input --destination "$db"
+            tar xf /tmp/ldbc.tar --strip-components=1 -C "$csv"
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+              -Dspotless.check.skip=true -Dcentral.skip=true \
+              -Djmh.args="${SELECTION} -e $FIXED_EXCLUSION ${PARAM} -f 0 -wi 0 -i 1 -r 1s" >/tmp/mandatory-output/$side-warm.log
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+              -Dspotless.check.skip=true -Dcentral.skip=true \
+              -Djmh.args="${SELECTION} -e $FIXED_EXCLUSION ${PARAM} -l" \
+              | grep '^com\.jetbrains\..*Benchmark\.' | sort -u \
+              > "/tmp/mandatory-output/$side-inventory.txt"
+            python3 - "/tmp/mandatory-output/$side-inventory.txt" \
+              "/tmp/mandatory-output/$side-inventory.json" <<'PY'
+          import json
+          import pathlib
+          import sys
+          names = pathlib.Path(sys.argv[1]).read_text().splitlines()
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(names))
+          PY
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+              -Dspotless.check.skip=true -Dcentral.skip=true \
+              -Djmh.args="${SELECTION} -e $FIXED_EXCLUSION ${PARAM} -rf json -rff /tmp/mandatory-output/$side-results.json" \
+              2>&1 | tee "/tmp/mandatory-output/$side.log"
+            test -s "/tmp/mandatory-output/$side-results.json"
+          }
+          run_side base "$BASELINE_SHA"
+          run_side head "$HEAD_SHA"
+      - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: jmh-compare-${{ steps.commits.outputs.head_short }}-vs-${{ steps.commits.outputs.fork_short }}-${{ github.run_id }}
-          path: |
-            /tmp/jmh-base-${{ github.run_id }}.json
-            /tmp/jmh-head-${{ github.run_id }}.json
-            /tmp/jmh-comparison-${{ github.run_id }}.md
-            /tmp/jmh-base-log-${{ github.run_id }}.txt
-            /tmp/jmh-head-log-${{ github.run_id }}.txt
-            /tmp/jmh-warm-base-${{ github.run_id }}.txt
-            /tmp/jmh-warm-head-${{ github.run_id }}.txt
-            /tmp/jmh-load-base-${{ github.run_id }}.txt
-            /tmp/jmh-load-head-${{ github.run_id }}.txt
+          name: mandatory-execution-attempt${{ github.run_attempt }}
+          path: /tmp/mandatory-output
           retention-days: 90
+          if-no-files-found: warn
 
-      - name: Post comparison to open PRs
-        if: success()
-        uses: actions/github-script@v9
+  validate:
+    name: Validate and publish comparison completion
+    needs: [resolve, benchmark]
+    if: needs.benchmark.result == 'success'
+    runs-on: ubuntu-latest-8-cores-x64-public
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Resolve signer workflow identity
+        id: signer
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const token = await core.getIDToken('sigstore');
+            const claims = JSON.parse(
+              Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+            const expected = `${context.repo.owner}/${context.repo.repo}/` +
+              `.github/workflows/ldbc-jmh-compare.yml@refs/heads/develop`;
+            if (claims.job_workflow_ref !== expected ||
+                !/^[0-9a-f]{40}$/.test(claims.job_workflow_sha)) {
+              core.setFailed('Unexpected signer workflow identity.');
+              return;
+            }
+            core.setOutput('sha', claims.job_workflow_sha);
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.signer.outputs.sha }}
+          path: trusted-workflow
+          persist-credentials: false
+      - name: Select execution output from the latest available attempt
+        id: execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            | jq '[.[].artifacts[]]' > /tmp/artifacts.json
+          ID=$(python3 trusted-workflow/.github/scripts/mandatory-benchmark.py \
+            select-artifact --artifacts /tmp/artifacts.json \
+            --prefix mandatory-execution --max-attempt "$GITHUB_RUN_ATTEMPT")
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.execution.outputs.id }}
+          path: /tmp/execution
+      - name: Validate independent result inventories
+        run: |
+          python3 trusted-workflow/.github/scripts/mandatory-benchmark.py validate \
+            --base-results /tmp/execution/base-results.json \
+            --head-results /tmp/execution/head-results.json \
+            --base-inventory /tmp/execution/base-inventory.json \
+            --head-inventory /tmp/execution/head-inventory.json \
+            --gremlin-arms '${{ needs.resolve.outputs.gremlin_arms }}' \
+            --output /tmp/validation.json
+      - name: Generate informational comparison
+        env:
+          RUNNER_CORES: ${{ needs.resolve.outputs.runner_cores }}
+          RUNNER_LABEL: ${{ needs.resolve.outputs.runner_label }}
+          RUNNER_MEMORY_GB: ${{ needs.resolve.outputs.runner_memory_gb }}
+        run: |
+          python3 trusted-workflow/jmh-ldbc/jmh-compare.py \
+            --base /tmp/execution/base-results.json \
+            --head /tmp/execution/head-results.json \
+            --base-sha '${{ needs.resolve.outputs.baseline_sha }}' \
+            --head-sha '${{ needs.resolve.outputs.head_sha }}' \
+            --base-branch '${{ needs.resolve.outputs.base_sha }}' \
+            --repo-url '${{ github.server_url }}/${{ github.repository }}' \
+            --gremlin-arms '${{ needs.resolve.outputs.gremlin_arms }}' \
+            --output /tmp/comparison-body.md
+          {
+            echo "## Requested benchmark runner"
+            echo
+            echo "- Profile: $RUNNER_CORES dedicated vCPUs, $RUNNER_MEMORY_GB GB memory"
+            echo "- Resolved provider label: \`$RUNNER_LABEL\`"
+            echo
+            echo "This is the requested configuration, not physical hardware proof."
+            echo
+            cat /tmp/comparison-body.md
+          } > /tmp/comparison.md
+      - name: Upload complete validated results
+        id: results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: validated-comparison-attempt${{ github.run_attempt }}
+          path: |
+            /tmp/validation.json
+            /tmp/comparison.md
+            /tmp/execution/base-results.json
+            /tmp/execution/head-results.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Build exact completion JSON
+        if: needs.resolve.outputs.full_pr == 'true'
+        env:
+          COMPLETED_AT: ${{ github.event.repository.updated_at }}
+          RESULT_DIGEST: ${{ steps.results.outputs.artifact-digest }}
+        run: |
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson pr_number '${{ needs.resolve.outputs.pr_number }}' \
+            --arg executed_repository '${{ needs.resolve.outputs.head_repository }}' \
+            --arg head_sha '${{ needs.resolve.outputs.head_sha }}' \
+            --arg base_sha '${{ needs.resolve.outputs.base_sha }}' \
+            --arg baseline_sha '${{ needs.resolve.outputs.baseline_sha }}' \
+            --arg result_digest "sha256:$RESULT_DIGEST" \
+            --arg validator_revision '${{ steps.signer.outputs.sha }}' \
+            --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{repository:$repository,pr_number:$pr_number,executed_repository:$executed_repository,
+              head_sha:$head_sha,base_sha:$base_sha,baseline_sha:$baseline_sha,queries:"",
+              gremlin_arms:"on",validation_contract:"ldbc-pr-completion-v3",
+              result_digest:$result_digest,
+              validator_workflow:"JetBrains/youtrackdb/.github/workflows/ldbc-jmh-compare.yml",
+              validator_revision:$validator_revision,completed_at:$completed_at}' \
+            > /tmp/completion-fields.json
+          python3 trusted-workflow/.github/scripts/mandatory-benchmark.py completion \
+            --fields /tmp/completion-fields.json --output /tmp/completion.json
+      - name: Attest exact completion JSON
+        if: needs.resolve.outputs.full_pr == 'true'
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: /tmp/completion.json
+          show-summary: false
+      - name: Build bounded signed completion comment
+        if: needs.resolve.outputs.full_pr == 'true'
+        run: |
+          python3 trusted-workflow/.github/scripts/mandatory-benchmark.py comment \
+            --completion /tmp/completion.json \
+            --bundle '${{ steps.attest.outputs.bundle-path }}' \
+            --output /tmp/completion-comment.md
+      - name: Publish required signed completion
+        if: needs.resolve.outputs.full_pr == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync(
-              '/tmp/jmh-comparison-${{ github.run_id }}.md', 'utf8');
-            const branch = '${{ steps.commits.outputs.branch }}';
-
-            // Find open PRs whose head branch matches this branch
-            const { data: prs } = await github.rest.pulls.list({
+            const body = fs.readFileSync('/tmp/completion-comment.md', 'utf8');
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              head: `${context.repo.owner}:${branch}`,
-              state: 'open',
+              issue_number: Number(process.env.PR_NUMBER),
+              body,
             });
-
-            if (prs.length === 0) {
-              console.log(`No open PRs found for branch: ${branch}`);
-              return;
-            }
-
-            // Marker kept so future tooling can locate prior benchmark
-            // comments (e.g. to collapse them into <details> blocks).
-            const HEADER = '<!-- jmh-ldbc-compare -->';
-            const fullBody = `${HEADER}\n${body}`;
-
-            for (const pr of prs) {
-              const { data: created } = await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: fullBody,
-              });
-              console.log(
-                `Posted benchmark comment #${created.id} on PR #${pr.number}`);
-            }
-
-      # Always remove our in-progress placeholder so the next run is not
-      # blocked. Skipped when the placeholder step itself bailed out (posted=false)
-      # so we never delete another run's placeholder.
-      - name: Remove in-progress placeholder
-        if: always() && steps.placeholder.outputs.posted == 'true'
-        uses: actions/github-script@v9
+      - name: Publish informational performance report
+        if: needs.resolve.outputs.target_mode == 'pr'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
-          BRANCH: ${{ steps.commits.outputs.branch }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
         with:
           script: |
-            const branch = process.env.BRANCH;
-            const IN_PROGRESS_MARKER = process.env.IN_PROGRESS_MARKER;
-
-            const { data: prs } = await github.rest.pulls.list({
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/comparison.md', 'utf8');
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              head: `${context.repo.owner}:${branch}`,
-              state: 'open',
+              issue_number: Number(process.env.PR_NUMBER),
+              body: `<!-- jmh-ldbc-compare -->\n${report}`,
             });
-
-            for (const pr of prs) {
-              const comments = await github.paginate(
-                github.rest.issues.listComments,
-                {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                });
-              for (const comment of comments) {
-                if (comment.body && comment.body.includes(IN_PROGRESS_MARKER)) {
-                  // Catch per-comment delete failures so one transient error
-                  // does not leave stale markers on the remaining PRs (which
-                  // would block all future runs until manually cleaned).
-                  try {
-                    await github.rest.issues.deleteComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      comment_id: comment.id,
-                    });
-                    console.log(
-                      `Deleted placeholder #${comment.id} on PR #${pr.number}`);
-                  } catch (err) {
-                    console.warn(
-                      `Failed to delete placeholder #${comment.id} on PR ` +
-                      `#${pr.number}: ${err.message}`);
-                  }
-                }
-              }
-            }
-
-      # ── Cleanup temp files ──────────────────────────────────────────────
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -f /tmp/curated-params-${{ github.run_id }}.json \
-                /tmp/factor-tables-${{ github.run_id }}.json \
-                /tmp/ldbc-csv-${{ github.run_id }}.tar \
-                /tmp/jmh-compare-${{ github.run_id }}.py \
-                /tmp/jmh-base-${{ github.run_id }}.json \
-                /tmp/jmh-head-${{ github.run_id }}.json \
-                /tmp/jmh-comparison-${{ github.run_id }}.md \
-                /tmp/jmh-base-log-${{ github.run_id }}.txt \
-                /tmp/jmh-head-log-${{ github.run_id }}.txt \
-                /tmp/jmh-warm-base-${{ github.run_id }}.txt \
-                /tmp/jmh-warm-head-${{ github.run_id }}.txt \
-                /tmp/jmh-load-base-${{ github.run_id }}.txt \
-                /tmp/jmh-load-head-${{ github.run_id }}.txt
