@@ -6,12 +6,14 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.AbstractCollection;
 import java.util.AbstractList;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
@@ -33,7 +35,10 @@ import org.apache.tinkerpop.gremlin.structure.Property;
  */
 public final class YTDBCollatedHasContainer extends HasContainer {
 
-  private transient Map<Collate, Map<P<?>, Object>> transformedOperands = new HashMap<>();
+  private static final Object UNCACHEABLE = new Object();
+
+  private transient Map<Collate, Map<P<?>, CachedOperand>> transformedOperands =
+      new IdentityHashMap<>();
 
   public YTDBCollatedHasContainer(String key, P<?> predicate) {
     super(key, predicate);
@@ -84,7 +89,7 @@ public final class YTDBCollatedHasContainer extends HasContainer {
     return schemaProperty == null ? null : schemaProperty.getCollate();
   }
 
-  private boolean evaluate(P<?> predicate, Object value, Collate collate) {
+  boolean evaluate(P<?> predicate, Object value, Collate collate) {
     if (predicate instanceof AndP<?> and) {
       for (var child : and.getPredicates()) {
         if (!evaluate(child, value, collate)) {
@@ -125,13 +130,115 @@ public final class YTDBCollatedHasContainer extends HasContainer {
     return testLeaf(predicate.getBiPredicate(), transformedValue, transformedOperand);
   }
 
-  private Object transformedOperand(P<?> predicate, Collate collate) {
+  /**
+   * Caches only immutable scalar shapes and collections containing those shapes. Identity keys
+   * avoid mutable predicate hashes, while one state comparison detects later operand changes.
+   */
+  Object transformedOperand(P<?> predicate, Collate collate) {
+    var operand = predicate.getValue();
     if (predicate.isParameterized()) {
-      return transform(predicate.getValue(), collate);
+      return transformUncachedOperand(predicate, operand, collate);
     }
-    return transformedOperands
-        .computeIfAbsent(collate, ignored -> new HashMap<>())
-        .computeIfAbsent(predicate, ignored -> transform(predicate.getValue(), collate));
+
+    var operandsByPredicate = transformedOperands()
+        .computeIfAbsent(collate, ignored -> new IdentityHashMap<>());
+    var cached = operandsByPredicate.get(predicate);
+    if (cached != null && stateMatches(cached.state(), operand)) {
+      return cached.transformed();
+    }
+
+    var state = snapshotIfCacheable(operand);
+    if (state == UNCACHEABLE) {
+      return transformUncachedOperand(predicate, operand, collate);
+    }
+    cached = new CachedOperand(state, transformOperand(operand, collate));
+    operandsByPredicate.put(predicate, cached);
+    return cached.transformed();
+  }
+
+  private Map<Collate, Map<P<?>, CachedOperand>> transformedOperands() {
+    if (transformedOperands == null) {
+      transformedOperands = new IdentityHashMap<>();
+    }
+    return transformedOperands;
+  }
+
+  private static boolean stateMatches(Object state, Object value) {
+    if (state instanceof Set<?> stateSet && value instanceof Set<?> valueSet) {
+      return stateSet.equals(valueSet);
+    }
+    if (state instanceof Collection<?> stateCollection
+        && value instanceof Collection<?> valueCollection) {
+      if ((state instanceof Set<?>) != (value instanceof Set<?>)) {
+        return false;
+      }
+      if (stateCollection.size() != valueCollection.size()) {
+        return false;
+      }
+      var stateIterator = stateCollection.iterator();
+      var valueIterator = valueCollection.iterator();
+      while (stateIterator.hasNext()) {
+        if (!stateMatches(stateIterator.next(), valueIterator.next())) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return Objects.equals(state, value);
+  }
+
+  private static Object snapshotIfCacheable(Object value) {
+    if (value == null || value instanceof String || value instanceof Boolean
+        || value instanceof Character || value instanceof Enum<?>) {
+      return value;
+    }
+    if (value instanceof Collection<?> collection) {
+      Collection<Object> snapshot = value instanceof Set<?> ? new HashSet<>() : new ArrayList<>();
+      for (var member : collection) {
+        var memberSnapshot = snapshotIfCacheable(member);
+        if (memberSnapshot == UNCACHEABLE) {
+          return UNCACHEABLE;
+        }
+        snapshot.add(memberSnapshot);
+      }
+      return snapshot;
+    }
+    return UNCACHEABLE;
+  }
+
+  /**
+   * Membership only iterates its operand, so an uncached set can use a collection view safely.
+   * Equality still materializes sets to preserve transformed uniqueness and cardinality.
+   */
+  private static Object transformUncachedOperand(P<?> predicate, Object value, Collate collate) {
+    if (predicate.getBiPredicate() instanceof Contains && value instanceof Set<?> set
+        && collate instanceof CaseInsensitiveCollate) {
+      return new TransformingCollection(set, collate);
+    }
+    return transform(value, collate);
+  }
+
+  // Cacheable operand collections materialize eagerly so repeated candidate evaluation does not
+  // repeat transformations. Uncached membership operands and property lists retain lazy views.
+  private static Object transformOperand(Object value, Collate collate) {
+    if (!(collate instanceof CaseInsensitiveCollate)) {
+      return collate.transform(value);
+    }
+    if (value instanceof Set<?> set) {
+      var transformed = new HashSet<>();
+      for (var member : set) {
+        transformed.add(transformOperand(member, collate));
+      }
+      return transformed;
+    }
+    if (value instanceof Collection<?> collection) {
+      var transformed = new ArrayList<>();
+      for (var member : collection) {
+        transformed.add(transformOperand(member, collate));
+      }
+      return transformed;
+    }
+    return collate.transform(value);
   }
 
   private static boolean isSupportedLeaf(BiPredicate<?, ?> predicate) {
@@ -200,8 +307,11 @@ public final class YTDBCollatedHasContainer extends HasContainer {
   @Override
   public YTDBCollatedHasContainer clone() {
     var clone = (YTDBCollatedHasContainer) super.clone();
-    clone.transformedOperands = new HashMap<>();
+    clone.transformedOperands = new IdentityHashMap<>();
     return clone;
+  }
+
+  private record CachedOperand(Object state, Object transformed) {
   }
 
   private static final class TransformingList extends AbstractList<Object> {
