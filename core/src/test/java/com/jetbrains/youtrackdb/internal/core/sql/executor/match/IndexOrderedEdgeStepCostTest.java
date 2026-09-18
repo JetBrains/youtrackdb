@@ -41,6 +41,25 @@ public class IndexOrderedEdgeStepCostTest {
     assertNull("Should return null when indexSize <= 0", result);
   }
 
+  /** Invalid scan factors reject both a cost estimate and every multi-source scan strategy. */
+  @Test
+  public void testInvalidFactorRejectsCostsAndMultiSourceStrategy() {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var previous = configuration.getValue();
+    try {
+      configuration.setValue(Double.NaN);
+      assertNull(
+          "NaN must reject the cost estimate",
+          IndexOrderedCostModel.computeCosts(100, 1000, 10, null, true));
+      assertEquals(
+          "NaN must select the ordinary multi-source strategy",
+          MultiSourceStrategy.LOAD_ALL_SORT,
+          IndexOrderedCostModel.pickMultiSourceStrategy(100, 1000, 10, null, true));
+    } finally {
+      configuration.setValue(previous);
+    }
+  }
+
   // ---- computeCostsStatic: basic cost computation ----
 
   // With linkBag=100, indexSize=1000, limit=10: should produce valid costs

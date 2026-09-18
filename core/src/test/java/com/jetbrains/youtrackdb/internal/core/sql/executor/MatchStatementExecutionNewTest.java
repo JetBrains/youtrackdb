@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -10,9 +11,12 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
+import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -3281,6 +3285,33 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             || path == IndexOrderedEdgeStep.RuntimePath.GLOBAL_SCAN);
   }
 
+  private static final class SetScanFactorFunction extends SQLFunctionAbstract {
+
+    private final double factor;
+
+    private SetScanFactorFunction(double factor) {
+      super("track10SetScanFactor", 0, 0);
+      this.factor = factor;
+    }
+
+    @Override
+    public Object execute(
+        Object iThis,
+        Result iCurrentRecord,
+        Object iCurrentResult,
+        Object[] iParams,
+        CommandContext iContext) {
+      GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR.setValue(factor);
+      return true;
+    }
+
+    @Override
+    public String getSyntax(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
+      return "track10SetScanFactor()";
+    }
+  }
+
   /** Sets index-ordered config to known test-safe values. Call restore in finally. */
   private AutoCloseable setIndexOrderedTestConfig() {
     var oldMinLinkBag = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
@@ -3617,6 +3648,54 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   /**
+   * FILTERED_BOUND planned under a valid factor must switch to ordinary source loading when the
+   * factor becomes invalid before execution.
+   */
+  @Test
+  public void filteredBoundPostPlanInvalidFactorUsesOrdinaryRuntimeStrategy() throws Exception {
+    initIndexOrderedMatchMultiSourceData();
+    var scanFactor = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var oldScanFactor = scanFactor.getValue();
+    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(Double.NaN));
+    try (var cfg = setIndexOrderedTestConfig()) {
+      scanFactor.setValue(1.0);
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%'"
+              + " AND track10SetScanFactor() = true)}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue("Expected FILTERED_BOUND plan:\n" + plan,
+            plan.contains("FILTERED_BOUND"));
+        var step = findIndexOrderedStep(result);
+        Assert.assertTrue(Double.isNaN(scanFactor.getValueAsDouble()));
+
+        var mids = new java.util.ArrayList<Long>();
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          names.add(row.getProperty("pname"));
+        }
+        Assert.assertEquals(List.of(50L, 49L, 48L, 47L, 46L), mids);
+        Assert.assertEquals(
+            List.of("person5", "person5", "person5", "person5", "person5"), names);
+        Assert.assertEquals(
+            IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI,
+            step.getChosenRuntimePath());
+        Assert.assertEquals(-1L, step.lastScanConsumedEntries());
+      }
+      session.commit();
+    } finally {
+      SQLEngine.unregisterFunction("track10SetScanFactor");
+      scanFactor.setValue(oldScanFactor);
+    }
+  }
+
+  /**
    * Sparse multi-source setup: 5 persons with 20 messages each (100 edges into
    * the optimized traversal) plus 300 orphan messages that sit in the same index
    * without a creator edge. Connected messages take every fourth date slot, so
@@ -3720,6 +3799,55 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  /**
+   * A huge valid post-plan factor keeps the selected union strategy but makes its economic budget
+   * zero. FILTERED_BOUND must fall back before opening the filtered cursor.
+   */
+  @Test
+  public void filteredBoundHugeValidFactorFallsBackBeforeCursorCreation() throws Exception {
+    initIndexOrderedMatchSparseMultiSourceData();
+    var scanFactor = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var oldScanFactor = scanFactor.getValue();
+    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(1.0e9));
+    try (var cfg = setIndexOrderedTestConfig()) {
+      GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.setValue(0.0);
+      scanFactor.setValue(1.0);
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%'"
+              + " AND track10SetScanFactor() = true)}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue("Expected FILTERED_BOUND plan:\n" + plan,
+            plan.contains("FILTERED_BOUND"));
+        var step = findIndexOrderedStep(result);
+        Assert.assertEquals(1.0e9, scanFactor.getValueAsDouble(), 0.0);
+
+        var mids = new java.util.ArrayList<Long>();
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          names.add(row.getProperty("pname"));
+        }
+        Assert.assertEquals(List.of(100L, 99L, 98L, 97L, 96L), mids);
+        Assert.assertEquals(
+            List.of("person5", "person5", "person5", "person5", "person5"), names);
+        Assert.assertEquals(
+            IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI,
+            step.getChosenRuntimePath());
+        Assert.assertEquals(-1L, step.lastScanConsumedEntries());
+      }
+      session.commit();
+    } finally {
+      SQLEngine.unregisterFunction("track10SetScanFactor");
+      scanFactor.setValue(oldScanFactor);
+    }
+  }
+
   // Multi-source FILTERED_UNBOUND mode with WHERE filter and source alias NOT in RETURN uses union-RidSet-only mode.
   @Test
   public void testIndexOrderedMatchMultiSourceFilteredUnbound() throws Exception {
@@ -3753,6 +3881,49 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         }
       }
       session.commit();
+    }
+  }
+
+  /**
+   * FILTERED_UNBOUND planned under a valid factor must load all source LinkBags when the factor
+   * becomes invalid before execution.
+   */
+  @Test
+  public void filteredUnboundPostPlanInvalidFactorLoadsFromSources() throws Exception {
+    initIndexOrderedMatchMultiSourceData();
+    var scanFactor = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var oldScanFactor = scanFactor.getValue();
+    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(Double.NaN));
+    try (var cfg = setIndexOrderedTestConfig()) {
+      scanFactor.setValue(1.0);
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%'"
+              + " AND track10SetScanFactor() = true)}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Expected FILTERED_UNBOUND plan:\n" + plan,
+            plan.contains("FILTERED_UNBOUND"));
+        var step = findIndexOrderedStep(result);
+        Assert.assertTrue(Double.isNaN(scanFactor.getValueAsDouble()));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals(List.of(50L, 49L, 48L, 47L, 46L), mids);
+        Assert.assertEquals(
+            IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI,
+            step.getChosenRuntimePath());
+        Assert.assertEquals(-1L, step.lastScanConsumedEntries());
+      }
+      session.commit();
+    } finally {
+      SQLEngine.unregisterFunction("track10SetScanFactor");
+      scanFactor.setValue(oldScanFactor);
     }
   }
 

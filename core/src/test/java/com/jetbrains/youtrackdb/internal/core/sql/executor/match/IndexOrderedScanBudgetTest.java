@@ -5,10 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -99,6 +103,41 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
         + " LIMIT " + limit;
   }
 
+  private static String orderedMutationQuery(String sourceRid, boolean downstream) {
+    return "MATCH {class: Author, as: a, where: (@rid = " + sourceRid
+        + " AND track10SetScanFactor() = true)}"
+        + ".out('wrote'){class: Message, as: m}"
+        + (downstream ? ".out('hasReply'){class: Reply, as: r}" : "")
+        + " RETURN m.mid as mid ORDER BY m.creationDate ASC LIMIT 2";
+  }
+
+  private static final class SetScanFactorFunction extends SQLFunctionAbstract {
+
+    private final double factor;
+
+    private SetScanFactorFunction(double factor) {
+      super("track10SetScanFactor", 0, 0);
+      this.factor = factor;
+    }
+
+    @Override
+    public Object execute(
+        Object iThis,
+        Result iCurrentRecord,
+        Object iCurrentResult,
+        Object[] iParams,
+        CommandContext iContext) {
+      GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR.setValue(factor);
+      return true;
+    }
+
+    @Override
+    public String getSyntax(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
+      return "track10SetScanFactor()";
+    }
+  }
+
   @Nullable private static IndexOrderedEdgeStep findStep(List<ExecutionStep> steps) {
     for (var step : steps) {
       if (step instanceof IndexOrderedEdgeStep ordered) {
@@ -145,6 +184,61 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
         }
       }
     } finally {
+      configuration.setValue(previous);
+    }
+  }
+
+  /**
+   * A factor invalidated after planning uses unsorted loading without downstream work and local
+   * sorting before a downstream edge. Both paths avoid opening an index cursor.
+   */
+  @Test
+  public void singleSourcePostPlanInvalidFactorUsesRuntimeFallbacks() {
+    seedSkewed();
+    session.createVertexClass("Reply");
+    session.createEdgeClass("hasReply");
+    session.begin();
+    for (var i = 0; i < REACHABLE; i++) {
+      session.execute("CREATE VERTEX Reply SET mid = 'm" + slot(i) + "'").close();
+      session.execute(
+          "CREATE EDGE hasReply FROM (SELECT FROM Message WHERE mid = 'm" + slot(i)
+              + "') TO (SELECT FROM Reply WHERE mid = 'm" + slot(i) + "')")
+          .close();
+    }
+    session.commit();
+
+    String sourceRid;
+    try (var author = session.query("SELECT FROM Author WHERE name = 'author0'")) {
+      sourceRid = author.next().getIdentity().toString();
+    }
+
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var previous = configuration.getValue();
+    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(Double.NaN));
+    try {
+      configuration.setValue(1.0);
+      try (var result = session.query(orderedMutationQuery(sourceRid, false))) {
+        var step = stepOf(result);
+        assertThat(configuration.getValueAsDouble()).isNaN();
+        assertThat(drain(result, "mid"))
+            .containsExactly("m" + slot(0), "m" + slot(1));
+        assertThat(step.getChosenRuntimePath())
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+        assertThat(step.lastScanConsumedEntries()).isEqualTo(-1L);
+      }
+
+      configuration.setValue(1.0);
+      try (var result = session.query(orderedMutationQuery(sourceRid, true))) {
+        var step = stepOf(result);
+        assertThat(configuration.getValueAsDouble()).isNaN();
+        assertThat(drain(result, "mid"))
+            .containsExactly("m" + slot(0), "m" + slot(1));
+        assertThat(step.getChosenRuntimePath())
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
+        assertThat(step.lastScanConsumedEntries()).isEqualTo(-1L);
+      }
+    } finally {
+      SQLEngine.unregisterFunction("track10SetScanFactor");
       configuration.setValue(previous);
     }
   }
