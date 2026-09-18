@@ -463,19 +463,29 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IC2 reduced — friends' messages before {@code maxDate}, SQL
-   * {@code ORDER BY creationDate DESC, id ASC}, top {@link #RESULT_LIMIT}.
-   *
-   * <p>Kept: {@code out(KNOWS).in(HAS_CREATOR)}; date filter; {@code order}+{@code limit}; every
-   * non-coalesce RETURN column via multi-{@code as} after the slice (post-cardinality presence).
-   *
-   * <p>Gaps vs SQL IC2:
-   * <ul>
-   *   <li>[not-yet-translatable] {@code coalesce(imageFile, content)} — {@link #coalesceMessageContent};
-   *       shape returns plain {@code content}
-   * </ul>
+   * Legacy IC2 benchmark shape. It returns three message properties in descending date order.
+   * Keep this identity stable for historical benchmark comparisons.
    */
-  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic2FriendsMessagesOrdered(
+  public static YTDBGraphTraversal<Vertex, Map<Object, Object>> ic2FriendsMessagesOrdered(
+      YTDBGraphTraversalSource g, long personId, Date maxDate) {
+    return g.V()
+        .hasLabel(PERSON_LABEL)
+        .has("id", personId)
+        .out(KNOWS_LABEL)
+        .in(HAS_CREATOR_LABEL)
+        .hasLabel(MESSAGE_LABEL)
+        .has("creationDate", P.lt(maxDate))
+        .order().by("creationDate", Order.desc)
+        .valueMap("id", "content", "creationDate");
+  }
+
+  /**
+   * Ordered-limit IC2 shape. It adds friend columns, a message-id tie-breaker, and a result limit.
+   *
+   * <p>Every supported IC2 return column is selected. Plain {@code content} replaces unsupported
+   * {@code coalesce(imageFile, content)}.
+   */
+  public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic2FriendsMessagesOrderedLimit(
       YTDBGraphTraversalSource g, long personId, Date maxDate) {
     return g.V()
         .hasLabel(PERSON_LABEL)
@@ -679,8 +689,8 @@ public final class GremlinTraversalShapes {
   }
 
   /**
-   * LDBC: IC9 reduced — direct friends' messages before {@code maxDate} (same walk as
-   * {@link #ic2FriendsMessagesOrdered}; SQL IC9 adds FoF).
+   * LDBC: IC9 reduced — direct friends' messages before {@code maxDate}.
+   * It uses the ordered-limit IC2 walk. SQL IC9 adds friends-of-friends traversal.
    *
    * <p>Gaps vs SQL IC9:
    * <ul>
@@ -690,7 +700,7 @@ public final class GremlinTraversalShapes {
    */
   public static YTDBGraphTraversal<Vertex, Map<String, Object>> ic9FriendsMessagesOrdered(
       YTDBGraphTraversalSource g, long personId, Date maxDate) {
-    return ic2FriendsMessagesOrdered(g, personId, maxDate);
+    return ic2FriendsMessagesOrderedLimit(g, personId, maxDate);
   }
 
   /**
@@ -960,7 +970,7 @@ public final class GremlinTraversalShapes {
    *
    * <p>{@code Person.firstName} is {@code NOTUNIQUE}; ties are implementation-defined like YQL.
    * Same-boundary slice translates. Non-unique control beside the LDBC top-N shapes
-   * ({@link #is2PersonMessages} date-only; {@link #ic2FriendsMessagesOrdered} /
+   * ({@link #is2PersonMessages} date-only and {@link #ic2FriendsMessagesOrderedLimit} /
    * {@link #ic8RecentRepliesOrdered} date+id as in SQL).
    */
   public static YTDBGraphTraversal<Vertex, String> knowsOrderedPage(

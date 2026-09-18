@@ -372,17 +372,32 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
-   * IC2 reduced — Alice's friends' messages before {@link #IC2_MAX_DATE}, newest first. Carol's
-   * comment then Bob's post, with friend + message columns. Dave has no messages, so a plan that
-   * ignored {@code KNOWS} and scanned {@code Message} would still pass if it also ignored the date
-   * filter; the two-row ordered list is the discriminant.
+   * The legacy IC2 identity returns three message properties in descending date order.
+   * It translates on and runs natively off.
    */
   @Test
-  public void ic2FriendsMessagesOrderedTranslatesOnAndRunsNativeOffInDateOrder() {
+  public void ic2FriendsMessagesOrderedKeepsLegacyShapeAndTranslationVerdict() {
     assertTranslatesInOrder(
-        "IC2 reduced: …out(KNOWS).as(person…).in(HAS_CREATOR).as(message…)"
-            + ".has(creationDate, lt).order().by(creationDate, desc).limit.select(…)",
-        t -> GremlinTraversalShapes.ic2FriendsMessagesOrdered(t, ALICE, new Date(IC2_MAX_DATE)),
+        "Legacy IC2: …out(KNOWS).in(HAS_CREATOR).has(creationDate, lt)"
+            + ".order().by(creationDate, desc).valueMap(id, content, creationDate)",
+        t -> GremlinTraversalShapes.ic2FriendsMessagesOrdered(
+            t, ALICE, new Date(IC2_MAX_DATE)),
+        List.of(
+            "{content=[c-1001], creationDate=[date:" + COMMENT_AT + "], id=[" + COMMENT + "]}",
+            "{content=[post-1000], creationDate=[date:" + POST_AT + "], id=[" + POST + "]}"));
+  }
+
+  /**
+   * The ordered-limit IC2 identity adds friend columns, deterministic ordering, and a result limit.
+   * It translates on and runs natively off.
+   */
+  @Test
+  public void ic2FriendsMessagesOrderedLimitPinsNewShapeAndTranslationVerdict() {
+    assertTranslatesInOrder(
+        "Ordered-limit IC2: …out(KNOWS).as(person…).in(HAS_CREATOR).as(message…)"
+            + ".has(creationDate, lt).order().by(creationDate, desc).by(id).limit.select(…)",
+        t -> GremlinTraversalShapes.ic2FriendsMessagesOrderedLimit(
+            t, ALICE, new Date(IC2_MAX_DATE)),
         List.of(
             "{firstName=Carol, lastName=Carolson, messageContent=c-1001,"
                 + " messageCreationDate=date:" + COMMENT_AT + ", messageId=" + COMMENT

@@ -483,17 +483,28 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * LDBC: IC2 reduced — see {@link GremlinTraversalShapes#ic2FriendsMessagesOrdered}. Uses the
-   * Gremlin-only {@link TranslatorArm#ic2PersonId}/{@link TranslatorArm#ic2MaxDate} pool (curated
-   * dates can miss friend messages entirely).
+   * Legacy IC2 benchmark identity. It keeps the historical traversal and curated IC2 parameters.
    */
   @Benchmark
-  public List<Map<String, Object>> gremlin_ic2_friendsMessagesOrdered(
+  public List<Map<Object, Object>> gremlin_ic2_friendsMessagesOrdered(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes
-            .ic2FriendsMessagesOrdered(t, arm.ic2PersonId(i), arm.ic2MaxDate(i))
+            .ic2FriendsMessagesOrdered(t, state.ic2PersonId(i), state.ic2MaxDate(i))
+            .toList());
+  }
+
+  /**
+   * Ordered-limit IC2 benchmark. It uses a live date pool that returns friend messages.
+   */
+  @Benchmark
+  public List<Map<String, Object>> gremlin_ic2_friendsMessagesOrderedLimit(
+      LdbcBenchmarkState state, TranslatorArm arm) {
+    var i = state.nextIndex();
+    return state.traversal.computeInTx(
+        t -> GremlinTraversalShapes
+            .ic2FriendsMessagesOrderedLimit(t, arm.ic2PersonId(i), arm.ic2MaxDate(i))
             .toList());
   }
 
@@ -571,7 +582,7 @@ public class LdbcGremlinTranslatorBenchmark {
 
   /**
    * LDBC: IC9 reduced — see {@link GremlinTraversalShapes#ic9FriendsMessagesOrdered}. Uses the
-   * same Gremlin-only pool as {@link #gremlin_ic2_friendsMessagesOrdered}.
+   * same live date pool as {@link #gremlin_ic2_friendsMessagesOrderedLimit}.
    */
   @Benchmark
   public List<Map<String, Object>> gremlin_ic9_friendsMessagesOrdered(
