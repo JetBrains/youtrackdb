@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBCollatedHasContainer;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
@@ -127,7 +128,9 @@ public final class YTDBGraphStepStrategy
           // This is the situation when the "has" step follows directly a GraphStep.
           // In this case, all HasContainers will be added to the new YTDBGraphStep to
           // be translated to YouTrackDB SQL.
-          hch.getHasContainers().forEach(currentGraphStep::addHasContainer);
+          hch.getHasContainers().stream()
+              .map(YTDBCollatedHasContainer::wrap)
+              .forEach(currentGraphStep::addHasContainer);
           current.getLabels().forEach(currentGraphStep::addLabel);
           removeOriginalStep = true;
         } else {
@@ -149,6 +152,17 @@ public final class YTDBGraphStepStrategy
                 new YTDBHasLabelStep<>(traversal, labelPredicates, polymorphic);
             traversal.addStep(idx, ytdbHasLabelStep);
             idx++;
+          }
+
+          // Wrap remaining property containers after label containers have been removed.
+          // Copy only when replacement is needed, then preserve the snapshot's original order.
+          if (hch.getHasContainers().stream()
+              .anyMatch(container -> !(container instanceof YTDBCollatedHasContainer))) {
+            var containers = new ArrayList<>(hch.getHasContainers());
+            containers.forEach(hch::removeHasContainer);
+            containers.stream()
+                .map(YTDBCollatedHasContainer::wrap)
+                .forEach(hch::addHasContainer);
           }
 
           // if we've replaced all HasContainers, then we want to remove the original step
