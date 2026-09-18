@@ -338,6 +338,20 @@ public class GremlinPlanFingerprintTest {
         .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, byAge));
   }
 
+  /** Filtering and productive presences have different projection behavior. */
+  @Test
+  public void aliasPropertyPresenceDropMode_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var filtering = ResultShaping.NONE.withAliasPropertyPresences(List.of(
+        new AliasPropertyPresence("$g2m_pe_$g2m_v0", "name", "v", true)));
+    var productive = ResultShaping.NONE.withAliasPropertyPresences(List.of(
+        new AliasPropertyPresence("$g2m_pe_$g2m_v0", "name", "v", false)));
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, filtering))
+        .as(";AP: must encode whether absence drops the row")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, productive));
+  }
+
   /**
    * {@code ;MO:} encodes map emit column order. Swapping emit column order with identical
    * presence entries must change the fingerprint.
