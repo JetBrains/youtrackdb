@@ -46,17 +46,10 @@ jobs:
           echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
           echo "timestamp=$(date -u +%s)" >> "$GITHUB_OUTPUT"
 
-      - name: Install CLI tools (mc, jq)
+      - name: Install CLI tools (AWS CLI v2, jq)
         run: |
-          # Install MinIO client (static binary, no Python/pip needed)
-          curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc \
-            || curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o "$HOME/mc"
-          chmod +x /usr/local/bin/mc 2>/dev/null || chmod +x "$HOME/mc"
-          # Ensure mc is on PATH
-          if ! command -v mc &>/dev/null; then
-            export PATH="$HOME:$PATH"
-            echo "$HOME" >> "$GITHUB_PATH"
-          fi
+          # Install the pinned AWS CLI into runner-owned paths after publisher verification.
+          bash .github/scripts/install-aws-cli-v2.sh
 
           # Install jq if not present (needed for InfluxDB push)
           if ! command -v jq &>/dev/null; then
@@ -130,47 +123,24 @@ jobs:
           fi
           exit 0
 
-      # The runner clears this private location before and after each job.
-      - name: Create object storage configuration directory
+      # Credentials exist only in this step. The helper excludes all ambient AWS state.
+      - name: Download nightly LDBC inputs from S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
+          HETZNER_S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
+          AWS_CLI: ${{ runner.temp }}/aws-cli-bin/aws
         run: |
-          config_dir=$(mktemp -d "$RUNNER_TEMP/mc-config.XXXXXX")
-          if [ ! -d "$config_dir" ] || [ -L "$config_dir" ]; then
-            echo '::error::The object storage configuration path is not a real directory.'
-            exit 1
-          fi
-          if ! chmod 700 "$config_dir"; then
-            rm -rf -- "$config_dir"
-            echo '::error::Could not secure the object storage configuration directory.'
-            exit 1
-          fi
-          echo "MC_CONFIG_DIR=$config_dir" >> "$GITHUB_ENV"
+          bash .github/scripts/download-ldbc-inputs.sh \
+            "/tmp/curated-params-${{ github.run_id }}.json" \
+            "/tmp/factor-tables-${{ github.run_id }}.json" \
+            "/tmp/ldbc-csv-${{ github.run_id }}.tar.zst"
 
-      # The runner is reused. Keep credentials in the private temporary directory.
-      - name: Configure object storage alias
-        run: |
-          mc alias set hetzner "${{ secrets.HETZNER_S3_ENDPOINT }}" \
-            "${{ secrets.HETZNER_S3_ACCESS_KEY }}" "${{ secrets.HETZNER_S3_SECRET_KEY }}"
-          mc ls hetzner/bench-cache/ldbc/ || echo "Warning: could not list S3 bucket"
-
-      - name: Download canonical curated parameters from S3
-        run: |
-          set -euo pipefail
-          echo 'Downloading canonical curated parameters from S3...'
-          mc cp hetzner/bench-cache/ldbc/curated-params-v3.json \
-            "/tmp/curated-params-${{ github.run_id }}.json"
-          mc cp hetzner/bench-cache/ldbc/factor-tables.json \
-            "/tmp/factor-tables-${{ github.run_id }}.json"
-          echo 'Downloaded curated params and factor tables.'
-
-      - name: Download LDBC CSV dataset from S3
+      - name: Extract LDBC CSV dataset
         run: |
           set -euo pipefail
           CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
           CSV_TAR="/tmp/ldbc-csv-${{ github.run_id }}.tar"
-
-          echo 'Downloading SF 1 CSV dataset from S3...'
-          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-composite-merged-fk.tar.zst "${CSV_TAR}.zst"
-          echo 'Downloaded from S3'
 
           zstd -d "${CSV_TAR}.zst" -o "$CSV_TAR"
           rm -f "${CSV_TAR}.zst"

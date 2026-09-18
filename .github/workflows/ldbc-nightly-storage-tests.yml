@@ -1,0 +1,42 @@
+name: LDBC nightly storage tests
+
+# Exercise installer, credential isolation, failure handling, and workflow wiring without secrets.
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/scripts/aws-cli-signing-key.asc'
+      - '.github/scripts/install-aws-cli-v2.sh'
+      - '.github/scripts/download-ldbc-inputs.sh'
+      - '.github/scripts/ldbc-nightly-storage-test.py'
+      - '.github/workflows/ldbc-jmh-nightly.yml'
+      - '.github/workflows/ldbc-nightly-storage-tests.yml'
+  pull_request:
+    paths:
+      - '.github/scripts/aws-cli-signing-key.asc'
+      - '.github/scripts/install-aws-cli-v2.sh'
+      - '.github/scripts/download-ldbc-inputs.sh'
+      - '.github/scripts/ldbc-nightly-storage-test.py'
+      - '.github/workflows/ldbc-jmh-nightly.yml'
+      - '.github/workflows/ldbc-nightly-storage-tests.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest-8-cores-x64-public
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install YAML parser
+        run: python3 -m pip install 'PyYAML==6.0.3'
+
+      - name: Run focused storage tests
+        run: python3 .github/scripts/ldbc-nightly-storage-test.py
