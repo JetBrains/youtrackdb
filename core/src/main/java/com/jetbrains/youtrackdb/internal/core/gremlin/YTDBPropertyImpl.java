@@ -86,6 +86,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
 
   @Override
   public void remove() {
+    element.getGraph().tx().readWrite();
     var entity = element.getRawEntity();
     entity.removeProperty(key);
     this.value = null;

@@ -1857,10 +1857,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * TRUNCATE embedded in a script invalidates a sibling {@code query()}'s cached entry the same way the
    * direct command does. Regular INSERT/UPDATE/DELETE need no hook here: they land in {@code
    * recordOperations} and the next query's delta build picks them up.
-   * Schema DDL (CREATE/DROP/ALTER CLASS|PROPERTY|INDEX) is unreachable mid-transaction (the schema is
-   * immutable for the life of a transaction), guarded by a {@code Java assert} canary so a future
-   * relaxation that lets schema DDL run mid-tx surfaces loudly in test builds rather than silently
-   * serving a stale cache.
+   * Schema DDL can change query planning and result interpretation inside a transaction. It drops
+   * every cached result so later queries use the transaction-local schema state.
    */
   public void invalidateCacheForBulkDml(@Nonnull SQLStatement statement) {
     // executeInternal does not begin a transaction, so currentTx may be a no-tx placeholder
@@ -1872,21 +1870,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (cache == null) {
       return;
     }
-    if (statement instanceof SQLTruncateClassStatement) {
+    if (statement instanceof SQLTruncateClassStatement || isSchemaDdl(statement)) {
       cache.invalidateAll();
-      return;
     }
-    // Schema-immutability canary: schema DDL must not reach the cache hook while a transaction is
-    // active. TRUNCATE CLASS (handled above) is the only legitimately mid-tx-runnable DDL; every
-    // other schema-DDL statement throws before any cache effect would matter, so reaching here is a
-    // contract breach.
-    assert !isSchemaDdl(statement)
-        : "Schema DDL reached the tx-result cache hook while a transaction was active: "
-            + statement.getClass().getSimpleName();
   }
 
   /** Whether the statement is a schema-DDL statement (CREATE/DROP/ALTER CLASS|PROPERTY|INDEX). */
-  private static boolean isSchemaDdl(@Nonnull SQLStatement statement) {
+  public static boolean isSchemaDdl(@Nonnull SQLStatement statement) {
     return statement instanceof SQLCreateClassStatement
         || statement instanceof SQLDropClassStatement
         || statement instanceof SQLAlterClassStatement

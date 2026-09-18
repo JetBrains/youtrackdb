@@ -303,7 +303,14 @@ isolation by default. Each transaction sees a consistent snapshot of the databas
 as of its start time. Dirty reads, non-repeatable reads, and phantom reads are
 eliminated automatically.
 
-The `executeInTx()` method starts, commits, and rolls back transactions:
+The `executeInTx()` method starts, commits, and rolls back transactions. Supported schema data
+definition language (DDL) statements include CREATE, ALTER, and DROP for classes and properties,
+plus CREATE and DROP INDEX. These schema changes join the same transaction as data changes. They
+become durable together on commit and disappear together on rollback.
+
+The `command()` method executes immediately. The `yql()` method is lazy and requires `iterate()` or
+another terminal operation. When either method executes without a caller transaction, the schema
+change is persisted immediately.
 
 ```java
 // Read-write transaction — commits on success, rolls back on exception

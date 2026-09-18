@@ -89,8 +89,10 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);
   }
 
-  /// Execute a generic YouTrackDB command immediately. The command is executed eagerly - no need to
-  /// call .iterate().
+  /// Execute a generic YouTrackDB command immediately. The command is executed eagerly, so no
+  /// terminal operation is needed. Supported schema data definition language (DDL) statements
+  /// include CREATE, ALTER, and DROP for classes and properties, plus CREATE and DROP INDEX.
+  /// Schema DDL joins an existing caller transaction. Without one, it is persisted immediately.
   ///
   /// @param command The command to execute.
   public void command(@Nonnull String command) {
@@ -102,7 +104,10 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   }
 
   /// Execute a generic parameterized YouTrackDB command immediately. The command is executed
-  /// eagerly - no need to call .iterate().
+  /// eagerly, so no terminal operation is needed. Supported schema data definition language (DDL)
+  /// statements include CREATE, ALTER, and DROP for classes and properties, plus CREATE and DROP
+  /// INDEX. Schema DDL joins an existing caller transaction. Without one, it is persisted
+  /// immediately.
   ///
   /// @param command   The command to execute.
   /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2,
@@ -117,7 +122,10 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   }
 
   /// Execute a generic YouTrackDB YQL command. Returns a lazy traversal that can be chained. Users
-  /// must call .iterate() or another terminal operation to execute the command.
+  /// must call .iterate() or another terminal operation to execute the command. Supported schema
+  /// data definition language (DDL) statements include CREATE, ALTER, and DROP for classes and
+  /// properties, plus CREATE and DROP INDEX. Schema DDL joins a caller transaction active when
+  /// execution starts. Without one, it is persisted immediately when execution starts.
   ///
   /// @param command The YQL command to execute.
   /// @return A traversal that can be chained with other steps.
@@ -130,7 +138,10 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   }
 
   /// Execute a generic parameterized YouTrackDB YQL command. Returns a lazy traversal. Users must
-  /// call .iterate() or another terminal operation to execute the command.
+  /// call .iterate() or another terminal operation to execute the command. Supported schema data
+  /// definition language (DDL) statements include CREATE, ALTER, and DROP for classes and
+  /// properties, plus CREATE and DROP INDEX. Schema DDL joins a caller transaction active when
+  /// execution starts. Without one, it is persisted immediately when execution starts.
   ///
   /// @param command   The YQL command to execute.
   /// @param keyValues Alternating key/value pairs for command parameters (key1, value1, key2,
