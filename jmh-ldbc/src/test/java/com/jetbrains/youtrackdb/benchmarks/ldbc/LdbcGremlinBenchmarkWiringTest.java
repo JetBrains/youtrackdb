@@ -4,10 +4,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.util.Date;
+import org.apache.commons.lang3.function.FailableFunction;
+import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.junit.Test;
 import org.openjdk.jmh.annotations.Benchmark;
 
@@ -17,36 +19,34 @@ public class LdbcGremlinBenchmarkWiringTest {
   private static final Date CURATED_DATE = new Date(1000);
   private static final Date LIVE_DATE = new Date(2000);
 
-  /** The actual legacy benchmark reads curated state before entering its transaction callback. */
+  /** The actual legacy benchmark completes and reads only curated state. */
   @Test
   public void legacyBenchmarkInvocationUsesCuratedState() throws NoSuchMethodException {
     assertBenchmarkAnnotation("gremlin_ic2_friendsMessagesOrdered");
     var state = new StubState();
     var arm = new StubArm();
 
-    assertThrows(
-        NullPointerException.class,
-        () -> new LdbcGremlinTranslatorBenchmark()
-            .gremlin_ic2_friendsMessagesOrdered(state, arm));
+    var rows = new LdbcGremlinTranslatorBenchmark()
+        .gremlin_ic2_friendsMessagesOrdered(state, arm);
 
+    assertTrue(rows.isEmpty());
     assertTrue(state.personIdRead);
     assertTrue(state.maxDateRead);
     assertFalse(arm.personIdRead);
     assertFalse(arm.maxDateRead);
   }
 
-  /** The actual ordered-limit benchmark reads live arm state before its transaction callback. */
+  /** The actual ordered-limit benchmark completes and reads only live arm state. */
   @Test
   public void orderedLimitBenchmarkInvocationUsesLiveArm() throws NoSuchMethodException {
     assertBenchmarkAnnotation("gremlin_ic2_friendsMessagesOrderedLimit");
     var state = new StubState();
     var arm = new StubArm();
 
-    assertThrows(
-        NullPointerException.class,
-        () -> new LdbcGremlinTranslatorBenchmark()
-            .gremlin_ic2_friendsMessagesOrderedLimit(state, arm));
+    var rows = new LdbcGremlinTranslatorBenchmark()
+        .gremlin_ic2_friendsMessagesOrderedLimit(state, arm);
 
+    assertTrue(rows.isEmpty());
     assertFalse(state.personIdRead);
     assertFalse(state.maxDateRead);
     assertTrue(arm.personIdRead);
@@ -79,10 +79,27 @@ public class LdbcGremlinBenchmarkWiringTest {
     assertNotNull(method.getAnnotation(Benchmark.class));
   }
 
+  private static final class CallbackTraversalSource extends YTDBGraphTraversalSource {
+
+    private CallbackTraversalSource() {
+      super(EmptyGraph.instance());
+    }
+
+    @Override
+    public <X extends Exception, R> R computeInTx(
+        FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
+      return code.apply(this);
+    }
+  }
+
   private static final class StubState extends LdbcBenchmarkState {
 
     private boolean personIdRead;
     private boolean maxDateRead;
+
+    private StubState() {
+      traversal = new CallbackTraversalSource();
+    }
 
     @Override
     public long ic2PersonId(long index) {
