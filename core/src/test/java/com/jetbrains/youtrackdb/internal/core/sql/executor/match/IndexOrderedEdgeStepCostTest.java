@@ -1,11 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedCostModel.MultiSourceStrategy;
@@ -45,9 +47,7 @@ public class IndexOrderedEdgeStepCostTest {
   @Test
   public void testInvalidFactorRejectsCostsAndMultiSourceStrategy() {
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
-    var previous = configuration.getValue();
-    try {
-      configuration.setValue(Double.NaN);
+    try (var ignored = GlobalConfigurationScope.set(configuration, Double.NaN)) {
       assertNull(
           "NaN must reject the cost estimate",
           IndexOrderedCostModel.computeCosts(100, 1000, 10, null, true));
@@ -55,8 +55,28 @@ public class IndexOrderedEdgeStepCostTest {
           "NaN must select the ordinary multi-source strategy",
           MultiSourceStrategy.LOAD_ALL_SORT,
           IndexOrderedCostModel.pickMultiSourceStrategy(100, 1000, 10, null, true));
-    } finally {
-      configuration.setValue(previous);
+    }
+  }
+
+  /** Configuration scopes restore default and explicitly changed states exactly. */
+  @Test
+  public void testConfigurationScopeRestoresExplicitState() {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    try (var original = GlobalConfigurationScope.capture(configuration)) {
+      configuration.resetToDefault();
+      var defaultValue = configuration.getValue();
+      try (var ignored = GlobalConfigurationScope.set(configuration, 123.0)) {
+        assertTrue(configuration.isChanged());
+      }
+      assertFalse(configuration.isChanged());
+      assertEquals(defaultValue, configuration.getValue());
+
+      configuration.setValue(456.0);
+      try (var ignored = GlobalConfigurationScope.set(configuration, 789.0)) {
+        assertEquals(789.0, configuration.getValueAsDouble(), 0.0);
+      }
+      assertTrue(configuration.isChanged());
+      assertEquals(456.0, configuration.getValueAsDouble(), 0.0);
     }
   }
 
@@ -221,24 +241,16 @@ public class IndexOrderedEdgeStepCostTest {
   @Test
   public void testHugeValidScanCpuFactorProducesZeroEconomicBudget() {
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
-    var previous = configuration.getValue();
-    try {
-      configuration.setValue(1.0e9);
+    try (var ignored = GlobalConfigurationScope.set(configuration, 1.0e9)) {
       assertTrue(IndexOrderedCostModel.hasValidScanCpuFactor());
       assertEquals(0, IndexOrderedCostModel.entriesWorthTheLoadAlternative(20));
-    } finally {
-      configuration.setValue(previous);
     }
   }
 
   private static long entriesWithScanCpuFactor(double factor) {
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
-    var previous = configuration.getValue();
-    try {
-      configuration.setValue(factor);
+    try (var ignored = GlobalConfigurationScope.set(configuration, factor)) {
       return IndexOrderedCostModel.entriesWorthTheLoadAlternative(20);
-    } finally {
-      configuration.setValue(previous);
     }
   }
 
@@ -407,12 +419,8 @@ public class IndexOrderedEdgeStepCostTest {
   // k=100, expectedScanLength=100 > maxScan(10) → null.
   @Test
   public void testComputeCostsExceedsMaxScan() {
-    var oldMaxScan =
-        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
-            .getValue();
-    com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
-        .setValue(10L);
-    try {
+    try (var ignored =
+        GlobalConfigurationScope.set(GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN, 10L)) {
       var result = IndexOrderedCostModel.computeCosts(
           100, // linkBagSize
           100, // indexSize → density = 1.0
@@ -423,9 +431,6 @@ public class IndexOrderedEdgeStepCostTest {
       assertNull(
           "Should return null when expectedScanLength exceeds maxScan",
           result);
-    } finally {
-      com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
-          .setValue(oldMaxScan);
     }
   }
 

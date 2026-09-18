@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
-import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -11,12 +11,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
-import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -3285,50 +3283,22 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             || path == IndexOrderedEdgeStep.RuntimePath.GLOBAL_SCAN);
   }
 
-  private static final class SetScanFactorFunction extends SQLFunctionAbstract {
-
-    private final double factor;
-
-    private SetScanFactorFunction(double factor) {
-      super("track10SetScanFactor", 0, 0);
-      this.factor = factor;
-    }
-
-    @Override
-    public Object execute(
-        Object iThis,
-        Result iCurrentRecord,
-        Object iCurrentResult,
-        Object[] iParams,
-        CommandContext iContext) {
-      GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR.setValue(factor);
-      return true;
-    }
-
-    @Override
-    public String getSyntax(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
-      return "track10SetScanFactor()";
-    }
-  }
-
-  /** Sets index-ordered config to known test-safe values. Call restore in finally. */
+  /** Sets index-ordered config to known test-safe values. */
   private AutoCloseable setIndexOrderedTestConfig() {
-    var oldMinLinkBag = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
-    var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
-    var oldCostBias = GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValue();
-    var oldMaxSources = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValue();
-
-    GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(1);
-    GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(10_000_000);
-    GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.setValue(1.0);
-    GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.setValue(100_000);
+    var minLinkBag =
+        GlobalConfigurationScope.set(GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG, 1);
+    var maxScan =
+        GlobalConfigurationScope.set(GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN, 10_000_000);
+    var costBias =
+        GlobalConfigurationScope.set(GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 1.0);
+    var maxSources =
+        GlobalConfigurationScope.set(GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES, 100_000);
 
     return () -> {
-      GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(oldMinLinkBag);
-      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
-      GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.setValue(oldCostBias);
-      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.setValue(oldMaxSources);
+      maxSources.close();
+      costBias.close();
+      maxScan.close();
+      minLinkBag.close();
     };
   }
 
@@ -3656,13 +3626,16 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     initIndexOrderedMatchMultiSourceData();
     var scanFactor = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
     var oldScanFactor = scanFactor.getValue();
-    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(Double.NaN));
-    try (var cfg = setIndexOrderedTestConfig()) {
-      scanFactor.setValue(1.0);
+    var scanFactorWasChanged = scanFactor.isChanged();
+    String functionName;
+    try (var function = new ScanFactorFunctionScope(Double.NaN);
+        var scanFactorScope = GlobalConfigurationScope.set(scanFactor, 1.0);
+        var cfg = setIndexOrderedTestConfig()) {
+      functionName = function.name();
       session.begin();
       var query =
           "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%'"
-              + " AND track10SetScanFactor() = true)}"
+              + " AND " + functionName + "() = true)}"
               + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
               + "RETURN p.name as pname, m.msgId as mid"
               + " ORDER BY m.creationDate DESC LIMIT 5";
@@ -3689,10 +3662,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         Assert.assertEquals(-1L, step.lastScanConsumedEntries());
       }
       session.commit();
-    } finally {
-      SQLEngine.unregisterFunction("track10SetScanFactor");
-      scanFactor.setValue(oldScanFactor);
     }
+    Assert.assertEquals(scanFactorWasChanged, scanFactor.isChanged());
+    Assert.assertEquals(oldScanFactor, scanFactor.getValue());
+    Assert.assertNull(SQLEngine.getFunctionOrNull(session, functionName));
   }
 
   /**
@@ -3808,14 +3781,17 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     initIndexOrderedMatchSparseMultiSourceData();
     var scanFactor = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
     var oldScanFactor = scanFactor.getValue();
-    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(1.0e9));
-    try (var cfg = setIndexOrderedTestConfig()) {
+    var scanFactorWasChanged = scanFactor.isChanged();
+    String functionName;
+    try (var function = new ScanFactorFunctionScope(1.0e9);
+        var scanFactorScope = GlobalConfigurationScope.set(scanFactor, 1.0);
+        var cfg = setIndexOrderedTestConfig()) {
+      functionName = function.name();
       GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.setValue(0.0);
-      scanFactor.setValue(1.0);
       session.begin();
       var query =
           "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%'"
-              + " AND track10SetScanFactor() = true)}"
+              + " AND " + functionName + "() = true)}"
               + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
               + "RETURN p.name as pname, m.msgId as mid"
               + " ORDER BY m.creationDate DESC LIMIT 5";
@@ -3842,10 +3818,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         Assert.assertEquals(-1L, step.lastScanConsumedEntries());
       }
       session.commit();
-    } finally {
-      SQLEngine.unregisterFunction("track10SetScanFactor");
-      scanFactor.setValue(oldScanFactor);
     }
+    Assert.assertEquals(scanFactorWasChanged, scanFactor.isChanged());
+    Assert.assertEquals(oldScanFactor, scanFactor.getValue());
+    Assert.assertNull(SQLEngine.getFunctionOrNull(session, functionName));
   }
 
   // Multi-source FILTERED_UNBOUND mode with WHERE filter and source alias NOT in RETURN uses union-RidSet-only mode.
@@ -3893,13 +3869,16 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     initIndexOrderedMatchMultiSourceData();
     var scanFactor = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
     var oldScanFactor = scanFactor.getValue();
-    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(Double.NaN));
-    try (var cfg = setIndexOrderedTestConfig()) {
-      scanFactor.setValue(1.0);
+    var scanFactorWasChanged = scanFactor.isChanged();
+    String functionName;
+    try (var function = new ScanFactorFunctionScope(Double.NaN);
+        var scanFactorScope = GlobalConfigurationScope.set(scanFactor, 1.0);
+        var cfg = setIndexOrderedTestConfig()) {
+      functionName = function.name();
       session.begin();
       var query =
           "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%'"
-              + " AND track10SetScanFactor() = true)}"
+              + " AND " + functionName + "() = true)}"
               + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
               + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
       try (var result = session.query(query)) {
@@ -3921,10 +3900,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         Assert.assertEquals(-1L, step.lastScanConsumedEntries());
       }
       session.commit();
-    } finally {
-      SQLEngine.unregisterFunction("track10SetScanFactor");
-      scanFactor.setValue(oldScanFactor);
     }
+    Assert.assertEquals(scanFactorWasChanged, scanFactor.isChanged());
+    Assert.assertEquals(oldScanFactor, scanFactor.getValue());
+    Assert.assertNull(SQLEngine.getFunctionOrNull(session, functionName));
   }
 
   /**

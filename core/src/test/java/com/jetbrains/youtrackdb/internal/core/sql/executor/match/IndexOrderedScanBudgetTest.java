@@ -4,15 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
-import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ScanFactorFunctionScope;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -103,39 +102,13 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
         + " LIMIT " + limit;
   }
 
-  private static String orderedMutationQuery(String sourceRid, boolean downstream) {
+  private static String orderedMutationQuery(
+      String sourceRid, boolean downstream, String functionName) {
     return "MATCH {class: Author, as: a, where: (@rid = " + sourceRid
-        + " AND track10SetScanFactor() = true)}"
+        + " AND " + functionName + "() = true)}"
         + ".out('wrote'){class: Message, as: m}"
         + (downstream ? ".out('hasReply'){class: Reply, as: r}" : "")
         + " RETURN m.mid as mid ORDER BY m.creationDate ASC LIMIT 2";
-  }
-
-  private static final class SetScanFactorFunction extends SQLFunctionAbstract {
-
-    private final double factor;
-
-    private SetScanFactorFunction(double factor) {
-      super("track10SetScanFactor", 0, 0);
-      this.factor = factor;
-    }
-
-    @Override
-    public Object execute(
-        Object iThis,
-        Result iCurrentRecord,
-        Object iCurrentResult,
-        Object[] iParams,
-        CommandContext iContext) {
-      GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR.setValue(factor);
-      return true;
-    }
-
-    @Override
-    public String getSyntax(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
-      return "track10SetScanFactor()";
-    }
   }
 
   @Nullable private static IndexOrderedEdgeStep findStep(List<ExecutionStep> steps) {
@@ -174,8 +147,7 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
   public void invalidScanCpuFactorsUseOrdinaryLoadAndSortPlan() {
     seedSkewed();
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
-    var previous = configuration.getValue();
-    try {
+    try (var ignored = GlobalConfigurationScope.capture(configuration)) {
       for (var factor : List.of(-1.0, 0.0, Double.NaN, Double.POSITIVE_INFINITY)) {
         configuration.setValue(factor);
         try (var result = session.query(orderedQuery("ASC", 1))) {
@@ -183,8 +155,6 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
           assertOrdinarySortPlan(result, "invalid scan CPU factor " + factor);
         }
       }
-    } finally {
-      configuration.setValue(previous);
     }
   }
 
@@ -214,10 +184,12 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
 
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
     var previous = configuration.getValue();
-    SQLEngine.registerFunction("track10SetScanFactor", new SetScanFactorFunction(Double.NaN));
-    try {
-      configuration.setValue(1.0);
-      try (var result = session.query(orderedMutationQuery(sourceRid, false))) {
+    var previouslyChanged = configuration.isChanged();
+    String functionName;
+    try (var function = new ScanFactorFunctionScope(Double.NaN);
+        var ignored = GlobalConfigurationScope.set(configuration, 1.0)) {
+      functionName = function.name();
+      try (var result = session.query(orderedMutationQuery(sourceRid, false, functionName))) {
         var step = stepOf(result);
         assertThat(configuration.getValueAsDouble()).isNaN();
         assertThat(drain(result, "mid"))
@@ -228,7 +200,7 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
       }
 
       configuration.setValue(1.0);
-      try (var result = session.query(orderedMutationQuery(sourceRid, true))) {
+      try (var result = session.query(orderedMutationQuery(sourceRid, true, functionName))) {
         var step = stepOf(result);
         assertThat(configuration.getValueAsDouble()).isNaN();
         assertThat(drain(result, "mid"))
@@ -237,10 +209,10 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
             .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
         assertThat(step.lastScanConsumedEntries()).isEqualTo(-1L);
       }
-    } finally {
-      SQLEngine.unregisterFunction("track10SetScanFactor");
-      configuration.setValue(previous);
     }
+    assertThat(configuration.isChanged()).isEqualTo(previouslyChanged);
+    assertThat((Object) configuration.getValue()).isEqualTo(previous);
+    assertThat(SQLEngine.getFunctionOrNull(session, functionName)).isNull();
   }
 
   /** A normal positive factor keeps the ordered step and returns the exact first row. */
@@ -282,12 +254,8 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
 
   private static void withScanCpuFactor(double factor, Runnable action) {
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
-    var previous = configuration.getValue();
-    try {
-      configuration.setValue(factor);
+    try (var ignored = GlobalConfigurationScope.set(configuration, factor)) {
       action.run();
-    } finally {
-      configuration.setValue(previous);
     }
   }
 
