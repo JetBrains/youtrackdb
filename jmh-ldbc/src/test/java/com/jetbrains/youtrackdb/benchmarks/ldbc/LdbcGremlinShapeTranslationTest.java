@@ -66,8 +66,8 @@ import org.junit.Test;
  *
  * <h2>Fixture</h2>
  *
- * <p>Five people, two places, two messages, one forum and one organisation — the smallest graph
- * that distinguishes the shapes:
+ * <p>Five people, three places, two messages, two tags, one forum and one organisation — the
+ * smallest graph that distinguishes the shapes:
  *
  * <ul>
  *   <li>{@code KNOWS}: Alice→Bob, Alice→Carol, Bob→Dave, Bob→Alice, Carol→Erin, and Erin→everyone
@@ -76,10 +76,13 @@ import org.junit.Test;
  *       {@code where()} back-reference has something to drop; Erin's four out-edges give the paging
  *       and grouping shapes more than one page and more than one group.
  *   <li>{@code IS_LOCATED_IN}: Alice→Zurich, Bob→Berlin — two cities, so an IS1 plan that ignores
- *       the join returns both.
+ *       the join returns both. Bob's post → China (Carol's comment has no location) so IC3's
+ *       country join is discriminating.
  *   <li>A {@code Post} authored by Bob and a {@code Comment} authored by Carol replying to it, for
  *       the IS4 / IS5 / IS7 shapes. Alice likes the post (IC7). Forum {@code Wall} contains the
  *       post and Alice moderates it (IS6). Bob works at organisation Acme in China (IC11).
+ *   <li>Tags {@code rock} and {@code jazz} on Bob's post ({@code HAS_TAG}) for IC4 / IC6
+ *       {@code groupCount}.
  * </ul>
  *
  * <p>The flag is flipped through {@link GlobalConfiguration}, not through a session-local
@@ -113,6 +116,8 @@ public class LdbcGremlinShapeTranslationTest {
   private static final long FORUM = 10;
   private static final long COMPANY = 50;
   private static final long CHINA = 300;
+  private static final long TAG_ROCK = 400;
+  private static final long TAG_JAZZ = 401;
 
   /**
    * {@code KNOWS.creationDate} values. Distinct and ordered so a projection of the edge property is
@@ -178,6 +183,13 @@ public class LdbcGremlinShapeTranslationTest {
       createLikes(t, ALICE, POST);
       insertOrganisation(t, COMPANY, "Acme");
       insertPlace(t, CHINA, "China");
+      // IC3: Bob's post is located in China; Carol's comment has no location edge.
+      createMessageLocatedIn(t, POST, CHINA);
+      insertTag(t, TAG_ROCK, "rock");
+      insertTag(t, TAG_JAZZ, "jazz");
+      // IC4 / IC6: Bob's post carries rock and jazz.
+      createHasTag(t, POST, TAG_ROCK);
+      createHasTag(t, POST, TAG_JAZZ);
       createWorkAt(t, BOB, COMPANY);
       createOrgLocatedIn(t, COMPANY, CHINA);
     });
@@ -213,18 +225,16 @@ public class LdbcGremlinShapeTranslationTest {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * Shape 1 — a bare {@code g.V(rid)} point-lookup DECLINES to native on both arms and returns
-   * Alice either way.
+   * Shape 1 — a bare {@code g.V(rid)} point-lookup translates on, runs natively off, and returns
+   * Alice on both arms.
    *
-   * <p>Native resolves the RID straight to a record with no query, while a translated {@code
-   * g.V(rid)} would compile an uncached MATCH plan every call (a RID-bearing walk sets {@code
-   * cacheEligible=false}) — a net loss with no join to optimise. The translator therefore declines
-   * the bare lookup, so both arms run natively and the on-arm no longer pays a per-call compile.
-   * A RID start FOLLOWED by a hop still translates (the join is where MATCH can win).
+   * <p>Composition stacks need RID starts to compile to MATCH (same path as hop-after-RID). The
+   * plan is uncached ({@code cacheEligible=false}); cost vs native is a JMH question, not a
+   * decline.
    */
   @Test
-  public void vertexByRidDeclinesOnBothArms() {
-    assertDeclines(
+  public void vertexByRidTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
         "g.V(rid)",
         t -> GremlinTraversalShapes.personByRid(t, aliceRid),
         List.of("element:" + aliceRid));
@@ -393,6 +403,56 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
+   * IC3 reduced — Alice's friends' messages in China inside a one-millisecond window around the
+   * post. Bob's post is located in China; Carol's comment is not.
+   */
+  @Test
+  public void ic3FriendsMessagesInCountryTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IC3 reduced: …out(KNOWS).in(HAS_CREATOR)…out(IS_LOCATED_IN).has(name, China)",
+        t -> GremlinTraversalShapes.ic3FriendsMessagesInCountry(
+            t, ALICE, "China", new Date(POST_AT - 1), new Date(POST_AT + 1)),
+        List.of(
+            "{firstName=Bob, lastName=Bobson, msgCountry=China, personId=" + BOB + "}"));
+  }
+
+  /**
+   * IC4 reduced — tag {@code groupCount} on Alice's friends' posts in the same window as IC3,
+   * unfolded and ordered by count then name (SQL top-N). Bob's post carries rock and jazz.
+   */
+  @Test
+  public void ic4FriendPostTagsTranslatesOnAndRunsNativeOffInOrder() {
+    assertTranslatesInOrder(
+        "IC4 reduced: …groupCount().by(name).unfold().order().by(values,desc).by(keys).limit",
+        t -> GremlinTraversalShapes.ic4FriendPostTags(
+            t, ALICE, new Date(POST_AT - 1), new Date(POST_AT + 1)),
+        List.of("jazz=1", "rock=1"));
+  }
+
+  /**
+   * IC5 reduced — forums containing Alice's friends' posts. Bob's post lives in forum Wall.
+   */
+  @Test
+  public void ic5FriendPostForumsTranslatesOnAndRunsNativeOff() {
+    assertTranslates(
+        "IC5 reduced: …in(CONTAINER_OF).as(forum…).dedup(forumId).select",
+        t -> GremlinTraversalShapes.ic5FriendPostForums(t, ALICE),
+        List.of("{forumId=" + FORUM + ", forumTitle=Wall}"));
+  }
+
+  /**
+   * IC6 reduced — tag {@code groupCount} on Alice's friends' posts (no date window), unfolded and
+   * ordered like IC4. Same tags as IC4 on this fixture.
+   */
+  @Test
+  public void ic6FriendPostTagCountsTranslatesOnAndRunsNativeOffInOrder() {
+    assertTranslatesInOrder(
+        "IC6 reduced: …groupCount().by(name).unfold().order().by(values,desc).by(keys).limit",
+        t -> GremlinTraversalShapes.ic6FriendPostTagCounts(t, ALICE),
+        List.of("jazz=1", "rock=1"));
+  }
+
+  /**
    * IC7 reduced — first names of people who liked Bob's messages. Alice liked the post; a plan
    * that walked {@code KNOWS} instead of {@code LIKES} would also return Carol and Dave.
    */
@@ -552,9 +612,7 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Declining shapes: no boundary step on either arm. Each assertion is a tripwire — it fails the
-  // day a recogniser claims the shape, which is when the benchmark's recorded baseline changes
-  // meaning from "decline-path overhead" to "MATCH against native".
+  // Translating shapes continued (ordered page / edge-as select). Declining tripwires follow.
   // -------------------------------------------------------------------------------------------
 
   /**
@@ -575,24 +633,28 @@ public class LdbcGremlinShapeTranslationTest {
   }
 
   /**
-   * Shape IS3 whole declines on both arms and returns each friend with the friendship date in
-   * {@code firstName} order either way.
+   * Shape IS3 reduced with edge date — edge {@code as(k)} +
+   * {@code select(k, friend).by(creationDate).by(firstName)} translates and returns each friend
+   * with the friendship date in {@code firstName} order.
    *
-   * <p>The {@code as("k")} label on {@code outE(KNOWS)} would bind to the edge-as-node vertex alias,
-   * so {@code select("k").by("creationDate")} would read the target vertex rather than the
-   * friendship edge — runtime-incorrect, so the shape falls back to native on both arms. Failing
-   * here means a recogniser has started claiming an edge-alias select again.
+   * <p>Failing here means edge-alias select regressed to decline or projects the wrong entity.
    */
   @Test
-  public void is3FriendsWithDatesDeclinesOnBothArmsInSortedOrder() {
-    assertDeclinesInOrder(
-        "IS3 full: …outE(KNOWS).as(k).inV().as(friend).order().by(firstName)"
+  public void is3FriendsWithDatesTranslatesOnAndRunsNativeOffInSortedOrder() {
+    assertTranslatesInOrder(
+        "IS3 reduced: …outE(KNOWS).as(k).inV().as(friend).order().by(firstName)"
             + ".select(k, friend).by(creationDate).by(firstName)",
         t -> GremlinTraversalShapes.is3FriendsWithDates(t, ALICE),
         List.of(
             "{friend=Bob, k=date:" + KNOWS_ALICE_BOB_AT + "}",
             "{friend=Carol, k=date:" + KNOWS_ALICE_CAROL_AT + "}"));
   }
+
+  // -------------------------------------------------------------------------------------------
+  // Declining shapes: no boundary step on either arm. Each assertion is a tripwire — it fails the
+  // day a recogniser claims the shape, which is when the benchmark's recorded baseline changes
+  // meaning from "decline-path overhead" to "MATCH against native".
+  // -------------------------------------------------------------------------------------------
 
   /**
    * IC1's variable-depth {@code repeat()} walk declines on both arms and returns every person
@@ -679,14 +741,6 @@ public class LdbcGremlinShapeTranslationTest {
       Function<YTDBGraphTraversalSource, Traversal<?, ?>> builder,
       List<String> expected) {
     runBothArms(shape, false, Comparison.AS_MULTISET, builder, expected);
-  }
-
-  /** {@link #assertDeclines} with the two arms compared in stream order. */
-  private static void assertDeclinesInOrder(
-      String shape,
-      Function<YTDBGraphTraversalSource, Traversal<?, ?>> builder,
-      List<String> expected) {
-    runBothArms(shape, false, Comparison.IN_ORDER, builder, expected);
   }
 
   /**
@@ -802,6 +856,10 @@ public class LdbcGremlinShapeTranslationTest {
     }
     if (value instanceof Date date) {
       return "date:" + date.getTime();
+    }
+    // groupCount().unfold() emits Map.Entry; recurse so Element/Date payloads stay RID/epoch-ms.
+    if (value instanceof Map.Entry<?, ?> entry) {
+      return render(entry.getKey()) + "=" + render(entry.getValue());
     }
     if (value instanceof Map<?, ?> map) {
       // Entries sorted: a map's iteration order is not part of the result the arms must agree on.
@@ -923,6 +981,21 @@ public class LdbcGremlinShapeTranslationTest {
   private static void createOrgLocatedIn(
       YTDBGraphTraversalSource t, long orgId, long placeId) {
     createEdge(t, "IS_LOCATED_IN", "Organisation", orgId, "Place", placeId);
+  }
+
+  private static void createMessageLocatedIn(
+      YTDBGraphTraversalSource t, long messageId, long placeId) {
+    createEdge(t, "IS_LOCATED_IN", "Message", messageId, "Place", placeId);
+  }
+
+  private static void insertTag(YTDBGraphTraversalSource t, long id, String name) {
+    requireCreated(
+        "INSERT INTO Tag",
+        t.yql("INSERT INTO Tag SET id = :id, name = :name", "id", id, "name", name).toList());
+  }
+
+  private static void createHasTag(YTDBGraphTraversalSource t, long postId, long tagId) {
+    createEdge(t, "HAS_TAG", "Post", postId, "Tag", tagId);
   }
 
   private static void createEdge(

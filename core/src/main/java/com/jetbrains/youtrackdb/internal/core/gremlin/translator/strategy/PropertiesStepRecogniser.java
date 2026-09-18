@@ -9,7 +9,9 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
  * Recogniser for a terminal {@link PropertiesStep} in its {@code values(key)} form ({@link
  * PropertyType#VALUE}): maps to a single field-access RETURN column with {@link
  * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType#SINGLE_VALUE}
- * and {@code dropOnAbsent}. Multi-key {@code values(...)} and property-map shapes decline.
+ * and {@code dropOnAbsent}, or multi-key flat-map via {@link
+ * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ValuesFlatMapListShapingOp}.
+ * Property-map shapes other than {@code values(...)} decline.
  *
  * <p>The element-returning {@code properties(key)} form ({@link PropertyType#PROPERTY}) declines
  * unless nothing downstream can observe the difference — see {@link #elementFormIsUnobserved}. The two
@@ -46,9 +48,14 @@ final class PropertiesStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     var keys = propertiesStep.getPropertyKeys();
-    if (keys.length != 1) {
-      // Multi-key values() flatMaps — no MATCH boundary equivalent in Phase 1.
+    if (keys.length == 0) {
       return Outcome.DECLINE;
+    }
+    if (keys.length > 1) {
+      if (returnType != PropertyType.VALUE || !ctx.projectsReturnedPayload()) {
+        return Outcome.DECLINE;
+      }
+      return GremlinProjectionAssembler.configureMultiKeyValues(ctx, keys);
     }
     var contributePresenceConjunct = false;
     if (!ctx.projectsReturnedPayload()) {

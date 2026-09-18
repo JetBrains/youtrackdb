@@ -275,6 +275,43 @@ public class ByModulatorTranslatorTest extends GraphBaseTest {
     assertThat(ByModulatorTranslator.keyModulatorPropertyKey(null)).isEmpty();
   }
 
+  /** {@code by(Column.values)} / {@code by(Column.keys)} resolve to entry columns for GROUP BY order. */
+  @Test
+  public void groupEntryColumn_resolvesValuesAndKeys() {
+    var valuesMod = columnModulator(org.apache.tinkerpop.gremlin.structure.Column.values);
+    var keysMod = columnModulator(org.apache.tinkerpop.gremlin.structure.Column.keys);
+
+    assertThat(ByModulatorTranslator.groupEntryColumn(valuesMod))
+        .contains(org.apache.tinkerpop.gremlin.structure.Column.values);
+    assertThat(ByModulatorTranslator.translateGroupEntryOrderModulator(valuesMod, false))
+        .isPresent();
+    assertThat(ByModulatorTranslator.groupEntryColumn(keysMod))
+        .contains(org.apache.tinkerpop.gremlin.structure.Column.keys);
+  }
+
+  /** Nested column selectors and unsupported modulators decline cleanly. */
+  @Test
+  public void groupEntryColumn_nestedOrMissing_isEmpty() {
+    assertThat(ByModulatorTranslator.groupEntryColumn(null)).isEmpty();
+    assertThat(ByModulatorTranslator.groupEntryColumn(__.values("name").asAdmin())).isEmpty();
+
+    // OrderGlobalStep is a TraversalParent: groupEntryColumn walks into by(Column.values).
+    var nestedOrder = __.order().by(org.apache.tinkerpop.gremlin.structure.Column.values).asAdmin();
+    assertThat(ByModulatorTranslator.groupEntryColumn(nestedOrder))
+        .as("Column.values nested under OrderGlobalStep still resolves")
+        .contains(org.apache.tinkerpop.gremlin.structure.Column.values);
+  }
+
+  private Traversal.Admin<?, ?> columnModulator(
+      org.apache.tinkerpop.gremlin.structure.Column column) {
+    var admin = graph.traversal().V().order().by(column).asAdmin();
+    var orderStep = admin.getSteps().stream()
+        .filter(s -> s instanceof TraversalParent)
+        .findFirst()
+        .orElseThrow();
+    return ((TraversalParent) orderStep).getLocalChildren().getFirst().asAdmin();
+  }
+
   /**
    * The {@code by(...)} body at {@code childIndex} after TinkerPop's strategies have run. Hand-built
    * bodies are not what production delivers — {@code AdjacentToIncidentStrategy} rewrites a

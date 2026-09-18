@@ -384,43 +384,39 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A user {@code as(...)} label on the edge step declines: the label would bind to the edge-as-node
-   * <em>vertex</em> alias, so a later {@code select("e")} would return the target vertex
-   * ({@code YTDBVertexImpl}) rather than the {@code Edge} the traversal produced. Runtime-incorrect,
-   * so it falls back to native.
+   * A user {@code as(...)} label on the edge step binds to the minted edge alias via
+   * {@link RecognitionContext#bindStepLabels}, so a later {@code select(k).by(prop)} projects edge
+   * properties from that alias. Labels on edge-segment {@code has(...)} steps bind the same way
+   * when FilterRankingStrategy relocates them there.
    */
   @Test
-  public void edgeStepWithAsLabel_declines() {
+  public void edgeStepWithAsLabel_isAccepted() {
     var admin = graph.traversal().V().outE("knows").as("e").has("w", 1).inV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("an edge-step as() label must decline").isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).as("an edge-step as() label binds to the edge alias")
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.resolveUserLabel("e")).isEqualTo(FIRST_EDGE_ALIAS);
   }
 
   /**
-   * A user {@code as(...)} label on an edge-property {@code has(...)} folded into the edge segment
-   * also declines. {@code outE("knows").has("w", 1).as("here")} parks the label on the {@code
-   * HasStep} (the traverser there is the edge), and {@code FilterRankingStrategy} likewise relocates
-   * a label authored on the edge step forward onto this same {@code has()} in production. Either way
-   * a later {@code select("here")} must return the {@code Edge}, but the edge-as-node form would bind
-   * it to a vertex alias — the ClassCastException the {@code SelectTest} edge-alias shapes hit — so
-   * decline.
+   * A user {@code as(...)} label on an edge-property {@code has(...)} binds to the edge alias when
+   * FilterRankingStrategy relocates it there in production.
    */
   @Test
-  public void edgeSegmentHasStepWithAsLabel_declines() {
+  public void edgeSegmentHasStepWithAsLabel_isAccepted() {
     var admin = graph.traversal().V().outE("knows").has("w", 1).as("here").inV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("an as() label on the edge-segment has() must decline")
-        .isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).as("an as() label on the edge-segment has() binds to the edge alias")
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.resolveUserLabel("here")).isEqualTo(FIRST_EDGE_ALIAS);
   }
 
   /**
@@ -441,17 +437,42 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
     assertThat(ctx.resolveUserLabel("v")).isEqualTo(FIRST_ANON_ALIAS);
   }
 
-  /** A multi-label edge ({@code outE("knows", "likes")}) declines — multi-label is out of scope. */
+  /** A multi-label edge ({@code outE("knows", "likes").inV()}) is claimed with both labels. */
   @Test
-  public void multiLabelEdge_declines() {
+  public void multiLabelEdge_isClaimed() {
     var admin = graph.traversal().V().outE("knows", "likes").inV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("a multi-label edge must decline").isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).as("a multi-label edge must be accepted").isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    var ir = ctx.patternBuilder.build();
+    assertThat(ir.pattern().aliasToNode)
+        .containsOnlyKeys(BOUNDARY_ALIAS, FIRST_EDGE_ALIAS, FIRST_ANON_ALIAS);
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
+  }
+
+  /** Multi-label {@code inE("knows", "likes").inV()} is claimed with both labels. */
+  @Test
+  public void multiLabelInEdge_isClaimed() {
+    var admin = graph.traversal().V().inE("knows", "likes").outV().asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a multi-label inE/outV edge must be accepted")
+        .isEqualTo(Outcome.ACCEPTED);
+    var ir = ctx.patternBuilder.build();
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
   }
 
   /**

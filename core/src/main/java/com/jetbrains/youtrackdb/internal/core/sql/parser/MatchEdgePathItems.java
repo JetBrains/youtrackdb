@@ -30,32 +30,48 @@ public final class MatchEdgePathItems {
   }
 
   /**
-   * Builds the edge path item {@code <methodName>(edgeLabel){as: edgeAlias, where: edgeFilter}} — an
-   * edge-returning method call carrying the single edge label as its parameter, and a filter block
-   * that names the edge alias and (optionally) carries the edge {@code WHERE}. The edge alias makes
-   * the edge a distinct pattern node so a {@code has(...)} predicate filters the edge itself rather
-   * than the target vertex.
-   *
-   * @param methodName the edge-returning method: {@code outE}, {@code inE}, or {@code bothE}
-   * @param edgeLabel  the single edge label passed as the method parameter; a null/blank label emits
-   *                   the method with no parameter (all edge types)
-   * @param edgeAlias  non-null alias the edge binds to in the pattern
-   * @param edgeFilter the edge {@code WHERE}, or null when the edge is unfiltered
+   * Builds the edge path item {@code <methodName>(L){as: edgeAlias, where: edgeFilter}} for a single
+   * edge label. Delegates to {@link #edgeMethodItem(String, String[], String, SQLWhereClause)}.
    */
   public static SQLMatchPathItem edgeMethodItem(
       @Nonnull String methodName, @Nullable String edgeLabel, @Nonnull String edgeAlias,
       @Nullable SQLWhereClause edgeFilter) {
+    String[] labels =
+        edgeLabel != null && !edgeLabel.isBlank() ? new String[] {edgeLabel} : null;
+    return edgeMethodItem(methodName, labels, edgeAlias, edgeFilter);
+  }
+
+  /**
+   * Builds the edge path item {@code <methodName>('L1', 'L2', …){as: edgeAlias, where: edgeFilter}} —
+   * an edge-returning method call carrying zero or more edge labels as parameters, and a filter block
+   * that names the edge alias and (optionally) carries the edge {@code WHERE}. The edge alias makes
+   * the edge a distinct pattern node so a {@code has(...)} predicate filters the edge itself rather
+   * than the target vertex. A null/empty labels array emits the method with no parameter (all edge
+   * types).
+   *
+   * @param methodName the edge-returning method: {@code outE}, {@code inE}, or {@code bothE}
+   * @param edgeLabels edge labels passed as method parameters; null/empty → no parameter
+   * @param edgeAlias  non-null alias the edge binds to in the pattern
+   * @param edgeFilter the edge {@code WHERE}, or null when the edge is unfiltered
+   */
+  public static SQLMatchPathItem edgeMethodItem(
+      @Nonnull String methodName,
+      @Nullable String[] edgeLabels,
+      @Nonnull String edgeAlias,
+      @Nullable SQLWhereClause edgeFilter) {
     var method = new SQLMethodCall(-1);
     method.methodName = new SQLIdentifier(methodName);
-    if (edgeLabel != null && !edgeLabel.isBlank()) {
-      // The user-supplied edge label enters the AST as a literal parameter node here; it is never
-      // rendered back to SQL/MATCH text and re-parsed. MatchPlanInputs is consumed in-memory by
-      // MatchExecutionPlanner (no text round-trip), so the label cannot inject query syntax even if
-      // it holds quotes or operators. A future feature that serializes this AST to text and reparses
-      // it would break that invariant and force a re-audit of this label surface.
-      var param = new SQLExpression(-1);
-      param.setMathExpression(new SQLBaseExpression(edgeLabel));
-      method.addParam(param);
+    if (edgeLabels != null) {
+      // User-supplied edge labels enter the AST as literal parameter nodes; MatchPlanInputs is
+      // consumed in-memory (no text round-trip), so labels cannot inject query syntax.
+      for (var edgeLabel : edgeLabels) {
+        if (edgeLabel == null || edgeLabel.isBlank()) {
+          continue;
+        }
+        var param = new SQLExpression(-1);
+        param.setMathExpression(new SQLBaseExpression(edgeLabel));
+        method.addParam(param);
+      }
     }
     var item = new SQLMatchPathItem(-1);
     item.setMethod(method);

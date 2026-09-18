@@ -43,8 +43,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
  * {@link StepCursor#takeIf}. It declines the whole traversal when:
  *
  * <ul>
- *   <li>the head is not an edge-returning {@code VertexStep} or carries more than one edge label
- *       (multi-label is out of scope);
+ *   <li>the head is not an edge-returning {@code VertexStep} or carries a blank edge-label slot;
  *   <li>the closing step is neither an {@link EdgeVertexStep} nor an {@link EdgeOtherVertexStep} — an
  *       interposed non-{@code has} step and an edge-returning terminal both leave no closing hop, so
  *       they decline too;
@@ -98,41 +97,20 @@ final class EdgeHopRecogniser implements StepRecogniser {
     if (ctx.boundaryAlias() == null) {
       return Outcome.DECLINE;
     }
-    // A user as() label on the edge step binds to the edge-as-node vertex alias via bindStepLabels,
-    // so a later select(L) returns the target vertex (YTDBVertexImpl) rather than the Edge the
-    // traversal actually produced. That is runtime-incorrect, so decline the whole traversal to
-    // native and let the on==off invariant hold.
-    if (!edgeStep.getLabels().isEmpty()) {
-      return Outcome.DECLINE;
-    }
     // Resolve the edge-label arity — one rule shared with VertexHopRecogniser (see
-    // GremlinPatternAssembler.resolveEdgeLabel): a single named label or a label-less all-types edge
-    // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows to
+    // GremlinPatternAssembler.resolveEdgeLabel): one or more named labels or a label-less all-types
+    // edge translates; a blank label slot declines. A null labels array (label-less) flows to
     // appendEdgeAsNode, which the builder renders as the all-types bare outE(){...} form.
     var arity = GremlinPatternAssembler.resolveEdgeLabel(edgeStep, ctx);
     if (!arity.translatable()) {
       return Outcome.DECLINE;
     }
-    var edgeLabel = arity.label();
+    var edgeLabels = arity.labels();
     var edgeDirection = GremlinPatternAssembler.toBuilderDirection(edgeStep.getDirection());
 
     // Consume the has(...) run (barriers interleaved in it are skipped by the cursor), then the closing
     // vertex hop — inV/outV via EdgeVertexStep, otherV via EdgeOtherVertexStep.
     var hasSteps = cursor.takeWhile(HasStep.class);
-    // A user as() label anywhere on the EDGE segment declines. The label above catches a bare
-    // outE(L).as(k), but when an edge-property has() forces the edge-as-node path,
-    // FilterRankingStrategy relocates a label authored on the edge step forward onto the following
-    // has() (a filter does not transform the traverser), and a label authored directly on that
-    // has() (outE(L).has(prop).as(k)) also lands there. Either way the traverser at that point is
-    // the edge, so select(k) must return the Edge — but the edge-as-node form would bind k to the
-    // edge/target vertex alias and select(k) would return a vertex (YTDBVertexImpl cannot be cast
-    // to Edge). Decline to native. A label on the closing inV/outV/otherV vertex is NOT an edge
-    // label — it binds the target vertex correctly — so it is intentionally not checked here.
-    for (HasStep<?> has : hasSteps) {
-      if (!has.getLabels().isEmpty()) {
-        return Outcome.DECLINE;
-      }
-    }
     Step closingStep;
     MatchPatternBuilder.Direction closingVertexDir;
     var closingVertex = cursor.takeIf(EdgeVertexStep.class);
@@ -166,12 +144,12 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // context counters intact (see EdgeHopRecogniserTest).
     var fromAlias = ctx.boundaryAlias();
 
-    // The type gate keys on the edge class (the resolved label) so a startingWith on a declared-
-    // String edge property uses the index-aware prefix range and every other case the strict
-    // full-scan form. A label-less edge (null label) has no known class, so all its keys route
-    // to strict.
+    // The type gate keys on the edge class(es) so a startingWith on a declared-String edge property
+    // uses the index-aware prefix range and every other case the strict full-scan form. A label-less
+    // edge (null labels) has no known class, so all its keys route to strict. Multi-label: true when
+    // any of the named edge classes declares the key as String.
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        GremlinPredicateAdapter.schemaGate(ctx, edgeLabel);
+        GremlinPredicateAdapter.schemaGate(ctx, edgeLabels);
     ParamSink paramSink = ctx::bindParam;
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
     for (HasStep<?> has : hasSteps) {
@@ -205,11 +183,12 @@ final class EdgeHopRecogniser implements StepRecogniser {
     if (!ctx.bindStepLabels(closingStep, targetAlias)) {
       return Outcome.DECLINE;
     }
+    ctx.markEdgeAlias(edgeAlias);
 
-    // AND-merge the accumulated predicates into one edge WHERE (null when the edge is unfiltered, e.g.
-    // an outE(L).barrier().inV() chain that never folded). Record it under the edge alias so the
-    // accumulation is observable, and hand the same clause to the assembler, which puts it on the edge
-    // path item so it filters the edge rather than the target vertex.
+    // AND-merge the accumulated edge predicates into one WHERE (null when the edge is unfiltered,
+    // e.g. an outE(L).inV() chain with no has). Record it under the edge alias so the accumulation
+    // is observable, and hand the same clause to the assembler, which puts it on the edge path item
+    // so it filters the edge rather than the target vertex.
     SQLWhereClause edgeWhere = null;
     var merged = WHERE.andOptional(edgeFilters.toArray(new SQLBooleanExpression[0]));
     if (merged != null) {
@@ -223,7 +202,7 @@ final class EdgeHopRecogniser implements StepRecogniser {
         edgeAlias,
         targetAlias,
         edgeDirection,
-        edgeLabel,
+        edgeLabels,
         closingVertexDir,
         edgeWhere);
     return Outcome.ACCEPTED;

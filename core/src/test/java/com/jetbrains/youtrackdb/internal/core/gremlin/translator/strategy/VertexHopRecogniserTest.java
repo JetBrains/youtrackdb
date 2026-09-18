@@ -263,19 +263,63 @@ public class VertexHopRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A multi-label hop {@code out("knows", "likes")} declines — multi-label edge traversal is out of
-   * scope for Phase 1. {@code getEdgeLabels()} has length 2, so the {@code length > 1} guard declines.
+   * A multi-label hop {@code out("knows", "likes")} is claimed: both labels land on the MATCH
+   * method call, the boundary re-pins to the target, and the cursor advances by one folded step.
    */
   @Test
-  public void multiLabelHop_declines() {
+  public void multiLabelHop_isClaimed() {
     var admin = graph.traversal().V().out("knows", "likes").asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var before = cursor.position();
+    var outcome = VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a multi-label hop must be accepted").isEqualTo(Outcome.ACCEPTED);
+    assertThat(cursor.position() - before)
+        .as("a multi-label hop consumes one folded step")
+        .isEqualTo(1);
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    var ir = ctx.patternBuilder.build();
+    assertThat(ir.pattern().aliasToNode).containsOnlyKeys(BOUNDARY_ALIAS, FIRST_ANON_ALIAS);
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
+  }
+
+  /** Multi-label {@code in("knows", "likes")} is claimed with both labels on the MATCH method. */
+  @Test
+  public void multiLabelInHop_isClaimed() {
+    var admin = graph.traversal().V().in("knows", "likes").asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
     var outcome = VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("a multi-label hop must decline").isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).as("a multi-label in() hop must be accepted").isEqualTo(Outcome.ACCEPTED);
+    var ir = ctx.patternBuilder.build();
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
+  }
+
+  /** Multi-label {@code both("knows", "likes")} is claimed with both labels. */
+  @Test
+  public void multiLabelBothHop_isClaimed() {
+    var admin = graph.traversal().V().both("knows", "likes").asAdmin();
+    var ctx = contextWithStartBoundary();
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = VertexHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a multi-label both() hop must be accepted").isEqualTo(Outcome.ACCEPTED);
+    var ir = ctx.patternBuilder.build();
+    var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
+    var rendered = new StringBuilder();
+    edge.item.toString(java.util.Map.of(), rendered);
+    assertThat(rendered.toString()).contains("knows").contains("likes");
   }
 
   /**

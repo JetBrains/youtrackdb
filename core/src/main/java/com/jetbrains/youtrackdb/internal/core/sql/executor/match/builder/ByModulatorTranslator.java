@@ -11,9 +11,11 @@ import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.ColumnTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.Mutating;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
@@ -29,6 +31,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SumGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectStep;
+import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.T;
 
@@ -162,6 +165,44 @@ public final class ByModulatorTranslator {
         .map(
             target -> ProjectionExpressionFactories.orderByProperty(
                 target.alias(), target.propertyKey(), ascending));
+  }
+
+  /**
+   * Order modulator over a {@code Map.Entry} stream ({@code groupCount().unfold()}): {@code
+   * Column.values} → ORDER BY {@code value}, {@code Column.keys} → ORDER BY {@code key}. Empty when
+   * the modulator is not a column selector.
+   */
+  public static Optional<SQLOrderByItem> translateGroupEntryOrderModulator(
+      Traversal.Admin<?, ?> modulator, boolean ascending) {
+    return groupEntryColumn(modulator)
+        .map(
+            column -> ProjectionExpressionFactories.orderByProjectionAlias(
+                column == Column.values ? "value" : "key", ascending));
+  }
+
+  /** Whether {@code modulator} selects {@link Column#values} or {@link Column#keys} on a map entry. */
+  public static Optional<Column> groupEntryColumn(Traversal.Admin<?, ?> modulator) {
+    if (modulator instanceof ColumnTraversal columnTraversal) {
+      var column = columnTraversal.getColumn();
+      if (Column.values.equals(column) || Column.keys.equals(column)) {
+        return Optional.of(column);
+      }
+      return Optional.empty();
+    }
+    if (modulator == null) {
+      return Optional.empty();
+    }
+    for (var step : modulator.getSteps()) {
+      if (step instanceof TraversalParent parent) {
+        for (var child : parent.getLocalChildren()) {
+          var nested = groupEntryColumn(child.asAdmin());
+          if (nested.isPresent()) {
+            return nested;
+          }
+        }
+      }
+    }
+    return Optional.empty();
   }
 
   /**

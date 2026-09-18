@@ -1,20 +1,22 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import java.util.List;
 import javax.annotation.Nonnull;
 
 /**
  * Ordered post-concatenation reductions applied by {@link MultiPlanMatchStep} after the N child
  * plans are combined. These are the barriers that must see the <em>concatenated</em> multiset
- * ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}) — not the Track 9
- * list-shaping terminators ({@code fold}/{@code unfold}/{@code reverse}/{@code tail}), which ride
- * {@link ResultShaping#listShapingOps()}.
+ * ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}, {@code order}) — not
+ * the Track 9 list-shaping terminators ({@code fold}/{@code unfold}/{@code reverse}/{@code tail}),
+ * which ride {@link ResultShaping#listShapingOps()}.
  *
  * <p>Push-down: a lone {@link Count} rewrites each child to {@code RETURN count(*)} and sums the N
  * scalar rows (keeps per-arm SQL count / plan-cache optimisations). Any preceding stream op disables
  * that push-down so {@code union().limit(5).count()} counts at most five concatenated rows.
  */
 public sealed interface PostConcatOp
-    permits PostConcatOp.Count, PostConcatOp.Range, PostConcatOp.Dedup {
+    permits PostConcatOp.Count, PostConcatOp.Range, PostConcatOp.Dedup, PostConcatOp.Order {
 
   /** {@code union(…).count()} — push-down when it is the only post-concat op. */
   record Count() implements PostConcatOp {
@@ -40,6 +42,19 @@ public sealed interface PostConcatOp
   /** {@code dedup()} over concatenated ELEMENT rows (identity of the boundary entity). */
   record Dedup() implements PostConcatOp {
     public static final Dedup INSTANCE = new Dedup();
+  }
+
+  /**
+   * {@code order().by(...)} over the concatenation — an in-memory sort because child plans cannot
+   * share one SQL {@code ORDER BY} across a branch-major concatenation.
+   */
+  record Order(@Nonnull List<SQLOrderByItem> items) implements PostConcatOp {
+    public Order {
+      items = List.copyOf(items);
+      if (items.isEmpty()) {
+        throw new IllegalArgumentException("post-concat order requires at least one sort key");
+      }
+    }
   }
 
   /** Whether {@code ops} is exactly one {@link Count} (the push-down shape). */

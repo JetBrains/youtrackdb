@@ -518,7 +518,7 @@ public class LdbcGremlinTranslatorBenchmark {
    * {@code [ic4StartDate, ic4StartDate + 30 days)}.
    */
   @Benchmark
-  public Map<Object, Long> gremlin_ic4_friendPostTags(
+  public List<Map.Entry<Object, Long>> gremlin_ic4_friendPostTags(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     var start = state.ic4StartDate(i);
@@ -526,7 +526,7 @@ public class LdbcGremlinTranslatorBenchmark {
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes
             .ic4FriendPostTags(t, state.ic4PersonId(i), start, end)
-            .next());
+            .toList());
   }
 
   /** LDBC: IC5 reduced — see {@link GremlinTraversalShapes#ic5FriendPostForums}. */
@@ -540,11 +540,11 @@ public class LdbcGremlinTranslatorBenchmark {
 
   /** LDBC: IC6 reduced — see {@link GremlinTraversalShapes#ic6FriendPostTagCounts}. */
   @Benchmark
-  public Map<Object, Long> gremlin_ic6_friendPostTagCounts(
+  public List<Map.Entry<Object, Long>> gremlin_ic6_friendPostTagCounts(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
-        t -> GremlinTraversalShapes.ic6FriendPostTagCounts(t, state.ic6PersonId(i)).next());
+        t -> GremlinTraversalShapes.ic6FriendPostTagCounts(t, state.ic6PersonId(i)).toList());
   }
 
   /**
@@ -699,32 +699,32 @@ public class LdbcGremlinTranslatorBenchmark {
         t -> GremlinTraversalShapes.knowsOrderedPage(t, arm.personId(i)).toList());
   }
 
-  // ---------------------------------------------------------------------------------------------
-  // Declining shapes. CI: both sides native — PR delta is not a MATCH regression. Optional on/off
-  // A/B prices decline overhead; LdbcGremlinShapeTranslationTest keeps groups honest.
-  // ---------------------------------------------------------------------------------------------
-
   /**
-   * LDBC: none. Bare {@code g.V(rid)} point-lookup; translator declines, both CI arms native.
+   * LDBC: none. Bare {@code g.V(rid)} point-lookup; translates to MATCH (uncached RID plan).
    */
   @Benchmark
-  public List<Vertex> gremlin_vertexByRidDeclines(LdbcBenchmarkState state, TranslatorArm arm) {
+  public List<Vertex> gremlin_vertexByRid(LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes.personByRid(t, arm.personRid(i)).toList());
   }
 
   /**
-   * LDBC: IS3 full attempt. Edge date plus friend name via {@code select}; declines on edge
-   * {@code as("k")}. See {@link GremlinTraversalShapes#is3FriendsWithDates}.
+   * LDBC: IS3 reduced. Edge date plus friend name via {@code select}; see
+   * {@link GremlinTraversalShapes#is3FriendsWithDates}.
    */
   @Benchmark
-  public List<Map<String, Object>> gremlin_is3_friendsWithDatesDeclines(
+  public List<Map<String, Object>> gremlin_is3_friendsWithDates(
       LdbcBenchmarkState state, TranslatorArm arm) {
     var i = state.nextIndex();
     return state.traversal.computeInTx(
         t -> GremlinTraversalShapes.is3FriendsWithDates(t, arm.personId(i)).toList());
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Declining shapes. CI: both sides native — PR delta is not a MATCH regression. Optional on/off
+  // A/B prices decline overhead; LdbcGremlinShapeTranslationTest keeps groups honest.
+  // ---------------------------------------------------------------------------------------------
 
   /**
    * LDBC: IS4 fragment. {@code coalesce} only — declines. Missing vs SQL: {@code creationDate}.
