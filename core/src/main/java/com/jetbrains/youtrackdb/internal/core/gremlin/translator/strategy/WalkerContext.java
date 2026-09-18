@@ -773,6 +773,9 @@ final class WalkerContext implements RecognitionContext {
       return false;
     }
     for (var presence : shaping.aliasPropertyPresences()) {
+      if (!presence.dropOnAbsent()) {
+        continue;
+      }
       var internalAlias = internalAliasFromPresenceEntityColumn(presence.entityColumnAlias());
       ByModulatorPresence.requireProjectedProperty(this, internalAlias, presence.propertyKey());
     }

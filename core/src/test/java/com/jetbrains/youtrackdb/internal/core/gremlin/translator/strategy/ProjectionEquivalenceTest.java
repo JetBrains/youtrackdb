@@ -2265,6 +2265,31 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             mapWithNullCity("Dave"));
   }
 
+  /** A later select must not turn a productive presence into a filtering pattern conjunct. */
+  @Test
+  public void selectAfterMixedPresenceSelect_keepsProductiveNullRow() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "London");
+    graph.addVertex(T.label, "Person", "city", "Paris");
+    graph.tx().commit();
+    var strategy = ProductiveByStrategy.build().productiveKeys("name").create();
+
+    assertEquivalent(
+        "g.withStrategies(ProductiveByStrategy(name)).V().as(q).as(r).as(s).dedup()"
+            + ".select(q, r).by(name).by(city).select(s)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+            .as("q").as("r").as("s").dedup().select("q", "r").by("name").by("city")
+            .select("s"));
+
+    var rows = graph.traversal().withStrategies(strategy).V().hasLabel("Person")
+        .as("q").as("r").as("s").dedup().select("q", "r").by("name").by("city")
+        .select("s").values("name").toList();
+    assertThat(rows)
+        .as("Alice survives with a null city before the second select")
+        .containsExactlyInAnyOrder("Alice", "Bob");
+  }
+
   /** One select row whose productive city key is absent, so the emitted cell is null. */
   private static Map<String, Object> mapWithNullCity(String name) {
     var row = new LinkedHashMap<String, Object>();

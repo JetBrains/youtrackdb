@@ -287,6 +287,7 @@ final class GremlinPlanFingerprint {
       appendToken(sb, presence.entityColumnAlias());
       appendToken(sb, presence.propertyKey());
       appendToken(sb, presence.mapKey());
+      sb.append(presence.dropOnAbsent() ? '1' : '0');
     }
     sb.append(";MO:");
     for (var column : shaping.mapEmitColumnOrder()) {
