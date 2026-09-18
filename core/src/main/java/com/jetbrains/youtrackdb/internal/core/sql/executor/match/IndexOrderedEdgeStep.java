@@ -1016,12 +1016,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * load-from-sources once spend reaches {@code entryBudget}, before any row is
    * emitted.
    *
-   * <p>When the prefill collects enough rows, the in-pipeline budget is
-   * {@linkplain RidFilteredIndexValuesStep#liftScanBudget() lifted} before the
-   * buffered prefix and the remaining scan are chained. A post-emission bail-out
-   * is not possible (rows would already have left in index order), and leaving
-   * the bound armed would silently truncate if a downstream filter needs more
-   * rows than the buffer held.
+   * <p>When the prefill collects enough rows, the in-pipeline budget gains one finite window.
+   * The extension occurs before chaining the buffered prefix and remaining scan.
+   * A post-emission bail-out cannot preserve index order.
    *
    * <p>Callers choose the budget units:
    * <ul>
@@ -1070,8 +1067,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return bailOutTo(indexStream, ctx, bailOut);
     }
 
-    // Prefill got a full buffer (or the index ran out without hitting the budget). Lift the
-    // filtered-scan gate so a continuation past this prefix is not truncated mid-stream.
+    // A full prefill closes the bail-out path. Allow one finite continuation window.
     if (buffered.size() >= maxBuffered) {
       scanStep.liftScanBudget();
     }
