@@ -191,9 +191,6 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    */
   private Map<String, EntityImpl> rowEntityCache = new HashMap<>();
 
-  /** Filtering presences proved by the current row-level check. Each clone receives a new set. */
-  private Set<AliasPropertyPresence> verifiedFilteringPresences = new HashSet<>();
-
   /**
    * Entity-column resolutions performed, read by a test through {@link #entityColumnResolutions}.
    * The count spans rows within one arming. Reset and clone start a new observation window.
@@ -740,7 +737,6 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.armingGraph = null;
     this.shapedPayloads = null;
     this.rowEntityCache = new HashMap<>();
-    this.verifiedFilteringPresences = new HashSet<>();
     this.entityColumnResolutions = 0;
     this.state = State.NEW;
   }
@@ -754,7 +750,6 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     // distinct aliases but used to resolve one per presence entry and then again per emitted
     // column, so twelve resolutions did the work of two.
     rowEntityCache.clear();
-    verifiedFilteringPresences.clear();
     return switch (outputType) {
       case ELEMENT -> projectElement(row, armingGraph);
       case MAP -> projectMap(row);
@@ -880,10 +875,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       if (aliasEntity == null) {
         return null;
       }
-      // Filtering presences are checked before projection. Productive presences emit null when absent.
-      assert !aliasPresence.dropOnAbsent()
-          || verifiedFilteringPresences.contains(aliasPresence)
-          : "row-level filtering must run before the map projection reads a presence column";
+      // projectMap and projectSingleValue reject absent filtering properties before this read.
+      // Productive presences may be absent, and their direct property read returns null.
       return convertValue(aliasEntity.getProperty(aliasPresence.propertyKey()));
     }
     if (presenceKeySet.contains(name)) {
@@ -980,7 +973,6 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       if (entity == null || !entity.hasProperty(presence.propertyKey())) {
         return true;
       }
-      verifiedFilteringPresences.add(presence);
     }
     return false;
   }
