@@ -260,7 +260,20 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     assertThat(container.test(alice)).isTrue();
   }
 
-  /** Deserialization lazily restores the transient operand cache before collated evaluation. */
+  /** The transient operand cache stays absent until the first cacheable operand transformation. */
+  @Test
+  public void operandCacheAllocatesLazilyOnFirstUse() throws Exception {
+    var predicate = P.eq("BOB");
+    var container = new YTDBCollatedHasContainer("name", predicate);
+
+    assertThat(transformedOperands(container)).isNull();
+
+    container.transformedOperand(predicate, new CaseInsensitiveCollate());
+
+    assertThat(transformedOperands(container)).isNotNull();
+  }
+
+  /** Deserialization resets the transient cache, then collated evaluation restores it lazily. */
   @Test
   public void deserializedContainerRestoresOperandCache() throws Exception {
     var person = session.createVertexClass("Person");
@@ -272,7 +285,9 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
 
     var restored = roundTrip(original);
 
+    assertThat(transformedOperands(restored)).isNull();
     assertThat(restored.test(bob)).isTrue();
+    assertThat(transformedOperands(restored)).isNotNull();
   }
 
   /** Parameter updates bypass cached operands and immediately affect collated evaluation. */
@@ -292,9 +307,9 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     assertThat(container.test(alice)).isTrue();
   }
 
-  /** A clone starts with an independent cache and follows only its cloned predicate changes. */
+  /** A populated clone resets its cache and follows only its cloned predicate changes. */
   @Test
-  public void populatedCloneHasIndependentOperandCache() {
+  public void populatedCloneHasIndependentOperandCache() throws Exception {
     var person = session.createVertexClass("Person");
     person.createProperty("name", PropertyType.STRING).setCollate("ci");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
@@ -302,14 +317,19 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     graph.tx().commit();
     var original = new YTDBCollatedHasContainer("name", P.eq("BOB"));
     assertThat(original.test(bob)).isTrue();
+    var originalCache = transformedOperands(original);
+    assertThat(originalCache).isNotNull();
 
     var clone = original.clone();
+    assertThat(transformedOperands(clone)).isNull();
     @SuppressWarnings("unchecked")
     var clonePredicate = (P<Object>) clone.getPredicate();
     clonePredicate.setValue("ALICE");
 
     assertThat(clone.test(alice)).isTrue();
+    assertThat(transformedOperands(clone)).isNotNull().isNotSameAs(originalCache);
     assertThat(original.test(bob)).isTrue();
+    assertThat(transformedOperands(original)).isSameAs(originalCache);
   }
 
   /** Cached collection operands transform once, then mutable state triggers one new transform. */
@@ -634,6 +654,13 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     try (var input = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
       return (YTDBCollatedHasContainer) input.readObject();
     }
+  }
+
+  private static Object transformedOperands(YTDBCollatedHasContainer container)
+      throws ReflectiveOperationException {
+    var field = YTDBCollatedHasContainer.class.getDeclaredField("transformedOperands");
+    field.setAccessible(true);
+    return field.get(container);
   }
 
   private static List<String> stringValues(int size) {

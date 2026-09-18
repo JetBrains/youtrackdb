@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter;
 
 import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
+import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -37,8 +38,7 @@ public final class YTDBCollatedHasContainer extends HasContainer {
 
   private static final Object UNCACHEABLE = new Object();
 
-  private transient Map<Collate, Map<P<?>, CachedOperand>> transformedOperands =
-      new IdentityHashMap<>();
+  private transient Map<Collate, Map<P<?>, CachedOperand>> transformedOperands;
 
   public YTDBCollatedHasContainer(String key, P<?> predicate) {
     super(key, predicate);
@@ -67,7 +67,7 @@ public final class YTDBCollatedHasContainer extends HasContainer {
   @Override
   protected boolean testValue(Property property) {
     var collate = declaredCollation(property);
-    if (collate == null || "default".equals(collate.getName())) {
+    if (collate == null || DefaultCollate.NAME.equals(collate.getName())) {
       return super.testValue(property);
     }
     return evaluate(getPredicate(), property.value(), collate);
@@ -252,6 +252,8 @@ public final class YTDBCollatedHasContainer extends HasContainer {
   }
 
   static boolean valuesEqual(Object first, Object second) {
+    // Compare.eq first checks list element compatibility, potentially scanning corresponding elements.
+    // Recursion avoids that pre-scan and stops lazy transformations at the first unequal element.
     if (first instanceof List<?> firstList && second instanceof List<?> secondList) {
       if (firstList.size() != secondList.size()) {
         return false;
@@ -307,7 +309,7 @@ public final class YTDBCollatedHasContainer extends HasContainer {
   @Override
   public YTDBCollatedHasContainer clone() {
     var clone = (YTDBCollatedHasContainer) super.clone();
-    clone.transformedOperands = new IdentityHashMap<>();
+    clone.transformedOperands = null;
     return clone;
   }
 
