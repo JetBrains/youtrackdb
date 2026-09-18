@@ -3184,25 +3184,24 @@ public abstract class AbstractStorage
           try {
             endTxCommit(atomicOperation);
           } catch (final IOException | RuntimeException | AssertionError e) {
-            if (schemaContext != null && structurePublished) {
-              if (atomicOperation.isRollbackInProgress()) {
+            if (atomicOperation.isRollbackInProgress()) {
+              if (schemaContext != null && structurePublished) {
                 undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
-              } else {
-                setInError(e instanceof AssertionError
-                    ? BaseException.wrapException(
-                        new StorageException(name,
-                            "endTxCommit failed without an internal rollback"),
-                        e, name)
-                    : e);
-                LogManager.instance()
-                    .error(this,
-                        "endTxCommit failed after the schema-carry reconcile without an internal"
-                            + " rollback; durability is in-doubt, so the in-memory registry"
-                            + " publication is left standing and the storage is moved to error"
-                            + " state. Re-open the storage to restore consistency from the durable"
-                            + " state.",
-                        e);
               }
+            } else {
+              setInError(e instanceof AssertionError
+                  ? BaseException.wrapException(
+                      new StorageException(name,
+                          "endTxCommit failed without an internal rollback"),
+                      e, name)
+                  : e);
+              LogManager.instance()
+                  .error(this,
+                      "endTxCommit failed without an internal rollback; durability is in-doubt,"
+                          + " so any in-memory registry publication is left standing and the"
+                          + " storage is moved to error state. Re-open the storage to restore"
+                          + " consistency from the durable state.",
+                      e);
             }
             throw e;
           }
@@ -3220,42 +3219,23 @@ public abstract class AbstractStorage
           }
 
           if (schemaContext != null) {
-            if (indexPlan != null) {
-              // Index reconciliation, phase 3: the records are durable and the engines built, so
-              // publish the transaction's index deltas into the shared lookup maps (register the
-              // tx-created indexes, remove the tx-dropped ones, apply the membership deltas). Deferring
-              // this past commitChanges keeps the committed index view unchanged on a failed commit,
-              // mirroring the schema promotion just below. Runs under the held index-manager write
-              // lock (taken at commit entry) before the single forceSnapshot the promotion fires.
-              schemaContext.indexManager()
-                  .publishReconciledIndexes(frontendTransaction, indexPlan);
-            }
-            // Promote: the records are now durable, so re-parse the just-committed root and
-            // per-class records into the committed shared instances and invalidate the shared
-            // snapshot exactly once. fromStream binds new classes to the committed owner; a dropped
-            // class drops out. Promotion runs after a successful apply only, still under the held
-            // write lock and the open commit window.
-            // The commit is already durable here (endTxCommit applied the WAL). A throw during
-            // promotion (a cache-miss load, a fromStream parse failure, a forceSnapshot assert)
-            // must not both mask the successful commit and leave the in-memory committed schema
-            // half-parsed against correct durable bytes. fromStream clears and rebuilds the in-
-            // memory schema, so a mid-parse throw corrupts it, and rebuilding the snapshot would
-            // only reflect that corruption (makeSnapshot reads the in-memory class graph, not the
-            // disk). Reloading from disk inline is unsafe (it would begin a nested transaction
-            // while this commit is still active), so on failure drop any stale snapshot and move
-            // the storage to error state: the divergence then self-corrects on the next reopen,
-            // which re-parses the schema from the durable records. The durable commit still
-            // succeeds; the failure is logged rather than rethrown.
+            // Index publication and schema promotion form one ordered post-durability sequence.
+            // Any failure can leave shared metadata partly updated, so the sequence stops, blocks
+            // later writes, and preserves the successful durable transaction result.
             try {
-              // The promotion re-parse loads the just-committed root and per-class records through
-              // a fresh-committed-read scope. The tx-written records resolve through the
-              // transaction's own record set, but an unchanged per-class record's cached instance
-              // may have been evicted (weak local cache) since toStream warmed it; a bare
-              // cache-miss load here would ride the transaction's begin-time atomic operation —
-              // stale under contention, and already ENDED by endTxCommit on the disk profile
-              // ("atomic operation is not active"). The scope's dedicated read-only operation is
-              // active and its snapshot post-dates the just-applied commit, so the promotion reads
-              // exactly the durable state it must re-parse.
+              if (indexPlan != null) {
+                // Index reconciliation, phase 3: publish durable index deltas before promoting the
+                // schema. A fault may occur after one lookup-map mutation, so promotion must remain
+                // inside this same containment block.
+                schemaContext.indexManager()
+                    .publishReconciledIndexes(frontendTransaction, indexPlan);
+              }
+              final var promotionHook = schemaPromotionTestHook;
+              if (promotionHook != null) {
+                promotionHook.run();
+              }
+              // The promotion re-parse uses a fresh committed read because endTxCommit already
+              // ended the transaction's atomic operation on disk storage.
               session.computeWithFreshCommittedReads(() -> {
                 final EntityImpl committedRoot =
                     session.load(schemaContext.committedSchema().getIdentity());
@@ -3266,16 +3246,21 @@ public abstract class AbstractStorage
             } catch (final RuntimeException | AssertionError e) {
               LogManager.instance()
                   .error(this,
-                      "Schema promotion failed after a durable schema-carry commit; the in-memory"
-                          + " schema is now untrusted and the storage will reload it from disk on"
-                          + " reopen",
+                      "Index publication or schema promotion failed after a durable schema-carry"
+                          + " commit; shared metadata is now untrusted and will reload from disk"
+                          + " on reopen",
                       e);
               try {
                 schemaContext.committedSchema().forceSnapshot();
               } catch (final RuntimeException | AssertionError ignored) {
-                // Best-effort: a forceSnapshot failure here must not mask the durable commit.
+                // Best-effort invalidation must not mask the durable commit.
               }
-              setInError(e);
+              setInError(e instanceof AssertionError
+                  ? BaseException.wrapException(
+                      new StorageException(name,
+                          "Post-durability metadata publication failed"),
+                      e, name)
+                  : e);
             }
           }
         }
@@ -4210,6 +4195,14 @@ public abstract class AbstractStorage
    */
   public void setEndTxCommitPostDurabilityFailureTestHook(final Runnable hook) {
     this.endTxCommitPostDurabilityFailureTestHook = hook;
+  }
+
+  /** Test-only fault seam between durable index publication and schema promotion. */
+  private volatile Runnable schemaPromotionTestHook;
+
+  /** Installs or clears the test-only schema-promotion fault seam. */
+  public void setSchemaPromotionTestHook(final Runnable hook) {
+    this.schemaPromotionTestHook = hook;
   }
 
   /**

@@ -82,6 +82,14 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
   private volatile Thread recreateIndexesThread = null;
 
+  /** Test-only fault seam fired after each reconciled lookup-map publication step. */
+  private volatile Runnable reconciledIndexPublicationTestHook;
+
+  /** Installs or clears the test-only reconciled index publication fault seam. */
+  public void setReconciledIndexPublicationTestHook(Runnable hook) {
+    reconciledIndexPublicationTestHook = hook;
+  }
+
   volatile boolean rebuildCompleted = false;
 
   protected final AtomicInteger writeLockNesting = new AtomicInteger();
@@ -1646,6 +1654,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     for (final var droppedIndex : plan.dropped()) {
       removeClassPropertyIndexInternal(droppedIndex);
       indexes.remove(droppedIndex.getName());
+      runReconciledIndexPublicationTestHook();
     }
     // The rename re-association's in-memory half: install the replacement metadata wholesale (a
     // single reference swap — lock-free readers see either the old or the new fully-built
@@ -1665,12 +1674,21 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       if (oldClassName != null) {
         removeClassPropertyIndexInternal(reassociated.index(), oldClassName);
       }
+      runReconciledIndexPublicationTestHook();
     }
     for (final var handle : plan.created()) {
       // The engine is built and the record durable, so register the handle in the shared lookup maps
       // exactly as the non-transactional create's addIndexInternalNoLock does, without re-updating the
       // index-manager entity (its link set was updated in the enroll phase and is already durable).
       addIndexInternalNoLock(handle, transaction, false);
+      runReconciledIndexPublicationTestHook();
+    }
+  }
+
+  private void runReconciledIndexPublicationTestHook() {
+    final var hook = reconciledIndexPublicationTestHook;
+    if (hook != null) {
+      hook.run();
     }
   }
 
