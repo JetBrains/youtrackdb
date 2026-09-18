@@ -67,8 +67,8 @@ public class IndexOrderedEdgeStepCostTest {
     assertTrue("costLoadSort should be positive", result.costLoadSort() > 0);
   }
 
-  // No LIMIT (limit=-1): k should equal linkBagSize. Density is 1.0 here so the scan passes
-  // the dominance rule and a cost estimate exists to read k from.
+  // No LIMIT makes k equal linkBagSize. The expected scan length stays below maxScan,
+  // so computeCosts returns the estimate whose k this test verifies.
   @Test
   public void testComputeCostsNoLimit() {
     var result = IndexOrderedCostModel.computeCosts(
@@ -206,8 +206,8 @@ public class IndexOrderedEdgeStepCostTest {
         MultiSourceStrategy.UNION_RIDSET_SCAN, strategy);
   }
 
-  // computeCosts with limit > linkBagSize: k should be clamped to linkBagSize. Index size
-  // equals the LinkBag size so density is 1.0 and the dominance rule admits the scan.
+  // A limit above linkBagSize makes k equal linkBagSize. Full density keeps the expected
+  // scan length below maxScan, so computeCosts returns the estimate this test verifies.
   @Test
   public void testComputeCostsLimitGreaterThanLinkBag() {
     var result = IndexOrderedCostModel.computeCosts(
@@ -302,8 +302,8 @@ public class IndexOrderedEdgeStepCostTest {
     var histogram = new EquiDepthHistogram(
         2, boundaries, frequencies, distinctCounts, 100, null, 0);
 
-    // Index size equals the LinkBag size, so the histogram-corrected scan length stays inside
-    // the dominance bound and the histogram branch is still the thing under test.
+    // Full density keeps the histogram-corrected scan length below maxScan.
+    // The returned estimate confirms that computeCosts exercised the histogram path.
     var result = IndexOrderedCostModel.computeCosts(
         100, // linkBagSize
         100, // indexSize

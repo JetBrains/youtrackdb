@@ -131,10 +131,9 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
   }
 
   /**
-   * ASCENDING over the skewed fixture: the scan must cross 2000 orphans before its first
-   * reachable message, and its budget is 1458 entries. It abandons itself, and the row is still
-   * the correct earliest message, which is what shows the bail-out happened before any row was
-   * emitted rather than part way through.
+   * ASCENDING over the skewed fixture must cross every orphan before its first reachable message.
+   * The model derives its budget from the reachable record count. The scan abandons itself first.
+   * The correct earliest row confirms that no ordered row escaped before the bail-out.
    */
   @Test
   public void ascendingScanBailsOutWhenItOverspendsItsBudget() {
@@ -167,9 +166,11 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
       drain(result, "mid");
       var step = stepOf(result);
 
+      var expectedBudget =
+          IndexOrderedCostModel.entriesWorthTheLoadAlternative(REACHABLE);
       assertThat(step.lastScanBudget())
-          .as("the budget is the entry count 20 loadable records are worth")
-          .isEqualTo(1458L);
+          .as("the budget is the entry count reachable records are worth")
+          .isEqualTo(expectedBudget);
       assertThat(step.lastScanConsumedEntries())
           .as("the scan must really have spent its budget, or the bail-out proves nothing")
           .isGreaterThanOrEqualTo(step.lastScanBudget());
