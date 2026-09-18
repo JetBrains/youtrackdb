@@ -991,6 +991,44 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
+   * {@code SELECT name FROM Class ORDER BY rank ASC} has no limit.
+   * The stored rank remains readable before projection, so the planner must defer projection.
+   *
+   * <p>Expected outcome: ORDER BY precedes projection. Rows retain only {@code name} in rank order.
+   */
+  @Test
+  public void orderByUpstreamFieldWithoutLimit_defersProjections() {
+    var className = "DeferNoLimit_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    var names = new String[] {"third", "first", "second"};
+    var ranks = new int[] {30, 10, 20};
+    for (var i = 0; i < names.length; i++) {
+      var row = session.newInstance(className);
+      row.setProperty("name", names[i]);
+      row.setProperty("rank", ranks[i]);
+    }
+    session.commit();
+
+    var sql = "select name from " + className + " order by rank asc";
+    try (var result = session.query(sql)) {
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          result,
+          OrderByStep.class,
+          ProjectionCalculationStep.class,
+          "an upstream-readable key must defer projection without a limit");
+      Assert.assertEquals(
+          List.of("first", "second", "third"),
+          rows.stream().map(row -> (String) row.getProperty("name")).toList());
+      for (var row : rows) {
+        Assert.assertEquals(List.of("name"), new ArrayList<>(row.getPropertyNames()));
+      }
+    }
+  }
+
+  /**
    * {@code SELECT name FROM Person LET $rank = 100 - score ORDER BY $rank LIMIT 2}. A LET
    * variable lives in row metadata rather than in a column.
    * The planner must project its value before sorting.
