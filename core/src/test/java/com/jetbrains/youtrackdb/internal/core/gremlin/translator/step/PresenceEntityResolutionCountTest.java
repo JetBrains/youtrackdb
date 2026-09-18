@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
@@ -163,12 +162,12 @@ public class PresenceEntityResolutionCountTest extends GraphBaseTest {
   }
 
   /**
-   * A filtering presence check records its successful result for map projection. The projection
-   * must read the property without repeating {@code hasProperty}.
+   * A successful filtering decision governs the current row. Projection reads the value directly
+   * instead of making a second presence decision that could contradict the first.
    */
   @Test
   @SuppressWarnings("unchecked")
-  public void filteringPresenceChecksPropertyOncePerRow() throws Exception {
+  public void propertyDisappearingAfterFilteringDoesNotDropCurrentRow() throws Exception {
     seedTwoPairs();
     var admin = graph.traversal().V().hasLabel("Person").as("a")
         .select("a").by("name").asAdmin();
@@ -182,15 +181,16 @@ public class PresenceEntityResolutionCountTest extends GraphBaseTest {
     assertThat(presence).as("the translated select must check its name property").isNotNull();
 
     var entity = mock(EntityImpl.class);
-    when(entity.hasProperty("name")).thenReturn(true);
+    when(entity.hasProperty("name")).thenReturn(true, false);
     when(entity.getProperty("name")).thenReturn("Ann");
     var row = mock(Result.class);
     when(row.getEntity(presence.entityColumnAlias())).thenReturn(entity);
 
     Method project = AbstractMatchPlanStep.class.getDeclaredMethod("projectOrSkip", Result.class);
     project.setAccessible(true);
-    assertThat(project.invoke(step, row)).isEqualTo("Ann");
-    verify(entity).hasProperty("name");
+    assertThat(project.invoke(step, row))
+        .as("the successful filter decision governs the current row")
+        .isEqualTo("Ann");
   }
 
   /**
