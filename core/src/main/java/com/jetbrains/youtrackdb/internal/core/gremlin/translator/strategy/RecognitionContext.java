@@ -474,12 +474,13 @@ interface RecognitionContext extends ParamSink {
   void setPresenceDropAlias(@Nullable String alias);
 
   /**
-   * Promotes a pinned {@code dropOnAbsent} into {@code key IS DEFINED} alias conjuncts so a
-   * following slice counts survivors rather than pre-drop rows. Returns {@code true} when there is
-   * nothing to promote, or when the conjuncts were written. Returns {@code false} when this context
-   * cannot express the promotion — a combinator child whose shaping is swallowed, or a drop whose
-   * alias was never recorded — in which case the caller declines. See {@link
-   * #dropsRowsOnAbsentProperty()} for why the slice needs the conjunct at all.
+   * Promotes each presence that drops an absent row into a {@code key IS DEFINED} alias conjunct.
+   * Productive presences stay projections and may emit {@code null}. This lets a following slice
+   * count survivors rather than pre-drop rows. Returns {@code true} when there is nothing to
+   * promote, or when the conjuncts were written. Returns {@code false} when this context cannot
+   * express the promotion. A combinator child may swallow its shaping. A drop may lack a recorded
+   * alias. The caller declines in either case. See {@link #dropsRowsOnAbsentProperty()} for why the
+   * slice needs the conjunct.
    */
   boolean promotePresenceDropToPatternFilter();
 
