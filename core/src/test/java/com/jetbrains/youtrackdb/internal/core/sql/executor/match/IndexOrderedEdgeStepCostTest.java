@@ -198,6 +198,20 @@ public class IndexOrderedEdgeStepCostTest {
     assertTrue("the entry budget must remain finite", entries < Long.MAX_VALUE);
   }
 
+  /** A huge finite positive factor is valid even when its economic budget truncates to zero. */
+  @Test
+  public void testHugeValidScanCpuFactorProducesZeroEconomicBudget() {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var previous = configuration.getValue();
+    try {
+      configuration.setValue(1.0e9);
+      assertTrue(IndexOrderedCostModel.hasValidScanCpuFactor());
+      assertEquals(0, IndexOrderedCostModel.entriesWorthTheLoadAlternative(20));
+    } finally {
+      configuration.setValue(previous);
+    }
+  }
+
   private static long entriesWithScanCpuFactor(double factor) {
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
     var previous = configuration.getValue();

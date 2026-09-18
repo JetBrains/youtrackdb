@@ -98,7 +98,7 @@ final class IndexOrderedCostModel {
       int downstreamEdgeCount) {
     int minLinkBag =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValueAsInteger();
-    if (linkBagSize < minLinkBag || indexSize <= 0) {
+    if (linkBagSize < minLinkBag || indexSize <= 0 || !hasValidScanCpuFactor()) {
       return null;
     }
 
@@ -167,7 +167,7 @@ final class IndexOrderedCostModel {
    * Shared by {@link #computeCosts}, {@link #pickMultiSourceStrategy}, and
    * {@link #entriesWorthTheLoadAlternative}.
    */
-  private static boolean hasValidScanCpuFactor() {
+  static boolean hasValidScanCpuFactor() {
     var cpuFactor =
         GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR
             .getValueAsDouble();
@@ -198,8 +198,9 @@ final class IndexOrderedCostModel {
    * {@code recordsReadByLoadAndSort} records. Budget for a UNION RidSet scan, where each entry
    * is a cheap cursor advance + bitmap check — not a record load.
    *
-   * <p>A non-positive or non-finite scan CPU factor produces zero. This disables the filtered
-   * index scan instead of creating a practically unbounded initial budget.
+   * <p>A non-positive or non-finite scan CPU factor produces zero. A valid, very large factor can
+   * also produce zero when no complete index entry is worth its cost. Callers must test validity
+   * separately when they need to distinguish invalid configuration from an uneconomic scan.
    *
    * <p>Do NOT use this for {@link MultiSourceStrategy#GLOBAL_SCAN}: that path loads every
    * entry's record, so one entry already costs about one record. Its budget is
@@ -233,9 +234,7 @@ final class IndexOrderedCostModel {
       int totalEdges, long indexSize, long limit,
       @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
     if (!hasValidScanCpuFactor()) {
-      // Route invalid factors through the filtered branch. Its zero budget selects load-and-sort
-      // before the filtered cursor consumes an entry.
-      return MultiSourceStrategy.UNION_RIDSET_SCAN;
+      return MultiSourceStrategy.LOAD_ALL_SORT;
     }
     var costs = computeCosts(totalEdges, indexSize, limit, histogram, orderAsc);
     if (costs == null) {

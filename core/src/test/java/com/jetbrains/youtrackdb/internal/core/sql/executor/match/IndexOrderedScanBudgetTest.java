@@ -130,9 +130,9 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
     return rows;
   }
 
-  /** Invalid scan CPU factors select load-and-sort without consuming an index entry. */
+  /** Invalid scan CPU factors select the ordinary load-and-sort plan and exact first row. */
   @Test
-  public void invalidScanCpuFactorsUseLoadAndSort() {
+  public void invalidScanCpuFactorsUseOrdinaryLoadAndSortPlan() {
     seedSkewed();
     var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
     var previous = configuration.getValue();
@@ -140,17 +140,58 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
       for (var factor : List.of(-1.0, 0.0, Double.NaN, Double.POSITIVE_INFINITY)) {
         configuration.setValue(factor);
         try (var result = session.query(orderedQuery("ASC", 1))) {
-          var rows = drain(result, "mid");
-          var step = stepOf(result);
-          assertThat(step.getChosenRuntimePath())
-              .as("invalid scan CPU factor " + factor + " must select load-and-sort")
-              .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
-          assertThat(step.lastScanConsumedEntries())
-              .as("load-and-sort must start before an index entry is consumed")
-              .isEqualTo(-1);
-          assertThat(rows).containsExactly("m" + slot(0));
+          assertThat(drain(result, "mid")).containsExactly("m" + slot(0));
+          assertOrdinarySortPlan(result, "invalid scan CPU factor " + factor);
         }
       }
+    } finally {
+      configuration.setValue(previous);
+    }
+  }
+
+  /** A normal positive factor keeps the ordered step and returns the exact first row. */
+  @Test
+  public void normalPositiveScanCpuFactorKeepsOrderedPlan() {
+    seedSkewed();
+    try (var result = session.query(orderedQuery("ASC", 1))) {
+      var step = stepOf(result);
+      assertThat(drain(result, "mid")).containsExactly("m" + slot(0));
+      assertThat(step.getChosenRuntimePath())
+          .as("the normal factor must execute the planned ordered scan")
+          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.SCAN_BUDGET_BAILOUT);
+    }
+  }
+
+  /** A huge valid factor with a zero budget selects ordinary load-and-sort and exact rows. */
+  @Test
+  public void hugeValidScanCpuFactorWithZeroBudgetUsesOrdinaryPlan() {
+    seedSkewed();
+    withScanCpuFactor(1.0e9, () -> {
+      assertThat(IndexOrderedCostModel.hasValidScanCpuFactor()).isTrue();
+      assertThat(IndexOrderedCostModel.entriesWorthTheLoadAlternative(REACHABLE)).isZero();
+      try (var result = session.query(orderedQuery("ASC", 2))) {
+        assertThat(drain(result, "mid"))
+            .containsExactly("m" + slot(0), "m" + slot(1));
+        assertOrdinarySortPlan(result, "huge valid factor with zero budget");
+      }
+    });
+  }
+
+  private static void assertOrdinarySortPlan(ResultSet result, String reason) {
+    var plan = result.getExecutionPlan();
+    assertThat(plan).as("the query must have produced an execution plan").isNotNull();
+    assertThat(findStep(plan.getSteps()))
+        .as(reason + " must not force an index-ordered step:\n" + plan.prettyPrint(0, 2))
+        .isNull();
+    assertThat(plan.prettyPrint(0, 2)).as(reason + " must retain ORDER BY").contains("ORDER BY");
+  }
+
+  private static void withScanCpuFactor(double factor, Runnable action) {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    var previous = configuration.getValue();
+    try {
+      configuration.setValue(factor);
+      action.run();
     } finally {
       configuration.setValue(previous);
     }

@@ -1137,7 +1137,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       int linkBagSize, long indexSize,
       @Nullable EquiDepthHistogram histogram) {
     if (IndexOrderedCostModel.entriesWorthTheLoadAlternative(linkBagSize) <= 0) {
-      // Let the filtered branch interpret zero as an immediate load-and-sort decision.
+      // A cached plan may outlive a configuration change. Reach the pre-cursor fallback below.
       return true;
     }
     var costs = IndexOrderedCostModel.computeCosts(
