@@ -128,11 +128,13 @@ compares a filtered ordered scan with load-and-sort. Multi-source planning also 
 compares the record-identifier set scan with global scan and load-and-sort. A larger value raises
 the filtered scan cost, so the planner is less likely to choose that scan.
 
-The same modeled per-entry cost sets the runtime budget for a filtered scan. A larger factor lowers
-the number of index entries that the scan may read before it switches to load-and-sort. Global
-scans use a separate record-count budget.
+The same modeled per-entry cost sets the pre-emission runtime budget for a filtered scan. A larger
+factor makes an unproductive scan switch to load-and-sort sooner. Once a scan prefills its requested
+rows, it commits to index order and removes that budget. The continuation is unbounded because later
+graph-pattern filters can reject the prefetched rows. Global scans use a separate record-count
+budget.
 
-This setting changes plan selection and the filtered runtime scan budget. It does not change query
+This setting changes plan selection and the filtered pre-emission budget. It does not change query
 results or ordering rules.
 
 The parser accepts any Java `double` value. The code enforces no minimum or maximum. It also does

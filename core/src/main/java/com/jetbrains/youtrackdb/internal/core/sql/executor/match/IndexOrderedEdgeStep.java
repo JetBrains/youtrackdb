@@ -1016,9 +1016,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * load-from-sources once spend reaches {@code entryBudget}, before any row is
    * emitted.
    *
-   * <p>When the prefill collects enough rows, the in-pipeline budget gains one finite window.
-   * The extension occurs before chaining the buffered prefix and remaining scan.
-   * A post-emission bail-out cannot preserve index order.
+   * <p>When the prefill collects enough rows, the in-pipeline budget is removed before chaining
+   * the buffered prefix and remaining scan. A later graph-pattern filter can reject prefetched
+   * rows. The continuation remains unbounded so the query can still satisfy its requested row
+   * count. A post-emission bail-out cannot preserve index order.
    *
    * <p>Callers choose the budget units:
    * <ul>
@@ -1067,7 +1068,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return bailOutTo(indexStream, ctx, bailOut);
     }
 
-    // A full prefill closes the bail-out path. Allow one finite continuation window.
+    // A full prefill closes the bail-out path. Remove the gate because later graph-pattern
+    // filters can reject buffered rows and force the query to continue scanning for its limit.
     if (buffered.size() >= maxBuffered) {
       scanStep.liftScanBudget();
     }

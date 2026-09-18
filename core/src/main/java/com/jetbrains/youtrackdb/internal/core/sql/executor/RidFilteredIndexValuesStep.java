@@ -55,15 +55,16 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
    * pipeline, one element after the count is reached, is the only placement that bounds the
    * work the scan can do.
    *
-   * <p>The configured bound is immutable. The stream reads the live {@link #activeBudget} gate.
-   * A successful pre-emission fill can extend that gate by one {@link #scanBudget} window.
-   * The extension keeps continuation work finite.
+   * <p>The configured bound is immutable ({@link #scanBudget}). The stream reads the live
+   * {@link #activeBudget} gate. {@link #liftScanBudget()} clears that gate after a successful
+   * pre-emission fill. A later graph-pattern filter can reject those prefetched rows, so the
+   * continuation must remain unbounded to satisfy the requested row count.
    */
   private final long scanBudget;
 
   /**
-   * Live entry bound read by the stream. It starts as {@link #scanBudget}.
-   * A successful prefill can extend a finite bound once.
+   * Live entry bound read by the stream. It starts as {@link #scanBudget} and becomes unbounded
+   * after a successful prefill.
    */
   private final AtomicLong activeBudget;
 
@@ -112,23 +113,13 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
   }
 
   /**
-   * Extends a finite live bound by one configured window after a successful prefill.
-   * The extension saturates at {@link Long#MAX_VALUE} and remains finite.
-   * Repeated calls keep the same extended bound.
+   * Removes the live entry bound after a successful prefill. A later graph-pattern filter can
+   * reject prefetched rows. The continuation must therefore remain unbounded so the query can
+   * still satisfy its requested row count. Repeated calls remain safe because the unbounded
+   * value is idempotent.
    */
   public void liftScanBudget() {
-    if (scanBudget < 0) {
-      return;
-    }
-    var extendedBudget = scanBudget > Long.MAX_VALUE - scanBudget
-        ? Long.MAX_VALUE
-        : scanBudget + scanBudget;
-    activeBudget.set(extendedBudget);
-  }
-
-  /** Returns the live bound for budget boundary verification. */
-  long activeScanBudget() {
-    return activeBudget.get();
+    activeBudget.set(-1);
   }
 
   @Override
@@ -162,7 +153,7 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
             // count covers dropped entries and the stop fires on the entry that breaks the
             // budget rather than on the next delivered row. Overshoot is one entry per
             // sub-stream, because each sub-stream must consume an element to test the bound.
-            // Read liveBudget for each entry. A successful prefill can extend the finite gate.
+            // Read liveBudget for each entry. A successful prefill can clear the gate.
             Stream<RawPair<Object, RID>> s =
                 iter.next()
                     .peek(pair -> consumedEntries.incrementAndGet())

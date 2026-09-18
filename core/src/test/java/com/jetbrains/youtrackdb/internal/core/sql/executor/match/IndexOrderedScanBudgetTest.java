@@ -183,6 +183,73 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
     }
   }
 
+  /**
+   * A downstream edge can reject the row that satisfied the prefill. The ordered continuation
+   * must cross a gap larger than two former budget windows to find the requested valid row.
+   */
+  @Test
+  public void downstreamRejectionContinuesBeyondFormerFiniteWindows() {
+    var message = session.createVertexClass("Message");
+    message.createProperty("creationDate", PropertyType.STRING);
+    message.getProperty("creationDate").createIndex(INDEX_TYPE.NOTUNIQUE);
+    session.createVertexClass("Author");
+    session.createVertexClass("Reply");
+    session.createEdgeClass("wrote");
+    session.createEdgeClass("hasReply");
+
+    var gapSize = 6000;
+    session.begin();
+    session.execute("CREATE VERTEX Author SET name = 'author0'").close();
+    session.execute("CREATE VERTEX Message SET creationDate = '9999', mid = 'rejected'").close();
+    session.execute(
+        "CREATE EDGE wrote FROM (SELECT FROM Author WHERE name = 'author0')"
+            + " TO (SELECT FROM Message WHERE mid = 'rejected')")
+        .close();
+    for (var i = 0; i < gapSize; i++) {
+      session.execute(
+          "CREATE VERTEX Message SET creationDate = '5000-" + slot(i)
+              + "', mid = 'gap" + i + "'")
+          .close();
+    }
+    for (var i = 0; i < REACHABLE - 1; i++) {
+      session.execute(
+          "CREATE VERTEX Message SET creationDate = '1000-" + slot(i)
+              + "', mid = 'low" + i + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE wrote FROM (SELECT FROM Author WHERE name = 'author0')"
+              + " TO (SELECT FROM Message WHERE mid = 'low" + i + "')")
+          .close();
+    }
+    session.execute("CREATE VERTEX Reply SET content = 'valid'").close();
+    session.execute(
+        "CREATE EDGE hasReply FROM (SELECT FROM Message WHERE mid = 'low18')"
+            + " TO (SELECT FROM Reply WHERE content = 'valid')")
+        .close();
+    session.commit();
+
+    var query =
+        "MATCH {class: Author, as: a, where: (name = 'author0')}"
+            + ".out('wrote'){class: Message, as: m}"
+            + ".out('hasReply'){class: Reply, as: r}"
+            + " RETURN m.mid AS mid ORDER BY m.creationDate DESC LIMIT 1";
+    try (var result = session.query(query)) {
+      var rows = drain(result, "mid");
+      var step = stepOf(result);
+
+      assertThat(step.getChosenRuntimePath())
+          .as("the native filtered index scan must exercise its continuation")
+          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.UNION_SCAN);
+      assertThat(step.lastScanBudget()).as("the scan must start with a finite budget").isPositive();
+      assertThat((long) gapSize)
+          .as("the valid target must lie beyond two former continuation windows")
+          .isGreaterThan(step.lastScanBudget() * 2);
+      assertThat(rows)
+          .as("the scan must continue after the prefetched target fails hasReply")
+          .containsExactly("low18");
+    }
+  }
+
   /** Clone and re-arm must not expose observations from a previous scan. */
   @Test
   public void cloneAndRearmClearLastScanObservations() {

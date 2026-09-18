@@ -14,8 +14,8 @@ import org.junit.Test;
 /**
  * Direct-step tests for the live scan budget on {@link RidFilteredIndexValuesStep}.
  *
- * <p>The pre-emission bail-out keeps the first scan window bounded.
- * A successful prefill allows one additional finite window for continuation work.
+ * <p>The pre-emission bail-out keeps the initial scan bounded. A successful prefill removes the
+ * bound because later graph-pattern filters can reject the prefetched rows.
  */
 public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
 
@@ -89,11 +89,9 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     }
   }
 
-  /**
-   * A scan can consume its first window, extend once, and consume only one more window.
-   */
+  /** Lifting an initially finite budget lets the active stream reach every indexed member. */
   @Test
-  public void liftScanBudgetAllowsOneFiniteContinuationWindow() {
+  public void liftScanBudgetRemovesFiniteBound() {
     seedIndexedPeople();
     var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "Person.age");
@@ -105,27 +103,18 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     session.begin();
     try {
       var stream = step.internalStart(ctx);
-      var firstWindow = new ArrayList<Integer>();
-      while (firstWindow.size() < TIGHT_BUDGET && stream.hasNext(ctx)) {
-        firstWindow.add(((Number) stream.next(ctx).getProperty("key")).intValue());
+      var ages = new ArrayList<Integer>();
+      while (ages.size() < TIGHT_BUDGET && stream.hasNext(ctx)) {
+        ages.add(((Number) stream.next(ctx).getProperty("key")).intValue());
       }
-      assertThat(firstWindow).as("the first window must be exhausted before extension")
-          .hasSize((int) TIGHT_BUDGET);
 
       step.liftScanBudget();
 
-      var continuation = new ArrayList<Integer>();
       while (stream.hasNext(ctx)) {
-        continuation.add(((Number) stream.next(ctx).getProperty("key")).intValue());
+        ages.add(((Number) stream.next(ctx).getProperty("key")).intValue());
       }
       stream.close(ctx);
-
-      assertThat(continuation).as("the continuation must contain one additional window")
-          .hasSize((int) TIGHT_BUDGET);
-      assertThat(firstWindow.size() + continuation.size())
-          .as("the finite extension must stop before the index ends")
-          .isEqualTo((int) (TIGHT_BUDGET * 2));
-      assertThat(step.activeScanBudget()).isEqualTo(TIGHT_BUDGET * 2);
+      assertThat(ages).as("lifting removes the finite continuation ceiling").hasSize(TOTAL);
       assertThat(step.consumedEntryCount()).isGreaterThan(TIGHT_BUDGET * 2);
     } finally {
       if (session.getTransactionInternal().isActive()) {
@@ -134,9 +123,9 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     }
   }
 
-  /** A zero budget remains zero after extension and yields no entries. */
+  /** Lifting a zero budget removes the gate before the stream starts. */
   @Test
-  public void liftScanBudgetKeepsZeroBudgetAtZero() {
+  public void liftScanBudgetRemovesZeroBound() {
     seedIndexedPeople();
     var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "Person.age");
@@ -149,8 +138,7 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
 
     session.begin();
     try {
-      assertThat(drainAges(step, ctx)).isEmpty();
-      assertThat(step.activeScanBudget()).isZero();
+      assertThat(drainAges(step, ctx)).hasSize(TOTAL);
     } finally {
       if (session.getTransactionInternal().isActive()) {
         session.rollback();
@@ -158,32 +146,22 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     }
   }
 
-  /** A one-entry budget extends to two entries and then stops. */
+  /** Lifting an already unbounded negative budget preserves the unbounded scan. */
   @Test
-  public void liftScanBudgetExtendsOneEntryBudgetToTwo() {
+  public void liftScanBudgetPreservesNegativeBound() {
     seedIndexedPeople();
     var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "Person.age");
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
     var step = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), 1);
+        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), -2);
+
+    step.liftScanBudget();
 
     session.begin();
     try {
-      var stream = step.internalStart(ctx);
-      assertThat(stream.hasNext(ctx)).isTrue();
-      stream.next(ctx);
-
-      step.liftScanBudget();
-
-      var continuation = new ArrayList<Integer>();
-      while (stream.hasNext(ctx)) {
-        continuation.add(((Number) stream.next(ctx).getProperty("key")).intValue());
-      }
-      stream.close(ctx);
-      assertThat(continuation).hasSize(1);
-      assertThat(step.activeScanBudget()).isEqualTo(2);
+      assertThat(drainAges(step, ctx)).hasSize(TOTAL);
     } finally {
       if (session.getTransactionInternal().isActive()) {
         session.rollback();
@@ -191,20 +169,28 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     }
   }
 
-  /** Extending the maximum finite budget saturates and repeated calls remain idempotent. */
+  /** Repeated lifts of an ordinary finite budget remain idempotently unbounded. */
   @Test
-  public void liftScanBudgetSaturatesAtMaximumBudget() {
+  public void repeatedLiftScanBudgetCallsRemainUnbounded() {
     seedIndexedPeople();
     var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "Person.age");
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
     var step = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), Long.MAX_VALUE);
+        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), TIGHT_BUDGET);
 
     step.liftScanBudget();
     step.liftScanBudget();
+    step.liftScanBudget();
 
-    assertThat(step.activeScanBudget()).isEqualTo(Long.MAX_VALUE);
+    session.begin();
+    try {
+      assertThat(drainAges(step, ctx)).hasSize(TOTAL);
+    } finally {
+      if (session.getTransactionInternal().isActive()) {
+        session.rollback();
+      }
+    }
   }
 }
