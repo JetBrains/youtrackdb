@@ -10,6 +10,8 @@ public final class EntryPoint extends DurablePage {
 
   private static final int TREE_SIZE_OFFSET = NEXT_FREE_POSITION;
   private static final int PAGES_SIZE_OFFSET = TREE_SIZE_OFFSET + LongSerializer.LONG_SIZE;
+  private static final int RID_BAG_ID_COUNTER_OFFSET =
+      PAGES_SIZE_OFFSET + Integer.BYTES;
 
   public EntryPoint(CacheEntry cacheEntry) {
     super(cacheEntry);
@@ -22,6 +24,7 @@ public final class EntryPoint extends DurablePage {
   public void init() {
     setLongValue(TREE_SIZE_OFFSET, 0);
     setIntValue(PAGES_SIZE_OFFSET, 1);
+    setLongValue(RID_BAG_ID_COUNTER_OFFSET, 0);
 
     var cacheEntry = getCacheEntry();
     if (cacheEntry instanceof CacheEntryChanges cec) {
@@ -62,5 +65,21 @@ public final class EntryPoint extends DurablePage {
 
   public int getPagesSize() {
     return getIntValue(PAGES_SIZE_OFFSET);
+  }
+
+  public void setRidBagIdCounter(final long counter) {
+    setLongValue(RID_BAG_ID_COUNTER_OFFSET, counter);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagEntryPointSetRidBagIdCounterOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), counter));
+    }
+  }
+
+  public long getRidBagIdCounter() {
+    return getLongValue(RID_BAG_ID_COUNTER_OFFSET);
   }
 }

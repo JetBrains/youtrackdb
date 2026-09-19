@@ -115,6 +115,31 @@ public final class SharedLinkBagBTree extends StorageComponent {
     }
   }
 
+  public long getRidBagIdCounter(AtomicOperation atomicOperation) {
+    return calculateInsideComponentOperation(
+        atomicOperation,
+        operation -> {
+          try (var entryPointCacheEntry =
+              loadPageForRead(operation, fileId, ENTRY_POINT_INDEX)) {
+            return new EntryPoint(entryPointCacheEntry).getRidBagIdCounter();
+          }
+        });
+  }
+
+  public void updateRidBagIdCounter(AtomicOperation atomicOperation, long counter) {
+    executeInsideComponentOperation(
+        atomicOperation,
+        operation -> {
+          try (var entryPointCacheEntry =
+              loadPageForWrite(operation, fileId, ENTRY_POINT_INDEX, true)) {
+            var entryPoint = new EntryPoint(entryPointCacheEntry);
+            if (entryPoint.getRidBagIdCounter() < counter) {
+              entryPoint.setRidBagIdCounter(counter);
+            }
+          }
+        });
+  }
+
   @Override
   protected String getComponentTypeName() {
     return "SharedLinkBagBTree";

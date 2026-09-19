@@ -378,4 +378,7 @@ public final class WALRecordTypes {
   // CellBTreeSingleValueEntryPointV3 — approximate entries count (Track 5 addition)
   public static final int BTREE_SV_ENTRY_POINT_V3_SET_APPROX_ENTRIES_COUNT_OP =
       PAGE_OPERATION_ID_BASE + 96;
+
+  public static final int RIDBAG_ENTRY_POINT_SET_RID_BAG_ID_COUNTER_OP =
+      PAGE_OPERATION_ID_BASE + 97;
 }

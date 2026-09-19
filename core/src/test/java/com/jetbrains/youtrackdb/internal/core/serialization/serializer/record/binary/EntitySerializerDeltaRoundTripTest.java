@@ -31,6 +31,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
@@ -38,6 +39,8 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -124,8 +127,7 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
    * with an invalid {@link com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer}.
    * Layout: {@code mode=0x02} (selects the B-tree-pointer branch),
    * {@code size=zigzag(0)=0x00}, {@code fileId=zigzag(-1)=0x01},
-   * {@code linkBagId=zigzag(-1)=0x01}. Both pointer halves are negative so the
-   * {@code LinkBagPointer.isValid()} guard fails and the read path throws.
+   * {@code linkBagId=zigzag(-1)=0x01}. The negative file identifier makes the pointer invalid.
    */
   private static final byte[] FORGED_MODE_TWO_INVALID_POINTER =
       new byte[] {0x02, 0x00, 0x01, 0x01};
@@ -1079,8 +1081,8 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
    * The non-embedded LinkBag read path (selected when the leading mode byte is not
    * {@code 0x01}) treats the remaining payload as a
    * {@link com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer}
-   * triple ({@code size}, {@code fileId}, {@code linkBagId}). When either pointer
-   * half is negative the constructed pointer is invalid and the read path must
+   * triple ({@code size}, {@code fileId}, {@code linkBagId}). A negative file identifier
+   * makes the constructed pointer invalid, so the read path must
    * throw {@code IllegalStateException("LinkBag with invalid pointer was found")}.
    * The exact diagnostic string is asserted so a regression that conflated the
    * LinkBag/LinkSet/RidBag throw sites would fail loudly.
@@ -1118,9 +1120,63 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     });
   }
 
+  @Test
+  public void allocatedLinkBagPointerRoundTripsThroughNonEmbeddedBranch() {
+    var pointer = allocateLinkBagPointer();
+    runInTx(() -> {
+      var bag = new LinkBag(
+          session, new BTreeBasedLinkBag(session, pointer, 0, Integer.MAX_VALUE));
+      var bytes = new BytesContainer();
+
+      EntitySerializerDelta.serializeValue(
+          session, bytes, bag, PropertyTypeInternal.LINKBAG, null);
+      assertEquals(2, bytes.bytes[0]);
+
+      var decoded = (LinkBag) delta.deserializeValue(
+          session, new BytesContainer(bytes.fitBytes()), PropertyTypeInternal.LINKBAG, null);
+      assertEquals(pointer, decoded.getPointer());
+    });
+  }
+
+  @Test
+  public void allocatedLinkSetPointerRoundTripsThroughNonEmbeddedBranch() {
+    var pointer = allocateLinkBagPointer();
+    runInTx(() -> {
+      var set = new EntityLinkSetImpl(
+          session, new BTreeBasedLinkBag(session, pointer, 0, 1));
+      var bytes = new BytesContainer();
+
+      EntitySerializerDelta.serializeValue(
+          session, bytes, set, PropertyTypeInternal.LINKSET, null);
+      assertEquals(2, bytes.bytes[0]);
+
+      var decoded = (EntityLinkSetImpl) delta.deserializeValue(
+          session, new BytesContainer(bytes.fitBytes()), PropertyTypeInternal.LINKSET, null);
+      assertEquals(pointer, decoded.getPointer());
+    });
+  }
+
   // ============================================================================
   // === Helpers ================================================================
   // ============================================================================
+
+  private LinkBagPointer allocateLinkBagPointer() {
+    var collectionId = session.getMetadata().getSchema()
+        .getClass(TARGET_CLASS).getCollectionIds()[0];
+    try {
+      return session.getStorage().getAtomicOperationsManager().calculateInsideAtomicOperation(
+          operation -> {
+            try {
+              return session.getBTreeCollectionManager()
+                  .createBTree(collectionId, operation, session);
+            } catch (java.io.IOException exception) {
+              throw new AssertionError("Link-bag pointer allocation failed", exception);
+            }
+          });
+    } catch (java.io.IOException exception) {
+      throw new AssertionError("Atomic link-bag pointer allocation failed", exception);
+    }
+  }
 
   private String encodeNullableType(PropertyTypeInternal type) {
     var bytes = new BytesContainer();

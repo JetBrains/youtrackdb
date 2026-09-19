@@ -334,7 +334,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   /**
    * Rejects a database whose persisted storage-format version does not exactly match
    * {@link #CURRENT_VERSION}. Both directions are rejected: an older format cannot be upgraded in
-   * place (the engine-file-id format has no computable default for pre-24 entries), and a newer
+   * place because required allocator metadata has no safe default, and a newer
    * format cannot be read by these binaries. Reads the just-preloaded cache directly instead of
    * {@code getVersion} because the caller holds the non-reentrant write lock.
    */

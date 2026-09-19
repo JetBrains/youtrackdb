@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
+import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
@@ -467,11 +468,11 @@ public class IndexEngineFileBaseIdTest {
   @Test
   public void preCurrentFormatIsRejectedAtOpenWithExportRedirect() throws Exception {
     final var dbName = "fbiGateOld";
-    createDbWithTamperedVersion(dbName, 23);
+    createDbWithTamperedVersion(dbName, StorageConfiguration.CURRENT_VERSION - 1);
 
     try {
       ytdb.open(dbName, ADMIN, PWD);
-      fail("opening a version-23 database must be rejected by the storage-format gate");
+      fail("opening the previous storage format must be rejected");
     } catch (final Exception e) {
       assertMessageChainContains(e, "predates the current format");
       assertMessageChainContains(e, "please export your old database");
@@ -486,11 +487,11 @@ public class IndexEngineFileBaseIdTest {
   @Test
   public void newerFormatIsRejectedAtOpenWithCeilingMessage() throws Exception {
     final var dbName = "fbiGateNew";
-    createDbWithTamperedVersion(dbName, 25);
+    createDbWithTamperedVersion(dbName, StorageConfiguration.CURRENT_VERSION + 1);
 
     try {
       ytdb.open(dbName, ADMIN, PWD);
-      fail("opening a version-25 database must be rejected by the storage-format gate");
+      fail("opening a newer storage format must be rejected");
     } catch (final Exception e) {
       assertMessageChainContains(e, "is newer than the format this version of YouTrackDB"
           + " supports");

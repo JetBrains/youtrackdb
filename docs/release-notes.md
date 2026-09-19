@@ -5,6 +5,14 @@ between your current version and your target version.
 
 ## Unreleased
 
+### Storage format 25 requires export and import
+
+Storage format 25 persists link-collection allocation state. The state prevents identifier reuse after an empty live collection survives a restart.
+
+YouTrackDB rejects databases from storage format 24 and earlier. Export the database with the YouTrackDB release that created it. Then import the dump with this version.
+
+Follow the [database migration procedure](operator-migration-procedure.md). No automatic or in-place migration exists.
+
 ### ORDER BY null placement is configurable
 
 YouTrackDB now accepts `NULLS FIRST` and `NULLS LAST` on each YouTrackDB Query Language

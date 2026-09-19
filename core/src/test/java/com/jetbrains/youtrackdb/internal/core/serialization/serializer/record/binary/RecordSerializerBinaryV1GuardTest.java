@@ -121,6 +121,57 @@ public class RecordSerializerBinaryV1GuardTest {
         () -> RecordSerializerBinaryV1.readLinkBag(null, rbc));
   }
 
+  @Test
+  public void readContainerLinkBagRejectsEveryInvalidPointerDomain() {
+    for (var pointer : invalidPointers()) {
+      assertThrows(
+          CorruptedRecordException.class,
+          () -> RecordSerializerBinaryV1.readLinkBag(null, pointerBytes(pointer)));
+    }
+  }
+
+  @Test
+  public void readContainerLinkSetRejectsEveryInvalidPointerDomain() {
+    for (var pointer : invalidPointers()) {
+      assertThrows(
+          CorruptedRecordException.class,
+          () -> RecordSerializerBinaryV1.readLinkSet(null, pointerBytes(pointer)));
+    }
+  }
+
+  @Test
+  public void readBytesContainerLinkBagRejectsEveryInvalidPointerDomain() {
+    for (var pointer : invalidPointers()) {
+      assertThrows(
+          CorruptedRecordException.class,
+          () -> RecordSerializerBinaryV1.readLinkBag(
+              null, new ReadBytesContainer(pointerBytes(pointer).fitBytes())));
+    }
+  }
+
+  @Test
+  public void readBytesContainerLinkSetRejectsEveryInvalidPointerDomain() {
+    for (var pointer : invalidPointers()) {
+      assertThrows(
+          CorruptedRecordException.class,
+          () -> RecordSerializerBinaryV1.readLinkSet(
+              null, new ReadBytesContainer(pointerBytes(pointer).fitBytes())));
+    }
+  }
+
+  private static long[][] invalidPointers() {
+    return new long[][] {{-1, -1}, {0, 0}, {0, 1}};
+  }
+
+  private static BytesContainer pointerBytes(long[] pointer) {
+    var bytes = new BytesContainer();
+    bytes.bytes[bytes.alloc(1)] = 0;
+    VarIntSerializer.write(bytes, 0);
+    VarIntSerializer.write(bytes, pointer[0]);
+    VarIntSerializer.write(bytes, pointer[1]);
+    return bytes;
+  }
+
   // --- getPositionsFromEmbeddedMap guards ---
 
   @Test

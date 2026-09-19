@@ -95,6 +95,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagB
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketUpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointInitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetRidBagIdCounterOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
 
 /**
@@ -447,6 +448,9 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.RIDBAG_ENTRY_POINT_SET_PAGES_SIZE_OP,
         RidbagEntryPointSetPagesSizeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_ENTRY_POINT_SET_RID_BAG_ID_COUNTER_OP,
+        RidbagEntryPointSetRidBagIdCounterOp.class);
 
     // Ridbag Bucket simple operations (Track 7b)
     factory.registerNewRecord(

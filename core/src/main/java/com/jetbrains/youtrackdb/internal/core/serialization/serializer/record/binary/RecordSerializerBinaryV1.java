@@ -897,9 +897,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       int linkBagSize, int counterMaxValue) {
     var fileId = VarIntSerializer.readAsLong(bytes);
     var linkBagId = VarIntSerializer.readAsLong(bytes);
-    assert fileId > -1;
-
-    var pointer = new LinkBagPointer(fileId, linkBagId);
+    var pointer = validatedLinkBagPointer(fileId, linkBagId);
 
     return new BTreeBasedLinkBag(session, pointer, linkBagSize, counterMaxValue);
   }
@@ -1613,10 +1611,16 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       int counterMaxValue) {
     var fileId = VarIntSerializer.readAsLong(bytes);
     var linkBagId = VarIntSerializer.readAsLong(bytes);
-    assert fileId > -1;
-
-    var pointer = new LinkBagPointer(fileId, linkBagId);
+    var pointer = validatedLinkBagPointer(fileId, linkBagId);
     return new BTreeBasedLinkBag(session, pointer, linkBagSize, counterMaxValue);
+  }
+
+  private static LinkBagPointer validatedLinkBagPointer(long fileId, long linkBagId) {
+    var pointer = new LinkBagPointer(fileId, linkBagId);
+    if (!pointer.isValid()) {
+      throw new CorruptedRecordException("Invalid link collection pointer: " + pointer);
+    }
+    return pointer;
   }
 
   @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
