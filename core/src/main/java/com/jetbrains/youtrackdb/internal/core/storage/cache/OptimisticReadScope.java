@@ -15,7 +15,7 @@ import java.util.Arrays;
  *       that apply window can see a mix of pre- and post-commit pages while every stamp
  *       stays valid.
  *   <li><b>Apply-phase epoch</b> — the cross-page consistency guarantee. {@link #reset()}
- *       captures the storage's {@link ApplyPhaseEpoch} counters and
+ *       captures the logical component's {@link ApplyPhaseEpoch} counters and
  *       {@link #validateOrThrow()} re-checks them after the stamp loop; the read fails if
  *       any commit-time apply phase overlapped the read window.
  * </ul>
@@ -29,8 +29,10 @@ public final class OptimisticReadScope {
 
   private static final int INITIAL_CAPACITY = 8;
 
-  // Per-storage apply-phase epoch shared with all writers of the same storage.
-  private final ApplyPhaseEpoch applyPhaseEpoch;
+  // Private default for standalone stamp-only use. Production attempts replace the active
+  // epoch at reset with their StorageComponent's logical lock-domain epoch.
+  private final ApplyPhaseEpoch defaultApplyPhaseEpoch;
+  private ApplyPhaseEpoch applyPhaseEpoch;
 
   private PageFrame[] frames;
   private long[] stamps;
@@ -55,9 +57,7 @@ public final class OptimisticReadScope {
    * Convenience constructor for standalone use (tests, tooling) where no epoch is shared
    * with concurrent writers: allocates a private {@link ApplyPhaseEpoch} that no writer
    * ever bumps, so epoch validation trivially passes and only per-page stamp validation
-   * applies. Production code must pass the storage-wide epoch owned by
-   * {@code AtomicOperationsManager} (via {@code AtomicOperationBinaryTracking}), otherwise
-   * commit-time apply phases would be invisible to this scope.
+   * applies. Production code supplies a component epoch to {@link #reset(ApplyPhaseEpoch)}.
    */
   public OptimisticReadScope() {
     this(new ApplyPhaseEpoch());
@@ -65,6 +65,7 @@ public final class OptimisticReadScope {
 
   public OptimisticReadScope(ApplyPhaseEpoch applyPhaseEpoch) {
     assert applyPhaseEpoch != null : "ApplyPhaseEpoch must not be null";
+    this.defaultApplyPhaseEpoch = applyPhaseEpoch;
     this.applyPhaseEpoch = applyPhaseEpoch;
     this.frames = new PageFrame[INITIAL_CAPACITY];
     this.stamps = new long[INITIAL_CAPACITY];
@@ -139,6 +140,17 @@ public final class OptimisticReadScope {
    * would escape past the pinned fallback instead of triggering it.
    */
   public void reset() {
+    reset(defaultApplyPhaseEpoch);
+  }
+
+  /**
+   * Resets this reusable scope for an optimistic attempt in one logical component domain.
+   * Sequential attempts may use different domains, but one attempt remains single-domain.
+   */
+  public void reset(ApplyPhaseEpoch componentApplyPhaseEpoch) {
+    assert componentApplyPhaseEpoch != null : "ApplyPhaseEpoch must not be null";
+    applyPhaseEpoch = componentApplyPhaseEpoch;
+
     // Nesting detection (-ea builds only): attemptActive can be true here only when a
     // surrounding executeOptimisticStorageRead is still in flight — i.e., this reset
     // belongs to a nested attempt that is about to wipe the outer scope's stamps.

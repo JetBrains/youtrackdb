@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
@@ -96,6 +97,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   private final String extension;
 
   private final String lockName;
+  private final ApplyPhaseEpoch applyPhaseEpoch;
 
   private final boolean durable;
 
@@ -115,6 +117,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     this.readCache = storage.getReadCache();
     this.writeCache = storage.getWriteCache();
     this.lockName = lockName;
+    // Manager identity is stable for its lifetime. Resolve it once during component
+    // construction so optimistic attempts and commit cleanup avoid shared-map probes.
+    this.applyPhaseEpoch = atomicOperationsManager.getApplyPhaseEpoch(lockName);
     this.durable = durable;
   }
 
@@ -125,6 +130,11 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
   public String getLockName() {
     return lockName;
+  }
+
+  /** Returns the cached apply epoch for this component's storage and lock-name domain. */
+  public ApplyPhaseEpoch getApplyPhaseEpoch() {
+    return applyPhaseEpoch;
   }
 
   /**
@@ -625,7 +635,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset();
+    scope.reset(getApplyPhaseEpoch());
     // -ea-only guard against nested optimistic read attempts: a nested
     // executeOptimisticStorageRead call from inside an optimistic lambda would wipe the
     // outer scope's stamps via reset(), silently voiding the outer validation. Kept
@@ -694,7 +704,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset();
+    scope.reset(getApplyPhaseEpoch());
     // See the nesting-guard comments in the T-returning overload above.
     assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
@@ -768,7 +778,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset();
+    scope.reset(getApplyPhaseEpoch());
     // See the nesting-guard comments in executeOptimisticStorageRead.
     assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 

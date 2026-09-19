@@ -4,11 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,6 +56,7 @@ public class StorageComponentOptimisticReadTest {
   private PageFramePool pool;
   private ReadCache mockReadCache;
   private AtomicOperation mockAtomicOp;
+  private AtomicOperationsManager mockAtomicOpsMgr;
   private OptimisticReadScope scope;
   private ErrorCapturingStorageComponent component;
 
@@ -66,10 +69,11 @@ public class StorageComponentOptimisticReadTest {
     mockReadCache = mock(ReadCache.class);
     var mockWriteCache = mock(WriteCache.class);
     var mockStorage = mock(AbstractStorage.class);
-    var mockAtomicOpsMgr = mock(AtomicOperationsManager.class);
+    mockAtomicOpsMgr = mock(AtomicOperationsManager.class);
     when(mockStorage.getReadCache()).thenReturn(mockReadCache);
     when(mockStorage.getWriteCache()).thenReturn(mockWriteCache);
     when(mockStorage.getAtomicOperationsManager()).thenReturn(mockAtomicOpsMgr);
+    when(mockAtomicOpsMgr.getApplyPhaseEpoch("test.lock")).thenReturn(new ApplyPhaseEpoch());
 
     scope = new OptimisticReadScope();
     mockAtomicOp = mock(AtomicOperation.class);
@@ -83,6 +87,20 @@ public class StorageComponentOptimisticReadTest {
     pool.clear();
     allocator.checkMemoryLeaks();
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
+  }
+
+  @Test
+  public void testComponentCachesApplyPhaseEpochAtConstruction() throws IOException {
+    // The manager lookup happens once during construction. Repeated read attempts use
+    // the same direct component field instead of probing shared metadata again.
+    assertSame(component.getApplyPhaseEpoch(), component.getApplyPhaseEpoch());
+    for (var i = 0; i < 2; i++) {
+      assertEquals(
+          "optimistic-result",
+          component.testExecuteOptimisticStorageRead(
+              mockAtomicOp, () -> "optimistic-result", () -> "pinned-result"));
+    }
+    verify(mockAtomicOpsMgr, times(1)).getApplyPhaseEpoch("test.lock");
   }
 
   @Test
@@ -520,7 +538,7 @@ public class StorageComponentOptimisticReadTest {
     // A commit apply phase already in flight when the read starts must fail epoch
     // validation (the capture sees enterSeq != exitSeq) and run the pinned lambda —
     // even though the page's stamp stays valid the whole time.
-    var epoch = new ApplyPhaseEpoch();
+    var epoch = component.getApplyPhaseEpoch();
     scope = new OptimisticReadScope(epoch);
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
@@ -551,7 +569,7 @@ public class StorageComponentOptimisticReadTest {
     // Epoch quiescent at capture, but a writer enters (and even completes) an apply
     // phase between the page read and validation. The live enterSeq no longer matches
     // the captured value → epoch check fails → pinned fallback runs.
-    var epoch = new ApplyPhaseEpoch();
+    var epoch = component.getApplyPhaseEpoch();
     scope = new OptimisticReadScope(epoch);
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 

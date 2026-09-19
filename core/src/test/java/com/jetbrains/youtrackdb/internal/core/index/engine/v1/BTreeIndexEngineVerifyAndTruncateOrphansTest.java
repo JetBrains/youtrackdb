@@ -1,15 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -146,10 +149,10 @@ public class BTreeIndexEngineVerifyAndTruncateOrphansTest {
 
   /**
    * Returns a mocked AbstractStorage with the absolute minimum stubs needed to
-   * construct either index engine: the storage components factory (so the inner
-   * BTree(s) can pull their {@code binarySerializerFactory}) plus
-   * {@code subIndexSnapshot} / {@code subNullIndexSnapshot} (which both engines
-   * call during construction).
+   * construct either index engine: the storage components factory, the manager-owned
+   * apply epoch required by every StorageComponent, plus the index snapshots used by
+   * both engine constructors. Production storage creates its manager before components,
+   * so a null manager is an incomplete fixture rather than a supported lifecycle state.
    */
   private com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
       newStorageWithFactoryStub() {
@@ -158,6 +161,10 @@ public class BTreeIndexEngineVerifyAndTruncateOrphansTest {
     when(mockStorage.getComponentsFactory()).thenReturn(
         new com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory(
             com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION));
+    var atomicOperationsManager = mock(AtomicOperationsManager.class);
+    when(atomicOperationsManager.getApplyPhaseEpoch(anyString()))
+        .thenReturn(new ApplyPhaseEpoch());
+    when(mockStorage.getAtomicOperationsManager()).thenReturn(atomicOperationsManager);
     when(mockStorage.subIndexSnapshot(any(Integer.class))).thenReturn(
         mock(com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot.class));
     when(mockStorage.subNullIndexSnapshot(any(Integer.class))).thenReturn(

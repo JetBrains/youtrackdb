@@ -163,18 +163,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // separate writer thread.
   @Nullable private volatile PageApplyHook pageApplyHook;
 
-  // Per-storage apply-phase epoch, owned by AtomicOperationsManager and shared by all
-  // atomic operations of the same storage. Bumped around the cache-apply section of
-  // commitChanges so concurrent optimistic readers can detect overlap with a partially
-  // applied commit (per-page stamps alone cannot — they are a temporal check only).
-  private final ApplyPhaseEpoch applyPhaseEpoch;
+  // Standalone test/tooling fallback. Production writers bracket the stable epochs of
+  // their locked logical components instead.
+  @Nullable private final ApplyPhaseEpoch standaloneApplyPhaseEpoch;
 
   /**
-   * Convenience constructor for standalone use (tests, tooling) where no epoch is shared
-   * with concurrent optimistic readers: allocates a private {@link ApplyPhaseEpoch}.
-   * Production code must use the primary constructor with the storage-wide epoch owned by
-   * {@link AtomicOperationsManager} — a private epoch would make commit-time applies
-   * invisible to optimistic readers of other operations on the same storage.
+   * Production constructor. Optimistic scopes receive their epoch from the component
+   * starting each read, and commits receive epochs from their locked components.
    */
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -190,7 +185,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull AtomicLong edgeSnapshotIndexSize) {
     this(readCache, writeCache, writeAheadLog, storageId, snapshot, sharedSnapshotIndex,
         sharedVisibilityIndex, snapshotIndexSize, sharedEdgeSnapshotIndex,
-        sharedEdgeVisibilityIndex, edgeSnapshotIndexSize, new ApplyPhaseEpoch());
+        sharedEdgeVisibilityIndex, edgeSnapshotIndexSize, null);
   }
 
   AtomicOperationBinaryTracking(
@@ -205,7 +200,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex,
       @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
       @Nonnull AtomicLong edgeSnapshotIndexSize,
-      @Nonnull ApplyPhaseEpoch applyPhaseEpoch) {
+      @Nullable ApplyPhaseEpoch applyPhaseEpoch) {
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -220,8 +215,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.sharedEdgeSnapshotIndex = sharedEdgeSnapshotIndex;
     this.sharedEdgeVisibilityIndex = sharedEdgeVisibilityIndex;
     this.edgeSnapshotIndexSize = edgeSnapshotIndexSize;
-    this.applyPhaseEpoch = applyPhaseEpoch;
-    this.optimisticReadScope = new OptimisticReadScope(applyPhaseEpoch);
+    this.standaloneApplyPhaseEpoch = applyPhaseEpoch;
+    this.optimisticReadScope =
+        applyPhaseEpoch == null ? new OptimisticReadScope()
+            : new OptimisticReadScope(applyPhaseEpoch);
     this.active = true;
   }
 
@@ -1119,15 +1116,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         flushEdgeSnapshotBuffers();
       }
 
-      // Apply-phase epoch bracket: exactly ONE enter/exit pair spanning the entire
-      // shared-cache mutation section — the readCache.deleteFile loop plus the whole
-      // per-file apply loop (addFile/truncateFile/loadOrAddForWrite/releaseFromWrite).
+      // Apply-phase epoch bracket: enter every locked logical component before the first
+      // shared-cache mutation, then exit all of them after the complete apply section.
+      // This covers the readCache.deleteFile loop plus the whole per-file apply loop
+      // (addFile/truncateFile/loadOrAddForWrite/releaseFromWrite).
       // Pages are applied one at a time in hash order, so a concurrent optimistic
       // reader overlapping this section could see a mix of pre- and post-commit pages
-      // with every per-page stamp still valid; the epoch lets it detect the overlap
-      // and fall back to the pinned path. The exit MUST be in a finally block: an
-      // exception escaping this section must not leave the epoch permanently "in
-      // apply", which would disable optimistic reads for the storage's lifetime.
+      // with every per-page stamp still valid; its component epoch detects the overlap.
+      // Entry happens inside the try so partial entry is unwound if a later component
+      // cannot be entered. Exits remain in finally to balance apply-time exceptions.
       // Rolled-back operations never reach commitChanges (see the gate in
       // AtomicOperationsManager.endAtomicOperation), so rollback does not bump the
       // epoch. The WAL phase and snapshot-buffer flushes above are deliberately NOT
@@ -1140,10 +1137,24 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // would only spuriously invalidate every concurrently overlapping optimistic
       // read in the storage.
       final var mutatesSharedCache = commitMutatesSharedCache();
-      if (mutatesSharedCache) {
-        applyPhaseEpoch.enterApplyPhase();
-      }
+      var enteredComponentCount = 0;
+      var standaloneEpochEntered = false;
       try {
+        if (mutatesSharedCache) {
+          // lockedComponents already preserves entry order for the operation. Reuse it
+          // with a successful-entry count so cleanup needs no per-commit collection.
+          for (final var component : lockedComponents) {
+            component.getApplyPhaseEpoch().enterApplyPhase();
+            enteredComponentCount++;
+          }
+          // Standalone operations used by low-level tests and tooling have no component
+          // lock registration. Preserve their explicit fallback epoch without weakening
+          // the production rule that cache mutations are protected by locked domains.
+          if (lockedComponents.isEmpty() && standaloneApplyPhaseEpoch != null) {
+            standaloneApplyPhaseEpoch.enterApplyPhase();
+            standaloneEpochEntered = true;
+          }
+        }
         deletedFilesIterator = deletedFiles.longIterator();
         while (deletedFilesIterator.hasNext()) {
           var deletedFileId = deletedFilesIterator.nextLong();
@@ -1211,8 +1222,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           }
         }
       } finally {
-        if (mutatesSharedCache) {
-          applyPhaseEpoch.exitApplyPhase();
+        if (standaloneEpochEntered) {
+          standaloneApplyPhaseEpoch.exitApplyPhase();
+        }
+        for (var i = enteredComponentCount - 1; i >= 0; i--) {
+          lockedComponents.get(i).getApplyPhaseEpoch().exitApplyPhase();
         }
       }
 
