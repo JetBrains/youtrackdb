@@ -9,9 +9,11 @@ import java.util.AbstractCollection;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,8 +39,13 @@ import org.apache.tinkerpop.gremlin.structure.Property;
 public final class YTDBCollatedHasContainer extends HasContainer {
 
   private static final Object UNCACHEABLE = new Object();
+  private static final int MAX_PARAMETERIZED_ENTRIES = 8;
+  private static final int MAX_PARAMETERIZED_POSITIONS = 1_024;
+  private static final int MAX_CACHED_STRING_LENGTH = 128;
 
   private transient Map<Collate, Map<P<?>, CachedOperand>> transformedOperands;
+  private transient Map<ParameterizedOperandKey, ParameterizedOperand> parameterizedOperands;
+  private transient long parameterizedGeneration;
 
   public YTDBCollatedHasContainer(String key, P<?> predicate) {
     super(key, predicate);
@@ -131,11 +138,15 @@ public final class YTDBCollatedHasContainer extends HasContainer {
   }
 
   /**
-   * Caches only immutable scalar shapes and collections containing those shapes. Identity keys
-   * avoid mutable predicate hashes, while one state comparison detects later operand changes.
+   * Parameterized membership retains bounded per-position strings. Other parameterized operands
+   * stay lazy, while immutable nonparameterized shapes retain their existing snapshot cache.
    */
   Object transformedOperand(P<?> predicate, Collate collate) {
     var operand = predicate.getValue();
+    if (eligibleParameterizedMembership(predicate, operand, collate)) {
+      return parameterizedOperand(predicate, (List<?>) operand, collate);
+    }
+    clearParameterizedOperands(predicate);
     if (predicate.isParameterized()) {
       return transformUncachedOperand(predicate, operand, collate);
     }
@@ -154,6 +165,77 @@ public final class YTDBCollatedHasContainer extends HasContainer {
     cached = new CachedOperand(state, transformOperand(operand, collate));
     operandsByPredicate.put(predicate, cached);
     return cached.transformed();
+  }
+
+  private static boolean eligibleParameterizedMembership(
+      P<?> predicate, Object operand, Collate collate) {
+    return predicate.isParameterized()
+        && predicate.getBiPredicate() instanceof Contains
+        && operand instanceof List<?>
+        && collate.getClass() == CaseInsensitiveCollate.class;
+  }
+
+  private Object parameterizedOperand(P<?> predicate, List<?> operand, Collate collate) {
+    var key = new ParameterizedOperandKey(predicate, collate);
+    var cached = findParameterizedOperand(key);
+    if (cached != null) {
+      cached.resize(operand.size());
+    }
+    return new CachedTransformingList(
+        this, key, operand, collate, cached, parameterizedGeneration);
+  }
+
+  private ParameterizedOperand findParameterizedOperand(ParameterizedOperandKey key) {
+    return parameterizedOperands == null ? null : parameterizedOperands.get(key);
+  }
+
+  private ParameterizedOperand retainParameterizedOperand(
+      ParameterizedOperandKey key,
+      int size,
+      int index,
+      String source,
+      String normalized) {
+    var cached = findParameterizedOperand(key);
+    if (cached == null) {
+      cached = new ParameterizedOperand(size, index, source, normalized);
+      parameterizedOperands().put(key, cached);
+    } else {
+      cached.resize(size);
+      cached.retain(index, source, normalized);
+    }
+    return cached;
+  }
+
+  private Map<ParameterizedOperandKey, ParameterizedOperand> parameterizedOperands() {
+    if (parameterizedOperands == null) {
+      parameterizedOperands = new LinkedHashMap<>(MAX_PARAMETERIZED_ENTRIES, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(
+            Map.Entry<ParameterizedOperandKey, ParameterizedOperand> eldest) {
+          var remove = size() > MAX_PARAMETERIZED_ENTRIES;
+          if (remove) {
+            eldest.getValue().deactivate();
+          }
+          return remove;
+        }
+      };
+    }
+    return parameterizedOperands;
+  }
+
+  private void clearParameterizedOperands(P<?> predicate) {
+    // Views capture this generation, so even an unconsumed view cannot restore obsolete state.
+    parameterizedGeneration++;
+    if (parameterizedOperands != null) {
+      var iterator = parameterizedOperands.entrySet().iterator();
+      while (iterator.hasNext()) {
+        var entry = iterator.next();
+        if (entry.getKey().predicate == predicate) {
+          entry.getValue().deactivate();
+          iterator.remove();
+        }
+      }
+    }
   }
 
   private Map<Collate, Map<P<?>, CachedOperand>> transformedOperands() {
@@ -310,10 +392,151 @@ public final class YTDBCollatedHasContainer extends HasContainer {
   public YTDBCollatedHasContainer clone() {
     var clone = (YTDBCollatedHasContainer) super.clone();
     clone.transformedOperands = null;
+    clone.parameterizedOperands = null;
+    clone.parameterizedGeneration = 0;
     return clone;
   }
 
   private record CachedOperand(Object state, Object transformed) {
+  }
+
+  private static final class ParameterizedOperandKey {
+
+    private final P<?> predicate;
+    private final Collate collate;
+
+    private ParameterizedOperandKey(P<?> predicate, Collate collate) {
+      this.predicate = predicate;
+      this.collate = collate;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return other instanceof ParameterizedOperandKey key
+          && predicate == key.predicate
+          && collate == key.collate;
+    }
+
+    @Override
+    public int hashCode() {
+      return 31 * System.identityHashCode(predicate) + System.identityHashCode(collate);
+    }
+  }
+
+  private static final class ParameterizedOperand {
+
+    private Map<Integer, ParameterizedSlot> slots = new HashMap<>();
+    private int observedSize;
+    private boolean active = true;
+
+    private ParameterizedOperand(
+        int size, int index, String source, String normalized) {
+      observedSize = size;
+      retain(index, source, normalized);
+    }
+
+    private Object transform(int index, Object source, Collate collate) {
+      if (index >= MAX_PARAMETERIZED_POSITIONS || !(source instanceof String sourceString)) {
+        slots.remove(index);
+        return YTDBCollatedHasContainer.transform(source, collate);
+      }
+
+      var slot = slots.get(index);
+      if (slot != null && slot.source.equals(sourceString)) {
+        return slot.normalized;
+      }
+
+      var normalized = YTDBCollatedHasContainer.transform(sourceString, collate);
+      if (cacheable(sourceString, normalized)) {
+        retain(index, sourceString, (String) normalized);
+      } else {
+        slots.remove(index);
+      }
+      return normalized;
+    }
+
+    private void retain(int index, String source, String normalized) {
+      slots.put(index, new ParameterizedSlot(source, normalized));
+    }
+
+    private void resize(int size) {
+      if (size < observedSize) {
+        slots.keySet().removeIf(index -> index >= size);
+      }
+      observedSize = size;
+    }
+
+    private void deactivate() {
+      active = false;
+      slots.clear();
+    }
+  }
+
+  private static boolean cacheable(String source, Object normalized) {
+    return source.length() <= MAX_CACHED_STRING_LENGTH
+        && normalized instanceof String normalizedString
+        && normalizedString.length() <= MAX_CACHED_STRING_LENGTH;
+  }
+
+  private record ParameterizedSlot(String source, String normalized) {
+  }
+
+  private static final class CachedTransformingList extends AbstractList<Object> {
+
+    private final YTDBCollatedHasContainer owner;
+    private final ParameterizedOperandKey key;
+    private final List<?> source;
+    private final Collate collate;
+    private final long generation;
+    private ParameterizedOperand cached;
+
+    private CachedTransformingList(
+        YTDBCollatedHasContainer owner,
+        ParameterizedOperandKey key,
+        List<?> source,
+        Collate collate,
+        ParameterizedOperand cached,
+        long generation) {
+      this.owner = owner;
+      this.key = key;
+      this.source = source;
+      this.collate = collate;
+      this.cached = cached;
+      this.generation = generation;
+    }
+
+    @Override
+    public Object get(int index) {
+      var member = source.get(index);
+      if (generation != owner.parameterizedGeneration) {
+        return YTDBCollatedHasContainer.transform(member, collate);
+      }
+      var size = source.size();
+      if (cached != null && !cached.active) {
+        cached = null;
+      }
+      if (cached == null) {
+        cached = owner.findParameterizedOperand(key);
+      }
+      if (cached != null) {
+        cached.resize(size);
+        return cached.transform(index, member, collate);
+      }
+
+      var normalized = YTDBCollatedHasContainer.transform(member, collate);
+      if (index < MAX_PARAMETERIZED_POSITIONS
+          && member instanceof String sourceString
+          && cacheable(sourceString, normalized)) {
+        cached = owner.retainParameterizedOperand(
+            key, size, index, sourceString, (String) normalized);
+      }
+      return normalized;
+    }
+
+    @Override
+    public int size() {
+      return source.size();
+    }
   }
 
   private static final class TransformingList extends AbstractList<Object> {

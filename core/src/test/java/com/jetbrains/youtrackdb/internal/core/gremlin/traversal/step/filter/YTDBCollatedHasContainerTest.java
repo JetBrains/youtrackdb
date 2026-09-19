@@ -19,8 +19,10 @@ import java.io.ObjectOutputStream;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -420,6 +422,366 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     assertThat(collate.stringTransforms).isEqualTo(2);
   }
 
+  /** Parameterized membership reuses each normalized position without replaying source reads. */
+  @Test
+  public void parameterizedMembershipReusesNormalizedPositions() {
+    var values = new MutableCountingList(stringValues(256));
+    var predicate = new CollectionPredicate(values, true);
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+
+    var first = (List<?>) container.transformedOperand(predicate, collate);
+    var firstNormalized = first.get(128);
+    var second = (List<?>) container.transformedOperand(predicate, collate);
+    assertThat(second.get(128)).isSameAs(firstNormalized);
+
+    values.resetReads();
+    for (var evaluation = 0; evaluation < 512; evaluation++) {
+      assertThat(container.evaluate(predicate, "MISSING", collate)).isFalse();
+    }
+    assertThat(values.reads).isEqualTo(256 * 512);
+
+    var reused = new ArrayList<Object>(values.size());
+    var populated = (List<?>) container.transformedOperand(predicate, collate);
+    for (var index = 0; index < values.size(); index++) {
+      reused.add(populated.get(index));
+    }
+    assertThat(container.evaluate(predicate, "MISSING", collate)).isFalse();
+    var afterEvaluation = (List<?>) container.transformedOperand(predicate, collate);
+    for (var index = 0; index < values.size(); index++) {
+      assertThat(afterEvaluation.get(index)).isSameAs(reused.get(index));
+    }
+
+    values.resetReads();
+    values.set(0, "MATCH");
+    for (var evaluation = 0; evaluation < 512; evaluation++) {
+      assertThat(container.evaluate(predicate, "match", collate)).isTrue();
+    }
+    assertThat(values.reads).isEqualTo(512);
+  }
+
+  /** Stable-size early matches never enumerate the populated positional slot map. */
+  @Test
+  public void parameterizedMembershipAvoidsStableSizeSlotScans() throws Exception {
+    var values = new MutableCountingList(stringValues(1_024));
+    var predicate = new CollectionPredicate(values, true);
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+    values.resetReads();
+    assertThat(container.evaluate(predicate, "MISSING", collate)).isFalse();
+
+    var cached = parameterizedOperandState(container);
+    var slots = cached.getClass().getDeclaredField("slots");
+    slots.setAccessible(true);
+    slots.set(cached, new NoScanMap((Map<?, ?>) slots.get(cached)));
+
+    assertThat(container.evaluate(predicate, "value-0", collate)).isTrue();
+    assertThat(values.reads).isEqualTo(1_025);
+  }
+
+  /** Empty and wholly uncacheable evaluations do not allocate retained identity state. */
+  @Test
+  public void parameterizedMembershipAdmitsCacheOnFirstReusableString() throws Exception {
+    var collate = new CaseInsensitiveCollate();
+
+    var empty = new CollectionPredicate(List.of(), true);
+    var emptyContainer = new YTDBCollatedHasContainer("name", empty);
+    assertThat(emptyContainer.evaluate(empty, "missing", collate)).isFalse();
+    assertThat(parameterizedOperands(emptyContainer)).isNull();
+
+    var marker = new Object();
+    var nonString = new CollectionPredicate(List.of(marker), true);
+    var nonStringContainer = new YTDBCollatedHasContainer("name", nonString);
+    assertThat(nonStringContainer.evaluate(nonString, marker, collate)).isTrue();
+    assertThat(parameterizedOperands(nonStringContainer)).isNull();
+
+    var oversized = new CollectionPredicate(List.of("A".repeat(129)), true);
+    var oversizedContainer = new YTDBCollatedHasContainer("name", oversized);
+    assertThat(oversizedContainer.evaluate(oversized, "a".repeat(129), collate)).isTrue();
+    assertThat(parameterizedOperands(oversizedContainer)).isNull();
+  }
+
+  /** Without stops at a matching first member and never evaluates a throwing lazy tail. */
+  @Test
+  public void parameterizedWithoutShortCircuitsBeforeThrowingTail() {
+    var values = new ThrowingTailList();
+    var predicate = new CollectionPredicate(values, true, Contains.without);
+    var container = new YTDBCollatedHasContainer("name", predicate);
+    values.arm();
+
+    assertThat(container.evaluate(predicate, "match", new CaseInsensitiveCollate())).isFalse();
+    assertThat(values.reads).isOne();
+  }
+
+  /** Within and without retain sequential exits while mutations invalidate only consumed slots. */
+  @Test
+  public void parameterizedMembershipTracksListMutationsAndRebinding() {
+    var values = new MutableCountingList(List.of("FIRST", "MIDDLE", "LAST"));
+    var within = new CollectionPredicate(values, true);
+    var without = new CollectionPredicate(values, true, Contains.without);
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", within);
+
+    assertThat(container.evaluate(within, "first", collate)).isTrue();
+    assertThat(container.evaluate(within, "middle", collate)).isTrue();
+    assertThat(container.evaluate(within, "last", collate)).isTrue();
+    assertThat(container.evaluate(without, "missing", collate)).isTrue();
+    assertThat(container.evaluate(without, "middle", collate)).isFalse();
+
+    values.set(0, "ONE");
+    values.set(1, "TWO");
+    values.set(2, "THREE");
+    assertThat(container.evaluate(within, "one", collate)).isTrue();
+    assertThat(container.evaluate(within, "two", collate)).isTrue();
+    assertThat(container.evaluate(within, "three", collate)).isTrue();
+
+    values.add(1, "INSERTED");
+    assertThat(container.evaluate(within, "inserted", collate)).isTrue();
+    values.remove(2);
+    assertThat(container.evaluate(within, "two", collate)).isFalse();
+    var moved = values.remove(2);
+    values.add(0, moved);
+    assertThat(container.evaluate(within, "three", collate)).isTrue();
+  }
+
+  /** Shrinking an operand discards removed slots before equal values regrow at those positions. */
+  @Test
+  public void parameterizedMembershipTruncatesSlotsAfterShrink() {
+    var values = new MutableCountingList(List.of("FIRST", "SECOND", "THIRD"));
+    var predicate = new CollectionPredicate(values, true);
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+    var first = (List<?>) container.transformedOperand(predicate, collate);
+    var removedNormalized = first.get(2);
+
+    values.remove(2);
+    first.getFirst();
+    values.add("THIRD");
+    var regrown = (List<?>) container.transformedOperand(predicate, collate);
+
+    assertThat(regrown.get(2)).isEqualTo(removedNormalized).isNotSameAs(removedNormalized);
+  }
+
+  /** The positional cap and string guards retain only explicitly bounded normalized values. */
+  @Test
+  public void parameterizedMembershipHonorsPositionAndLengthBounds() {
+    var values = new MutableCountingList(stringValues(1_025));
+    var predicate = new CollectionPredicate(values, true);
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+
+    assertPositionReuse(container, predicate, collate, 1_023, true);
+    assertPositionReuse(container, predicate, collate, 1_024, false);
+
+    values.set(0, "A".repeat(127));
+    assertPositionReuse(container, predicate, collate, 0, true);
+    values.set(0, "A".repeat(128));
+    assertPositionReuse(container, predicate, collate, 0, true);
+    values.set(0, "A".repeat(129));
+    assertPositionReuse(container, predicate, collate, 0, false);
+    values.set(0, "\u0130".repeat(64));
+    assertPositionReuse(container, predicate, collate, 0, true);
+    values.set(0, "\u0130".repeat(65));
+    assertPositionReuse(container, predicate, collate, 0, false);
+
+    values.set(0, "SHORT");
+    var beforeOversize = transformedPosition(container, predicate, collate, 0);
+    values.set(0, "A".repeat(129));
+    transformedPosition(container, predicate, collate, 0);
+    values.set(0, "SHORT");
+    assertThat(transformedPosition(container, predicate, collate, 0))
+        .isNotSameAs(beforeOversize);
+  }
+
+  /** Eight identity entries use access order and evict the least recently used ninth entry. */
+  @Test
+  public void parameterizedMembershipBoundsIdentityCache() {
+    var values = new MutableCountingList(List.of("VALUE"));
+    var predicates = new ArrayList<CollectionPredicate>();
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", P.eq("unused"));
+    var normalized = new ArrayList<Object>();
+    for (var index = 0; index < 8; index++) {
+      var predicate = new CollectionPredicate(values, true);
+      predicates.add(predicate);
+      normalized.add(transformedPosition(container, predicate, collate, 0));
+    }
+
+    assertThat(transformedPosition(container, predicates.getFirst(), collate, 0))
+        .isSameAs(normalized.getFirst());
+    transformedPosition(container, new CollectionPredicate(values, true), collate, 0);
+
+    assertThat(transformedPosition(container, predicates.getFirst(), collate, 0))
+        .isSameAs(normalized.getFirst());
+    assertThat(transformedPosition(container, predicates.get(1), collate, 0))
+        .isNotSameAs(normalized.get(1));
+
+    var collates = new ArrayList<CaseInsensitiveCollate>();
+    var collateNormalized = new ArrayList<Object>();
+    var collateContainer = new YTDBCollatedHasContainer("name", predicates.getFirst());
+    for (var index = 0; index < 9; index++) {
+      var identity = new CaseInsensitiveCollate();
+      collates.add(identity);
+      collateNormalized.add(
+          transformedPosition(collateContainer, predicates.getFirst(), identity, 0));
+    }
+    assertThat(transformedPosition(
+        collateContainer, predicates.getFirst(), collates.getFirst(), 0))
+        .isNotSameAs(collateNormalized.getFirst());
+  }
+
+  /** Updating first, middle, and last variables invalidates their resolved positions. */
+  @Test
+  public void parameterizedMembershipTracksVariableRebinding() {
+    @SuppressWarnings("unchecked")
+    var predicate = (P<Object>) (P<?>) P.within(List.of(
+        GValue.of("first", "FIRST"),
+        GValue.of("middle", "MIDDLE"),
+        GValue.of("last", "LAST")));
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+
+    assertThat(container.evaluate(predicate, "first", collate)).isTrue();
+    assertThat(container.evaluate(predicate, "middle", collate)).isTrue();
+    assertThat(container.evaluate(predicate, "last", collate)).isTrue();
+    predicate.updateVariable("first", "ONE");
+    predicate.updateVariable("middle", "TWO");
+    predicate.updateVariable("last", "THREE");
+    assertThat(container.evaluate(predicate, "first", collate)).isFalse();
+    assertThat(container.evaluate(predicate, "middle", collate)).isFalse();
+    assertThat(container.evaluate(predicate, "last", collate)).isFalse();
+    assertThat(container.evaluate(predicate, "one", collate)).isTrue();
+    assertThat(container.evaluate(predicate, "two", collate)).isTrue();
+    assertThat(container.evaluate(predicate, "three", collate)).isTrue();
+  }
+
+  /** Ineligible shapes and collations clear identity state and retain existing fallback behavior. */
+  @Test
+  public void parameterizedMembershipTransitionsUseFallback() {
+    @SuppressWarnings("unchecked")
+    var predicate = (P<Object>) (P<?>) P.within(
+        List.of(GValue.of("candidate", "VALUE")));
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+    var cached = transformedPosition(container, predicate, collate, 0);
+
+    predicate.setValue(List.of("VALUE"));
+    assertThat(container.evaluate(predicate, "value", collate)).isTrue();
+    predicate.setValue(Set.of("VALUE"));
+    assertThat(predicate.getValue()).isInstanceOf(List.class);
+    assertThat(predicate.isParameterized()).isFalse();
+    assertThat(container.evaluate(predicate, "value", collate)).isTrue();
+    predicate.setValue(List.of(List.of("VALUE")));
+    assertThat(container.evaluate(predicate, List.of("value"), collate)).isTrue();
+    predicate.setValue("VALUE");
+    assertThatThrownBy(() -> container.evaluate(predicate, "value", collate))
+        .isInstanceOf(ClassCastException.class);
+    predicate.setValue(GValue.of("candidate", "VALUE"));
+    assertThatThrownBy(() -> container.evaluate(predicate, "value", collate))
+        .isInstanceOf(ClassCastException.class);
+    predicate.setValue(List.of(GValue.of("candidate", "VALUE")));
+    assertThat(transformedPosition(container, predicate, collate, 0)).isNotSameAs(cached);
+
+    var subclass = new CountingCaseInsensitiveCollate();
+    var first = transformedPosition(container, predicate, subclass, 0);
+    var second = transformedPosition(container, predicate, subclass, 0);
+    assertThat(second).isEqualTo(first).isNotSameAs(first);
+  }
+
+  /** A populated stale view stays uncached and cannot evict active identity entries. */
+  @Test
+  public void ineligibleTransitionTombstonesPopulatedView() throws Exception {
+    @SuppressWarnings("unchecked")
+    var predicate = (P<Object>) (P<?>) P.within(
+        List.of(GValue.of("candidate", "OBSOLETE")));
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+    var stale = (List<?>) container.transformedOperand(predicate, collate);
+    assertThat(stale.getFirst()).isEqualTo("obsolete");
+
+    predicate.setValue("INELIGIBLE");
+    container.transformedOperand(predicate, collate);
+
+    var livePredicates = new ArrayList<CollectionPredicate>();
+    var liveNormalized = new ArrayList<Object>();
+    for (var index = 0; index < 8; index++) {
+      var live = new CollectionPredicate(List.of("LIVE-" + index), true);
+      livePredicates.add(live);
+      liveNormalized.add(transformedPosition(container, live, collate, 0));
+    }
+    assertThat((Map<?, ?>) parameterizedOperands(container)).hasSize(8);
+
+    assertThat(stale.getFirst()).isEqualTo("obsolete");
+    assertThat((Map<?, ?>) parameterizedOperands(container)).hasSize(8);
+    assertThat(transformedPosition(container, livePredicates.getFirst(), collate, 0))
+        .isSameAs(liveNormalized.getFirst());
+
+    predicate.setValue(List.of(GValue.of("candidate", "CURRENT")));
+    var current = transformedPosition(container, predicate, collate, 0);
+    assertThat(current).isEqualTo("current");
+    assertThat(transformedPosition(container, predicate, collate, 0)).isSameAs(current);
+  }
+
+  /** An unconsumed stale view cannot admit state, while a later eligible view can. */
+  @Test
+  public void ineligibleTransitionTombstonesUnconsumedView() throws Exception {
+    @SuppressWarnings("unchecked")
+    var predicate = (P<Object>) (P<?>) P.within(
+        List.of(GValue.of("candidate", "OBSOLETE")));
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+    var stale = (List<?>) container.transformedOperand(predicate, collate);
+    assertThat(parameterizedOperands(container)).isNull();
+
+    predicate.setValue("INELIGIBLE");
+    container.transformedOperand(predicate, collate);
+    assertThat(stale.getFirst()).isEqualTo("obsolete");
+    assertThat(parameterizedOperands(container)).isNull();
+
+    predicate.setValue(List.of(GValue.of("candidate", "CURRENT")));
+    var current = transformedPosition(container, predicate, collate, 0);
+    assertThat(current).isEqualTo("current");
+    assertThat(transformedPosition(container, predicate, collate, 0)).isSameAs(current);
+  }
+
+  /** Non-string positions stay lazy and do not replay a consumed prefix before type failures. */
+  @Test
+  public void parameterizedMembershipKeepsUnsupportedMembersSequential() {
+    var marker = new Object();
+    var values = new MutableCountingList(List.of("FIRST", marker, List.of("NESTED")));
+    var predicate = new CollectionPredicate(values, true);
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+
+    values.resetReads();
+    assertThat(container.evaluate(predicate, marker, collate)).isTrue();
+    assertThat(values.reads).isEqualTo(2);
+    values.resetReads();
+    assertThat(container.evaluate(predicate, List.of("nested"), collate)).isTrue();
+    assertThat(values.reads).isEqualTo(3);
+  }
+
+  /** Clone and serialization drop positional reuse while preserving parameterized behavior. */
+  @Test
+  public void parameterizedMembershipCacheResetsAcrossLifecycle() throws Exception {
+    @SuppressWarnings("unchecked")
+    var predicate = (P<Object>) (P<?>) P.within(
+        List.of(GValue.of("candidate", "VALUE")));
+    var collate = new CaseInsensitiveCollate();
+    var container = new YTDBCollatedHasContainer("name", predicate);
+    var original = transformedPosition(container, predicate, collate, 0);
+
+    var clone = container.clone();
+    var clonePredicate = clone.getPredicate();
+    assertThat(transformedPosition(clone, clonePredicate, collate, 0)).isNotSameAs(original);
+
+    var restored = roundTrip(container);
+    var restoredPredicate = restored.getPredicate();
+    assertThat(transformedPosition(restored, restoredPredicate, collate, 0))
+        .isNotSameAs(original);
+    assertThat(restored.evaluate(restoredPredicate, "value", collate)).isTrue();
+  }
+
   /** Mixed supported and regex leaves collate only supported leaves and retain regex casing. */
   @Test
   public void mixedPredicateTreeDelegatesRegexLeaves() {
@@ -663,6 +1025,20 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     return field.get(container);
   }
 
+  private static Object parameterizedOperands(YTDBCollatedHasContainer container)
+      throws ReflectiveOperationException {
+    var field = YTDBCollatedHasContainer.class.getDeclaredField("parameterizedOperands");
+    field.setAccessible(true);
+    return field.get(container);
+  }
+
+  private static Object parameterizedOperandState(YTDBCollatedHasContainer container)
+      throws ReflectiveOperationException {
+    var operands = (Map<?, ?>) parameterizedOperands(container);
+    assertThat(operands).hasSize(1);
+    return operands.values().iterator().next();
+  }
+
   private static List<String> stringValues(int size) {
     var values = new ArrayList<String>(size);
     for (var index = 0; index < size; index++) {
@@ -678,6 +1054,26 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
       values.add("value-" + index);
     }
     return values;
+  }
+
+  private static void assertPositionReuse(
+      YTDBCollatedHasContainer container,
+      P<?> predicate,
+      Collate collate,
+      int index,
+      boolean expected) {
+    var first = transformedPosition(container, predicate, collate, index);
+    var second = transformedPosition(container, predicate, collate, index);
+    if (expected) {
+      assertThat(second).isSameAs(first);
+    } else {
+      assertThat(second).isEqualTo(first).isNotSameAs(first);
+    }
+  }
+
+  private static Object transformedPosition(
+      YTDBCollatedHasContainer container, P<?> predicate, Collate collate, int index) {
+    return ((List<?>) container.transformedOperand(predicate, collate)).get(index);
   }
 
   private void withTranslator(boolean enabled, Runnable body) {
@@ -741,7 +1137,12 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     private final boolean parameterized;
 
     private CollectionPredicate(Collection<?> value, boolean parameterized) {
-      super(withinPredicate(), value);
+      this(value, parameterized, Contains.within);
+    }
+
+    private CollectionPredicate(
+        Collection<?> value, boolean parameterized, Contains contains) {
+      super(containsPredicate(contains), value);
       this.value = value;
       this.parameterized = parameterized;
     }
@@ -757,8 +1158,90 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static PBiPredicate<Object, Object> withinPredicate() {
-      return (PBiPredicate) Contains.within;
+    private static PBiPredicate<Object, Object> containsPredicate(Contains contains) {
+      return (PBiPredicate) contains;
+    }
+  }
+
+  private static final class MutableCountingList extends AbstractList<Object> {
+
+    private final List<Object> values;
+    private int reads;
+
+    private MutableCountingList(Collection<?> values) {
+      this.values = new ArrayList<>(values);
+    }
+
+    @Override
+    public Object get(int index) {
+      reads++;
+      return values.get(index);
+    }
+
+    @Override
+    public int size() {
+      return values.size();
+    }
+
+    @Override
+    public Object set(int index, Object element) {
+      return values.set(index, element);
+    }
+
+    @Override
+    public void add(int index, Object element) {
+      values.add(index, element);
+    }
+
+    @Override
+    public Object remove(int index) {
+      return values.remove(index);
+    }
+
+    private void resetReads() {
+      reads = 0;
+    }
+  }
+
+  private static final class NoScanMap extends HashMap<Integer, Object> {
+
+    private NoScanMap(Map<?, ?> values) {
+      for (var entry : values.entrySet()) {
+        put((Integer) entry.getKey(), entry.getValue());
+      }
+    }
+
+    @Override
+    public Set<Integer> keySet() {
+      throw new AssertionError("Stable size must not enumerate retained slots");
+    }
+  }
+
+  private static final class ThrowingTailList extends AbstractList<Object> {
+
+    private int reads;
+    private boolean armed;
+
+    @Override
+    public Object get(int index) {
+      reads++;
+      if (index == 0) {
+        return "MATCH";
+      }
+      if (armed) {
+        throw new AssertionError("Membership consumed the lazy tail");
+      }
+      return "TAIL";
+    }
+
+    @Override
+    public int size() {
+      return 2;
+    }
+
+    private void arm() {
+      reads = 0;
+      armed = true;
     }
   }
 
