@@ -32,11 +32,9 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
-
 public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
 
   YouTrackDBImpl newYouTrackDb();
-
 
   /**
    * Create a new Embedded factory
@@ -54,7 +52,6 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
     return new YouTrackDBInternalEmbedded(directoryPath, config,
         YouTrackDBEnginesManager.instance(), serverMode);
   }
-
 
   /**
    * Open a database specified by name using the username and password if needed
@@ -143,6 +140,11 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @return a set of databases names.
    */
   Set<String> listDatabases(String user, String password);
+
+  default long diskUsage(String name) {
+    throw new UnsupportedOperationException(
+        "Disk usage is available only for embedded database managers");
+  }
 
   /**
    * Open a pool of databases, similar to open but with multiple instances.

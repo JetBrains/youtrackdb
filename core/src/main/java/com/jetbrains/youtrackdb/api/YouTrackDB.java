@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.api;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
-import java.util.Locale;
 import java.util.List;
+import java.util.Locale;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
@@ -264,11 +264,31 @@ public interface YouTrackDB extends AutoCloseable {
   /// @return boolean true if exist false otherwise.
   boolean exists(@Nonnull String databaseName);
 
-  /// List exiting databases in the current environment
+  /// List existing databases in the current environment.
   ///
-  /// @return a list of existing databases.
+  /// @return a list of existing databases
   @Nonnull
   List<String> listDatabases();
+
+  /// Returns the cached sum of regular-file lengths below an embedded database directory.
+  ///
+  /// A missing or expired cache entry causes this call to scan the directory synchronously.
+  /// The calculation reads file metadata and does not follow symbolic links. It does not measure
+  /// allocated filesystem blocks. The result can be stale for the configured cache duration.
+  /// Concurrent database updates can also change the result during a scan. Memory databases return
+  /// zero. The manager must remain open, but the database does not need an open application session.
+  ///
+  /// Remote database managers do not support this operation.
+  ///
+  /// @param databaseName database name
+  /// @return sum of regular-file lengths in bytes
+  /// @throws com.jetbrains.youtrackdb.internal.core.exception.DatabaseException if the database is
+  ///         missing or its directory cannot be measured
+  /// @throws UnsupportedOperationException when this manager is not embedded
+  default long diskUsage(@Nonnull String databaseName) {
+    throw new UnsupportedOperationException(
+        "Disk usage is available only for embedded database managers");
+  }
 
   /// Close the current YouTrackDB database manager with all related databases and pools.
   @Override

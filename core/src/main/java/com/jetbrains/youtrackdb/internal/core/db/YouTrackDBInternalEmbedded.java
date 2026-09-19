@@ -68,12 +68,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
+
+  private static volatile Consumer<YouTrackDBInternalEmbedded> beforeManagerPublication =
+      ignored -> {
+      };
 
   /**
    * Keeps track of next possible storage id.
@@ -103,11 +108,14 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   private final SystemDatabase systemDatabase;
   private final DefaultSecuritySystem securitySystem;
   private final CommandTimeoutChecker timeoutChecker;
+  private final DatabaseDiskUsage databaseDiskUsage;
 
   private volatile long maxWALSegmentSize = -1;
   private volatile long doubleWriteLogMaxSegSize = -1;
 
   private final ReentrantLock fileMetadataLock = new ReentrantLock();
+  private volatile Runnable beforeDiskUsageRegistration = () -> {
+  };
 
   public YouTrackDBInternalEmbedded(String directoryPath, YouTrackDBConfig configuration,
       YouTrackDBEnginesManager youTrack, boolean serverMode) {
@@ -115,17 +123,26 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
     this.youTrack = youTrack;
     this.serverMode = serverMode;
-    youTrack.onEmbeddedFactoryInit(this);
-    memory = youTrack.getEngine("memory");
-    disk = youTrack.getEngine("disk");
     basePath = Path.of(directoryPath.trim()).toAbsolutePath().normalize();
-
     this.configuration =
         (YouTrackDBConfigImpl) (configuration != null ? configuration
             : YouTrackDBConfig.defaultConfig());
 
-    MemoryAndLocalPaginatedEnginesInitializer.INSTANCE.initialize();
+    // Validate before registering this manager with shared engine state.
+    var diskUsageCacheDuration = getLongConfig(GlobalConfiguration.DB_DISK_USAGE_CACHE_DURATION);
+    if (diskUsageCacheDuration <= 0) {
+      throw new IllegalArgumentException("Database disk usage cache duration must be positive");
+    }
+    var existingDiskDatabases = discoverDatabaseNames(basePath);
 
+    youTrack.onEmbeddedFactoryInit(this);
+    memory = youTrack.getEngine("memory");
+    disk = youTrack.getEngine("disk");
+    MemoryAndLocalPaginatedEnginesInitializer.INSTANCE.initialize();
+    databaseDiskUsage =
+        new DatabaseDiskUsage(diskUsageCacheDuration, youTrack.getMetricsRegistry());
+
+    beforeManagerPublication.accept(this);
     youTrack.addYouTrackDB(this);
     youTrack.createExecutor(this.configuration);
     youTrack.createIoExecutor(this.configuration);
@@ -140,6 +157,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     securitySystem = new DefaultSecuritySystem();
 
     securitySystem.activate(this, this.configuration.getSecurityConfig());
+    registerExistingDiskUsageMetrics(existingDiskDatabases);
   }
 
   private void initAutoClose() {
@@ -834,6 +852,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
           throw e;
         }
 
+        beforeDiskUsageRegistration.run();
+        registerDiskUsageMetric(name);
         embedded.callOnCreateListeners();
       } else {
         if (failIfExists) {
@@ -974,6 +994,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       }
     } finally {
       synchronized (this) {
+        databaseDiskUsage.remove(name);
         if (exists(name)) {
           var storage = getOrInitStorage(name);
           var sharedContext = sharedContexts.get(name);
@@ -999,6 +1020,94 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   private interface DatabaseFound {
 
     void found(String name);
+  }
+
+  @Override
+  public long diskUsage(String name) {
+    final Path databaseDirectory;
+    final DatabaseDiskUsage.Entry entry;
+    synchronized (this) {
+      checkOpen();
+      Objects.requireNonNull(name, "Database name is required");
+
+      var storage = storages.get(name);
+      if (storage instanceof DiskStorage diskStorage) {
+        databaseDirectory = diskStorage.getStoragePath();
+      } else if (storage != null) {
+        databaseDirectory = null;
+      } else {
+        checkDatabaseName(name);
+        checkDiskUsageDatabaseName(name);
+        databaseDirectory = resolveDefaultDatabaseDirectory(name);
+        if (!DiskStorage.exists(databaseDirectory)) {
+          throw new DatabaseException(basePath.toString(),
+              "Database '" + name + "' does not exist");
+        }
+      }
+      entry = databaseDiskUsage.register(name, () -> diskUsage(name));
+    }
+
+    return databaseDiskUsage.get(entry, databaseDirectory);
+  }
+
+  private void checkDiskUsageDatabaseName(String name) {
+    if (name.equals(".") || name.equals("..")
+        || (File.separatorChar == '\\' && name.indexOf('\\') >= 0)) {
+      throw new DatabaseException(basePath.toString(),
+          "Invalid database name: '" + name + "'");
+    }
+  }
+
+  private Path resolveDefaultDatabaseDirectory(String name) {
+    var databaseDirectory = basePath.resolve(name).normalize();
+    if (!basePath.equals(databaseDirectory.getParent())) {
+      throw new DatabaseException(basePath.toString(),
+          "Database path is outside the manager directory");
+    }
+    return databaseDirectory;
+  }
+
+  private void registerExistingDiskUsageMetrics(Set<String> existingDiskDatabases) {
+    existingDiskDatabases.forEach(this::registerDiskUsageMetric);
+    storages.keySet().forEach(this::registerDiskUsageMetric);
+  }
+
+  static Set<String> discoverDatabaseNames(Path directory) {
+    var databases = new HashSet<String>();
+    var children = directory.toFile().listFiles(File::isDirectory);
+    if (children == null) {
+      return databases;
+    }
+    for (var child : children) {
+      var path = child.toPath();
+      if (Files.isRegularFile(path.resolve("database.ocf"))
+          || Files.isRegularFile(path.resolve(
+              CollectionBasedStorageConfiguration.COMPONENT_NAME
+                  + CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION))) {
+        databases.add(child.getName());
+      }
+    }
+    return databases;
+  }
+
+  private void registerDiskUsageMetric(String databaseName) {
+    databaseDiskUsage.register(databaseName, () -> diskUsage(databaseName));
+  }
+
+  long diskUsageManagerId() {
+    return databaseDiskUsage.managerId();
+  }
+
+  void setBeforeDiskUsageRegistration(Runnable hook) {
+    beforeDiskUsageRegistration = hook;
+  }
+
+  static void setBeforeManagerPublication(Consumer<YouTrackDBInternalEmbedded> hook) {
+    beforeManagerPublication = hook;
+  }
+
+  boolean hasInitializedDiskUsage() {
+    return databaseDiskUsage != null;
   }
 
   @Override
@@ -1100,6 +1209,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       return;
     }
     open = false;
+    databaseDiskUsage.close();
     this.sharedContexts.values().forEach(SharedContext::close);
     final List<AbstractStorage> storagesCopy = new ArrayList<>(storages.values());
 
@@ -1200,6 +1310,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
         }
       }
       storages.put(name, storage);
+      registerDiskUsageMetric(name);
     }
     if (embedded != null) {
       embedded.callOnCreateListeners();
