@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModul
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -92,6 +93,7 @@ final class SelectStepRecogniser implements StepRecogniser {
     var aliasPresences = new ArrayList<AliasPropertyPresence>();
     var presenceEntityColumns = new HashSet<String>();
     var recordIdKeys = new ArrayList<String>();
+    var emitDescriptors = new LinkedHashMap<String, EmittedColumnDescriptor>();
     var returnDistinct = ctx.returnDistinct();
     ctx.clearReturnProjection();
     for (int i = 0; i < labels.size(); i++) {
@@ -127,6 +129,8 @@ final class SelectStepRecogniser implements StepRecogniser {
         } else {
           aliasPresences.add(new AliasPropertyPresence(entityCol, key, userLabel, !productive));
         }
+        emitDescriptors.put(
+            userLabel, new EmittedColumnDescriptor.AliasProperty(internalAlias, key, productive));
       } else {
         if (returnDistinct) {
           // DISTINCT on entity identity; emit @rid/@class from the projected expression.
@@ -138,6 +142,12 @@ final class SelectStepRecogniser implements StepRecogniser {
         ctx.appendReturnColumn(field.get(), userLabel);
         if (ByModulatorTranslator.keyModulatorIsRecordId(modulator)) {
           recordIdKeys.add(userLabel);
+          emitDescriptors.put(
+              userLabel, new EmittedColumnDescriptor.RecordAttribute(internalAlias, "@rid"));
+        } else {
+          // by(T.label) / @class — the only other accepted record-attribute modulator.
+          emitDescriptors.put(
+              userLabel, new EmittedColumnDescriptor.RecordAttribute(internalAlias, "@class"));
         }
       }
     }
@@ -157,6 +167,13 @@ final class SelectStepRecogniser implements StepRecogniser {
       shaping = shaping.withRecordIdMapKeys(List.copyOf(recordIdKeys));
     }
     ctx.setResultShaping(shaping);
+    // Only a multi-label map leaves map cells in the traverser. A singleton select unwraps to a
+    // scalar, so a trailing select(label) must rebind through the path (native SelectOne contract).
+    if (labels.size() > 1) {
+      for (var entry : emitDescriptors.entrySet()) {
+        ctx.putEmitDescriptor(entry.getKey(), entry.getValue());
+      }
+    }
     return Outcome.ACCEPTED;
   }
 

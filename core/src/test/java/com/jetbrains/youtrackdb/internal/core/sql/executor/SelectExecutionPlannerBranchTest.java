@@ -1353,14 +1353,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * Known pre-existing defect for {@code SELECT *, marker FROM Class ORDER BY tags[0]}.
-   * The development branch leaks the synthetic sort key.
-   * This change deliberately does not fix that defect.
-   * A correct future fix must break this test.
-   * Review follow-up from 2026-09-17 tracks this defect because no repository identifier exists.
+   * {@code SELECT *, marker FROM Class ORDER BY tags[0]}. Mint-fact {@code removeProperty} strips
+   * the synthetic sort key without rebuilding the select-all projection.
    */
   @Test
-  public void knownPreExisting_wildcardProjectionLeaksSyntheticSortKey() {
+  public void wildcardProjection_stripsSyntheticSortKey() {
     var className = "StripSelectAll_" + uniqueSuffix();
     session.getMetadata().getSchema().createClass(className);
 
@@ -1379,8 +1376,11 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
       for (var row : rows) {
-        Assert.assertTrue(row.getPropertyNames().stream()
-            .anyMatch(propName -> propName.startsWith("_$$$")));
+        for (var propName : row.getPropertyNames()) {
+          Assert.assertFalse(
+              "synthetic ORDER BY alias must not leak: " + propName,
+              propName.startsWith("_$$$"));
+        }
         var name = (String) row.getProperty("name");
         Assert.assertNotNull("select-all must keep the name column", name);
         Assert.assertEquals("select-all must keep the marker column",
@@ -1391,11 +1391,78 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * Known pre-existing defect for {@code SELECT *, !secret FROM Class ORDER BY tags[0]}.
-   * The development branch resurrects {@code secret} with a null value.
-   * This change deliberately does not fix that defect.
-   * A correct future fix must break this test.
-   * Review follow-up from 2026-09-17 tracks this defect because no repository identifier exists.
+   * {@code SELECT name FROM Class ORDER BY tags[0]} with an index on {@code name} still mints a
+   * synthetic key for the bracket expression. The mint-fact strip must remove it even when the
+   * plan shape varies.
+   */
+  @Test
+  public void bracketOrderBy_stripsMintAliasesFromVisibleColumns() {
+    var className = "MintStripBracket_" + uniqueSuffix();
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("marker", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    for (var i = 0; i < 4; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("marker", "m" + i);
+      doc.<Integer>getOrCreateEmbeddedList("tags").add(3 - i);
+    }
+    session.commit();
+
+    try (var result =
+        session.query("select marker from " + className + " order by tags[0] asc")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(4, rows.size());
+      Assert.assertEquals("m3", rows.get(0).getProperty("marker"));
+      for (var row : rows) {
+        Assert.assertEquals(List.of("marker"), new ArrayList<>(row.getPropertyNames()));
+      }
+    }
+  }
+
+  /**
+   * {@code SELECT count(*) AS c FROM Class GROUP BY city ORDER BY name} mints a synthetic ORDER BY
+   * alias because aggregation disables deferral. The mint must not appear in the output columns.
+   */
+  @Test
+  public void aggregateOrderByNonProjectedField_stripsMintAliases() {
+    var className = "MintStripAgg_" + uniqueSuffix();
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("city", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    for (var city : new String[] {"a", "b", "c"}) {
+      var doc = session.newInstance(className);
+      doc.setProperty("city", city);
+      doc.setProperty("name", "n-" + city);
+    }
+    session.commit();
+
+    try (var result =
+        session.query(
+            "select count(*) as c from " + className + " group by city order by name asc")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(3, rows.size());
+      for (var row : rows) {
+        for (var propName : row.getPropertyNames()) {
+          Assert.assertFalse(
+              "synthetic ORDER BY alias must not leak: " + propName,
+              propName.startsWith("_$$$"));
+        }
+        Assert.assertNotNull(row.getProperty("c"));
+      }
+    }
+  }
+
+  /**
+   * Known residual defect for {@code SELECT *, !secret FROM Class ORDER BY tags[0]}.
+   * Alias-list rebuild resurrects {@code secret}. Mint-fact strip does not address exclusions;
+   * this pin stays until a dedicated exclusion fix.
    */
   @Test
   public void knownPreExisting_wildcardExclusionResurrectsColumn() {
@@ -1420,6 +1487,110 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
         Assert.assertNull(row.getProperty("secret"));
         Assert.assertNotNull("the remaining columns must survive", row.getProperty("name"));
       }
+    }
+  }
+
+  /**
+   * BG1908: {@code SELECT marker AS name … ORDER BY name} with an index on the schema field
+   * {@code name} must sort by the projected {@code marker} values, not by the indexed field.
+   */
+  @Test
+  public void shadowedAliasOrderBy_doesNotUseIndexedFieldOrder() {
+    var className = "ShadowAliasOrder_" + uniqueSuffix();
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("marker", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    // Indexed name order would be z, y, x; projected marker-as-name order is a, b, c.
+    var names = new String[] {"z", "y", "x"};
+    var markers = new String[] {"a", "b", "c"};
+    for (var i = 0; i < names.length; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", names[i]);
+      doc.setProperty("marker", markers[i]);
+    }
+    session.commit();
+
+    try (var result =
+        session.query("select marker as name from " + className + " order by name asc")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(3, rows.size());
+      Assert.assertEquals("a", rows.get(0).getProperty("name"));
+      Assert.assertEquals("b", rows.get(1).getProperty("name"));
+      Assert.assertEquals("c", rows.get(2).getProperty("name"));
+      var plan = result.getExecutionPlan();
+      Assert.assertNotNull(plan);
+      Assert.assertTrue(
+          "shadowed ORDER BY must not claim FetchFromIndexValuesStep",
+          plan.getSteps().stream()
+              .noneMatch(step -> step instanceof FetchFromIndexValuesStep));
+    }
+  }
+
+  /**
+   * BG1909: {@code ORDER BY tags[0]} with an index on {@code name} must not use the name index
+   * for ordering (modifier / bracket key is not a bare property).
+   */
+  @Test
+  public void modifiedOrderBy_doesNotUseBareFieldIndex() {
+    var className = "ModifierOrderBy_" + uniqueSuffix();
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("marker", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("marker", "m" + i);
+      doc.<Integer>getOrCreateEmbeddedList("tags").add(2 - i);
+    }
+    session.commit();
+
+    try (var result =
+        session.query("select marker from " + className + " order by tags[0] asc")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(3, rows.size());
+      Assert.assertEquals("m2", rows.get(0).getProperty("marker"));
+      Assert.assertEquals("m1", rows.get(1).getProperty("marker"));
+      Assert.assertEquals("m0", rows.get(2).getProperty("marker"));
+      var plan = result.getExecutionPlan();
+      Assert.assertNotNull(plan);
+      Assert.assertTrue(
+          "modified ORDER BY must not claim FetchFromIndexValuesStep",
+          plan.getSteps().stream()
+              .noneMatch(step -> step instanceof FetchFromIndexValuesStep));
+    }
+  }
+
+  /**
+   * Bare {@code ORDER BY name} with an index on {@code name} still uses the sort-only index path.
+   */
+  @Test
+  public void barePropertyOrderBy_stillUsesSortOnlyIndex() {
+    var className = "BareOrderByIndex_" + uniqueSuffix();
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    for (var name : new String[] {"charlie", "alice", "bob"}) {
+      session.newInstance(className).setProperty("name", name);
+    }
+    session.commit();
+
+    try (var result = session.query("select name from " + className + " order by name asc")) {
+      var rows = result.stream().toList();
+      Assert.assertEquals(List.of("alice", "bob", "charlie"),
+          rows.stream().map(row -> (String) row.getProperty("name")).toList());
+      var plan = result.getExecutionPlan();
+      Assert.assertNotNull(plan);
+      Assert.assertTrue(
+          "bare ORDER BY name must keep FetchFromIndexValuesStep",
+          plan.getSteps().stream().anyMatch(step -> step instanceof FetchFromIndexValuesStep));
     }
   }
 }

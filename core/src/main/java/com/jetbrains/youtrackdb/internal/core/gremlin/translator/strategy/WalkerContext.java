@@ -115,6 +115,12 @@ final class WalkerContext implements RecognitionContext {
    */
   final Map<String, String> userLabelToAlias = new LinkedHashMap<>();
 
+  /**
+   * Gremlin user label → typed emit cell after a modulated {@code select}. Cleared by {@link
+   * #pinBoundary} so a hop or element projection cannot leave stale map-cell bindings.
+   */
+  final Map<String, EmittedColumnDescriptor> emitDescriptors = new LinkedHashMap<>();
+
   /** {@code GROUP BY} clause for {@code group()} / {@code groupCount()} terminators. */
   @Nullable SQLGroupBy groupBy;
 
@@ -684,6 +690,23 @@ final class WalkerContext implements RecognitionContext {
     this.boundaryAlias = alias;
     this.outputType = type;
     this.returnClass = returnClass;
+    // A new stream element type invalidates map-cell bindings from a prior modulated select.
+    emitDescriptors.clear();
+  }
+
+  @Override
+  public void putEmitDescriptor(String userLabel, EmittedColumnDescriptor descriptor) {
+    emitDescriptors.put(userLabel, descriptor);
+  }
+
+  @Nullable @Override
+  public EmittedColumnDescriptor emitDescriptor(String userLabel) {
+    return emitDescriptors.get(userLabel);
+  }
+
+  @Override
+  public void clearEmitDescriptors() {
+    emitDescriptors.clear();
   }
 
   @Override

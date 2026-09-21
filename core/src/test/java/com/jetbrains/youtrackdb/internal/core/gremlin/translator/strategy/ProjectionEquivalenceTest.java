@@ -2685,40 +2685,34 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Pins the known unfixed dedup-less defect outside this containment. The translated arm reads the
-   * path alias, while native reads the scalar cell from the emitted map.
+   * After a modulated multi-label select, overlapping {@code select(label)} reads the scalar map
+   * cell — not the path Vertex (BG2200).
    */
   @Test
-  public void mapSelectThenOverlappingSelectOne_knownUnfixedWithoutDedup() {
+  public void mapSelectThenOverlappingSelectOne_readsScalarMapCell() {
     seedChainedSelectContainmentPeople();
-    var translatedRows = new ArrayList<Object>();
-    var nativeRows = new ArrayList<Object>();
 
-    withTranslatorOn(
-        () -> {
-          var traversal = graph.traversal().V().hasLabel("Person").as("q").as("r")
-              .select("q", "r").by("name").by("city").select("q").asAdmin();
-          traversal.applyStrategies();
-          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal))
-              .as("the known unfixed dedup-less shape remains translated")
-              .isEqualTo(1);
-          translatedRows.addAll(traversal.toList());
-        });
-    withTranslatorOff(
-        () -> nativeRows.addAll(graph.traversal().V().hasLabel("Person").as("q").as("r")
-            .select("q", "r").by("name").by("city").select("q").toList()));
+    assertEquivalent(
+        "g.V().as(q).as(r).select(q, r).by(name).by(city).select(q)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .select("q", "r").by("name").by("city").select("q"));
+  }
 
-    assertThat(translatedRows)
-        .as("the known defect returns path vertices from the translated arm")
-        .allMatch(Vertex.class::isInstance)
-        .extracting(row -> ((Vertex) row).property("name").value())
-        .containsExactlyInAnyOrder("Alice", "Bob");
-    assertThat(nativeRows)
-        .as("native reads the scalar q cell from each emitted map")
-        .containsExactlyInAnyOrder("Alice", "Bob");
-    assertThat(translatedRows)
-        .as("the known defect remains a vertex-versus-scalar mismatch")
-        .isNotEqualTo(nativeRows);
+  /**
+   * Post-dedup modulated {@code select(label).by(key)} declines before an overlapping trailing
+   * select (same containment as multi-label select). Native and fallback both rebind {@code q}
+   * through the path after the singleton scalar unwrap.
+   */
+  @Test
+  public void dedupSelectOneThenOverlappingSelectOne_declines() {
+    seedChainedSelectContainmentPeople();
+
+    assertEquivalent(
+        "g.V().as(q).dedup().select(q).by(name).select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").dedup()
+            .select("q").by("name").select("q"));
   }
 
   /** A later select must not turn a productive presence into a filtering pattern conjunct. */
