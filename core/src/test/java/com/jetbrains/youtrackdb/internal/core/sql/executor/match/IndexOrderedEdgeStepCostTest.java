@@ -5,14 +5,17 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedCostModel.MultiSourceStrategy;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for the cost-based strategy selection in {@link IndexOrderedCostModel}.
  * Tests the pure static methods directly — no database or index required.
  */
+@Category(SequentialTest.class)
 public class IndexOrderedEdgeStepCostTest {
 
   // ---- computeCostsStatic: threshold guards ----

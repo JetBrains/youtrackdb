@@ -3,15 +3,18 @@ package com.jetbrains.youtrackdb.internal.common.profiler.metrics;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Verifies the CoreMetrics definitions used by pre-filter observability:
  * metric type, GLOBAL_METRICS registration, and the optional config entry
  * for explicit load-to-scan ratio override.
  */
+@Category(SequentialTest.class)
 public class PrefilterMetricsDefinitionTest {
 
   @After

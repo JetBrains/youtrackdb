@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -14,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for {@link BackRefHashJoinStep#applyIndexLookupAmortizationGuard}
@@ -35,6 +37,7 @@ import org.junit.Test;
  *   <li>estimatedSize=10_000, s=0.5 → m = 200</li>
  * </ul>
  */
+@Category(SequentialTest.class)
 public class BackRefHashJoinStepAmortizationTest {
 
   private static final double PINNED_LOAD_TO_SCAN_RATIO = 100.0;

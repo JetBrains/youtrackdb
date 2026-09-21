@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -25,6 +26,7 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Verifies that {@link MatchEdgeTraverser#applyPreFilter} dispatches on
@@ -35,6 +37,7 @@ import org.junit.Test;
  * <p>Uses a lightweight stub that implements the interface directly,
  * avoiding the need for a real database session or link bag.
  */
+@Category(SequentialTest.class)
 public class ApplyPreFilterInterfaceTest {
 
   /**

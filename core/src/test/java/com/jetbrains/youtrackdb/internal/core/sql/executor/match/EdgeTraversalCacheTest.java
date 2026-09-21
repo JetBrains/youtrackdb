@@ -11,6 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -28,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.List;
 import org.assertj.core.data.Offset;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for the RidSet caching mechanism on {@link EdgeTraversal}.
@@ -36,6 +38,7 @@ import org.junit.Test;
  * (a permitted type of the sealed {@link RidFilterDescriptor}) to
  * verify cache hit/miss behaviour without requiring a database context.
  */
+@Category(SequentialTest.class)
 public class EdgeTraversalCacheTest {
 
   /**
