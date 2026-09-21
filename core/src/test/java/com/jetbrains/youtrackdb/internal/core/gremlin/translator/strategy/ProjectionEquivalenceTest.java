@@ -2472,6 +2472,52 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .containsExactlyInAnyOrder("Alice", "Bob"));
   }
 
+  /** A key-modulated select behind a limit declines before {@code values(key)} reads its scalar. */
+  @Test
+  public void limitModulatedSelectThenValues_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().as(q).order(rank).limit(1).select(q).by(name).values(name)",
+        () -> graph.traversal().V().hasLabel("Person").as("q")
+            .order().by("rank").limit(1).select("q").by("name").values("name"));
+  }
+
+  /** A key-modulated select behind dedup declines before {@code valueMap(key)} reads its map. */
+  @Test
+  public void dedupModulatedSelectThenValueMap_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().as(q).as(r).dedup().select(q,r).by(name).by(city).valueMap(name)",
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r").dedup()
+            .select("q", "r").by("name").by("city").valueMap("name"));
+  }
+
+  /** A limited {@code valueMap} declines when a select collides with its emitted property key. */
+  @Test
+  public void limitValueMapThenSameKeySelect_declines() {
+    seedChainedSelectContainmentPeople();
+
+    assertEquivalentOrdered(
+        "g.V().as(name).order(rank).limit(1).valueMap(name).select(name)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("name")
+            .order().by("rank").limit(1).valueMap("name").select("name"));
+  }
+
+  /** A deduplicated {@code elementMap} declines when select collides with its property key. */
+  @Test
+  public void dedupElementMapThenSameKeySelect_declines() {
+    seedChainedSelectContainmentPeople();
+
+    assertEquivalent(
+        "g.V().as(name).dedup().elementMap(name).select(name)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("name").dedup()
+            .elementMap("name").select("name"));
+  }
+
   /**
    * Pins the known unfixed dedup-less defect outside this containment. The translated arm reads the
    * path alias, while native reads the scalar cell from the emitted map.
@@ -2535,6 +2581,29 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
               .as("Alice survives with a null city before the second select")
               .containsExactlyInAnyOrder("Alice", "Bob");
         });
+  }
+
+  /**
+   * Asserts translator-on fallback and native both reject an element projection over a scalar map
+   * cell. The boundary count distinguishes fallback from a translated plan that happens to throw.
+   */
+  private void assertPostCardinalityMapElementProjectionDeclines(
+      String scenario, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    withTranslatorOn(
+        () -> {
+          var traversal = traversalSupplier.get().asAdmin();
+          traversal.applyStrategies();
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal))
+              .as(scenario + " must decline before execution")
+              .isZero();
+          assertThatThrownBy(traversal::toList)
+              .as(scenario + " must fall back to native element casting")
+              .isInstanceOf(ClassCastException.class);
+        });
+    withTranslatorOff(
+        () -> assertThatThrownBy(() -> traversalSupplier.get().toList())
+            .as(scenario + " native reference")
+            .isInstanceOf(ClassCastException.class));
   }
 
   /** Seeds complete scalar cells for the chained-select containment cases. */

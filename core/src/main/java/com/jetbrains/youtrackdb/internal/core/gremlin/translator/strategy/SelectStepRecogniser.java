@@ -10,8 +10,11 @@ import java.util.HashSet;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
+import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
@@ -32,9 +35,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * DISTINCT keys the entity column; the modulator value is emitted from that entity so duplicate
  * property values across distinct vertices survive.
  *
- * <p>A modulated multi-label select after a captured cardinality clause declines when the next
- * select reads an emitted map key. This contains shapes newly admitted after {@code limit}, {@code
- * skip}, {@code range}, and {@code dedup}. The plain chained select remains a known unfixed defect.
+ * <p>A modulated select after a captured cardinality clause declines when the next step reads its
+ * map as an element, or when a following select reads an emitted map key. Map producers also use
+ * the overlap check before a same-key select. These contain shapes newly admitted after {@code
+ * limit}, {@code skip}, {@code range}, and {@code dedup}. Plain chained selects remain unfixed.
  */
 final class SelectStepRecogniser implements StepRecogniser {
 
@@ -68,9 +72,11 @@ final class SelectStepRecogniser implements StepRecogniser {
     if (!ByModulatorTranslator.exactModulatorCount(labels.size(), modulators.size())) {
       return Outcome.DECLINE;
     }
-    // Contain newly admitted post-cardinality shapes until chained selects distinguish emitted map
-    // keys from same-named path labels. A plain chained select stays outside this containment.
-    if (ctx.cardinalityClauseCaptured() && trailingSelectOverlaps(cursor.peek(), labels)) {
+    // Contain newly admitted post-cardinality shapes until map consumers distinguish the projected
+    // map from its source element. A plain chained select stays outside this containment.
+    if (postCardinalityContainment(ctx)
+        && (trailingElementProjection(cursor.peek())
+            || trailingSelectOverlaps(cursor.peek(), labels))) {
       return Outcome.DECLINE;
     }
     // Same promote as bare select — keep a preceding values(key) drop.
@@ -148,7 +154,21 @@ final class SelectStepRecogniser implements StepRecogniser {
     return Outcome.ACCEPTED;
   }
 
-  private static boolean trailingSelectOverlaps(Step<?, ?> step, List<String> emittedLabels) {
+  /** Shared activation condition for the narrow map-consumer containment checks. */
+  static boolean postCardinalityContainment(RecognitionContext ctx) {
+    return ctx.cardinalityClauseCaptured();
+  }
+
+  static boolean trailingElementProjection(Step<?, ?> step) {
+    if (step instanceof PropertiesStep<?> propertiesStep) {
+      return propertiesStep.getReturnType() == PropertyType.VALUE
+          && propertiesStep.getPropertyKeys().length == 1;
+    }
+    return step instanceof PropertyMapStep<?, ?> propertyMapStep
+        && propertyMapStep.getPropertyKeys().length == 1;
+  }
+
+  static boolean trailingSelectOverlaps(Step<?, ?> step, List<String> emittedLabels) {
     // Both select recognisers refuse other Pop modes. This guard relies on that rule because map
     // scope lookup precedes Pop handling.
     if (step instanceof SelectOneStep<?, ?> selectOne && selectOne.getPop() == Pop.last) {

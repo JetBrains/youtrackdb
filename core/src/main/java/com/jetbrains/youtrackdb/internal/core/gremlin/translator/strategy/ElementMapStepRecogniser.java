@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import java.util.Arrays;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapStep;
 
@@ -24,6 +25,12 @@ final class ElementMapStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     if (ctx.boundaryAlias() == null) {
+      return Outcome.DECLINE;
+    }
+    // Native select reads the map cell before its same-named historical path label.
+    if (SelectStepRecogniser.postCardinalityContainment(ctx)
+        && SelectStepRecogniser.trailingSelectOverlaps(
+            cursor.peek(), Arrays.asList(mapStep.getPropertyKeys()))) {
       return Outcome.DECLINE;
     }
     var tokens =
