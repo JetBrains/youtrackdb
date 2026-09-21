@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
@@ -247,10 +248,13 @@ final class PostConcatStreams {
       } finally {
         closeUpstreamOnce(ctx);
       }
+      // Resolve once for the whole sort: a mid-sort config flip would break Comparator, and each
+      // resolve takes a storage lock (see SQLOrderByItem.compare).
+      var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
       sorted.sort(
           (a, b) -> {
             for (var item : items) {
-              var cmp = item.compare(a, b, ctx);
+              var cmp = item.compare(a, b, ctx, nullsDefault);
               if (cmp != 0) {
                 return cmp;
               }

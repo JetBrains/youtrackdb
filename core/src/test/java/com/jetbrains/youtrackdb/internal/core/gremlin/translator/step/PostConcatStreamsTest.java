@@ -12,7 +12,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -21,8 +23,8 @@ import org.junit.Test;
 
 /**
  * Unit tests for {@link PostConcatStreams}, the decorators that realise a recognised {@code
- * count()} / {@code skip()} / {@code limit()} / {@code dedup()} suffix over a union's concatenated
- * child streams.
+ * count()} / {@code skip()} / {@code limit()} / {@code dedup()} / {@code order()} suffix over a
+ * union's concatenated child streams.
  *
  * <p>Each test drives a {@link ListStub} — a real, non-mock {@link ExecutionStream} over a fixed row
  * list that records how many times it was closed and how many rows were actually pulled from it.
@@ -218,6 +220,39 @@ public class PostConcatStreamsTest {
   @Test
   public void range_negativeLimit_encodesUnboundedHigh() {
     assertThat(new PostConcatOp.Range(3L, -1L).limit()).isNegative();
+  }
+
+  /**
+   * Post-union {@code order().by(score)} drains the concatenation, sorts by the ORDER BY item, and
+   * closes the upstream once. Pins the {@code SQLOrderByItem.compare(..., nullsDefault)} call that
+   * broke the build after the null-placement signature change (#1285).
+   */
+  @Test
+  public void sort_ordersRowsByScoreAscendingAndClosesUpstreamOnce() {
+    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var low = new ResultInternal(session);
+    low.setProperty("score", 1);
+    var mid = new ResultInternal(session);
+    mid.setProperty("score", 5);
+    var high = new ResultInternal(session);
+    high.setProperty("score", 9);
+
+    var item = new SQLOrderByItem();
+    item.setAlias("score");
+    item.setType(SQLOrderByItem.ASC);
+
+    var upstream = new ListStub(List.of(high, low, mid));
+    var sorted = PostConcatStreams.sort(upstream, List.of(item));
+
+    var seen = new ArrayList<Result>();
+    while (sorted.hasNext(ctx)) {
+      seen.add(sorted.next(ctx));
+    }
+    sorted.close(ctx);
+
+    assertThat(seen).containsExactly(low, mid, high);
+    assertThat(upstream.pulled).isEqualTo(3);
+    assertThat(upstream.closes).isEqualTo(1);
   }
 
   /**
