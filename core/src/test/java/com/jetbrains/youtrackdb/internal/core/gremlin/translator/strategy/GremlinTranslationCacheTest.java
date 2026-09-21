@@ -837,6 +837,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       admin.getSteps().get(2).addLabel("t");
     }
     return admin;
+  }
 
   private String shapeKey(
       java.util.function.Supplier<
