@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -61,6 +62,12 @@ final class SelectStepRecogniser implements StepRecogniser {
       return GremlinProjectionAssembler.configureSelect(ctx, labels);
     }
     if (!ByModulatorTranslator.exactModulatorCount(labels.size(), modulators.size())) {
+      return Outcome.DECLINE;
+    }
+    // Contain the newly admitted dedup shape until chained selects distinguish emitted map keys
+    // from same-named path labels. The distinct requirement deliberately leaves the pre-existing
+    // dedup-less defect outside this containment.
+    if (ctx.returnDistinct() && trailingSelectOverlaps(cursor.peek(), labels)) {
       return Outcome.DECLINE;
     }
     // Same promote as bare select — keep a preceding values(key) drop.
@@ -136,6 +143,21 @@ final class SelectStepRecogniser implements StepRecogniser {
     }
     ctx.setResultShaping(shaping);
     return Outcome.ACCEPTED;
+  }
+
+  private static boolean trailingSelectOverlaps(Step<?, ?> step, List<String> emittedLabels) {
+    if (step instanceof SelectOneStep<?, ?> selectOne && selectOne.getPop() == Pop.last) {
+      var scopeKeys = selectOne.getScopeKeys();
+      return scopeKeys != null
+          && scopeKeys.size() == 1
+          && emittedLabels.contains(scopeKeys.iterator().next());
+    }
+    if (step instanceof SelectStep<?, ?> selectMany && selectMany.getPop() == Pop.last) {
+      var selectedLabels = selectMany.getSelectKeys();
+      return selectedLabels != null
+          && selectedLabels.stream().anyMatch(emittedLabels::contains);
+    }
+    return false;
   }
 
   @Override

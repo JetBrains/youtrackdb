@@ -2271,6 +2271,103 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         });
   }
 
+  /**
+   * A dedup-admitted map projection must fall back when a trailing single-key select reads one of
+   * its emitted keys. The dedup-less form remains outside this containment pending the root fix.
+   */
+  @Test
+  public void dedupMapSelectThenOverlappingSelectOne_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r").dedup()
+            .select("q", "r").by("name").by("city").select("q").toList())
+            .as("native fallback reads the scalar q cell from each emitted map")
+            .containsExactlyInAnyOrder("Alice", "Bob"));
+
+    assertEquivalent(
+        "g.V().as(q).as(r).dedup().select(q, r).by(name).by(city).select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r").dedup()
+            .select("q", "r").by("name").by("city").select("q"));
+  }
+
+  /** A trailing multi-key select also falls back when any requested key overlaps the emitted map. */
+  @Test
+  public void dedupMapSelectThenOverlappingSelectMany_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r").dedup()
+            .select("q", "r").by("name").by("city").select("q", "r").toList())
+            .as("native fallback preserves both scalar cells in each emitted map")
+            .containsExactlyInAnyOrder(
+                Map.of("q", "Alice", "r", "London"),
+                Map.of("q", "Bob", "r", "Paris")));
+
+    assertEquivalent(
+        "g.V().as(q).as(r).dedup().select(q, r).by(name).by(city).select(q, r)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r").dedup()
+            .select("q", "r").by("name").by("city").select("q", "r"));
+  }
+
+  /** A trailing select of a non-emitted historical label remains translated. */
+  @Test
+  public void dedupMapSelectThenNonOverlappingSelect_remainsTranslated() {
+    seedChainedSelectContainmentPeople();
+
+    assertEquivalent(
+        "g.V().as(q).as(r).as(s).dedup().select(q, r).by(name).by(city).select(s).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r").as("s").dedup()
+            .select("q", "r").by("name").by("city").select("s").by("name"));
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person")
+            .as("q").as("r").as("s").dedup().select("q", "r").by("name").by("city")
+            .select("s").by("name").toList())
+            .as("the non-overlapping historical label still projects through MATCH")
+            .containsExactlyInAnyOrder("Alice", "Bob"));
+  }
+
+  /**
+   * Pins the known unfixed dedup-less defect outside this containment. The translated arm reads the
+   * path alias, while native reads the scalar cell from the emitted map.
+   */
+  @Test
+  public void mapSelectThenOverlappingSelectOne_knownUnfixedWithoutDedup() {
+    seedChainedSelectContainmentPeople();
+    var translatedRows = new ArrayList<Object>();
+    var nativeRows = new ArrayList<Object>();
+
+    withTranslatorOn(
+        () -> {
+          var traversal = graph.traversal().V().hasLabel("Person").as("q").as("r")
+              .select("q", "r").by("name").by("city").select("q").asAdmin();
+          traversal.applyStrategies();
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal))
+              .as("the known unfixed dedup-less shape remains translated")
+              .isEqualTo(1);
+          translatedRows.addAll(traversal.toList());
+        });
+    withTranslatorOff(
+        () -> nativeRows.addAll(graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .select("q", "r").by("name").by("city").select("q").toList()));
+
+    assertThat(translatedRows)
+        .as("the known defect returns path vertices from the translated arm")
+        .allMatch(Vertex.class::isInstance)
+        .extracting(row -> ((Vertex) row).property("name").value())
+        .containsExactlyInAnyOrder("Alice", "Bob");
+    assertThat(nativeRows)
+        .as("native reads the scalar q cell from each emitted map")
+        .containsExactlyInAnyOrder("Alice", "Bob");
+    assertThat(translatedRows)
+        .as("the known defect remains a vertex-versus-scalar mismatch")
+        .isNotEqualTo(nativeRows);
+  }
+
   /** A later select must not turn a productive presence into a filtering pattern conjunct. */
   @Test
   public void selectAfterMixedPresenceSelect_keepsProductiveNullRow() {
@@ -2297,6 +2394,13 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
               .as("Alice survives with a null city before the second select")
               .containsExactlyInAnyOrder("Alice", "Bob");
         });
+  }
+
+  /** Seeds complete scalar cells for the chained-select containment cases. */
+  private void seedChainedSelectContainmentPeople() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "city", "London");
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "Paris");
+    graph.tx().commit();
   }
 
   /** One select row whose productive city key is absent, so the emitted cell is null. */
