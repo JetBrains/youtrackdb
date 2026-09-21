@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -16,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInterna
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for the adaptive abort guards in {@link TraversalPreFilterHelper}.
@@ -24,6 +26,7 @@ import org.junit.Test;
  * pure functions that depend only on integer/double arithmetic, so they can
  * be tested without a database context.
  */
+@Category(SequentialTest.class)
 public class TraversalPreFilterHelperTest {
 
   @After
