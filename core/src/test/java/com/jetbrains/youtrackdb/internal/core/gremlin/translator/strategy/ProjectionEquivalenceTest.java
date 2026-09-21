@@ -2494,6 +2494,52 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .select("q", "r").by("name").by("city").valueMap("name"));
   }
 
+  /** A multi-key {@code valueMap} cannot read the map emitted by a modulated post-limit select. */
+  @Test
+  public void limitModulatedSelectThenMultiKeyValueMap_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().as(q).as(r).order(rank).limit(1).select(q,r).by(name).by(city)"
+            + ".valueMap(name,city)",
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").limit(1).select("q", "r").by("name").by("city")
+            .valueMap("name", "city"));
+  }
+
+  /** An {@code elementMap} cannot read the scalar emitted by a modulated select after a range. */
+  @Test
+  public void rangeModulatedSelectThenElementMap_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().as(q).order(rank).range(1,2).select(q).by(name).elementMap(name)",
+        () -> graph.traversal().V().hasLabel("Person").as("q")
+            .order().by("rank").range(1, 2).select("q").by("name").elementMap("name"));
+  }
+
+  /** A transparent barrier must not hide {@code elementMap} from the post-dedup containment. */
+  @Test
+  public void dedupModulatedSelectThenBarrierAndElementMap_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().as(q).dedup().select(q).by(name).barrier().elementMap(name)",
+        () -> graph.traversal().V().hasLabel("Person").as("q").dedup()
+            .select("q").by("name").barrier().elementMap("name"));
+  }
+
+  /** A post-limit {@code valueMap} declines before {@code values} casts its map to an element. */
+  @Test
+  public void limitValueMapThenValues_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().order(rank).limit(1).valueMap(name).values(name)",
+        () -> graph.traversal().V().hasLabel("Person")
+            .order().by("rank").limit(1).valueMap("name").values("name"));
+  }
+
   /** A limited {@code valueMap} declines when a select collides with its emitted property key. */
   @Test
   public void limitValueMapThenSameKeySelect_declines() {

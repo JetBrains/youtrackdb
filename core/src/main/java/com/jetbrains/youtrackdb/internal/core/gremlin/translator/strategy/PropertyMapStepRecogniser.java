@@ -36,10 +36,11 @@ final class PropertyMapStepRecogniser implements StepRecogniser {
     if (mapStep.getPropertyTraversal() != null || mapStep.getValueTraversal() != null) {
       return Outcome.DECLINE;
     }
-    // Native select reads the map cell before its same-named historical path label.
-    if (SelectStepRecogniser.postCardinalityContainment(ctx)
-        && SelectStepRecogniser.trailingSelectOverlaps(
-            cursor.peek(), Arrays.asList(mapStep.getPropertyKeys()))) {
+    // Element-only steps cast the map natively. Select reads a map cell before a same-named label.
+    if (ctx.cardinalityClauseCaptured()
+        && (SelectStepRecogniser.trailingElementProjection(cursor.peek())
+            || SelectStepRecogniser.trailingSelectOverlaps(
+                cursor.peek(), Arrays.asList(mapStep.getPropertyKeys())))) {
       return Outcome.DECLINE;
     }
     return GremlinProjectionAssembler.configurePropertyMap(

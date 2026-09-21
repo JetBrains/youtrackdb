@@ -54,7 +54,7 @@ final class SelectOneStepRecogniser implements StepRecogniser {
     }
     // A key-modulated select emits a scalar map cell. A following element projection would instead
     // cast that cell to Element natively, so keep the newly admitted post-cardinality shape native.
-    if (SelectStepRecogniser.postCardinalityContainment(ctx)
+    if (ctx.cardinalityClauseCaptured()
         && SelectStepRecogniser.trailingElementProjection(cursor.peek())) {
       return Outcome.DECLINE;
     }

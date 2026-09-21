@@ -808,11 +808,11 @@ final class GremlinStepWalker {
 
   /**
    * The only recognisers allowed to claim a step once {@link #capturedCardinalityClause} holds — the
-   * three pure projections, whose entire contribution is RETURN columns, result shaping, and the
+   * five pure projections, whose entire contribution is RETURN columns, result shaping, and the
    * boundary pin.
    *
    * <p>Membership is a claim about <em>when</em> a contribution takes effect, and the test is
-   * whether the recogniser can change the row set, its order, or its multiplicity. These three
+   * whether the recogniser can change the row set, its order, or its multiplicity. These five
    * cannot. {@code GremlinProjectionAssembler.configureSingleKeyValues} and {@code
    * configurePropertyMap} write only the RETURN columns and a {@link
    * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping}; the row-dropping
