@@ -342,6 +342,25 @@ interface RecognitionContext extends ParamSink {
   @Nullable String resolveUserLabel(String userLabel);
 
   /**
+   * Records that the just-accepted modulated {@code select} emits {@code userLabel} as the given
+   * typed map cell. A trailing overlapping {@code select(userLabel)} reads this instead of {@link
+   * #resolveUserLabel}.
+   */
+  void putEmitDescriptor(String userLabel, EmittedColumnDescriptor descriptor);
+
+  /**
+   * The emit descriptor registered for {@code userLabel}, or {@code null} when the label still
+   * names a path/{@code as} binding only.
+   */
+  @Nullable EmittedColumnDescriptor emitDescriptor(String userLabel);
+
+  /**
+   * Drops every emit descriptor. {@link #pinBoundary} clears automatically when the stream element
+   * type changes; modulated select re-registers after pinning.
+   */
+  void clearEmitDescriptors();
+
+  /**
    * Records that {@code internalAlias} names an edge-as-node pattern alias (bound by {@code
    * outE.as(...)} / edge-segment {@code has.as(...)}). Used by {@code select(edgeLabel)} to emit
    * {@link org.apache.tinkerpop.gremlin.structure.Edge} payloads.

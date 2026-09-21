@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 
@@ -107,8 +108,19 @@ public class QueryPlanningInfo {
    * {@code _$$$ORDER_BY_ALIAS$$$_N} columns that were temporarily added
    * to support sorting by expressions not in the SELECT list.
    * {@code null} when ORDER BY only references existing projection aliases.
+   *
+   * <p>When an index already applied ORDER BY ({@link #orderApplied}), this rebuild strip is
+   * skipped. {@link #orderByMintAliases} plus {@code RemovePropertyExecutionStep} still delete
+   * the minted names so they cannot leak.
    */
   protected SQLProjection projectionAfterOrderBy = null;
+
+  /**
+   * Exact alias names minted by {@code addOrderByProjections} for ORDER BY keys that were not
+   * already in the SELECT list. Empty when nothing was minted. Used to delete those columns
+   * via {@code removeProperty} even when {@link #orderApplied} skips {@link #projectionAfterOrderBy}.
+   */
+  protected List<String> orderByMintAliases = List.of();
 
   // --------------- LET clauses ---------------
 
@@ -244,6 +256,10 @@ public class QueryPlanningInfo {
     result.aggregateProjection = this.aggregateProjection;
     result.projection = this.projection;
     result.projectionAfterOrderBy = this.projectionAfterOrderBy;
+    result.orderByMintAliases =
+        this.orderByMintAliases.isEmpty()
+            ? List.of()
+            : new ArrayList<>(this.orderByMintAliases);
     result.globalLetClause = this.globalLetClause;
     result.globalLetPresent = this.globalLetPresent;
     result.perRecordLetClause = this.perRecordLetClause;

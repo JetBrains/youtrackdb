@@ -464,6 +464,21 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public void putEmitDescriptor(String userLabel, EmittedColumnDescriptor descriptor) {
+    // Swallowed — a filter child's select must not rewrite the outer walk's emit map.
+  }
+
+  @Nullable @Override
+  public EmittedColumnDescriptor emitDescriptor(String userLabel) {
+    return parent.emitDescriptor(userLabel);
+  }
+
+  @Override
+  public void clearEmitDescriptors() {
+    // Swallowed — see putEmitDescriptor.
+  }
+
+  @Override
   public void markEdgeAlias(String internalAlias) {
     parent.markEdgeAlias(internalAlias);
   }

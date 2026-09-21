@@ -49,6 +49,16 @@ public class SQLIdentifier extends SimpleNode {
     setStringValue(content);
   }
 
+  /**
+   * Builds an optimizer-minted alias ({@link #isInternalAlias()} true), e.g. ORDER BY or
+   * aggregate-split synthetics that must not appear as user-visible output columns.
+   */
+  public static SQLIdentifier newInternalAlias(String content) {
+    var identifier = new SQLIdentifier(content);
+    identifier.internalAlias = true;
+    return identifier;
+  }
+
   protected SQLIdentifier(int id) {
     super(id);
   }

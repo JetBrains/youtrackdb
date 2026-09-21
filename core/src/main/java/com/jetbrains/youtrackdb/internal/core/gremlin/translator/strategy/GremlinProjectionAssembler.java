@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ValuesFlatMapListShapingOp;
@@ -8,6 +9,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPr
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -41,6 +44,11 @@ final class GremlinProjectionAssembler {
   /**
    * Configures a {@code select(labels…)} terminator: one RETURN column per bound user label (internal
    * alias surfaced under the Gremlin label name) and {@link BoundaryOutputType#MAP}.
+   *
+   * <p>When a prior modulated {@code select} registered {@link EmittedColumnDescriptor}s for the
+   * requested labels, this projects those map cells (scalar / token) rather than rebinding through
+   * {@link RecognitionContext#resolveUserLabel} — native overlapping {@code select} reads the map,
+   * not the path Vertex.
    */
   static Outcome configureSelect(RecognitionContext ctx, Collection<String> userLabels) {
     var boundary = ctx.boundaryAlias();
@@ -52,6 +60,9 @@ final class GremlinProjectionAssembler {
     // selectAfterValues_keepsTheAbsenceDrop).
     if (!ctx.promotePresenceDropToPatternFilter()) {
       return Outcome.DECLINE;
+    }
+    if (anyScalarEmitDescriptor(ctx, userLabels)) {
+      return configureSelectFromEmitDescriptors(ctx, userLabels);
     }
     if (userLabels.size() == 1) {
       var userLabel = userLabels.iterator().next();
@@ -105,6 +116,110 @@ final class GremlinProjectionAssembler {
     }
     ctx.setResultShaping(shaping);
     repinMap(ctx, boundary);
+    return Outcome.ACCEPTED;
+  }
+
+  private static boolean anyScalarEmitDescriptor(
+      RecognitionContext ctx, Collection<String> userLabels) {
+    for (String userLabel : userLabels) {
+      if (ctx.emitDescriptor(userLabel) != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Rebuilds RETURN from previously registered emit descriptors. Fail-closed when any requested
+   * label lacks a descriptor (mixed path-label + map-cell select is not represented yet).
+   */
+  private static Outcome configureSelectFromEmitDescriptors(
+      RecognitionContext ctx, Collection<String> userLabels) {
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null) {
+      return Outcome.DECLINE;
+    }
+    // Snapshot before pinBoundary clears the live map.
+    var snapshots = new LinkedHashMap<String, EmittedColumnDescriptor>();
+    for (String userLabel : userLabels) {
+      var descriptor = ctx.emitDescriptor(userLabel);
+      if (descriptor == null) {
+        return Outcome.DECLINE;
+      }
+      snapshots.put(userLabel, descriptor);
+    }
+    ctx.clearReturnProjection();
+    var aliasPresences = new ArrayList<AliasPropertyPresence>();
+    var presenceEntityColumns = new HashSet<String>();
+    var recordIdKeys = new ArrayList<String>();
+    var returnDistinct = ctx.returnDistinct();
+    for (var entry : snapshots.entrySet()) {
+      var userLabel = entry.getKey();
+      switch (entry.getValue()) {
+        case EmittedColumnDescriptor.AliasProperty property -> {
+          if (returnDistinct && !boundary.equals(property.internalAlias())) {
+            return Outcome.DECLINE;
+          }
+          ctx.markReturnAliasIfForeign(property.internalAlias());
+          var entityCol = ResultShaping.presenceEntityColumnAlias(property.internalAlias());
+          if (presenceEntityColumns.add(entityCol)) {
+            ctx.appendReturnColumn(
+                MatchProjectionBuilder.aliasColumn(property.internalAlias()), entityCol);
+          }
+          if (property.productive() && !returnDistinct) {
+            ctx.appendReturnColumn(
+                ByModulatorTranslator.aliasProperty(
+                    property.internalAlias(), property.propertyKey()),
+                userLabel);
+          } else {
+            aliasPresences.add(
+                new AliasPropertyPresence(
+                    entityCol, property.propertyKey(), userLabel, !property.productive()));
+          }
+        }
+        case EmittedColumnDescriptor.RecordAttribute recordAttr -> {
+          if (returnDistinct && !boundary.equals(recordAttr.internalAlias())) {
+            return Outcome.DECLINE;
+          }
+          ctx.markReturnAliasIfForeign(recordAttr.internalAlias());
+          if (returnDistinct) {
+            var entityCol = ResultShaping.presenceEntityColumnAlias(recordAttr.internalAlias());
+            if (presenceEntityColumns.add(entityCol)) {
+              ctx.appendReturnColumn(
+                  MatchProjectionBuilder.aliasColumn(recordAttr.internalAlias()), entityCol);
+            }
+          }
+          ctx.appendReturnColumn(
+              ByModulatorTranslator.aliasRecordAttribute(
+                  recordAttr.internalAlias(), recordAttr.attribute()),
+              userLabel);
+          if ("@rid".equals(recordAttr.attribute())) {
+            recordIdKeys.add(userLabel);
+          }
+        }
+      }
+    }
+    ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
+    var shaping = ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1);
+    shaping = shaping.withMapEmitColumnOrder(List.copyOf(userLabels));
+    if (!aliasPresences.isEmpty()) {
+      var anyFiltering = aliasPresences.stream().anyMatch(AliasPropertyPresence::dropOnAbsent);
+      if (anyFiltering) {
+        shaping = shaping.withDropOnAbsent(true);
+      }
+      shaping = shaping.withAliasPropertyPresences(aliasPresences);
+    }
+    if (!recordIdKeys.isEmpty()) {
+      shaping = shaping.withRecordIdMapKeys(List.copyOf(recordIdKeys));
+    }
+    ctx.setResultShaping(shaping);
+    // Re-register only while the traverser remains a multi-key map. A singleton overlapping
+    // select unwraps to a scalar; further select(label) must rebind through the path.
+    if (userLabels.size() > 1) {
+      for (var entry : snapshots.entrySet()) {
+        ctx.putEmitDescriptor(entry.getKey(), entry.getValue());
+      }
+    }
     return Outcome.ACCEPTED;
   }
 
