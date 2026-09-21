@@ -37,10 +37,13 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * property values across distinct vertices survive.
  *
  * <p>After a captured cardinality clause, a modulated select declines before a single-key {@code
- * values}, any {@code valueMap}, or any {@code elementMap}. A map producer also declines before
- * those element-only projections, or before a select naming one of its property keys. These guards
- * contain shapes newly admitted after {@code limit}, {@code skip}, {@code range}, and {@code
- * dedup}. Plain chained selects remain unfixed.
+ * values}, any {@code valueMap}, or any {@code elementMap}, and also before a trailing select that
+ * overlaps its projected labels. A map producer declines before those element-only projections, or
+ * before a select naming one of its property keys. The same containment fires inside a filter child
+ * even without a local slice, because the child cannot apply statement-level cardinality and would
+ * otherwise treat the shape as a pure-filter existence test. These guards contain shapes newly
+ * admitted after {@code limit}, {@code skip}, {@code range}, and {@code dedup}, plus the captured-
+ * child escapes. Plain chained selects on the main line remain unfixed.
  */
 final class SelectStepRecogniser implements StepRecogniser {
 
@@ -75,8 +78,9 @@ final class SelectStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     // Contain newly admitted post-cardinality shapes until map consumers distinguish the projected
-    // map from its source element. A plain chained select stays outside this containment.
-    if (ctx.cardinalityClauseCaptured()
+    // map from its source element. Filter children arm the same gate without a local slice. A plain
+    // chained select on the main line stays outside this containment.
+    if (ctx.needsMapElementProjectionContainment()
         && (trailingElementProjection(cursor.peek())
             || trailingSelectOverlaps(cursor.peek(), labels))) {
       return Outcome.DECLINE;
@@ -158,7 +162,10 @@ final class SelectStepRecogniser implements StepRecogniser {
 
   static boolean trailingElementProjection(Step<?, ?> step) {
     if (step instanceof PropertiesStep<?> propertiesStep) {
-      return propertiesStep.getReturnType() == PropertyType.VALUE
+      // Filter contexts rewrite values(key) to properties(key) before the translator runs
+      // (InlineFilterStrategy). Both forms cast the upstream traverser to Element natively.
+      var returnType = propertiesStep.getReturnType();
+      return (returnType == PropertyType.VALUE || returnType == PropertyType.PROPERTY)
           && propertiesStep.getPropertyKeys().length == 1;
     }
     return step instanceof PropertyMapStep<?, ?> || step instanceof ElementMapStep<?, ?>;

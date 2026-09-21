@@ -153,6 +153,25 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  adapter. A caller reads it only after {@link RecognitionContext#walkChild} returns. */
   @Nullable private Outcome outcome;
 
+  /**
+   * Local {@code LIMIT} from a child's {@code limit}/{@code range}. Captured so containment guards
+   * and the post-cardinality allow-list see the child's own cut; never forwarded to the parent,
+   * because a filter child does not shape the outer statement.
+   */
+  @Nullable private SQLLimit capturedLimit;
+
+  /**
+   * Local {@code SKIP} from a child's {@code skip}/{@code range}. Same capture boundary as
+   * {@link #capturedLimit}.
+   */
+  @Nullable private SQLSkip capturedSkip;
+
+  /**
+   * Local {@code RETURN DISTINCT} from a child's {@code dedup()}. Same capture boundary as
+   * {@link #capturedLimit}.
+   */
+  private boolean capturedReturnDistinct;
+
   SubTraversalPredicateAdapter(
       RecognitionContext parent, Map<Class<?>, StepRecogniser> recognisers) {
     this.parent = parent;
@@ -253,17 +272,19 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Nullable @Override
   public SQLLimit limit() {
-    return parent.limit();
+    // Local only — the parent's statement-level cut is not this child's. Forwarding it would arm
+    // post-cardinality gates for a filter that never received a slice of its own.
+    return capturedLimit;
   }
 
   @Nullable @Override
   public SQLSkip skip() {
-    return parent.skip();
+    return capturedSkip;
   }
 
   @Override
   public boolean returnDistinct() {
-    return parent.returnDistinct();
+    return capturedReturnDistinct;
   }
 
   /**
@@ -455,12 +476,14 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Override
   public void setReturnDistinct(boolean distinct) {
-    // Swallowed: sub-walk filter children do not shape the parent's RETURN clause.
+    // Captured locally for containment / post-cardinality gates; never forwarded — a filter child
+    // does not shape the parent's RETURN clause.
+    capturedReturnDistinct = distinct;
   }
 
   @Override
   public void setGroupBy(@Nullable SQLGroupBy groupBy) {
-    // Swallowed — see setReturnDistinct.
+    // Swallowed: a filter child does not contribute GROUP BY to the outer statement.
   }
 
   @Nullable @Override
@@ -471,7 +494,7 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Override
   public void setOrderBy(@Nullable SQLOrderBy orderBy) {
-    // Swallowed — see setReturnDistinct.
+    // Swallowed: a child's order() does not capture a parent ORDER BY.
   }
 
   @Override
@@ -493,12 +516,15 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Override
   public void setLimit(@Nullable SQLLimit limit) {
-    // Swallowed — see setReturnDistinct.
+    // Captured locally — see setReturnDistinct. Required so cardinalityClauseCaptured() arms map /
+    // select containment inside where/and/or children (RG3300).
+    capturedLimit = limit;
   }
 
   @Override
   public void setSkip(@Nullable SQLSkip skip) {
-    // Swallowed — see setReturnDistinct.
+    // Captured locally — see setLimit.
+    capturedSkip = skip;
   }
 
   @Override

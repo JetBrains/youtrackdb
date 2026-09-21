@@ -416,6 +416,17 @@ interface RecognitionContext extends ParamSink {
   }
 
   /**
+   * Whether map / modulated-select containment must decline a trailing element projection or
+   * overlapping select. Armed after a captured cardinality clause on the main line, and always
+   * inside a filter child ({@link #projectsReturnedPayload()} is false): the child cannot apply
+   * statement-level {@code LIMIT}/{@code DISTINCT}, so the same cast / alias collision would
+   * otherwise translate as a pure-filter existence test.
+   */
+  default boolean needsMapElementProjectionContainment() {
+    return cardinalityClauseCaptured() || !projectsReturnedPayload();
+  }
+
+  /**
    * Whether {@code RETURN DISTINCT} has been set so far ({@code dedup()}). A reducing/grouping
    * terminator reads it to refuse a shape that would apply the aggregate <em>after</em> the distinct
    * — {@code out().dedup().count()} would emit {@code RETURN DISTINCT count(*)}, which counts

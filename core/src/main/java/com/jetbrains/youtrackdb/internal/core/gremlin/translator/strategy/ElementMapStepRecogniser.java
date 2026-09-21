@@ -28,7 +28,8 @@ final class ElementMapStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     // Element-only steps cast the map natively. Select reads a map cell before a same-named label.
-    if (ctx.cardinalityClauseCaptured()
+    // Filter children arm the same gate without a local slice.
+    if (ctx.needsMapElementProjectionContainment()
         && (SelectStepRecogniser.trailingElementProjection(cursor.peek())
             || SelectStepRecogniser.trailingSelectOverlaps(
                 cursor.peek(), Arrays.asList(mapStep.getPropertyKeys())))) {

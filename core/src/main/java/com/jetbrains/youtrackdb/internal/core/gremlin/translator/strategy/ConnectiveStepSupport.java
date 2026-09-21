@@ -100,8 +100,9 @@ final class ConnectiveStepSupport {
    * multiplicity a prefix hop legitimately produces — {@code g.V().out()} yields a target once per
    * in-path, and native Gremlin keeps those duplicates. Expressing the fix inside the child is not
    * possible either: a captured sub-walk cannot contribute result shaping at all, because {@link
-   * SubTraversalPredicateAdapter} swallows {@code setReturnDistinct} (and the slice setters) so that
-   * only alias filters and pattern writes survive into the parent.
+   * SubTraversalPredicateAdapter} keeps {@code setReturnDistinct} and the slice setters local to
+   * the child (for containment gates) and never forwards them, so only alias filters and pattern
+   * writes survive into the parent.
    *
    * <p>{@code not(t)} is the exception: it keeps translating an edge-bearing child, because an
    * anti-join emits its input at most once and so never over-emits. The four connective surfaces

@@ -2540,6 +2540,49 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .order().by("rank").limit(1).valueMap("name").values("name"));
   }
 
+  /**
+   * A {@code where} child that slices then projects a map must decline. The child's {@code limit}
+   * is captured locally so containment sees it; translating as a pure-filter existence test would
+   * return every vertex while native raises {@code ClassCastException}.
+   */
+  @Test
+  public void whereLimitValueMapThenValues_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().where(limit(1).valueMap(name).values(name))",
+        () -> graph.traversal().V().hasLabel("Person")
+            .where(__.limit(1).valueMap("name").values("name")));
+  }
+
+  /**
+   * An {@code and} child with the same map-then-values shape declines for the same local-cardinality
+   * reason as the {@code where} twin.
+   */
+  @Test
+  public void andLimitValueMapThenValues_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().and(limit(1).valueMap(name).values(name))",
+        () -> graph.traversal().V().hasLabel("Person")
+            .and(__.limit(1).valueMap("name").values("name")));
+  }
+
+  /**
+   * Even without a child slice, {@code where(valueMap.values)} declines. A filter child never
+   * returns the map payload, so the cast cannot be modelled as an existence test.
+   */
+  @Test
+  public void whereValueMapThenValues_declinesWhereNativeRaises() {
+    seedChainedSelectContainmentPeople();
+
+    assertPostCardinalityMapElementProjectionDeclines(
+        "g.V().where(valueMap(name).values(name))",
+        () -> graph.traversal().V().hasLabel("Person")
+            .where(__.valueMap("name").values("name")));
+  }
+
   /** A limited {@code valueMap} declines when a select collides with its emitted property key. */
   @Test
   public void limitValueMapThenSameKeySelect_declines() {

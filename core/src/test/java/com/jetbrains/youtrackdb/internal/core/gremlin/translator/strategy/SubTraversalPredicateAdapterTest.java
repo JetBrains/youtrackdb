@@ -615,6 +615,54 @@ public class SubTraversalPredicateAdapterTest {
   // ---------------------------------------------------------------------------
 
   /**
+   * A child's {@code limit} arms local cardinality containment without writing the parent's
+   * statement-level {@code LIMIT}. The parent's cut stays null, and the child's
+   * {@link RecognitionContext#cardinalityClauseCaptured()} becomes true so map/select guards can
+   * fire inside {@code where}/{@code and} children.
+   */
+  @Test
+  public void setLimit_armsLocalCardinality_withoutTouchingParent() {
+    var parent = new WalkerContext(true, false);
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    var limit = ProjectionExpressionFactories.limit(1);
+
+    adapter.setLimit(limit);
+
+    assertThat(adapter.limit())
+        .as("the child keeps the limit it captured")
+        .isSameAs(limit);
+    assertThat(adapter.cardinalityClauseCaptured())
+        .as("local capture arms containment gates inside the child")
+        .isTrue();
+    assertThat(parent.limit())
+        .as("the parent statement never receives the child's cut")
+        .isNull();
+    assertThat(parent.cardinalityClauseCaptured())
+        .as("the parent walks without a phantom cardinality clause")
+        .isFalse();
+  }
+
+  /**
+   * The parent's statement-level {@code LIMIT} must not arm a filter child's containment gates. The
+   * child never received that cut, so forwarding it would decline sound child shapes that share an
+   * outer sliced walk.
+   */
+  @Test
+  public void limit_doesNotInheritParentCardinality() {
+    var parent = new WalkerContext(true, false);
+    parent.setLimit(ProjectionExpressionFactories.limit(1));
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+
+    assertThat(parent.cardinalityClauseCaptured()).isTrue();
+    assertThat(adapter.limit())
+        .as("the child does not read the parent's statement-level LIMIT")
+        .isNull();
+    assertThat(adapter.cardinalityClauseCaptured())
+        .as("filter-child containment is not armed by an outer slice alone")
+        .isFalse();
+  }
+
+  /**
    * Builds a registry-bearing {@link WalkerContext} pre-seeded as the start step would leave it: a
    * pinned {@code $g2m_v0} boundary with one RETURN column keyed on that alias. A sub-walk reads this
    * boundary through the adapter; the capture-boundary assertions check it is unchanged after a
