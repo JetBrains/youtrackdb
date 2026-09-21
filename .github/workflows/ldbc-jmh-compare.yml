@@ -159,9 +159,9 @@ jobs:
             [[ "$BASELINE_SHA" != "$HEAD_SHA" ]]
 
             if [[ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
-              gh api --paginate --slurp \
+              gh api --paginate \
                 "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
-                | jq 'flatten' > /tmp/reviews.json
+                | jq -s 'flatten' > /tmp/reviews.json
               printf '{}\n' > /tmp/permissions.json
               mapfile -t REVIEWERS < <(jq -r '.[].user.login' /tmp/reviews.json | sort -u)
               for reviewer in "${REVIEWERS[@]}"; do
@@ -286,9 +286,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api --paginate --slurp \
+          gh api --paginate \
             "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
-            | jq '[.[].artifacts[]]' > /tmp/artifacts.json
+            | jq -s '[.[].artifacts[]]' > /tmp/artifacts.json
           ID=$(python3 trusted-workflow/.github/scripts/mandatory-benchmark.py \
             select-artifact --artifacts /tmp/artifacts.json --prefix ldbc-dataset \
             --max-attempt "$GITHUB_RUN_ATTEMPT")
@@ -423,9 +423,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api --paginate --slurp \
+          gh api --paginate \
             "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
-            | jq '[.[].artifacts[]]' > /tmp/artifacts.json
+            | jq -s '[.[].artifacts[]]' > /tmp/artifacts.json
           ID=$(python3 trusted-workflow/.github/scripts/mandatory-benchmark.py \
             select-artifact --artifacts /tmp/artifacts.json \
             --prefix mandatory-execution --max-attempt "$GITHUB_RUN_ATTEMPT")
