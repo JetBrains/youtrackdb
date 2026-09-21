@@ -68,7 +68,7 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
     var step = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), TIGHT_BUDGET);
+        new IndexSearchDescriptor(index), true, true, ctx, false, allPersonRids(), TIGHT_BUDGET);
 
     session.begin();
     try {
@@ -99,7 +99,7 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
     var step = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), TIGHT_BUDGET);
+        new IndexSearchDescriptor(index), true, true, ctx, false, allPersonRids(), TIGHT_BUDGET);
 
     session.begin();
     try {
@@ -140,7 +140,7 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
     var step = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), 0);
+        new IndexSearchDescriptor(index), true, true, ctx, false, allPersonRids(), 0);
 
     step.liftScanBudget();
 
@@ -163,7 +163,7 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
     var step = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), -2);
+        new IndexSearchDescriptor(index), true, true, ctx, false, allPersonRids(), -2);
 
     session.begin();
     try {
@@ -184,7 +184,7 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
     var step = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), true, ctx, false, allPersonRids(), TIGHT_BUDGET);
+        new IndexSearchDescriptor(index), true, true, ctx, false, allPersonRids(), TIGHT_BUDGET);
 
     step.liftScanBudget();
     step.liftScanBudget();
