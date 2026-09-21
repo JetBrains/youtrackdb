@@ -31,6 +31,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * not match Gremlin's "dedup the current traverser, then select another path label" contract.
  * DISTINCT keys the entity column; the modulator value is emitted from that entity so duplicate
  * property values across distinct vertices survive.
+ *
+ * <p>A modulated multi-label select after a captured cardinality clause declines when the next
+ * select reads an emitted map key. This contains shapes newly admitted after {@code limit}, {@code
+ * skip}, {@code range}, and {@code dedup}. The plain chained select remains a known unfixed defect.
  */
 final class SelectStepRecogniser implements StepRecogniser {
 
@@ -64,10 +68,9 @@ final class SelectStepRecogniser implements StepRecogniser {
     if (!ByModulatorTranslator.exactModulatorCount(labels.size(), modulators.size())) {
       return Outcome.DECLINE;
     }
-    // Contain the newly admitted dedup shape until chained selects distinguish emitted map keys
-    // from same-named path labels. The distinct requirement deliberately leaves the pre-existing
-    // dedup-less defect outside this containment.
-    if (ctx.returnDistinct() && trailingSelectOverlaps(cursor.peek(), labels)) {
+    // Contain newly admitted post-cardinality shapes until chained selects distinguish emitted map
+    // keys from same-named path labels. A plain chained select stays outside this containment.
+    if (ctx.cardinalityClauseCaptured() && trailingSelectOverlaps(cursor.peek(), labels)) {
       return Outcome.DECLINE;
     }
     // Same promote as bare select — keep a preceding values(key) drop.
@@ -146,6 +149,8 @@ final class SelectStepRecogniser implements StepRecogniser {
   }
 
   private static boolean trailingSelectOverlaps(Step<?, ?> step, List<String> emittedLabels) {
+    // Both select recognisers refuse other Pop modes. This guard relies on that rule because map
+    // scope lookup precedes Pop handling.
     if (step instanceof SelectOneStep<?, ?> selectOne && selectOne.getPop() == Pop.last) {
       var scopeKeys = selectOne.getScopeKeys();
       return scopeKeys != null

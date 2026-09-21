@@ -2312,6 +2312,147 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .select("q", "r").by("name").by("city").select("q", "r"));
   }
 
+  /** A limit-admitted map projection falls back before an overlapping single-key select. */
+  @Test
+  public void limitMapSelectThenOverlappingSelectOne_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").limit(1)
+            .select("q", "r").by("name").by("city").select("q").toList())
+            .as("native fallback reads the limited map's scalar q cell")
+            .containsExactly("Alice"));
+
+    assertEquivalentOrdered(
+        "g.V().as(q).as(r).order(rank).limit(1).select(q, r).by(name).by(city).select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").limit(1)
+            .select("q", "r").by("name").by("city").select("q"));
+  }
+
+  /** A limit-admitted map projection falls back before an overlapping multi-key select. */
+  @Test
+  public void limitMapSelectThenOverlappingSelectMany_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").limit(1)
+            .select("q", "r").by("name").by("city").select("q", "r").toList())
+            .as("native fallback preserves the limited map's scalar cells")
+            .containsExactly(Map.of("q", "Alice", "r", "London")));
+
+    assertEquivalentOrdered(
+        "g.V().as(q).as(r).order(rank).limit(1).select(q, r).by(name).by(city).select(q, r)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").limit(1)
+            .select("q", "r").by("name").by("city").select("q", "r"));
+  }
+
+  /** A skip-admitted map projection falls back before an overlapping single-key select. */
+  @Test
+  public void skipMapSelectThenOverlappingSelectOne_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").skip(1)
+            .select("q", "r").by("name").by("city").select("q").toList())
+            .as("native fallback reads the remaining map's scalar q cell")
+            .containsExactly("Bob"));
+
+    assertEquivalentOrdered(
+        "g.V().as(q).as(r).order(rank).skip(1).select(q, r).by(name).by(city).select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").skip(1)
+            .select("q", "r").by("name").by("city").select("q"));
+  }
+
+  /** A skip-admitted map projection falls back before an overlapping multi-key select. */
+  @Test
+  public void skipMapSelectThenOverlappingSelectMany_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").skip(1)
+            .select("q", "r").by("name").by("city").select("q", "r").toList())
+            .as("native fallback preserves the remaining map's scalar cells")
+            .containsExactly(Map.of("q", "Bob", "r", "Paris")));
+
+    assertEquivalentOrdered(
+        "g.V().as(q).as(r).order(rank).skip(1).select(q, r).by(name).by(city).select(q, r)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").skip(1)
+            .select("q", "r").by("name").by("city").select("q", "r"));
+  }
+
+  /** A range-admitted map projection falls back before an overlapping single-key select. */
+  @Test
+  public void rangeMapSelectThenOverlappingSelectOne_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").range(0, 1)
+            .select("q", "r").by("name").by("city").select("q").toList())
+            .as("native fallback reads the ranged map's scalar q cell")
+            .containsExactly("Alice"));
+
+    assertEquivalentOrdered(
+        "g.V().as(q).as(r).order(rank).range(0,1).select(q, r).by(name).by(city).select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").range(0, 1)
+            .select("q", "r").by("name").by("city").select("q"));
+  }
+
+  /** A range-admitted map projection falls back before an overlapping multi-key select. */
+  @Test
+  public void rangeMapSelectThenOverlappingSelectMany_declines() {
+    seedChainedSelectContainmentPeople();
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").range(0, 1)
+            .select("q", "r").by("name").by("city").select("q", "r").toList())
+            .as("native fallback preserves the ranged map's scalar cells")
+            .containsExactly(Map.of("q", "Alice", "r", "London")));
+
+    assertEquivalentOrdered(
+        "g.V().as(q).as(r).order(rank).range(0,1).select(q, r).by(name).by(city).select(q, r)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank").range(0, 1)
+            .select("q", "r").by("name").by("city").select("q", "r"));
+  }
+
+  /** A limited map followed by a non-overlapping select remains translated. */
+  @Test
+  public void limitMapSelectThenNonOverlappingSelect_remainsTranslated() {
+    seedChainedSelectContainmentPeople();
+
+    assertEquivalentOrdered(
+        "g.V().as(q).as(r).as(s).order(rank).limit(1).select(q, r).by(name).by(city)"
+            + ".select(s).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r").as("s")
+            .order().by("rank").limit(1)
+            .select("q", "r").by("name").by("city").select("s").by("name"));
+
+    withTranslatorOn(
+        () -> assertThat(graph.traversal().V().hasLabel("Person").as("q").as("r").as("s")
+            .order().by("rank").limit(1)
+            .select("q", "r").by("name").by("city").select("s").by("name").toList())
+            .as("the limited non-overlapping label still projects through MATCH")
+            .containsExactly("Alice"));
+  }
+
   /** A trailing select of a non-emitted historical label remains translated. */
   @Test
   public void dedupMapSelectThenNonOverlappingSelect_remainsTranslated() {
@@ -2398,8 +2539,8 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
   /** Seeds complete scalar cells for the chained-select containment cases. */
   private void seedChainedSelectContainmentPeople() {
-    graph.addVertex(T.label, "Person", "name", "Alice", "city", "London");
-    graph.addVertex(T.label, "Person", "name", "Bob", "city", "Paris");
+    graph.addVertex(T.label, "Person", "name", "Alice", "city", "London", "rank", 1);
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "Paris", "rank", 2);
     graph.tx().commit();
   }
 
