@@ -273,7 +273,8 @@ jobs:
       - name: Install execution tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd > /dev/null 2>&1
+          sudo apt-get install -y -qq gh jq zstd > /dev/null 2>&1
+          command -v gh jq zstd
       - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
