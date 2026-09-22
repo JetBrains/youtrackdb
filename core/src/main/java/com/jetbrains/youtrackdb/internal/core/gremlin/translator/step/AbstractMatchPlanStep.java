@@ -908,8 +908,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * Returns one map entry value. Row filtering already removed absent nonproductive keys. An absent
-   * productive key returns {@code null}.
+   * Returns one map entry value. Row filtering already removed absent nonproductive {@code select}
+   * keys that drop the row. An absent productive key returns {@code null}. An absent
+   * {@code project} key with {@link AliasPropertyPresence#omitOnAbsent()} returns {@link #SKIP} so
+   * {@link #putMapColumn} leaves that entry out of the map.
    */
   private Object mapColumnValue(Result row, String name, @Nullable EntityImpl entity) {
     var aliasPresence = aliasPresenceByMapKey.get(name);
@@ -917,10 +919,12 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       var aliasEntity = resolveEntityFromColumn(row, aliasPresence.entityColumnAlias());
       // Row filtering rejects missing filtering entities before projection.
       if (aliasEntity == null) {
-        return null;
+        return aliasPresence.omitOnAbsent() ? SKIP : null;
       }
-      // projectMap and projectSingleValue reject absent filtering properties before this read.
-      // Productive presences may be absent, and their direct property read returns null.
+      if (!aliasEntity.hasProperty(aliasPresence.propertyKey())) {
+        // project: omit the key; productive select: emit null; drop-row select already filtered.
+        return aliasPresence.omitOnAbsent() ? SKIP : null;
+      }
       return convertValue(aliasEntity.getProperty(aliasPresence.propertyKey()));
     }
     if (presenceKeySet.contains(name)) {
