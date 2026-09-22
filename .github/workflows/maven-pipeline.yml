@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -244,7 +244,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ matrix.java }}
           distribution: ${{ matrix.distribution }}
@@ -389,7 +389,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ matrix.java }}
           distribution: ${{ matrix.distribution }}
@@ -467,7 +467,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -586,7 +586,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
