@@ -525,6 +525,313 @@ public class StackedParityEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Gap fill — step order, order×select×limit, chained select, repeated filters.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Spelling pair: one {@code order().by(a).by(b)} merges into a single ORDER BY (translates);
+   * two {@code order()} steps decline. Same fixture so empty≠empty cannot hide a wrong merge.
+   */
+  @Test
+  public void multiByOrder_vs_secondOrder_documentsException() {
+    seedTiedAges();
+    assertEquivalentOrdered(
+        "PAIR translate: order().by(age).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person")
+            .order().by("age", Order.asc).by("name", Order.asc));
+    assertEquivalentOrdered(
+        "PAIR decline: order().by(age).order().by(name)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person")
+            .order().by("age", Order.asc)
+            .order().by("name", Order.asc));
+  }
+
+  /** Hop → as → order → limit → select — common LDBC-ish stack. */
+  @Test
+  public void out_as_order_limit_select_matchesNativeOrdered() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalentOrdered(
+        "g.V().has(name,marko).out(knows).as(f).order().by(name).limit(1).select(f).by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .has("name", "marko")
+            .out("knows").as("f")
+            .order().by("name", Order.asc)
+            .limit(1)
+            .select("f").by("age"));
+  }
+
+  /**
+   * Ordering a map by {@code Column.keys} declines; element {@code order().by.by.select} still
+   * translates on the same fixture.
+   */
+  @Test
+  public void selectMap_orderByColumnKeys_declines_whileElementOrderSelectTranslates() {
+    seedTiedAges();
+    assertEquivalentOrdered(
+        "g.V().as(a).as(n).select(a,n).by(age).by(name).order().by(Column.keys)",
+        Recognition.DECLINED,
+        // order().by(Column.keys) on a Map stream is not a Phase-1 ORDER BY property key.
+        () -> graph.traversal().V().hasLabel("Person").as("a").as("n")
+            .select("a", "n").by("age").by("name")
+            .order().by(org.apache.tinkerpop.gremlin.structure.Column.keys));
+    assertEquivalentOrdered(
+        "control: g.V().as(p).order().by(age).by(name).select(p).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("p")
+            .order().by("age", Order.asc).by("name", Order.asc)
+            .select("p").by("name"));
+  }
+
+  /**
+   * Chained select without cardinality translates (BG2200); the same chain after {@code limit}
+   * declines (containment). Paired so a silent re-admit of the limited shape fails here.
+   */
+  @Test
+  public void chainedSelect_withAndWithoutLimit_documentsException() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "city", "London", "rank", 1);
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "Paris", "rank", 2);
+    graph.tx().commit();
+    assertEquivalent(
+        "PAIR translate: select(q,r).by.select(q)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .select("q", "r").by("name").by("city")
+            .select("q"));
+    assertEquivalentOrdered(
+        "PAIR decline: order.limit.select(q,r).by.select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .order().by("rank", Order.asc)
+            .limit(1)
+            .select("q", "r").by("name").by("city")
+            .select("q"));
+  }
+
+  /** Dedup then boundary select translates; overlapping select after dedup+map declines. */
+  @Test
+  public void dedup_select_boundaryVsOverlapping_documentsException() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "city", "London");
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "Paris");
+    graph.tx().commit();
+    assertEquivalent(
+        "PAIR translate: dedup().select(q).by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("q")
+            .dedup()
+            .select("q").by("name"));
+    assertEquivalent(
+        "PAIR decline: dedup().select(q,r).by.by.select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .dedup()
+            .select("q", "r").by("name").by("city")
+            .select("q"));
+  }
+
+  /**
+   * Repeated property filters AND-compose; order of pure {@code has} must not change the multiset
+   * under translation.
+   */
+  @Test
+  public void repeatedHas_orderIndependent_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "has(age).has(name) then hop",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .has("age", P.gte(30))
+            .has("name", P.neq("x"))
+            .out("created"));
+    assertEquivalent(
+        "has(name).has(age) then hop — same filters swapped",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .has("name", P.neq("x"))
+            .has("age", P.gte(30))
+            .out("created"));
+  }
+
+  /** Two hops with the mid filter before vs after the first hop — both translate. */
+  @Test
+  public void midFilter_beforeVsAfterFirstHop_bothTranslate() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "filter mid after first hop: out(knows).has(age).out(created)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .has("name", "marko")
+            .out("knows")
+            .has("age", P.gte(30))
+            .out("created"));
+    assertEquivalent(
+        "source filter only: has(name).out(knows).out(created)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .has("name", "marko")
+            .out("knows")
+            .out("created"));
+  }
+
+  /** {@code skip} then hop declines; hop then skip translates (sibling of hopSlice pair). */
+  @Test
+  public void hopSkip_orderPair_documentsException() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "PAIR translate: out(created).skip(1)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().out("created").skip(1));
+    assertEquivalent(
+        "PAIR decline: skip(1).out(created)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().skip(1).out("created"));
+  }
+
+  /** {@code range} then hop declines; hop then range translates. */
+  @Test
+  public void hopRange_orderPair_documentsException() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "PAIR translate: out(knows).range(0,2)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "marko").out("knows").range(0, 2));
+    assertEquivalent(
+        "PAIR decline: range(0,2).out(knows)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().has("name", "marko").range(0, 2).out("knows"));
+  }
+
+  /**
+   * {@code order().by(name).limit(n).values(name)} translates; {@code values(name).order().limit}
+   * declines (sorted slice over values).
+   */
+  @Test
+  public void orderLimitValues_vs_valuesOrderLimit_documentsException() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalentOrdered(
+        "PAIR translate: order().by(name).limit(2).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person")
+            .order().by("name", Order.asc)
+            .limit(2)
+            .values("name"));
+    assertEquivalentOrdered(
+        "PAIR decline: values(name).order().limit(2)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person")
+            .values("name")
+            .order().by(Order.asc)
+            .limit(2));
+  }
+
+  /**
+   * Project then order by a project key declines (Map traverser, not element property ORDER BY).
+   */
+  @Test
+  public void out_project_orderByProjectKey_declines() {
+    ModernGraphFixture.seed(graph, session);
+    // Ordering a Map traverser by a string key is not Phase-1 ORDER BY on an element property.
+    assertEquivalentOrdered(
+        "g.V().out(created).project(n,l).by(name).by(lang).order().by(n)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V()
+            .out("created")
+            .project("n", "l").by("name").by("lang")
+            .order().by("n", Order.asc));
+  }
+
+  /**
+   * Double {@code dedup()} declines (second has no MATCH composition rule once DISTINCT is
+   * captured); a single {@code dedup()} still translates on the same fixture.
+   */
+  @Test
+  public void out_dedup_dedup_declines_whileSingleDedupTranslates() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "PAIR decline: out(created).dedup().dedup()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().out("created").dedup().dedup());
+    assertEquivalent(
+        "PAIR translate: out(created).dedup()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().out("created").dedup());
+  }
+
+  /** {@code hasLabel} then {@code hasLabel} again (narrower) — AND-compose labels. */
+  @Test
+  public void hasLabel_then_hasLabel_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().hasLabel(Person).hasLabel(Person).out(knows)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .hasLabel("Person")
+            .hasLabel("Person")
+            .out("knows"));
+  }
+
+  /**
+   * Bare {@code select(a)} keeps the element; a following hop still translates. Contrasts with
+   * modulated {@code select(a).by(name)} which would leave a scalar (not pinned here — both arms
+   * throw natively).
+   */
+  @Test
+  public void selectElement_then_out_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().has(name,marko).as(a).select(a).out(knows)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .has("name", "marko").as("a")
+            .select("a")
+            .out("knows"));
+  }
+
+  /** {@code hasNot} after hop then another hop — presence filter mid-path. */
+  @Test
+  public void out_hasNot_out_matchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob"); // no age
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol", "age", 30);
+    var soft = graph.addVertex(T.label, "Software", "name", "x", "lang", "java");
+    alice.addEdge("knows", bob);
+    alice.addEdge("knows", carol);
+    bob.addEdge("created", soft);
+    carol.addEdge("created", soft);
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V(alice).out(knows).hasNot(age).out(created)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(alice.id())
+            .out("knows")
+            .hasNot("age")
+            .out("created"));
+  }
+
+  /** {@code and} of pure filters after hop then values. */
+  @Test
+  public void out_andHas_values_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().out(knows).and(has(age,gte 30), hasLabel(Person)).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .out("knows")
+            .and(__.has("age", P.gte(30)), __.hasLabel("Person"))
+            .values("name"));
+  }
+
+  private void seedTiedAges() {
+    graph.addVertex(T.label, "Person", "name", "Ann", "age", 20);
+    graph.addVertex(T.label, "Person", "name", "Ben", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Cy", "age", 20);
+    graph.addVertex(T.label, "Person", "name", "Dee", "age", 30);
+    graph.tx().commit();
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
@@ -533,6 +840,14 @@ public class StackedParityEquivalenceTest extends GraphBaseTest {
       Recognition expected,
       Supplier<GraphTraversal<?, ?>> traversalSupplier) {
     assertEquivalentInternal(scenario, expected, Cardinality.NON_EMPTY, traversalSupplier, false);
+  }
+
+  private void assertEquivalent(
+      String scenario,
+      Recognition expected,
+      Cardinality cardinality,
+      Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    assertEquivalentInternal(scenario, expected, cardinality, traversalSupplier, false);
   }
 
   private void assertEquivalentOrdered(
