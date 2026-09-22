@@ -11,6 +11,10 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty;
  * Expands each upstream vertex payload into zero or more scalar property values — native
  * {@code values(k1, k2, …)} flat-map order. Keys are emitted in declaration order; absent properties
  * are skipped, matching {@code PropertiesStep} over {@code PropertyType.VALUE}.
+ *
+ * <p>YouTrackDB stores one cell per property key ({@code Cardinality.list} writes collapse), so
+ * {@link Vertex#properties(String)} yields at most one {@link VertexProperty} per key — the same
+ * contract as {@link Vertex#property(String)}.
  */
 public final class ValuesFlatMapListShapingOp implements ListShapingOp {
 
@@ -61,13 +65,18 @@ public final class ValuesFlatMapListShapingOp implements ListShapingOp {
         }
         return new Iterator<>() {
           private int index;
+          private Iterator<? extends VertexProperty<Object>> propertyValues =
+              Collections.emptyIterator();
 
           @Override
           public boolean hasNext() {
-            while (index < keys.length && !vertex.property(keys[index]).isPresent()) {
-              index++;
+            while (!propertyValues.hasNext()) {
+              if (index >= keys.length) {
+                return false;
+              }
+              propertyValues = vertex.properties(keys[index++]);
             }
-            return index < keys.length;
+            return true;
           }
 
           @Override
@@ -75,9 +84,7 @@ public final class ValuesFlatMapListShapingOp implements ListShapingOp {
             if (!hasNext()) {
               throw new NoSuchElementException();
             }
-            var key = keys[index++];
-            VertexProperty<Object> property = vertex.property(key);
-            return property.isPresent() ? property.value() : null;
+            return propertyValues.next().value();
           }
         };
       }

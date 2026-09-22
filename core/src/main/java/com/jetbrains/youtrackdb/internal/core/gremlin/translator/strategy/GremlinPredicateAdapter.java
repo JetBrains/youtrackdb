@@ -90,9 +90,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *   <li>the predicate's bi-predicate is a custom {@code BiPredicate} (not {@link Compare} / {@link
  *       Contains} / {@link Text} / {@link Text.RegexPredicate}) — the translator cannot reproduce
  *       arbitrary user logic;
- *   <li>the comparand is a size-1 collection under {@code eq} / {@code neq}: normalized to the sole
- *       element so the emitted scalar comparison mirrors native {@code QueryOperatorEquals}
- *       singleton auto-unbox. Size 0 and size ≥2 collections translate normally;
+ *   <li>the comparand is a size-1 collection under {@code eq} / {@code neq} against a
+ *       <em>single-valued</em> (or schema-unknown) field: normalized to the sole element so the
+ *       emitted scalar comparison mirrors native {@code QueryOperatorEquals} singleton auto-unbox.
+ *       Against a declared collection-valued field ({@code EMBEDDEDLIST} / {@code LINKLIST} / …)
+ *       the shape declines — unwrapping would compare the collection as a scalar. Size 0 and size
+ *       ≥2 collections translate normally;
  *   <li>a {@code within} / {@code without} member or a scalar comparand is null, or the comparand
  *       is a type {@link MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue}
  *       parameter).
@@ -112,6 +115,17 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  * declared-String {@code startingWith} still allocates two.
  */
 final class GremlinPredicateAdapter {
+
+  /** Schema type names that store a collection in one property cell. */
+  private static final List<String> MULTI_VALUE_PROPERTY_TYPES =
+      List.of(
+          "EMBEDDEDLIST",
+          "EMBEDDEDSET",
+          "EMBEDDEDMAP",
+          "LINKLIST",
+          "LINKSET",
+          "LINKMAP",
+          "LINKBAG");
 
   /** Singleton — the adapter is stateless and cheap to share across recogniser calls. */
   static final GremlinPredicateAdapter INSTANCE = new GremlinPredicateAdapter();
@@ -558,9 +572,14 @@ final class GremlinPredicateAdapter {
     }
     // Size-1 collection under eq/neq: unwrap to the sole element so the WHERE compares scalars,
     // mirroring native QueryOperatorEquals singleton auto-unbox against a single-valued field.
+    // Declared collection-valued properties keep the collection as the comparand natively — unwrap
+    // would diverge, so decline and stay on the TinkerPop pipeline.
     if ((compare == Compare.eq || compare == Compare.neq)
         && value instanceof Collection<?> collection
         && collection.size() == 1) {
+      if (translation.typeGate().declaredTypeIn(key, MULTI_VALUE_PROPERTY_TYPES)) {
+        return null;
+      }
       value = collection.iterator().next();
       if (value == null) {
         return switch (compare) {

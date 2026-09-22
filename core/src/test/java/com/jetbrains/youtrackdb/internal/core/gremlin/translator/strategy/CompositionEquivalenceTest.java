@@ -880,16 +880,31 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .out("created"));
   }
 
-  /** Order after union translates via in-memory {@link PostConcatOp.Order}. */
+  /** Order after union translates via in-memory {@link PostConcatOp.Order}; sequence is pinned. */
   @Test
   public void union_then_order_matchesNative() {
     ModernGraphFixture.seed(graph, session);
-    assertEquivalent(
+    assertEquivalentOrdered(
         "g.V().union(out(knows), out(created)).order().by(name)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V()
             .union(__.out("knows"), __.out("created"))
             .order().by("name", Order.asc));
+  }
+
+  /**
+   * Post-union order with a missing sort key matches native null placement (Software vertices have
+   * no {@code age}).
+   */
+  @Test
+  public void union_then_orderByMissingKey_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalentOrdered(
+        "g.V().union(out(knows), out(created)).order().by(age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .union(__.out("knows"), __.out("created"))
+            .order().by("age", Order.asc));
   }
 
   /** Positional limit after union (without count) declines. */

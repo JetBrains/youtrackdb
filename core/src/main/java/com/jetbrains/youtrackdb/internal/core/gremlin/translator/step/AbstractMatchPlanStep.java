@@ -794,7 +794,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    */
   private Object projectGroupEntry(Result row) {
     return new AbstractMap.SimpleImmutableEntry<>(
-        convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS), row),
+        convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS)),
         convertGroupValue(row.getProperty(GROUP_VALUE_ALIAS)));
   }
 
@@ -930,7 +930,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       var value = convertValue(entity.getProperty(name));
       return shaping.wrapMapValuesInLists() ? Collections.singletonList(value) : value;
     }
-    return convertMapColumn(name, row.getProperty(name), row);
+    return convertMapColumn(name, row.getProperty(name));
   }
 
   /**
@@ -938,18 +938,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * become TinkerPop vertices or edges; a column read as a record-identifier token must stay a RID.
    */
   private Object convertMapColumn(String columnName, Object raw) {
-    return convertMapColumn(columnName, raw, null);
-  }
-
-  private Object convertMapColumn(String columnName, Object raw, @Nullable Result row) {
     if (raw instanceof Entity entity && entity.isEdge()) {
       return new YTDBEdgeImpl(armingGraph, entity.asEdge());
-    }
-    if (row != null) {
-      var cell = row.getProperty(columnName);
-      if (cell instanceof Entity cellEntity && cellEntity.isEdge()) {
-        return new YTDBEdgeImpl(armingGraph, cellEntity.asEdge());
-      }
     }
     if (raw instanceof RID rid) {
       if (holdsRecordIdToken(columnName)) {

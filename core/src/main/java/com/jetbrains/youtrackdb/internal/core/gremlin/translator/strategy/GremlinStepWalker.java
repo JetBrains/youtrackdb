@@ -1233,9 +1233,11 @@ final class GremlinStepWalker {
 
     // Edge-as-node WHERE also lives on the path item (forward MatchEdgeTraverser reads it there).
     // Reverse schedules root at a selective target and walk back through the edge alias via
-    // MatchReverseEdgeTraverser, which only sees leftFilter from aliasFilters — so merge edge
-    // filters here, after bindPathItemConstraints, to avoid AND-ing the same clause onto the path
-    // item a second time.
+    // MatchReverseEdgeTraverser; that path needs the edge WHERE in aliasFilters so a later
+    // rebind / root estimate can see it. Merging after bindPathItemConstraints avoids AND-ing the
+    // same clause onto the path item a second time at bind time. Forward schedules may still
+    // evaluate the identical predicate twice (path-item filter + alias lookup) — idempotent, not a
+    // correctness bug. Do not drop the merge: reverse-rooted edge-as-node patterns lose the filter.
     for (var entry : ctx.edgeFilters.entrySet()) {
       finalAliasFilters.merge(entry.getKey(), entry.getValue(), GremlinStepWalker::andWhere);
     }
