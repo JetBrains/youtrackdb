@@ -94,8 +94,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *       <em>single-valued</em> (or schema-unknown) field: normalized to the sole element so the
  *       emitted scalar comparison mirrors native {@code QueryOperatorEquals} singleton auto-unbox.
  *       Against a declared collection-valued field ({@code EMBEDDEDLIST} / {@code LINKLIST} / …)
- *       the shape declines — unwrapping would compare the collection as a scalar. Size 0 and size
- *       ≥2 collections translate normally;
+ *       the collection is kept as the comparand ({@code key = [x]}), matching native structural
+ *       equality — unwrapping would turn a nested singleton such as {@code [["x"]]} into a wrong
+ *       scalar compare. Size 0 and size ≥2 collections always keep the collection;
  *   <li>a {@code within} / {@code without} member or a scalar comparand is null, or the comparand
  *       is a type {@link MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue}
  *       parameter).
@@ -570,16 +571,15 @@ final class GremlinPredicateAdapter {
         default -> null;
       };
     }
-    // Size-1 collection under eq/neq: unwrap to the sole element so the WHERE compares scalars,
-    // mirroring native QueryOperatorEquals singleton auto-unbox against a single-valued field.
-    // Declared collection-valued properties keep the collection as the comparand natively — unwrap
-    // would diverge, so decline and stay on the TinkerPop pipeline.
+    // Size-1 collection under eq/neq against a single-valued (or schema-unknown) field: unwrap to
+    // the sole element so the WHERE compares scalars, mirroring native QueryOperatorEquals
+    // singleton auto-unbox. Declared collection-valued properties keep the collection as the
+    // comparand (key = [x]) — native compares both sides as collections, and unwrapping would
+    // mis-handle a nested singleton such as [["x"]].
     if ((compare == Compare.eq || compare == Compare.neq)
         && value instanceof Collection<?> collection
-        && collection.size() == 1) {
-      if (translation.typeGate().declaredTypeIn(key, MULTI_VALUE_PROPERTY_TYPES)) {
-        return null;
-      }
+        && collection.size() == 1
+        && !translation.typeGate().declaredTypeIn(key, MULTI_VALUE_PROPERTY_TYPES)) {
       value = collection.iterator().next();
       if (value == null) {
         return switch (compare) {

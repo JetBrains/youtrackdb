@@ -226,23 +226,72 @@ public class GremlinPredicateAdapterTest {
 
   /**
    * {@code has("age", P.eq([30, 40]))} — a size-2 collection — translates (the singleton
-   * auto-unbox ambiguity does not apply for size ≥2), so only size-1 declines.
+   * auto-unbox ambiguity does not apply for size ≥2), so only size-1 on single-valued fields
+   * normalizes.
    */
   @Test
   public void eqMultiElementCollection_translates() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("age", P.eq(List.of(30, 40))));
-    assertThat(expr).as("a size-2 collection under eq translates (not the singleton-decline case)")
+    assertThat(expr).as("a size-2 collection under eq translates (not the singleton-unwrap case)")
         .isInstanceOf(SQLBinaryCondition.class);
   }
 
-  /** {@code has("age", P.eq([]))} — an empty collection — translates (only the size-1 case declines). */
+  /** {@code has("age", P.eq([]))} — an empty collection — translates (only size-1 on scalars unwraps). */
   @Test
   public void eqEmptyCollection_translates() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("age", P.eq(List.of())));
-    assertThat(expr).as("an empty collection under eq translates (not the singleton-decline case)")
+    assertThat(expr).as("an empty collection under eq translates (not the singleton-unwrap case)")
         .isInstanceOf(SQLBinaryCondition.class);
+  }
+
+  /**
+   * Size-1 {@code eq([x])} against a schema gate that declares the key as {@code EMBEDDEDLIST}
+   * keeps the collection literal — unwrapping would diverge on nested singletons.
+   */
+  @Test
+  public void eqSingletonCollection_onEmbeddedList_keepsCollectionLiteral() {
+    GremlinPredicateAdapter.PropertyTypeGate listGate =
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return false;
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, java.util.List<String> typeNames) {
+            return "tags".equals(key) && typeNames.contains("EMBEDDEDLIST");
+          }
+        };
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("tags", P.eq(List.of("x"))), listGate);
+    assertThat(expr)
+        .as("EMBEDDEDLIST size-1 eq must translate, not decline")
+        .isInstanceOf(SQLBinaryCondition.class);
+    assertThat(capturedBinds(new HasContainer("tags", P.eq(List.of("x"))), listGate, false))
+        .as("comparand must stay a one-element collection, not the unwrapped scalar")
+        .containsExactly(List.of("x"));
+  }
+
+  /** Symmetric {@code neq([x])} on {@code EMBEDDEDLIST} also keeps the collection. */
+  @Test
+  public void neqSingletonCollection_onEmbeddedList_keepsCollectionLiteral() {
+    GremlinPredicateAdapter.PropertyTypeGate listGate =
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return false;
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, java.util.List<String> typeNames) {
+            return "tags".equals(key) && typeNames.contains("EMBEDDEDLIST");
+          }
+        };
+    assertThat(capturedBinds(new HasContainer("tags", P.neq(List.of("x"))), listGate, false))
+        .as("neq on EMBEDDEDLIST must bind the collection comparand")
+        .containsExactly(List.of("x"));
   }
 
   /**

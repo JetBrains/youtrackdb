@@ -564,23 +564,40 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Size-1 collection eq against a declared collection-valued property declines — unwrap would
-   * compare the list cell as a scalar.
+   * Size-1 collection eq against a declared {@code EMBEDDEDLIST} keeps the list as the comparand
+   * ({@code tags = [x]}) and matches native structural equality — including a nested singleton
+   * that unwrap would mis-handle, and a size-2 cell that must not match {@code eq([x])}.
    */
   @Test
-  public void singletonCollectionEq_onEmbeddedList_declines() {
+  public void singletonCollectionEq_onEmbeddedList_matchesNative() {
     var person = session.getSchema().getOrCreateClass(
         "Person", session.getSchema().getClass("V"));
     if (person.getProperty("tags") == null) {
       person.createProperty("tags", PropertyType.EMBEDDEDLIST);
     }
     graph.addVertex(T.label, "Person", "name", "Alice", "tags", List.of("x"));
+    graph.addVertex(T.label, "Person", "name", "Bob", "tags", List.of("y"));
+    graph.addVertex(T.label, "Person", "name", "Carol", "tags", List.of("x", "y"));
+    graph.addVertex(T.label, "Person", "name", "Dee", "tags", List.of(List.of("x")));
     graph.tx().commit();
     assertEquivalent(
-        "g.V().hasLabel(Person).has(tags, eq([x])) on EMBEDDEDLIST",
-        Recognition.DECLINED,
-        Cardinality.MAY_BE_EMPTY,
+        "g.V().hasLabel(Person).has(tags, eq([x])) — match singleton list cell",
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person").has("tags", P.eq(List.of("x"))));
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, eq([x,y])) — match size-2 cell",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("tags", P.eq(List.of("x", "y"))));
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, eq([[x]])) — nested singleton kept intact",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .hasLabel("Person")
+            .has("tags", P.eq(List.of(List.of("x")))));
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, neq([x])) — structural neq on EMBEDDEDLIST",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("tags", P.neq(List.of("x"))));
   }
 
   /** Size-2 collection membership via {@code within} translates and matches native. */
