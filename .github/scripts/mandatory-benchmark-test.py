@@ -529,6 +529,24 @@ class WorkflowContractTest(unittest.TestCase):
     self.assertIn("pr-", self.workflow["concurrency"]["group"])
     self.assertIn("sha-", self.workflow["concurrency"]["group"])
 
+  def test_benchmark_sets_up_jdk_before_maven_execution(self):
+    """The benchmark job provisions Temurin 21 before either side invokes Maven."""
+    steps = self.workflow["jobs"]["benchmark"]["steps"]
+    setup_index = next(
+        index for index, step in enumerate(steps)
+        if step.get("name") == "Set up JDK 21")
+    benchmark_index = next(
+        index for index, step in enumerate(steps)
+        if step.get("name") == "Run baseline and target benchmarks")
+    setup = steps[setup_index]
+    self.assertLess(setup_index, benchmark_index)
+    self.assertEqual("actions/setup-java@v5", setup["uses"])
+    self.assertEqual("21", setup["with"]["java-version"])
+    self.assertEqual("temurin", setup["with"]["distribution"])
+    self.assertEqual("maven", setup["with"]["cache"])
+    self.assertEqual("false", setup["with"]["overwrite-settings"])
+    self.assertNotIn("if", setup)
+
   def test_runner_and_permissions_preserve_job_boundaries(self):
     """The resolved fixed runner executes target code while only the validator has authority."""
     benchmark = self.workflow["jobs"]["benchmark"]
