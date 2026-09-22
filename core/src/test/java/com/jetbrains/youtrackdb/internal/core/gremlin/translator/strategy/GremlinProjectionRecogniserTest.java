@@ -229,7 +229,10 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
         .containsExactly(new AliasPropertyPresence(peAlias, "name", "v"));
   }
 
-  /** {@code project("n").by("name")} builds one modulated RETURN column per project key. */
+  /**
+   * {@code project("n").by("name")} projects the boundary entity for {@code hasProperty} and omits
+   * absent nonproductive keys from the map (default ProductiveByStrategy contract).
+   */
   @Test
   public void projectWithBy_pinsMapProjection() {
     var admin = graph.traversal().V().project("n").by("name").asAdmin();
@@ -239,10 +242,14 @@ public class GremlinProjectionRecogniserTest extends GraphBaseTest {
 
     var outcome = ProjectStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
+    var peAlias = ResultShaping.presenceEntityColumnAlias(BOUNDARY_ALIAS);
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.MAP);
-    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo("n");
-    assertThat(ctx.returnItems.getFirst().toString()).contains("name");
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(peAlias);
+    assertThat(ctx.shaping().mapEmitColumnOrder()).containsExactly("n");
+    assertThat(ctx.shaping().dropOnAbsent()).isFalse();
+    assertThat(ctx.shaping().aliasPropertyPresences())
+        .containsExactly(AliasPropertyPresence.omitWhenAbsent(peAlias, "name", "n"));
   }
 
   /**
