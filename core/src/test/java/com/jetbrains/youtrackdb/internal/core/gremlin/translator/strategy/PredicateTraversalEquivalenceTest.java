@@ -563,6 +563,26 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().has("name", P.eq(List.of("Alice"))));
   }
 
+  /**
+   * Size-1 collection eq against a declared collection-valued property declines — unwrap would
+   * compare the list cell as a scalar.
+   */
+  @Test
+  public void singletonCollectionEq_onEmbeddedList_declines() {
+    var person = session.getSchema().getOrCreateClass(
+        "Person", session.getSchema().getClass("V"));
+    if (person.getProperty("tags") == null) {
+      person.createProperty("tags", PropertyType.EMBEDDEDLIST);
+    }
+    graph.addVertex(T.label, "Person", "name", "Alice", "tags", List.of("x"));
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, eq([x])) on EMBEDDEDLIST",
+        Recognition.DECLINED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().hasLabel("Person").has("tags", P.eq(List.of("x"))));
+  }
+
   /** Size-2 collection membership via {@code within} translates and matches native. */
   @Test
   public void multiValueWithin_matchesNative() {
