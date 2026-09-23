@@ -828,8 +828,8 @@ final class WalkerContext implements RecognitionContext {
     var boundary = boundaryAlias;
     // A hop between order() and the slice re-pins the boundary — LIMIT would cut the sorted
     // source, not the post-hop traverser stream Gremlin applies. Foreign-alias ORDER BY items and
-    // multi-alias RETURN are allowed: tie-breaking under equal sort keys is implementation-defined,
-    // same as YQL ORDER BY + LIMIT and as boundary-only ordered slices.
+    // multi-alias RETURN are allowed: on element streams YTDBOrderRidTieBreakStrategy already
+    // total-orders equal primary keys via RID on both arms.
     return boundary != null && orderByAlias != null && boundary.equals(orderByAlias);
   }
 

@@ -421,8 +421,9 @@ interface RecognitionContext extends ParamSink {
 
   /**
    * Whether a following slice may sit behind the captured {@code ORDER BY}: the current boundary is
-   * still the alias the sort was captured on. Equal-key ties follow MATCH {@code OrderByStep}
-   * (implementation-defined, as in YQL {@code ORDER BY} + {@code LIMIT}). A hop between
+   * still the alias the sort was captured on. On element streams, equal primary keys are
+   * total-ordered by the RID secondary key from {@code YTDBOrderRidTieBreakStrategy}, so
+   * translator-on and translator-off agree on which tied rows a cut keeps. A hop between
    * {@code order()} and the slice still declines. See {@link RangeGlobalStepRecogniser}.
    */
   boolean orderAllowsSliceOnCurrentBoundary();

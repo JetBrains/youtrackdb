@@ -1148,73 +1148,39 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A real slice behind {@code order().by(k)} on the same boundary translates. MATCH's
-   * {@code ORDER BY} on a repeated key is a partial order, so a bound cutting inside a tie group
-   * keeps some member of that group. Three of the four vertices here share the name {@code Tie},
-   * so {@code LIMIT 2} cuts inside that group.
-   *
-   * <p>Asserted: the translator engages one boundary step, the cut returns exactly the limit, and
-   * every returned row belongs to the tied group. Deliberately not asserted: which two members
-   * survive, and their relative order. Tie-member choice under a cut is implementation-defined
-   * here, and ordering inside an equal-key group is a separate contract.
-   *
-   * <p>This test previously required a decline, and the measured divergence it cited was
-   * {@code [t1, t2]} against native's {@code [t2, t1]}. That expectation came from the pre-rebase
-   * unconditional decline in {@code RangeGlobalStepRecogniser}, which the ordered-slice work
-   * replaced with a conditional accept through
-   * {@code WalkerContext.orderAllowsSliceOnCurrentBoundary}. The contract below is the one the
-   * shipped code commits to. Where the same cut falls behind a hop it still declines, and that
-   * case lives in {@code OrderRangeStepRecogniserTest}.
+   * A real slice behind {@code order().by(k)} on the same boundary translates. Three of the four
+   * vertices share the name {@code Tie}, so {@code LIMIT 2} cuts inside that tie group.
+   * {@code YTDBOrderRidTieBreakStrategy} appends a RID secondary key on both arms, so which two
+   * Ties survive is the RID-ordered prefix — not implementation-defined. Sibling with a hop before
+   * the bound:
+   * {@link OrderRidTieBreakEquivalenceTest#duplicateIdPropertyAfterAHopWithALimit_keepsTheOrderedPrefix}.
+   * A hop between {@code order()} and the slice still declines ({@code OrderRangeStepRecogniserTest}).
    */
   @Test
-  public void orderThenLimit_translatesAndKeepsLimitManyFromTiedGroup() {
-    // Zzz is inserted first on purpose. It sorts last, so a plan that ignored the sort and kept
-    // the first two rows it saw would return z and fail the membership assertion. Inserting it
-    // last would let an unordered plan pass.
+  public void orderThenLimit_translatesAndKeepsRidOrderedPrefixOfTiedGroup() {
+    // Zzz is inserted first on purpose. It sorts last by name, so a plan that ignored the sort and
+    // kept the first two rows it saw would return z and fail the RID-prefix pin.
     graph.addVertex(T.label, "Person", "name", "Zzz", "tag", "z");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t3");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t1");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t2");
     graph.tx().commit();
 
-    // Fixture precondition: the bound is load-bearing only if the sort key ties across it. If
-    // positions 1 and 2 of native's ordered answer carried different names, ORDER BY alone would
-    // decide which rows LIMIT 2 keeps and the membership assertion would guard nothing.
-    var nativeKeys = nativeOrderedNames();
-    assertThat(nativeKeys)
-        .as("the fixture must supply at least three rows for the LIMIT 2 boundary to sit inside")
-        .hasSizeGreaterThan(2);
-    assertThat(nativeKeys.get(1))
-        .as("the fixture must tie the sort key across the LIMIT 2 boundary")
-        .isEqualTo(nativeKeys.get(2));
+    var tiedInRidOrder = tagsInIdentifierOrder().stream()
+        .filter(tag -> !tag.equals("z"))
+        .toList();
+    assertThat(tiedInRidOrder)
+        .as("the fixture must supply three tied rows so LIMIT 2 cuts inside the group")
+        .hasSize(3);
+    var expectedPrefix = tiedInRidOrder.subList(0, 2);
 
-    var tiedGroupTags = List.of("t1", "t2", "t3");
-    withTranslatorOn(
-        () -> {
-          var admin = graph.traversal().V().order().by("name").limit(2).values("tag").asAdmin();
-          admin.applyStrategies();
-          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin.getSteps()))
-              .as("g.V().order().by(name).limit(2).values(tag) must translate — "
-                  + "exactly one boundary step")
-              .isEqualTo(1);
-          var rows = admin.toList().stream().map(String::valueOf).toList();
-          assertThat(rows)
-              .as("the cut must keep exactly the limit, and only rows of the tied group")
-              .hasSize(2)
-              .isSubsetOf(tiedGroupTags);
-        });
-  }
-
-  /** Native's ordered name sequence, read translator-off so the sort is Gremlin's own stable one. */
-  private List<String> nativeOrderedNames() {
-    var names = new ArrayList<String>();
-    withTranslatorOff(
-        () -> {
-          var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
-          admin.applyStrategies();
-          admin.toList().stream().map(String::valueOf).forEach(names::add);
-        });
-    return names;
+    assertEquivalentOrdered(
+        "g.V().order().by(name).limit(2).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("name").limit(2).values("tag"));
+    assertThat(graph.traversal().V().order().by("name").limit(2).values("tag").toList())
+        .as("a bound cutting inside a name tie keeps the RID-ordered prefix of that group")
+        .isEqualTo(expectedPrefix);
   }
 
   /** {@code dedup()} matches native vertex multiset. */
@@ -1541,10 +1507,12 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
    * correct answer and the conjunct must not be added. Without this case the four assertions above
    * would be equally green if the conjunct were added unconditionally, which is the bug this pins.
    *
-   * <p>The {@code order()} arm compares multisets rather than sequences on purpose: null-valued
-   * rows survive here, and where {@code ORDER BY} places a null is a known divergence between MATCH
-   * and the native pipeline. The sibling {@code orderByMissingKey_dropsElementLikeNative} has no
-   * nulls left after the drop, so it asserts the stronger ordered form.
+   * <p>The {@code order()} arm uses sequence equality: missing-key rows survive as null keys, and
+   * {@code YTDBOrderNullsStrategy} plus MATCH {@code ORDER BY} null placement keep both arms on the
+   * same YQL-aligned order (RID tie-break separates the two ageless rows). Absolute placement vs
+   * YQL is pinned by {@link TranslatedProductiveOrderTest}. The sibling
+   * {@link #orderByMissingKeyUnderStandardOrderSemantics_dropsElementLikeNative} has no nulls left
+   * after the drop.
    */
   @Test
   public void productiveByStrategy_keepsTheNullBucket() {
@@ -1559,7 +1527,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .V()
             .groupCount()
             .by("age"));
-    assertEquivalent(
+    assertEquivalentOrdered(
         "g.withStrategies(ProductiveByStrategy).V().order().by(age)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().withStrategies(ProductiveByStrategy.instance()).V().order()
