@@ -24,13 +24,14 @@ An attestation is a signed statement that identifies the trusted validator.
 - Performance regressions remain informational for human review.
 - Automatic core Java enforcement and `[no-benchmarks]` support remain deferred.
 
-Integration test run conditions:
+#### Integration test run conditions:
 
 - Integration tests do not run for a draft pull request or when every changed file is a Markdown file.
 - A merge queue orders approved pull requests for merging.
 - A merge group temporarily combines changes GitHub tests before a merge queue writes them to the target branch.
 - Merge groups do not rerun integration tests because the pull request head already ran the full suite.
 - The exact lowercase marker `[no-it-tests]` skips integration tests when it appears in the first line of the head commit message.
+- The `[no-it-tests]` marker has no effect in the pull request title.
 - The marker comparison respects letter case and works only for a pull request from the same repository.
 - A fork workflow waits when its pull request author or event actor is an external contributor.
 - JetBrains organisation members are not external contributors, including when they open pull requests from personal forks.

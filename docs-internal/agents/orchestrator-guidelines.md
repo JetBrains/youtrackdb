@@ -73,6 +73,7 @@ failures make concurrent runs unsafe. Execution details live in
   Merge groups do not rerun integration tests because the pull request head already ran the full suite.
 - **Integration test marker**: The exact lowercase marker `[no-it-tests]` skips them on same-repository pull requests.
   It must appear in the first line of the head commit message.
+  The marker has no effect in the pull request title.
   The marker comparison respects letter case.
   Use the marker only when the change cannot affect integration tests.
 - **Fork workflow approval**: GitHub applies required fork approval before any workflow job starts.
