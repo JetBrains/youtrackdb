@@ -1070,16 +1070,16 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * IC1-shaped: per-record LET subquery plus ORDER BY on upstream columns and LIMIT.
-   * Sort keys do not reference the LET, but {@code LetQueryStep} still runs before the
-   * projections block. Deferral would sort pre-projection LET rows and regress throughput,
-   * so the planner must project before ORDER BY (develop order).
+   * Per-record LET subquery plus ORDER BY on upstream columns and LIMIT.
+   * Sort keys do not reference the LET, so LetQuery can run after the slice: only the
+   * LIMIT rows pay correlated subquery cost.
    *
-   * <p>Expected outcome: {@link ProjectionCalculationStep} precedes {@link OrderByStep};
-   * the two alphabetically first names come back with their correlated LET payload.
+   * <p>Expected outcome: {@link OrderByStep} → {@link LimitExecutionStep} →
+   * {@link LetQueryStep} → {@link ProjectionCalculationStep}; the two alphabetically
+   * first names come back with their correlated LET payload.
    */
   @Test
-  public void orderByUpstreamFieldWithLetQueryAndLimit_projectsBeforeSort() {
+  public void orderByUpstreamFieldWithLetQueryAndLimit_defersLetPastLimit() {
     var className = "DeferLetQuery_" + uniqueSuffix();
     session.getMetadata().getSchema().createClass(className);
 
@@ -1091,7 +1091,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     }
     session.commit();
 
-    // Correlated LET stays per-record (not promoted to global); mirrors IC1 $universities.
+    // Correlated LET stays per-record (not promoted to a global LET).
     var sql =
         "select name, $detail as detail from " + className
             + " let $detail = (select tag from " + className
@@ -1101,10 +1101,20 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       assertPlanStepOrder(
           result,
-          ProjectionCalculationStep.class,
           OrderByStep.class,
-          "per-record LET subquery must force project-before-sort; plan was:\n"
+          LimitExecutionStep.class,
+          "ORDER BY must precede LIMIT; plan was:\n" + result.getExecutionPlan());
+      assertPlanStepOrder(
+          result,
+          LimitExecutionStep.class,
+          LetQueryStep.class,
+          "LetQuery must run after LIMIT so only sliced rows pay the subquery; plan was:\n"
               + result.getExecutionPlan());
+      assertPlanStepOrder(
+          result,
+          LetQueryStep.class,
+          ProjectionCalculationStep.class,
+          "projection of $detail must follow LetQuery; plan was:\n" + result.getExecutionPlan());
       Assert.assertEquals(2, rows.size());
       Assert.assertEquals("amy", rows.get(0).getProperty("name"));
       Assert.assertEquals("bea", rows.get(1).getProperty("name"));

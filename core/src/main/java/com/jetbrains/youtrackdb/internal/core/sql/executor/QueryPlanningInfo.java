@@ -35,6 +35,7 @@ import javax.annotation.Nullable;
  *  flatten WHERE    | flattenedWhereClause populated
  *  splitProjections | preAggregateProjection, aggregateProjection, projection
  *  ORDER BY guard   | deferOrderByProjections
+ *  LET-past-LIMIT   | deferPerRecordLetPastLimit
  *  addOrderByProjs  | projectionAfterOrderBy, projection (ORDER BY aliases added)
  *  handleFetch*     | whereClause/flattenedWhereClause set to null when consumed
  *                   |   by index; orderApplied set to true when index sorts
@@ -211,6 +212,13 @@ public class QueryPlanningInfo {
   protected boolean deferOrderByProjections;
 
   /**
+   * Set when per-record LET subqueries can run after ORDER BY + LIMIT.
+   * Sort keys and WHERE must not reference those LET variables, and the query must be on the
+   * simple (Path C) pipeline so SKIP/LIMIT already precede projections.
+   */
+  protected boolean deferPerRecordLetPastLimit;
+
+  /**
    * RID range conditions extracted from the WHERE clause (e.g. {@code @rid > #10:5}).
    * Used to narrow the collection scan range in
    * {@link FetchFromClassExecutionStep}.
@@ -250,6 +258,7 @@ public class QueryPlanningInfo {
     result.orderApplied = this.orderApplied;
     result.projectionsCalculated = this.projectionsCalculated;
     result.deferOrderByProjections = this.deferOrderByProjections;
+    result.deferPerRecordLetPastLimit = this.deferPerRecordLetPastLimit;
     result.ridRangeConditions = this.ridRangeConditions;
 
     return result;

@@ -309,14 +309,19 @@ public class SelectExecutionPlanner {
     // so that expensive LET subqueries are skipped for filtered-out rows.
     handleLetPreFilter(result, info, ctx, enableProfiling);
 
-    handleLet(result, info, ctx, enableProfiling); // per-record LET
+    // When ORDER BY keys do not reference LET variables and a LIMIT is present,
+    // LetQueryStep is appended after the slice in handleProjectionsBlock (Path C)
+    // so correlated LET subqueries run only for kept rows.
+    if (!info.deferPerRecordLetPastLimit) {
+      handleLet(result, info, ctx, enableProfiling); // per-record LET
+    }
 
     handleWhere(result, info, ctx, enableProfiling); // WHERE filtering
 
     // --- 5b. Predicate push-down: move outer WHERE into expand() ---
     tryPushDownFilterIntoExpand(result, info);
 
-    handleProjectionsBlock(result, info, ctx, enableProfiling);// projections, ORDER BY, etc.
+    handleProjectionsBlock(result, info, ctx, enableProfiling, this);
 
     // --- 6. Append timeout enforcement step if configured ---
     if (info.timeout != null) {
@@ -356,6 +361,7 @@ public class SelectExecutionPlanner {
    * Path C -- simple query (no expand/unwind/distinct/aggregation):
    *   Skip -&gt; Limit -&gt; Projections
    *   (SKIP/LIMIT applied early to minimize projection work)
+   *   When {@code deferPerRecordLetPastLimit}, LetQuery runs between Limit and Projections.
    * </pre>
    *
    * <p>The planner checks every ORDER BY key before adding synthetic projections.
@@ -368,6 +374,22 @@ public class SelectExecutionPlanner {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean enableProfiling) {
+    handleProjectionsBlock(result, info, ctx, enableProfiling, null);
+  }
+
+  /**
+   * Same as {@link #handleProjectionsBlock(SelectExecutionPlan, QueryPlanningInfo, CommandContext,
+   * boolean)} with an optional planner host for deferred per-record LET.
+   *
+   * @param letHost the SELECT planner that owns {@code handleLet}, or {@code null} when the caller
+   *     (e.g. MATCH RETURN) never sets {@code deferPerRecordLetPastLimit}
+   */
+  public static void handleProjectionsBlock(
+      SelectExecutionPlan result,
+      QueryPlanningInfo info,
+      CommandContext ctx,
+      boolean enableProfiling,
+      @Nullable SelectExecutionPlanner letHost) {
 
     // Project early only when ORDER BY cannot read its keys from upstream rows.
     handleProjectionsBeforeOrderBy(result, info, ctx, enableProfiling);
@@ -415,6 +437,13 @@ public class SelectExecutionPlanner {
         }
         if (info.limit != null) {
           result.chain(new LimitExecutionStep(info.limit, ctx, enableProfiling));
+        }
+        if (info.deferPerRecordLetPastLimit) {
+          if (letHost == null) {
+            throw new IllegalStateException(
+                "deferPerRecordLetPastLimit requires a SelectExecutionPlanner host");
+          }
+          letHost.handleLet(result, info, ctx, enableProfiling);
         }
         handleProjections(result, info, ctx, enableProfiling);
       }
@@ -608,11 +637,11 @@ public class SelectExecutionPlanner {
         || info.aggregateProjection != null) {
       return false;
     }
-    // Deferral only moves CALCULATE PROJECTIONS past ORDER BY/LIMIT; handleLet still
-    // runs earlier. Per-record LET subqueries then execute for every candidate and
-    // OrderBy sorts pre-projection rows — the IC1-shaped regression. Refuse deferral
-    // until LetQueryStep can move past LIMIT with the projection.
-    if (hasPerRecordLetQuery(info)) {
+    // Per-record LET subqueries normally run before the projections block. Deferring only
+    // CALCULATE PROJECTIONS would leave OrderBy sorting rows that already paid LET cost.
+    // Allow projection deferral together with moving LetQuery past LIMIT; otherwise project
+    // first.
+    if (hasPerRecordLetQuery(info) && !canDeferPerRecordLetPastLimit(info)) {
       return false;
     }
 
@@ -626,6 +655,87 @@ public class SelectExecutionPlanner {
       }
     }
     return true;
+  }
+
+  /**
+   * Returns whether per-record LET subqueries can run after ORDER BY + LIMIT on Path C.
+   *
+   * <p>Requires a LIMIT, no row-shaping ops that force Path A/B, no WHERE that still needs LET,
+   * and ORDER BY keys (when present) that read upstream fields rather than LET variables.
+   */
+  private static boolean canDeferPerRecordLetPastLimit(QueryPlanningInfo info) {
+    if (!hasPerRecordLetQuery(info) || info.limit == null) {
+      return false;
+    }
+    if (info.expand
+        || info.unwind != null
+        || info.groupBy != null
+        || info.distinct
+        || info.preAggregateProjection != null
+        || info.aggregateProjection != null) {
+      return false;
+    }
+    if (whereReferencesPerRecordLet(info)) {
+      return false;
+    }
+    if (info.orderBy == null
+        || info.orderBy.getItems() == null
+        || info.orderBy.getItems().isEmpty()) {
+      // LIMIT-only: Path C already slices before projections; LET can follow the slice.
+      return true;
+    }
+    if (info.projection == null || info.projection.getItems() == null) {
+      return false;
+    }
+    var projectionAliases = info.projection.getAllAliases();
+    var passThroughAliases = passThroughProjectionAliases(info.projection);
+    var letVariables = declaredLetVariables(info);
+    for (var item : info.orderBy.getItems()) {
+      if (!orderByItemReadsUpstreamRow(
+          item, projectionAliases, passThroughAliases, letVariables)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Returns whether the remaining WHERE still names a per-record LET variable.
+   * Those filters must see LET results, so LetQuery cannot move past LIMIT.
+   */
+  private static boolean whereReferencesPerRecordLet(QueryPlanningInfo info) {
+    if (info.perRecordLetClause == null || info.perRecordLetClause.getItems() == null) {
+      return false;
+    }
+    Set<String> perRecordVars = new HashSet<>();
+    collectLetVariableNames(info.perRecordLetClause, perRecordVars);
+    if (perRecordVars.isEmpty()) {
+      return false;
+    }
+    if (clauseTextReferencesAny(info.whereClause == null ? null : info.whereClause.toString(),
+        perRecordVars)) {
+      return true;
+    }
+    if (info.flattenedWhereClause != null) {
+      for (var block : info.flattenedWhereClause) {
+        if (clauseTextReferencesAny(block.toString(), perRecordVars)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private static boolean clauseTextReferencesAny(@Nullable String text, Set<String> names) {
+    if (text == null || text.isEmpty()) {
+      return false;
+    }
+    for (var name : names) {
+      if (text.contains(name)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -839,6 +949,8 @@ public class SelectExecutionPlanner {
 
     splitProjectionsForGroupBy(info, ctx);
     resolveOrderByCollations(info, ctx);
+    // LET-past-LIMIT first: projection deferral with LET queries is only safe when LET moves too.
+    info.deferPerRecordLetPastLimit = canDeferPerRecordLetPastLimit(info);
     // The deferral decision must inspect the user's ORDER BY before synthetic aliases rewrite it.
     info.deferOrderByProjections = canDeferOrderByProjections(info);
     addOrderByProjections(info);
