@@ -1,144 +1,35 @@
 # Machine-local setup
 
-This document covers machine-local files that repository workflows require. The repository
-cannot carry these files.
-
-The other machine-local configuration guide is
-`docs-internal/dev-workflow/mcp-server-configuration.md`.
+This document describes local checks for Slate model routing. The repository does not need
+machine-local model overrides to enable routing.
 
 ## Model routing
 
-Routing acceptance requires a non-empty configured list and no router configuration fault.
-First verify that the configured model list is non-empty:
+Slate uses logical models. A logical model is a provider-free name that selects a configured
+physical model and fixed effort. The `router.models` value is an object with optional `include`,
+`add`, `replace`, and `exclude` lists. An omitted `include` starts with the six shipped models.
+An explicit empty `include` starts with no ordinary models. See `model-routing.md` in the
+installed `ytdb-slate` package for the full configuration rules.
+
+Check that the repository configuration parses and uses the new object form:
 
 ```bash
-node -e 'const c=require("./.pi/slate.json"); if (!Array.isArray(c.router?.models) || c.router.models.length === 0) throw new Error("routing is off: router.models is empty"); console.log(`router models configured: ${c.router.models.length}`)'
+node -e '
+const c = require("./.pi/slate.json")
+const m = c.router?.models
+if (!m || Array.isArray(m) || typeof m !== "object") {
+  throw new Error("router.models must be an object")
+}
+if (m.include !== undefined && !Array.isArray(m.include)) {
+  throw new Error("router.models.include must be an array")
+}
+if (m.include?.length === 0 && !m.add?.length) {
+  throw new Error("no ordinary model selected")
+}
+console.log("router model policy present")
+'
 ```
 
-The package defines an empty or absent list as routing off. Then run this command in a new
-session:
-
-```bash
-set -o pipefail
-pi -p "/slate on" "hi" 2>&1 | tee /tmp/slate-router.log
-```
-
-A healthy run emits no router configuration fault.
-
-### Models override
-
-Routing requires an untracked Pi model override. Use this complete `models.json` structure:
-
-```json
-{
-  "providers": {
-    "openai": {
-      "modelOverrides": {
-        "gpt-5.6-sol": { "contextWindow": 1050000 },
-        "gpt-5.6-luna": { "contextWindow": 1050000 }
-      }
-    }
-  }
-}
-```
-
-See `docs/models.md` inside the installed `@earendil-works/pi-coding-agent` package for Pi's
-full override documentation.
-
-Save this checker as `check-model-overrides.mjs`:
-
-```javascript
-import fs from 'node:fs'
-import path from 'node:path'
-import {pathToFileURL} from 'node:url'
-
-const names = process.platform === 'win32' ? ['pi.cmd', 'pi.exe', 'pi'] : ['pi']
-const directories = (process.env.PATH ?? '').split(path.delimiter)
-
-// Resolve the launcher without platform-specific shell commands.
-const launcher = directories
-  .flatMap(directory => names.map(name => path.join(directory, name)))
-  .find(candidate => fs.existsSync(candidate))
-
-if (!launcher) {
-
-  throw new Error('pi installation not found on PATH')
-}
-
-// Support linked Unix launchers and standard npm launcher directories.
-const realLauncher = fs.realpathSync(launcher)
-
-const candidates = [
-  path.join(path.dirname(realLauncher), 'config.js'),
-  path.join(
-    path.dirname(launcher),
-    'node_modules',
-    '@earendil-works',
-    'pi-coding-agent',
-    'dist',
-    'config.js'
-  ),
-  path.join(
-    path.dirname(launcher),
-    '..',
-    'lib',
-    'node_modules',
-    '@earendil-works',
-    'pi-coding-agent',
-    'dist',
-    'config.js'
-  )
-]
-
-const config = candidates.find(candidate => fs.existsSync(candidate))
-
-if (!config) {
-
-  // Report a launcher whose package cannot be resolved.
-  throw new Error('PI_PACKAGE_NOT_FOUND')
-}
-
-const {getModelsPath} = await import(pathToFileURL(config))
-const file = getModelsPath()
-if (process.argv.includes('--path-only')) {
-  console.log(file)
-  process.exit(0)
-}
-if (!fs.existsSync(file)) {
-  console.error(`models file not found: ${file}`)
-  process.exit(1)
-}
-const models = JSON.parse(fs.readFileSync(file, 'utf8'))
-const overrides = models.providers?.openai?.modelOverrides ?? {}
-const invalid = overrides['gpt-5.6-sol']?.contextWindow !== 1050000
-  ? 'gpt-5.6-sol'
-  : overrides['gpt-5.6-luna']?.contextWindow !== 1050000
-    ? 'gpt-5.6-luna'
-    : undefined
-
-if (invalid) {
-
-  // Name the first missing or incorrect override.
-  throw new Error(`${invalid}_CONTEXT_WINDOW_MUST_BE_1050000:${file}`)
-}
-console.log(`model overrides valid: ${file}`)
-```
-
-Print the effective file path:
-
-```sh
-node check-model-overrides.mjs --path-only
-```
-
-Create the parent directory when needed. Save the JSON example at the printed path. Then validate
-it:
-
-```sh
-node check-model-overrides.mjs
-```
-
-The check uses Pi's `getModelsPath()` resolver. It establishes that the effective `models.json`
-parses as JSON. It also checks the expected windows for both routed OpenAI models.
-
-The check cannot prove that a running session loaded those values. Start a new Pi session after
-changing the file. The check does not validate other model settings or credentials.
+Start a new Pi session after changing the configuration. Run `/slate effective` to check the
+effective model pool and any router configuration errors. The local command above checks the
+repository file only. It does not validate merged home settings or model credentials.

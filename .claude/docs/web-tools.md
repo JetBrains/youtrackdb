@@ -10,20 +10,19 @@ call in a session.
 - `batch_web_fetch` — fetch several URLs in one call; see Batch Sizing and Cancellation below.
 - `web_search` — provider-native search executed by the session's model provider. It is billed by
   the provider like any other model call — it is not free.
-- `url_context` — admitted here but non-functional; see below.
+- `url_context` — available when the active model and tool set support it. See below.
 
 ## `url_context`
 
-Slate whitelists a worker extension as a whole npm package, not tool-by-tool, so `pi-web-search`'s
-`url_context` tool comes bundled with `web_search`. `url_context` requires a Google/Gemini session
-model; this project configures none (`.pi/slate.json`'s `modelFailover` map only pairs
-Anthropic/OpenAI models). In a host session, `pi-web-search` removes `url_context` from the active
-tool set on non-Google models via a model-scoped sync triggered by the `session_start` event;
-worker sessions never fire `session_start`, so `url_context` normally stays listed there instead
-of disappearing. That same sync also re-runs on `model_select`, which slate's model failover
-triggers mid-dispatch by calling `session.setModel()` on a live worker — so a worker that has
-failed over can have `url_context` suppressed after all, making its presence or absence in the
-tool list an unreliable signal either way. Do not call it.
+Slate whitelists a worker extension as a whole npm package. The `pi-web-search` package
+provides `web_search` and can also provide `url_context`. The latter requires a compatible
+Google model and an active tool registration. Slate includes a Google logical model in the
+ordinary roster.
+
+Workers emit `session_start`. The `pi-web-search` package synchronizes model-scoped tools at
+`session_start` and `model_select`. Check the worker's active tool set and physical model
+before relying on `url_context`. A logical-model name alone does not prove availability
+because recovery can change the physical route.
 
 ## Batch Sizing and Cancellation
 
